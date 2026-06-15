@@ -237,6 +237,13 @@ fn repl(vm: *vm_mod.VM) !void {
         if (input_buf.items.len == 0 and trimmed.len == 0) continue;
         if (input_buf.items.len == 0 and std.mem.eql(u8, trimmed, "(exit)")) break;
 
+        // If pasted text contains newlines, echo it clearly
+        const has_newlines = std.mem.indexOf(u8, line, "\n") != null;
+        if (has_newlines and input_buf.items.len == 0) {
+            writeStdout(line);
+            writeStdout("\n");
+        }
+
         if (input_buf.items.len > 0) {
             input_buf.append(allocator, '\n') catch continue;
         }
