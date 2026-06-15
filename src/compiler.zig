@@ -147,7 +147,7 @@ pub const Compiler = struct {
 
     pub fn compile(self: *Compiler, expr: Value) CompileError!void {
         const dst = try self.allocReg();
-        try self.compileExpr(expr, dst);
+        try self.compileExpr(expr, dst, false);
         try self.emitOp(.@"return");
         try self.emit(dst);
     }
@@ -165,7 +165,7 @@ pub const Compiler = struct {
         var dst: u8 = 0;
         for (exprs, 0..) |expr, i| {
             dst = try self.allocReg();
-            try self.compileExpr(expr, dst);
+            try self.compileExpr(expr, dst, false);
             if (i < exprs.len - 1) {
                 self.freeReg();
             }
@@ -174,7 +174,7 @@ pub const Compiler = struct {
         try self.emit(dst);
     }
 
-    fn compileExpr(self: *Compiler, expr: Value, dst: u8) CompileError!void {
+    fn compileExpr(self: *Compiler, expr: Value, dst: u8, is_tail: bool) CompileError!void {
         if (types.isFixnum(expr)) {
             const idx = try self.addConstant(expr);
             try self.emitOp(.load_const);
@@ -220,7 +220,7 @@ pub const Compiler = struct {
         }
 
         if (types.isPair(expr)) {
-            return self.compileForm(expr, dst);
+            return self.compileForm(expr, dst, is_tail);
         }
 
         return CompileError.InvalidSyntax;
@@ -251,7 +251,7 @@ pub const Compiler = struct {
         try self.emitU16(sym_idx);
     }
 
-    fn compileForm(self: *Compiler, expr: Value, dst: u8) CompileError!void {
+    fn compileForm(self: *Compiler, expr: Value, dst: u8, is_tail: bool) CompileError!void {
         const head = types.car(expr);
         const args = types.cdr(expr);
 
@@ -259,14 +259,14 @@ pub const Compiler = struct {
             const name = types.symbolName(head);
 
             if (std.mem.eql(u8, name, "quote")) return self.compileQuote(args, dst);
-            if (std.mem.eql(u8, name, "if")) return self.compileIf(args, dst);
+            if (std.mem.eql(u8, name, "if")) return self.compileIf(args, dst, is_tail);
             if (std.mem.eql(u8, name, "lambda")) return self.compileLambda(args, dst);
             if (std.mem.eql(u8, name, "define")) return self.compileDefine(args, dst);
             if (std.mem.eql(u8, name, "set!")) return self.compileSet(args, dst);
-            if (std.mem.eql(u8, name, "begin")) return self.compileBegin(args, dst);
+            if (std.mem.eql(u8, name, "begin")) return self.compileBegin(args, dst, is_tail);
         }
 
-        return self.compileCall(expr, dst);
+        return self.compileCall(expr, dst, is_tail);
     }
 
     fn compileQuote(self: *Compiler, args: Value, dst: u8) CompileError!void {
@@ -278,7 +278,7 @@ pub const Compiler = struct {
         try self.emitU16(idx);
     }
 
-    fn compileIf(self: *Compiler, args: Value, dst: u8) CompileError!void {
+    fn compileIf(self: *Compiler, args: Value, dst: u8, is_tail: bool) CompileError!void {
         if (args == types.NIL) return CompileError.InvalidSyntax;
         const test_expr = types.car(args);
         const rest = types.cdr(args);
@@ -286,8 +286,8 @@ pub const Compiler = struct {
         const consequent = types.car(rest);
         const rest2 = types.cdr(rest);
 
-        // Compile test
-        try self.compileExpr(test_expr, dst);
+        // Compile test (never in tail position)
+        try self.compileExpr(test_expr, dst, false);
 
         // Jump to else if false
         try self.emitOp(.jump_false);
@@ -295,8 +295,8 @@ pub const Compiler = struct {
         const else_jump = self.currentOffset();
         try self.emitI16(0); // placeholder
 
-        // Compile consequent
-        try self.compileExpr(consequent, dst);
+        // Compile consequent (in tail position if the if is)
+        try self.compileExpr(consequent, dst, is_tail);
 
         if (rest2 != types.NIL) {
             // Jump over else
@@ -307,9 +307,9 @@ pub const Compiler = struct {
             // Patch else jump
             self.patchJump(else_jump);
 
-            // Compile alternate
+            // Compile alternate (in tail position if the if is)
             const alternate = types.car(rest2);
-            try self.compileExpr(alternate, dst);
+            try self.compileExpr(alternate, dst, is_tail);
 
             // Patch end jump
             self.patchJump(end_jump);
@@ -412,10 +412,9 @@ pub const Compiler = struct {
             last_dst = try self.allocReg();
 
             if (rest == types.NIL) {
-                // Last expression — this is the return value
-                try self.compileExpr(expr, last_dst);
+                try self.compileExpr(expr, last_dst, true);
             } else {
-                try self.compileExpr(expr, last_dst);
+                try self.compileExpr(expr, last_dst, false);
                 self.freeReg();
             }
 
@@ -435,7 +434,7 @@ pub const Compiler = struct {
             // (define x expr)
             if (rest == types.NIL) return CompileError.InvalidSyntax;
             const value_expr = types.car(rest);
-            try self.compileExpr(value_expr, dst);
+            try self.compileExpr(value_expr, dst, false);
             const sym_idx = try self.addConstant(target);
             try self.emitOp(.set_global);
             try self.emitU16(sym_idx);
@@ -480,7 +479,7 @@ pub const Compiler = struct {
         if (!types.isSymbol(target)) return CompileError.InvalidSyntax;
 
         const value_expr = types.car(rest);
-        try self.compileExpr(value_expr, dst);
+        try self.compileExpr(value_expr, dst, false);
 
         const name = types.symbolName(target);
         if (self.resolveLocal(name)) |slot| {
@@ -501,7 +500,7 @@ pub const Compiler = struct {
         try self.emit(dst);
     }
 
-    fn compileBegin(self: *Compiler, args: Value, dst: u8) CompileError!void {
+    fn compileBegin(self: *Compiler, args: Value, dst: u8, is_tail: bool) CompileError!void {
         if (args == types.NIL) {
             try self.emitOp(.load_void);
             try self.emit(dst);
@@ -513,29 +512,34 @@ pub const Compiler = struct {
             if (!types.isPair(current)) return CompileError.InvalidSyntax;
             const expr = types.car(current);
             current = types.cdr(current);
-            try self.compileExpr(expr, dst);
+            const tail = is_tail and current == types.NIL;
+            try self.compileExpr(expr, dst, tail);
         }
     }
 
-    fn compileCall(self: *Compiler, expr: Value, dst: u8) CompileError!void {
+    fn compileCall(self: *Compiler, expr: Value, dst: u8, is_tail: bool) CompileError!void {
         const base = dst;
 
-        // Compile operator
-        try self.compileExpr(types.car(expr), base);
+        // Compile operator (never in tail position)
+        try self.compileExpr(types.car(expr), base, false);
 
-        // Compile arguments
+        // Compile arguments (never in tail position)
         var nargs: u8 = 0;
         var arg_list = types.cdr(expr);
         while (arg_list != types.NIL) {
             if (!types.isPair(arg_list)) return CompileError.InvalidSyntax;
             const arg = types.car(arg_list);
             const arg_reg = try self.allocReg();
-            try self.compileExpr(arg, arg_reg);
+            try self.compileExpr(arg, arg_reg, false);
             nargs += 1;
             arg_list = types.cdr(arg_list);
         }
 
-        try self.emitOp(.call);
+        if (is_tail) {
+            try self.emitOp(.tail_call);
+        } else {
+            try self.emitOp(.call);
+        }
         try self.emit(base);
         try self.emit(nargs);
 

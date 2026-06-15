@@ -37,10 +37,12 @@
 - String: `number->string`, `string-length`, `string-append`, `symbol->string`
 - Misc: `error`
 
-## Phase 2: Proper Tail Calls — TODO
-- [ ] TAIL_CALL opcode reuses current frame
-- [ ] Tail position detection in compiler for `if`, `begin`, `lambda` bodies
-- [ ] Test: infinite loop `(define (loop n) (loop (+ n 1)))` doesn't grow stack
+## Phase 2: Proper Tail Calls — DONE
+- [x] TAIL_CALL opcode reuses current frame
+- [x] Tail position detection in compiler for `if`, `begin`, `lambda` bodies
+- [x] Test: `(loop 1000000)` completes without stack overflow
+- [x] Mutual tail recursion: `(my-even? 10000)` works
+- [x] Non-tail recursion (fib) still works correctly
 
 ## Phase 3: Full Core Expressions — TODO
 - [ ] `cond`, `case`

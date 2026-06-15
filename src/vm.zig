@@ -160,19 +160,80 @@ pub const VM = struct {
                 .tail_call => {
                     const base_reg = self.readU8(frame);
                     const nargs = self.readU8(frame);
-                    const callee = self.registers[frame.base + base_reg];
-                    // For now, treat as regular call (Phase 2 will add proper tail calls)
-                    try self.callValue(callee, frame.base + base_reg, nargs);
+                    const abs_base = frame.base + base_reg;
+                    const callee = self.registers[abs_base];
+
+                    if (types.isClosure(callee)) {
+                        const closure = types.toObject(callee).as(types.Closure);
+                        const func = closure.func;
+
+                        if (!func.is_variadic) {
+                            if (nargs != func.arity) return VMError.ArityMismatch;
+                        } else {
+                            if (nargs < func.arity) return VMError.ArityMismatch;
+                            const rest_start = func.arity;
+                            var rest_list: Value = types.NIL;
+                            var ri: u8 = nargs;
+                            while (ri > rest_start) {
+                                ri -= 1;
+                                rest_list = self.gc.allocPair(
+                                    self.registers[abs_base + 1 + ri],
+                                    rest_list,
+                                ) catch return VMError.OutOfMemory;
+                            }
+                            self.registers[abs_base + 1 + rest_start] = rest_list;
+                        }
+
+                        // Move args down to current frame's parameter area
+                        const arg_count = if (func.is_variadic) func.arity + 1 else nargs;
+                        for (0..arg_count) |i| {
+                            self.registers[frame.base + i] = self.registers[abs_base + 1 + i];
+                        }
+
+                        // Replace frame in-place — no frame_count change
+                        frame.closure = closure;
+                        frame.code = func.code.items;
+                        frame.ip = 0;
+                    } else if (types.isNativeFn(callee)) {
+                        const native = types.toObject(callee).as(types.NativeFn);
+                        switch (native.arity) {
+                            .exact => |expected| {
+                                if (nargs != expected) return VMError.ArityMismatch;
+                            },
+                            .variadic => |min| {
+                                if (nargs < min) return VMError.ArityMismatch;
+                            },
+                        }
+                        const args = self.registers[abs_base + 1 .. abs_base + 1 + nargs];
+                        const result = native.func(args) catch |err| {
+                            return switch (err) {
+                                error.TypeError => VMError.TypeError,
+                                error.DivisionByZero => VMError.DivisionByZero,
+                                error.OutOfMemory => VMError.OutOfMemory,
+                                else => VMError.InvalidBytecode,
+                            };
+                        };
+                        const return_dst = frame.dst;
+                        self.frame_count -= 1;
+                        if (self.frame_count == 0) {
+                            return result;
+                        }
+                        const caller = &self.frames[self.frame_count - 1];
+                        self.registers[caller.base + return_dst] = result;
+                    } else {
+                        return VMError.NotAProcedure;
+                    }
                 },
                 .@"return" => {
                     const src = self.readU8(frame);
                     const result = self.registers[frame.base + src];
+                    const return_dst = frame.dst;
                     self.frame_count -= 1;
                     if (self.frame_count == 0) {
                         return result;
                     }
                     const caller = &self.frames[self.frame_count - 1];
-                    self.registers[caller.base + caller.dst] = result;
+                    self.registers[caller.base + return_dst] = result;
                 },
                 .closure => {
                     const dst = self.readU8(frame);
@@ -462,4 +523,61 @@ test "eval nested arithmetic" {
 
     const result = try vm.eval("(+ (* 2 3) (- 10 4))");
     try std.testing.expectEqual(@as(i64, 12), types.toFixnum(result));
+}
+
+test "tail-recursive loop does not overflow" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try makeTestVM(&gc);
+    defer vm.deinit();
+
+    _ = try vm.eval("(define (loop n) (if (= n 0) (quote done) (loop (- n 1))))");
+    const result = try vm.eval("(loop 1000000)");
+    try std.testing.expect(types.isSymbol(result));
+    try std.testing.expectEqualStrings("done", types.symbolName(result));
+}
+
+test "tail-recursive factorial with accumulator" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try makeTestVM(&gc);
+    defer vm.deinit();
+
+    _ = try vm.eval("(define (fact n acc) (if (= n 0) acc (fact (- n 1) (* n acc))))");
+    const result = try vm.eval("(fact 10 1)");
+    try std.testing.expectEqual(@as(i64, 3628800), types.toFixnum(result));
+}
+
+test "mutual tail recursion" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try makeTestVM(&gc);
+    defer vm.deinit();
+
+    _ = try vm.eval("(define (my-even? n) (if (= n 0) #t (my-odd? (- n 1))))");
+    _ = try vm.eval("(define (my-odd? n) (if (= n 0) #f (my-even? (- n 1))))");
+    const result = try vm.eval("(my-even? 10000)");
+    try std.testing.expectEqual(types.TRUE, result);
+}
+
+test "non-tail recursion still works" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try makeTestVM(&gc);
+    defer vm.deinit();
+
+    _ = try vm.eval("(define (fib n) (if (< n 2) n (+ (fib (- n 1)) (fib (- n 2)))))");
+    const result = try vm.eval("(fib 10)");
+    try std.testing.expectEqual(@as(i64, 55), types.toFixnum(result));
+}
+
+test "tail call in begin" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try makeTestVM(&gc);
+    defer vm.deinit();
+
+    _ = try vm.eval("(define (count n) (if (= n 0) 0 (begin (count (- n 1)))))");
+    const result = try vm.eval("(count 100000)");
+    try std.testing.expectEqual(@as(i64, 0), types.toFixnum(result));
 }
