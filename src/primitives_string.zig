@@ -29,6 +29,7 @@ pub fn registerString(vm: *vm_mod.VM) !void {
     try reg(vm, "string->symbol", &stringToSymbolFn, .{ .exact = 1 });
     try reg(vm, "string->utf8", &stringToUtf8Fn, .{ .exact = 1 });
     try reg(vm, "utf8->string", &utf8ToStringFn, .{ .exact = 1 });
+    try reg(vm, "string->vector", &stringToVectorFn, .{ .variadic = 1 });
 
     // Higher-order
     try reg(vm, "string-for-each", &stringForEachFn, .{ .variadic = 2 });
@@ -318,6 +319,39 @@ fn stringToSymbolFn(args: []const Value) PrimitiveError!Value {
     const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
     const data = try getStringSlice(args[0]);
     return gc.allocSymbol(data) catch return PrimitiveError.OutOfMemory;
+}
+
+// ---------------------------------------------------------------------------
+// (string->vector str) or (string->vector str start) or (string->vector str start end)
+// ---------------------------------------------------------------------------
+
+fn stringToVectorFn(args: []const Value) PrimitiveError!Value {
+    if (!types.isString(args[0])) return PrimitiveError.TypeError;
+    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const str = types.toObject(args[0]).as(types.SchemeString);
+    const data = str.data[0..str.len];
+    var start: usize = 0;
+    var end: usize = data.len;
+    if (args.len > 1) {
+        if (!types.isFixnum(args[1])) return PrimitiveError.TypeError;
+        const s = types.toFixnum(args[1]);
+        if (s < 0 or @as(usize, @intCast(s)) > data.len) return PrimitiveError.TypeError;
+        start = @intCast(s);
+    }
+    if (args.len > 2) {
+        if (!types.isFixnum(args[2])) return PrimitiveError.TypeError;
+        const e = types.toFixnum(args[2]);
+        if (e < 0 or @as(usize, @intCast(e)) > data.len) return PrimitiveError.TypeError;
+        end = @intCast(e);
+    }
+    if (start > end) return PrimitiveError.TypeError;
+    const count = end - start;
+    const vec_data = gc.allocator.alloc(Value, count) catch return PrimitiveError.OutOfMemory;
+    defer gc.allocator.free(vec_data);
+    for (start..end) |i| {
+        vec_data[i - start] = types.makeChar(@intCast(data[i]));
+    }
+    return gc.allocVector(vec_data[0..count]) catch return PrimitiveError.OutOfMemory;
 }
 
 // ---------------------------------------------------------------------------

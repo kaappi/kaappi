@@ -30,6 +30,11 @@ pub fn registerBytevector(vm: *vm_mod.VM) !void {
     try reg(vm, "u8-ready?", &u8ReadyP, .{ .variadic = 0 });
     try reg(vm, "read-bytevector", &readBytevectorFn, .{ .variadic = 1 });
     try reg(vm, "write-bytevector", &writeBytevectorFn, .{ .variadic = 1 });
+    // Bytevector ports (R7RS 6.13)
+    try reg(vm, "open-input-bytevector", &openInputBytevector, .{ .exact = 1 });
+    try reg(vm, "open-output-bytevector", &openOutputBytevector, .{ .exact = 0 });
+    try reg(vm, "get-output-bytevector", &getOutputBytevector, .{ .exact = 1 });
+    try reg(vm, "read-bytevector!", &readBytevectorMut, .{ .variadic = 1 });
 }
 
 // ---------------------------------------------------------------------------
@@ -389,4 +394,46 @@ fn writeBytevectorFn(args: []const Value) PrimitiveError!Value {
         primitives_io.writeToFd(port.fd, bv.data[start..end]);
     }
     return types.VOID;
+}
+
+// ---------------------------------------------------------------------------
+// Bytevector ports (R7RS 6.13)
+// ---------------------------------------------------------------------------
+
+fn openInputBytevector(args: []const Value) PrimitiveError!Value {
+    if (!types.isBytevector(args[0])) return PrimitiveError.TypeError;
+    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const bv = types.toBytevector(args[0]);
+    return gc.allocStringInputPort(bv.data) catch return PrimitiveError.OutOfMemory;
+}
+
+fn openOutputBytevector(args: []const Value) PrimitiveError!Value {
+    _ = args;
+    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    return gc.allocStringOutputPort() catch return PrimitiveError.OutOfMemory;
+}
+
+fn getOutputBytevector(args: []const Value) PrimitiveError!Value {
+    if (!types.isPort(args[0])) return PrimitiveError.TypeError;
+    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const port = types.toObject(args[0]).as(types.Port);
+    if (!port.is_string_port or !port.is_output) return PrimitiveError.TypeError;
+    const data = if (port.string_out_buf) |buf| buf[0..port.string_out_len] else &[_]u8{};
+    return gc.allocBytevector(data) catch return PrimitiveError.OutOfMemory;
+}
+
+fn readBytevectorMut(args: []const Value) PrimitiveError!Value {
+    // (read-bytevector! bv [port])
+    if (!types.isBytevector(args[0])) return PrimitiveError.TypeError;
+    const bv = types.toBytevector(args[0]);
+    const port = try getInputPort(args, 1);
+
+    var read_count: usize = 0;
+    while (read_count < bv.data.len) {
+        const byte = portReadOneByte(port) orelse break;
+        bv.data[read_count] = byte;
+        read_count += 1;
+    }
+    if (read_count == 0) return types.EOF;
+    return types.makeFixnum(@intCast(read_count));
 }

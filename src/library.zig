@@ -187,6 +187,11 @@ pub fn registerStandardLibraries(registry: *LibraryRegistry, globals: *std.Strin
         "read-u8", "peek-u8", "u8-ready?", "write-u8",
         "read-bytevector", "write-bytevector",
         "open-binary-input-file", "open-binary-output-file",
+        // Bytevector ports
+        "open-input-bytevector", "open-output-bytevector",
+        "get-output-bytevector", "read-bytevector!",
+        // String/vector conversion
+        "string->vector",
     };
 
     var base = Library.init(allocator, "scheme.base");
@@ -359,6 +364,11 @@ pub fn registerStandardLibraries(registry: *LibraryRegistry, globals: *std.Strin
         }
     }
     try registry.register(complex_lib);
+
+    // (scheme case-lambda) — case-lambda is a compiler syntax form,
+    // so the library just needs to exist for (import (scheme case-lambda)) to work.
+    const case_lambda_lib = Library.init(allocator, "scheme.case-lambda");
+    try registry.register(case_lambda_lib);
 }
 
 /// Convert a library name from an S-expression list like (scheme base) to
