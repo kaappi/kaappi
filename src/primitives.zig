@@ -131,6 +131,13 @@ pub fn registerAll(vm: *vm_mod.VM) !void {
     try reg(vm, "error-object-irritants", &errorObjectIrritants, .{ .exact = 1 });
     try reg(vm, "file-error?", &fileErrorP, .{ .exact = 1 });
     try reg(vm, "read-error?", &readErrorP, .{ .exact = 1 });
+
+    // Record system (R7RS 5.5) — internal primitives
+    try reg(vm, "%make-record-type", &makeRecordTypeFn, .{ .exact = 2 });
+    try reg(vm, "%make-record", &makeRecordFn, .{ .variadic = 1 });
+    try reg(vm, "%record?", &recordCheckFn, .{ .exact = 2 });
+    try reg(vm, "%record-ref", &recordRefFn, .{ .exact = 2 });
+    try reg(vm, "%record-set!", &recordSetFn, .{ .exact = 3 });
 }
 
 fn reg(vm: *vm_mod.VM, name: []const u8, func: types.NativeFnType, arity: NativeFn.Arity) !void {
@@ -1130,4 +1137,56 @@ fn errorFn(args: []const Value) PrimitiveError!Value {
     // Raise it through the exception system
     const raise_args = [1]Value{err_obj};
     return raiseFn(&raise_args);
+}
+
+// ---------------------------------------------------------------------------
+// Record system (R7RS 5.5) — internal primitives
+// ---------------------------------------------------------------------------
+
+fn makeRecordTypeFn(args: []const Value) PrimitiveError!Value {
+    const gc = gc_instance orelse return PrimitiveError.OutOfMemory;
+    // args[0] = name (string), args[1] = num_fields (fixnum)
+    if (!types.isString(args[0])) return PrimitiveError.TypeError;
+    if (!types.isFixnum(args[1])) return PrimitiveError.TypeError;
+    const str = types.toObject(args[0]).as(types.SchemeString);
+    const num_fields: u8 = @intCast(types.toFixnum(args[1]));
+    return gc.allocRecordType(str.data[0..str.len], num_fields) catch return PrimitiveError.OutOfMemory;
+}
+
+fn makeRecordFn(args: []const Value) PrimitiveError!Value {
+    const gc = gc_instance orelse return PrimitiveError.OutOfMemory;
+    // args[0] = record_type, args[1..] = field values
+    if (!types.isRecordType(args[0])) return PrimitiveError.TypeError;
+    const rt = types.toObject(args[0]).as(types.RecordType);
+    return gc.allocRecordInstance(rt, args[1..]) catch return PrimitiveError.OutOfMemory;
+}
+
+fn recordCheckFn(args: []const Value) PrimitiveError!Value {
+    // args[0] = value to check, args[1] = record_type
+    if (!types.isRecordType(args[1])) return PrimitiveError.TypeError;
+    const rt = types.toObject(args[1]).as(types.RecordType);
+    if (!types.isRecordInstance(args[0])) return types.FALSE;
+    const ri = types.toObject(args[0]).as(types.RecordInstance);
+    return if (ri.record_type == rt) types.TRUE else types.FALSE;
+}
+
+fn recordRefFn(args: []const Value) PrimitiveError!Value {
+    // args[0] = record instance, args[1] = field index (fixnum)
+    if (!types.isRecordInstance(args[0])) return PrimitiveError.TypeError;
+    if (!types.isFixnum(args[1])) return PrimitiveError.TypeError;
+    const ri = types.toObject(args[0]).as(types.RecordInstance);
+    const idx: usize = @intCast(types.toFixnum(args[1]));
+    if (idx >= ri.fields.len) return PrimitiveError.TypeError;
+    return ri.fields[idx];
+}
+
+fn recordSetFn(args: []const Value) PrimitiveError!Value {
+    // args[0] = record instance, args[1] = field index (fixnum), args[2] = new value
+    if (!types.isRecordInstance(args[0])) return PrimitiveError.TypeError;
+    if (!types.isFixnum(args[1])) return PrimitiveError.TypeError;
+    const ri = types.toObject(args[0]).as(types.RecordInstance);
+    const idx: usize = @intCast(types.toFixnum(args[1]));
+    if (idx >= ri.fields.len) return PrimitiveError.TypeError;
+    ri.fields[idx] = args[2];
+    return types.VOID;
 }

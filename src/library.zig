@@ -123,6 +123,8 @@ pub fn registerStandardLibraries(registry: *LibraryRegistry, globals: *std.Strin
         "raise",   "raise-continuable",  "with-exception-handler",
         "error-object?",   "error-object-message",  "error-object-irritants",
         "file-error?",     "read-error?",
+        // Record system internal primitives (used by define-record-type)
+        "%make-record-type", "%make-record", "%record?", "%record-ref", "%record-set!",
     };
 
     var base = Library.init(allocator, "scheme.base");

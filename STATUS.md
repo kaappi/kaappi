@@ -86,8 +86,10 @@
 - [x] `error-object?`, `error-object-message`, `error-object-irritants`
 - [x] `file-error?`, `read-error?` (placeholders)
 
-## Phase 8: Records — TODO
-- [ ] `define-record-type`
+## Phase 8: Records — DONE
+- [x] `define-record-type` with constructor, predicate, accessors, optional mutators
+- [x] RecordType and RecordInstance heap objects
+- [x] Internal primitives: %make-record-type, %make-record, %record?, %record-ref, %record-set!
 
 ## Phase 9: Ports and I/O — TODO
 - [ ] Port objects

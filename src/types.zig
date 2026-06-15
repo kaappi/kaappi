@@ -100,11 +100,12 @@ pub const ObjectTag = enum(u4) {
     vector = 5,
     bytevector = 6,
     port = 7,
-    record = 8,
+    record_type = 8,
     function = 9,
     flonum = 10,
     transformer = 11,
     error_object = 12,
+    record_instance = 13,
 };
 
 pub const Object = struct {
@@ -184,6 +185,18 @@ pub const ErrorObject = struct {
     irritants: Value, // list
 };
 
+pub const RecordType = struct {
+    header: Object,
+    name: []const u8,
+    num_fields: u8,
+};
+
+pub const RecordInstance = struct {
+    header: Object,
+    record_type: *RecordType,
+    fields: []Value,
+};
+
 // ---------------------------------------------------------------------------
 // Type predicates on Value
 // ---------------------------------------------------------------------------
@@ -226,6 +239,14 @@ pub fn isTransformer(v: Value) bool {
 
 pub fn isErrorObject(v: Value) bool {
     return isPointer(v) and toObject(v).tag == .error_object;
+}
+
+pub fn isRecordType(v: Value) bool {
+    return isPointer(v) and toObject(v).tag == .record_type;
+}
+
+pub fn isRecordInstance(v: Value) bool {
+    return isPointer(v) and toObject(v).tag == .record_instance;
 }
 
 pub fn isNumber(v: Value) bool {

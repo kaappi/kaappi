@@ -12,6 +12,9 @@ const NativeFn = types.NativeFn;
 const Flonum = types.Flonum;
 const Transformer = types.Transformer;
 
+const RecordType = types.RecordType;
+const RecordInstance = types.RecordInstance;
+
 const GC_THRESHOLD: usize = 1024;
 
 pub const GC = struct {
@@ -182,6 +185,41 @@ pub const GC = struct {
         return types.makePointer(@ptrCast(tx));
     }
 
+    pub fn allocRecordType(self: *GC, name: []const u8, num_fields: u8) !Value {
+        self.maybeCollect();
+        const owned_name = try self.allocator.dupe(u8, name);
+        const rt = try self.allocator.create(RecordType);
+        rt.* = .{
+            .header = .{ .tag = .record_type },
+            .name = owned_name,
+            .num_fields = num_fields,
+        };
+        self.bytes_allocated += @sizeOf(RecordType) + name.len;
+        self.trackObject(&rt.header);
+        return types.makePointer(@ptrCast(rt));
+    }
+
+    pub fn allocRecordInstance(self: *GC, record_type: *RecordType, field_values: []const Value) !Value {
+        self.maybeCollect();
+        const fields = try self.allocator.alloc(Value, record_type.num_fields);
+        for (0..record_type.num_fields) |i| {
+            if (i < field_values.len) {
+                fields[i] = field_values[i];
+            } else {
+                fields[i] = types.UNDEFINED;
+            }
+        }
+        const ri = try self.allocator.create(RecordInstance);
+        ri.* = .{
+            .header = .{ .tag = .record_instance },
+            .record_type = record_type,
+            .fields = fields,
+        };
+        self.bytes_allocated += @sizeOf(RecordInstance) + record_type.num_fields * @sizeOf(Value);
+        self.trackObject(&ri.header);
+        return types.makePointer(@ptrCast(ri));
+    }
+
     // -- Convenience: build a proper list from a slice
     pub fn makeList(self: *GC, items: []const Value) !Value {
         var result: Value = types.NIL;
@@ -263,6 +301,14 @@ pub const GC = struct {
                 self.markValue(err.message);
                 self.markValue(err.irritants);
             },
+            .record_type => {},
+            .record_instance => {
+                const ri = obj.as(RecordInstance);
+                self.markValue(types.makePointer(@ptrCast(ri.record_type)));
+                for (ri.fields) |field| {
+                    self.markValue(field);
+                }
+            },
             .symbol, .string, .native_fn, .flonum => {},
             else => {},
         }
@@ -335,6 +381,16 @@ pub const GC = struct {
             .error_object => {
                 const err = obj.as(types.ErrorObject);
                 self.allocator.destroy(err);
+            },
+            .record_type => {
+                const rt = obj.as(RecordType);
+                self.allocator.free(rt.name);
+                self.allocator.destroy(rt);
+            },
+            .record_instance => {
+                const ri = obj.as(RecordInstance);
+                self.allocator.free(ri.fields);
+                self.allocator.destroy(ri);
             },
             else => {},
         }

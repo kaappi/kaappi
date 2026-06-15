@@ -135,6 +135,20 @@ pub fn printValue(writer: anytype, value: Value, mode: PrintMode) anyerror!void 
                 }
                 try writer.writeByte('>');
             },
+            .record_type => {
+                const rt = obj.as(types.RecordType);
+                try writer.print("#<record-type {s}>", .{rt.name});
+            },
+            .record_instance => {
+                const ri = obj.as(types.RecordInstance);
+                try writer.print("#<{s}", .{ri.record_type.name});
+                for (ri.fields, 0..) |field, i| {
+                    _ = i;
+                    try writer.writeByte(' ');
+                    try printValue(writer, field, mode);
+                }
+                try writer.writeByte('>');
+            },
             else => {
                 try writer.writeAll("#<object>");
             },
