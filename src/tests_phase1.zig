@@ -1,0 +1,133 @@
+// Phase 1: Basic eval (integers, booleans, arithmetic, if, define, lambda, quote, set!, begin, nested)
+const std = @import("std");
+const th = @import("testing_helpers.zig");
+const types = @import("types.zig");
+const memory = @import("memory.zig");
+
+test "eval integer literal" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    const result = try vm.eval("42");
+    try std.testing.expectEqual(@as(i64, 42), types.toFixnum(result));
+}
+
+test "eval boolean" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    try std.testing.expectEqual(types.TRUE, try vm.eval("#t"));
+    try std.testing.expectEqual(types.FALSE, try vm.eval("#f"));
+}
+
+test "eval arithmetic" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    const result = try vm.eval("(+ 1 2)");
+    try std.testing.expectEqual(@as(i64, 3), types.toFixnum(result));
+}
+
+test "eval if true" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    const result = try vm.eval("(if #t 1 2)");
+    try std.testing.expectEqual(@as(i64, 1), types.toFixnum(result));
+}
+
+test "eval if false" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    const result = try vm.eval("(if #f 1 2)");
+    try std.testing.expectEqual(@as(i64, 2), types.toFixnum(result));
+}
+
+test "eval define and reference" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    _ = try vm.eval("(define x 42)");
+    const result = try vm.eval("x");
+    try std.testing.expectEqual(@as(i64, 42), types.toFixnum(result));
+}
+
+test "eval lambda and call" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    const result = try vm.eval("((lambda (x) (+ x 1)) 41)");
+    try std.testing.expectEqual(@as(i64, 42), types.toFixnum(result));
+}
+
+test "eval define function and call" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    _ = try vm.eval("(define add1 (lambda (x) (+ x 1)))");
+    const result = try vm.eval("(add1 10)");
+    try std.testing.expectEqual(@as(i64, 11), types.toFixnum(result));
+}
+
+test "eval quote" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    const result = try vm.eval("'(1 2 3)");
+    try std.testing.expect(types.isPair(result));
+    try std.testing.expectEqual(@as(i64, 1), types.toFixnum(types.car(result)));
+}
+
+test "eval set!" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    _ = try vm.eval("(define x 1)");
+    _ = try vm.eval("(set! x 99)");
+    const result = try vm.eval("x");
+    try std.testing.expectEqual(@as(i64, 99), types.toFixnum(result));
+}
+
+test "eval begin" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    _ = try vm.eval("(define a 0)");
+    _ = try vm.eval("(define b 0)");
+    _ = try vm.eval("(begin (set! a 1) (set! b 2))");
+    const result = try vm.eval("(+ a b)");
+    try std.testing.expectEqual(@as(i64, 3), types.toFixnum(result));
+}
+
+test "eval nested arithmetic" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    const result = try vm.eval("(+ (* 2 3) (- 10 4))");
+    try std.testing.expectEqual(@as(i64, 12), types.toFixnum(result));
+}

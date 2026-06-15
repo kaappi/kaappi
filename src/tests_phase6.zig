@@ -1,0 +1,175 @@
+// Phase 6: Libraries (import, define-library, export)
+const std = @import("std");
+const th = @import("testing_helpers.zig");
+const types = @import("types.zig");
+const memory = @import("memory.zig");
+const library_mod = @import("library.zig");
+const primitives_mod = @import("primitives.zig");
+const vm_mod = @import("vm.zig");
+
+test "import scheme base" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    // (import (scheme base)) should make + available
+    _ = try vm.eval("(import (scheme base))");
+    const result = try vm.eval("(+ 1 2)");
+    try std.testing.expectEqual(@as(i64, 3), types.toFixnum(result));
+}
+
+test "import only" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    _ = try vm.eval("(import (only (scheme base) + -))");
+    const r1 = try vm.eval("(+ 10 5)");
+    try std.testing.expectEqual(@as(i64, 15), types.toFixnum(r1));
+    const r2 = try vm.eval("(- 10 3)");
+    try std.testing.expectEqual(@as(i64, 7), types.toFixnum(r2));
+}
+
+test "import except" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+
+    // Create a fresh VM without pre-loaded globals to verify except works
+    var vm = vm_mod.VM.init(&gc);
+    defer vm.deinit();
+    primitives_mod.setGCInstance(&gc);
+    try primitives_mod.registerAll(&vm);
+    try library_mod.registerStandardLibraries(&vm.libraries, &vm.globals);
+
+    // Import everything except +
+    _ = try vm.eval("(import (except (scheme base) +))");
+    // - should work
+    const r1 = try vm.eval("(- 10 3)");
+    try std.testing.expectEqual(@as(i64, 7), types.toFixnum(r1));
+}
+
+test "import rename" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    _ = try vm.eval("(import (rename (scheme base) (+ add) (- subtract)))");
+    const r1 = try vm.eval("(add 3 4)");
+    try std.testing.expectEqual(@as(i64, 7), types.toFixnum(r1));
+    const r2 = try vm.eval("(subtract 10 3)");
+    try std.testing.expectEqual(@as(i64, 7), types.toFixnum(r2));
+}
+
+test "import prefix" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    _ = try vm.eval("(import (prefix (scheme base) my:))");
+    const result = try vm.eval("(my:+ 3 4)");
+    try std.testing.expectEqual(@as(i64, 7), types.toFixnum(result));
+}
+
+test "import scheme write" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    // After importing (scheme write), display/write/newline should be available
+    // We test availability by checking they are procedures
+    _ = try vm.eval("(import (scheme write))");
+    const result = try vm.eval("(procedure? display)");
+    try std.testing.expectEqual(types.TRUE, result);
+}
+
+test "import scheme inexact" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    _ = try vm.eval("(import (scheme inexact))");
+    const result = try vm.eval("(sin 0)");
+    try std.testing.expect(types.isFlonum(result));
+    try std.testing.expectApproxEqAbs(@as(f64, 0.0), types.toFlonum(result), 1e-10);
+}
+
+test "import multiple libraries" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    _ = try vm.eval("(import (scheme base) (scheme inexact))");
+    const r1 = try vm.eval("(+ 1 2)");
+    try std.testing.expectEqual(@as(i64, 3), types.toFixnum(r1));
+    const r2 = try vm.eval("(cos 0)");
+    try std.testing.expectApproxEqAbs(@as(f64, 1.0), types.toFlonum(r2), 1e-10);
+}
+
+test "define-library and import" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    // Define a custom library
+    _ = try vm.eval(
+        \\(define-library (mylib)
+        \\  (import (scheme base))
+        \\  (export double)
+        \\  (begin
+        \\    (define (double x) (* x 2))))
+    );
+
+    // Import and use it
+    _ = try vm.eval("(import (mylib))");
+    const result = try vm.eval("(double 21)");
+    try std.testing.expectEqual(@as(i64, 42), types.toFixnum(result));
+}
+
+test "define-library with multiple exports" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    _ = try vm.eval(
+        \\(define-library (math-utils)
+        \\  (import (scheme base))
+        \\  (export square cube)
+        \\  (begin
+        \\    (define (square x) (* x x))
+        \\    (define (cube x) (* x x x))))
+    );
+
+    _ = try vm.eval("(import (math-utils))");
+    const r1 = try vm.eval("(square 5)");
+    try std.testing.expectEqual(@as(i64, 25), types.toFixnum(r1));
+    const r2 = try vm.eval("(cube 3)");
+    try std.testing.expectEqual(@as(i64, 27), types.toFixnum(r2));
+}
+
+test "define-library with dotted name" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    _ = try vm.eval(
+        \\(define-library (my utils math)
+        \\  (import (scheme base))
+        \\  (export add5)
+        \\  (begin
+        \\    (define (add5 x) (+ x 5))))
+    );
+
+    _ = try vm.eval("(import (my utils math))");
+    const result = try vm.eval("(add5 10)");
+    try std.testing.expectEqual(@as(i64, 15), types.toFixnum(result));
+}
