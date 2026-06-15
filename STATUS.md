@@ -44,15 +44,16 @@
 - [x] Mutual tail recursion: `(my-even? 10000)` works
 - [x] Non-tail recursion (fib) still works correctly
 
-## Phase 3: Full Core Expressions — TODO
-- [ ] `cond`, `case`
-- [ ] `and`, `or`
-- [ ] `when`, `unless`
-- [ ] `let`, `let*`, `letrec`, `letrec*`
-- [ ] Named `let`
-- [ ] `do`
-- [ ] `case-lambda`
-- [ ] `let-values`, `let*-values`
+## Phase 3: Full Core Expressions — DONE
+- [x] `cond` (with `else`, `=>` support)
+- [x] `and`, `or` (short-circuit)
+- [x] `when`, `unless`
+- [x] `let`, `let*`, `letrec`, `letrec*`
+- [x] Named `let`
+- [x] `do`
+- [ ] `case` (deferred — needs inline eqv? comparison)
+- [ ] `case-lambda` (separate library)
+- [ ] `let-values`, `let*-values` (Phase 10 — needs multiple values)
 
 ## Phase 4: Numeric Tower — TODO
 - [ ] Flonum (f64)

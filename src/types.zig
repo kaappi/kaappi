@@ -240,6 +240,7 @@ pub const OpCode = enum(u8) {
     @"return", // src:u8
     jump, // offset:i16
     jump_false, // test:u8, offset:i16
+    jump_true, // test:u8, offset:i16
     closure, // dst:u8, idx:u16
     close_upvalue, // slot:u8
     cons, // dst:u8, car:u8, cdr:u8
