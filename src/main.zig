@@ -253,9 +253,15 @@ fn repl(vm: *vm_mod.VM) !void {
 
         const full_input = input_buf.items;
 
-        input_buf.append(allocator, 0) catch {};
-        ln.historyAdd(@ptrCast(input_buf.items.ptr));
-        _ = input_buf.pop();
+        // Add to history with newlines replaced by spaces for clean display
+        var hist_buf: std.ArrayList(u8) = .empty;
+        defer hist_buf.deinit(allocator);
+        hist_buf.appendSlice(allocator, full_input) catch {};
+        for (hist_buf.items) |*ch| {
+            if (ch.* == '\n') ch.* = ' ';
+        }
+        hist_buf.append(allocator, 0) catch {};
+        ln.historyAdd(@ptrCast(hist_buf.items.ptr));
 
         evalInput(vm, allocator, full_input);
 
