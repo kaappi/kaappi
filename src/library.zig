@@ -119,6 +119,10 @@ pub fn registerStandardLibraries(registry: *LibraryRegistry, globals: *std.Strin
         "display", "write",     "newline",
         // Misc
         "apply",   "error",
+        // Exception system (R7RS 6.11)
+        "raise",   "raise-continuable",  "with-exception-handler",
+        "error-object?",   "error-object-message",  "error-object-irritants",
+        "file-error?",     "read-error?",
     };
 
     var base = Library.init(allocator, "scheme.base");

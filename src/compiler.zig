@@ -326,6 +326,7 @@ pub const Compiler = struct {
             if (std.mem.eql(u8, name, "define-syntax")) return self.compileDefineSyntax(args, dst);
             if (std.mem.eql(u8, name, "let-syntax")) return self.compileLetSyntax(args, dst, is_tail);
             if (std.mem.eql(u8, name, "letrec-syntax")) return self.compileLetrecSyntax(args, dst, is_tail);
+            if (std.mem.eql(u8, name, "guard")) return self.compileGuard(args, dst, is_tail);
             if (std.mem.eql(u8, name, "syntax-rules")) return CompileError.InvalidSyntax;
 
             // Check if head is a macro keyword
@@ -1289,6 +1290,98 @@ pub const Compiler = struct {
         // process all bindings before compiling the body, and the transformer
         // specs can reference each other through the macro table.
         return self.compileLetSyntax(args, dst, is_tail);
+    }
+
+    /// Compile (guard (var clause ...) body ...)
+    ///
+    /// Transforms into:
+    ///   (with-exception-handler
+    ///     (lambda (var) (cond clause ... [else (raise var)]))
+    ///     (lambda () body ...))
+    fn compileGuard(self: *Compiler, args: Value, dst: u8, is_tail: bool) CompileError!void {
+        if (args == types.NIL) return CompileError.InvalidSyntax;
+        const guard_clause = types.car(args);
+        const body = types.cdr(args);
+        if (body == types.NIL) return CompileError.InvalidSyntax;
+        if (!types.isPair(guard_clause)) return CompileError.InvalidSyntax;
+
+        const var_sym = types.car(guard_clause);
+        if (!types.isSymbol(var_sym)) return CompileError.InvalidSyntax;
+        const clauses = types.cdr(guard_clause);
+
+        // Build the cond clauses list, adding (else (raise var)) if no else present
+        var has_else = false;
+        var clause_check = clauses;
+        while (clause_check != types.NIL) {
+            if (!types.isPair(clause_check)) break;
+            const cl = types.car(clause_check);
+            if (types.isPair(cl)) {
+                const test_expr = types.car(cl);
+                if (types.isSymbol(test_expr) and std.mem.eql(u8, types.symbolName(test_expr), "else")) {
+                    has_else = true;
+                    break;
+                }
+            }
+            clause_check = types.cdr(clause_check);
+        }
+
+        var cond_clauses = clauses;
+        if (!has_else) {
+            // Add (else (raise var)) at the end
+            const raise_sym = self.gc.allocSymbol("raise") catch return CompileError.OutOfMemory;
+            // Build (raise var)
+            const raise_call = self.gc.allocPair(raise_sym, self.gc.allocPair(var_sym, types.NIL) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory;
+            // Build (else (raise var))
+            const else_sym = self.gc.allocSymbol("else") catch return CompileError.OutOfMemory;
+            const else_clause = self.gc.allocPair(else_sym, self.gc.allocPair(raise_call, types.NIL) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory;
+            // Append to clauses
+            cond_clauses = self.appendToList(clauses, else_clause) catch return CompileError.OutOfMemory;
+        }
+
+        // Build (cond clause ...) — but we compile it inline, not via cond.
+        // Actually, let's build the full transformation and compile it.
+
+        // Build handler lambda: (lambda (var) (cond clauses...))
+        const cond_sym = self.gc.allocSymbol("cond") catch return CompileError.OutOfMemory;
+        const cond_form = self.gc.allocPair(cond_sym, cond_clauses) catch return CompileError.OutOfMemory;
+        const handler_formals = self.gc.allocPair(var_sym, types.NIL) catch return CompileError.OutOfMemory;
+        const handler_body = self.gc.allocPair(cond_form, types.NIL) catch return CompileError.OutOfMemory;
+        const lambda_sym = self.gc.allocSymbol("lambda") catch return CompileError.OutOfMemory;
+        const handler_lambda = self.gc.allocPair(
+            lambda_sym,
+            self.gc.allocPair(handler_formals, handler_body) catch return CompileError.OutOfMemory,
+        ) catch return CompileError.OutOfMemory;
+
+        // Build thunk lambda: (lambda () body...)
+        const thunk_formals = types.NIL;
+        const thunk_lambda = self.gc.allocPair(
+            lambda_sym,
+            self.gc.allocPair(thunk_formals, body) catch return CompileError.OutOfMemory,
+        ) catch return CompileError.OutOfMemory;
+
+        // Build (with-exception-handler handler thunk)
+        const weh_sym = self.gc.allocSymbol("with-exception-handler") catch return CompileError.OutOfMemory;
+        const weh_call = self.gc.allocPair(
+            weh_sym,
+            self.gc.allocPair(
+                handler_lambda,
+                self.gc.allocPair(thunk_lambda, types.NIL) catch return CompileError.OutOfMemory,
+            ) catch return CompileError.OutOfMemory,
+        ) catch return CompileError.OutOfMemory;
+
+        // Compile the transformation
+        return self.compileExpr(weh_call, dst, is_tail);
+    }
+
+    /// Append an element to the end of a proper list, returning a new list.
+    fn appendToList(self: *Compiler, lst: Value, elem: Value) !Value {
+        if (lst == types.NIL) {
+            return self.gc.allocPair(elem, types.NIL);
+        }
+        if (!types.isPair(lst)) return error.InvalidSyntax;
+        const head = types.car(lst);
+        const tail = try self.appendToList(types.cdr(lst), elem);
+        return self.gc.allocPair(head, tail);
     }
 
     fn compileLetBody(self: *Compiler, body: Value, dst: u8, is_tail: bool) CompileError!void {

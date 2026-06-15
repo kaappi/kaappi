@@ -104,6 +104,7 @@ pub const ObjectTag = enum(u4) {
     function = 9,
     flonum = 10,
     transformer = 11,
+    error_object = 12,
 };
 
 pub const Object = struct {
@@ -177,6 +178,12 @@ pub const Transformer = struct {
     num_rules: u16,
 };
 
+pub const ErrorObject = struct {
+    header: Object,
+    message: Value, // string
+    irritants: Value, // list
+};
+
 // ---------------------------------------------------------------------------
 // Type predicates on Value
 // ---------------------------------------------------------------------------
@@ -215,6 +222,10 @@ pub fn isFlonum(v: Value) bool {
 
 pub fn isTransformer(v: Value) bool {
     return isPointer(v) and toObject(v).tag == .transformer;
+}
+
+pub fn isErrorObject(v: Value) bool {
+    return isPointer(v) and toObject(v).tag == .error_object;
 }
 
 pub fn isNumber(v: Value) bool {
@@ -281,6 +292,8 @@ pub const OpCode = enum(u8) {
     closure, // dst:u8, idx:u16
     close_upvalue, // slot:u8
     cons, // dst:u8, car:u8, cdr:u8
+    push_handler, // handler_reg:u8
+    pop_handler, // (no operands)
     halt,
 };
 

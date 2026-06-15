@@ -114,6 +114,27 @@ pub fn printValue(writer: anytype, value: Value, mode: PrintMode) anyerror!void 
             .transformer => {
                 try writer.writeAll("#<transformer>");
             },
+            .error_object => {
+                const err = obj.as(types.ErrorObject);
+                try writer.writeAll("#<error ");
+                try printValue(writer, err.message, mode);
+                // Print irritants if non-empty
+                if (err.irritants != types.NIL) {
+                    try writer.writeByte(' ');
+                    var irr = err.irritants;
+                    while (irr != types.NIL) {
+                        if (types.isPair(irr)) {
+                            try printValue(writer, types.car(irr), mode);
+                            irr = types.cdr(irr);
+                            if (irr != types.NIL) try writer.writeByte(' ');
+                        } else {
+                            try printValue(writer, irr, mode);
+                            break;
+                        }
+                    }
+                }
+                try writer.writeByte('>');
+            },
             else => {
                 try writer.writeAll("#<object>");
             },

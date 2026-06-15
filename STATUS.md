@@ -79,9 +79,12 @@
 - [x] Library registry for user-defined libraries
 - [ ] File-based library loading (.sld) (deferred)
 
-## Phase 7: Exceptions — TODO
-- [ ] `error`, `with-exception-handler`, `raise`, `raise-continuable`
-- [ ] `guard`
+## Phase 7: Exceptions — DONE
+- [x] `with-exception-handler`, `raise`, `raise-continuable`
+- [x] `error` creates ErrorObject and raises it
+- [x] `guard` form (compiled as with-exception-handler + cond)
+- [x] `error-object?`, `error-object-message`, `error-object-irritants`
+- [x] `file-error?`, `read-error?` (placeholders)
 
 ## Phase 8: Records — TODO
 - [ ] `define-record-type`

@@ -9,6 +9,7 @@ pub const PrimitiveError = error{
     DivisionByZero,
     ArityMismatch,
     OutOfMemory,
+    ExceptionRaised,
 };
 
 pub fn registerAll(vm: *vm_mod.VM) !void {
@@ -120,6 +121,16 @@ pub fn registerAll(vm: *vm_mod.VM) !void {
     // Misc
     try reg(vm, "apply", &applyFn, .{ .variadic = 2 });
     try reg(vm, "error", &errorFn, .{ .variadic = 1 });
+
+    // Exception system (R7RS 6.11)
+    try reg(vm, "raise", &raiseFn, .{ .exact = 1 });
+    try reg(vm, "raise-continuable", &raiseContinuableFn, .{ .exact = 1 });
+    try reg(vm, "with-exception-handler", &withExceptionHandlerFn, .{ .exact = 2 });
+    try reg(vm, "error-object?", &errorObjectP, .{ .exact = 1 });
+    try reg(vm, "error-object-message", &errorObjectMessage, .{ .exact = 1 });
+    try reg(vm, "error-object-irritants", &errorObjectIrritants, .{ .exact = 1 });
+    try reg(vm, "file-error?", &fileErrorP, .{ .exact = 1 });
+    try reg(vm, "read-error?", &readErrorP, .{ .exact = 1 });
 }
 
 fn reg(vm: *vm_mod.VM, name: []const u8, func: types.NativeFnType, arity: NativeFn.Arity) !void {
@@ -996,15 +1007,127 @@ fn applyFn(args: []const Value) PrimitiveError!Value {
     return PrimitiveError.TypeError;
 }
 
-fn errorFn(args: []const Value) PrimitiveError!Value {
-    const gc = gc_instance orelse return PrimitiveError.OutOfMemory;
-    writeStderr("Error: ");
-    for (args) |a| {
-        const s = printer.valueToString(gc.allocator, a, .display) catch return PrimitiveError.OutOfMemory;
+// ---------------------------------------------------------------------------
+// Exception system (R7RS 6.11)
+// ---------------------------------------------------------------------------
+
+fn raiseFn(args: []const Value) PrimitiveError!Value {
+    const vm = vm_mod.vm_instance orelse {
+        // No VM — print error and abort
+        const gc = gc_instance orelse return PrimitiveError.TypeError;
+        writeStderr("Error: unhandled exception: ");
+        const s = printer.valueToString(gc.allocator, args[0], .write) catch return PrimitiveError.TypeError;
         defer gc.allocator.free(s);
         writeStderr(s);
-        writeStderr(" ");
+        writeStderr("\n");
+        return PrimitiveError.TypeError;
+    };
+    vm.current_exception = args[0];
+    return PrimitiveError.ExceptionRaised;
+}
+
+fn raiseContinuableFn(args: []const Value) PrimitiveError!Value {
+    const vm = vm_mod.vm_instance orelse {
+        const gc = gc_instance orelse return PrimitiveError.TypeError;
+        writeStderr("Error: unhandled exception: ");
+        const s = printer.valueToString(gc.allocator, args[0], .write) catch return PrimitiveError.TypeError;
+        defer gc.allocator.free(s);
+        writeStderr(s);
+        writeStderr("\n");
+        return PrimitiveError.TypeError;
+    };
+    vm.current_exception = args[0];
+    return PrimitiveError.ExceptionRaised;
+}
+
+fn withExceptionHandlerFn(args: []const Value) PrimitiveError!Value {
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError;
+    const handler = args[0];
+    const thunk = args[1];
+
+    if (!types.isProcedure(handler)) return PrimitiveError.TypeError;
+    if (!types.isProcedure(thunk)) return PrimitiveError.TypeError;
+
+    // Push the handler onto the handler stack
+    vm.pushHandler(handler) catch return PrimitiveError.OutOfMemory;
+
+    // Call the thunk
+    const result = vm.callThunk(thunk) catch |err| {
+        if (err == vm_mod.VMError.ExceptionRaised) {
+            // An exception was raised during the thunk.
+            // Pop our handler and call it with the exception.
+            vm.popHandler();
+            const exc = vm.current_exception orelse types.FALSE;
+            vm.current_exception = null;
+            const handler_result = vm.callHandler(handler, exc) catch |herr| {
+                return switch (herr) {
+                    vm_mod.VMError.ExceptionRaised => PrimitiveError.ExceptionRaised,
+                    vm_mod.VMError.OutOfMemory => PrimitiveError.OutOfMemory,
+                    else => PrimitiveError.TypeError,
+                };
+            };
+            return handler_result;
+        }
+        vm.popHandler();
+        return switch (err) {
+            vm_mod.VMError.TypeError => PrimitiveError.TypeError,
+            vm_mod.VMError.OutOfMemory => PrimitiveError.OutOfMemory,
+            vm_mod.VMError.DivisionByZero => PrimitiveError.DivisionByZero,
+            else => PrimitiveError.TypeError,
+        };
+    };
+
+    // Normal return — pop the handler
+    vm.popHandler();
+    return result;
+}
+
+fn errorObjectP(args: []const Value) PrimitiveError!Value {
+    return if (types.isErrorObject(args[0])) types.TRUE else types.FALSE;
+}
+
+fn errorObjectMessage(args: []const Value) PrimitiveError!Value {
+    if (!types.isErrorObject(args[0])) return PrimitiveError.TypeError;
+    const err = types.toObject(args[0]).as(types.ErrorObject);
+    return err.message;
+}
+
+fn errorObjectIrritants(args: []const Value) PrimitiveError!Value {
+    if (!types.isErrorObject(args[0])) return PrimitiveError.TypeError;
+    const err = types.toObject(args[0]).as(types.ErrorObject);
+    return err.irritants;
+}
+
+fn fileErrorP(args: []const Value) PrimitiveError!Value {
+    _ = args;
+    return types.FALSE; // No file errors for now
+}
+
+fn readErrorP(args: []const Value) PrimitiveError!Value {
+    _ = args;
+    return types.FALSE; // No read errors for now
+}
+
+fn errorFn(args: []const Value) PrimitiveError!Value {
+    const gc = gc_instance orelse return PrimitiveError.OutOfMemory;
+
+    // First arg is the message
+    const message = args[0];
+
+    // Build irritants list from remaining args
+    var irritants: Value = types.NIL;
+    if (args.len > 1) {
+        var i = args.len;
+        while (i > 1) {
+            i -= 1;
+            irritants = gc.allocPair(args[i], irritants) catch return PrimitiveError.OutOfMemory;
+        }
     }
-    writeStderr("\n");
-    return PrimitiveError.TypeError; // TODO: proper exception system
+
+    // Create the error object
+    const err_obj = gc.allocErrorObject(message, irritants) catch return PrimitiveError.OutOfMemory;
+
+    // Raise it through the exception system
+    const raise_args = [1]Value{err_obj};
+    return raiseFn(&raise_args);
 }

@@ -16,10 +16,37 @@ pub const VMError = error{
     InvalidBytecode,
     DivisionByZero,
     CompileError,
+    ExceptionRaised,
 };
 
 const MAX_FRAMES = 256;
 const MAX_REGISTERS = 1024;
+const MAX_HANDLERS = 64;
+
+pub var vm_instance: ?*VM = null;
+
+pub fn setVMInstance(vm: *VM) void {
+    vm_instance = vm;
+}
+
+const ExceptionHandler = struct {
+    handler: Value, // the handler procedure
+    frame_count: usize, // saved call stack depth for unwinding
+};
+
+fn writeToFd(fd: std.posix.fd_t, bytes: []const u8) void {
+    var total: usize = 0;
+    while (total < bytes.len) {
+        const result = std.posix.system.write(fd, bytes.ptr + total, bytes.len - total);
+        const written: usize = @intCast(result);
+        if (written == 0) break;
+        total += written;
+    }
+}
+
+fn writeStderr(bytes: []const u8) void {
+    writeToFd(2, bytes);
+}
 
 const CallFrame = struct {
     closure: ?*types.Closure,
@@ -39,6 +66,9 @@ pub const VM = struct {
     macros: std.StringHashMap(Value),
     output: std.ArrayList(u8),
     libraries: library_mod.LibraryRegistry,
+    handler_stack: [MAX_HANDLERS]ExceptionHandler = undefined,
+    handler_count: usize = 0,
+    current_exception: ?Value = null,
 
     pub fn init(gc: *memory.GC) VM {
         var vm = VM{
@@ -63,27 +93,139 @@ pub const VM = struct {
         try self.globals.put(name, value);
     }
 
+    // -- Exception handling --
 
-    pub fn execute(self: *VM, func: *types.Function) VMError!Value {
-        // Create a top-level closure
-        const closure_val = self.gc.allocClosure(func) catch return VMError.OutOfMemory;
-        const closure = types.toObject(closure_val).as(types.Closure);
-
-        // Push initial frame
-        self.frames[0] = .{
-            .closure = closure,
-            .code = func.code.items,
-            .ip = 0,
-            .base = 0,
-            .dst = 0,
+    pub fn pushHandler(self: *VM, handler: Value) VMError!void {
+        if (self.handler_count >= MAX_HANDLERS) return VMError.StackOverflow;
+        self.handler_stack[self.handler_count] = .{
+            .handler = handler,
+            .frame_count = self.frame_count,
         };
-        self.frame_count = 1;
-
-        return self.run();
+        self.handler_count += 1;
     }
 
-    fn run(self: *VM) VMError!Value {
-        while (self.frame_count > 0) {
+    pub fn popHandler(self: *VM) void {
+        if (self.handler_count > 0) self.handler_count -= 1;
+    }
+
+    /// Call a handler procedure with a single argument, using the VM's call machinery.
+    /// Used by with-exception-handler when an exception is caught.
+    pub fn callHandler(self: *VM, handler_val: Value, arg: Value) VMError!Value {
+        if (types.isClosure(handler_val)) {
+            const closure = types.toObject(handler_val).as(types.Closure);
+            const func = closure.func;
+
+            // Find a safe base register
+            const base: u16 = if (self.frame_count > 0)
+                self.frames[self.frame_count - 1].base + 200
+            else
+                0;
+
+            // Set up the argument
+            if (func.is_variadic and func.arity == 0) {
+                // (lambda args ...) — wrap arg in a list
+                self.registers[base] = self.gc.allocPair(arg, types.NIL) catch return VMError.OutOfMemory;
+            } else if (func.is_variadic and func.arity == 1) {
+                // (lambda (x . rest) ...) — x=arg, rest=()
+                self.registers[base] = arg;
+                self.registers[base + 1] = types.NIL;
+            } else {
+                self.registers[base] = arg;
+            }
+
+            if (self.frame_count >= MAX_FRAMES) return VMError.StackOverflow;
+
+            const saved_frame_count = self.frame_count;
+            self.frames[self.frame_count] = .{
+                .closure = closure,
+                .code = func.code.items,
+                .ip = 0,
+                .base = base,
+                .dst = 0,
+            };
+            self.frame_count += 1;
+
+            const result = self.runUntil(saved_frame_count) catch |err| {
+                self.frame_count = saved_frame_count;
+                return err;
+            };
+            return result;
+        } else if (types.isNativeFn(handler_val)) {
+            const native = types.toObject(handler_val).as(types.NativeFn);
+            const args = [1]Value{arg};
+            const result = native.func(&args) catch |err| {
+                return switch (err) {
+                    error.TypeError => VMError.TypeError,
+                    error.DivisionByZero => VMError.DivisionByZero,
+                    error.OutOfMemory => VMError.OutOfMemory,
+                    error.ExceptionRaised => VMError.ExceptionRaised,
+                    else => VMError.InvalidBytecode,
+                };
+            };
+            return result;
+        } else {
+            return VMError.NotAProcedure;
+        }
+    }
+
+    /// Call a thunk (0-argument procedure), using the VM's call machinery.
+    pub fn callThunk(self: *VM, thunk_val: Value) VMError!Value {
+        if (types.isClosure(thunk_val)) {
+            const closure = types.toObject(thunk_val).as(types.Closure);
+            const func = closure.func;
+
+            // Find a safe base register
+            const base: u16 = if (self.frame_count > 0)
+                self.frames[self.frame_count - 1].base + 200
+            else
+                0;
+
+            // Handle variadic thunks
+            if (func.is_variadic and func.arity == 0) {
+                self.registers[base] = types.NIL;
+            }
+
+            if (self.frame_count >= MAX_FRAMES) return VMError.StackOverflow;
+
+            const saved_frame_count = self.frame_count;
+            self.frames[self.frame_count] = .{
+                .closure = closure,
+                .code = func.code.items,
+                .ip = 0,
+                .base = base,
+                .dst = 0,
+            };
+            self.frame_count += 1;
+
+            const result = self.runUntil(saved_frame_count) catch |err| {
+                // On error, unwind any frames that were pushed during the thunk
+                self.frame_count = saved_frame_count;
+                return err;
+            };
+            return result;
+        } else if (types.isNativeFn(thunk_val)) {
+            const native = types.toObject(thunk_val).as(types.NativeFn);
+            const empty_args: []const Value = &.{};
+            const result = native.func(empty_args) catch |err| {
+                return switch (err) {
+                    error.TypeError => VMError.TypeError,
+                    error.DivisionByZero => VMError.DivisionByZero,
+                    error.OutOfMemory => VMError.OutOfMemory,
+                    error.ExceptionRaised => VMError.ExceptionRaised,
+                    else => VMError.InvalidBytecode,
+                };
+            };
+            return result;
+        } else {
+            return VMError.NotAProcedure;
+        }
+    }
+
+    /// Run the VM until frame_count drops to target_frame_count.
+    /// This is used by callThunk/callHandler to avoid executing past
+    /// the caller's frame.
+    fn runUntil(self: *VM, target_frame_count: usize) VMError!Value {
+        while (self.frame_count > target_frame_count) {
             const frame = &self.frames[self.frame_count - 1];
             if (frame.ip >= frame.code.len) return VMError.InvalidBytecode;
 
@@ -200,13 +342,11 @@ pub const VM = struct {
                             self.registers[abs_base + 1 + rest_start] = rest_list;
                         }
 
-                        // Move args down to current frame's parameter area
                         const arg_count = if (func.is_variadic) func.arity + 1 else nargs;
                         for (0..arg_count) |i| {
                             self.registers[frame.base + i] = self.registers[abs_base + 1 + i];
                         }
 
-                        // Replace frame in-place — no frame_count change
                         frame.closure = closure;
                         frame.code = func.code.items;
                         frame.ip = 0;
@@ -220,18 +360,19 @@ pub const VM = struct {
                                 if (nargs < min) return VMError.ArityMismatch;
                             },
                         }
-                        const args = self.registers[abs_base + 1 .. abs_base + 1 + nargs];
-                        const result = native.func(args) catch |err| {
+                        const nargs_slice = self.registers[abs_base + 1 .. abs_base + 1 + nargs];
+                        const result = native.func(nargs_slice) catch |err| {
                             return switch (err) {
                                 error.TypeError => VMError.TypeError,
                                 error.DivisionByZero => VMError.DivisionByZero,
                                 error.OutOfMemory => VMError.OutOfMemory,
+                                error.ExceptionRaised => VMError.ExceptionRaised,
                                 else => VMError.InvalidBytecode,
                             };
                         };
                         const return_dst = frame.dst;
                         self.frame_count -= 1;
-                        if (self.frame_count == 0) {
+                        if (self.frame_count <= target_frame_count) {
                             return result;
                         }
                         const caller = &self.frames[self.frame_count - 1];
@@ -245,7 +386,7 @@ pub const VM = struct {
                     const result = self.registers[frame.base + src];
                     const return_dst = frame.dst;
                     self.frame_count -= 1;
-                    if (self.frame_count == 0) {
+                    if (self.frame_count <= target_frame_count) {
                         return result;
                     }
                     const caller = &self.frames[self.frame_count - 1];
@@ -261,7 +402,6 @@ pub const VM = struct {
                     const cls_val = self.gc.allocClosure(func) catch return VMError.OutOfMemory;
                     const cls = types.toObject(cls_val).as(types.Closure);
 
-                    // Fill upvalues
                     for (cls.upvalues, 0..) |_, i| {
                         const is_local = frame.code[frame.ip] == 1;
                         frame.ip += 1;
@@ -271,7 +411,8 @@ pub const VM = struct {
                         if (is_local) {
                             cls.upvalues[i] = self.registers[frame.base + index];
                         } else {
-                            cls.upvalues[i] = parent_closure.upvalues[index];
+                            const pc = parent_closure;
+                            cls.upvalues[i] = pc.upvalues[index];
                         }
                     }
 
@@ -279,7 +420,6 @@ pub const VM = struct {
                 },
                 .close_upvalue => {
                     _ = self.readU8(frame);
-                    // TODO: implement upvalue closing
                 },
                 .cons => {
                     const dst = self.readU8(frame);
@@ -291,6 +431,14 @@ pub const VM = struct {
                     ) catch return VMError.OutOfMemory;
                     self.registers[frame.base + dst] = pair;
                 },
+                .push_handler => {
+                    const handler_reg = self.readU8(frame);
+                    const handler_val = self.registers[frame.base + handler_reg];
+                    try self.pushHandler(handler_val);
+                },
+                .pop_handler => {
+                    self.popHandler();
+                },
                 .halt => {
                     return types.VOID;
                 },
@@ -298,6 +446,31 @@ pub const VM = struct {
             }
         }
         return types.VOID;
+    }
+
+
+    pub fn execute(self: *VM, func: *types.Function) VMError!Value {
+        vm_instance = self;
+
+        // Create a top-level closure
+        const closure_val = self.gc.allocClosure(func) catch return VMError.OutOfMemory;
+        const closure = types.toObject(closure_val).as(types.Closure);
+
+        // Push initial frame
+        self.frames[0] = .{
+            .closure = closure,
+            .code = func.code.items,
+            .ip = 0,
+            .base = 0,
+            .dst = 0,
+        };
+        self.frame_count = 1;
+
+        return self.run();
+    }
+
+    pub fn run(self: *VM) VMError!Value {
+        return self.runUntil(0);
     }
 
     fn callValue(self: *VM, callee: Value, base: u16, nargs: u8) VMError!void {
@@ -353,6 +526,7 @@ pub const VM = struct {
                     error.TypeError => VMError.TypeError,
                     error.DivisionByZero => VMError.DivisionByZero,
                     error.OutOfMemory => VMError.OutOfMemory,
+                    error.ExceptionRaised => VMError.ExceptionRaised,
                     else => VMError.InvalidBytecode,
                 };
             };
@@ -1659,4 +1833,171 @@ test "define-library with dotted name" {
     _ = try vm.eval("(import (my utils math))");
     const result = try vm.eval("(add5 10)");
     try std.testing.expectEqual(@as(i64, 15), types.toFixnum(result));
+}
+
+// ---------------------------------------------------------------------------
+// Phase 7: Exceptions (R7RS 6.11)
+// ---------------------------------------------------------------------------
+
+test "guard basic catch" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try makeTestVM(&gc);
+    defer vm.deinit();
+
+    const result = try vm.eval("(guard (e (#t e)) (raise 42))");
+    try std.testing.expectEqual(@as(i64, 42), types.toFixnum(result));
+}
+
+test "guard with error-object" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try makeTestVM(&gc);
+    defer vm.deinit();
+
+    const result = try vm.eval(
+        \\(guard (e ((error-object? e) (error-object-message e)))
+        \\  (error "oops" 1 2))
+    );
+    try std.testing.expect(types.isString(result));
+    const str = types.toObject(result).as(types.SchemeString);
+    try std.testing.expectEqualStrings("oops", str.data[0..str.len]);
+}
+
+test "guard with else clause" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try makeTestVM(&gc);
+    defer vm.deinit();
+
+    const result = try vm.eval(
+        \\(guard (e (else 99))
+        \\  (error "test"))
+    );
+    try std.testing.expectEqual(@as(i64, 99), types.toFixnum(result));
+}
+
+test "guard no exception" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try makeTestVM(&gc);
+    defer vm.deinit();
+
+    const result = try vm.eval("(guard (e (else 99)) (+ 1 2))");
+    try std.testing.expectEqual(@as(i64, 3), types.toFixnum(result));
+}
+
+test "with-exception-handler basic" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try makeTestVM(&gc);
+    defer vm.deinit();
+
+    const result = try vm.eval(
+        \\(with-exception-handler
+        \\  (lambda (e) 42)
+        \\  (lambda () (raise "boom")))
+    );
+    try std.testing.expectEqual(@as(i64, 42), types.toFixnum(result));
+}
+
+test "with-exception-handler normal return" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try makeTestVM(&gc);
+    defer vm.deinit();
+
+    const result = try vm.eval(
+        \\(with-exception-handler
+        \\  (lambda (e) 99)
+        \\  (lambda () (+ 1 2)))
+    );
+    try std.testing.expectEqual(@as(i64, 3), types.toFixnum(result));
+}
+
+test "error-object predicates" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try makeTestVM(&gc);
+    defer vm.deinit();
+
+    const r1 = try vm.eval(
+        \\(guard (e (#t (error-object? e)))
+        \\  (error "msg"))
+    );
+    try std.testing.expectEqual(types.TRUE, r1);
+
+    // Non-error-object
+    const r2 = try vm.eval(
+        \\(guard (e (#t (error-object? e)))
+        \\  (raise 42))
+    );
+    try std.testing.expectEqual(types.FALSE, r2);
+}
+
+test "error-object-irritants" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try makeTestVM(&gc);
+    defer vm.deinit();
+
+    const result = try vm.eval(
+        \\(guard (e ((error-object? e) (error-object-irritants e)))
+        \\  (error "msg" 1 2 3))
+    );
+    try std.testing.expect(types.isPair(result));
+    try std.testing.expectEqual(@as(i64, 1), types.toFixnum(types.car(result)));
+    try std.testing.expectEqual(@as(i64, 2), types.toFixnum(types.car(types.cdr(result))));
+    try std.testing.expectEqual(@as(i64, 3), types.toFixnum(types.car(types.cdr(types.cdr(result)))));
+}
+
+test "file-error? and read-error?" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try makeTestVM(&gc);
+    defer vm.deinit();
+
+    try std.testing.expectEqual(types.FALSE, try vm.eval("(file-error? 42)"));
+    try std.testing.expectEqual(types.FALSE, try vm.eval("(read-error? 42)"));
+}
+
+test "raise without handler is error" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try makeTestVM(&gc);
+    defer vm.deinit();
+
+    const result = vm.eval("(raise 42)");
+    try std.testing.expectError(VMError.ExceptionRaised, result);
+}
+
+test "guard with multiple clauses" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try makeTestVM(&gc);
+    defer vm.deinit();
+
+    // First clause doesn't match, second does
+    const result = try vm.eval(
+        \\(guard (e
+        \\         ((string? e) 1)
+        \\         ((number? e) 2)
+        \\         (else 3))
+        \\  (raise 42))
+    );
+    try std.testing.expectEqual(@as(i64, 2), types.toFixnum(result));
+}
+
+test "nested guard" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try makeTestVM(&gc);
+    defer vm.deinit();
+
+    const result = try vm.eval(
+        \\(guard (outer (#t (+ outer 100)))
+        \\  (guard (inner (#t (+ inner 10)))
+        \\    (raise 1)))
+    );
+    try std.testing.expectEqual(@as(i64, 11), types.toFixnum(result));
 }

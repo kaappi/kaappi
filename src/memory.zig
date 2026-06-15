@@ -150,6 +150,19 @@ pub const GC = struct {
         return types.makePointer(@ptrCast(flo));
     }
 
+    pub fn allocErrorObject(self: *GC, message: Value, irritants: Value) !Value {
+        self.maybeCollect();
+        const err = try self.allocator.create(types.ErrorObject);
+        err.* = .{
+            .header = .{ .tag = .error_object },
+            .message = message,
+            .irritants = irritants,
+        };
+        self.bytes_allocated += @sizeOf(types.ErrorObject);
+        self.trackObject(&err.header);
+        return types.makePointer(@ptrCast(err));
+    }
+
     pub fn allocTransformer(self: *GC, literals: []const Value, patterns: []const Value, templates: []const Value) !Value {
         const num_rules: u16 = @intCast(patterns.len);
         const owned_lits = try self.allocator.dupe(Value, literals);
@@ -245,6 +258,11 @@ pub const GC = struct {
                     self.markValue(tmpl);
                 }
             },
+            .error_object => {
+                const err = obj.as(types.ErrorObject);
+                self.markValue(err.message);
+                self.markValue(err.irritants);
+            },
             .symbol, .string, .native_fn, .flonum => {},
             else => {},
         }
@@ -313,6 +331,10 @@ pub const GC = struct {
                 self.allocator.free(tx.patterns);
                 self.allocator.free(tx.templates);
                 self.allocator.destroy(tx);
+            },
+            .error_object => {
+                const err = obj.as(types.ErrorObject);
+                self.allocator.destroy(err);
             },
             else => {},
         }
