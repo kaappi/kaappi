@@ -246,7 +246,9 @@ fn repl(vm: *vm_mod.VM) !void {
 
         const full_input = input_buf.items;
 
-        ln.historyAdd(@ptrCast(full_input.ptr));
+        input_buf.append(allocator, 0) catch {};
+        ln.historyAdd(@ptrCast(input_buf.items.ptr));
+        _ = input_buf.pop();
 
         evalInput(vm, allocator, full_input);
 
