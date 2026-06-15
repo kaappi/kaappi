@@ -159,6 +159,42 @@ pub fn printValue(writer: anytype, value: Value, mode: PrintMode) anyerror!void 
                 }
                 try writer.writeByte('>');
             },
+            .complex => {
+                const c = obj.as(types.Complex);
+                // Print real part (skip if zero, unless imag is also zero)
+                if (c.real != 0.0 or c.imag == 0.0) {
+                    var buf: [64]u8 = undefined;
+                    const s = std.fmt.bufPrint(&buf, "{d}", .{c.real}) catch "?";
+                    try writer.writeAll(s);
+                    // Ensure decimal point
+                    if (std.mem.indexOfScalar(u8, s, '.') == null and
+                        std.mem.indexOfScalar(u8, s, 'e') == null)
+                    {
+                        try writer.writeAll(".0");
+                    }
+                }
+                // Print imaginary part
+                if (c.imag != 0.0) {
+                    if (c.imag > 0.0 and (c.real != 0.0 or c.imag == 0.0)) {
+                        try writer.writeByte('+');
+                    }
+                    if (c.imag == 1.0) {
+                        // nothing, just +i
+                    } else if (c.imag == -1.0) {
+                        try writer.writeByte('-');
+                    } else {
+                        var buf: [64]u8 = undefined;
+                        const s = std.fmt.bufPrint(&buf, "{d}", .{c.imag}) catch "?";
+                        try writer.writeAll(s);
+                        if (std.mem.indexOfScalar(u8, s, '.') == null and
+                            std.mem.indexOfScalar(u8, s, 'e') == null)
+                        {
+                            try writer.writeAll(".0");
+                        }
+                    }
+                    try writer.writeByte('i');
+                }
+            },
             .continuation => {
                 try writer.writeAll("#<continuation>");
             },

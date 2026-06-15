@@ -137,6 +137,9 @@ pub fn registerStandardLibraries(registry: *LibraryRegistry, globals: *std.Strin
         "call-with-current-continuation", "call/cc",
         "dynamic-wind",
         "values", "call-with-values",
+        // Complex numbers
+        "make-rectangular", "make-polar", "real-part", "imag-part",
+        "magnitude", "angle",
     };
 
     var base = Library.init(allocator, "scheme.base");
@@ -214,6 +217,20 @@ pub fn registerStandardLibraries(registry: *LibraryRegistry, globals: *std.Strin
     // These are compositions of car/cdr — registered as placeholders for now
     const cxr_lib = Library.init(allocator, "scheme.cxr");
     try registry.register(cxr_lib);
+
+    // (scheme complex) — complex number procedures
+    const scheme_complex_names = [_][]const u8{
+        "make-rectangular", "make-polar",
+        "real-part",        "imag-part",
+        "magnitude",        "angle",
+    };
+    var complex_lib = Library.init(allocator, "scheme.complex");
+    for (scheme_complex_names) |name| {
+        if (globals.get(name)) |val| {
+            try complex_lib.addExport(name, val);
+        }
+    }
+    try registry.register(complex_lib);
 }
 
 /// Convert a library name from an S-expression list like (scheme base) to

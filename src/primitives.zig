@@ -41,7 +41,7 @@ pub fn registerAll(vm: *vm_mod.VM) !void {
     try reg(vm, "number?", &numberP, .{ .exact = 1 });
     try reg(vm, "integer?", &integerP, .{ .exact = 1 });
     try reg(vm, "real?", &realP, .{ .exact = 1 });
-    try reg(vm, "complex?", &realP, .{ .exact = 1 });
+    try reg(vm, "complex?", &complexP, .{ .exact = 1 });
     try reg(vm, "rational?", &rationalP, .{ .exact = 1 });
     try reg(vm, "symbol?", &symbolP, .{ .exact = 1 });
     try reg(vm, "string?", &stringP, .{ .exact = 1 });
@@ -227,8 +227,12 @@ fn integerP(args: []const Value) PrimitiveError!Value {
     return types.FALSE;
 }
 
-fn realP(args: []const Value) PrimitiveError!Value {
+fn complexP(args: []const Value) PrimitiveError!Value {
     return if (types.isNumber(args[0])) types.TRUE else types.FALSE;
+}
+
+fn realP(args: []const Value) PrimitiveError!Value {
+    return if (types.isFixnum(args[0]) or types.isFlonum(args[0])) types.TRUE else types.FALSE;
 }
 
 fn rationalP(args: []const Value) PrimitiveError!Value {
@@ -358,9 +362,39 @@ fn symbolToString(args: []const Value) PrimitiveError!Value {
 // ---------------------------------------------------------------------------
 
 fn applyFn(args: []const Value) PrimitiveError!Value {
-    _ = args;
-    // TODO: needs VM access for proper implementation
-    return PrimitiveError.TypeError;
+    const vm = @import("vm.zig").vm_instance orelse return PrimitiveError.TypeError;
+    const proc = args[0];
+    if (!types.isProcedure(proc) and !types.isNativeFn(proc)) return PrimitiveError.TypeError;
+
+    // Collect all arguments: args[1..n-1] are individual, args[n-1] is a list
+    var call_args: [256]Value = undefined;
+    var count: usize = 0;
+
+    // Individual args (everything between proc and the final list)
+    for (args[1 .. args.len - 1]) |a| {
+        if (count >= 256) return PrimitiveError.OutOfMemory;
+        call_args[count] = a;
+        count += 1;
+    }
+
+    // Flatten the last arg (must be a proper list)
+    var rest = args[args.len - 1];
+    while (rest != types.NIL) {
+        if (!types.isPair(rest)) return PrimitiveError.TypeError;
+        if (count >= 256) return PrimitiveError.OutOfMemory;
+        call_args[count] = types.car(rest);
+        count += 1;
+        rest = types.cdr(rest);
+    }
+
+    return vm.callWithArgs(proc, call_args[0..count]) catch |err| {
+        return switch (err) {
+            @import("vm.zig").VMError.ContinuationInvoked => PrimitiveError.ContinuationInvoked,
+            @import("vm.zig").VMError.ExceptionRaised => PrimitiveError.ExceptionRaised,
+            @import("vm.zig").VMError.OutOfMemory => PrimitiveError.OutOfMemory,
+            else => PrimitiveError.TypeError,
+        };
+    };
 }
 
 // ---------------------------------------------------------------------------

@@ -284,6 +284,19 @@ pub const GC = struct {
         return types.makePointer(@ptrCast(cont));
     }
 
+    pub fn allocComplex(self: *GC, real: f64, imag: f64) !Value {
+        self.maybeCollect();
+        const c = try self.allocator.create(types.Complex);
+        c.* = .{
+            .header = .{ .tag = .complex },
+            .real = real,
+            .imag = imag,
+        };
+        self.bytes_allocated += @sizeOf(types.Complex);
+        self.trackObject(&c.header);
+        return types.makePointer(@ptrCast(c));
+    }
+
     pub fn allocMultipleValues(self: *GC, values: []const Value) !Value {
         self.maybeCollect();
         const owned = try self.allocator.dupe(Value, values);
@@ -416,7 +429,7 @@ pub const GC = struct {
                     self.markValue(val);
                 }
             },
-            .symbol, .string, .native_fn, .flonum, .port => {},
+            .symbol, .string, .native_fn, .flonum, .port, .complex => {},
             else => {},
         }
     }
@@ -522,6 +535,10 @@ pub const GC = struct {
                 const mv = obj.as(MultipleValues);
                 self.allocator.free(mv.values);
                 self.allocator.destroy(mv);
+            },
+            .complex => {
+                const c = obj.as(types.Complex);
+                self.allocator.destroy(c);
             },
             else => {},
         }

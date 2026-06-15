@@ -91,7 +91,7 @@ pub fn isTruthy(v: Value) bool {
 // Heap object types
 // ---------------------------------------------------------------------------
 
-pub const ObjectTag = enum(u4) {
+pub const ObjectTag = enum(u5) {
     pair = 0,
     symbol = 1,
     string = 2,
@@ -108,6 +108,7 @@ pub const ObjectTag = enum(u4) {
     record_instance = 13,
     continuation = 14,
     multiple_values = 15,
+    complex = 16,
 };
 
 pub const Object = struct {
@@ -257,6 +258,13 @@ pub const MultipleValues = struct {
     values: []Value,
 };
 
+/// Complex number (R7RS 6.2.6).
+pub const Complex = struct {
+    header: Object,
+    real: f64,
+    imag: f64,
+};
+
 // ---------------------------------------------------------------------------
 // Type predicates on Value
 // ---------------------------------------------------------------------------
@@ -321,8 +329,16 @@ pub fn isPort(v: Value) bool {
     return isPointer(v) and toObject(v).tag == .port;
 }
 
+pub fn isComplex(v: Value) bool {
+    return isPointer(v) and toObject(v).tag == .complex;
+}
+
+pub fn toComplex(v: Value) *Complex {
+    return toObject(v).as(Complex);
+}
+
 pub fn isNumber(v: Value) bool {
-    return isFixnum(v) or isFlonum(v);
+    return isFixnum(v) or isFlonum(v) or isComplex(v);
 }
 
 pub fn toFlonum(v: Value) f64 {

@@ -51,9 +51,9 @@
 - [x] `let`, `let*`, `letrec`, `letrec*`
 - [x] Named `let`
 - [x] `do`
-- [ ] `case` (deferred — needs inline eqv? comparison)
-- [ ] `case-lambda` (separate library)
-- [ ] `let-values`, `let*-values` (Phase 10 — needs multiple values)
+- [x] `case` (with `else`, datum lists, `eqv?` comparison)
+- [x] `case-lambda` (arity-based dispatch)
+- [x] `let-values`, `let*-values` (desugars to `call-with-values`)
 
 ## Phase 4: Numeric Tower (Practical Version) — DONE
 - [x] Flonum (heap-allocated f64)
@@ -61,9 +61,10 @@
 - [x] Mixed fixnum/flonum arithmetic with flonum contagion
 - [x] Float literal parsing (3.14, .5, 1e10, +inf.0, -inf.0, +nan.0)
 - [x] 32 new procedures: /, floor, ceiling, truncate, round, sqrt, expt, square, gcd, lcm, exact, inexact, exact?, inexact?, exact-integer?, even?, odd?, sin, cos, tan, asin, acos, atan, exp, log, finite?, infinite?, nan?, real?, complex?, rational?, string->number
-- [ ] Bignum (deferred)
-- [ ] Rational (deferred)
-- [ ] Complex (deferred)
+- [x] Complex numbers (make-rectangular, make-polar, real-part, imag-part, magnitude, angle)
+- [x] Mixed complex arithmetic (+, -, *, /)
+- [ ] Bignum (deferred — 63-bit fixnums sufficient for most use)
+- [ ] Rational (deferred — needs bignum)
 
 ## Phase 5: Hygienic Macros — DONE
 - [x] `syntax-rules` with pattern matching (variables, literals, underscore, ellipsis)
@@ -77,7 +78,10 @@
 - [x] `import` with `only`, `except`, `rename`, `prefix` modifiers
 - [x] Pre-registered standard libraries: `(scheme base)`, `(scheme write)`, `(scheme inexact)`, etc.
 - [x] Library registry for user-defined libraries
-- [ ] File-based library loading (.sld) (deferred)
+- [x] File-based library loading (.sld) with path search
+- [x] `include` declaration in define-library
+- [x] `cond-expand` (feature-based conditional expansion)
+- [x] `apply` (proper implementation)
 
 ## Phase 7: Exceptions — DONE
 - [x] `with-exception-handler`, `raise`, `raise-continuable`

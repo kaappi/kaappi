@@ -10,4 +10,5 @@ test {
     _ = @import("tests_phase8.zig");
     _ = @import("tests_phase9.zig");
     _ = @import("tests_phase10.zig");
+    _ = @import("tests_phase11.zig");
 }

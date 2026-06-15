@@ -324,8 +324,13 @@ pub const Compiler = struct {
             if (std.mem.eql(u8, name, "cond")) return forms.compileCond(self, args, dst, is_tail);
             if (std.mem.eql(u8, name, "let")) return forms.compileLet(self, args, dst, is_tail);
             if (std.mem.eql(u8, name, "let*")) return forms.compileLetStar(self, args, dst, is_tail);
+            if (std.mem.eql(u8, name, "let-values")) return forms.compileLetValues(self, args, dst, is_tail);
+            if (std.mem.eql(u8, name, "let*-values")) return forms.compileLetStarValues(self, args, dst, is_tail);
             if (std.mem.eql(u8, name, "letrec")) return forms.compileLetrec(self, args, dst, is_tail);
             if (std.mem.eql(u8, name, "letrec*")) return forms.compileLetrecStar(self, args, dst, is_tail);
+            if (std.mem.eql(u8, name, "case")) return forms.compileCase(self, args, dst, is_tail);
+            if (std.mem.eql(u8, name, "case-lambda")) return forms.compileCaseLambda(self, args, dst);
+            if (std.mem.eql(u8, name, "cond-expand")) return forms.compileCondExpand(self, args, dst, is_tail);
             if (std.mem.eql(u8, name, "do")) return forms.compileDo(self, args, dst, is_tail);
             if (std.mem.eql(u8, name, "guard")) return forms.compileGuard(self, args, dst, is_tail);
 

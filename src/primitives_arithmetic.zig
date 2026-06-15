@@ -77,6 +77,14 @@ pub fn registerArithmetic(vm: *vm_mod.VM) !void {
     // Number/string conversion
     try reg(vm, "number->string", &numberToString, .{ .exact = 1 });
     try reg(vm, "string->number", &stringToNumber, .{ .variadic = 1 });
+
+    // Complex numbers (R7RS 6.2.6)
+    try reg(vm, "make-rectangular", &makeRectangular, .{ .exact = 2 });
+    try reg(vm, "make-polar", &makePolar, .{ .exact = 2 });
+    try reg(vm, "real-part", &realPart, .{ .exact = 1 });
+    try reg(vm, "imag-part", &imagPart, .{ .exact = 1 });
+    try reg(vm, "magnitude", &magnitudeFn, .{ .exact = 1 });
+    try reg(vm, "angle", &angleFn, .{ .exact = 1 });
 }
 
 // ---------------------------------------------------------------------------
@@ -84,6 +92,16 @@ pub fn registerArithmetic(vm: *vm_mod.VM) !void {
 // ---------------------------------------------------------------------------
 
 fn add(args: []const Value) PrimitiveError!Value {
+    if (isAnyComplex(args)) {
+        var real: f64 = 0;
+        var imag: f64 = 0;
+        for (args) |a| {
+            const c = try toComplexParts(a);
+            real += c.real;
+            imag += c.imag;
+        }
+        return makeComplexOrReal(real, imag);
+    }
     if (anyFlonum(args)) {
         var sum: f64 = 0;
         for (args) |a| {
@@ -101,6 +119,18 @@ fn add(args: []const Value) PrimitiveError!Value {
 
 fn sub(args: []const Value) PrimitiveError!Value {
     if (args.len == 0) return PrimitiveError.ArityMismatch;
+    if (isAnyComplex(args)) {
+        const first = try toComplexParts(args[0]);
+        if (args.len == 1) return makeComplexOrReal(-first.real, -first.imag);
+        var real = first.real;
+        var imag = first.imag;
+        for (args[1..]) |a| {
+            const c = try toComplexParts(a);
+            real -= c.real;
+            imag -= c.imag;
+        }
+        return makeComplexOrReal(real, imag);
+    }
     if (anyFlonum(args)) {
         if (args.len == 1) return makeFlonumVal(-(try toF64(args[0])));
         var result = try toF64(args[0]);
@@ -120,6 +150,19 @@ fn sub(args: []const Value) PrimitiveError!Value {
 }
 
 fn mul(args: []const Value) PrimitiveError!Value {
+    if (isAnyComplex(args)) {
+        var real: f64 = 1;
+        var imag: f64 = 0;
+        for (args) |a| {
+            const c = try toComplexParts(a);
+            // (real + imag*i) * (c.real + c.imag*i)
+            const new_real = real * c.real - imag * c.imag;
+            const new_imag = real * c.imag + imag * c.real;
+            real = new_real;
+            imag = new_imag;
+        }
+        return makeComplexOrReal(real, imag);
+    }
     if (anyFlonum(args)) {
         var product: f64 = 1;
         for (args) |a| {
@@ -137,6 +180,27 @@ fn mul(args: []const Value) PrimitiveError!Value {
 
 fn divFn(args: []const Value) PrimitiveError!Value {
     if (args.len == 0) return PrimitiveError.ArityMismatch;
+    if (isAnyComplex(args)) {
+        const first = try toComplexParts(args[0]);
+        if (args.len == 1) {
+            // 1/(a+bi) = (a-bi)/(a^2+b^2)
+            const denom = first.real * first.real + first.imag * first.imag;
+            if (denom == 0.0) return PrimitiveError.DivisionByZero;
+            return makeComplexOrReal(first.real / denom, -first.imag / denom);
+        }
+        var real = first.real;
+        var imag = first.imag;
+        for (args[1..]) |a| {
+            const c = try toComplexParts(a);
+            const denom = c.real * c.real + c.imag * c.imag;
+            if (denom == 0.0) return PrimitiveError.DivisionByZero;
+            const new_real = (real * c.real + imag * c.imag) / denom;
+            const new_imag = (imag * c.real - real * c.imag) / denom;
+            real = new_real;
+            imag = new_imag;
+        }
+        return makeComplexOrReal(real, imag);
+    }
     if (args.len == 1) {
         // (/ z) = 1/z
         const a = try toF64(args[0]);
@@ -611,6 +675,31 @@ fn numberToString(args: []const Value) PrimitiveError!Value {
     return PrimitiveError.TypeError;
 }
 
+fn isAnyComplex(args: []const Value) bool {
+    for (args) |a| {
+        if (types.isComplex(a)) return true;
+    }
+    return false;
+}
+
+fn toComplexParts(v: Value) PrimitiveError!struct { real: f64, imag: f64 } {
+    if (types.isComplex(v)) {
+        const c = types.toComplex(v);
+        return .{ .real = c.real, .imag = c.imag };
+    }
+    if (types.isFixnum(v)) return .{ .real = @floatFromInt(types.toFixnum(v)), .imag = 0.0 };
+    if (types.isFlonum(v)) return .{ .real = types.toFlonum(v), .imag = 0.0 };
+    return PrimitiveError.TypeError;
+}
+
+fn makeComplexOrReal(real: f64, imag: f64) PrimitiveError!Value {
+    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    if (imag == 0.0) {
+        return gc.allocFlonum(real) catch return PrimitiveError.OutOfMemory;
+    }
+    return gc.allocComplex(real, imag) catch return PrimitiveError.OutOfMemory;
+}
+
 fn stringToNumber(args: []const Value) PrimitiveError!Value {
     if (!types.isString(args[0])) return PrimitiveError.TypeError;
     const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
@@ -634,4 +723,70 @@ fn stringToNumber(args: []const Value) PrimitiveError!Value {
     } else |_| {}
 
     return types.FALSE; // R7RS: return #f on failure
+}
+
+// ---------------------------------------------------------------------------
+// Complex numbers (R7RS 6.2.6)
+// ---------------------------------------------------------------------------
+
+fn makeRectangular(args: []const Value) PrimitiveError!Value {
+    const real = try toF64(args[0]);
+    const imag = try toF64(args[1]);
+    return makeComplexOrReal(real, imag);
+}
+
+fn makePolar(args: []const Value) PrimitiveError!Value {
+    const mag = try toF64(args[0]);
+    const ang = try toF64(args[1]);
+    const real = mag * @cos(ang);
+    const imag = mag * @sin(ang);
+    return makeComplexOrReal(real, imag);
+}
+
+fn realPart(args: []const Value) PrimitiveError!Value {
+    if (types.isComplex(args[0])) {
+        return makeFlonumVal(types.toComplex(args[0]).real);
+    }
+    if (types.isFixnum(args[0]) or types.isFlonum(args[0])) return args[0];
+    return PrimitiveError.TypeError;
+}
+
+fn imagPart(args: []const Value) PrimitiveError!Value {
+    if (types.isComplex(args[0])) {
+        return makeFlonumVal(types.toComplex(args[0]).imag);
+    }
+    if (types.isFixnum(args[0])) return types.makeFixnum(0);
+    if (types.isFlonum(args[0])) return makeFlonumVal(0.0);
+    return PrimitiveError.TypeError;
+}
+
+fn magnitudeFn(args: []const Value) PrimitiveError!Value {
+    if (types.isComplex(args[0])) {
+        const c = types.toComplex(args[0]);
+        return makeFlonumVal(@sqrt(c.real * c.real + c.imag * c.imag));
+    }
+    if (types.isFixnum(args[0])) {
+        const n = types.toFixnum(args[0]);
+        return if (n < 0) types.makeFixnum(-n) else args[0];
+    }
+    if (types.isFlonum(args[0])) {
+        return makeFlonumVal(@abs(types.toFlonum(args[0])));
+    }
+    return PrimitiveError.TypeError;
+}
+
+fn angleFn(args: []const Value) PrimitiveError!Value {
+    if (types.isComplex(args[0])) {
+        const c = types.toComplex(args[0]);
+        return makeFlonumVal(std.math.atan2(c.imag, c.real));
+    }
+    if (types.isFixnum(args[0])) {
+        const n = types.toFixnum(args[0]);
+        return makeFlonumVal(if (n >= 0) 0.0 else std.math.pi);
+    }
+    if (types.isFlonum(args[0])) {
+        const f = types.toFlonum(args[0]);
+        return makeFlonumVal(if (f >= 0.0) 0.0 else std.math.pi);
+    }
+    return PrimitiveError.TypeError;
 }

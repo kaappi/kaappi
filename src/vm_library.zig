@@ -54,11 +54,131 @@ fn processImportSet(vm: *VM, import_set: Value) !void {
     const lib_name = library_mod.libraryNameToString(vm.gc.allocator, import_set) catch return error.InvalidSyntax;
     defer vm.gc.allocator.free(lib_name);
 
+    // Try built-in registry first
+    if (vm.libraries.get(lib_name)) |lib| {
+        var it = lib.exports.iterator();
+        while (it.next()) |entry| {
+            vm.globals.put(entry.key_ptr.*, entry.value_ptr.*) catch return error.OutOfMemory;
+        }
+        return;
+    }
+
+    // Not found in registry — try loading from .sld file
+    tryLoadLibraryFromFile(vm, import_set) catch return error.UndefinedVariable;
+
+    // Now try again
     const lib = vm.libraries.get(lib_name) orelse return error.UndefinedVariable;
     var it = lib.exports.iterator();
     while (it.next()) |entry| {
         vm.globals.put(entry.key_ptr.*, entry.value_ptr.*) catch return error.OutOfMemory;
     }
+}
+
+/// Try to load a library from a .sld file on disk.
+/// (mylib util) -> search ./mylib/util.sld, then ./lib/mylib/util.sld
+fn tryLoadLibraryFromFile(vm: *VM, name_list: Value) !void {
+    const allocator = vm.gc.allocator;
+
+    // Build the file path from the library name components
+    // (mylib util) -> "mylib/util.sld"
+    var path_buf: [512]u8 = undefined;
+    var pos: usize = 0;
+    var current = name_list;
+    var first = true;
+
+    while (current != types.NIL) {
+        if (!types.isPair(current)) return error.InvalidSyntax;
+        const part = types.car(current);
+        current = types.cdr(current);
+
+        if (!first) {
+            if (pos >= path_buf.len) return error.InvalidSyntax;
+            path_buf[pos] = '/';
+            pos += 1;
+        }
+        first = false;
+
+        if (types.isSymbol(part)) {
+            const name = types.symbolName(part);
+            if (pos + name.len >= path_buf.len) return error.InvalidSyntax;
+            @memcpy(path_buf[pos .. pos + name.len], name);
+            pos += name.len;
+        } else if (types.isFixnum(part)) {
+            var num_buf: [20]u8 = undefined;
+            const s = std.fmt.bufPrint(&num_buf, "{d}", .{types.toFixnum(part)}) catch return error.InvalidSyntax;
+            if (pos + s.len >= path_buf.len) return error.InvalidSyntax;
+            @memcpy(path_buf[pos .. pos + s.len], s);
+            pos += s.len;
+        } else {
+            return error.InvalidSyntax;
+        }
+    }
+
+    // Append .sld extension
+    const ext = ".sld";
+    if (pos + ext.len >= path_buf.len) return error.InvalidSyntax;
+    @memcpy(path_buf[pos .. pos + ext.len], ext);
+    pos += ext.len;
+
+    const rel_path = path_buf[0..pos];
+
+    // Try paths: ./rel_path, then ./lib/rel_path
+    const paths_to_try = [_][]const u8{ "", "lib/" };
+    for (paths_to_try) |prefix| {
+        var full_path_buf: [600]u8 = undefined;
+        const full_len = prefix.len + rel_path.len;
+        if (full_len >= full_path_buf.len) continue;
+        @memcpy(full_path_buf[0..prefix.len], prefix);
+        @memcpy(full_path_buf[prefix.len .. prefix.len + rel_path.len], rel_path);
+
+        const full_path = full_path_buf[0..full_len];
+
+        const source = readFileContents(allocator, full_path) catch continue;
+        defer allocator.free(source);
+
+        // Parse and evaluate the file contents (should contain a define-library form)
+        const reader_mod = @import("reader.zig");
+        var reader = reader_mod.Reader.init(vm.gc, source);
+        defer reader.deinit();
+
+        while (reader.hasMore()) {
+            const expr = reader.readDatum() catch return error.InvalidSyntax;
+
+            if (vm.handleTopLevelForm(expr)) |result| {
+                _ = result catch return error.OutOfMemory;
+            } else {
+                const func = compiler_mod.compileExpressionWithMacros(vm.gc, expr, &vm.macros) catch return error.InvalidSyntax;
+                var func_val = types.makePointer(@ptrCast(func));
+                vm.gc.pushRoot(&func_val);
+                _ = vm.execute(func) catch |err| {
+                    vm.gc.popRoot();
+                    return err;
+                };
+                vm.gc.popRoot();
+            }
+        }
+        return; // Successfully loaded
+    }
+
+    return error.UndefinedVariable;
+}
+
+/// Read file contents (duplicated from main.zig since we can't import it)
+fn readFileContents(allocator: std.mem.Allocator, path: []const u8) ![]u8 {
+    const fd = std.posix.openat(std.posix.AT.FDCWD, path, .{}, 0) catch return error.InvalidSyntax;
+    defer _ = std.posix.system.close(fd);
+
+    var result: std.ArrayList(u8) = .empty;
+    defer result.deinit(allocator);
+
+    var tmp: [4096]u8 = undefined;
+    while (true) {
+        const bytes_read = std.posix.read(fd, &tmp) catch return error.InvalidSyntax;
+        if (bytes_read == 0) break;
+        result.appendSlice(allocator, tmp[0..bytes_read]) catch return error.OutOfMemory;
+    }
+
+    return result.toOwnedSlice(allocator);
 }
 
 fn processImportOnly(vm: *VM, args: Value) !void {
@@ -302,7 +422,64 @@ pub fn handleDefineLibrary(vm: *VM, args: Value) VMError!Value {
                 body = types.cdr(body);
             }
         }
-        // Ignore unknown declarations (include, include-ci, cond-expand, etc.)
+        else if (std.mem.eql(u8, decl_name, "include")) {
+            // (include "file.scm" ...)
+            var file_list = types.cdr(declaration);
+            while (file_list != types.NIL) {
+                if (!types.isPair(file_list)) {
+                    vm.gc.allocator.free(lib_name);
+                    return VMError.CompileError;
+                }
+                const file_val = types.car(file_list);
+                if (!types.isString(file_val)) {
+                    vm.gc.allocator.free(lib_name);
+                    return VMError.CompileError;
+                }
+                const file_str = types.toObject(file_val).as(types.SchemeString);
+                const file_path = file_str.data[0..file_str.len];
+
+                const file_source = readFileContents(vm.gc.allocator, file_path) catch {
+                    vm.gc.allocator.free(lib_name);
+                    return VMError.CompileError;
+                };
+                defer vm.gc.allocator.free(file_source);
+
+                // Parse and evaluate the included file
+                const reader_mod = @import("reader.zig");
+                var file_reader = reader_mod.Reader.init(vm.gc, file_source);
+                defer file_reader.deinit();
+
+                while (file_reader.hasMore()) {
+                    const inc_expr = file_reader.readDatum() catch {
+                        vm.gc.allocator.free(lib_name);
+                        return VMError.CompileError;
+                    };
+
+                    if (vm.handleTopLevelForm(inc_expr)) |inc_result| {
+                        _ = inc_result catch {
+                            vm.gc.allocator.free(lib_name);
+                            return VMError.CompileError;
+                        };
+                    } else {
+                        const func = compiler_mod.compileExpressionWithMacros(vm.gc, inc_expr, &vm.macros) catch {
+                            vm.gc.allocator.free(lib_name);
+                            return VMError.CompileError;
+                        };
+                        var func_val = types.makePointer(@ptrCast(func));
+                        vm.gc.pushRoot(&func_val);
+                        _ = vm.execute(func) catch |err| {
+                            vm.gc.popRoot();
+                            vm.gc.allocator.free(lib_name);
+                            return err;
+                        };
+                        vm.gc.popRoot();
+                    }
+                }
+
+                file_list = types.cdr(file_list);
+            }
+        }
+        // Ignore unknown declarations (cond-expand, include-ci, etc.)
 
         decl = types.cdr(decl);
     }
