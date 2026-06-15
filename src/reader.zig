@@ -100,6 +100,40 @@ pub const Reader = struct {
         }
     }
 
+    // Unicode letter classification for identifier support
+    fn isUnicodeLetter(cp: u21) bool {
+        if (cp <= 127) return std.ascii.isAlphabetic(@intCast(cp));
+        if (cp >= 0xC0 and cp <= 0xFF and cp != 0xD7 and cp != 0xF7) return true;
+        if (cp >= 0x100 and cp <= 0x24F) return true;
+        if (cp >= 0x250 and cp <= 0x2AF) return true;
+        if (cp >= 0x370 and cp <= 0x3FF) return true;
+        if (cp >= 0x400 and cp <= 0x4FF) return true;
+        if (cp >= 0x500 and cp <= 0x52F) return true;
+        if (cp >= 0x530 and cp <= 0x58F) return true;
+        if (cp >= 0x5D0 and cp <= 0x5EA) return true;
+        if (cp >= 0x600 and cp <= 0x6FF) return true;
+        if (cp >= 0x900 and cp <= 0x97F) return true;
+        if (cp >= 0x0E01 and cp <= 0x0E3A) return true;
+        if (cp >= 0x10A0 and cp <= 0x10FF) return true;
+        if (cp >= 0x1100 and cp <= 0x11FF) return true;
+        if (cp >= 0x3040 and cp <= 0x309F) return true;
+        if (cp >= 0x30A0 and cp <= 0x30FF) return true;
+        if (cp >= 0x4E00 and cp <= 0x9FFF) return true;
+        if (cp >= 0xAC00 and cp <= 0xD7AF) return true;
+        if (cp >= 0x3400 and cp <= 0x4DBF) return true;
+        if (cp >= 0x1E00 and cp <= 0x1EFF) return true;
+        if (cp >= 0x1F00 and cp <= 0x1FFF) return true;
+        return false;
+    }
+
+    fn isUnicodeSubsequent(cp: u21) bool {
+        if (cp <= 127) {
+            const c: u8 = @intCast(cp);
+            return isSubsequent(c);
+        }
+        return isUnicodeLetter(cp);
+    }
+
     fn isDelimiter(c: u8) bool {
         return c == ' ' or c == '\t' or c == '\n' or c == '\r' or
             c == '(' or c == ')' or c == '"' or c == ';' or c == '|';
@@ -180,6 +214,16 @@ pub const Reader = struct {
                 if (isInitial(c)) {
                     return self.readSymbol();
                 }
+                // Check for Unicode identifier start (multi-byte UTF-8)
+                if (c >= 0x80) {
+                    const seq_len = std.unicode.utf8ByteSequenceLength(c) catch return ReadError.UnexpectedChar;
+                    if (self.pos + seq_len > self.source.len) return ReadError.UnexpectedChar;
+                    const cp = std.unicode.utf8Decode(self.source[self.pos .. self.pos + seq_len]) catch return ReadError.UnexpectedChar;
+                    if (isUnicodeLetter(cp)) {
+                        return self.readUnicodeSymbol();
+                    }
+                    return ReadError.UnexpectedChar;
+                }
                 return ReadError.UnexpectedChar;
             },
         }
@@ -254,9 +298,58 @@ pub const Reader = struct {
             return .{ .symbol = self.source[start..self.pos] };
         }
 
-        // Regular identifier
-        while (self.pos < self.source.len and isSubsequent(self.source[self.pos])) {
-            self.pos += 1;
+        // Regular identifier (may include Unicode subsequent chars)
+        while (self.pos < self.source.len) {
+            const sc = self.source[self.pos];
+            if (sc < 0x80) {
+                if (isSubsequent(sc)) {
+                    self.pos += 1;
+                } else {
+                    break;
+                }
+            } else {
+                const seq_len = std.unicode.utf8ByteSequenceLength(sc) catch break;
+                if (self.pos + seq_len > self.source.len) break;
+                const scp = std.unicode.utf8Decode(self.source[self.pos .. self.pos + seq_len]) catch break;
+                if (isUnicodeSubsequent(scp)) {
+                    self.pos += seq_len;
+                } else {
+                    break;
+                }
+            }
+        }
+        return .{ .symbol = self.source[start..self.pos] };
+    }
+
+    /// Read a symbol that starts with a Unicode (multi-byte) character.
+    /// The source bytes are used directly as the symbol name since they are
+    /// already valid UTF-8.
+    fn readUnicodeSymbol(self: *Reader) ReadError!Token {
+        const start = self.pos;
+        // Consume the first multi-byte character (already validated by caller)
+        const first_len = std.unicode.utf8ByteSequenceLength(self.source[self.pos]) catch 1;
+        self.pos += first_len;
+        // Continue consuming subsequent characters (ASCII or Unicode)
+        while (self.pos < self.source.len) {
+            const c = self.source[self.pos];
+            if (c < 0x80) {
+                // ASCII byte: check if it's a valid subsequent character
+                if (isSubsequent(c)) {
+                    self.pos += 1;
+                } else {
+                    break;
+                }
+            } else {
+                // Multi-byte UTF-8: decode and check
+                const seq_len = std.unicode.utf8ByteSequenceLength(c) catch break;
+                if (self.pos + seq_len > self.source.len) break;
+                const cp = std.unicode.utf8Decode(self.source[self.pos .. self.pos + seq_len]) catch break;
+                if (isUnicodeSubsequent(cp)) {
+                    self.pos += seq_len;
+                } else {
+                    break;
+                }
+            }
         }
         return .{ .symbol = self.source[start..self.pos] };
     }
@@ -393,9 +486,11 @@ pub const Reader = struct {
         self.pos += 1; // skip backslash
         if (self.pos >= self.source.len) return ReadError.UnexpectedEof;
 
-        const start = self.pos;
-        // Try named character
-        if (std.ascii.isAlphabetic(self.source[self.pos])) {
+        const first_byte = self.source[self.pos];
+
+        // Try named character or single ASCII letter
+        if (std.ascii.isAlphabetic(first_byte)) {
+            const start = self.pos;
             while (self.pos < self.source.len and std.ascii.isAlphabetic(self.source[self.pos])) {
                 self.pos += 1;
             }
@@ -414,10 +509,39 @@ pub const Reader = struct {
             if (std.ascii.eqlIgnoreCase(name, "escape")) return .{ .character = 0x1B };
             return ReadError.InvalidCharacterName;
         }
-        // Single character
-        const ch = self.source[self.pos];
+
+        // Try hex escape: #\xNN...
+        if (first_byte == 'x' and self.pos + 1 < self.source.len and
+            std.ascii.isHex(self.source[self.pos + 1]))
+        {
+            // Already handled above for named chars like "x" alone,
+            // but "x" followed by hex digits is a hex literal
+            // Actually, single "x" was consumed above if alphabetic. This handles
+            // the case where the named char lookup fell through. But wait - "x" alone
+            // would be caught by name.len == 1 above. So #\x alone returns 'x'.
+            // For #\x41; we need to handle it: but R7RS hex chars use #\x<hex>;
+            // Let's not handle that here since the spec uses ; terminator and
+            // that's more complex. The simple #\x returns 'x' which is correct.
+        }
+
+        // Multi-byte UTF-8 character (e.g., #\λ)
+        if (first_byte >= 0x80) {
+            const seq_len = std.unicode.utf8ByteSequenceLength(first_byte) catch {
+                self.pos += 1;
+                return .{ .character = first_byte };
+            };
+            if (self.pos + seq_len > self.source.len) return ReadError.UnexpectedEof;
+            const cp = std.unicode.utf8Decode(self.source[self.pos .. self.pos + seq_len]) catch {
+                self.pos += 1;
+                return .{ .character = first_byte };
+            };
+            self.pos += seq_len;
+            return .{ .character = cp };
+        }
+
+        // Single ASCII non-letter character (e.g., #\( #\) #\1 etc.)
         self.pos += 1;
-        return .{ .character = ch };
+        return .{ .character = first_byte };
     }
 
     // -- Datum reader (produces Values) --

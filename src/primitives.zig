@@ -385,7 +385,16 @@ fn notFn(args: []const Value) PrimitiveError!Value {
 fn stringLength(args: []const Value) PrimitiveError!Value {
     if (!types.isString(args[0])) return PrimitiveError.TypeError;
     const str = types.toObject(args[0]).as(types.SchemeString);
-    return types.makeFixnum(@intCast(str.len));
+    const data = str.data[0..str.len];
+    // Count UTF-8 codepoints, not bytes
+    var count: usize = 0;
+    var i: usize = 0;
+    while (i < data.len) {
+        const len = std.unicode.utf8ByteSequenceLength(data[i]) catch 1;
+        i += len;
+        count += 1;
+    }
+    return types.makeFixnum(@intCast(count));
 }
 
 fn stringAppend(args: []const Value) PrimitiveError!Value {
