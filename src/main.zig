@@ -175,6 +175,35 @@ fn completionCallback(buf: [*c]const u8, lc: [*c]ln.c.linenoiseCompletions) call
     }
 }
 
+fn parenDepth(src: []const u8) i32 {
+    var depth: i32 = 0;
+    var in_string = false;
+    var in_escape = false;
+    var in_line_comment = false;
+    for (src) |ch| {
+        if (in_line_comment) {
+            if (ch == '\n') in_line_comment = false;
+            continue;
+        }
+        if (in_escape) {
+            in_escape = false;
+            continue;
+        }
+        if (in_string) {
+            if (ch == '\\') in_escape = true else if (ch == '"') in_string = false;
+            continue;
+        }
+        switch (ch) {
+            '"' => in_string = true,
+            ';' => in_line_comment = true,
+            '(' => depth += 1,
+            ')' => depth -= 1,
+            else => {},
+        }
+    }
+    return depth;
+}
+
 fn repl(vm: *vm_mod.VM) !void {
     const allocator = vm.gc.allocator;
 
@@ -186,79 +215,105 @@ fn repl(vm: *vm_mod.VM) !void {
     ln.historyLoad(".kaappi_history");
     ln.setCompletionCallback(&completionCallback);
 
+    var input_buf: std.ArrayList(u8) = .empty;
+    defer input_buf.deinit(allocator);
+
     while (true) {
-        const line_ptr = ln.linenoise("kaappi> ") orelse break;
+        const prompt: [*:0]const u8 = if (input_buf.items.len > 0) "  ... " else "kaappi> ";
+        const line_ptr = ln.linenoise(prompt) orelse {
+            if (input_buf.items.len > 0) {
+                input_buf.clearRetainingCapacity();
+                writeStdout("\n");
+                continue;
+            }
+            break;
+        };
         defer ln.free(@ptrCast(line_ptr));
 
         const line = std.mem.span(line_ptr);
         const trimmed = std.mem.trim(u8, line, " \t\r");
-        if (trimmed.len == 0) continue;
 
-        ln.historyAdd(line_ptr);
+        if (input_buf.items.len == 0 and trimmed.len == 0) continue;
+        if (input_buf.items.len == 0 and std.mem.eql(u8, trimmed, "(exit)")) break;
 
-        if (std.mem.eql(u8, trimmed, "(exit)")) break;
+        if (input_buf.items.len > 0) {
+            input_buf.append(allocator, '\n') catch continue;
+        }
+        input_buf.appendSlice(allocator, line) catch continue;
 
-        var r = reader.Reader.init(vm.gc, trimmed);
-        defer r.deinit();
+        if (parenDepth(input_buf.items) > 0) continue;
 
-        while (r.hasMore()) {
-            const expr = r.readDatum() catch |err| {
-                var errbuf: [256]u8 = undefined;
-                var ew: std.Io.Writer = .fixed(&errbuf);
-                ew.print("Read error: {}\n", .{err}) catch {};
-                writeStdout(ew.buffered());
-                break;
-            };
+        const full_input = input_buf.items;
 
-            if (vm.handleTopLevelForm(expr)) |top_result| {
-                const result = top_result catch |err| {
-                    var errbuf: [256]u8 = undefined;
-                    var ew: std.Io.Writer = .fixed(&errbuf);
-                    ew.print("Runtime error: {}\n", .{err}) catch {};
-                    writeStdout(ew.buffered());
-                    break;
-                };
-                if (result != types.VOID) {
-                    const s = printer.valueToString(allocator, result, .write) catch continue;
-                    defer allocator.free(s);
-                    writeStdout(s);
-                    writeStdout("\n");
-                }
-                continue;
-            }
+        ln.historyAdd(@ptrCast(full_input.ptr));
 
-            const func = compiler.compileExpressionWithMacros(vm.gc, expr, &vm.macros) catch |err| {
-                var errbuf: [256]u8 = undefined;
-                var ew: std.Io.Writer = .fixed(&errbuf);
-                ew.print("Compile error: {}\n", .{err}) catch {};
-                writeStdout(ew.buffered());
-                break;
-            };
+        evalInput(vm, allocator, full_input);
 
-            var func_val = types.makePointer(@ptrCast(func));
-            vm.gc.pushRoot(&func_val);
+        input_buf.clearRetainingCapacity();
+    }
 
-            const result = vm.execute(func) catch |err| {
-                vm.gc.popRoot();
+    ln.historySave(".kaappi_history");
+    repl_vm = null;
+}
+
+fn evalInput(vm: *vm_mod.VM, allocator: std.mem.Allocator, input: []const u8) void {
+    var r = reader.Reader.init(vm.gc, input);
+    defer r.deinit();
+
+    while (r.hasMore()) {
+        const expr = r.readDatum() catch |err| {
+            var errbuf: [256]u8 = undefined;
+            var ew: std.Io.Writer = .fixed(&errbuf);
+            ew.print("Read error: {}\n", .{err}) catch {};
+            writeStdout(ew.buffered());
+            break;
+        };
+
+        if (vm.handleTopLevelForm(expr)) |top_result| {
+            const result = top_result catch |err| {
                 var errbuf: [256]u8 = undefined;
                 var ew: std.Io.Writer = .fixed(&errbuf);
                 ew.print("Runtime error: {}\n", .{err}) catch {};
                 writeStdout(ew.buffered());
                 break;
             };
-            vm.gc.popRoot();
-
             if (result != types.VOID) {
                 const s = printer.valueToString(allocator, result, .write) catch continue;
                 defer allocator.free(s);
                 writeStdout(s);
                 writeStdout("\n");
             }
+            continue;
+        }
+
+        const func = compiler.compileExpressionWithMacros(vm.gc, expr, &vm.macros) catch |err| {
+            var errbuf: [256]u8 = undefined;
+            var ew: std.Io.Writer = .fixed(&errbuf);
+            ew.print("Compile error: {}\n", .{err}) catch {};
+            writeStdout(ew.buffered());
+            break;
+        };
+
+        var func_val = types.makePointer(@ptrCast(func));
+        vm.gc.pushRoot(&func_val);
+
+        const result = vm.execute(func) catch |err| {
+            vm.gc.popRoot();
+            var errbuf: [256]u8 = undefined;
+            var ew: std.Io.Writer = .fixed(&errbuf);
+            ew.print("Runtime error: {}\n", .{err}) catch {};
+            writeStdout(ew.buffered());
+            break;
+        };
+        vm.gc.popRoot();
+
+        if (result != types.VOID) {
+            const s = printer.valueToString(allocator, result, .write) catch continue;
+            defer allocator.free(s);
+            writeStdout(s);
+            writeStdout("\n");
         }
     }
-
-    ln.historySave(".kaappi_history");
-    repl_vm = null;
 }
 
 test {
