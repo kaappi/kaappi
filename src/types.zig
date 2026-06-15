@@ -106,6 +106,8 @@ pub const ObjectTag = enum(u4) {
     transformer = 11,
     error_object = 12,
     record_instance = 13,
+    continuation = 14,
+    multiple_values = 15,
 };
 
 pub const Object = struct {
@@ -209,6 +211,53 @@ pub const Port = struct {
 };
 
 // ---------------------------------------------------------------------------
+// Continuation types (R7RS 6.10)
+// ---------------------------------------------------------------------------
+
+/// Saved call frame for continuation capture.
+pub const SavedFrame = struct {
+    closure: ?*Closure,
+    native: ?*NativeFn,
+    code: []const u8,
+    ip: usize,
+    base: u16,
+    dst: u8,
+};
+
+/// Saved exception handler for continuation capture.
+pub const SavedHandler = struct {
+    handler: Value,
+    frame_count: usize,
+};
+
+/// Saved dynamic-wind record.
+pub const WindRecord = struct {
+    before: Value,
+    after: Value,
+};
+
+/// A captured continuation (R7RS call/cc).
+/// Contains a snapshot of the VM state at the point of capture.
+pub const Continuation = struct {
+    header: Object,
+    registers: []Value,
+    frames: []SavedFrame,
+    frame_count: usize,
+    handlers: []SavedHandler,
+    handler_count: usize,
+    wind_records: []WindRecord,
+    wind_count: usize,
+    dst_reg: u8, // register offset within frame where result goes
+    dst_base: u16, // base register of the return frame
+};
+
+/// Multiple return values (R7RS values/call-with-values).
+pub const MultipleValues = struct {
+    header: Object,
+    values: []Value,
+};
+
+// ---------------------------------------------------------------------------
 // Type predicates on Value
 // ---------------------------------------------------------------------------
 
@@ -237,7 +286,15 @@ pub fn isFunction(v: Value) bool {
 }
 
 pub fn isProcedure(v: Value) bool {
-    return isClosure(v) or isNativeFn(v);
+    return isClosure(v) or isNativeFn(v) or isContinuation(v);
+}
+
+pub fn isContinuation(v: Value) bool {
+    return isPointer(v) and toObject(v).tag == .continuation;
+}
+
+pub fn isMultipleValues(v: Value) bool {
+    return isPointer(v) and toObject(v).tag == .multiple_values;
 }
 
 pub fn isFlonum(v: Value) bool {

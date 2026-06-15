@@ -101,10 +101,10 @@
 - [x] `read` (datum reader), `file-exists?`, `eof-object`, `eof-object?`
 - [x] `(scheme file)` and `(scheme read)` libraries
 
-## Phase 10: Continuations — TODO
-- [ ] `call-with-current-continuation`
-- [ ] `dynamic-wind`
-- [ ] `values`, `call-with-values`
+## Phase 10: Continuations — DONE
+- [x] `call-with-current-continuation` / `call/cc` (stack-copying implementation)
+- [x] `dynamic-wind` (wind/unwind on continuation invocation)
+- [x] `values` and `call-with-values` (multiple return values)
 
 ## (scheme base) — Appendix A Coverage
 

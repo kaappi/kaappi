@@ -159,6 +159,18 @@ pub fn printValue(writer: anytype, value: Value, mode: PrintMode) anyerror!void 
                 }
                 try writer.writeByte('>');
             },
+            .continuation => {
+                try writer.writeAll("#<continuation>");
+            },
+            .multiple_values => {
+                const mv = obj.as(types.MultipleValues);
+                try writer.writeAll("#<values");
+                for (mv.values) |val| {
+                    try writer.writeByte(' ');
+                    try printValue(writer, val, mode);
+                }
+                try writer.writeByte('>');
+            },
             else => {
                 try writer.writeAll("#<object>");
             },

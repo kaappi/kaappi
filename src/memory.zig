@@ -15,6 +15,11 @@ const Transformer = types.Transformer;
 const RecordType = types.RecordType;
 const RecordInstance = types.RecordInstance;
 const Port = types.Port;
+const Continuation = types.Continuation;
+const MultipleValues = types.MultipleValues;
+const SavedFrame = types.SavedFrame;
+const SavedHandler = types.SavedHandler;
+const WindRecord = types.WindRecord;
 
 const GC_THRESHOLD: usize = 1024;
 
@@ -239,6 +244,59 @@ pub const GC = struct {
         return types.makePointer(@ptrCast(port));
     }
 
+    pub fn allocContinuation(
+        self: *GC,
+        registers: []const Value,
+        frames: []const SavedFrame,
+        frame_count: usize,
+        handlers: []const SavedHandler,
+        handler_count: usize,
+        wind_records: []const WindRecord,
+        wind_count: usize,
+        dst_reg: u8,
+        dst_base: u16,
+    ) !Value {
+        self.maybeCollect();
+        const saved_regs = try self.allocator.dupe(Value, registers);
+        const saved_frames = try self.allocator.dupe(SavedFrame, frames);
+        const saved_handlers = try self.allocator.dupe(SavedHandler, handlers);
+        const saved_winds = try self.allocator.dupe(WindRecord, wind_records);
+
+        const cont = try self.allocator.create(Continuation);
+        cont.* = .{
+            .header = .{ .tag = .continuation },
+            .registers = saved_regs,
+            .frames = saved_frames,
+            .frame_count = frame_count,
+            .handlers = saved_handlers,
+            .handler_count = handler_count,
+            .wind_records = saved_winds,
+            .wind_count = wind_count,
+            .dst_reg = dst_reg,
+            .dst_base = dst_base,
+        };
+        self.bytes_allocated += @sizeOf(Continuation) +
+            registers.len * @sizeOf(Value) +
+            frames.len * @sizeOf(SavedFrame) +
+            handlers.len * @sizeOf(SavedHandler) +
+            wind_records.len * @sizeOf(WindRecord);
+        self.trackObject(&cont.header);
+        return types.makePointer(@ptrCast(cont));
+    }
+
+    pub fn allocMultipleValues(self: *GC, values: []const Value) !Value {
+        self.maybeCollect();
+        const owned = try self.allocator.dupe(Value, values);
+        const mv = try self.allocator.create(MultipleValues);
+        mv.* = .{
+            .header = .{ .tag = .multiple_values },
+            .values = owned,
+        };
+        self.bytes_allocated += @sizeOf(MultipleValues) + values.len * @sizeOf(Value);
+        self.trackObject(&mv.header);
+        return types.makePointer(@ptrCast(mv));
+    }
+
     // -- Convenience: build a proper list from a slice
     pub fn makeList(self: *GC, items: []const Value) !Value {
         var result: Value = types.NIL;
@@ -326,6 +384,36 @@ pub const GC = struct {
                 self.markValue(types.makePointer(@ptrCast(ri.record_type)));
                 for (ri.fields) |field| {
                     self.markValue(field);
+                }
+            },
+            .continuation => {
+                const cont = obj.as(Continuation);
+                for (cont.registers) |reg| {
+                    self.markValue(reg);
+                }
+                // Mark closures referenced in saved frames
+                for (cont.frames[0..cont.frame_count]) |frame| {
+                    if (frame.closure) |cls| {
+                        self.markValue(types.makePointer(@ptrCast(cls)));
+                    }
+                    if (frame.native) |nf| {
+                        self.markValue(types.makePointer(@ptrCast(nf)));
+                    }
+                }
+                // Mark handler procedures
+                for (cont.handlers[0..cont.handler_count]) |handler| {
+                    self.markValue(handler.handler);
+                }
+                // Mark wind stack thunks
+                for (cont.wind_records[0..cont.wind_count]) |wr| {
+                    self.markValue(wr.before);
+                    self.markValue(wr.after);
+                }
+            },
+            .multiple_values => {
+                const mv = obj.as(MultipleValues);
+                for (mv.values) |val| {
+                    self.markValue(val);
                 }
             },
             .symbol, .string, .native_fn, .flonum, .port => {},
@@ -421,6 +509,19 @@ pub const GC = struct {
                     self.allocator.free(port.name);
                 }
                 self.allocator.destroy(port);
+            },
+            .continuation => {
+                const cont = obj.as(Continuation);
+                self.allocator.free(cont.registers);
+                self.allocator.free(cont.frames);
+                self.allocator.free(cont.handlers);
+                self.allocator.free(cont.wind_records);
+                self.allocator.destroy(cont);
+            },
+            .multiple_values => {
+                const mv = obj.as(MultipleValues);
+                self.allocator.free(mv.values);
+                self.allocator.destroy(mv);
             },
             else => {},
         }

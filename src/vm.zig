@@ -17,11 +17,13 @@ pub const VMError = error{
     DivisionByZero,
     CompileError,
     ExceptionRaised,
+    ContinuationInvoked,
 };
 
 const MAX_FRAMES = 256;
 const MAX_REGISTERS = 1024;
 const MAX_HANDLERS = 64;
+const MAX_WINDS = 64;
 
 pub var vm_instance: ?*VM = null;
 
@@ -69,6 +71,9 @@ pub const VM = struct {
     handler_stack: [MAX_HANDLERS]ExceptionHandler = undefined,
     handler_count: usize = 0,
     current_exception: ?Value = null,
+    wind_stack: [MAX_WINDS]types.WindRecord = undefined,
+    wind_count: usize = 0,
+    continuation_invoked: bool = false,
     stdin_port: Value = types.VOID,
     stdout_port: Value = types.VOID,
     stderr_port: Value = types.VOID,
@@ -122,6 +127,12 @@ pub const VM = struct {
     /// Call a handler procedure with a single argument, using the VM's call machinery.
     /// Used by with-exception-handler when an exception is caught.
     pub fn callHandler(self: *VM, handler_val: Value, arg: Value) VMError!Value {
+        if (types.isContinuation(handler_val)) {
+            const cont = types.toObject(handler_val).as(types.Continuation);
+            self.performWindTransition(cont.wind_records[0..cont.wind_count], cont.wind_count) catch return VMError.OutOfMemory;
+            self.restoreContinuation(cont, arg);
+            return VMError.ContinuationInvoked;
+        }
         if (types.isClosure(handler_val)) {
             const closure = types.toObject(handler_val).as(types.Closure);
             const func = closure.func;
@@ -157,6 +168,7 @@ pub const VM = struct {
             self.frame_count += 1;
 
             const result = self.runUntil(saved_frame_count) catch |err| {
+                if (err == VMError.ContinuationInvoked) return err;
                 self.frame_count = saved_frame_count;
                 return err;
             };
@@ -170,6 +182,7 @@ pub const VM = struct {
                     error.DivisionByZero => VMError.DivisionByZero,
                     error.OutOfMemory => VMError.OutOfMemory,
                     error.ExceptionRaised => VMError.ExceptionRaised,
+                    error.ContinuationInvoked => VMError.ContinuationInvoked,
                     else => VMError.InvalidBytecode,
                 };
             };
@@ -209,6 +222,7 @@ pub const VM = struct {
             self.frame_count += 1;
 
             const result = self.runUntil(saved_frame_count) catch |err| {
+                if (err == VMError.ContinuationInvoked) return err;
                 // On error, unwind any frames that were pushed during the thunk
                 self.frame_count = saved_frame_count;
                 return err;
@@ -223,12 +237,215 @@ pub const VM = struct {
                     error.DivisionByZero => VMError.DivisionByZero,
                     error.OutOfMemory => VMError.OutOfMemory,
                     error.ExceptionRaised => VMError.ExceptionRaised,
+                    error.ContinuationInvoked => VMError.ContinuationInvoked,
                     else => VMError.InvalidBytecode,
                 };
             };
             return result;
         } else {
             return VMError.NotAProcedure;
+        }
+    }
+
+    /// Call a procedure with multiple arguments using the VM's call machinery.
+    pub fn callWithArgs(self: *VM, proc: Value, args: []const Value) VMError!Value {
+        if (types.isContinuation(proc)) {
+            const cont = types.toObject(proc).as(types.Continuation);
+            const value = if (args.len == 0) types.VOID else args[0];
+            self.performWindTransition(cont.wind_records[0..cont.wind_count], cont.wind_count) catch return VMError.OutOfMemory;
+            self.restoreContinuation(cont, value);
+            return VMError.ContinuationInvoked;
+        }
+        if (types.isClosure(proc)) {
+            const closure = types.toObject(proc).as(types.Closure);
+            const func = closure.func;
+
+            const base: u16 = if (self.frame_count > 0)
+                self.frames[self.frame_count - 1].base + 200
+            else
+                0;
+
+            // Set up arguments
+            const nargs: u8 = @intCast(args.len);
+            if (!func.is_variadic) {
+                if (nargs != func.arity) return VMError.ArityMismatch;
+            } else {
+                if (nargs < func.arity) return VMError.ArityMismatch;
+                // Collect rest args into a list
+                const rest_start = func.arity;
+                var rest_list: Value = types.NIL;
+                var i: u8 = nargs;
+                while (i > rest_start) {
+                    i -= 1;
+                    rest_list = self.gc.allocPair(args[i], rest_list) catch return VMError.OutOfMemory;
+                }
+                // Place fixed args and rest list
+                for (0..rest_start) |ri| {
+                    self.registers[base + ri] = args[ri];
+                }
+                self.registers[base + rest_start] = rest_list;
+            }
+
+            if (!func.is_variadic) {
+                for (args, 0..) |arg, i| {
+                    self.registers[base + i] = arg;
+                }
+            }
+
+            if (self.frame_count >= MAX_FRAMES) return VMError.StackOverflow;
+
+            const saved_frame_count = self.frame_count;
+            self.frames[self.frame_count] = .{
+                .closure = closure,
+                .code = func.code.items,
+                .ip = 0,
+                .base = base,
+                .dst = 0,
+            };
+            self.frame_count += 1;
+
+            const result = self.runUntil(saved_frame_count) catch |err| {
+                if (err == VMError.ContinuationInvoked) return err;
+                self.frame_count = saved_frame_count;
+                return err;
+            };
+            return result;
+        } else if (types.isNativeFn(proc)) {
+            const native = types.toObject(proc).as(types.NativeFn);
+            switch (native.arity) {
+                .exact => |expected| {
+                    if (args.len != expected) return VMError.ArityMismatch;
+                },
+                .variadic => |min| {
+                    if (args.len < min) return VMError.ArityMismatch;
+                },
+            }
+            const result = native.func(args) catch |err| {
+                return switch (err) {
+                    error.TypeError => VMError.TypeError,
+                    error.DivisionByZero => VMError.DivisionByZero,
+                    error.OutOfMemory => VMError.OutOfMemory,
+                    error.ExceptionRaised => VMError.ExceptionRaised,
+                    error.ContinuationInvoked => VMError.ContinuationInvoked,
+                    else => VMError.InvalidBytecode,
+                };
+            };
+            return result;
+        } else {
+            return VMError.NotAProcedure;
+        }
+    }
+
+    /// Capture the current continuation state.
+    /// dst_reg is the register offset within the caller's frame where the result of call/cc will go.
+    /// dst_base is the base register of the caller's frame.
+    pub fn captureContinuation(self: *VM, dst_reg: u8, dst_base: u16) VMError!Value {
+        // Determine how many registers are actually in use
+        var max_reg: usize = 0;
+        for (self.frames[0..self.frame_count]) |f| {
+            const frame_end = @as(usize, f.base) + 256; // conservative upper bound
+            if (frame_end > max_reg) max_reg = frame_end;
+        }
+        if (max_reg > MAX_REGISTERS) max_reg = MAX_REGISTERS;
+        // At minimum, save up to dst_base + dst_reg + 1
+        const min_needed = @as(usize, dst_base) + @as(usize, dst_reg) + 1;
+        if (min_needed > max_reg) max_reg = min_needed;
+
+        // Convert frames to SavedFrames
+        var saved_frames: [MAX_FRAMES]types.SavedFrame = undefined;
+        for (self.frames[0..self.frame_count], 0..) |f, i| {
+            saved_frames[i] = .{
+                .closure = f.closure,
+                .native = f.native,
+                .code = f.code,
+                .ip = f.ip,
+                .base = f.base,
+                .dst = f.dst,
+            };
+        }
+
+        // Convert handlers to SavedHandlers
+        var saved_handlers: [MAX_HANDLERS]types.SavedHandler = undefined;
+        for (self.handler_stack[0..self.handler_count], 0..) |h, i| {
+            saved_handlers[i] = .{
+                .handler = h.handler,
+                .frame_count = h.frame_count,
+            };
+        }
+
+        const cont_val = self.gc.allocContinuation(
+            self.registers[0..max_reg],
+            saved_frames[0..self.frame_count],
+            self.frame_count,
+            saved_handlers[0..self.handler_count],
+            self.handler_count,
+            self.wind_stack[0..self.wind_count],
+            self.wind_count,
+            dst_reg,
+            dst_base,
+        ) catch return VMError.OutOfMemory;
+
+        return cont_val;
+    }
+
+    /// Call a procedure with the current continuation (call/cc).
+    /// proc is the one-argument procedure to call with the continuation.
+    /// base is the register containing the callee (call/cc itself),
+    /// and the result of call/cc will be stored at base.
+    pub fn callWithCC(self: *VM, proc: Value, base: u16) VMError!void {
+        // The caller's frame is at self.frame_count - 1.
+        // After call/cc returns, the result goes into base (relative to caller's frame).
+        const caller_frame = &self.frames[self.frame_count - 1];
+        const dst_reg: u8 = @intCast(base - caller_frame.base);
+
+        // Capture the continuation. The continuation, when invoked,
+        // will restore state and place the value at base (which is
+        // caller_frame.base + dst_reg).
+        const cont = try self.captureContinuation(dst_reg, caller_frame.base);
+
+        // Now call proc with cont as the argument.
+        // We set up: registers[base] = proc, registers[base+1] = cont
+        self.registers[base + 1] = cont;
+
+        // Call proc(cont) — just like a normal 1-arg call
+        try self.callValue(proc, base, 1);
+    }
+
+    /// Perform dynamic-wind transition from current wind stack to target wind stack.
+    /// Calls after thunks for unwinding and before thunks for rewinding.
+    fn performWindTransition(self: *VM, target_winds: []const types.WindRecord, target_count: usize) !void {
+        // Find the common prefix length
+        const min_len = @min(self.wind_count, target_count);
+        var common: usize = 0;
+        while (common < min_len) {
+            // Compare by identity (thunk values)
+            if (self.wind_stack[common].before != target_winds[common].before or
+                self.wind_stack[common].after != target_winds[common].after)
+            {
+                break;
+            }
+            common += 1;
+        }
+
+        // Unwind: call after thunks from current top down to common
+        var i = self.wind_count;
+        while (i > common) {
+            i -= 1;
+            const after = self.wind_stack[i].after;
+            _ = self.callThunk(after) catch {};
+        }
+        self.wind_count = common;
+
+        // Rewind: call before thunks from common up to target
+        var j = common;
+        while (j < target_count) {
+            const before = target_winds[j].before;
+            _ = self.callThunk(before) catch {};
+            if (self.wind_count < MAX_WINDS) {
+                self.wind_stack[self.wind_count] = target_winds[j];
+                self.wind_count += 1;
+            }
+            j += 1;
         }
     }
 
@@ -324,7 +541,18 @@ pub const VM = struct {
                     const base_reg = self.readU8(frame);
                     const nargs = self.readU8(frame);
                     const callee = self.registers[frame.base + base_reg];
-                    try self.callValue(callee, frame.base + base_reg, nargs);
+                    self.callValue(callee, frame.base + base_reg, nargs) catch |err| {
+                        if (err == VMError.ContinuationInvoked) {
+                            // State was replaced. If we're the outermost runUntil
+                            // (target=0), restart the dispatch loop with new state.
+                            // Otherwise, propagate up so all nested runUntils unwind.
+                            if (target_frame_count == 0) {
+                                continue;
+                            }
+                            return VMError.ContinuationInvoked;
+                        }
+                        return err;
+                    };
                 },
                 .tail_call => {
                     const base_reg = self.readU8(frame);
@@ -332,7 +560,16 @@ pub const VM = struct {
                     const abs_base = frame.base + base_reg;
                     const callee = self.registers[abs_base];
 
-                    if (types.isClosure(callee)) {
+                    if (types.isContinuation(callee)) {
+                        const cont = types.toObject(callee).as(types.Continuation);
+                        const value = if (nargs == 0) types.VOID else self.registers[abs_base + 1];
+                        self.performWindTransition(cont.wind_records[0..cont.wind_count], cont.wind_count) catch return VMError.OutOfMemory;
+                        self.restoreContinuation(cont, value);
+                        if (target_frame_count == 0) {
+                            continue;
+                        }
+                        return VMError.ContinuationInvoked;
+                    } else if (types.isClosure(callee)) {
                         const closure = types.toObject(callee).as(types.Closure);
                         const func = closure.func;
 
@@ -373,11 +610,18 @@ pub const VM = struct {
                         }
                         const nargs_slice = self.registers[abs_base + 1 .. abs_base + 1 + nargs];
                         const result = native.func(nargs_slice) catch |err| {
+                            if (err == error.ContinuationInvoked) {
+                                if (target_frame_count == 0) {
+                                    continue;
+                                }
+                                return VMError.ContinuationInvoked;
+                            }
                             return switch (err) {
                                 error.TypeError => VMError.TypeError,
                                 error.DivisionByZero => VMError.DivisionByZero,
                                 error.OutOfMemory => VMError.OutOfMemory,
                                 error.ExceptionRaised => VMError.ExceptionRaised,
+                                error.ContinuationInvoked => VMError.ContinuationInvoked,
                                 else => VMError.InvalidBytecode,
                             };
                         };
@@ -484,7 +728,55 @@ pub const VM = struct {
         return self.runUntil(0);
     }
 
+    fn restoreContinuation(self: *VM, cont: *types.Continuation, value: Value) void {
+        // Restore saved VM state
+        @memcpy(self.registers[0..cont.registers.len], cont.registers);
+        for (cont.frames[0..cont.frame_count], 0..) |saved_frame, i| {
+            self.frames[i] = .{
+                .closure = saved_frame.closure,
+                .native = saved_frame.native,
+                .code = saved_frame.code,
+                .ip = saved_frame.ip,
+                .base = saved_frame.base,
+                .dst = saved_frame.dst,
+            };
+        }
+        self.frame_count = cont.frame_count;
+
+        // Restore handler stack
+        for (cont.handlers[0..cont.handler_count], 0..) |saved_handler, i| {
+            self.handler_stack[i] = .{
+                .handler = saved_handler.handler,
+                .frame_count = saved_handler.frame_count,
+            };
+        }
+        self.handler_count = cont.handler_count;
+
+        // Restore wind stack
+        for (cont.wind_records[0..cont.wind_count], 0..) |wr, i| {
+            self.wind_stack[i] = wr;
+        }
+        self.wind_count = cont.wind_count;
+
+        // Place the result value where call/cc was waiting for it
+        self.registers[cont.dst_base + cont.dst_reg] = value;
+    }
+
     fn callValue(self: *VM, callee: Value, base: u16, nargs: u8) VMError!void {
+        if (types.isContinuation(callee)) {
+            const cont = types.toObject(callee).as(types.Continuation);
+            // Get the value to pass (0 args => void, 1 arg => that arg)
+            const value = if (nargs == 0) types.VOID else self.registers[base + 1];
+
+            // Handle dynamic-wind: unwind current, rewind to saved
+            self.performWindTransition(cont.wind_records[0..cont.wind_count], cont.wind_count) catch return VMError.OutOfMemory;
+
+            // Restore state and place result
+            self.restoreContinuation(cont, value);
+
+            // Signal to ALL callers that state was replaced
+            return VMError.ContinuationInvoked;
+        }
         if (types.isClosure(callee)) {
             const closure = types.toObject(callee).as(types.Closure);
             const func = closure.func;
@@ -538,6 +830,7 @@ pub const VM = struct {
                     error.DivisionByZero => VMError.DivisionByZero,
                     error.OutOfMemory => VMError.OutOfMemory,
                     error.ExceptionRaised => VMError.ExceptionRaised,
+                    error.ContinuationInvoked => VMError.ContinuationInvoked,
                     else => VMError.InvalidBytecode,
                 };
             };
@@ -2823,4 +3116,185 @@ test "import scheme file" {
     try std.testing.expectEqual(types.TRUE, try vm.eval("(procedure? open-input-file)"));
     try std.testing.expectEqual(types.TRUE, try vm.eval("(procedure? open-output-file)"));
     try std.testing.expectEqual(types.TRUE, try vm.eval("(procedure? file-exists?)"));
+}
+
+// ---------------------------------------------------------------------------
+// Phase 10: Continuations (R7RS 6.10)
+// ---------------------------------------------------------------------------
+
+test "call/cc basic — proc returns normally" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try makeTestVM(&gc);
+    defer vm.deinit();
+
+    const result = try vm.eval("(call-with-current-continuation (lambda (k) 42))");
+    try std.testing.expectEqual(@as(i64, 42), types.toFixnum(result));
+}
+
+test "call/cc escape continuation" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try makeTestVM(&gc);
+    defer vm.deinit();
+
+    const result = try vm.eval("(+ 1 (call/cc (lambda (k) (+ 2 (k 10)))))");
+    try std.testing.expectEqual(@as(i64, 11), types.toFixnum(result));
+}
+
+test "call/cc alias" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try makeTestVM(&gc);
+    defer vm.deinit();
+
+    const result = try vm.eval("(call/cc (lambda (k) (k 99)))");
+    try std.testing.expectEqual(@as(i64, 99), types.toFixnum(result));
+}
+
+test "call/cc continuation is a procedure" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try makeTestVM(&gc);
+    defer vm.deinit();
+
+    const result = try vm.eval("(call/cc (lambda (k) (procedure? k)))");
+    try std.testing.expectEqual(types.TRUE, result);
+}
+
+test "call/cc nested escape" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try makeTestVM(&gc);
+    defer vm.deinit();
+
+    // Escape from nested computation
+    const result = try vm.eval(
+        \\(* 10 (call/cc (lambda (k)
+        \\  (+ 1 (+ 2 (k 5))))))
+    );
+    try std.testing.expectEqual(@as(i64, 50), types.toFixnum(result));
+}
+
+test "call/cc with no invocation of continuation" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try makeTestVM(&gc);
+    defer vm.deinit();
+
+    // Continuation is never invoked — proc returns normally
+    const result = try vm.eval("(call/cc (lambda (k) (+ 3 4)))");
+    try std.testing.expectEqual(@as(i64, 7), types.toFixnum(result));
+}
+
+test "dynamic-wind basic" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try makeTestVM(&gc);
+    defer vm.deinit();
+
+    _ = try vm.eval("(define log '())");
+    _ = try vm.eval(
+        \\(dynamic-wind
+        \\  (lambda () (set! log (cons 'in log)))
+        \\  (lambda () (set! log (cons 'body log)))
+        \\  (lambda () (set! log (cons 'out log))))
+    );
+    const result = try vm.eval("(reverse log)");
+    // Should be (in body out)
+    try std.testing.expect(types.isPair(result));
+    try std.testing.expectEqualStrings("in", types.symbolName(types.car(result)));
+    try std.testing.expectEqualStrings("body", types.symbolName(types.car(types.cdr(result))));
+    try std.testing.expectEqualStrings("out", types.symbolName(types.car(types.cdr(types.cdr(result)))));
+}
+
+test "dynamic-wind returns thunk result" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try makeTestVM(&gc);
+    defer vm.deinit();
+
+    const result = try vm.eval(
+        \\(dynamic-wind
+        \\  (lambda () #f)
+        \\  (lambda () 42)
+        \\  (lambda () #f))
+    );
+    try std.testing.expectEqual(@as(i64, 42), types.toFixnum(result));
+}
+
+test "values single value" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try makeTestVM(&gc);
+    defer vm.deinit();
+
+    const result = try vm.eval("(values 42)");
+    try std.testing.expectEqual(@as(i64, 42), types.toFixnum(result));
+}
+
+test "call-with-values basic" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try makeTestVM(&gc);
+    defer vm.deinit();
+
+    const result = try vm.eval("(call-with-values (lambda () (values 1 2 3)) +)");
+    try std.testing.expectEqual(@as(i64, 6), types.toFixnum(result));
+}
+
+test "call-with-values with list" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try makeTestVM(&gc);
+    defer vm.deinit();
+
+    const result = try vm.eval("(call-with-values (lambda () (values 1 2)) list)");
+    try std.testing.expect(types.isPair(result));
+    try std.testing.expectEqual(@as(i64, 1), types.toFixnum(types.car(result)));
+    try std.testing.expectEqual(@as(i64, 2), types.toFixnum(types.car(types.cdr(result))));
+}
+
+test "call-with-values single value" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try makeTestVM(&gc);
+    defer vm.deinit();
+
+    // Single value should work like a normal call
+    const result = try vm.eval("(call-with-values (lambda () 42) (lambda (x) (+ x 1)))");
+    try std.testing.expectEqual(@as(i64, 43), types.toFixnum(result));
+}
+
+test "values with zero values" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try makeTestVM(&gc);
+    defer vm.deinit();
+
+    // (values) produces multiple values with zero elements
+    const result = try vm.eval("(call-with-values (lambda () (values)) (lambda () 99))");
+    try std.testing.expectEqual(@as(i64, 99), types.toFixnum(result));
+}
+
+test "dynamic-wind with escape continuation" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try makeTestVM(&gc);
+    defer vm.deinit();
+
+    _ = try vm.eval("(define log '())");
+    const result = try vm.eval(
+        \\(call/cc (lambda (k)
+        \\  (dynamic-wind
+        \\    (lambda () (set! log (cons 'in log)))
+        \\    (lambda () (k 42))
+        \\    (lambda () (set! log (cons 'out log))))))
+    );
+    try std.testing.expectEqual(@as(i64, 42), types.toFixnum(result));
+    // After should have been called even though we escaped
+    const log = try vm.eval("(reverse log)");
+    try std.testing.expect(types.isPair(log));
+    try std.testing.expectEqualStrings("in", types.symbolName(types.car(log)));
+    try std.testing.expectEqualStrings("out", types.symbolName(types.car(types.cdr(log))));
 }

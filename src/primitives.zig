@@ -10,6 +10,7 @@ pub const PrimitiveError = error{
     ArityMismatch,
     OutOfMemory,
     ExceptionRaised,
+    ContinuationInvoked,
 };
 
 pub fn registerAll(vm: *vm_mod.VM) !void {
@@ -165,6 +166,13 @@ pub fn registerAll(vm: *vm_mod.VM) !void {
     try reg(vm, "%record?", &recordCheckFn, .{ .exact = 2 });
     try reg(vm, "%record-ref", &recordRefFn, .{ .exact = 2 });
     try reg(vm, "%record-set!", &recordSetFn, .{ .exact = 3 });
+
+    // Continuations (R7RS 6.10)
+    try reg(vm, "call-with-current-continuation", &callWithCurrentContinuation, .{ .exact = 1 });
+    try reg(vm, "call/cc", &callWithCurrentContinuation, .{ .exact = 1 });
+    try reg(vm, "dynamic-wind", &dynamicWindFn, .{ .exact = 3 });
+    try reg(vm, "values", &valuesFn, .{ .variadic = 0 });
+    try reg(vm, "call-with-values", &callWithValuesFn, .{ .exact = 2 });
 }
 
 fn reg(vm: *vm_mod.VM, name: []const u8, func: types.NativeFnType, arity: NativeFn.Arity) !void {
@@ -1380,6 +1388,9 @@ fn withExceptionHandlerFn(args: []const Value) PrimitiveError!Value {
 
     // Call the thunk
     const result = vm.callThunk(thunk) catch |err| {
+        if (err == vm_mod.VMError.ContinuationInvoked) {
+            return PrimitiveError.ContinuationInvoked;
+        }
         if (err == vm_mod.VMError.ExceptionRaised) {
             // An exception was raised during the thunk.
             // Pop our handler and call it with the exception.
@@ -1388,6 +1399,7 @@ fn withExceptionHandlerFn(args: []const Value) PrimitiveError!Value {
             vm.current_exception = null;
             const handler_result = vm.callHandler(handler, exc) catch |herr| {
                 return switch (herr) {
+                    vm_mod.VMError.ContinuationInvoked => PrimitiveError.ContinuationInvoked,
                     vm_mod.VMError.ExceptionRaised => PrimitiveError.ExceptionRaised,
                     vm_mod.VMError.OutOfMemory => PrimitiveError.OutOfMemory,
                     else => PrimitiveError.TypeError,
@@ -1509,4 +1521,190 @@ fn recordSetFn(args: []const Value) PrimitiveError!Value {
     if (idx >= ri.fields.len) return PrimitiveError.TypeError;
     ri.fields[idx] = args[2];
     return types.VOID;
+}
+
+// ---------------------------------------------------------------------------
+// Continuations (R7RS 6.10)
+// ---------------------------------------------------------------------------
+
+fn callWithCurrentContinuation(args: []const Value) PrimitiveError!Value {
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError;
+    const proc = args[0];
+    if (!types.isProcedure(proc)) return PrimitiveError.TypeError;
+
+    // Determine where the result of call/cc should be stored.
+    // The native function's result is stored by callValue at registers[base],
+    // where base is the absolute register of the call instruction's base_reg.
+    // We need to capture the continuation such that when invoked, it places
+    // the value at the correct register. Since the native function returns
+    // a value that gets stored at base by callValue, the continuation
+    // should mimic this: restore state and place value at the same spot.
+    //
+    // The calling frame is frames[frame_count - 1]. The call instruction
+    // that invoked call/cc used base_reg, which callValue received as the
+    // absolute base. We don't have direct access to base here, but we can
+    // compute it: the caller's frame ip has already advanced past the call
+    // instruction. We need to use the caller's context.
+    //
+    // A simpler approach: capture the continuation with the current state.
+    // The caller's frame has ip pointing past the call instruction, so when
+    // the continuation is restored, execution will resume right after the call.
+    // We just need to know where the result goes.
+    //
+    // In the calling convention, for a native fn, callValue stores the result
+    // at registers[base]. We need to communicate this to the continuation.
+    // Since we don't have base in the native fn, we'll use a different strategy:
+    // store the frame count and use dst from the calling frame.
+    //
+    // When a native function returns a value from a .call opcode, the result
+    // is stored at registers[base] where base = frame.base + base_reg.
+    // The continuation captures the current state. When invoked, it should
+    // place the value where callValue would have stored it.
+    //
+    // For the callWithCC approach in the VM, we rely on the VM method.
+
+    // The caller frame's base_reg determines where the result goes.
+    // We need to look at the instruction that called us. The ip has advanced
+    // past the call instruction (call base_reg nargs = 3 bytes).
+    // So ip - 2 gives us the position of nargs, ip - 3 gives base_reg.
+    const caller = &vm.frames[vm.frame_count - 1];
+    const call_ip = caller.ip;
+    // The call opcode is: [opcode:1][base_reg:1][nargs:1]
+    // So caller.ip points past nargs, and base_reg is at caller.ip - 2
+    const base_reg = caller.code[call_ip - 2];
+    const abs_base = caller.base + base_reg;
+
+    // Capture continuation. When invoked, it will place the value at abs_base.
+    const cont = vm.captureContinuation(@intCast(base_reg), caller.base) catch return PrimitiveError.OutOfMemory;
+
+    // Root the continuation so it survives GC during the proc call
+    var cont_val = cont;
+    vm.gc.pushRoot(&cont_val);
+
+    // Call proc(continuation)
+    const result = vm.callHandler(proc, cont_val) catch |err| {
+        vm.gc.popRoot();
+        return switch (err) {
+            vm_mod.VMError.ContinuationInvoked => PrimitiveError.ContinuationInvoked,
+            vm_mod.VMError.ExceptionRaised => PrimitiveError.ExceptionRaised,
+            vm_mod.VMError.OutOfMemory => PrimitiveError.OutOfMemory,
+            vm_mod.VMError.ArityMismatch => PrimitiveError.TypeError,
+            else => PrimitiveError.TypeError,
+        };
+    };
+
+    vm.gc.popRoot();
+
+    // If proc returned normally (without invoking the continuation),
+    // store the result where call/cc's result goes.
+    // callValue will store this in registers[base], which is registers[abs_base].
+    _ = abs_base;
+    return result;
+}
+
+fn dynamicWindFn(args: []const Value) PrimitiveError!Value {
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError;
+    const before = args[0];
+    const thunk = args[1];
+    const after = args[2];
+
+    if (!types.isProcedure(before)) return PrimitiveError.TypeError;
+    if (!types.isProcedure(thunk)) return PrimitiveError.TypeError;
+    if (!types.isProcedure(after)) return PrimitiveError.TypeError;
+
+    // Call before thunk
+    _ = vm.callThunk(before) catch |err| {
+        return switch (err) {
+            vm_mod.VMError.ContinuationInvoked => PrimitiveError.ContinuationInvoked,
+            vm_mod.VMError.ExceptionRaised => PrimitiveError.ExceptionRaised,
+            vm_mod.VMError.OutOfMemory => PrimitiveError.OutOfMemory,
+            else => PrimitiveError.TypeError,
+        };
+    };
+
+    // Push wind record
+    if (vm.wind_count >= 64) return PrimitiveError.OutOfMemory;
+    vm.wind_stack[vm.wind_count] = .{ .before = before, .after = after };
+    vm.wind_count += 1;
+
+    // Call thunk
+    const result = vm.callThunk(thunk) catch |err| {
+        // If continuation was invoked, the wind stack has been replaced
+        // so we shouldn't try to pop/call after
+        if (err == vm_mod.VMError.ContinuationInvoked) return PrimitiveError.ContinuationInvoked;
+
+        // On other errors, pop wind record and call after
+        vm.wind_count -= 1;
+        _ = vm.callThunk(after) catch {};
+        return switch (err) {
+            vm_mod.VMError.ExceptionRaised => PrimitiveError.ExceptionRaised,
+            vm_mod.VMError.OutOfMemory => PrimitiveError.OutOfMemory,
+            else => PrimitiveError.TypeError,
+        };
+    };
+
+    // Pop wind record
+    vm.wind_count -= 1;
+
+    // Call after thunk
+    _ = vm.callThunk(after) catch |err| {
+        return switch (err) {
+            vm_mod.VMError.ContinuationInvoked => PrimitiveError.ContinuationInvoked,
+            vm_mod.VMError.ExceptionRaised => PrimitiveError.ExceptionRaised,
+            vm_mod.VMError.OutOfMemory => PrimitiveError.OutOfMemory,
+            else => PrimitiveError.TypeError,
+        };
+    };
+
+    return result;
+}
+
+fn valuesFn(args: []const Value) PrimitiveError!Value {
+    if (args.len == 1) return args[0];
+    const gc = gc_instance orelse return PrimitiveError.OutOfMemory;
+    return gc.allocMultipleValues(args) catch return PrimitiveError.OutOfMemory;
+}
+
+fn callWithValuesFn(args: []const Value) PrimitiveError!Value {
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError;
+    const producer = args[0];
+    const consumer = args[1];
+
+    if (!types.isProcedure(producer)) return PrimitiveError.TypeError;
+    if (!types.isProcedure(consumer)) return PrimitiveError.TypeError;
+
+    // Call producer
+    const produced = vm.callThunk(producer) catch |err| {
+        return switch (err) {
+            vm_mod.VMError.ContinuationInvoked => PrimitiveError.ContinuationInvoked,
+            vm_mod.VMError.ExceptionRaised => PrimitiveError.ExceptionRaised,
+            vm_mod.VMError.OutOfMemory => PrimitiveError.OutOfMemory,
+            else => PrimitiveError.TypeError,
+        };
+    };
+
+    // Call consumer with the produced values
+    if (types.isMultipleValues(produced)) {
+        const mv = types.toObject(produced).as(types.MultipleValues);
+        const result = vm.callWithArgs(consumer, mv.values) catch |err| {
+            return switch (err) {
+                vm_mod.VMError.ContinuationInvoked => PrimitiveError.ContinuationInvoked,
+                vm_mod.VMError.ExceptionRaised => PrimitiveError.ExceptionRaised,
+                vm_mod.VMError.OutOfMemory => PrimitiveError.OutOfMemory,
+                else => PrimitiveError.TypeError,
+            };
+        };
+        return result;
+    } else {
+        // Single value — call consumer with one argument
+        const result = vm.callHandler(consumer, produced) catch |err| {
+            return switch (err) {
+                vm_mod.VMError.ContinuationInvoked => PrimitiveError.ContinuationInvoked,
+                vm_mod.VMError.ExceptionRaised => PrimitiveError.ExceptionRaised,
+                vm_mod.VMError.OutOfMemory => PrimitiveError.OutOfMemory,
+                else => PrimitiveError.TypeError,
+            };
+        };
+        return result;
+    }
 }

@@ -133,6 +133,10 @@ pub fn registerStandardLibraries(registry: *LibraryRegistry, globals: *std.Strin
         "read-char", "peek-char", "read-line", "char-ready?",
         "write-char", "write-string",
         "eof-object?", "eof-object",
+        // Continuations (R7RS 6.10)
+        "call-with-current-continuation", "call/cc",
+        "dynamic-wind",
+        "values", "call-with-values",
     };
 
     var base = Library.init(allocator, "scheme.base");
