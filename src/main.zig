@@ -19,6 +19,9 @@ pub const primitives_r7rs = @import("primitives_r7rs.zig");
 pub const printer = @import("printer.zig");
 pub const expander = @import("expander.zig");
 pub const library = @import("library.zig");
+pub const ln = @import("linenoise.zig");
+
+var repl_vm: ?*vm_mod.VM = null;
 
 fn writeToFd(fd: std.posix.fd_t, bytes: []const u8) void {
     var total: usize = 0;
@@ -158,21 +161,42 @@ fn runFile(vm: *vm_mod.VM, path: []const u8) !void {
     }
 }
 
+fn completionCallback(buf: [*c]const u8, lc: [*c]ln.c.linenoiseCompletions) callconv(.c) void {
+    const vm = repl_vm orelse return;
+    const b: ?[*:0]const u8 = @ptrCast(buf);
+    const prefix = if (b) |bp| std.mem.span(bp) else return;
+    if (prefix.len == 0) return;
+
+    var it = vm.globals.keyIterator();
+    while (it.next()) |key| {
+        if (std.mem.startsWith(u8, key.*, prefix)) {
+            ln.addCompletion(lc, @ptrCast(key.*.ptr));
+        }
+    }
+}
+
 fn repl(vm: *vm_mod.VM) !void {
     const allocator = vm.gc.allocator;
 
     writeStdout("Kaappi Scheme v0.1.0\n");
-    writeStdout("Type (exit) to quit.\n\n");
 
-    var line_buf: [4096]u8 = undefined;
+    repl_vm = vm;
+    ln.setMultiLine(true);
+    ln.historySetMaxLen(1000);
+    ln.historyLoad(".kaappi_history");
+    ln.setCompletionCallback(&completionCallback);
 
     while (true) {
-        writeStdout("kaappi> ");
-        const line = readLine(&line_buf) orelse return;
+        const line_ptr = ln.linenoise("kaappi> ") orelse break;
+        defer ln.free(@ptrCast(line_ptr));
 
+        const line = std.mem.span(line_ptr);
         const trimmed = std.mem.trim(u8, line, " \t\r");
         if (trimmed.len == 0) continue;
-        if (std.mem.eql(u8, trimmed, "(exit)")) return;
+
+        ln.historyAdd(line_ptr);
+
+        if (std.mem.eql(u8, trimmed, "(exit)")) break;
 
         var r = reader.Reader.init(vm.gc, trimmed);
         defer r.deinit();
@@ -186,7 +210,6 @@ fn repl(vm: *vm_mod.VM) !void {
                 break;
             };
 
-            // Check for special top-level forms (import, define-library)
             if (vm.handleTopLevelForm(expr)) |top_result| {
                 const result = top_result catch |err| {
                     var errbuf: [256]u8 = undefined;
@@ -212,7 +235,6 @@ fn repl(vm: *vm_mod.VM) !void {
                 break;
             };
 
-            // Root the function to prevent GC from collecting it before execute wraps it in a closure
             var func_val = types.makePointer(@ptrCast(func));
             vm.gc.pushRoot(&func_val);
 
@@ -234,6 +256,9 @@ fn repl(vm: *vm_mod.VM) !void {
             }
         }
     }
+
+    ln.historySave(".kaappi_history");
+    repl_vm = null;
 }
 
 test {
@@ -257,4 +282,5 @@ test {
     _ = printer;
     _ = expander;
     _ = library;
+    _ = ln;
 }

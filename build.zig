@@ -9,7 +9,13 @@ pub fn build(b: *std.Build) void {
         .root_source_file = b.path("src/main.zig"),
         .target = target,
         .optimize = optimize,
+        .link_libc = true,
     });
+    main_mod.addCSourceFile(.{
+        .file = b.path("vendor/linenoise/linenoise.c"),
+        .flags = &.{"-std=c99"},
+    });
+    main_mod.addIncludePath(b.path("vendor/linenoise"));
 
     // Main executable
     const exe = b.addExecutable(.{
