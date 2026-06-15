@@ -219,6 +219,9 @@ pub fn printValue(writer: anytype, value: Value, mode: PrintMode) anyerror!void 
             .continuation => {
                 try writer.writeAll("#<continuation>");
             },
+            .parameter => {
+                try writer.writeAll("#<parameter>");
+            },
             .multiple_values => {
                 const mv = obj.as(types.MultipleValues);
                 try writer.writeAll("#<values");

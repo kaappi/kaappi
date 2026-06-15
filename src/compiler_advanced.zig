@@ -239,6 +239,398 @@ pub fn compileCase(self: *Compiler, args: Value, dst: u8, is_tail: bool) Compile
     self.freeReg();
 }
 
+/// Compile (quasiquote template)
+///
+/// Walks the template recursively:
+/// - Atoms: emit as constants (like quote)
+/// - (unquote expr): compile expr normally
+/// - (unquote-splicing expr) within a list: build segments, call append
+/// - Otherwise: recursively process car/cdr, emit cons
+pub fn compileQuasiquote(self: *Compiler, args: Value, dst: u8) CompileError!void {
+    if (args == types.NIL) return CompileError.InvalidSyntax;
+    const template = types.car(args);
+    try compileQQ(self,template, dst, 0);
+}
+
+fn compileQQ(self: *Compiler, tmpl: Value, dst: u8, depth: u8) CompileError!void {
+    if (!types.isPair(tmpl)) {
+        // Atom: treat as quoted constant
+        const idx = try self.addConstant(tmpl);
+        try self.emitOp(.load_const);
+        try self.emit(dst);
+        try self.emitU16(idx);
+        return;
+    }
+
+    const head = types.car(tmpl);
+
+    // Check for (unquote expr)
+    if (types.isSymbol(head) and std.mem.eql(u8, types.symbolName(head), "unquote")) {
+        if (depth == 0) {
+            // Evaluate the expression
+            const rest = types.cdr(tmpl);
+            if (rest == types.NIL) return CompileError.InvalidSyntax;
+            try self.compileExpr(types.car(rest), dst, false);
+            return;
+        } else {
+            // Nested unquote: decrement depth, rebuild the form
+            const rest = types.cdr(tmpl);
+            if (rest == types.NIL) return CompileError.InvalidSyntax;
+            // Build (unquote <compiled-inner>) with decremented depth
+            const unquote_sym_idx = try self.addConstant(head);
+            const sym_reg = try self.allocReg();
+            try self.emitOp(.load_const);
+            try self.emit(sym_reg);
+            try self.emitU16(unquote_sym_idx);
+
+            const inner_reg = try self.allocReg();
+            try compileQQ(self,types.car(rest), inner_reg, depth - 1);
+
+            // Build (inner . ())
+            const nil_reg = try self.allocReg();
+            try self.emitOp(.load_nil);
+            try self.emit(nil_reg);
+            const inner_pair_reg = try self.allocReg();
+            try self.emitOp(.cons);
+            try self.emit(inner_pair_reg);
+            try self.emit(inner_reg);
+            try self.emit(nil_reg);
+            self.freeReg(); // nil_reg
+
+            // Build (unquote inner . ())
+            try self.emitOp(.cons);
+            try self.emit(dst);
+            try self.emit(sym_reg);
+            try self.emit(inner_pair_reg);
+
+            self.freeReg(); // inner_pair_reg
+            self.freeReg(); // inner_reg
+            self.freeReg(); // sym_reg
+            return;
+        }
+    }
+
+    // Check for (quasiquote expr) -- nested quasiquote
+    if (types.isSymbol(head) and std.mem.eql(u8, types.symbolName(head), "quasiquote")) {
+        const rest = types.cdr(tmpl);
+        if (rest == types.NIL) return CompileError.InvalidSyntax;
+        // Rebuild (quasiquote <compiled-inner>) with incremented depth
+        const qq_sym_idx = try self.addConstant(head);
+        const sym_reg = try self.allocReg();
+        try self.emitOp(.load_const);
+        try self.emit(sym_reg);
+        try self.emitU16(qq_sym_idx);
+
+        const inner_reg = try self.allocReg();
+        try compileQQ(self,types.car(rest), inner_reg, depth + 1);
+
+        const nil_reg = try self.allocReg();
+        try self.emitOp(.load_nil);
+        try self.emit(nil_reg);
+        const inner_pair_reg = try self.allocReg();
+        try self.emitOp(.cons);
+        try self.emit(inner_pair_reg);
+        try self.emit(inner_reg);
+        try self.emit(nil_reg);
+        self.freeReg(); // nil_reg
+
+        try self.emitOp(.cons);
+        try self.emit(dst);
+        try self.emit(sym_reg);
+        try self.emit(inner_pair_reg);
+
+        self.freeReg(); // inner_pair_reg
+        self.freeReg(); // inner_reg
+        self.freeReg(); // sym_reg
+        return;
+    }
+
+    // Check if any element uses unquote-splicing
+    if (hasUnquoteSplicing(tmpl, depth)) {
+        try compileQQSplicing(self,tmpl, dst, depth);
+        return;
+    }
+
+    // Regular pair: cons car and cdr
+    const car_reg = try self.allocReg();
+    try compileQQ(self,types.car(tmpl), car_reg, depth);
+
+    const cdr_reg = try self.allocReg();
+    try compileQQ(self,types.cdr(tmpl), cdr_reg, depth);
+
+    try self.emitOp(.cons);
+    try self.emit(dst);
+    try self.emit(car_reg);
+    try self.emit(cdr_reg);
+
+    self.freeReg(); // cdr_reg
+    self.freeReg(); // car_reg
+}
+
+/// Check if a list template contains any (unquote-splicing ...) at the current depth.
+fn hasUnquoteSplicing(tmpl: Value, depth: u8) bool {
+    var current = tmpl;
+    while (types.isPair(current)) {
+        const elem = types.car(current);
+        if (types.isPair(elem)) {
+            const elem_head = types.car(elem);
+            if (types.isSymbol(elem_head) and
+                std.mem.eql(u8, types.symbolName(elem_head), "unquote-splicing") and
+                depth == 0)
+            {
+                return true;
+            }
+        }
+        current = types.cdr(current);
+    }
+    return false;
+}
+
+/// Compile a quasiquote list that contains unquote-splicing.
+/// Strategy: desugar into an S-expression (append segment...) at compile time,
+/// then compile that S-expression normally. This avoids complex register management.
+///
+/// `(a ,@(list 1 2) b) desugars to:
+///   (append (list (quote a)) (list 1 2) (list (quote b)))
+fn compileQQSplicing(self: *Compiler, tmpl: Value, dst: u8, depth: u8) CompileError!void {
+    const gc = self.gc;
+    const quote_sym = gc.allocSymbol("quote") catch return CompileError.OutOfMemory;
+    const list_sym = gc.allocSymbol("list") catch return CompileError.OutOfMemory;
+    const append_sym = gc.allocSymbol("append") catch return CompileError.OutOfMemory;
+
+    // Collect segments as S-expression values
+    var segments_buf: [64]Value = undefined;
+    var seg_count: usize = 0;
+
+    var current = tmpl;
+    var group_buf: [64]Value = undefined;
+    var group_count: usize = 0;
+
+    while (types.isPair(current)) {
+        const elem = types.car(current);
+        current = types.cdr(current);
+
+        // Check if this element is (unquote-splicing expr)
+        if (types.isPair(elem) and depth == 0) {
+            const elem_head = types.car(elem);
+            if (types.isSymbol(elem_head) and
+                std.mem.eql(u8, types.symbolName(elem_head), "unquote-splicing"))
+            {
+                // Flush group: build (list (quote e1) (quote e2) ...)
+                if (group_count > 0) {
+                    if (seg_count >= 64) return CompileError.TooManyLocals;
+                    segments_buf[seg_count] = try buildQQListExpr(gc, quote_sym, list_sym, group_buf[0..group_count]);
+                    seg_count += 1;
+                    group_count = 0;
+                }
+
+                // Add the spliced expression directly as a segment
+                const splice_rest = types.cdr(elem);
+                if (splice_rest == types.NIL) return CompileError.InvalidSyntax;
+                if (seg_count >= 64) return CompileError.TooManyLocals;
+                segments_buf[seg_count] = types.car(splice_rest);
+                seg_count += 1;
+                continue;
+            }
+        }
+
+        // Normal element: add to group (will be wrapped in quote later)
+        if (group_count >= 64) return CompileError.TooManyLocals;
+        // For unquoted elements within splicing context, we need to recursively
+        // expand them. Check if element is (unquote expr) at depth 0
+        if (types.isPair(elem) and depth == 0) {
+            const elem_head = types.car(elem);
+            if (types.isSymbol(elem_head) and std.mem.eql(u8, types.symbolName(elem_head), "unquote")) {
+                const uq_rest = types.cdr(elem);
+                if (uq_rest == types.NIL) return CompileError.InvalidSyntax;
+                // This element should be evaluated, not quoted
+                // Store a sentinel: wrap in a special way
+                group_buf[group_count] = elem; // keep unquote form
+                group_count += 1;
+                continue;
+            }
+        }
+        group_buf[group_count] = elem;
+        group_count += 1;
+    }
+
+    // Flush remaining group
+    if (group_count > 0) {
+        if (seg_count >= 64) return CompileError.TooManyLocals;
+        segments_buf[seg_count] = try buildQQListExpr(gc, quote_sym, list_sym, group_buf[0..group_count]);
+        seg_count += 1;
+    }
+
+    // Handle dotted tail
+    if (current != types.NIL and !types.isPair(current)) {
+        // This shouldn't normally happen with splicing, but handle it
+        if (seg_count >= 64) return CompileError.TooManyLocals;
+        // Wrap as (quote tail)
+        const quoted_tail = gc.allocPair(quote_sym, gc.allocPair(current, types.NIL) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory;
+        segments_buf[seg_count] = quoted_tail;
+        seg_count += 1;
+    }
+
+    if (seg_count == 0) {
+        try self.emitOp(.load_nil);
+        try self.emit(dst);
+        return;
+    }
+    if (seg_count == 1) {
+        // Single segment, compile directly
+        return self.compileExpr(segments_buf[0], dst, false);
+    }
+
+    // Build (append seg1 seg2 ... segN)
+    var args_list: Value = types.NIL;
+    var si = seg_count;
+    while (si > 0) {
+        si -= 1;
+        args_list = gc.allocPair(segments_buf[si], args_list) catch return CompileError.OutOfMemory;
+    }
+    const append_call = gc.allocPair(append_sym, args_list) catch return CompileError.OutOfMemory;
+    return self.compileExpr(append_call, dst, false);
+}
+
+/// Build an S-expression (list expr1 expr2 ...) where each expr is either
+/// (quote elem) for plain data, or the unquote expression for ,expr.
+fn buildQQListExpr(gc: *@import("memory.zig").GC, quote_sym: Value, list_sym: Value, elems: []const Value) CompileError!Value {
+    // Build args list backwards
+    var args: Value = types.NIL;
+    var i = elems.len;
+    while (i > 0) {
+        i -= 1;
+        const elem = elems[i];
+        // Check if this is an (unquote expr) form -- if so, use expr directly
+        if (types.isPair(elem)) {
+            const elem_head = types.car(elem);
+            if (types.isSymbol(elem_head) and std.mem.eql(u8, types.symbolName(elem_head), "unquote")) {
+                const uq_rest = types.cdr(elem);
+                if (uq_rest != types.NIL) {
+                    args = gc.allocPair(types.car(uq_rest), args) catch return CompileError.OutOfMemory;
+                    continue;
+                }
+            }
+        }
+        // Wrap in (quote elem)
+        const quoted = gc.allocPair(quote_sym, gc.allocPair(elem, types.NIL) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory;
+        args = gc.allocPair(quoted, args) catch return CompileError.OutOfMemory;
+    }
+    return gc.allocPair(list_sym, args) catch return CompileError.OutOfMemory;
+}
+
+/// Compile (parameterize ((param1 val1) (param2 val2) ...) body ...)
+///
+/// Desugars to:
+///   (let ((old1 (p1)) (old2 (p2)) ...)
+///     (p1 v1) (p2 v2) ...
+///     (let ((%result (begin body ...)))
+///       (p1 old1) (p2 old2) ...
+///       %result))
+pub fn compileParameterize(self: *Compiler, args: Value, dst: u8, is_tail: bool) CompileError!void {
+    if (args == types.NIL) return CompileError.InvalidSyntax;
+    const bindings = types.car(args);
+    const body = types.cdr(args);
+    if (body == types.NIL) return CompileError.InvalidSyntax;
+
+    const gc = self.gc;
+    const let_sym = gc.allocSymbol("let") catch return CompileError.OutOfMemory;
+    const begin_sym = gc.allocSymbol("begin") catch return CompileError.OutOfMemory;
+
+    // Count bindings
+    var binding_count: usize = 0;
+    var b = bindings;
+    while (b != types.NIL) {
+        if (!types.isPair(b)) return CompileError.InvalidSyntax;
+        binding_count += 1;
+        b = types.cdr(b);
+    }
+
+    if (binding_count == 0) {
+        // No bindings: just compile the body
+        return self.compileExpr(gc.allocPair(begin_sym, body) catch return CompileError.OutOfMemory, dst, is_tail);
+    }
+
+    // Collect param/value exprs and generate old-value symbols
+    var old_syms: [32]Value = undefined;
+    var param_exprs: [32]Value = undefined;
+    var val_exprs: [32]Value = undefined;
+    if (binding_count > 32) return CompileError.TooManyLocals;
+
+    b = bindings;
+    var idx: usize = 0;
+    while (b != types.NIL) : (idx += 1) {
+        const binding = types.car(b);
+        if (!types.isPair(binding)) return CompileError.InvalidSyntax;
+        param_exprs[idx] = types.car(binding);
+        const val_rest = types.cdr(binding);
+        if (val_rest == types.NIL or !types.isPair(val_rest)) return CompileError.InvalidSyntax;
+        val_exprs[idx] = types.car(val_rest);
+
+        var name_buf: [16]u8 = undefined;
+        const name = std.fmt.bufPrint(&name_buf, "%pold{d}", .{idx}) catch return CompileError.OutOfMemory;
+        old_syms[idx] = gc.allocSymbol(name) catch return CompileError.OutOfMemory;
+
+        b = types.cdr(b);
+    }
+
+    // Build outer let bindings: ((old1 (p1)) (old2 (p2)) ...)
+    var let_bindings: Value = types.NIL;
+    var i = binding_count;
+    while (i > 0) {
+        i -= 1;
+        const get_call = gc.allocPair(param_exprs[i], types.NIL) catch return CompileError.OutOfMemory;
+        const binding_pair = gc.allocPair(old_syms[i], gc.allocPair(get_call, types.NIL) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory;
+        let_bindings = gc.allocPair(binding_pair, let_bindings) catch return CompileError.OutOfMemory;
+    }
+
+    // Build set calls: (p1 v1) (p2 v2) ...
+    var set_calls: Value = types.NIL;
+    // Build restore calls: (p1 old1) (p2 old2) ...
+    var restore_calls: Value = types.NIL;
+    i = binding_count;
+    while (i > 0) {
+        i -= 1;
+        const set_call = gc.allocPair(param_exprs[i], gc.allocPair(val_exprs[i], types.NIL) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory;
+        set_calls = gc.allocPair(set_call, set_calls) catch return CompileError.OutOfMemory;
+
+        const restore_call = gc.allocPair(param_exprs[i], gc.allocPair(old_syms[i], types.NIL) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory;
+        restore_calls = gc.allocPair(restore_call, restore_calls) catch return CompileError.OutOfMemory;
+    }
+
+    // Build inner result binding: ((%result (begin body ...)))
+    const result_sym = gc.allocSymbol("%pres") catch return CompileError.OutOfMemory;
+    const body_begin = gc.allocPair(begin_sym, body) catch return CompileError.OutOfMemory;
+    const result_binding = gc.allocPair(result_sym, gc.allocPair(body_begin, types.NIL) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory;
+    const inner_bindings = gc.allocPair(result_binding, types.NIL) catch return CompileError.OutOfMemory;
+
+    // Build inner let body: (p1 old1) (p2 old2) ... %result
+    var inner_body = gc.allocPair(result_sym, types.NIL) catch return CompileError.OutOfMemory;
+    i = binding_count;
+    while (i > 0) {
+        i -= 1;
+        const restore_call = gc.allocPair(param_exprs[i], gc.allocPair(old_syms[i], types.NIL) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory;
+        inner_body = gc.allocPair(restore_call, inner_body) catch return CompileError.OutOfMemory;
+    }
+
+    // Build inner let: (let ((%result (begin body ...))) (p1 old1) ... %result)
+    const inner_let = gc.allocPair(let_sym, gc.allocPair(inner_bindings, inner_body) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory;
+
+    // Build outer let body: (p1 v1) (p2 v2) ... (inner-let)
+    var outer_body = gc.allocPair(inner_let, types.NIL) catch return CompileError.OutOfMemory;
+    i = binding_count;
+    while (i > 0) {
+        i -= 1;
+        const set_call = gc.allocPair(param_exprs[i], gc.allocPair(val_exprs[i], types.NIL) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory;
+        outer_body = gc.allocPair(set_call, outer_body) catch return CompileError.OutOfMemory;
+    }
+
+    // Build outer let: (let ((old1 (p1)) ...) (p1 v1) ... inner-let)
+    const outer_let = gc.allocPair(let_sym, gc.allocPair(let_bindings, outer_body) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory;
+
+    return self.compileExpr(outer_let, dst, is_tail);
+}
+
 /// Compile (case-lambda (formals body ...) ...)
 ///
 /// Desugars to:

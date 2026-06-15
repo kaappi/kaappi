@@ -414,6 +414,19 @@ pub const GC = struct {
         return types.makePointer(@ptrCast(c));
     }
 
+    pub fn allocParameter(self: *GC, init_value: Value, converter: Value) !Value {
+        self.maybeCollect();
+        const p = try self.allocator.create(types.ParameterObject);
+        p.* = .{
+            .header = .{ .tag = .parameter },
+            .value = init_value,
+            .converter = converter,
+        };
+        self.bytes_allocated += @sizeOf(types.ParameterObject);
+        self.trackObject(&p.header);
+        return types.makePointer(@ptrCast(p));
+    }
+
     pub fn allocMultipleValues(self: *GC, values: []const Value) !Value {
         self.maybeCollect();
         const owned = try self.allocator.dupe(Value, values);
@@ -556,6 +569,11 @@ pub const GC = struct {
                 const p = obj.as(Promise);
                 self.markValue(p.value);
             },
+            .parameter => {
+                const param = obj.as(types.ParameterObject);
+                self.markValue(param.value);
+                self.markValue(param.converter);
+            },
             .symbol, .string, .native_fn, .flonum, .port, .complex, .bytevector => {},
         }
     }
@@ -686,6 +704,10 @@ pub const GC = struct {
             .complex => {
                 const c = obj.as(types.Complex);
                 self.allocator.destroy(c);
+            },
+            .parameter => {
+                const p = obj.as(types.ParameterObject);
+                self.allocator.destroy(p);
             },
         }
     }

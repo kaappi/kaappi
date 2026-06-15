@@ -179,6 +179,14 @@ pub fn registerStandardLibraries(registry: *LibraryRegistry, globals: *std.Strin
         "features", "string->symbol",
         // Promises
         "make-promise", "promise?",
+        // Parameters
+        "make-parameter",
+        // File I/O wrappers
+        "call-with-port",
+        // Binary I/O
+        "read-u8", "peek-u8", "u8-ready?", "write-u8",
+        "read-bytevector", "write-bytevector",
+        "open-binary-input-file", "open-binary-output-file",
     };
 
     var base = Library.init(allocator, "scheme.base");
@@ -282,7 +290,7 @@ pub fn registerStandardLibraries(registry: *LibraryRegistry, globals: *std.Strin
     try registry.register(pc_lib);
 
     // (scheme eval) — eval/environment
-    const scheme_eval_names = [_][]const u8{ "eval", "environment" };
+    const scheme_eval_names = [_][]const u8{ "eval", "environment", "interaction-environment" };
     var eval_lib = Library.init(allocator, "scheme.eval");
     for (scheme_eval_names) |name| {
         if (globals.get(name)) |val| {
@@ -304,7 +312,10 @@ pub fn registerStandardLibraries(registry: *LibraryRegistry, globals: *std.Strin
     // (scheme file) — file I/O procedures
     const scheme_file_names = [_][]const u8{
         "open-input-file", "open-output-file",
+        "open-binary-input-file", "open-binary-output-file",
         "file-exists?", "delete-file",
+        "call-with-input-file", "call-with-output-file",
+        "with-input-from-file", "with-output-to-file",
     };
     var file_lib = Library.init(allocator, "scheme.file");
     for (scheme_file_names) |name| {

@@ -55,6 +55,22 @@ pub fn registerIO(vm: *vm_mod.VM) !void {
     // (scheme write) completions
     try reg(vm, "write-shared", &write, .{ .variadic = 1 });
     try reg(vm, "write-simple", &write, .{ .variadic = 1 });
+    // File I/O wrappers (R7RS 6.13)
+    try reg(vm, "call-with-input-file", &callWithInputFile, .{ .exact = 2 });
+    try reg(vm, "call-with-output-file", &callWithOutputFile, .{ .exact = 2 });
+    try reg(vm, "call-with-port", &callWithPort, .{ .exact = 2 });
+    try reg(vm, "with-input-from-file", &withInputFromFile, .{ .exact = 2 });
+    try reg(vm, "with-output-to-file", &withOutputToFile, .{ .exact = 2 });
+    // Binary port aliases (we don't distinguish text/binary)
+    try reg(vm, "open-binary-input-file", &openInputFile, .{ .exact = 1 });
+    try reg(vm, "open-binary-output-file", &openOutputFile, .{ .exact = 1 });
+    // Binary I/O
+    try reg(vm, "read-u8", &readU8Fn, .{ .variadic = 0 });
+    try reg(vm, "peek-u8", &peekU8Fn, .{ .variadic = 0 });
+    try reg(vm, "u8-ready?", &charReadyP, .{ .variadic = 0 });
+    try reg(vm, "write-u8", &writeU8Fn, .{ .variadic = 1 });
+    try reg(vm, "read-bytevector", &readBytevectorFn, .{ .variadic = 1 });
+    try reg(vm, "write-bytevector", &writeBytevectorFn, .{ .variadic = 1 });
 }
 
 // ---------------------------------------------------------------------------
@@ -524,5 +540,166 @@ fn deleteFile(args: []const Value) PrimitiveError!Value {
     defer gc.allocator.free(path_z);
 
     _ = std.posix.system.unlink(path_z);
+    return types.VOID;
+}
+
+// ---------------------------------------------------------------------------
+// File I/O wrappers (R7RS 6.13)
+// ---------------------------------------------------------------------------
+
+/// (call-with-input-file string proc)
+fn callWithInputFile(args: []const Value) PrimitiveError!Value {
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError;
+    // Open file
+    const port_val = try openInputFile(&[_]Value{args[0]});
+    // Call proc with port
+    const result = vm.callWithArgs(args[1], &[_]Value{port_val}) catch |err| {
+        // Close port on error
+        _ = closePort(&[_]Value{port_val}) catch {};
+        return switch (err) {
+            vm_mod.VMError.ContinuationInvoked => PrimitiveError.ContinuationInvoked,
+            vm_mod.VMError.ExceptionRaised => PrimitiveError.ExceptionRaised,
+            vm_mod.VMError.OutOfMemory => PrimitiveError.OutOfMemory,
+            else => PrimitiveError.TypeError,
+        };
+    };
+    // Close port
+    _ = try closePort(&[_]Value{port_val});
+    return result;
+}
+
+/// (call-with-output-file string proc)
+fn callWithOutputFile(args: []const Value) PrimitiveError!Value {
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError;
+    const port_val = try openOutputFile(&[_]Value{args[0]});
+    const result = vm.callWithArgs(args[1], &[_]Value{port_val}) catch |err| {
+        _ = closePort(&[_]Value{port_val}) catch {};
+        return switch (err) {
+            vm_mod.VMError.ContinuationInvoked => PrimitiveError.ContinuationInvoked,
+            vm_mod.VMError.ExceptionRaised => PrimitiveError.ExceptionRaised,
+            vm_mod.VMError.OutOfMemory => PrimitiveError.OutOfMemory,
+            else => PrimitiveError.TypeError,
+        };
+    };
+    _ = try closePort(&[_]Value{port_val});
+    return result;
+}
+
+/// (call-with-port port proc)
+fn callWithPort(args: []const Value) PrimitiveError!Value {
+    if (!types.isPort(args[0])) return PrimitiveError.TypeError;
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError;
+    const result = vm.callWithArgs(args[1], &[_]Value{args[0]}) catch |err| {
+        _ = closePort(&[_]Value{args[0]}) catch {};
+        return switch (err) {
+            vm_mod.VMError.ContinuationInvoked => PrimitiveError.ContinuationInvoked,
+            vm_mod.VMError.ExceptionRaised => PrimitiveError.ExceptionRaised,
+            vm_mod.VMError.OutOfMemory => PrimitiveError.OutOfMemory,
+            else => PrimitiveError.TypeError,
+        };
+    };
+    _ = try closePort(&[_]Value{args[0]});
+    return result;
+}
+
+/// (with-input-from-file string thunk)
+fn withInputFromFile(args: []const Value) PrimitiveError!Value {
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError;
+    const port_val = try openInputFile(&[_]Value{args[0]});
+    // Save current input port
+    const saved = vm.stdin_port;
+    vm.stdin_port = port_val;
+    const result = vm.callWithArgs(args[1], &[_]Value{}) catch |err| {
+        vm.stdin_port = saved;
+        _ = closePort(&[_]Value{port_val}) catch {};
+        return switch (err) {
+            vm_mod.VMError.ContinuationInvoked => PrimitiveError.ContinuationInvoked,
+            vm_mod.VMError.ExceptionRaised => PrimitiveError.ExceptionRaised,
+            vm_mod.VMError.OutOfMemory => PrimitiveError.OutOfMemory,
+            else => PrimitiveError.TypeError,
+        };
+    };
+    vm.stdin_port = saved;
+    _ = try closePort(&[_]Value{port_val});
+    return result;
+}
+
+/// (with-output-to-file string thunk)
+fn withOutputToFile(args: []const Value) PrimitiveError!Value {
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError;
+    const port_val = try openOutputFile(&[_]Value{args[0]});
+    const saved = vm.stdout_port;
+    vm.stdout_port = port_val;
+    const result = vm.callWithArgs(args[1], &[_]Value{}) catch |err| {
+        vm.stdout_port = saved;
+        _ = closePort(&[_]Value{port_val}) catch {};
+        return switch (err) {
+            vm_mod.VMError.ContinuationInvoked => PrimitiveError.ContinuationInvoked,
+            vm_mod.VMError.ExceptionRaised => PrimitiveError.ExceptionRaised,
+            vm_mod.VMError.OutOfMemory => PrimitiveError.OutOfMemory,
+            else => PrimitiveError.TypeError,
+        };
+    };
+    vm.stdout_port = saved;
+    _ = try closePort(&[_]Value{port_val});
+    return result;
+}
+
+// ---------------------------------------------------------------------------
+// Binary I/O (R7RS 6.13.3)
+// ---------------------------------------------------------------------------
+
+fn readU8Fn(args: []const Value) PrimitiveError!Value {
+    const port = try getInputPort(args, 0);
+    const byte = readOneByte(port) orelse return types.EOF;
+    return types.makeFixnum(@intCast(byte));
+}
+
+fn peekU8Fn(args: []const Value) PrimitiveError!Value {
+    const port = try getInputPort(args, 0);
+    if (port.peek_byte) |b| {
+        return types.makeFixnum(@intCast(b));
+    }
+    const byte = readOneByte(port) orelse return types.EOF;
+    port.peek_byte = byte;
+    return types.makeFixnum(@intCast(byte));
+}
+
+fn writeU8Fn(args: []const Value) PrimitiveError!Value {
+    if (!types.isFixnum(args[0])) return PrimitiveError.TypeError;
+    const port = try getOutputPort(args, 1);
+    const val = types.toFixnum(args[0]);
+    if (val < 0 or val > 255) return PrimitiveError.TypeError;
+    const byte: u8 = @intCast(@as(u64, @bitCast(val)));
+    const buf = [1]u8{byte};
+    writeToPort(port, &buf);
+    return types.VOID;
+}
+
+fn readBytevectorFn(args: []const Value) PrimitiveError!Value {
+    if (!types.isFixnum(args[0])) return PrimitiveError.TypeError;
+    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const k = types.toFixnum(args[0]);
+    if (k < 0) return PrimitiveError.TypeError;
+    const count: usize = @intCast(@as(u64, @bitCast(k)));
+    const port = try getInputPort(args, 1);
+
+    var result = gc.allocator.alloc(u8, count) catch return PrimitiveError.OutOfMemory;
+    defer gc.allocator.free(result);
+    var bytes_read: usize = 0;
+    while (bytes_read < count) {
+        const byte = readOneByte(port) orelse break;
+        result[bytes_read] = byte;
+        bytes_read += 1;
+    }
+    if (bytes_read == 0) return types.EOF;
+    return gc.allocBytevector(result[0..bytes_read]) catch return PrimitiveError.OutOfMemory;
+}
+
+fn writeBytevectorFn(args: []const Value) PrimitiveError!Value {
+    if (!types.isBytevector(args[0])) return PrimitiveError.TypeError;
+    const port = try getOutputPort(args, 1);
+    const bv = types.toBytevector(args[0]);
+    writeToPort(port, bv.data);
     return types.VOID;
 }

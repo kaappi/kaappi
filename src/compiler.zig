@@ -3,6 +3,7 @@ const types = @import("types.zig");
 const memory = @import("memory.zig");
 const expander = @import("expander.zig");
 const forms = @import("compiler_forms.zig");
+const advanced = @import("compiler_advanced.zig");
 const Value = types.Value;
 const OpCode = types.OpCode;
 
@@ -169,7 +170,7 @@ pub const Compiler = struct {
 
     pub fn endScope(self: *Compiler) void {
         while (self.locals.items.len > 0 and
-            self.locals.items[self.locals.items.len - 1].depth > self.scope_depth)
+            self.locals.items[self.locals.items.len - 1].depth >= self.scope_depth)
         {
             _ = self.locals.pop();
             self.freeReg();
@@ -351,6 +352,15 @@ pub const Compiler = struct {
             if (std.mem.eql(u8, name, "guard")) return forms.compileGuard(self, args, dst, is_tail);
             if (std.mem.eql(u8, name, "delay")) return self.compileDelay(args, dst);
             if (std.mem.eql(u8, name, "delay-force")) return self.compileDelayForce(args, dst);
+
+            // Quasiquote
+            if (std.mem.eql(u8, name, "quasiquote")) return advanced.compileQuasiquote(self, args, dst);
+
+            // Parameterize
+            if (std.mem.eql(u8, name, "parameterize")) return advanced.compileParameterize(self, args, dst, is_tail);
+
+            // syntax-error
+            if (std.mem.eql(u8, name, "syntax-error")) return CompileError.InvalidSyntax;
 
             // Macro forms (kept in compiler.zig)
             if (std.mem.eql(u8, name, "define-syntax")) return self.compileDefineSyntax(args, dst);

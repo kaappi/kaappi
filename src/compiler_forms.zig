@@ -31,3 +31,5 @@ pub const compileGuard = advanced.compileGuard;
 pub const appendToList = advanced.appendToList;
 pub const compileCase = advanced.compileCase;
 pub const compileCaseLambda = advanced.compileCaseLambda;
+pub const compileQuasiquote = advanced.compileQuasiquote;
+pub const compileParameterize = advanced.compileParameterize;

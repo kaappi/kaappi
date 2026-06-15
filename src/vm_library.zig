@@ -422,7 +422,7 @@ pub fn handleDefineLibrary(vm: *VM, args: Value) VMError!Value {
                 body = types.cdr(body);
             }
         }
-        else if (std.mem.eql(u8, decl_name, "include")) {
+        else if (std.mem.eql(u8, decl_name, "include") or std.mem.eql(u8, decl_name, "include-ci")) {
             // (include "file.scm" ...)
             var file_list = types.cdr(declaration);
             while (file_list != types.NIL) {

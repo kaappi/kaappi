@@ -110,6 +110,7 @@ pub const ObjectTag = enum(u5) {
     multiple_values = 15,
     complex = 16,
     promise = 17,
+    parameter = 18,
 };
 
 pub const Object = struct {
@@ -289,6 +290,13 @@ pub const Complex = struct {
     imag: f64,
 };
 
+/// Parameter object (R7RS make-parameter / parameterize).
+pub const ParameterObject = struct {
+    header: Object,
+    value: Value,
+    converter: Value, // NIL or a conversion procedure
+};
+
 // ---------------------------------------------------------------------------
 // Type predicates on Value
 // ---------------------------------------------------------------------------
@@ -318,7 +326,7 @@ pub fn isFunction(v: Value) bool {
 }
 
 pub fn isProcedure(v: Value) bool {
-    return isClosure(v) or isNativeFn(v) or isContinuation(v);
+    return isClosure(v) or isNativeFn(v) or isContinuation(v) or isParameter(v);
 }
 
 pub fn isContinuation(v: Value) bool {
@@ -383,6 +391,14 @@ pub fn isComplex(v: Value) bool {
 
 pub fn toComplex(v: Value) *Complex {
     return toObject(v).as(Complex);
+}
+
+pub fn isParameter(v: Value) bool {
+    return isPointer(v) and toObject(v).tag == .parameter;
+}
+
+pub fn toParameter(v: Value) *ParameterObject {
+    return toObject(v).as(ParameterObject);
 }
 
 pub fn isNumber(v: Value) bool {

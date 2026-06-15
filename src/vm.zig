@@ -253,6 +253,19 @@ pub const VM = struct {
 
     /// Call a procedure with multiple arguments using the VM's call machinery.
     pub fn callWithArgs(self: *VM, proc: Value, args: []const Value) VMError!Value {
+        if (types.isParameter(proc)) {
+            const param = types.toObject(proc).as(types.ParameterObject);
+            if (args.len == 0) {
+                return param.value;
+            } else {
+                var new_val = args[0];
+                if (param.converter != types.NIL) {
+                    new_val = try self.callWithArgs(param.converter, &[_]Value{new_val});
+                }
+                param.value = new_val;
+                return types.VOID;
+            }
+        }
         if (types.isContinuation(proc)) {
             const cont = types.toObject(proc).as(types.Continuation);
             const value = if (args.len == 0) types.VOID else args[0];
@@ -466,7 +479,24 @@ pub const VM = struct {
                     const abs_base = frame.base + base_reg;
                     const callee = self.registers[abs_base];
 
-                    if (types.isContinuation(callee)) {
+                    if (types.isParameter(callee)) {
+                        const param = types.toObject(callee).as(types.ParameterObject);
+                        const result = if (nargs == 0) param.value else blk: {
+                            var new_val = self.registers[abs_base + 1];
+                            if (param.converter != types.NIL) {
+                                new_val = self.callWithArgs(param.converter, &[_]Value{new_val}) catch |err| return err;
+                            }
+                            param.value = new_val;
+                            break :blk types.VOID;
+                        };
+                        const return_dst = frame.dst;
+                        self.frame_count -= 1;
+                        if (self.frame_count <= target_frame_count) {
+                            return result;
+                        }
+                        const caller = &self.frames[self.frame_count - 1];
+                        self.registers[caller.base + return_dst] = result;
+                    } else if (types.isContinuation(callee)) {
                         const cont = types.toObject(callee).as(types.Continuation);
                         const value = if (nargs == 0) types.VOID else self.registers[abs_base + 1];
                         self.performWindTransition(cont.wind_records[0..cont.wind_count], cont.wind_count) catch return VMError.OutOfMemory;
@@ -640,6 +670,22 @@ pub const VM = struct {
     }
 
     fn callValue(self: *VM, callee: Value, base: u16, nargs: u8) VMError!void {
+        if (types.isParameter(callee)) {
+            const param = types.toObject(callee).as(types.ParameterObject);
+            if (nargs == 0) {
+                // Get value
+                self.registers[base] = param.value;
+            } else {
+                // Set value (apply converter if present)
+                var new_val = self.registers[base + 1];
+                if (param.converter != types.NIL) {
+                    new_val = self.callWithArgs(param.converter, &[_]Value{new_val}) catch |err| return err;
+                }
+                param.value = new_val;
+                self.registers[base] = types.VOID;
+            }
+            return;
+        }
         if (types.isContinuation(callee)) {
             const cont = types.toObject(callee).as(types.Continuation);
             // Get the value to pass (0 args => void, 1 arg => that arg)
@@ -769,6 +815,51 @@ pub const VM = struct {
         return last_result;
     }
 
+    /// Handle (define-values (var ...) expr)
+    /// Evaluates expr, expects multiple values, and binds each to a global.
+    fn handleDefineValues(self: *VM, args: Value) VMError!Value {
+        if (!types.isPair(args)) return VMError.CompileError;
+        const formals = types.car(args);
+        const rest = types.cdr(args);
+        if (!types.isPair(rest)) return VMError.CompileError;
+        const expr = types.car(rest);
+
+        // Compile and evaluate the expression
+        const func = compiler_mod.compileExpressionWithMacros(self.gc, expr, &self.macros) catch return VMError.CompileError;
+        var func_val = types.makePointer(@ptrCast(func));
+        self.gc.pushRoot(&func_val);
+        const result = self.execute(func) catch |err| {
+            self.gc.popRoot();
+            return err;
+        };
+        self.gc.popRoot();
+
+        // Extract values and bind them
+        if (types.isMultipleValues(result)) {
+            const mv = types.toObject(result).as(types.MultipleValues);
+            var formal = formals;
+            var i: usize = 0;
+            while (formal != types.NIL and i < mv.values.len) {
+                if (!types.isPair(formal)) return VMError.CompileError;
+                const var_sym = types.car(formal);
+                if (!types.isSymbol(var_sym)) return VMError.CompileError;
+                self.globals.put(types.symbolName(var_sym), mv.values[i]) catch return VMError.OutOfMemory;
+                formal = types.cdr(formal);
+                i += 1;
+            }
+        } else {
+            // Single value: bind to first variable only
+            const formal = formals;
+            if (types.isPair(formal)) {
+                const var_sym = types.car(formal);
+                if (types.isSymbol(var_sym)) {
+                    self.globals.put(types.symbolName(var_sym), result) catch return VMError.OutOfMemory;
+                }
+            }
+        }
+        return types.VOID;
+    }
+
     /// Check if expr is a special top-level form (import, define-library).
     /// Returns null if the form should be compiled normally.
     pub fn handleTopLevelForm(self: *VM, expr: Value) ?VMError!Value {
@@ -785,6 +876,9 @@ pub const VM = struct {
         }
         if (std.mem.eql(u8, name, "define-record-type")) {
             return vm_records.handleDefineRecordType(self, types.cdr(expr));
+        }
+        if (std.mem.eql(u8, name, "define-values")) {
+            return self.handleDefineValues(types.cdr(expr));
         }
         return null;
     }

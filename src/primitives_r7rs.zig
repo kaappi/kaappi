@@ -26,9 +26,13 @@ pub fn registerR7RS(vm: *vm_mod.VM) !void {
     try reg(vm, "get-environment-variable", &getEnvVar, .{ .exact = 1 });
     try reg(vm, "get-environment-variables", &getEnvVars, .{ .exact = 0 });
 
+    // Parameters (R7RS 4.2.6)
+    try reg(vm, "make-parameter", &makeParameterFn, .{ .variadic = 1 });
+
     // (scheme eval)
     try reg(vm, "eval", &evalFn, .{ .variadic = 1 });
     try reg(vm, "environment", &environmentFn, .{ .variadic = 0 });
+    try reg(vm, "interaction-environment", &interactionEnvironmentFn, .{ .exact = 0 });
 
     // (scheme load)
     try reg(vm, "load", &loadFn, .{ .exact = 1 });
@@ -199,4 +203,37 @@ fn loadFn(args: []const Value) PrimitiveError!Value {
     }
 
     return last_result;
+}
+
+// ---------------------------------------------------------------------------
+// Parameters (R7RS 4.2.6)
+// ---------------------------------------------------------------------------
+
+fn makeParameterFn(args: []const Value) PrimitiveError!Value {
+    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const init = args[0];
+    const converter: Value = if (args.len > 1) args[1] else types.NIL;
+    // If converter provided, apply it to initial value
+    var val = init;
+    if (converter != types.NIL) {
+        const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError;
+        val = vm.callWithArgs(converter, &[_]Value{init}) catch |err| {
+            return switch (err) {
+                vm_mod.VMError.ContinuationInvoked => PrimitiveError.ContinuationInvoked,
+                vm_mod.VMError.ExceptionRaised => PrimitiveError.ExceptionRaised,
+                vm_mod.VMError.OutOfMemory => PrimitiveError.OutOfMemory,
+                else => PrimitiveError.TypeError,
+            };
+        };
+    }
+    return gc.allocParameter(val, converter) catch return PrimitiveError.OutOfMemory;
+}
+
+// ---------------------------------------------------------------------------
+// interaction-environment (R7RS 6.12)
+// ---------------------------------------------------------------------------
+
+fn interactionEnvironmentFn(args: []const Value) PrimitiveError!Value {
+    _ = args;
+    return types.TRUE; // We always eval in the global environment
 }
