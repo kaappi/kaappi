@@ -103,6 +103,7 @@ pub const ObjectTag = enum(u4) {
     record = 8,
     function = 9,
     flonum = 10,
+    transformer = 11,
 };
 
 pub const Object = struct {
@@ -168,6 +169,14 @@ pub const Flonum = struct {
     value: f64,
 };
 
+pub const Transformer = struct {
+    header: Object,
+    literals: []Value,
+    patterns: []Value,
+    templates: []Value,
+    num_rules: u16,
+};
+
 // ---------------------------------------------------------------------------
 // Type predicates on Value
 // ---------------------------------------------------------------------------
@@ -202,6 +211,10 @@ pub fn isProcedure(v: Value) bool {
 
 pub fn isFlonum(v: Value) bool {
     return isPointer(v) and toObject(v).tag == .flonum;
+}
+
+pub fn isTransformer(v: Value) bool {
+    return isPointer(v) and toObject(v).tag == .transformer;
 }
 
 pub fn isNumber(v: Value) bool {

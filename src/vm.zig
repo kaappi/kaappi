@@ -35,12 +35,14 @@ pub const VM = struct {
     frames: [MAX_FRAMES]CallFrame = undefined,
     frame_count: usize = 0,
     globals: std.StringHashMap(Value),
+    macros: std.StringHashMap(Value),
     output: std.ArrayList(u8),
 
     pub fn init(gc: *memory.GC) VM {
         var vm = VM{
             .gc = gc,
             .globals = std.StringHashMap(Value).init(gc.allocator),
+            .macros = std.StringHashMap(Value).init(gc.allocator),
             .output = .empty,
         };
         @memset(&vm.registers, types.UNDEFINED);
@@ -49,12 +51,14 @@ pub const VM = struct {
 
     pub fn deinit(self: *VM) void {
         self.globals.deinit();
+        self.macros.deinit();
         self.output.deinit(self.gc.allocator);
     }
 
     pub fn defineGlobal(self: *VM, name: []const u8, value: Value) !void {
         try self.globals.put(name, value);
     }
+
 
     pub fn execute(self: *VM, func: *types.Function) VMError!Value {
         // Create a top-level closure
@@ -386,7 +390,7 @@ pub const VM = struct {
         var last_result: Value = types.VOID;
         while (reader.hasMore()) {
             const expr = reader.readDatum() catch return VMError.CompileError;
-            const func = compiler_mod.compileExpression(self.gc, expr) catch return VMError.CompileError;
+            const func = compiler_mod.compileExpressionWithMacros(self.gc, expr, &self.macros) catch return VMError.CompileError;
             // Root the function to prevent GC from collecting it before execute wraps it in a closure
             var func_val = types.makePointer(@ptrCast(func));
             self.gc.pushRoot(&func_val);
@@ -949,4 +953,192 @@ test "eval string->number" {
 
     const r3 = try vm.eval("(string->number \"hello\")");
     try std.testing.expectEqual(types.FALSE, r3);
+}
+
+// ---------------------------------------------------------------------------
+// Phase 5: Hygienic Macros (syntax-rules, define-syntax)
+// ---------------------------------------------------------------------------
+
+test "define-syntax simple alias" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try makeTestVM(&gc);
+    defer vm.deinit();
+
+    // Define my-if as an alias for if
+    _ = try vm.eval("(define-syntax my-if (syntax-rules () ((my-if test then else) (if test then else))))");
+    const r1 = try vm.eval("(my-if #t 1 2)");
+    try std.testing.expectEqual(@as(i64, 1), types.toFixnum(r1));
+    const r2 = try vm.eval("(my-if #f 1 2)");
+    try std.testing.expectEqual(@as(i64, 2), types.toFixnum(r2));
+}
+
+test "define-syntax constant macro" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try makeTestVM(&gc);
+    defer vm.deinit();
+
+    _ = try vm.eval("(define-syntax my-const (syntax-rules () ((my-const) 42)))");
+    const result = try vm.eval("(my-const)");
+    try std.testing.expectEqual(@as(i64, 42), types.toFixnum(result));
+}
+
+test "define-syntax with multiple patterns" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try makeTestVM(&gc);
+    defer vm.deinit();
+
+    // A macro with two rules
+    _ = try vm.eval("(define-syntax my-op (syntax-rules () ((my-op a) a) ((my-op a b) (+ a b))))");
+    const r1 = try vm.eval("(my-op 5)");
+    try std.testing.expectEqual(@as(i64, 5), types.toFixnum(r1));
+    const r2 = try vm.eval("(my-op 3 4)");
+    try std.testing.expectEqual(@as(i64, 7), types.toFixnum(r2));
+}
+
+test "syntax-rules with ellipsis" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try makeTestVM(&gc);
+    defer vm.deinit();
+
+    // my-begin using ellipsis
+    _ = try vm.eval("(define-syntax my-begin (syntax-rules () ((my-begin e1 e2 ...) (begin e1 e2 ...))))");
+    const result = try vm.eval("(my-begin 1 2 3)");
+    try std.testing.expectEqual(@as(i64, 3), types.toFixnum(result));
+}
+
+test "syntax-rules list construction" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try makeTestVM(&gc);
+    defer vm.deinit();
+
+    // my-list using ellipsis
+    _ = try vm.eval("(define-syntax my-list (syntax-rules () ((my-list e ...) (list e ...))))");
+    const result = try vm.eval("(my-list 1 2 3)");
+    try std.testing.expect(types.isPair(result));
+    try std.testing.expectEqual(@as(i64, 1), types.toFixnum(types.car(result)));
+    try std.testing.expectEqual(@as(i64, 2), types.toFixnum(types.car(types.cdr(result))));
+    try std.testing.expectEqual(@as(i64, 3), types.toFixnum(types.car(types.cdr(types.cdr(result)))));
+}
+
+test "syntax-rules with literals" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try makeTestVM(&gc);
+    defer vm.deinit();
+
+    // A macro that uses a literal keyword
+    _ = try vm.eval("(define-syntax my-case (syntax-rules (is) ((my-case x is y) (if (= x y) #t #f))))");
+    const r1 = try vm.eval("(my-case 3 is 3)");
+    try std.testing.expectEqual(types.TRUE, r1);
+    const r2 = try vm.eval("(my-case 3 is 4)");
+    try std.testing.expectEqual(types.FALSE, r2);
+}
+
+test "syntax-rules zero ellipsis matches" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try makeTestVM(&gc);
+    defer vm.deinit();
+
+    // my-begin with zero varargs
+    _ = try vm.eval("(define-syntax my-begin (syntax-rules () ((my-begin e1 e2 ...) (begin e1 e2 ...))))");
+    const result = try vm.eval("(my-begin 42)");
+    try std.testing.expectEqual(@as(i64, 42), types.toFixnum(result));
+}
+
+test "let-syntax basic" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try makeTestVM(&gc);
+    defer vm.deinit();
+
+    const result = try vm.eval("(let-syntax ((my-const (syntax-rules () ((my-const) 42)))) (my-const))");
+    try std.testing.expectEqual(@as(i64, 42), types.toFixnum(result));
+}
+
+test "let-syntax scoping" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try makeTestVM(&gc);
+    defer vm.deinit();
+
+    // Define a macro at top level
+    _ = try vm.eval("(define-syntax outer (syntax-rules () ((outer) 1)))");
+    // Override inside let-syntax
+    const result = try vm.eval("(let-syntax ((outer (syntax-rules () ((outer) 2)))) (outer))");
+    try std.testing.expectEqual(@as(i64, 2), types.toFixnum(result));
+    // After let-syntax, original should be restored
+    const result2 = try vm.eval("(outer)");
+    try std.testing.expectEqual(@as(i64, 1), types.toFixnum(result2));
+}
+
+test "letrec-syntax basic" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try makeTestVM(&gc);
+    defer vm.deinit();
+
+    const result = try vm.eval("(letrec-syntax ((my-const (syntax-rules () ((my-const) 99)))) (my-const))");
+    try std.testing.expectEqual(@as(i64, 99), types.toFixnum(result));
+}
+
+test "define-syntax nested expansion" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try makeTestVM(&gc);
+    defer vm.deinit();
+
+    // Define swap that uses let
+    _ = try vm.eval(
+        \\(define-syntax my-swap
+        \\  (syntax-rules ()
+        \\    ((my-swap a b)
+        \\     (let ((tmp a))
+        \\       (set! a b)
+        \\       (set! b tmp)))))
+    );
+    _ = try vm.eval("(define x 1)");
+    _ = try vm.eval("(define y 2)");
+    _ = try vm.eval("(my-swap x y)");
+    const rx = try vm.eval("x");
+    try std.testing.expectEqual(@as(i64, 2), types.toFixnum(rx));
+    const ry = try vm.eval("y");
+    try std.testing.expectEqual(@as(i64, 1), types.toFixnum(ry));
+}
+
+test "syntax-rules underscore" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try makeTestVM(&gc);
+    defer vm.deinit();
+
+    // Use _ as a wildcard in pattern
+    _ = try vm.eval("(define-syntax second (syntax-rules () ((second _ x) x)))");
+    const result = try vm.eval("(second 1 2)");
+    try std.testing.expectEqual(@as(i64, 2), types.toFixnum(result));
+}
+
+test "syntax-rules define-syntax my-and" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try makeTestVM(&gc);
+    defer vm.deinit();
+
+    // Classic recursive-style my-and with multiple rules
+    _ = try vm.eval(
+        \\(define-syntax my-and
+        \\  (syntax-rules ()
+        \\    ((my-and) #t)
+        \\    ((my-and x) x)
+        \\    ((my-and x y) (if x y #f))))
+    );
+    try std.testing.expectEqual(types.TRUE, try vm.eval("(my-and)"));
+    try std.testing.expectEqual(@as(i64, 5), types.toFixnum(try vm.eval("(my-and 5)")));
+    try std.testing.expectEqual(@as(i64, 3), types.toFixnum(try vm.eval("(my-and 2 3)")));
+    try std.testing.expectEqual(types.FALSE, try vm.eval("(my-and #f 3)"));
 }

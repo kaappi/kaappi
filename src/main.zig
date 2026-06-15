@@ -6,6 +6,7 @@ pub const compiler = @import("compiler.zig");
 pub const vm_mod = @import("vm.zig");
 pub const primitives = @import("primitives.zig");
 pub const printer = @import("printer.zig");
+pub const expander = @import("expander.zig");
 
 fn writeToFd(fd: std.posix.fd_t, bytes: []const u8) void {
     var total: usize = 0;
@@ -104,7 +105,7 @@ fn runFile(vm: *vm_mod.VM, path: []const u8) !void {
             return;
         };
 
-        const func = compiler.compileExpression(vm.gc, expr) catch |err| {
+        const func = compiler.compileExpressionWithMacros(vm.gc, expr, &vm.macros) catch |err| {
             std.debug.print("Compile error: {}\n", .{err});
             return;
         };
@@ -157,7 +158,7 @@ fn repl(vm: *vm_mod.VM) !void {
                 break;
             };
 
-            const func = compiler.compileExpression(vm.gc, expr) catch |err| {
+            const func = compiler.compileExpressionWithMacros(vm.gc, expr, &vm.macros) catch |err| {
                 var errbuf: [256]u8 = undefined;
                 var ew: std.Io.Writer = .fixed(&errbuf);
                 ew.print("Compile error: {}\n", .{err}) catch {};
@@ -196,4 +197,5 @@ test {
     _ = compiler;
     _ = vm_mod;
     _ = printer;
+    _ = expander;
 }

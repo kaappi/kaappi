@@ -65,10 +65,12 @@
 - [ ] Rational (deferred)
 - [ ] Complex (deferred)
 
-## Phase 5: Hygienic Macros — TODO
-- [ ] `syntax-rules`
-- [ ] `define-syntax`
-- [ ] `let-syntax`, `letrec-syntax`
+## Phase 5: Hygienic Macros — DONE
+- [x] `syntax-rules` with pattern matching (variables, literals, underscore, ellipsis)
+- [x] `define-syntax` (top-level macro definitions)
+- [x] `let-syntax`, `letrec-syntax` (local macro scoping)
+- [x] Template instantiation with ellipsis replication
+- [x] Basic hygiene via gensym for template-introduced variables
 
 ## Phase 6: Libraries — TODO
 - [ ] `define-library`, `import`, `export`

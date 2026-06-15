@@ -1,6 +1,7 @@
 const std = @import("std");
 const types = @import("types.zig");
 const memory = @import("memory.zig");
+const expander = @import("expander.zig");
 const Value = types.Value;
 const OpCode = types.OpCode;
 
@@ -29,6 +30,7 @@ pub const Compiler = struct {
     func: *types.Function,
     locals: std.ArrayList(Local),
     upvalues: std.ArrayList(Upvalue),
+    macros: std.StringHashMap(Value),
     scope_depth: u16 = 0,
     next_register: u8 = 0,
     parent: ?*Compiler = null,
@@ -40,12 +42,14 @@ pub const Compiler = struct {
             .func = func,
             .locals = .empty,
             .upvalues = .empty,
+            .macros = std.StringHashMap(Value).init(gc.allocator),
         };
     }
 
     pub fn deinit(self: *Compiler) void {
         self.locals.deinit(self.gc.allocator);
         self.upvalues.deinit(self.gc.allocator);
+        self.macros.deinit();
     }
 
     fn initChild(parent: *Compiler) CompileError!Compiler {
@@ -55,8 +59,21 @@ pub const Compiler = struct {
             .func = func,
             .locals = .empty,
             .upvalues = .empty,
+            .macros = std.StringHashMap(Value).init(parent.gc.allocator),
             .parent = parent,
         };
+    }
+
+    fn lookupMacro(self: *Compiler, name: []const u8) ?Value {
+        // Check this compiler's macros first
+        if (self.macros.get(name)) |v| return v;
+        // Then check parent chain
+        var p = self.parent;
+        while (p) |par| {
+            if (par.macros.get(name)) |v| return v;
+            p = par.parent;
+        }
+        return null;
     }
 
     fn emit(self: *Compiler, byte: u8) CompileError!void {
@@ -306,6 +323,16 @@ pub const Compiler = struct {
             if (std.mem.eql(u8, name, "letrec")) return self.compileLetrec(args, dst, is_tail);
             if (std.mem.eql(u8, name, "letrec*")) return self.compileLetrecStar(args, dst, is_tail);
             if (std.mem.eql(u8, name, "do")) return self.compileDo(args, dst, is_tail);
+            if (std.mem.eql(u8, name, "define-syntax")) return self.compileDefineSyntax(args, dst);
+            if (std.mem.eql(u8, name, "let-syntax")) return self.compileLetSyntax(args, dst, is_tail);
+            if (std.mem.eql(u8, name, "letrec-syntax")) return self.compileLetrecSyntax(args, dst, is_tail);
+            if (std.mem.eql(u8, name, "syntax-rules")) return CompileError.InvalidSyntax;
+
+            // Check if head is a macro keyword
+            if (self.lookupMacro(name)) |transformer| {
+                const expanded = expander.expandMacro(self.gc, expr, transformer) catch return CompileError.InvalidSyntax;
+                return self.compileExpr(expanded, dst, is_tail);
+            }
         }
 
         return self.compileCall(expr, dst, is_tail);
@@ -1127,6 +1154,143 @@ pub const Compiler = struct {
         self.endScope();
     }
 
+    // -- Macro forms --
+
+    fn compileDefineSyntax(self: *Compiler, args: Value, dst: u8) CompileError!void {
+        if (args == types.NIL) return CompileError.InvalidSyntax;
+        const keyword = types.car(args);
+        if (!types.isSymbol(keyword)) return CompileError.InvalidSyntax;
+        const rest = types.cdr(args);
+        if (rest == types.NIL) return CompileError.InvalidSyntax;
+        const transformer_spec = types.car(rest);
+
+        // Parse the syntax-rules form and get a transformer value
+        const transformer = self.parseSyntaxRules(transformer_spec) catch return CompileError.InvalidSyntax;
+
+        // Store in macro table
+        self.macros.put(types.symbolName(keyword), transformer) catch return CompileError.OutOfMemory;
+
+        // define-syntax returns void
+        try self.emitOp(.load_void);
+        try self.emit(dst);
+    }
+
+    fn parseSyntaxRules(self: *Compiler, spec: Value) CompileError!Value {
+        // spec = (syntax-rules (lit1 lit2 ...) (pattern1 template1) ...)
+        if (!types.isPair(spec)) return CompileError.InvalidSyntax;
+        const head = types.car(spec);
+        if (!types.isSymbol(head)) return CompileError.InvalidSyntax;
+        if (!std.mem.eql(u8, types.symbolName(head), "syntax-rules")) return CompileError.InvalidSyntax;
+
+        const rest = types.cdr(spec);
+        if (rest == types.NIL) return CompileError.InvalidSyntax;
+        const literals_list = types.car(rest);
+        const rules = types.cdr(rest);
+
+        // Collect literals into an array
+        var literals_buf: [32]Value = undefined;
+        var lit_count: usize = 0;
+        var lit = literals_list;
+        while (lit != types.NIL) {
+            if (!types.isPair(lit)) return CompileError.InvalidSyntax;
+            if (lit_count >= 32) return CompileError.InvalidSyntax;
+            literals_buf[lit_count] = types.car(lit);
+            lit_count += 1;
+            lit = types.cdr(lit);
+        }
+
+        // Collect patterns and templates
+        var patterns_buf: [32]Value = undefined;
+        var templates_buf: [32]Value = undefined;
+        var rule_count: usize = 0;
+        var rule = rules;
+        while (rule != types.NIL) {
+            if (!types.isPair(rule)) return CompileError.InvalidSyntax;
+            const r = types.car(rule);
+            if (!types.isPair(r)) return CompileError.InvalidSyntax;
+            if (rule_count >= 32) return CompileError.InvalidSyntax;
+            patterns_buf[rule_count] = types.car(r);
+            const r_rest = types.cdr(r);
+            if (r_rest == types.NIL) return CompileError.InvalidSyntax;
+            templates_buf[rule_count] = types.car(r_rest);
+            rule_count += 1;
+            rule = types.cdr(rule);
+        }
+
+        if (rule_count == 0) return CompileError.InvalidSyntax;
+
+        // Allocate transformer
+        return self.gc.allocTransformer(
+            literals_buf[0..lit_count],
+            patterns_buf[0..rule_count],
+            templates_buf[0..rule_count],
+        ) catch return CompileError.OutOfMemory;
+    }
+
+    fn compileLetSyntax(self: *Compiler, args: Value, dst: u8, is_tail: bool) CompileError!void {
+        if (args == types.NIL) return CompileError.InvalidSyntax;
+        const bindings = types.car(args);
+        const body = types.cdr(args);
+        if (body == types.NIL) return CompileError.InvalidSyntax;
+
+        // Save current macro table entries so we can restore
+        var saved_names: [16][]const u8 = undefined;
+        var saved_values: [16]?Value = undefined;
+        var saved_count: usize = 0;
+
+        // Process syntax bindings
+        var binding_list = bindings;
+        while (binding_list != types.NIL) {
+            if (!types.isPair(binding_list)) return CompileError.InvalidSyntax;
+            const binding = types.car(binding_list);
+            if (!types.isPair(binding)) return CompileError.InvalidSyntax;
+
+            const keyword = types.car(binding);
+            if (!types.isSymbol(keyword)) return CompileError.InvalidSyntax;
+            const transformer_spec = types.car(types.cdr(binding));
+            const transformer = self.parseSyntaxRules(transformer_spec) catch return CompileError.InvalidSyntax;
+
+            const name = types.symbolName(keyword);
+
+            // Save any existing macro with this name
+            if (saved_count < 16) {
+                saved_names[saved_count] = name;
+                saved_values[saved_count] = self.macros.get(name);
+                saved_count += 1;
+            }
+
+            self.macros.put(name, transformer) catch return CompileError.OutOfMemory;
+
+            binding_list = types.cdr(binding_list);
+        }
+
+        // Compile body
+        var current = body;
+        while (current != types.NIL) {
+            if (!types.isPair(current)) return CompileError.InvalidSyntax;
+            const expr = types.car(current);
+            current = types.cdr(current);
+            const tail = is_tail and current == types.NIL;
+            try self.compileExpr(expr, dst, tail);
+        }
+
+        // Restore macro table
+        for (0..saved_count) |i| {
+            if (saved_values[i]) |old_val| {
+                self.macros.put(saved_names[i], old_val) catch {};
+            } else {
+                _ = self.macros.remove(saved_names[i]);
+            }
+        }
+    }
+
+    fn compileLetrecSyntax(self: *Compiler, args: Value, dst: u8, is_tail: bool) CompileError!void {
+        // letrec-syntax is the same as let-syntax for our purposes since we
+        // process all bindings before compiling the body, and the transformer
+        // specs can reference each other through the macro table.
+        return self.compileLetSyntax(args, dst, is_tail);
+    }
+
     fn compileLetBody(self: *Compiler, body: Value, dst: u8, is_tail: bool) CompileError!void {
         var current = body;
         while (current != types.NIL) {
@@ -1189,17 +1353,38 @@ pub const Compiler = struct {
 // ---------------------------------------------------------------------------
 
 pub fn compileExpression(gc: *memory.GC, expr: Value) CompileError!*types.Function {
-    var compiler = try Compiler.init(gc);
-    defer compiler.deinit();
-    try compiler.compile(expr);
-    return compiler.func;
+    var c = try Compiler.init(gc);
+    defer c.deinit();
+    try c.compile(expr);
+    return c.func;
+}
+
+pub fn compileExpressionWithMacros(gc: *memory.GC, expr: Value, vm_macros: *std.StringHashMap(Value)) CompileError!*types.Function {
+    var c = try Compiler.init(gc);
+    defer {
+        // Copy any new macros defined during compilation back to the VM
+        // and register them as GC extra roots
+        var it = c.macros.iterator();
+        while (it.next()) |entry| {
+            vm_macros.put(entry.key_ptr.*, entry.value_ptr.*) catch {};
+            gc.extra_roots.append(gc.allocator, entry.value_ptr.*) catch {};
+        }
+        c.deinit();
+    }
+    // Copy existing macros from VM into the compiler
+    var it = vm_macros.iterator();
+    while (it.next()) |entry| {
+        c.macros.put(entry.key_ptr.*, entry.value_ptr.*) catch return CompileError.OutOfMemory;
+    }
+    try c.compile(expr);
+    return c.func;
 }
 
 pub fn compileProgram(gc: *memory.GC, exprs: []const Value) CompileError!*types.Function {
-    var compiler = try Compiler.init(gc);
-    defer compiler.deinit();
-    try compiler.compileMultiple(exprs);
-    return compiler.func;
+    var c = try Compiler.init(gc);
+    defer c.deinit();
+    try c.compileMultiple(exprs);
+    return c.func;
 }
 
 // ---------------------------------------------------------------------------

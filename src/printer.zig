@@ -111,6 +111,9 @@ pub fn printValue(writer: anytype, value: Value, mode: PrintMode) anyerror!void 
             .function => {
                 try writer.writeAll("#<function>");
             },
+            .transformer => {
+                try writer.writeAll("#<transformer>");
+            },
             else => {
                 try writer.writeAll("#<object>");
             },

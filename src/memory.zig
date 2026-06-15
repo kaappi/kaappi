@@ -10,6 +10,7 @@ const Closure = types.Closure;
 const Function = types.Function;
 const NativeFn = types.NativeFn;
 const Flonum = types.Flonum;
+const Transformer = types.Transformer;
 
 const GC_THRESHOLD: usize = 1024;
 
@@ -149,6 +150,25 @@ pub const GC = struct {
         return types.makePointer(@ptrCast(flo));
     }
 
+    pub fn allocTransformer(self: *GC, literals: []const Value, patterns: []const Value, templates: []const Value) !Value {
+        const num_rules: u16 = @intCast(patterns.len);
+        const owned_lits = try self.allocator.dupe(Value, literals);
+        const owned_pats = try self.allocator.dupe(Value, patterns);
+        const owned_tmps = try self.allocator.dupe(Value, templates);
+
+        const tx = try self.allocator.create(Transformer);
+        tx.* = .{
+            .header = .{ .tag = .transformer },
+            .literals = owned_lits,
+            .patterns = owned_pats,
+            .templates = owned_tmps,
+            .num_rules = num_rules,
+        };
+        self.bytes_allocated += @sizeOf(Transformer) + (literals.len + patterns.len + templates.len) * @sizeOf(Value);
+        self.trackObject(&tx.header);
+        return types.makePointer(@ptrCast(tx));
+    }
+
     // -- Convenience: build a proper list from a slice
     pub fn makeList(self: *GC, items: []const Value) !Value {
         var result: Value = types.NIL;
@@ -213,6 +233,18 @@ pub const GC = struct {
                     self.markValue(c);
                 }
             },
+            .transformer => {
+                const tx = obj.as(Transformer);
+                for (tx.literals) |lit| {
+                    self.markValue(lit);
+                }
+                for (tx.patterns) |pat| {
+                    self.markValue(pat);
+                }
+                for (tx.templates) |tmpl| {
+                    self.markValue(tmpl);
+                }
+            },
             .symbol, .string, .native_fn, .flonum => {},
             else => {},
         }
@@ -274,6 +306,13 @@ pub const GC = struct {
             .flonum => {
                 const flo = obj.as(Flonum);
                 self.allocator.destroy(flo);
+            },
+            .transformer => {
+                const tx = obj.as(Transformer);
+                self.allocator.free(tx.literals);
+                self.allocator.free(tx.patterns);
+                self.allocator.free(tx.templates);
+                self.allocator.destroy(tx);
             },
             else => {},
         }
