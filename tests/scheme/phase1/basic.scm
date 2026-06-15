@@ -1,0 +1,25 @@
+; Phase 1 basic test
+42
+(+ 1 2)
+(- 10 3)
+(* 4 5)
+(if #t 'yes 'no)
+(if #f 'yes 'no)
+(+ 1 2 3 4 5)
+(define x 42)
+x
+(set! x 99)
+x
+(define add1 (lambda (x) (+ x 1)))
+(add1 10)
+((lambda (x y) (+ x y)) 3 4)
+(begin 1 2 3)
+(quote (a b c))
+(cons 1 2)
+(car (cons 1 2))
+(cdr (cons 1 2))
+(null? '())
+(null? 42)
+(pair? (cons 1 2))
+(pair? 42)
+(+ (* 2 3) (- 10 4))

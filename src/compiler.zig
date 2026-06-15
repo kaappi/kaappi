@@ -1,0 +1,610 @@
+const std = @import("std");
+const types = @import("types.zig");
+const memory = @import("memory.zig");
+const Value = types.Value;
+const OpCode = types.OpCode;
+
+pub const CompileError = error{
+    OutOfMemory,
+    InvalidSyntax,
+    UndefinedVariable,
+    TooManyConstants,
+    TooManyLocals,
+    NotImplemented,
+};
+
+const Local = struct {
+    name: []const u8,
+    depth: u16,
+    slot: u8,
+};
+
+const Upvalue = struct {
+    index: u8,
+    is_local: bool,
+};
+
+pub const Compiler = struct {
+    gc: *memory.GC,
+    func: *types.Function,
+    locals: std.ArrayList(Local),
+    upvalues: std.ArrayList(Upvalue),
+    scope_depth: u16 = 0,
+    next_register: u8 = 0,
+    parent: ?*Compiler = null,
+
+    pub fn init(gc: *memory.GC) CompileError!Compiler {
+        const func = gc.allocFunction() catch return CompileError.OutOfMemory;
+        return .{
+            .gc = gc,
+            .func = func,
+            .locals = .empty,
+            .upvalues = .empty,
+        };
+    }
+
+    pub fn deinit(self: *Compiler) void {
+        self.locals.deinit(self.gc.allocator);
+        self.upvalues.deinit(self.gc.allocator);
+    }
+
+    fn initChild(parent: *Compiler) CompileError!Compiler {
+        const func = parent.gc.allocFunction() catch return CompileError.OutOfMemory;
+        return .{
+            .gc = parent.gc,
+            .func = func,
+            .locals = .empty,
+            .upvalues = .empty,
+            .parent = parent,
+        };
+    }
+
+    fn emit(self: *Compiler, byte: u8) CompileError!void {
+        self.func.code.append(self.gc.allocator, byte) catch return CompileError.OutOfMemory;
+    }
+
+    fn emitOp(self: *Compiler, op: OpCode) CompileError!void {
+        try self.emit(@intFromEnum(op));
+    }
+
+    fn emitU16(self: *Compiler, val: u16) CompileError!void {
+        try self.emit(@truncate(val >> 8));
+        try self.emit(@truncate(val & 0xFF));
+    }
+
+    fn emitI16(self: *Compiler, val: i16) CompileError!void {
+        const unsigned: u16 = @bitCast(val);
+        try self.emitU16(unsigned);
+    }
+
+    fn addConstant(self: *Compiler, value: Value) CompileError!u16 {
+        // Check if constant already exists
+        for (self.func.constants.items, 0..) |c, i| {
+            if (c == value) return @intCast(i);
+        }
+        if (self.func.constants.items.len >= 65535) return CompileError.TooManyConstants;
+        self.func.constants.append(self.gc.allocator, value) catch return CompileError.OutOfMemory;
+        return @intCast(self.func.constants.items.len - 1);
+    }
+
+    fn currentOffset(self: *Compiler) usize {
+        return self.func.code.items.len;
+    }
+
+    fn patchJump(self: *Compiler, offset: usize) void {
+        const jump_dist: i16 = @intCast(@as(isize, @intCast(self.currentOffset())) - @as(isize, @intCast(offset)) - 2);
+        const unsigned: u16 = @bitCast(jump_dist);
+        self.func.code.items[offset] = @truncate(unsigned >> 8);
+        self.func.code.items[offset + 1] = @truncate(unsigned & 0xFF);
+    }
+
+    fn allocReg(self: *Compiler) CompileError!u8 {
+        if (self.next_register >= 250) return CompileError.TooManyLocals;
+        const reg = self.next_register;
+        self.next_register += 1;
+        return reg;
+    }
+
+    fn freeReg(self: *Compiler) void {
+        if (self.next_register > 0) self.next_register -= 1;
+    }
+
+    fn resolveLocal(self: *Compiler, name: []const u8) ?u8 {
+        var i: usize = self.locals.items.len;
+        while (i > 0) {
+            i -= 1;
+            if (std.mem.eql(u8, self.locals.items[i].name, name)) {
+                return self.locals.items[i].slot;
+            }
+        }
+        return null;
+    }
+
+    fn resolveUpvalue(self: *Compiler, name: []const u8) CompileError!?u8 {
+        if (self.parent) |parent| {
+            if (parent.resolveLocal(name)) |local_slot| {
+                return try self.addUpvalue(local_slot, true);
+            }
+            if (try parent.resolveUpvalue(name)) |upvalue_idx| {
+                return try self.addUpvalue(upvalue_idx, false);
+            }
+        }
+        return null;
+    }
+
+    fn addUpvalue(self: *Compiler, index: u8, is_local: bool) CompileError!u8 {
+        for (self.upvalues.items, 0..) |uv, i| {
+            if (uv.index == index and uv.is_local == is_local) {
+                return @intCast(i);
+            }
+        }
+        self.upvalues.append(self.gc.allocator, .{ .index = index, .is_local = is_local }) catch return CompileError.OutOfMemory;
+        self.func.upvalue_count = @intCast(self.upvalues.items.len);
+        return @intCast(self.upvalues.items.len - 1);
+    }
+
+    // -- Public compilation API --
+
+    pub fn compile(self: *Compiler, expr: Value) CompileError!void {
+        const dst = try self.allocReg();
+        try self.compileExpr(expr, dst);
+        try self.emitOp(.@"return");
+        try self.emit(dst);
+    }
+
+    pub fn compileMultiple(self: *Compiler, exprs: []const Value) CompileError!void {
+        if (exprs.len == 0) {
+            const dst = try self.allocReg();
+            try self.emitOp(.load_void);
+            try self.emit(dst);
+            try self.emitOp(.@"return");
+            try self.emit(dst);
+            return;
+        }
+
+        var dst: u8 = 0;
+        for (exprs, 0..) |expr, i| {
+            dst = try self.allocReg();
+            try self.compileExpr(expr, dst);
+            if (i < exprs.len - 1) {
+                self.freeReg();
+            }
+        }
+        try self.emitOp(.@"return");
+        try self.emit(dst);
+    }
+
+    fn compileExpr(self: *Compiler, expr: Value, dst: u8) CompileError!void {
+        if (types.isFixnum(expr)) {
+            const idx = try self.addConstant(expr);
+            try self.emitOp(.load_const);
+            try self.emit(dst);
+            try self.emitU16(idx);
+            return;
+        }
+
+        if (expr == types.TRUE) {
+            try self.emitOp(.load_true);
+            try self.emit(dst);
+            return;
+        }
+        if (expr == types.FALSE) {
+            try self.emitOp(.load_false);
+            try self.emit(dst);
+            return;
+        }
+        if (expr == types.NIL) {
+            try self.emitOp(.load_nil);
+            try self.emit(dst);
+            return;
+        }
+
+        if (types.isSymbol(expr)) {
+            return self.compileVariable(expr, dst);
+        }
+
+        if (types.isString(expr)) {
+            const idx = try self.addConstant(expr);
+            try self.emitOp(.load_const);
+            try self.emit(dst);
+            try self.emitU16(idx);
+            return;
+        }
+
+        if (types.isChar(expr)) {
+            const idx = try self.addConstant(expr);
+            try self.emitOp(.load_const);
+            try self.emit(dst);
+            try self.emitU16(idx);
+            return;
+        }
+
+        if (types.isPair(expr)) {
+            return self.compileForm(expr, dst);
+        }
+
+        return CompileError.InvalidSyntax;
+    }
+
+    fn compileVariable(self: *Compiler, sym: Value, dst: u8) CompileError!void {
+        const name = types.symbolName(sym);
+
+        if (self.resolveLocal(name)) |slot| {
+            if (slot != dst) {
+                try self.emitOp(.move);
+                try self.emit(dst);
+                try self.emit(slot);
+            }
+            return;
+        }
+
+        if (try self.resolveUpvalue(name)) |idx| {
+            try self.emitOp(.get_upvalue);
+            try self.emit(dst);
+            try self.emit(idx);
+            return;
+        }
+
+        const sym_idx = try self.addConstant(sym);
+        try self.emitOp(.get_global);
+        try self.emit(dst);
+        try self.emitU16(sym_idx);
+    }
+
+    fn compileForm(self: *Compiler, expr: Value, dst: u8) CompileError!void {
+        const head = types.car(expr);
+        const args = types.cdr(expr);
+
+        if (types.isSymbol(head)) {
+            const name = types.symbolName(head);
+
+            if (std.mem.eql(u8, name, "quote")) return self.compileQuote(args, dst);
+            if (std.mem.eql(u8, name, "if")) return self.compileIf(args, dst);
+            if (std.mem.eql(u8, name, "lambda")) return self.compileLambda(args, dst);
+            if (std.mem.eql(u8, name, "define")) return self.compileDefine(args, dst);
+            if (std.mem.eql(u8, name, "set!")) return self.compileSet(args, dst);
+            if (std.mem.eql(u8, name, "begin")) return self.compileBegin(args, dst);
+        }
+
+        return self.compileCall(expr, dst);
+    }
+
+    fn compileQuote(self: *Compiler, args: Value, dst: u8) CompileError!void {
+        if (args == types.NIL) return CompileError.InvalidSyntax;
+        const datum = types.car(args);
+        const idx = try self.addConstant(datum);
+        try self.emitOp(.load_const);
+        try self.emit(dst);
+        try self.emitU16(idx);
+    }
+
+    fn compileIf(self: *Compiler, args: Value, dst: u8) CompileError!void {
+        if (args == types.NIL) return CompileError.InvalidSyntax;
+        const test_expr = types.car(args);
+        const rest = types.cdr(args);
+        if (rest == types.NIL) return CompileError.InvalidSyntax;
+        const consequent = types.car(rest);
+        const rest2 = types.cdr(rest);
+
+        // Compile test
+        try self.compileExpr(test_expr, dst);
+
+        // Jump to else if false
+        try self.emitOp(.jump_false);
+        try self.emit(dst);
+        const else_jump = self.currentOffset();
+        try self.emitI16(0); // placeholder
+
+        // Compile consequent
+        try self.compileExpr(consequent, dst);
+
+        if (rest2 != types.NIL) {
+            // Jump over else
+            try self.emitOp(.jump);
+            const end_jump = self.currentOffset();
+            try self.emitI16(0); // placeholder
+
+            // Patch else jump
+            self.patchJump(else_jump);
+
+            // Compile alternate
+            const alternate = types.car(rest2);
+            try self.compileExpr(alternate, dst);
+
+            // Patch end jump
+            self.patchJump(end_jump);
+        } else {
+            // No else: result is void when test is false
+            try self.emitOp(.jump);
+            const end_jump = self.currentOffset();
+            try self.emitI16(0);
+
+            self.patchJump(else_jump);
+            try self.emitOp(.load_void);
+            try self.emit(dst);
+
+            self.patchJump(end_jump);
+        }
+    }
+
+    fn compileLambda(self: *Compiler, args: Value, dst: u8) CompileError!void {
+        if (args == types.NIL) return CompileError.InvalidSyntax;
+        const formals = types.car(args);
+        const body = types.cdr(args);
+        if (body == types.NIL) return CompileError.InvalidSyntax;
+
+        var child = try initChild(self);
+        defer child.deinit();
+
+        // Parse formals
+        var arity: u8 = 0;
+        var is_variadic = false;
+        var param_list = formals;
+
+        if (types.isSymbol(formals)) {
+            // (lambda x body) — variadic, takes all args as list
+            is_variadic = true;
+            arity = 0;
+            const slot = child.allocReg() catch return CompileError.TooManyLocals;
+            child.locals.append(child.gc.allocator, .{
+                .name = types.symbolName(formals),
+                .depth = 1,
+                .slot = slot,
+            }) catch return CompileError.OutOfMemory;
+        } else {
+            while (param_list != types.NIL) {
+                if (types.isSymbol(param_list)) {
+                    // Rest parameter: (lambda (a b . rest) body)
+                    is_variadic = true;
+                    const slot = child.allocReg() catch return CompileError.TooManyLocals;
+                    child.locals.append(child.gc.allocator, .{
+                        .name = types.symbolName(param_list),
+                        .depth = 1,
+                        .slot = slot,
+                    }) catch return CompileError.OutOfMemory;
+                    break;
+                }
+                if (!types.isPair(param_list)) return CompileError.InvalidSyntax;
+                const param = types.car(param_list);
+                if (!types.isSymbol(param)) return CompileError.InvalidSyntax;
+
+                const slot = child.allocReg() catch return CompileError.TooManyLocals;
+                child.locals.append(child.gc.allocator, .{
+                    .name = types.symbolName(param),
+                    .depth = 1,
+                    .slot = slot,
+                }) catch return CompileError.OutOfMemory;
+                arity += 1;
+                param_list = types.cdr(param_list);
+            }
+        }
+
+        child.func.arity = arity;
+        child.func.is_variadic = is_variadic;
+        child.scope_depth = 1;
+
+        // Compile body as implicit begin
+        try child.compileBody(body);
+
+        // Store child function as constant and emit closure instruction
+        const func_val = types.makePointer(@ptrCast(child.func));
+        const idx = try self.addConstant(func_val);
+        try self.emitOp(.closure);
+        try self.emit(dst);
+        try self.emitU16(idx);
+
+        // Emit upvalue descriptors
+        for (child.upvalues.items) |uv| {
+            try self.emit(if (uv.is_local) 1 else 0);
+            try self.emit(uv.index);
+        }
+    }
+
+    fn compileBody(self: *Compiler, body: Value) CompileError!void {
+        var current = body;
+        var last_dst: u8 = 0;
+
+        while (current != types.NIL) {
+            if (!types.isPair(current)) return CompileError.InvalidSyntax;
+            const expr = types.car(current);
+            const rest = types.cdr(current);
+
+            last_dst = try self.allocReg();
+
+            if (rest == types.NIL) {
+                // Last expression — this is the return value
+                try self.compileExpr(expr, last_dst);
+            } else {
+                try self.compileExpr(expr, last_dst);
+                self.freeReg();
+            }
+
+            current = rest;
+        }
+
+        try self.emitOp(.@"return");
+        try self.emit(last_dst);
+    }
+
+    fn compileDefine(self: *Compiler, args: Value, dst: u8) CompileError!void {
+        if (args == types.NIL) return CompileError.InvalidSyntax;
+        const target = types.car(args);
+        const rest = types.cdr(args);
+
+        if (types.isSymbol(target)) {
+            // (define x expr)
+            if (rest == types.NIL) return CompileError.InvalidSyntax;
+            const value_expr = types.car(rest);
+            try self.compileExpr(value_expr, dst);
+            const sym_idx = try self.addConstant(target);
+            try self.emitOp(.set_global);
+            try self.emitU16(sym_idx);
+            try self.emit(dst);
+            try self.emitOp(.load_void);
+            try self.emit(dst);
+            return;
+        }
+
+        if (types.isPair(target)) {
+            // (define (name args...) body) => (define name (lambda (args...) body))
+            const name = types.car(target);
+            if (!types.isSymbol(name)) return CompileError.InvalidSyntax;
+            const formals = types.cdr(target);
+
+            // Build lambda body list
+            const lambda_args = self.gc.allocPair(formals, rest) catch return CompileError.OutOfMemory;
+            try self.compileLambda(lambda_args, dst);
+
+            // Set name on the function for debugging
+            if (types.isClosure(self.func.constants.items[self.func.constants.items.len - 1])) {
+                // Can't easily set name here due to timing, skip for now
+            }
+
+            const sym_idx = try self.addConstant(name);
+            try self.emitOp(.set_global);
+            try self.emitU16(sym_idx);
+            try self.emit(dst);
+            try self.emitOp(.load_void);
+            try self.emit(dst);
+            return;
+        }
+
+        return CompileError.InvalidSyntax;
+    }
+
+    fn compileSet(self: *Compiler, args: Value, dst: u8) CompileError!void {
+        if (args == types.NIL) return CompileError.InvalidSyntax;
+        const target = types.car(args);
+        const rest = types.cdr(args);
+        if (rest == types.NIL) return CompileError.InvalidSyntax;
+        if (!types.isSymbol(target)) return CompileError.InvalidSyntax;
+
+        const value_expr = types.car(rest);
+        try self.compileExpr(value_expr, dst);
+
+        const name = types.symbolName(target);
+        if (self.resolveLocal(name)) |slot| {
+            try self.emitOp(.move);
+            try self.emit(slot);
+            try self.emit(dst);
+        } else if (try self.resolveUpvalue(name)) |idx| {
+            try self.emitOp(.set_upvalue);
+            try self.emit(idx);
+            try self.emit(dst);
+        } else {
+            const sym_idx = try self.addConstant(target);
+            try self.emitOp(.set_global);
+            try self.emitU16(sym_idx);
+            try self.emit(dst);
+        }
+        try self.emitOp(.load_void);
+        try self.emit(dst);
+    }
+
+    fn compileBegin(self: *Compiler, args: Value, dst: u8) CompileError!void {
+        if (args == types.NIL) {
+            try self.emitOp(.load_void);
+            try self.emit(dst);
+            return;
+        }
+
+        var current = args;
+        while (current != types.NIL) {
+            if (!types.isPair(current)) return CompileError.InvalidSyntax;
+            const expr = types.car(current);
+            current = types.cdr(current);
+            try self.compileExpr(expr, dst);
+        }
+    }
+
+    fn compileCall(self: *Compiler, expr: Value, dst: u8) CompileError!void {
+        const base = dst;
+
+        // Compile operator
+        try self.compileExpr(types.car(expr), base);
+
+        // Compile arguments
+        var nargs: u8 = 0;
+        var arg_list = types.cdr(expr);
+        while (arg_list != types.NIL) {
+            if (!types.isPair(arg_list)) return CompileError.InvalidSyntax;
+            const arg = types.car(arg_list);
+            const arg_reg = try self.allocReg();
+            try self.compileExpr(arg, arg_reg);
+            nargs += 1;
+            arg_list = types.cdr(arg_list);
+        }
+
+        try self.emitOp(.call);
+        try self.emit(base);
+        try self.emit(nargs);
+
+        // Free argument registers
+        var i: u8 = 0;
+        while (i < nargs) : (i += 1) {
+            self.freeReg();
+        }
+    }
+};
+
+// ---------------------------------------------------------------------------
+// Convenience function
+// ---------------------------------------------------------------------------
+
+pub fn compileExpression(gc: *memory.GC, expr: Value) CompileError!*types.Function {
+    var compiler = try Compiler.init(gc);
+    defer compiler.deinit();
+    try compiler.compile(expr);
+    return compiler.func;
+}
+
+pub fn compileProgram(gc: *memory.GC, exprs: []const Value) CompileError!*types.Function {
+    var compiler = try Compiler.init(gc);
+    defer compiler.deinit();
+    try compiler.compileMultiple(exprs);
+    return compiler.func;
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+test "compile integer literal" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+
+    const expr = types.makeFixnum(42);
+    const func = try compileExpression(&gc, expr);
+    try std.testing.expect(func.code.items.len > 0);
+    try std.testing.expectEqual(OpCode.load_const, @as(OpCode, @enumFromInt(func.code.items[0])));
+}
+
+test "compile symbol" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+
+    const sym = try gc.allocSymbol("x");
+    const func = try compileExpression(&gc, sym);
+    try std.testing.expectEqual(OpCode.get_global, @as(OpCode, @enumFromInt(func.code.items[0])));
+}
+
+test "compile if expression" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+
+    const reader_mod = @import("reader.zig");
+    const expr = try reader_mod.readString(&gc, "(if #t 1 2)");
+    const func = try compileExpression(&gc, expr);
+    try std.testing.expect(func.code.items.len > 0);
+}
+
+test "compile lambda" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+
+    const reader_mod = @import("reader.zig");
+    const expr = try reader_mod.readString(&gc, "(lambda (x) x)");
+    const func = try compileExpression(&gc, expr);
+    try std.testing.expect(func.code.items.len > 0);
+    try std.testing.expectEqual(OpCode.closure, @as(OpCode, @enumFromInt(func.code.items[0])));
+}
