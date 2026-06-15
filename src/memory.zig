@@ -9,6 +9,7 @@ const SchemeString = types.SchemeString;
 const Closure = types.Closure;
 const Function = types.Function;
 const NativeFn = types.NativeFn;
+const Flonum = types.Flonum;
 
 const GC_THRESHOLD: usize = 1024;
 
@@ -136,6 +137,18 @@ pub const GC = struct {
         return types.makePointer(@ptrCast(nf));
     }
 
+    pub fn allocFlonum(self: *GC, value: f64) !Value {
+        self.maybeCollect();
+        const flo = try self.allocator.create(Flonum);
+        flo.* = .{
+            .header = .{ .tag = .flonum },
+            .value = value,
+        };
+        self.bytes_allocated += @sizeOf(Flonum);
+        self.trackObject(&flo.header);
+        return types.makePointer(@ptrCast(flo));
+    }
+
     // -- Convenience: build a proper list from a slice
     pub fn makeList(self: *GC, items: []const Value) !Value {
         var result: Value = types.NIL;
@@ -200,7 +213,7 @@ pub const GC = struct {
                     self.markValue(c);
                 }
             },
-            .symbol, .string, .native_fn => {},
+            .symbol, .string, .native_fn, .flonum => {},
             else => {},
         }
     }
@@ -257,6 +270,10 @@ pub const GC = struct {
             .native_fn => {
                 const nf = obj.as(NativeFn);
                 self.allocator.destroy(nf);
+            },
+            .flonum => {
+                const flo = obj.as(Flonum);
+                self.allocator.destroy(flo);
             },
             else => {},
         }

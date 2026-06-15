@@ -26,6 +26,7 @@ pub const Token = union(enum) {
     hash_lparen,
     boolean: bool,
     fixnum: i64,
+    flonum: f64,
     string: []const u8,
     symbol: []const u8,
     character: u21,
@@ -188,13 +189,33 @@ pub const Reader = struct {
         if (self.source[self.pos] == '+' or self.source[self.pos] == '-') {
             self.pos += 1;
         }
-        while (self.pos < self.source.len and std.ascii.isDigit(self.source[self.pos])) {
-            self.pos += 1;
+        var has_dot = false;
+        var has_exp = false;
+        while (self.pos < self.source.len) {
+            const c = self.source[self.pos];
+            if (std.ascii.isDigit(c)) {
+                self.pos += 1;
+            } else if (c == '.' and !has_dot and !has_exp) {
+                has_dot = true;
+                self.pos += 1;
+            } else if ((c == 'e' or c == 'E') and !has_exp) {
+                has_exp = true;
+                self.pos += 1;
+                if (self.pos < self.source.len and (self.source[self.pos] == '+' or self.source[self.pos] == '-')) {
+                    self.pos += 1;
+                }
+            } else {
+                break;
+            }
         }
-        // For now, only integers
         const num_str = self.source[start..self.pos];
-        const n = std.fmt.parseInt(i64, num_str, 10) catch return ReadError.InvalidNumber;
-        return .{ .fixnum = n };
+        if (has_dot or has_exp) {
+            const f = std.fmt.parseFloat(f64, num_str) catch return ReadError.InvalidNumber;
+            return .{ .flonum = f };
+        } else {
+            const n = std.fmt.parseInt(i64, num_str, 10) catch return ReadError.InvalidNumber;
+            return .{ .fixnum = n };
+        }
     }
 
     fn readSymbol(self: *Reader) ReadError!Token {
@@ -212,7 +233,13 @@ pub const Reader = struct {
                 while (self.pos < self.source.len and isSubsequent(self.source[self.pos])) {
                     self.pos += 1;
                 }
-                return .{ .symbol = self.source[start..self.pos] };
+                const sym_text = self.source[start..self.pos];
+                // Check for special float literals
+                if (std.mem.eql(u8, sym_text, "+inf.0")) return .{ .flonum = std.math.inf(f64) };
+                if (std.mem.eql(u8, sym_text, "-inf.0")) return .{ .flonum = -std.math.inf(f64) };
+                if (std.mem.eql(u8, sym_text, "+nan.0")) return .{ .flonum = std.math.nan(f64) };
+                if (std.mem.eql(u8, sym_text, "-nan.0")) return .{ .flonum = std.math.nan(f64) };
+                return .{ .symbol = sym_text };
             }
             return .{ .symbol = self.source[start..self.pos] };
         }
@@ -391,6 +418,7 @@ pub const Reader = struct {
     fn tokenToValue(self: *Reader, tok: Token) ReadError!Value {
         switch (tok) {
             .fixnum => |n| return types.makeFixnum(n),
+            .flonum => |f| return self.gc.allocFlonum(f) catch return ReadError.OutOfMemory,
             .boolean => |b| return if (b) types.TRUE else types.FALSE,
             .character => |c| return types.makeChar(c),
             .string => |s| return self.gc.allocString(s) catch return ReadError.OutOfMemory,

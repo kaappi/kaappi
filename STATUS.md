@@ -55,12 +55,15 @@
 - [ ] `case-lambda` (separate library)
 - [ ] `let-values`, `let*-values` (Phase 10 — needs multiple values)
 
-## Phase 4: Numeric Tower — TODO
-- [ ] Flonum (f64)
-- [ ] Exact/inexact distinction
-- [ ] Full numeric procedures (floor, ceiling, truncate, round, sqrt, expt, etc.)
-- [ ] Bignum (later)
-- [ ] Rational (later)
+## Phase 4: Numeric Tower (Practical Version) — DONE
+- [x] Flonum (heap-allocated f64)
+- [x] Exact/inexact distinction (fixnum = exact, flonum = inexact)
+- [x] Mixed fixnum/flonum arithmetic with flonum contagion
+- [x] Float literal parsing (3.14, .5, 1e10, +inf.0, -inf.0, +nan.0)
+- [x] 32 new procedures: /, floor, ceiling, truncate, round, sqrt, expt, square, gcd, lcm, exact, inexact, exact?, inexact?, exact-integer?, even?, odd?, sin, cos, tan, asin, acos, atan, exp, log, finite?, infinite?, nan?, real?, complex?, rational?, string->number
+- [ ] Bignum (deferred)
+- [ ] Rational (deferred)
+- [ ] Complex (deferred)
 
 ## Phase 5: Hygienic Macros — TODO
 - [ ] `syntax-rules`

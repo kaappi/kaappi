@@ -76,6 +76,26 @@ pub fn printValue(writer: anytype, value: Value, mode: PrintMode) anyerror!void 
                     try writer.writeAll(str.data);
                 }
             },
+            .flonum => {
+                const flo = obj.as(types.Flonum);
+                const f = flo.value;
+                if (std.math.isNan(f)) {
+                    try writer.writeAll("+nan.0");
+                } else if (std.math.isInf(f)) {
+                    if (f > 0) try writer.writeAll("+inf.0") else try writer.writeAll("-inf.0");
+                } else {
+                    var buf: [64]u8 = undefined;
+                    const s = std.fmt.bufPrint(&buf, "{d}", .{f}) catch "?";
+                    try writer.writeAll(s);
+                    // Ensure at least one decimal point for inexact display
+                    if (std.mem.indexOfScalar(u8, s, '.') == null and
+                        std.mem.indexOfScalar(u8, s, 'e') == null and
+                        std.mem.indexOfScalar(u8, s, 'E') == null)
+                    {
+                        try writer.writeAll(".0");
+                    }
+                }
+            },
             .closure => {
                 const cls = obj.as(types.Closure);
                 if (cls.func.name) |name| {

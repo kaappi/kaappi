@@ -102,6 +102,7 @@ pub const ObjectTag = enum(u4) {
     port = 7,
     record = 8,
     function = 9,
+    flonum = 10,
 };
 
 pub const Object = struct {
@@ -162,6 +163,11 @@ pub const Closure = struct {
     upvalues: []Value,
 };
 
+pub const Flonum = struct {
+    header: Object,
+    value: f64,
+};
+
 // ---------------------------------------------------------------------------
 // Type predicates on Value
 // ---------------------------------------------------------------------------
@@ -192,6 +198,24 @@ pub fn isFunction(v: Value) bool {
 
 pub fn isProcedure(v: Value) bool {
     return isClosure(v) or isNativeFn(v);
+}
+
+pub fn isFlonum(v: Value) bool {
+    return isPointer(v) and toObject(v).tag == .flonum;
+}
+
+pub fn isNumber(v: Value) bool {
+    return isFixnum(v) or isFlonum(v);
+}
+
+pub fn toFlonum(v: Value) f64 {
+    return toObject(v).as(Flonum).value;
+}
+
+pub fn toF64(v: Value) f64 {
+    if (isFixnum(v)) return @floatFromInt(toFixnum(v));
+    if (isFlonum(v)) return toFlonum(v);
+    return 0.0;
 }
 
 // ---------------------------------------------------------------------------

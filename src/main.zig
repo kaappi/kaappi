@@ -109,10 +109,16 @@ fn runFile(vm: *vm_mod.VM, path: []const u8) !void {
             return;
         };
 
+        // Root the function to prevent GC from collecting it before execute wraps it in a closure
+        var func_val = types.makePointer(@ptrCast(func));
+        vm.gc.pushRoot(&func_val);
+
         const result = vm.execute(func) catch |err| {
+            vm.gc.popRoot();
             std.debug.print("Runtime error: {}\n", .{err});
             return;
         };
+        vm.gc.popRoot();
 
         if (result != types.VOID) {
             const s = printer.valueToString(allocator, result, .write) catch continue;
@@ -159,13 +165,19 @@ fn repl(vm: *vm_mod.VM) !void {
                 break;
             };
 
+            // Root the function to prevent GC from collecting it before execute wraps it in a closure
+            var func_val = types.makePointer(@ptrCast(func));
+            vm.gc.pushRoot(&func_val);
+
             const result = vm.execute(func) catch |err| {
+                vm.gc.popRoot();
                 var errbuf: [256]u8 = undefined;
                 var ew: std.Io.Writer = .fixed(&errbuf);
                 ew.print("Runtime error: {}\n", .{err}) catch {};
                 writeStdout(ew.buffered());
                 break;
             };
+            vm.gc.popRoot();
 
             if (result != types.VOID) {
                 const s = printer.valueToString(allocator, result, .write) catch continue;
