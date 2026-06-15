@@ -104,6 +104,12 @@ pub fn registerStandardLibraries(registry: *LibraryRegistry, globals: *std.Strin
         // Pairs and lists
         "cons",    "car",       "cdr",       "set-car!",  "set-cdr!",
         "list",    "length",    "append",    "reverse",
+        "caar",    "cadr",      "cdar",      "cddr",
+        "list-ref", "list-tail", "list-set!", "list-copy", "make-list",
+        "member",  "memq",      "memv",
+        "assoc",   "assq",      "assv",
+        // Higher-order list functions
+        "map",     "for-each",
         // Type predicates
         "pair?",   "null?",     "number?",   "integer?",  "real?",
         "complex?", "rational?", "symbol?",  "string?",   "boolean?",
@@ -111,10 +117,18 @@ pub fn registerStandardLibraries(registry: *LibraryRegistry, globals: *std.Strin
         // Equivalence
         "eq?",     "eqv?",      "equal?",
         // Boolean
-        "not",
+        "not",     "boolean=?", "symbol=?",
         // String operations
         "number->string", "string->number", "string-length",
-        "string-append",  "symbol->string",
+        "string-append",  "symbol->string", "string->symbol",
+        "string",  "make-string", "string-ref", "string-set!",
+        "substring", "string-copy", "string-copy!", "string-fill!",
+        "string->list", "list->string",
+        "string-for-each", "string-map",
+        "string<?", "string<=?", "string=?", "string>=?", "string>?",
+        // Char operations (base library subset)
+        "char->integer", "integer->char",
+        "char<?", "char<=?", "char=?", "char>=?", "char>?",
         // I/O (also in scheme.write)
         "display", "write",     "newline",
         // Misc
@@ -140,6 +154,11 @@ pub fn registerStandardLibraries(registry: *LibraryRegistry, globals: *std.Strin
         // Complex numbers
         "make-rectangular", "make-polar", "real-part", "imag-part",
         "magnitude", "angle",
+        // Vectors (R7RS 6.8)
+        "vector", "make-vector", "vector?", "vector-length",
+        "vector-ref", "vector-set!", "vector->list", "list->vector",
+        "vector-fill!", "vector-copy", "vector-copy!", "vector-append",
+        "vector-for-each", "vector-map", "vector->string",
     };
 
     var base = Library.init(allocator, "scheme.base");
@@ -184,8 +203,22 @@ pub fn registerStandardLibraries(registry: *LibraryRegistry, globals: *std.Strin
     }
     try registry.register(read_lib);
 
-    // (scheme char) — placeholder
-    const char_lib = Library.init(allocator, "scheme.char");
+    // (scheme char) — character classification and case operations
+    const scheme_char_names = [_][]const u8{
+        "char-alphabetic?", "char-numeric?", "char-whitespace?",
+        "char-upper-case?", "char-lower-case?",
+        "char-upcase", "char-downcase", "char-foldcase",
+        "digit-value",
+        "char-ci<?", "char-ci<=?", "char-ci=?", "char-ci>=?", "char-ci>?",
+        "string-ci<?", "string-ci<=?", "string-ci=?", "string-ci>=?", "string-ci>?",
+        "string-upcase", "string-downcase", "string-foldcase",
+    };
+    var char_lib = Library.init(allocator, "scheme.char");
+    for (scheme_char_names) |name| {
+        if (globals.get(name)) |val| {
+            try char_lib.addExport(name, val);
+        }
+    }
     try registry.register(char_lib);
 
     // (scheme lazy) — placeholder
@@ -213,9 +246,25 @@ pub fn registerStandardLibraries(registry: *LibraryRegistry, globals: *std.Strin
     }
     try registry.register(file_lib);
 
-    // (scheme cxr) — caar, cadr, cdar, cddr etc.
-    // These are compositions of car/cdr — registered as placeholders for now
-    const cxr_lib = Library.init(allocator, "scheme.cxr");
+    // (scheme cxr) — three/four-level car/cdr compositions
+    const scheme_cxr_names = [_][]const u8{
+        // Two-level (also in base)
+        "caar", "cadr", "cdar", "cddr",
+        // Three-level
+        "caaar", "caadr", "cadar", "caddr",
+        "cdaar", "cdadr", "cddar", "cdddr",
+        // Four-level
+        "caaaar", "caaadr", "caadar", "caaddr",
+        "cadaar", "cadadr", "caddar", "cadddr",
+        "cdaaar", "cdaadr", "cdadar", "cdaddr",
+        "cddaar", "cddadr", "cdddar", "cddddr",
+    };
+    var cxr_lib = Library.init(allocator, "scheme.cxr");
+    for (scheme_cxr_names) |name| {
+        if (globals.get(name)) |val| {
+            try cxr_lib.addExport(name, val);
+        }
+    }
     try registry.register(cxr_lib);
 
     // (scheme complex) — complex number procedures

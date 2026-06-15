@@ -195,6 +195,15 @@ pub fn printValue(writer: anytype, value: Value, mode: PrintMode) anyerror!void 
                     try writer.writeByte('i');
                 }
             },
+            .vector => {
+                const vec = obj.as(types.Vector);
+                try writer.writeAll("#(");
+                for (vec.data, 0..) |elem, i| {
+                    if (i > 0) try writer.writeByte(' ');
+                    try printValue(writer, elem, mode);
+                }
+                try writer.writeByte(')');
+            },
             .continuation => {
                 try writer.writeAll("#<continuation>");
             },

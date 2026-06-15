@@ -200,6 +200,11 @@ pub const RecordInstance = struct {
     fields: []Value,
 };
 
+pub const Vector = struct {
+    header: Object,
+    data: []Value,
+};
+
 pub const Port = struct {
     header: Object,
     fd: std.posix.fd_t,
@@ -323,6 +328,14 @@ pub fn isRecordType(v: Value) bool {
 
 pub fn isRecordInstance(v: Value) bool {
     return isPointer(v) and toObject(v).tag == .record_instance;
+}
+
+pub fn isVector(v: Value) bool {
+    return isPointer(v) and toObject(v).tag == .vector;
+}
+
+pub fn toVector(v: Value) *Vector {
+    return toObject(v).as(Vector);
 }
 
 pub fn isPort(v: Value) bool {

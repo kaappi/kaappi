@@ -517,10 +517,21 @@ pub const Reader = struct {
     }
 
     fn readVector(self: *Reader) ReadError!Value {
-        // For Phase 1, read as list and convert later
-        // For now, just read list elements
-        _ = self;
-        return ReadError.UnexpectedChar; // TODO: implement vectors
+        var elems: std.ArrayList(Value) = .empty;
+        defer elems.deinit(self.gc.allocator);
+
+        while (true) {
+            self.skipWhitespaceAndComments();
+            if (self.pos >= self.source.len) return ReadError.UnexpectedEof;
+            if (self.source[self.pos] == ')') {
+                self.pos += 1;
+                break;
+            }
+            const elem = try self.readDatum();
+            elems.append(self.gc.allocator, elem) catch return ReadError.OutOfMemory;
+        }
+
+        return self.gc.allocVector(elems.items) catch return ReadError.OutOfMemory;
     }
 
     pub fn hasMore(self: *Reader) bool {

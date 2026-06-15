@@ -12,6 +12,7 @@ const NativeFn = types.NativeFn;
 const Flonum = types.Flonum;
 const Transformer = types.Transformer;
 
+const Vector = types.Vector;
 const RecordType = types.RecordType;
 const RecordInstance = types.RecordInstance;
 const Port = types.Port;
@@ -157,6 +158,34 @@ pub const GC = struct {
         self.bytes_allocated += @sizeOf(Flonum);
         self.trackObject(&flo.header);
         return types.makePointer(@ptrCast(flo));
+    }
+
+    pub fn allocVector(self: *GC, data: []const Value) !Value {
+        self.maybeCollect();
+        const owned = try self.allocator.alloc(Value, data.len);
+        @memcpy(owned, data);
+        const vec = try self.allocator.create(Vector);
+        vec.* = .{
+            .header = .{ .tag = .vector },
+            .data = owned,
+        };
+        self.bytes_allocated += @sizeOf(Vector) + data.len * @sizeOf(Value);
+        self.trackObject(&vec.header);
+        return types.makePointer(@ptrCast(vec));
+    }
+
+    pub fn allocVectorFill(self: *GC, size: usize, fill: Value) !Value {
+        self.maybeCollect();
+        const data = try self.allocator.alloc(Value, size);
+        @memset(data, fill);
+        const vec = try self.allocator.create(Vector);
+        vec.* = .{
+            .header = .{ .tag = .vector },
+            .data = data,
+        };
+        self.bytes_allocated += @sizeOf(Vector) + size * @sizeOf(Value);
+        self.trackObject(&vec.header);
+        return types.makePointer(@ptrCast(vec));
     }
 
     pub fn allocErrorObject(self: *GC, message: Value, irritants: Value) !Value {
@@ -429,6 +458,12 @@ pub const GC = struct {
                     self.markValue(val);
                 }
             },
+            .vector => {
+                const vec = obj.as(Vector);
+                for (vec.data) |elem| {
+                    self.markValue(elem);
+                }
+            },
             .symbol, .string, .native_fn, .flonum, .port, .complex => {},
             else => {},
         }
@@ -490,6 +525,11 @@ pub const GC = struct {
             .flonum => {
                 const flo = obj.as(Flonum);
                 self.allocator.destroy(flo);
+            },
+            .vector => {
+                const vec = obj.as(Vector);
+                self.allocator.free(vec.data);
+                self.allocator.destroy(vec);
             },
             .transformer => {
                 const tx = obj.as(Transformer);

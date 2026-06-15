@@ -8,6 +8,10 @@ const NativeFn = types.NativeFn;
 const primitives_arithmetic = @import("primitives_arithmetic.zig");
 const primitives_io = @import("primitives_io.zig");
 const primitives_control = @import("primitives_control.zig");
+const primitives_vector = @import("primitives_vector.zig");
+const primitives_string = @import("primitives_string.zig");
+const primitives_char = @import("primitives_char.zig");
+const primitives_cxr = @import("primitives_cxr.zig");
 
 pub const PrimitiveError = error{
     TypeError,
@@ -23,6 +27,10 @@ pub fn registerAll(vm: *vm_mod.VM) !void {
     try primitives_arithmetic.registerArithmetic(vm);
     try primitives_io.registerIO(vm);
     try primitives_control.registerControl(vm);
+    try primitives_vector.registerVector(vm);
+    try primitives_string.registerString(vm);
+    try primitives_char.registerChar(vm);
+    try primitives_cxr.registerCxr(vm);
 
     // Pairs and lists
     try reg(vm, "cons", &cons, .{ .exact = 2 });
@@ -34,6 +42,29 @@ pub fn registerAll(vm: *vm_mod.VM) !void {
     try reg(vm, "length", &length, .{ .exact = 1 });
     try reg(vm, "append", &append, .{ .variadic = 0 });
     try reg(vm, "reverse", &reverse, .{ .exact = 1 });
+
+    // Composed car/cdr (base library)
+    try reg(vm, "caar", &caarFn, .{ .exact = 1 });
+    try reg(vm, "cadr", &cadrFn, .{ .exact = 1 });
+    try reg(vm, "cdar", &cdarFn, .{ .exact = 1 });
+    try reg(vm, "cddr", &cddrFn, .{ .exact = 1 });
+
+    // List utilities
+    try reg(vm, "list-ref", &listRefFn, .{ .exact = 2 });
+    try reg(vm, "list-tail", &listTailFn, .{ .exact = 2 });
+    try reg(vm, "list-set!", &listSetFn, .{ .exact = 3 });
+    try reg(vm, "list-copy", &listCopyFn, .{ .exact = 1 });
+    try reg(vm, "make-list", &makeListFn, .{ .variadic = 1 });
+    try reg(vm, "member", &memberFn, .{ .exact = 2 });
+    try reg(vm, "memq", &memqFn, .{ .exact = 2 });
+    try reg(vm, "memv", &memvFn, .{ .exact = 2 });
+    try reg(vm, "assoc", &assocFn, .{ .exact = 2 });
+    try reg(vm, "assq", &assqFn, .{ .exact = 2 });
+    try reg(vm, "assv", &assvFn, .{ .exact = 2 });
+
+    // Higher-order list functions
+    try reg(vm, "map", &mapFn, .{ .variadic = 2 });
+    try reg(vm, "for-each", &forEachFn, .{ .variadic = 2 });
 
     // Type predicates
     try reg(vm, "pair?", &pairP, .{ .exact = 1 });
@@ -57,8 +88,10 @@ pub fn registerAll(vm: *vm_mod.VM) !void {
 
     // Boolean
     try reg(vm, "not", &notFn, .{ .exact = 1 });
+    try reg(vm, "boolean=?", &booleanEqP, .{ .variadic = 2 });
+    try reg(vm, "symbol=?", &symbolEqP, .{ .variadic = 2 });
 
-    // String
+    // String (moved to primitives_string.zig, but keep registration here for backward compat)
     try reg(vm, "string-length", &stringLength, .{ .exact = 1 });
     try reg(vm, "string-append", &stringAppend, .{ .variadic = 0 });
     try reg(vm, "symbol->string", &symbolToString, .{ .exact = 1 });
@@ -296,7 +329,7 @@ fn equalP(args: []const Value) PrimitiveError!Value {
     return if (deepEqual(args[0], args[1])) types.TRUE else types.FALSE;
 }
 
-fn deepEqual(a: Value, b: Value) bool {
+pub fn deepEqual(a: Value, b: Value) bool {
     if (a == b) return true;
     if (types.isFlonum(a) and types.isFlonum(b)) {
         const fa: u64 = @bitCast(types.toFlonum(a));
@@ -311,6 +344,15 @@ fn deepEqual(a: Value, b: Value) bool {
         const sa = types.toObject(a).as(types.SchemeString);
         const sb = types.toObject(b).as(types.SchemeString);
         return std.mem.eql(u8, sa.data, sb.data);
+    }
+    if (types.isVector(a) and types.isVector(b)) {
+        const va = types.toVector(a);
+        const vb = types.toVector(b);
+        if (va.data.len != vb.data.len) return false;
+        for (va.data, vb.data) |ea, eb| {
+            if (!deepEqual(ea, eb)) return false;
+        }
+        return true;
     }
     return false;
 }
@@ -446,5 +488,352 @@ fn recordSetFn(args: []const Value) PrimitiveError!Value {
     const idx: usize = @intCast(types.toFixnum(args[1]));
     if (idx >= ri.fields.len) return PrimitiveError.TypeError;
     ri.fields[idx] = args[2];
+    return types.VOID;
+}
+
+// ---------------------------------------------------------------------------
+// Composed car/cdr (base library: caar, cadr, cdar, cddr)
+// ---------------------------------------------------------------------------
+
+fn caarFn(args: []const Value) PrimitiveError!Value {
+    if (!types.isPair(args[0])) return PrimitiveError.TypeError;
+    const a = types.car(args[0]);
+    if (!types.isPair(a)) return PrimitiveError.TypeError;
+    return types.car(a);
+}
+
+fn cadrFn(args: []const Value) PrimitiveError!Value {
+    if (!types.isPair(args[0])) return PrimitiveError.TypeError;
+    const d = types.cdr(args[0]);
+    if (!types.isPair(d)) return PrimitiveError.TypeError;
+    return types.car(d);
+}
+
+fn cdarFn(args: []const Value) PrimitiveError!Value {
+    if (!types.isPair(args[0])) return PrimitiveError.TypeError;
+    const a = types.car(args[0]);
+    if (!types.isPair(a)) return PrimitiveError.TypeError;
+    return types.cdr(a);
+}
+
+fn cddrFn(args: []const Value) PrimitiveError!Value {
+    if (!types.isPair(args[0])) return PrimitiveError.TypeError;
+    const d = types.cdr(args[0]);
+    if (!types.isPair(d)) return PrimitiveError.TypeError;
+    return types.cdr(d);
+}
+
+// ---------------------------------------------------------------------------
+// List utilities
+// ---------------------------------------------------------------------------
+
+fn listRefFn(args: []const Value) PrimitiveError!Value {
+    if (!types.isFixnum(args[1])) return PrimitiveError.TypeError;
+    const k = types.toFixnum(args[1]);
+    if (k < 0) return PrimitiveError.TypeError;
+    var idx: i64 = 0;
+    var current = args[0];
+    while (current != types.NIL) {
+        if (!types.isPair(current)) return PrimitiveError.TypeError;
+        if (idx == k) return types.car(current);
+        idx += 1;
+        current = types.cdr(current);
+    }
+    return PrimitiveError.TypeError; // index out of bounds
+}
+
+fn listTailFn(args: []const Value) PrimitiveError!Value {
+    if (!types.isFixnum(args[1])) return PrimitiveError.TypeError;
+    const k = types.toFixnum(args[1]);
+    if (k < 0) return PrimitiveError.TypeError;
+    var idx: i64 = 0;
+    var current = args[0];
+    while (idx < k) {
+        if (!types.isPair(current)) return PrimitiveError.TypeError;
+        current = types.cdr(current);
+        idx += 1;
+    }
+    return current;
+}
+
+fn listSetFn(args: []const Value) PrimitiveError!Value {
+    if (!types.isFixnum(args[1])) return PrimitiveError.TypeError;
+    const k = types.toFixnum(args[1]);
+    if (k < 0) return PrimitiveError.TypeError;
+    var idx: i64 = 0;
+    var current = args[0];
+    while (current != types.NIL) {
+        if (!types.isPair(current)) return PrimitiveError.TypeError;
+        if (idx == k) {
+            types.setCar(current, args[2]);
+            return types.VOID;
+        }
+        idx += 1;
+        current = types.cdr(current);
+    }
+    return PrimitiveError.TypeError; // index out of bounds
+}
+
+fn listCopyFn(args: []const Value) PrimitiveError!Value {
+    const gc = gc_instance orelse return PrimitiveError.OutOfMemory;
+    var current = args[0];
+    if (current == types.NIL) return types.NIL;
+    if (!types.isPair(current)) return current; // atoms are returned as-is
+
+    // Collect elements
+    var elems: std.ArrayList(Value) = .empty;
+    defer elems.deinit(gc.allocator);
+    while (current != types.NIL) {
+        if (!types.isPair(current)) {
+            // improper list: append the tail
+            break;
+        }
+        elems.append(gc.allocator, types.car(current)) catch return PrimitiveError.OutOfMemory;
+        current = types.cdr(current);
+    }
+    // Build the copy from the end
+    var result: Value = current; // NIL for proper, last cdr for improper
+    var i = elems.items.len;
+    while (i > 0) {
+        i -= 1;
+        result = gc.allocPair(elems.items[i], result) catch return PrimitiveError.OutOfMemory;
+    }
+    return result;
+}
+
+fn makeListFn(args: []const Value) PrimitiveError!Value {
+    const gc = gc_instance orelse return PrimitiveError.OutOfMemory;
+    if (!types.isFixnum(args[0])) return PrimitiveError.TypeError;
+    const k = types.toFixnum(args[0]);
+    if (k < 0) return PrimitiveError.TypeError;
+    const fill: Value = if (args.len > 1) args[1] else types.UNDEFINED;
+    var result: Value = types.NIL;
+    var i: i64 = 0;
+    while (i < k) : (i += 1) {
+        result = gc.allocPair(fill, result) catch return PrimitiveError.OutOfMemory;
+    }
+    return result;
+}
+
+fn memberFn(args: []const Value) PrimitiveError!Value {
+    var current = args[1];
+    while (current != types.NIL) {
+        if (!types.isPair(current)) return PrimitiveError.TypeError;
+        if (deepEqual(args[0], types.car(current))) return current;
+        current = types.cdr(current);
+    }
+    return types.FALSE;
+}
+
+fn memqFn(args: []const Value) PrimitiveError!Value {
+    var current = args[1];
+    while (current != types.NIL) {
+        if (!types.isPair(current)) return PrimitiveError.TypeError;
+        if (args[0] == types.car(current)) return current;
+        current = types.cdr(current);
+    }
+    return types.FALSE;
+}
+
+fn memvFn(args: []const Value) PrimitiveError!Value {
+    var current = args[1];
+    while (current != types.NIL) {
+        if (!types.isPair(current)) return PrimitiveError.TypeError;
+        const elem = types.car(current);
+        if (args[0] == elem) return current;
+        // eqv? also checks flonum bit-equality
+        if (types.isFlonum(args[0]) and types.isFlonum(elem)) {
+            const a: u64 = @bitCast(types.toFlonum(args[0]));
+            const b: u64 = @bitCast(types.toFlonum(elem));
+            if (a == b) return current;
+        }
+        current = types.cdr(current);
+    }
+    return types.FALSE;
+}
+
+fn assocFn(args: []const Value) PrimitiveError!Value {
+    var current = args[1];
+    while (current != types.NIL) {
+        if (!types.isPair(current)) return PrimitiveError.TypeError;
+        const pair = types.car(current);
+        if (!types.isPair(pair)) return PrimitiveError.TypeError;
+        if (deepEqual(args[0], types.car(pair))) return pair;
+        current = types.cdr(current);
+    }
+    return types.FALSE;
+}
+
+fn assqFn(args: []const Value) PrimitiveError!Value {
+    var current = args[1];
+    while (current != types.NIL) {
+        if (!types.isPair(current)) return PrimitiveError.TypeError;
+        const pair = types.car(current);
+        if (!types.isPair(pair)) return PrimitiveError.TypeError;
+        if (args[0] == types.car(pair)) return pair;
+        current = types.cdr(current);
+    }
+    return types.FALSE;
+}
+
+fn assvFn(args: []const Value) PrimitiveError!Value {
+    var current = args[1];
+    while (current != types.NIL) {
+        if (!types.isPair(current)) return PrimitiveError.TypeError;
+        const pair = types.car(current);
+        if (!types.isPair(pair)) return PrimitiveError.TypeError;
+        const key = types.car(pair);
+        if (args[0] == key) return pair;
+        if (types.isFlonum(args[0]) and types.isFlonum(key)) {
+            const a: u64 = @bitCast(types.toFlonum(args[0]));
+            const b: u64 = @bitCast(types.toFlonum(key));
+            if (a == b) return pair;
+        }
+        current = types.cdr(current);
+    }
+    return types.FALSE;
+}
+
+// ---------------------------------------------------------------------------
+// boolean=? and symbol=?
+// ---------------------------------------------------------------------------
+
+fn booleanEqP(args: []const Value) PrimitiveError!Value {
+    if (!types.isBool(args[0])) return PrimitiveError.TypeError;
+    for (args[1..]) |a| {
+        if (!types.isBool(a)) return PrimitiveError.TypeError;
+        if (a != args[0]) return types.FALSE;
+    }
+    return types.TRUE;
+}
+
+fn symbolEqP(args: []const Value) PrimitiveError!Value {
+    if (!types.isSymbol(args[0])) return PrimitiveError.TypeError;
+    for (args[1..]) |a| {
+        if (!types.isSymbol(a)) return PrimitiveError.TypeError;
+        if (a != args[0]) return types.FALSE;
+    }
+    return types.TRUE;
+}
+
+// ---------------------------------------------------------------------------
+// map and for-each (higher-order list functions)
+// ---------------------------------------------------------------------------
+
+fn mapFn(args: []const Value) PrimitiveError!Value {
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError;
+    const gc = gc_instance orelse return PrimitiveError.OutOfMemory;
+    const proc = args[0];
+    if (!types.isProcedure(proc) and !types.isNativeFn(proc)) return PrimitiveError.TypeError;
+
+    const list_count = args.len - 1;
+    if (list_count == 0) return PrimitiveError.ArityMismatch;
+
+    // Collect results in an ArrayList, iterate lists in parallel
+    var results: std.ArrayList(Value) = .empty;
+    defer results.deinit(gc.allocator);
+
+    // Current pointers for each list
+    var currents: [256]Value = undefined;
+    for (0..list_count) |i| {
+        currents[i] = args[1 + i];
+    }
+
+    var call_args: [256]Value = undefined;
+
+    while (true) {
+        // Check if any list is exhausted
+        var all_pairs = true;
+        for (0..list_count) |i| {
+            if (currents[i] == types.NIL) {
+                all_pairs = false;
+                break;
+            }
+            if (!types.isPair(currents[i])) return PrimitiveError.TypeError;
+        }
+        if (!all_pairs) break;
+
+        // Extract car of each list
+        for (0..list_count) |i| {
+            call_args[i] = types.car(currents[i]);
+        }
+
+        // Call procedure
+        const result = vm.callWithArgs(proc, call_args[0..list_count]) catch |err| {
+            return switch (err) {
+                vm_mod.VMError.ContinuationInvoked => PrimitiveError.ContinuationInvoked,
+                vm_mod.VMError.ExceptionRaised => PrimitiveError.ExceptionRaised,
+                vm_mod.VMError.OutOfMemory => PrimitiveError.OutOfMemory,
+                else => PrimitiveError.TypeError,
+            };
+        };
+
+        results.append(gc.allocator, result) catch return PrimitiveError.OutOfMemory;
+
+        // Advance each list
+        for (0..list_count) |i| {
+            currents[i] = types.cdr(currents[i]);
+        }
+    }
+
+    // Build result list from collected values
+    var result_list: Value = types.NIL;
+    var i = results.items.len;
+    while (i > 0) {
+        i -= 1;
+        result_list = gc.allocPair(results.items[i], result_list) catch return PrimitiveError.OutOfMemory;
+    }
+    return result_list;
+}
+
+fn forEachFn(args: []const Value) PrimitiveError!Value {
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError;
+    const proc = args[0];
+    if (!types.isProcedure(proc) and !types.isNativeFn(proc)) return PrimitiveError.TypeError;
+
+    const list_count = args.len - 1;
+    if (list_count == 0) return PrimitiveError.ArityMismatch;
+
+    // Current pointers for each list
+    var currents: [256]Value = undefined;
+    for (0..list_count) |i| {
+        currents[i] = args[1 + i];
+    }
+
+    var call_args: [256]Value = undefined;
+
+    while (true) {
+        // Check if any list is exhausted
+        var all_pairs = true;
+        for (0..list_count) |i| {
+            if (currents[i] == types.NIL) {
+                all_pairs = false;
+                break;
+            }
+            if (!types.isPair(currents[i])) return PrimitiveError.TypeError;
+        }
+        if (!all_pairs) break;
+
+        // Extract car of each list
+        for (0..list_count) |i| {
+            call_args[i] = types.car(currents[i]);
+        }
+
+        // Call procedure (discard result)
+        _ = vm.callWithArgs(proc, call_args[0..list_count]) catch |err| {
+            return switch (err) {
+                vm_mod.VMError.ContinuationInvoked => PrimitiveError.ContinuationInvoked,
+                vm_mod.VMError.ExceptionRaised => PrimitiveError.ExceptionRaised,
+                vm_mod.VMError.OutOfMemory => PrimitiveError.OutOfMemory,
+                else => PrimitiveError.TypeError,
+            };
+        };
+
+        // Advance each list
+        for (0..list_count) |i| {
+            currents[i] = types.cdr(currents[i]);
+        }
+    }
+
     return types.VOID;
 }
