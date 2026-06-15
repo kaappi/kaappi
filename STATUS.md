@@ -72,10 +72,12 @@
 - [x] Template instantiation with ellipsis replication
 - [x] Basic hygiene via gensym for template-introduced variables
 
-## Phase 6: Libraries — TODO
-- [ ] `define-library`, `import`, `export`
-- [ ] `(scheme base)` library
-- [ ] Library file loading (.sld)
+## Phase 6: Libraries — DONE
+- [x] `define-library` with `export`, `import`, `begin` declarations
+- [x] `import` with `only`, `except`, `rename`, `prefix` modifiers
+- [x] Pre-registered standard libraries: `(scheme base)`, `(scheme write)`, `(scheme inexact)`, etc.
+- [x] Library registry for user-defined libraries
+- [ ] File-based library loading (.sld) (deferred)
 
 ## Phase 7: Exceptions — TODO
 - [ ] `error`, `with-exception-handler`, `raise`, `raise-continuable`

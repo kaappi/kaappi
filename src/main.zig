@@ -7,6 +7,7 @@ pub const vm_mod = @import("vm.zig");
 pub const primitives = @import("primitives.zig");
 pub const printer = @import("printer.zig");
 pub const expander = @import("expander.zig");
+pub const library = @import("library.zig");
 
 fn writeToFd(fd: std.posix.fd_t, bytes: []const u8) void {
     var total: usize = 0;
@@ -79,6 +80,7 @@ pub fn main(init: std.process.Init.Minimal) !void {
     defer vm.deinit();
     try primitives.registerAll(&vm);
     primitives.setGCInstance(&gc);
+    try library.registerStandardLibraries(&vm.libraries, &vm.globals);
 
     var args = init.args.iterate();
     _ = args.skip(); // skip program name
@@ -104,6 +106,21 @@ fn runFile(vm: *vm_mod.VM, path: []const u8) !void {
             std.debug.print("Read error: {}\n", .{err});
             return;
         };
+
+        // Check for special top-level forms (import, define-library)
+        if (vm.handleTopLevelForm(expr)) |top_result| {
+            const result = top_result catch |err| {
+                std.debug.print("Runtime error: {}\n", .{err});
+                return;
+            };
+            if (result != types.VOID) {
+                const s = printer.valueToString(allocator, result, .write) catch continue;
+                defer allocator.free(s);
+                writeStdout(s);
+                writeStdout("\n");
+            }
+            continue;
+        }
 
         const func = compiler.compileExpressionWithMacros(vm.gc, expr, &vm.macros) catch |err| {
             std.debug.print("Compile error: {}\n", .{err});
@@ -158,6 +175,24 @@ fn repl(vm: *vm_mod.VM) !void {
                 break;
             };
 
+            // Check for special top-level forms (import, define-library)
+            if (vm.handleTopLevelForm(expr)) |top_result| {
+                const result = top_result catch |err| {
+                    var errbuf: [256]u8 = undefined;
+                    var ew: std.Io.Writer = .fixed(&errbuf);
+                    ew.print("Runtime error: {}\n", .{err}) catch {};
+                    writeStdout(ew.buffered());
+                    break;
+                };
+                if (result != types.VOID) {
+                    const s = printer.valueToString(allocator, result, .write) catch continue;
+                    defer allocator.free(s);
+                    writeStdout(s);
+                    writeStdout("\n");
+                }
+                continue;
+            }
+
             const func = compiler.compileExpressionWithMacros(vm.gc, expr, &vm.macros) catch |err| {
                 var errbuf: [256]u8 = undefined;
                 var ew: std.Io.Writer = .fixed(&errbuf);
@@ -198,4 +233,5 @@ test {
     _ = vm_mod;
     _ = printer;
     _ = expander;
+    _ = library;
 }

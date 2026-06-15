@@ -2,6 +2,7 @@ const std = @import("std");
 const types = @import("types.zig");
 const memory = @import("memory.zig");
 const compiler_mod = @import("compiler.zig");
+const library_mod = @import("library.zig");
 const Value = types.Value;
 const OpCode = types.OpCode;
 
@@ -37,6 +38,7 @@ pub const VM = struct {
     globals: std.StringHashMap(Value),
     macros: std.StringHashMap(Value),
     output: std.ArrayList(u8),
+    libraries: library_mod.LibraryRegistry,
 
     pub fn init(gc: *memory.GC) VM {
         var vm = VM{
@@ -44,6 +46,7 @@ pub const VM = struct {
             .globals = std.StringHashMap(Value).init(gc.allocator),
             .macros = std.StringHashMap(Value).init(gc.allocator),
             .output = .empty,
+            .libraries = library_mod.LibraryRegistry.init(gc.allocator),
         };
         @memset(&vm.registers, types.UNDEFINED);
         return vm;
@@ -53,6 +56,7 @@ pub const VM = struct {
         self.globals.deinit();
         self.macros.deinit();
         self.output.deinit(self.gc.allocator);
+        self.libraries.deinit();
     }
 
     pub fn defineGlobal(self: *VM, name: []const u8, value: Value) !void {
@@ -390,6 +394,13 @@ pub const VM = struct {
         var last_result: Value = types.VOID;
         while (reader.hasMore()) {
             const expr = reader.readDatum() catch return VMError.CompileError;
+
+            // Check for special top-level forms handled by the VM directly
+            if (self.handleTopLevelForm(expr)) |result| {
+                last_result = result catch |err| return err;
+                continue;
+            }
+
             const func = compiler_mod.compileExpressionWithMacros(self.gc, expr, &self.macros) catch return VMError.CompileError;
             // Root the function to prevent GC from collecting it before execute wraps it in a closure
             var func_val = types.makePointer(@ptrCast(func));
@@ -401,6 +412,341 @@ pub const VM = struct {
             self.gc.popRoot();
         }
         return last_result;
+    }
+
+    /// Check if expr is a special top-level form (import, define-library).
+    /// Returns null if the form should be compiled normally.
+    pub fn handleTopLevelForm(self: *VM, expr: Value) ?VMError!Value {
+        if (!types.isPair(expr)) return null;
+        const head = types.car(expr);
+        if (!types.isSymbol(head)) return null;
+        const name = types.symbolName(head);
+
+        if (std.mem.eql(u8, name, "import")) {
+            return self.handleImport(types.cdr(expr));
+        }
+        if (std.mem.eql(u8, name, "define-library")) {
+            return self.handleDefineLibrary(types.cdr(expr));
+        }
+        return null;
+    }
+
+    /// Handle (import import-set ...)
+    /// Each import-set is one of:
+    ///   (lib-name ...)          — import all exports
+    ///   (only (lib) id ...)     — import only named ids
+    ///   (except (lib) id ...)   — import all except named ids
+    ///   (prefix (lib) prefix)   — prefix all imported names
+    ///   (rename (lib) (old new) ...) — rename on import
+    fn handleImport(self: *VM, args: Value) VMError!Value {
+        var current = args;
+        while (current != types.NIL) {
+            if (!types.isPair(current)) return VMError.CompileError;
+            const import_set = types.car(current);
+            self.processImportSet(import_set) catch return VMError.CompileError;
+            current = types.cdr(current);
+        }
+        return types.VOID;
+    }
+
+    fn processImportSet(self: *VM, import_set: Value) !void {
+        if (!types.isPair(import_set)) return error.InvalidSyntax;
+
+        const first = types.car(import_set);
+
+        // Check for import modifiers
+        if (types.isSymbol(first)) {
+            const modifier = types.symbolName(first);
+
+            if (std.mem.eql(u8, modifier, "only")) {
+                return self.processImportOnly(types.cdr(import_set));
+            }
+            if (std.mem.eql(u8, modifier, "except")) {
+                return self.processImportExcept(types.cdr(import_set));
+            }
+            if (std.mem.eql(u8, modifier, "prefix")) {
+                return self.processImportPrefix(types.cdr(import_set));
+            }
+            if (std.mem.eql(u8, modifier, "rename")) {
+                return self.processImportRename(types.cdr(import_set));
+            }
+        }
+
+        // Plain library name: (scheme base) etc.
+        const lib_name = library_mod.libraryNameToString(self.gc.allocator, import_set) catch return error.InvalidSyntax;
+        defer self.gc.allocator.free(lib_name);
+
+        const lib = self.libraries.get(lib_name) orelse return error.UndefinedVariable;
+        var it = lib.exports.iterator();
+        while (it.next()) |entry| {
+            self.globals.put(entry.key_ptr.*, entry.value_ptr.*) catch return error.OutOfMemory;
+        }
+    }
+
+    fn processImportOnly(self: *VM, args: Value) !void {
+        // (only (lib-name) id ...)
+        if (!types.isPair(args)) return error.InvalidSyntax;
+        const lib_spec = types.car(args);
+        const ids = types.cdr(args);
+
+        const lib_name = library_mod.libraryNameToString(self.gc.allocator, lib_spec) catch return error.InvalidSyntax;
+        defer self.gc.allocator.free(lib_name);
+
+        const lib = self.libraries.get(lib_name) orelse return error.UndefinedVariable;
+
+        var id_list = ids;
+        while (id_list != types.NIL) {
+            if (!types.isPair(id_list)) return error.InvalidSyntax;
+            const id = types.car(id_list);
+            if (!types.isSymbol(id)) return error.InvalidSyntax;
+            const id_name = types.symbolName(id);
+            if (lib.exports.get(id_name)) |val| {
+                self.globals.put(id_name, val) catch return error.OutOfMemory;
+            }
+            id_list = types.cdr(id_list);
+        }
+    }
+
+    fn processImportExcept(self: *VM, args: Value) !void {
+        // (except (lib-name) id ...)
+        if (!types.isPair(args)) return error.InvalidSyntax;
+        const lib_spec = types.car(args);
+        const ids = types.cdr(args);
+
+        const lib_name = library_mod.libraryNameToString(self.gc.allocator, lib_spec) catch return error.InvalidSyntax;
+        defer self.gc.allocator.free(lib_name);
+
+        const lib = self.libraries.get(lib_name) orelse return error.UndefinedVariable;
+
+        // Collect excluded names
+        var excluded: [64][]const u8 = undefined;
+        var excluded_count: usize = 0;
+        var id_list = ids;
+        while (id_list != types.NIL) {
+            if (!types.isPair(id_list)) return error.InvalidSyntax;
+            const id = types.car(id_list);
+            if (!types.isSymbol(id)) return error.InvalidSyntax;
+            if (excluded_count < 64) {
+                excluded[excluded_count] = types.symbolName(id);
+                excluded_count += 1;
+            }
+            id_list = types.cdr(id_list);
+        }
+
+        // Import all except excluded
+        var it = lib.exports.iterator();
+        while (it.next()) |entry| {
+            var is_excluded = false;
+            for (excluded[0..excluded_count]) |exc| {
+                if (std.mem.eql(u8, entry.key_ptr.*, exc)) {
+                    is_excluded = true;
+                    break;
+                }
+            }
+            if (!is_excluded) {
+                self.globals.put(entry.key_ptr.*, entry.value_ptr.*) catch return error.OutOfMemory;
+            }
+        }
+    }
+
+    fn processImportPrefix(self: *VM, args: Value) !void {
+        // (prefix (lib-name) prefix-id)
+        if (!types.isPair(args)) return error.InvalidSyntax;
+        const lib_spec = types.car(args);
+        const rest = types.cdr(args);
+        if (!types.isPair(rest)) return error.InvalidSyntax;
+        const prefix_sym = types.car(rest);
+        if (!types.isSymbol(prefix_sym)) return error.InvalidSyntax;
+        const prefix = types.symbolName(prefix_sym);
+
+        const lib_name = library_mod.libraryNameToString(self.gc.allocator, lib_spec) catch return error.InvalidSyntax;
+        defer self.gc.allocator.free(lib_name);
+
+        const lib = self.libraries.get(lib_name) orelse return error.UndefinedVariable;
+
+        var it = lib.exports.iterator();
+        while (it.next()) |entry| {
+            // Create prefixed name by interning a symbol through the GC.
+            // This ensures the name string is owned by the GC and won't leak.
+            const prefixed_buf = std.fmt.allocPrint(self.gc.allocator, "{s}{s}", .{ prefix, entry.key_ptr.* }) catch return error.OutOfMemory;
+            defer self.gc.allocator.free(prefixed_buf);
+            // Intern via allocSymbol so the name persists in the symbol table
+            const sym = self.gc.allocSymbol(prefixed_buf) catch return error.OutOfMemory;
+            const interned_name = types.symbolName(sym);
+            self.globals.put(interned_name, entry.value_ptr.*) catch return error.OutOfMemory;
+        }
+    }
+
+    fn processImportRename(self: *VM, args: Value) !void {
+        // (rename (lib-name) (old new) ...)
+        if (!types.isPair(args)) return error.InvalidSyntax;
+        const lib_spec = types.car(args);
+        const renames = types.cdr(args);
+
+        const lib_name = library_mod.libraryNameToString(self.gc.allocator, lib_spec) catch return error.InvalidSyntax;
+        defer self.gc.allocator.free(lib_name);
+
+        const lib = self.libraries.get(lib_name) orelse return error.UndefinedVariable;
+
+        // Collect rename mappings
+        var rename_old: [32][]const u8 = undefined;
+        var rename_new: [32][]const u8 = undefined;
+        var rename_count: usize = 0;
+        var rename_list = renames;
+        while (rename_list != types.NIL) {
+            if (!types.isPair(rename_list)) return error.InvalidSyntax;
+            const pair = types.car(rename_list);
+            if (!types.isPair(pair)) return error.InvalidSyntax;
+            const old_sym = types.car(pair);
+            const new_rest = types.cdr(pair);
+            if (!types.isPair(new_rest)) return error.InvalidSyntax;
+            const new_sym = types.car(new_rest);
+            if (!types.isSymbol(old_sym) or !types.isSymbol(new_sym)) return error.InvalidSyntax;
+            if (rename_count < 32) {
+                rename_old[rename_count] = types.symbolName(old_sym);
+                rename_new[rename_count] = types.symbolName(new_sym);
+                rename_count += 1;
+            }
+            rename_list = types.cdr(rename_list);
+        }
+
+        // Import all exports, applying renames
+        var it = lib.exports.iterator();
+        while (it.next()) |entry| {
+            var imported_name = entry.key_ptr.*;
+            for (0..rename_count) |i| {
+                if (std.mem.eql(u8, entry.key_ptr.*, rename_old[i])) {
+                    imported_name = rename_new[i];
+                    break;
+                }
+            }
+            self.globals.put(imported_name, entry.value_ptr.*) catch return error.OutOfMemory;
+        }
+    }
+
+    /// Handle (define-library (name ...) decl ...)
+    /// Declarations can be:
+    ///   (export id ...)
+    ///   (import import-set ...)
+    ///   (begin expr ...)
+    fn handleDefineLibrary(self: *VM, args: Value) VMError!Value {
+        if (!types.isPair(args)) return VMError.CompileError;
+        const name_list = types.car(args);
+        const decls = types.cdr(args);
+
+        // Convert library name list to canonical string
+        const lib_name = library_mod.libraryNameToString(self.gc.allocator, name_list) catch return VMError.CompileError;
+        // lib_name is owned by allocator; we need it to persist in the registry.
+        // The registry key will reference this string.
+
+        // Collect export names and process declarations
+        var export_names: [128][]const u8 = undefined;
+        var export_count: usize = 0;
+
+        // First pass: collect exports and process imports/begin
+        var decl = decls;
+        while (decl != types.NIL) {
+            if (!types.isPair(decl)) {
+                self.gc.allocator.free(lib_name);
+                return VMError.CompileError;
+            }
+            const declaration = types.car(decl);
+            if (!types.isPair(declaration)) {
+                self.gc.allocator.free(lib_name);
+                return VMError.CompileError;
+            }
+
+            const decl_head = types.car(declaration);
+            if (!types.isSymbol(decl_head)) {
+                self.gc.allocator.free(lib_name);
+                return VMError.CompileError;
+            }
+            const decl_name = types.symbolName(decl_head);
+
+            if (std.mem.eql(u8, decl_name, "export")) {
+                // (export id ...)
+                var id_list = types.cdr(declaration);
+                while (id_list != types.NIL) {
+                    if (!types.isPair(id_list)) {
+                        self.gc.allocator.free(lib_name);
+                        return VMError.CompileError;
+                    }
+                    const id = types.car(id_list);
+                    if (!types.isSymbol(id)) {
+                        self.gc.allocator.free(lib_name);
+                        return VMError.CompileError;
+                    }
+                    if (export_count < 128) {
+                        export_names[export_count] = types.symbolName(id);
+                        export_count += 1;
+                    }
+                    id_list = types.cdr(id_list);
+                }
+            } else if (std.mem.eql(u8, decl_name, "import")) {
+                // (import import-set ...)
+                // Process imports into the current globals (which the begin body will use)
+                _ = self.handleImport(types.cdr(declaration)) catch {
+                    self.gc.allocator.free(lib_name);
+                    return VMError.CompileError;
+                };
+            } else if (std.mem.eql(u8, decl_name, "begin")) {
+                // (begin expr ...)
+                // Evaluate expressions in the current environment
+                var body = types.cdr(declaration);
+                while (body != types.NIL) {
+                    if (!types.isPair(body)) {
+                        self.gc.allocator.free(lib_name);
+                        return VMError.CompileError;
+                    }
+                    const body_expr = types.car(body);
+
+                    // Check for top-level forms in begin body
+                    if (self.handleTopLevelForm(body_expr)) |result| {
+                        _ = result catch {
+                            self.gc.allocator.free(lib_name);
+                            return VMError.CompileError;
+                        };
+                    } else {
+                        const func = compiler_mod.compileExpressionWithMacros(self.gc, body_expr, &self.macros) catch {
+                            self.gc.allocator.free(lib_name);
+                            return VMError.CompileError;
+                        };
+                        var func_val = types.makePointer(@ptrCast(func));
+                        self.gc.pushRoot(&func_val);
+                        _ = self.execute(func) catch |err| {
+                            self.gc.popRoot();
+                            self.gc.allocator.free(lib_name);
+                            return err;
+                        };
+                        self.gc.popRoot();
+                    }
+
+                    body = types.cdr(body);
+                }
+            }
+            // Ignore unknown declarations (include, include-ci, cond-expand, etc.)
+
+            decl = types.cdr(decl);
+        }
+
+        // Create the library with exported bindings.
+        // Use initOwned so the library takes ownership of lib_name.
+        var lib = library_mod.Library.initOwned(self.gc.allocator, lib_name);
+        for (export_names[0..export_count]) |exp_name| {
+            if (self.globals.get(exp_name)) |val| {
+                lib.addExport(exp_name, val) catch {
+                    lib.deinit();
+                    return VMError.OutOfMemory;
+                };
+            }
+        }
+
+        self.libraries.register(lib) catch {
+            lib.deinit();
+            return VMError.OutOfMemory;
+        };
+
+        return types.VOID;
     }
 };
 
@@ -414,6 +760,7 @@ fn makeTestVM(gc: *memory.GC) !VM {
     var vm = VM.init(gc);
     primitives_mod.setGCInstance(gc);
     try primitives_mod.registerAll(&vm);
+    try library_mod.registerStandardLibraries(&vm.libraries, &vm.globals);
     return vm;
 }
 
@@ -1141,4 +1488,175 @@ test "syntax-rules define-syntax my-and" {
     try std.testing.expectEqual(@as(i64, 5), types.toFixnum(try vm.eval("(my-and 5)")));
     try std.testing.expectEqual(@as(i64, 3), types.toFixnum(try vm.eval("(my-and 2 3)")));
     try std.testing.expectEqual(types.FALSE, try vm.eval("(my-and #f 3)"));
+}
+
+// ---------------------------------------------------------------------------
+// Phase 6: Libraries (import, define-library, export)
+// ---------------------------------------------------------------------------
+
+test "import scheme base" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try makeTestVM(&gc);
+    defer vm.deinit();
+
+    // (import (scheme base)) should make + available
+    _ = try vm.eval("(import (scheme base))");
+    const result = try vm.eval("(+ 1 2)");
+    try std.testing.expectEqual(@as(i64, 3), types.toFixnum(result));
+}
+
+test "import only" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try makeTestVM(&gc);
+    defer vm.deinit();
+
+    _ = try vm.eval("(import (only (scheme base) + -))");
+    const r1 = try vm.eval("(+ 10 5)");
+    try std.testing.expectEqual(@as(i64, 15), types.toFixnum(r1));
+    const r2 = try vm.eval("(- 10 3)");
+    try std.testing.expectEqual(@as(i64, 7), types.toFixnum(r2));
+}
+
+test "import except" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+
+    // Create a fresh VM without pre-loaded globals to verify except works
+    var vm = VM.init(&gc);
+    defer vm.deinit();
+    primitives_mod.setGCInstance(&gc);
+    try primitives_mod.registerAll(&vm);
+    try library_mod.registerStandardLibraries(&vm.libraries, &vm.globals);
+
+    // Import everything except +
+    _ = try vm.eval("(import (except (scheme base) +))");
+    // - should work
+    const r1 = try vm.eval("(- 10 3)");
+    try std.testing.expectEqual(@as(i64, 7), types.toFixnum(r1));
+}
+
+test "import rename" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try makeTestVM(&gc);
+    defer vm.deinit();
+
+    _ = try vm.eval("(import (rename (scheme base) (+ add) (- subtract)))");
+    const r1 = try vm.eval("(add 3 4)");
+    try std.testing.expectEqual(@as(i64, 7), types.toFixnum(r1));
+    const r2 = try vm.eval("(subtract 10 3)");
+    try std.testing.expectEqual(@as(i64, 7), types.toFixnum(r2));
+}
+
+test "import prefix" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try makeTestVM(&gc);
+    defer vm.deinit();
+
+    _ = try vm.eval("(import (prefix (scheme base) my:))");
+    const result = try vm.eval("(my:+ 3 4)");
+    try std.testing.expectEqual(@as(i64, 7), types.toFixnum(result));
+}
+
+test "import scheme write" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try makeTestVM(&gc);
+    defer vm.deinit();
+
+    // After importing (scheme write), display/write/newline should be available
+    // We test availability by checking they are procedures
+    _ = try vm.eval("(import (scheme write))");
+    const result = try vm.eval("(procedure? display)");
+    try std.testing.expectEqual(types.TRUE, result);
+}
+
+test "import scheme inexact" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try makeTestVM(&gc);
+    defer vm.deinit();
+
+    _ = try vm.eval("(import (scheme inexact))");
+    const result = try vm.eval("(sin 0)");
+    try std.testing.expect(types.isFlonum(result));
+    try std.testing.expectApproxEqAbs(@as(f64, 0.0), types.toFlonum(result), 1e-10);
+}
+
+test "import multiple libraries" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try makeTestVM(&gc);
+    defer vm.deinit();
+
+    _ = try vm.eval("(import (scheme base) (scheme inexact))");
+    const r1 = try vm.eval("(+ 1 2)");
+    try std.testing.expectEqual(@as(i64, 3), types.toFixnum(r1));
+    const r2 = try vm.eval("(cos 0)");
+    try std.testing.expectApproxEqAbs(@as(f64, 1.0), types.toFlonum(r2), 1e-10);
+}
+
+test "define-library and import" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try makeTestVM(&gc);
+    defer vm.deinit();
+
+    // Define a custom library
+    _ = try vm.eval(
+        \\(define-library (mylib)
+        \\  (import (scheme base))
+        \\  (export double)
+        \\  (begin
+        \\    (define (double x) (* x 2))))
+    );
+
+    // Import and use it
+    _ = try vm.eval("(import (mylib))");
+    const result = try vm.eval("(double 21)");
+    try std.testing.expectEqual(@as(i64, 42), types.toFixnum(result));
+}
+
+test "define-library with multiple exports" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try makeTestVM(&gc);
+    defer vm.deinit();
+
+    _ = try vm.eval(
+        \\(define-library (math-utils)
+        \\  (import (scheme base))
+        \\  (export square cube)
+        \\  (begin
+        \\    (define (square x) (* x x))
+        \\    (define (cube x) (* x x x))))
+    );
+
+    _ = try vm.eval("(import (math-utils))");
+    const r1 = try vm.eval("(square 5)");
+    try std.testing.expectEqual(@as(i64, 25), types.toFixnum(r1));
+    const r2 = try vm.eval("(cube 3)");
+    try std.testing.expectEqual(@as(i64, 27), types.toFixnum(r2));
+}
+
+test "define-library with dotted name" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try makeTestVM(&gc);
+    defer vm.deinit();
+
+    _ = try vm.eval(
+        \\(define-library (my utils math)
+        \\  (import (scheme base))
+        \\  (export add5)
+        \\  (begin
+        \\    (define (add5 x) (+ x 5))))
+    );
+
+    _ = try vm.eval("(import (my utils math))");
+    const result = try vm.eval("(add5 10)");
+    try std.testing.expectEqual(@as(i64, 15), types.toFixnum(result));
 }
