@@ -12,6 +12,9 @@ const primitives_vector = @import("primitives_vector.zig");
 const primitives_string = @import("primitives_string.zig");
 const primitives_char = @import("primitives_char.zig");
 const primitives_cxr = @import("primitives_cxr.zig");
+const primitives_bytevector = @import("primitives_bytevector.zig");
+const primitives_lazy = @import("primitives_lazy.zig");
+const primitives_r7rs = @import("primitives_r7rs.zig");
 
 pub const PrimitiveError = error{
     TypeError,
@@ -31,6 +34,9 @@ pub fn registerAll(vm: *vm_mod.VM) !void {
     try primitives_string.registerString(vm);
     try primitives_char.registerChar(vm);
     try primitives_cxr.registerCxr(vm);
+    try primitives_bytevector.registerBytevector(vm);
+    try primitives_lazy.registerLazy(vm);
+    try primitives_r7rs.registerR7RS(vm);
 
     // Pairs and lists
     try reg(vm, "cons", &cons, .{ .exact = 2 });
@@ -105,6 +111,8 @@ pub fn registerAll(vm: *vm_mod.VM) !void {
 
     // Misc
     try reg(vm, "apply", &applyFn, .{ .variadic = 2 });
+    try reg(vm, "features", &featuresFn, .{ .exact = 0 });
+    try reg(vm, "string->symbol", &stringToSymbol, .{ .exact = 1 });
 }
 
 pub fn reg(vm: *vm_mod.VM, name: []const u8, func: types.NativeFnType, arity: NativeFn.Arity) !void {
@@ -353,6 +361,11 @@ pub fn deepEqual(a: Value, b: Value) bool {
             if (!deepEqual(ea, eb)) return false;
         }
         return true;
+    }
+    if (types.isBytevector(a) and types.isBytevector(b)) {
+        const ba = types.toBytevector(a);
+        const bb = types.toBytevector(b);
+        return std.mem.eql(u8, ba.data, bb.data);
     }
     return false;
 }
@@ -836,4 +849,27 @@ fn forEachFn(args: []const Value) PrimitiveError!Value {
     }
 
     return types.VOID;
+}
+
+// ---------------------------------------------------------------------------
+// Misc procedures
+// ---------------------------------------------------------------------------
+
+fn featuresFn(args: []const Value) PrimitiveError!Value {
+    _ = args;
+    const gc = gc_instance orelse return PrimitiveError.OutOfMemory;
+    // Return a list of feature identifiers
+    const r7rs = gc.allocSymbol("r7rs") catch return PrimitiveError.OutOfMemory;
+    const kaappi = gc.allocSymbol("kaappi") catch return PrimitiveError.OutOfMemory;
+    const ieee_float = gc.allocSymbol("ieee-float") catch return PrimitiveError.OutOfMemory;
+    const posix_sym = gc.allocSymbol("posix") catch return PrimitiveError.OutOfMemory;
+    const items = [_]Value{ r7rs, kaappi, ieee_float, posix_sym };
+    return gc.makeList(&items) catch return PrimitiveError.OutOfMemory;
+}
+
+fn stringToSymbol(args: []const Value) PrimitiveError!Value {
+    if (!types.isString(args[0])) return PrimitiveError.TypeError;
+    const gc = gc_instance orelse return PrimitiveError.OutOfMemory;
+    const str = types.toObject(args[0]).as(types.SchemeString);
+    return gc.allocSymbol(str.data[0..str.len]) catch return PrimitiveError.OutOfMemory;
 }

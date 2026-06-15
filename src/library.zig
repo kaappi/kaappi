@@ -159,6 +159,26 @@ pub fn registerStandardLibraries(registry: *LibraryRegistry, globals: *std.Strin
         "vector-ref", "vector-set!", "vector->list", "list->vector",
         "vector-fill!", "vector-copy", "vector-copy!", "vector-append",
         "vector-for-each", "vector-map", "vector->string",
+        // Bytevectors (R7RS 6.9)
+        "bytevector?", "make-bytevector", "bytevector", "bytevector-length",
+        "bytevector-u8-ref", "bytevector-u8-set!",
+        "bytevector-copy", "bytevector-copy!", "bytevector-append",
+        "utf8->string", "string->utf8",
+        // String ports
+        "open-input-string", "open-output-string", "get-output-string",
+        // Additional I/O
+        "read-string", "flush-output-port",
+        // Integer division
+        "floor-quotient", "floor-remainder", "floor/",
+        "truncate-quotient", "truncate-remainder", "truncate/",
+        // Rational
+        "numerator", "denominator", "rationalize",
+        // Aliases
+        "exact->inexact", "inexact->exact",
+        // Misc
+        "features", "string->symbol",
+        // Promises
+        "make-promise", "promise?",
     };
 
     var base = Library.init(allocator, "scheme.base");
@@ -170,7 +190,10 @@ pub fn registerStandardLibraries(registry: *LibraryRegistry, globals: *std.Strin
     try registry.register(base);
 
     // (scheme write) — write/display procedures
-    const scheme_write_names = [_][]const u8{ "display", "write", "newline", "write-char", "write-string" };
+    const scheme_write_names = [_][]const u8{
+        "display", "write", "newline", "write-char", "write-string",
+        "write-shared", "write-simple",
+    };
     var write_lib = Library.init(allocator, "scheme.write");
     for (scheme_write_names) |name| {
         if (globals.get(name)) |val| {
@@ -221,22 +244,67 @@ pub fn registerStandardLibraries(registry: *LibraryRegistry, globals: *std.Strin
     }
     try registry.register(char_lib);
 
-    // (scheme lazy) — placeholder
-    const lazy_lib = Library.init(allocator, "scheme.lazy");
+    // (scheme lazy) — delay/force/promises
+    const scheme_lazy_names = [_][]const u8{
+        "delay", "delay-force", "force", "make-promise", "promise?",
+    };
+    var lazy_lib = Library.init(allocator, "scheme.lazy");
+    for (scheme_lazy_names) |name| {
+        if (globals.get(name)) |val| {
+            try lazy_lib.addExport(name, val);
+        }
+    }
     try registry.register(lazy_lib);
 
-    // (scheme time) — placeholder
-    const time_lib = Library.init(allocator, "scheme.time");
+    // (scheme time) — time procedures
+    const scheme_time_names = [_][]const u8{
+        "current-second", "current-jiffy", "jiffies-per-second",
+    };
+    var time_lib = Library.init(allocator, "scheme.time");
+    for (scheme_time_names) |name| {
+        if (globals.get(name)) |val| {
+            try time_lib.addExport(name, val);
+        }
+    }
     try registry.register(time_lib);
 
-    // (scheme process-context) — placeholder
-    const pc_lib = Library.init(allocator, "scheme.process-context");
+    // (scheme process-context) — process procedures
+    const scheme_pc_names = [_][]const u8{
+        "command-line", "exit", "emergency-exit",
+        "get-environment-variable", "get-environment-variables",
+    };
+    var pc_lib = Library.init(allocator, "scheme.process-context");
+    for (scheme_pc_names) |name| {
+        if (globals.get(name)) |val| {
+            try pc_lib.addExport(name, val);
+        }
+    }
     try registry.register(pc_lib);
+
+    // (scheme eval) — eval/environment
+    const scheme_eval_names = [_][]const u8{ "eval", "environment" };
+    var eval_lib = Library.init(allocator, "scheme.eval");
+    for (scheme_eval_names) |name| {
+        if (globals.get(name)) |val| {
+            try eval_lib.addExport(name, val);
+        }
+    }
+    try registry.register(eval_lib);
+
+    // (scheme load) — load procedure
+    const scheme_load_names = [_][]const u8{"load"};
+    var load_lib = Library.init(allocator, "scheme.load");
+    for (scheme_load_names) |name| {
+        if (globals.get(name)) |val| {
+            try load_lib.addExport(name, val);
+        }
+    }
+    try registry.register(load_lib);
 
     // (scheme file) — file I/O procedures
     const scheme_file_names = [_][]const u8{
         "open-input-file", "open-output-file",
-        "file-exists?",
+        "file-exists?", "delete-file",
     };
     var file_lib = Library.init(allocator, "scheme.file");
     for (scheme_file_names) |name| {

@@ -44,13 +44,24 @@ pub fn registerIO(vm: *vm_mod.VM) !void {
     try reg(vm, "file-exists?", &fileExistsP, .{ .exact = 1 });
     try reg(vm, "eof-object?", &eofObjectP, .{ .exact = 1 });
     try reg(vm, "eof-object", &eofObjectFn, .{ .exact = 0 });
+    // String ports
+    try reg(vm, "open-input-string", &openInputString, .{ .exact = 1 });
+    try reg(vm, "open-output-string", &openOutputString, .{ .exact = 0 });
+    try reg(vm, "get-output-string", &getOutputString, .{ .exact = 1 });
+    // Additional I/O
+    try reg(vm, "read-string", &readStringFn, .{ .variadic = 1 });
+    try reg(vm, "flush-output-port", &flushOutputPort, .{ .variadic = 0 });
+    try reg(vm, "delete-file", &deleteFile, .{ .exact = 1 });
+    // (scheme write) completions
+    try reg(vm, "write-shared", &write, .{ .variadic = 1 });
+    try reg(vm, "write-simple", &write, .{ .variadic = 1 });
 }
 
 // ---------------------------------------------------------------------------
 // Port helpers
 // ---------------------------------------------------------------------------
 
-fn writeToFd(fd: std.posix.fd_t, bytes: []const u8) void {
+pub fn writeToFd(fd: std.posix.fd_t, bytes: []const u8) void {
     var total: usize = 0;
     while (total < bytes.len) {
         const result = std.posix.system.write(fd, bytes.ptr + total, bytes.len - total);
@@ -98,7 +109,27 @@ fn getInputPort(args: []const Value, arg_idx: usize) PrimitiveError!*types.Port 
 }
 
 fn writeToPort(port: *types.Port, bytes: []const u8) void {
+    if (port.is_string_port) {
+        stringPortWrite(port, bytes);
+        return;
+    }
     writeToFd(port.fd, bytes);
+}
+
+fn stringPortWrite(port: *types.Port, bytes: []const u8) void {
+    const gc = primitives.gc_instance orelse return;
+    var buf = port.string_out_buf orelse return;
+    const len = port.string_out_len;
+    const cap = port.string_out_cap;
+    if (len + bytes.len > cap) {
+        const new_cap = @max(cap * 2, len + bytes.len);
+        const new_buf = gc.allocator.realloc(buf, new_cap) catch return;
+        port.string_out_buf = new_buf;
+        buf = new_buf;
+        port.string_out_cap = new_cap;
+    }
+    @memcpy(buf[len .. len + bytes.len], bytes);
+    port.string_out_len = len + bytes.len;
 }
 
 // ---------------------------------------------------------------------------
@@ -233,7 +264,7 @@ fn openOutputFile(args: []const Value) PrimitiveError!Value {
 fn closePort(args: []const Value) PrimitiveError!Value {
     if (!types.isPort(args[0])) return PrimitiveError.TypeError;
     const port = types.toObject(args[0]).as(types.Port);
-    if (port.is_open and port.fd > 2) {
+    if (port.is_open and port.fd > 2 and !port.is_string_port) {
         _ = std.posix.system.close(port.fd);
     }
     port.is_open = false;
@@ -245,6 +276,14 @@ fn readOneByte(port: *types.Port) ?u8 {
     if (port.peek_byte) |b| {
         port.peek_byte = null;
         return b;
+    }
+    // String input port
+    if (port.is_string_port) {
+        const data = port.string_data orelse return null;
+        if (port.string_pos >= data.len) return null;
+        const byte = data[port.string_pos];
+        port.string_pos += 1;
+        return byte;
     }
     var buf: [1]u8 = undefined;
     const n = std.posix.read(port.fd, &buf) catch return null;
@@ -263,11 +302,10 @@ fn peekCharFn(args: []const Value) PrimitiveError!Value {
     if (port.peek_byte) |b| {
         return types.makeChar(@intCast(b));
     }
-    var buf: [1]u8 = undefined;
-    const n = std.posix.read(port.fd, &buf) catch return types.EOF;
-    if (n == 0) return types.EOF;
-    port.peek_byte = buf[0];
-    return types.makeChar(@intCast(buf[0]));
+    // Use readOneByte which handles string ports
+    const byte = readOneByte(port) orelse return types.EOF;
+    port.peek_byte = byte;
+    return types.makeChar(@intCast(byte));
 }
 
 fn readLineFn(args: []const Value) PrimitiveError!Value {
@@ -329,6 +367,36 @@ fn readDatumFn(args: []const Value) PrimitiveError!Value {
     const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
     const port = try getInputPort(args, 0);
 
+    // For string ports, read directly from the string data
+    if (port.is_string_port) {
+        const data = port.string_data orelse return types.EOF;
+        if (port.string_pos >= data.len) return types.EOF;
+
+        // Handle any peeked byte
+        var source: []const u8 = data[port.string_pos..];
+        var prefix: [1]u8 = undefined;
+        var combined: std.ArrayList(u8) = .empty;
+        defer combined.deinit(gc.allocator);
+        if (port.peek_byte) |b| {
+            prefix[0] = b;
+            port.peek_byte = null;
+            combined.append(gc.allocator, prefix[0]) catch return PrimitiveError.OutOfMemory;
+            combined.appendSlice(gc.allocator, source) catch return PrimitiveError.OutOfMemory;
+            source = combined.items;
+        }
+
+        var reader = reader_mod.Reader.init(gc, source);
+        defer reader.deinit();
+        const datum = reader.readDatum() catch return types.EOF;
+        // Advance string_pos by amount consumed
+        port.string_pos += reader.pos;
+        if (combined.items.len > 0 and reader.pos > 0) {
+            // Adjust for the prefix byte
+            port.string_pos -= 1;
+        }
+        return datum;
+    }
+
     // Read the entire remaining content from the port into a buffer
     var buf: std.ArrayList(u8) = .empty;
     defer buf.deinit(gc.allocator);
@@ -384,4 +452,77 @@ fn eofObjectP(args: []const Value) PrimitiveError!Value {
 fn eofObjectFn(args: []const Value) PrimitiveError!Value {
     _ = args;
     return types.EOF;
+}
+
+// ---------------------------------------------------------------------------
+// String ports (R7RS 6.13)
+// ---------------------------------------------------------------------------
+
+fn openInputString(args: []const Value) PrimitiveError!Value {
+    if (!types.isString(args[0])) return PrimitiveError.TypeError;
+    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const str = types.toObject(args[0]).as(types.SchemeString);
+    return gc.allocStringInputPort(str.data[0..str.len]) catch return PrimitiveError.OutOfMemory;
+}
+
+fn openOutputString(args: []const Value) PrimitiveError!Value {
+    _ = args;
+    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    return gc.allocStringOutputPort() catch return PrimitiveError.OutOfMemory;
+}
+
+fn getOutputString(args: []const Value) PrimitiveError!Value {
+    if (!types.isPort(args[0])) return PrimitiveError.TypeError;
+    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const port = types.toObject(args[0]).as(types.Port);
+    if (!port.is_string_port or !port.is_output) return PrimitiveError.TypeError;
+    const buf = port.string_out_buf orelse return gc.allocString("") catch return PrimitiveError.OutOfMemory;
+    return gc.allocString(buf[0..port.string_out_len]) catch return PrimitiveError.OutOfMemory;
+}
+
+// ---------------------------------------------------------------------------
+// Additional I/O procedures
+// ---------------------------------------------------------------------------
+
+fn readStringFn(args: []const Value) PrimitiveError!Value {
+    // (read-string k [port]) -- read k characters
+    if (!types.isFixnum(args[0])) return PrimitiveError.TypeError;
+    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const k = types.toFixnum(args[0]);
+    if (k < 0) return PrimitiveError.TypeError;
+    const count: usize = @intCast(@as(u64, @bitCast(k)));
+    const port = try getInputPort(args, 1);
+
+    var result: std.ArrayList(u8) = .empty;
+    defer result.deinit(gc.allocator);
+
+    var chars_read: usize = 0;
+    while (chars_read < count) {
+        const byte = readOneByte(port) orelse break;
+        result.append(gc.allocator, byte) catch return PrimitiveError.OutOfMemory;
+        chars_read += 1;
+    }
+    if (result.items.len == 0) return types.EOF;
+    return gc.allocString(result.items) catch return PrimitiveError.OutOfMemory;
+}
+
+fn flushOutputPort(args: []const Value) PrimitiveError!Value {
+    // For our implementation, flushing is a no-op since we write directly
+    if (args.len > 0) {
+        if (!types.isPort(args[0])) return PrimitiveError.TypeError;
+    }
+    return types.VOID;
+}
+
+fn deleteFile(args: []const Value) PrimitiveError!Value {
+    if (!types.isString(args[0])) return PrimitiveError.TypeError;
+    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const str = types.toObject(args[0]).as(types.SchemeString);
+    const path = str.data[0..str.len];
+
+    const path_z = gc.allocator.dupeZ(u8, path) catch return PrimitiveError.OutOfMemory;
+    defer gc.allocator.free(path_z);
+
+    _ = std.posix.system.unlink(path_z);
+    return types.VOID;
 }

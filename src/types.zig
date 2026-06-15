@@ -109,6 +109,7 @@ pub const ObjectTag = enum(u5) {
     continuation = 14,
     multiple_values = 15,
     complex = 16,
+    promise = 17,
 };
 
 pub const Object = struct {
@@ -205,6 +206,17 @@ pub const Vector = struct {
     data: []Value,
 };
 
+pub const Bytevector = struct {
+    header: Object,
+    data: []u8,
+};
+
+pub const Promise = struct {
+    header: Object,
+    forced: bool,
+    value: Value, // result after forcing, or the thunk before
+};
+
 pub const Port = struct {
     header: Object,
     fd: std.posix.fd_t,
@@ -214,6 +226,13 @@ pub const Port = struct {
     name: []const u8,
     owns_name: bool, // if true, name is heap-allocated and must be freed
     peek_byte: ?u8, // 1-byte lookahead buffer for peek-char
+    // String port fields:
+    is_string_port: bool = false,
+    string_data: ?[]const u8 = null, // for input string ports (owned copy)
+    string_pos: usize = 0, // read position for input string ports
+    string_out_buf: ?[]u8 = null, // for output string ports (owned, growable)
+    string_out_len: usize = 0,
+    string_out_cap: usize = 0,
 };
 
 // ---------------------------------------------------------------------------
@@ -336,6 +355,22 @@ pub fn isVector(v: Value) bool {
 
 pub fn toVector(v: Value) *Vector {
     return toObject(v).as(Vector);
+}
+
+pub fn isBytevector(v: Value) bool {
+    return isPointer(v) and toObject(v).tag == .bytevector;
+}
+
+pub fn toBytevector(v: Value) *Bytevector {
+    return toObject(v).as(Bytevector);
+}
+
+pub fn isPromise(v: Value) bool {
+    return isPointer(v) and toObject(v).tag == .promise;
+}
+
+pub fn toPromise(v: Value) *Promise {
+    return toObject(v).as(Promise);
 }
 
 pub fn isPort(v: Value) bool {

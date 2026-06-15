@@ -204,6 +204,18 @@ pub fn printValue(writer: anytype, value: Value, mode: PrintMode) anyerror!void 
                 }
                 try writer.writeByte(')');
             },
+            .bytevector => {
+                const bv = obj.as(types.Bytevector);
+                try writer.writeAll("#u8(");
+                for (bv.data, 0..) |byte, i| {
+                    if (i > 0) try writer.writeByte(' ');
+                    try writer.print("{d}", .{byte});
+                }
+                try writer.writeByte(')');
+            },
+            .promise => {
+                try writer.writeAll("#<promise>");
+            },
             .continuation => {
                 try writer.writeAll("#<continuation>");
             },
@@ -215,9 +227,6 @@ pub fn printValue(writer: anytype, value: Value, mode: PrintMode) anyerror!void 
                     try printValue(writer, val, mode);
                 }
                 try writer.writeByte('>');
-            },
-            else => {
-                try writer.writeAll("#<object>");
             },
         }
     } else {

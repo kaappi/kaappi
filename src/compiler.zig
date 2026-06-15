@@ -277,6 +277,14 @@ pub const Compiler = struct {
             return;
         }
 
+        if (types.isBytevector(expr)) {
+            const idx = try self.addConstant(expr);
+            try self.emitOp(.load_const);
+            try self.emit(dst);
+            try self.emitU16(idx);
+            return;
+        }
+
         if (types.isPair(expr)) {
             return self.compileForm(expr, dst, is_tail);
         }
@@ -341,6 +349,8 @@ pub const Compiler = struct {
             if (std.mem.eql(u8, name, "cond-expand")) return forms.compileCondExpand(self, args, dst, is_tail);
             if (std.mem.eql(u8, name, "do")) return forms.compileDo(self, args, dst, is_tail);
             if (std.mem.eql(u8, name, "guard")) return forms.compileGuard(self, args, dst, is_tail);
+            if (std.mem.eql(u8, name, "delay")) return self.compileDelay(args, dst);
+            if (std.mem.eql(u8, name, "delay-force")) return self.compileDelayForce(args, dst);
 
             // Macro forms (kept in compiler.zig)
             if (std.mem.eql(u8, name, "define-syntax")) return self.compileDefineSyntax(args, dst);
@@ -587,6 +597,62 @@ pub const Compiler = struct {
         }
         try self.emitOp(.load_void);
         try self.emit(dst);
+    }
+
+    /// Compile (delay expr) as: create a promise wrapping (lambda () expr)
+    fn compileDelay(self: *Compiler, args: Value, dst: u8) CompileError!void {
+        if (args == types.NIL) return CompileError.InvalidSyntax;
+        const expr = types.car(args);
+
+        // Compile (lambda () expr) using the same pattern as compileLambda
+        var child = try initChild(self);
+        defer child.deinit();
+        child.func.arity = 0;
+        child.func.is_variadic = false;
+        child.scope_depth = 1;
+        const body_dst = child.allocReg() catch return CompileError.TooManyLocals;
+        try child.compileExpr(expr, body_dst, true);
+        try child.emitOp(.@"return");
+        try child.emit(body_dst);
+
+        // Store the lambda as a closure constant and emit closure + upvalue descriptors
+        const func_val = types.makePointer(@ptrCast(child.func));
+        const closure_idx = try self.addConstant(func_val);
+        const thunk_reg = try self.allocReg();
+        try self.emitOp(.closure);
+        try self.emit(thunk_reg);
+        try self.emitU16(closure_idx);
+
+        // Emit upvalue descriptors (critical for capturing variables)
+        for (child.upvalues.items) |uv| {
+            try self.emit(if (uv.is_local) 1 else 0);
+            try self.emit(uv.index);
+        }
+
+        // Call %make-promise-lazy(thunk) to create an unforced promise
+        const sym = self.gc.allocSymbol("%make-promise-lazy") catch return CompileError.OutOfMemory;
+        const sym_idx = try self.addConstant(sym);
+        try self.emitOp(.get_global);
+        try self.emit(dst);
+        try self.emitU16(sym_idx);
+
+        // Set up the call: dst=func, dst+1=arg
+        try self.emitOp(.move);
+        try self.emit(dst + 1);
+        try self.emit(thunk_reg);
+
+        try self.emitOp(.call);
+        try self.emit(dst);
+        try self.emit(1);
+
+        self.freeReg(); // free thunk_reg
+    }
+
+    /// Compile (delay-force expr) — like delay but the result is itself forced iteratively
+    fn compileDelayForce(self: *Compiler, args: Value, dst: u8) CompileError!void {
+        // delay-force is the same as delay for our purposes —
+        // the iterative forcing in forceFn handles this correctly
+        return self.compileDelay(args, dst);
     }
 
     fn compileBegin(self: *Compiler, args: Value, dst: u8, is_tail: bool) CompileError!void {

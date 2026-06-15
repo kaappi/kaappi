@@ -13,6 +13,8 @@ const Flonum = types.Flonum;
 const Transformer = types.Transformer;
 
 const Vector = types.Vector;
+const Bytevector = types.Bytevector;
+const Promise = types.Promise;
 const RecordType = types.RecordType;
 const RecordInstance = types.RecordInstance;
 const Port = types.Port;
@@ -273,6 +275,92 @@ pub const GC = struct {
         return types.makePointer(@ptrCast(port));
     }
 
+    pub fn allocStringInputPort(self: *GC, data: []const u8) !Value {
+        self.maybeCollect();
+        const owned = try self.allocator.dupe(u8, data);
+        const port = try self.allocator.create(Port);
+        port.* = .{
+            .header = .{ .tag = .port },
+            .fd = -1,
+            .is_input = true,
+            .is_output = false,
+            .is_open = true,
+            .name = "string",
+            .owns_name = false,
+            .peek_byte = null,
+            .is_string_port = true,
+            .string_data = owned,
+            .string_pos = 0,
+        };
+        self.bytes_allocated += @sizeOf(Port) + data.len;
+        self.trackObject(&port.header);
+        return types.makePointer(@ptrCast(port));
+    }
+
+    pub fn allocStringOutputPort(self: *GC) !Value {
+        self.maybeCollect();
+        const initial_cap: usize = 64;
+        const buf = try self.allocator.alloc(u8, initial_cap);
+        const port = try self.allocator.create(Port);
+        port.* = .{
+            .header = .{ .tag = .port },
+            .fd = -1,
+            .is_input = false,
+            .is_output = true,
+            .is_open = true,
+            .name = "string",
+            .owns_name = false,
+            .peek_byte = null,
+            .is_string_port = true,
+            .string_out_buf = buf,
+            .string_out_len = 0,
+            .string_out_cap = initial_cap,
+        };
+        self.bytes_allocated += @sizeOf(Port) + initial_cap;
+        self.trackObject(&port.header);
+        return types.makePointer(@ptrCast(port));
+    }
+
+    pub fn allocBytevector(self: *GC, data: []const u8) !Value {
+        self.maybeCollect();
+        const owned = try self.allocator.dupe(u8, data);
+        const bv = try self.allocator.create(Bytevector);
+        bv.* = .{
+            .header = .{ .tag = .bytevector },
+            .data = owned,
+        };
+        self.bytes_allocated += @sizeOf(Bytevector) + data.len;
+        self.trackObject(&bv.header);
+        return types.makePointer(@ptrCast(bv));
+    }
+
+    pub fn allocBytevectorFill(self: *GC, size: usize, fill: u8) !Value {
+        self.maybeCollect();
+        const data = try self.allocator.alloc(u8, size);
+        @memset(data, fill);
+        const bv = try self.allocator.create(Bytevector);
+        bv.* = .{
+            .header = .{ .tag = .bytevector },
+            .data = data,
+        };
+        self.bytes_allocated += @sizeOf(Bytevector) + size;
+        self.trackObject(&bv.header);
+        return types.makePointer(@ptrCast(bv));
+    }
+
+    pub fn allocPromise(self: *GC, forced: bool, value: Value) !Value {
+        self.maybeCollect();
+        const p = try self.allocator.create(Promise);
+        p.* = .{
+            .header = .{ .tag = .promise },
+            .forced = forced,
+            .value = value,
+        };
+        self.bytes_allocated += @sizeOf(Promise);
+        self.trackObject(&p.header);
+        return types.makePointer(@ptrCast(p));
+    }
+
     pub fn allocContinuation(
         self: *GC,
         registers: []const Value,
@@ -464,8 +552,11 @@ pub const GC = struct {
                     self.markValue(elem);
                 }
             },
-            .symbol, .string, .native_fn, .flonum, .port, .complex => {},
-            else => {},
+            .promise => {
+                const p = obj.as(Promise);
+                self.markValue(p.value);
+            },
+            .symbol, .string, .native_fn, .flonum, .port, .complex, .bytevector => {},
         }
     }
 
@@ -552,14 +643,30 @@ pub const GC = struct {
                 self.allocator.free(ri.fields);
                 self.allocator.destroy(ri);
             },
+            .bytevector => {
+                const bv = obj.as(Bytevector);
+                self.allocator.free(bv.data);
+                self.allocator.destroy(bv);
+            },
+            .promise => {
+                const p = obj.as(Promise);
+                self.allocator.destroy(p);
+            },
             .port => {
                 const port = obj.as(Port);
                 // Close the fd if still open and not stdin/stdout/stderr
-                if (port.is_open and port.fd > 2) {
+                if (port.is_open and port.fd > 2 and !port.is_string_port) {
                     _ = std.posix.system.close(port.fd);
                 }
                 if (port.owns_name) {
                     self.allocator.free(port.name);
+                }
+                // Free string port buffers
+                if (port.string_data) |sd| {
+                    self.allocator.free(sd);
+                }
+                if (port.string_out_buf) |sb| {
+                    self.allocator.free(sb);
                 }
                 self.allocator.destroy(port);
             },
@@ -580,7 +687,6 @@ pub const GC = struct {
                 const c = obj.as(types.Complex);
                 self.allocator.destroy(c);
             },
-            else => {},
         }
     }
 

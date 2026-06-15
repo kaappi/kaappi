@@ -24,6 +24,7 @@ pub const Token = union(enum) {
     comma,
     comma_at,
     hash_lparen,
+    hash_u8_lparen,
     boolean: bool,
     fixnum: i64,
     flonum: f64,
@@ -373,6 +374,17 @@ pub const Reader = struct {
                 self.pos += 1;
                 return .hash_lparen;
             },
+            'u' => {
+                // #u8( bytevector literal
+                if (self.pos + 2 < self.source.len and
+                    self.source[self.pos + 1] == '8' and
+                    self.source[self.pos + 2] == '(')
+                {
+                    self.pos += 3;
+                    return .hash_u8_lparen;
+                }
+                return ReadError.UnexpectedChar;
+            },
             else => return ReadError.UnexpectedChar,
         }
     }
@@ -429,6 +441,7 @@ pub const Reader = struct {
             .comma => return self.readAbbreviation("unquote"),
             .comma_at => return self.readAbbreviation("unquote-splicing"),
             .hash_lparen => return self.readVector(),
+            .hash_u8_lparen => return self.readBytevector(),
             .rparen => return ReadError.UnexpectedRightParen,
             .dot => return ReadError.DotNotInList,
             .eof => return ReadError.UnexpectedEof,
@@ -532,6 +545,30 @@ pub const Reader = struct {
         }
 
         return self.gc.allocVector(elems.items) catch return ReadError.OutOfMemory;
+    }
+
+    fn readBytevector(self: *Reader) ReadError!Value {
+        var bytes: std.ArrayList(u8) = .empty;
+        defer bytes.deinit(self.gc.allocator);
+
+        while (true) {
+            self.skipWhitespaceAndComments();
+            if (self.pos >= self.source.len) return ReadError.UnexpectedEof;
+            if (self.source[self.pos] == ')') {
+                self.pos += 1;
+                break;
+            }
+            const tok = try self.nextToken();
+            switch (tok) {
+                .fixnum => |n| {
+                    if (n < 0 or n > 255) return ReadError.InvalidNumber;
+                    bytes.append(self.gc.allocator, @intCast(@as(u64, @bitCast(n)))) catch return ReadError.OutOfMemory;
+                },
+                else => return ReadError.UnexpectedChar,
+            }
+        }
+
+        return self.gc.allocBytevector(bytes.items) catch return ReadError.OutOfMemory;
     }
 
     pub fn hasMore(self: *Reader) bool {

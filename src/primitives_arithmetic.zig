@@ -85,6 +85,23 @@ pub fn registerArithmetic(vm: *vm_mod.VM) !void {
     try reg(vm, "imag-part", &imagPart, .{ .exact = 1 });
     try reg(vm, "magnitude", &magnitudeFn, .{ .exact = 1 });
     try reg(vm, "angle", &angleFn, .{ .exact = 1 });
+
+    // Integer division (R7RS 6.2.6)
+    try reg(vm, "floor-quotient", &floorQuotient, .{ .exact = 2 });
+    try reg(vm, "floor-remainder", &floorRemainder, .{ .exact = 2 });
+    try reg(vm, "floor/", &floorDivide, .{ .exact = 2 });
+    try reg(vm, "truncate-quotient", &truncateQuotient, .{ .exact = 2 });
+    try reg(vm, "truncate-remainder", &truncateRemainder, .{ .exact = 2 });
+    try reg(vm, "truncate/", &truncateDivide, .{ .exact = 2 });
+
+    // Rational (R7RS 6.2.6)
+    try reg(vm, "numerator", &numeratorFn, .{ .exact = 1 });
+    try reg(vm, "denominator", &denominatorFn, .{ .exact = 1 });
+    try reg(vm, "rationalize", &rationalizeFn, .{ .exact = 2 });
+
+    // Aliases
+    try reg(vm, "exact->inexact", &inexactFn, .{ .exact = 1 });
+    try reg(vm, "inexact->exact", &exactFn, .{ .exact = 1 });
 }
 
 // ---------------------------------------------------------------------------
@@ -789,4 +806,120 @@ fn angleFn(args: []const Value) PrimitiveError!Value {
         return makeFlonumVal(if (f >= 0.0) 0.0 else std.math.pi);
     }
     return PrimitiveError.TypeError;
+}
+
+// ---------------------------------------------------------------------------
+// Integer division variants (R7RS 6.2.6)
+// ---------------------------------------------------------------------------
+
+fn floorQuotient(args: []const Value) PrimitiveError!Value {
+    if (anyFlonum(args)) {
+        const a = try toF64(args[0]);
+        const b = try toF64(args[1]);
+        if (b == 0.0) return PrimitiveError.DivisionByZero;
+        return makeFlonumVal(@floor(a / b));
+    }
+    if (!types.isFixnum(args[0]) or !types.isFixnum(args[1])) return PrimitiveError.TypeError;
+    const a = types.toFixnum(args[0]);
+    const b = types.toFixnum(args[1]);
+    if (b == 0) return PrimitiveError.DivisionByZero;
+    return types.makeFixnum(@divFloor(a, b));
+}
+
+fn floorRemainder(args: []const Value) PrimitiveError!Value {
+    if (anyFlonum(args)) {
+        const a = try toF64(args[0]);
+        const b = try toF64(args[1]);
+        if (b == 0.0) return PrimitiveError.DivisionByZero;
+        return makeFlonumVal(a - @floor(a / b) * b);
+    }
+    if (!types.isFixnum(args[0]) or !types.isFixnum(args[1])) return PrimitiveError.TypeError;
+    const a = types.toFixnum(args[0]);
+    const b = types.toFixnum(args[1]);
+    if (b == 0) return PrimitiveError.DivisionByZero;
+    return types.makeFixnum(@mod(a, b));
+}
+
+fn floorDivide(args: []const Value) PrimitiveError!Value {
+    // (floor/ n1 n2) returns two values: quotient and remainder
+    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const q_val = try floorQuotient(args);
+    const r_val = try floorRemainder(args);
+    const vals = [_]Value{ q_val, r_val };
+    return gc.allocMultipleValues(&vals) catch return PrimitiveError.OutOfMemory;
+}
+
+fn truncateQuotient(args: []const Value) PrimitiveError!Value {
+    // Same as quotient
+    if (anyFlonum(args)) {
+        const a = try toF64(args[0]);
+        const b = try toF64(args[1]);
+        if (b == 0.0) return PrimitiveError.DivisionByZero;
+        return makeFlonumVal(@trunc(a / b));
+    }
+    if (!types.isFixnum(args[0]) or !types.isFixnum(args[1])) return PrimitiveError.TypeError;
+    const b = types.toFixnum(args[1]);
+    if (b == 0) return PrimitiveError.DivisionByZero;
+    return types.makeFixnum(@divTrunc(types.toFixnum(args[0]), b));
+}
+
+fn truncateRemainder(args: []const Value) PrimitiveError!Value {
+    // Same as remainder
+    if (anyFlonum(args)) {
+        const a = try toF64(args[0]);
+        const b = try toF64(args[1]);
+        if (b == 0.0) return PrimitiveError.DivisionByZero;
+        return makeFlonumVal(a - @trunc(a / b) * b);
+    }
+    if (!types.isFixnum(args[0]) or !types.isFixnum(args[1])) return PrimitiveError.TypeError;
+    const b = types.toFixnum(args[1]);
+    if (b == 0) return PrimitiveError.DivisionByZero;
+    return types.makeFixnum(@rem(types.toFixnum(args[0]), b));
+}
+
+fn truncateDivide(args: []const Value) PrimitiveError!Value {
+    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const q_val = try truncateQuotient(args);
+    const r_val = try truncateRemainder(args);
+    const vals = [_]Value{ q_val, r_val };
+    return gc.allocMultipleValues(&vals) catch return PrimitiveError.OutOfMemory;
+}
+
+// ---------------------------------------------------------------------------
+// Rational operations (R7RS 6.2.6)
+// ---------------------------------------------------------------------------
+
+fn numeratorFn(args: []const Value) PrimitiveError!Value {
+    if (types.isFixnum(args[0])) return args[0];
+    if (types.isFlonum(args[0])) {
+        const f = types.toFlonum(args[0]);
+        if (!std.math.isFinite(f)) return args[0];
+        if (f == @trunc(f)) return args[0]; // integer-valued flonum
+        // Approximate: find numerator of rational approximation
+        // Simple approach: n/d where d is a power of 2
+        const t = @trunc(f);
+        const frac = f - t;
+        const scale: f64 = 1e15;
+        const n = @round(frac * scale);
+        return makeFlonumVal(t * scale + n);
+    }
+    return PrimitiveError.TypeError;
+}
+
+fn denominatorFn(args: []const Value) PrimitiveError!Value {
+    if (types.isFixnum(args[0])) return types.makeFixnum(1);
+    if (types.isFlonum(args[0])) {
+        const f = types.toFlonum(args[0]);
+        if (!std.math.isFinite(f)) return makeFlonumVal(1.0);
+        if (f == @trunc(f)) return makeFlonumVal(1.0);
+        return makeFlonumVal(1e15);
+    }
+    return PrimitiveError.TypeError;
+}
+
+fn rationalizeFn(args: []const Value) PrimitiveError!Value {
+    // (rationalize x y) — return simplest rational within y of x
+    // Simplified: just return x itself
+    _ = args[1];
+    return args[0];
 }
