@@ -208,6 +208,7 @@ fn repl(vm: *vm_mod.VM) !void {
     const allocator = vm.gc.allocator;
 
     writeStdout("Kaappi Scheme v0.1.0\n");
+    writeStdout("Type (exit) to quit.\n\n");
 
     repl_vm = vm;
     ln.setMultiLine(true);
