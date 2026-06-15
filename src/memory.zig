@@ -14,6 +14,7 @@ const Transformer = types.Transformer;
 
 const RecordType = types.RecordType;
 const RecordInstance = types.RecordInstance;
+const Port = types.Port;
 
 const GC_THRESHOLD: usize = 1024;
 
@@ -220,6 +221,24 @@ pub const GC = struct {
         return types.makePointer(@ptrCast(ri));
     }
 
+    pub fn allocPort(self: *GC, fd: std.posix.fd_t, is_input: bool, is_output: bool, name: []const u8, owns_name: bool) !Value {
+        self.maybeCollect();
+        const port = try self.allocator.create(Port);
+        port.* = .{
+            .header = .{ .tag = .port },
+            .fd = fd,
+            .is_input = is_input,
+            .is_output = is_output,
+            .is_open = true,
+            .name = name,
+            .owns_name = owns_name,
+            .peek_byte = null,
+        };
+        self.bytes_allocated += @sizeOf(Port);
+        self.trackObject(&port.header);
+        return types.makePointer(@ptrCast(port));
+    }
+
     // -- Convenience: build a proper list from a slice
     pub fn makeList(self: *GC, items: []const Value) !Value {
         var result: Value = types.NIL;
@@ -309,7 +328,7 @@ pub const GC = struct {
                     self.markValue(field);
                 }
             },
-            .symbol, .string, .native_fn, .flonum => {},
+            .symbol, .string, .native_fn, .flonum, .port => {},
             else => {},
         }
     }
@@ -391,6 +410,17 @@ pub const GC = struct {
                 const ri = obj.as(RecordInstance);
                 self.allocator.free(ri.fields);
                 self.allocator.destroy(ri);
+            },
+            .port => {
+                const port = obj.as(Port);
+                // Close the fd if still open and not stdin/stdout/stderr
+                if (port.is_open and port.fd > 2) {
+                    _ = std.posix.system.close(port.fd);
+                }
+                if (port.owns_name) {
+                    self.allocator.free(port.name);
+                }
+                self.allocator.destroy(port);
             },
             else => {},
         }

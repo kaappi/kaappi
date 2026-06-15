@@ -125,6 +125,14 @@ pub fn registerStandardLibraries(registry: *LibraryRegistry, globals: *std.Strin
         "file-error?",     "read-error?",
         // Record system internal primitives (used by define-record-type)
         "%make-record-type", "%make-record", "%record?", "%record-ref", "%record-set!",
+        // Port and I/O (R7RS 6.13)
+        "current-input-port", "current-output-port", "current-error-port",
+        "port?", "input-port?", "output-port?", "textual-port?", "binary-port?",
+        "input-port-open?", "output-port-open?",
+        "close-port", "close-input-port", "close-output-port",
+        "read-char", "peek-char", "read-line", "char-ready?",
+        "write-char", "write-string",
+        "eof-object?", "eof-object",
     };
 
     var base = Library.init(allocator, "scheme.base");
@@ -136,7 +144,7 @@ pub fn registerStandardLibraries(registry: *LibraryRegistry, globals: *std.Strin
     try registry.register(base);
 
     // (scheme write) — write/display procedures
-    const scheme_write_names = [_][]const u8{ "display", "write", "newline" };
+    const scheme_write_names = [_][]const u8{ "display", "write", "newline", "write-char", "write-string" };
     var write_lib = Library.init(allocator, "scheme.write");
     for (scheme_write_names) |name| {
         if (globals.get(name)) |val| {
@@ -159,8 +167,14 @@ pub fn registerStandardLibraries(registry: *LibraryRegistry, globals: *std.Strin
     }
     try registry.register(inexact_lib);
 
-    // (scheme read) — placeholder
-    const read_lib = Library.init(allocator, "scheme.read");
+    // (scheme read)
+    const scheme_read_names = [_][]const u8{"read"};
+    var read_lib = Library.init(allocator, "scheme.read");
+    for (scheme_read_names) |name| {
+        if (globals.get(name)) |val| {
+            try read_lib.addExport(name, val);
+        }
+    }
     try registry.register(read_lib);
 
     // (scheme char) — placeholder
@@ -178,6 +192,19 @@ pub fn registerStandardLibraries(registry: *LibraryRegistry, globals: *std.Strin
     // (scheme process-context) — placeholder
     const pc_lib = Library.init(allocator, "scheme.process-context");
     try registry.register(pc_lib);
+
+    // (scheme file) — file I/O procedures
+    const scheme_file_names = [_][]const u8{
+        "open-input-file", "open-output-file",
+        "file-exists?",
+    };
+    var file_lib = Library.init(allocator, "scheme.file");
+    for (scheme_file_names) |name| {
+        if (globals.get(name)) |val| {
+            try file_lib.addExport(name, val);
+        }
+    }
+    try registry.register(file_lib);
 
     // (scheme cxr) — caar, cadr, cdar, cddr etc.
     // These are compositions of car/cdr — registered as placeholders for now

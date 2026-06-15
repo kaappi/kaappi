@@ -197,6 +197,17 @@ pub const RecordInstance = struct {
     fields: []Value,
 };
 
+pub const Port = struct {
+    header: Object,
+    fd: std.posix.fd_t,
+    is_input: bool,
+    is_output: bool,
+    is_open: bool,
+    name: []const u8,
+    owns_name: bool, // if true, name is heap-allocated and must be freed
+    peek_byte: ?u8, // 1-byte lookahead buffer for peek-char
+};
+
 // ---------------------------------------------------------------------------
 // Type predicates on Value
 // ---------------------------------------------------------------------------
@@ -247,6 +258,10 @@ pub fn isRecordType(v: Value) bool {
 
 pub fn isRecordInstance(v: Value) bool {
     return isPointer(v) and toObject(v).tag == .record_instance;
+}
+
+pub fn isPort(v: Value) bool {
+    return isPointer(v) and toObject(v).tag == .port;
 }
 
 pub fn isNumber(v: Value) bool {

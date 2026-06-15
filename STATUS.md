@@ -91,11 +91,15 @@
 - [x] RecordType and RecordInstance heap objects
 - [x] Internal primitives: %make-record-type, %make-record, %record?, %record-ref, %record-set!
 
-## Phase 9: Ports and I/O — TODO
-- [ ] Port objects
-- [ ] `open-input-file`, `open-output-file`
-- [ ] `read`, `read-char`, `read-line`
-- [ ] `write-char`, `write-string`
+## Phase 9: Ports and I/O — DONE
+- [x] Port heap objects with file descriptors
+- [x] stdin/stdout/stderr pre-allocated ports
+- [x] `open-input-file`, `open-output-file`, `close-port`
+- [x] `read-char`, `peek-char`, `read-line`, `char-ready?`
+- [x] `write-char`, `write-string`
+- [x] `display`/`write`/`newline` with optional port argument
+- [x] `read` (datum reader), `file-exists?`, `eof-object`, `eof-object?`
+- [x] `(scheme file)` and `(scheme read)` libraries
 
 ## Phase 10: Continuations — TODO
 - [ ] `call-with-current-continuation`

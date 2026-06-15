@@ -135,6 +135,16 @@ pub fn printValue(writer: anytype, value: Value, mode: PrintMode) anyerror!void 
                 }
                 try writer.writeByte('>');
             },
+            .port => {
+                const port = obj.as(types.Port);
+                if (port.is_input and port.is_output) {
+                    try writer.print("#<input/output-port {s}>", .{port.name});
+                } else if (port.is_input) {
+                    try writer.print("#<input-port {s}>", .{port.name});
+                } else {
+                    try writer.print("#<output-port {s}>", .{port.name});
+                }
+            },
             .record_type => {
                 const rt = obj.as(types.RecordType);
                 try writer.print("#<record-type {s}>", .{rt.name});

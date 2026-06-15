@@ -63,7 +63,7 @@ pub const Reader = struct {
         return c;
     }
 
-    fn skipWhitespaceAndComments(self: *Reader) void {
+    pub fn skipWhitespaceAndComments(self: *Reader) void {
         while (self.pos < self.source.len) {
             const c = self.source[self.pos];
             if (c == ' ' or c == '\t' or c == '\n' or c == '\r') {

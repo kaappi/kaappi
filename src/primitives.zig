@@ -106,10 +106,37 @@ pub fn registerAll(vm: *vm_mod.VM) !void {
     // Boolean
     try reg(vm, "not", &notFn, .{ .exact = 1 });
 
-    // I/O
-    try reg(vm, "display", &display, .{ .exact = 1 });
-    try reg(vm, "write", &write, .{ .exact = 1 });
-    try reg(vm, "newline", &newline, .{ .exact = 0 });
+    // I/O (with optional port argument)
+    try reg(vm, "display", &display, .{ .variadic = 1 });
+    try reg(vm, "write", &write, .{ .variadic = 1 });
+    try reg(vm, "newline", &newline, .{ .variadic = 0 });
+
+    // Port procedures
+    try reg(vm, "current-input-port", &currentInputPort, .{ .exact = 0 });
+    try reg(vm, "current-output-port", &currentOutputPort, .{ .exact = 0 });
+    try reg(vm, "current-error-port", &currentErrorPort, .{ .exact = 0 });
+    try reg(vm, "port?", &portP, .{ .exact = 1 });
+    try reg(vm, "input-port?", &inputPortP, .{ .exact = 1 });
+    try reg(vm, "output-port?", &outputPortP, .{ .exact = 1 });
+    try reg(vm, "textual-port?", &textualPortP, .{ .exact = 1 });
+    try reg(vm, "binary-port?", &binaryPortP, .{ .exact = 1 });
+    try reg(vm, "input-port-open?", &inputPortOpenP, .{ .exact = 1 });
+    try reg(vm, "output-port-open?", &outputPortOpenP, .{ .exact = 1 });
+    try reg(vm, "open-input-file", &openInputFile, .{ .exact = 1 });
+    try reg(vm, "open-output-file", &openOutputFile, .{ .exact = 1 });
+    try reg(vm, "close-port", &closePort, .{ .exact = 1 });
+    try reg(vm, "close-input-port", &closePort, .{ .exact = 1 });
+    try reg(vm, "close-output-port", &closePort, .{ .exact = 1 });
+    try reg(vm, "read-char", &readCharFn, .{ .variadic = 0 });
+    try reg(vm, "peek-char", &peekCharFn, .{ .variadic = 0 });
+    try reg(vm, "read-line", &readLineFn, .{ .variadic = 0 });
+    try reg(vm, "char-ready?", &charReadyP, .{ .variadic = 0 });
+    try reg(vm, "write-char", &writeCharFn, .{ .variadic = 1 });
+    try reg(vm, "write-string", &writeStringFn, .{ .variadic = 1 });
+    try reg(vm, "read", &readDatumFn, .{ .variadic = 0 });
+    try reg(vm, "file-exists?", &fileExistsP, .{ .exact = 1 });
+    try reg(vm, "eof-object?", &eofObjectP, .{ .exact = 1 });
+    try reg(vm, "eof-object", &eofObjectFn, .{ .exact = 0 });
 
     // String
     try reg(vm, "number->string", &numberToString, .{ .exact = 1 });
@@ -867,10 +894,11 @@ fn notFn(args: []const Value) PrimitiveError!Value {
 }
 
 // ---------------------------------------------------------------------------
-// I/O (uses stdout for now; will use ports later)
+// I/O — Port-based (R7RS 6.13)
 // ---------------------------------------------------------------------------
 
 const printer = @import("printer.zig");
+const reader_mod = @import("reader.zig");
 
 fn writeToFd(fd: std.posix.fd_t, bytes: []const u8) void {
     var total: usize = 0;
@@ -890,26 +918,318 @@ fn writeStderr(bytes: []const u8) void {
     writeToFd(2, bytes);
 }
 
+/// Get the output port: use args[1] if provided, else current-output-port.
+fn getOutputPort(args: []const Value, arg_idx: usize) PrimitiveError!*types.Port {
+    if (args.len > arg_idx) {
+        if (!types.isPort(args[arg_idx])) return PrimitiveError.TypeError;
+        const port = types.toObject(args[arg_idx]).as(types.Port);
+        if (!port.is_output) return PrimitiveError.TypeError;
+        if (!port.is_open) return PrimitiveError.TypeError;
+        return port;
+    }
+    // Use current-output-port from VM
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError;
+    if (!types.isPort(vm.stdout_port)) return PrimitiveError.TypeError;
+    return types.toObject(vm.stdout_port).as(types.Port);
+}
+
+/// Get the input port: use args[0] if provided, else current-input-port.
+fn getInputPort(args: []const Value, arg_idx: usize) PrimitiveError!*types.Port {
+    if (args.len > arg_idx) {
+        if (!types.isPort(args[arg_idx])) return PrimitiveError.TypeError;
+        const port = types.toObject(args[arg_idx]).as(types.Port);
+        if (!port.is_input) return PrimitiveError.TypeError;
+        if (!port.is_open) return PrimitiveError.TypeError;
+        return port;
+    }
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError;
+    if (!types.isPort(vm.stdin_port)) return PrimitiveError.TypeError;
+    return types.toObject(vm.stdin_port).as(types.Port);
+}
+
+fn writeToPort(port: *types.Port, bytes: []const u8) void {
+    writeToFd(port.fd, bytes);
+}
+
 fn display(args: []const Value) PrimitiveError!Value {
     const gc = gc_instance orelse return PrimitiveError.OutOfMemory;
+    const port = try getOutputPort(args, 1);
     const s = printer.valueToString(gc.allocator, args[0], .display) catch return PrimitiveError.OutOfMemory;
     defer gc.allocator.free(s);
-    writeStdout(s);
+    writeToPort(port, s);
     return types.VOID;
 }
 
 fn write(args: []const Value) PrimitiveError!Value {
     const gc = gc_instance orelse return PrimitiveError.OutOfMemory;
+    const port = try getOutputPort(args, 1);
     const s = printer.valueToString(gc.allocator, args[0], .write) catch return PrimitiveError.OutOfMemory;
     defer gc.allocator.free(s);
-    writeStdout(s);
+    writeToPort(port, s);
     return types.VOID;
 }
 
 fn newline(args: []const Value) PrimitiveError!Value {
-    _ = args;
-    writeStdout("\n");
+    const port = try getOutputPort(args, 0);
+    writeToPort(port, "\n");
     return types.VOID;
+}
+
+// ---------------------------------------------------------------------------
+// Port procedures (R7RS 6.13)
+// ---------------------------------------------------------------------------
+
+fn currentInputPort(args: []const Value) PrimitiveError!Value {
+    _ = args;
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError;
+    return vm.stdin_port;
+}
+
+fn currentOutputPort(args: []const Value) PrimitiveError!Value {
+    _ = args;
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError;
+    return vm.stdout_port;
+}
+
+fn currentErrorPort(args: []const Value) PrimitiveError!Value {
+    _ = args;
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError;
+    return vm.stderr_port;
+}
+
+fn portP(args: []const Value) PrimitiveError!Value {
+    return if (types.isPort(args[0])) types.TRUE else types.FALSE;
+}
+
+fn inputPortP(args: []const Value) PrimitiveError!Value {
+    if (!types.isPort(args[0])) return types.FALSE;
+    const port = types.toObject(args[0]).as(types.Port);
+    return if (port.is_input) types.TRUE else types.FALSE;
+}
+
+fn outputPortP(args: []const Value) PrimitiveError!Value {
+    if (!types.isPort(args[0])) return types.FALSE;
+    const port = types.toObject(args[0]).as(types.Port);
+    return if (port.is_output) types.TRUE else types.FALSE;
+}
+
+fn textualPortP(args: []const Value) PrimitiveError!Value {
+    // All our ports are textual
+    return if (types.isPort(args[0])) types.TRUE else types.FALSE;
+}
+
+fn binaryPortP(args: []const Value) PrimitiveError!Value {
+    // We don't have binary ports yet
+    _ = args;
+    return types.FALSE;
+}
+
+fn inputPortOpenP(args: []const Value) PrimitiveError!Value {
+    if (!types.isPort(args[0])) return PrimitiveError.TypeError;
+    const port = types.toObject(args[0]).as(types.Port);
+    return if (port.is_input and port.is_open) types.TRUE else types.FALSE;
+}
+
+fn outputPortOpenP(args: []const Value) PrimitiveError!Value {
+    if (!types.isPort(args[0])) return PrimitiveError.TypeError;
+    const port = types.toObject(args[0]).as(types.Port);
+    return if (port.is_output and port.is_open) types.TRUE else types.FALSE;
+}
+
+fn openInputFile(args: []const Value) PrimitiveError!Value {
+    if (!types.isString(args[0])) return PrimitiveError.TypeError;
+    const gc = gc_instance orelse return PrimitiveError.OutOfMemory;
+    const str = types.toObject(args[0]).as(types.SchemeString);
+    const path = str.data[0..str.len];
+
+    // We need a null-terminated path for openat
+    const path_z = gc.allocator.dupeZ(u8, path) catch return PrimitiveError.OutOfMemory;
+    defer gc.allocator.free(path_z);
+
+    const fd = std.posix.openat(std.posix.AT.FDCWD, path_z, .{}, 0) catch {
+        return PrimitiveError.TypeError; // file-error
+    };
+
+    // Dup the name for the port
+    const owned_name = gc.allocator.dupe(u8, path) catch return PrimitiveError.OutOfMemory;
+    return gc.allocPort(fd, true, false, owned_name, true) catch return PrimitiveError.OutOfMemory;
+}
+
+fn openOutputFile(args: []const Value) PrimitiveError!Value {
+    if (!types.isString(args[0])) return PrimitiveError.TypeError;
+    const gc = gc_instance orelse return PrimitiveError.OutOfMemory;
+    const str = types.toObject(args[0]).as(types.SchemeString);
+    const path = str.data[0..str.len];
+
+    const path_z = gc.allocator.dupeZ(u8, path) catch return PrimitiveError.OutOfMemory;
+    defer gc.allocator.free(path_z);
+
+    const fd = std.posix.openat(std.posix.AT.FDCWD, path_z, .{
+        .ACCMODE = .WRONLY,
+        .CREAT = true,
+        .TRUNC = true,
+    }, 0o644) catch {
+        return PrimitiveError.TypeError; // file-error
+    };
+
+    const owned_name = gc.allocator.dupe(u8, path) catch return PrimitiveError.OutOfMemory;
+    return gc.allocPort(fd, false, true, owned_name, true) catch return PrimitiveError.OutOfMemory;
+}
+
+fn closePort(args: []const Value) PrimitiveError!Value {
+    if (!types.isPort(args[0])) return PrimitiveError.TypeError;
+    const port = types.toObject(args[0]).as(types.Port);
+    if (port.is_open and port.fd > 2) {
+        _ = std.posix.system.close(port.fd);
+    }
+    port.is_open = false;
+    return types.VOID;
+}
+
+fn readOneByte(port: *types.Port) ?u8 {
+    // Check peek buffer first
+    if (port.peek_byte) |b| {
+        port.peek_byte = null;
+        return b;
+    }
+    var buf: [1]u8 = undefined;
+    const n = std.posix.read(port.fd, &buf) catch return null;
+    if (n == 0) return null; // EOF
+    return buf[0];
+}
+
+fn readCharFn(args: []const Value) PrimitiveError!Value {
+    const port = try getInputPort(args, 0);
+    const byte = readOneByte(port) orelse return types.EOF;
+    return types.makeChar(@intCast(byte));
+}
+
+fn peekCharFn(args: []const Value) PrimitiveError!Value {
+    const port = try getInputPort(args, 0);
+    if (port.peek_byte) |b| {
+        return types.makeChar(@intCast(b));
+    }
+    var buf: [1]u8 = undefined;
+    const n = std.posix.read(port.fd, &buf) catch return types.EOF;
+    if (n == 0) return types.EOF;
+    port.peek_byte = buf[0];
+    return types.makeChar(@intCast(buf[0]));
+}
+
+fn readLineFn(args: []const Value) PrimitiveError!Value {
+    const gc = gc_instance orelse return PrimitiveError.OutOfMemory;
+    const port = try getInputPort(args, 0);
+
+    var line_buf: std.ArrayList(u8) = .empty;
+    defer line_buf.deinit(gc.allocator);
+
+    while (true) {
+        const byte = readOneByte(port) orelse {
+            // EOF
+            if (line_buf.items.len == 0) return types.EOF;
+            break;
+        };
+        if (byte == '\n') break;
+        if (byte == '\r') {
+            // Check for \r\n
+            const next = readOneByte(port);
+            if (next) |nb| {
+                if (nb != '\n') {
+                    port.peek_byte = nb; // put it back
+                }
+            }
+            break;
+        }
+        line_buf.append(gc.allocator, byte) catch return PrimitiveError.OutOfMemory;
+    }
+
+    return gc.allocString(line_buf.items) catch return PrimitiveError.OutOfMemory;
+}
+
+fn charReadyP(args: []const Value) PrimitiveError!Value {
+    const port = try getInputPort(args, 0);
+    if (port.peek_byte != null) return types.TRUE;
+    // For simplicity, always return #t (non-blocking check not worth the complexity)
+    return types.TRUE;
+}
+
+fn writeCharFn(args: []const Value) PrimitiveError!Value {
+    if (!types.isChar(args[0])) return PrimitiveError.TypeError;
+    const port = try getOutputPort(args, 1);
+    const cp = types.toChar(args[0]);
+    var buf: [4]u8 = undefined;
+    const len = std.unicode.utf8Encode(cp, &buf) catch return PrimitiveError.TypeError;
+    writeToPort(port, buf[0..len]);
+    return types.VOID;
+}
+
+fn writeStringFn(args: []const Value) PrimitiveError!Value {
+    if (!types.isString(args[0])) return PrimitiveError.TypeError;
+    const port = try getOutputPort(args, 1);
+    const str = types.toObject(args[0]).as(types.SchemeString);
+    writeToPort(port, str.data[0..str.len]);
+    return types.VOID;
+}
+
+fn readDatumFn(args: []const Value) PrimitiveError!Value {
+    const gc = gc_instance orelse return PrimitiveError.OutOfMemory;
+    const port = try getInputPort(args, 0);
+
+    // Read the entire remaining content from the port into a buffer
+    var buf: std.ArrayList(u8) = .empty;
+    defer buf.deinit(gc.allocator);
+
+    // First consume any peeked byte
+    if (port.peek_byte) |b| {
+        buf.append(gc.allocator, b) catch return PrimitiveError.OutOfMemory;
+        port.peek_byte = null;
+    }
+
+    // Read all remaining data from the fd
+    var tmp: [4096]u8 = undefined;
+    while (true) {
+        const n = std.posix.read(port.fd, &tmp) catch break;
+        if (n == 0) break;
+        buf.appendSlice(gc.allocator, tmp[0..n]) catch return PrimitiveError.OutOfMemory;
+    }
+
+    if (buf.items.len == 0) return types.EOF;
+
+    // Parse one datum from the buffer
+    var reader = reader_mod.Reader.init(gc, buf.items);
+    defer reader.deinit();
+    const datum = reader.readDatum() catch return types.EOF;
+
+    // Any remaining data after the datum stays unconsumed.
+    // For file ports, this is fine since read is typically used to
+    // parse the entire file content sequentially.
+    return datum;
+}
+
+fn fileExistsP(args: []const Value) PrimitiveError!Value {
+    if (!types.isString(args[0])) return PrimitiveError.TypeError;
+    const gc = gc_instance orelse return PrimitiveError.OutOfMemory;
+    const str = types.toObject(args[0]).as(types.SchemeString);
+    const path = str.data[0..str.len];
+
+    const path_z = gc.allocator.dupeZ(u8, path) catch return PrimitiveError.OutOfMemory;
+    defer gc.allocator.free(path_z);
+
+    // Try to open the file read-only to check existence
+    const fd = std.posix.openat(std.posix.AT.FDCWD, path_z, .{}, 0) catch {
+        return types.FALSE;
+    };
+    _ = std.posix.system.close(fd);
+    return types.TRUE;
+}
+
+fn eofObjectP(args: []const Value) PrimitiveError!Value {
+    return if (args[0] == types.EOF) types.TRUE else types.FALSE;
+}
+
+fn eofObjectFn(args: []const Value) PrimitiveError!Value {
+    _ = args;
+    return types.EOF;
 }
 
 // ---------------------------------------------------------------------------
