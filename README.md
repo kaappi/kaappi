@@ -1,20 +1,26 @@
 # Kaappi
 
-A complete R7RS-small Scheme implementation written in Zig.
+A complete **R7RS-small** Scheme implementation written in **Zig**.
 
-Kaappi implements the full [Revised^7 Report on the Algorithmic Language Scheme](https://small.r7rs.org/) — every identifier from Appendix A is supported. The runtime uses a bytecode compiler with a register-based VM, mark-and-sweep garbage collection, and stack-copying continuations.
+Kaappi implements every identifier from [R7RS Appendix A](https://small.r7rs.org/) — 313 built-in procedures, 32 syntax forms, and all 14 standard libraries. The runtime uses a bytecode compiler with a register-based VM, mark-and-sweep garbage collection, and stack-copying first-class continuations.
+
+---
 
 ## Quick start
 
-```
+```bash
 zig build run                        # Launch the REPL
 zig build run -- program.scm         # Run a Scheme file
 zig build test                       # Run all tests
 ```
 
-Requires Zig 0.16+.
+> Requires **Zig 0.16+** and a C toolchain (for the vendored linenoise library).
+
+---
 
 ## REPL
+
+The REPL features **line editing** (arrow keys, Ctrl-A/E, backspace), **command history** (up/down arrows, persisted to `.kaappi_history`), **tab completion** for all built-in and user-defined symbols, and **multi-line input** with automatic paren balancing.
 
 ```
 $ zig build run
@@ -22,146 +28,295 @@ Kaappi Scheme v0.1.0
 Type (exit) to quit.
 
 kaappi> (define (fib n)
-          (if (< n 2) n
-              (+ (fib (- n 1)) (fib (- n 2)))))
+  ...     (if (< n 2) n
+  ...         (+ (fib (- n 1)) (fib (- n 2)))))
 kaappi> (fib 20)
 6765
 kaappi> (map (lambda (x) (* x x)) '(1 2 3 4 5))
 (1 4 9 16 25)
 kaappi> `(the answer is ,(* 6 7))
 (the answer is 42)
+kaappi> (string-length "héllo")
+5
+kaappi> (char-alphabetic? #\λ)
+#t
 ```
+
+---
 
 ## Features
 
 ### R7RS compliance
 
-All 14 standard libraries are implemented with 313 built-in procedures and 32 syntax forms:
+All 14 standard libraries are implemented:
 
-| Library | Status |
-|---------|--------|
-| `(scheme base)` | Complete |
-| `(scheme case-lambda)` | Complete |
-| `(scheme char)` | Complete |
-| `(scheme complex)` | Complete |
-| `(scheme cxr)` | Complete |
-| `(scheme eval)` | Complete |
-| `(scheme file)` | Complete |
-| `(scheme inexact)` | Complete |
-| `(scheme lazy)` | Complete |
-| `(scheme load)` | Complete |
-| `(scheme process-context)` | Complete |
-| `(scheme read)` | Complete |
-| `(scheme time)` | Complete |
-| `(scheme write)` | Complete |
+| Library | Procedures | Status |
+|---------|-----------|--------|
+| `(scheme base)` | 230+ | Complete |
+| `(scheme case-lambda)` | 1 | Complete |
+| `(scheme char)` | 21 | Complete |
+| `(scheme complex)` | 6 | Complete |
+| `(scheme cxr)` | 24 | Complete |
+| `(scheme eval)` | 2 | Complete |
+| `(scheme file)` | 10 | Complete |
+| `(scheme inexact)` | 12 | Complete |
+| `(scheme lazy)` | 5 | Complete |
+| `(scheme load)` | 1 | Complete |
+| `(scheme process-context)` | 5 | Complete |
+| `(scheme read)` | 1 | Complete |
+| `(scheme time)` | 3 | Complete |
+| `(scheme write)` | 4 | Complete |
 
 ### Language features
 
 - **Proper tail calls** — iterative recursion in constant stack space
 - **First-class continuations** — `call/cc` via stack copying, `dynamic-wind`
-- **Hygienic macros** — `syntax-rules` with pattern matching and ellipsis
-- **Library system** — `define-library`, `import` with modifiers, `.sld` file loading
-- **Numeric tower** — fixnum (i64), flonum (f64), complex numbers
-- **Exception handling** — `guard`, `raise`, `with-exception-handler`
+- **Hygienic macros** — `syntax-rules` with pattern matching, ellipsis, and literals
+- **Library system** — `define-library`, `import` with `only`/`except`/`rename`/`prefix` modifiers, `.sld` file loading
+- **Numeric tower** — fixnum (i64), flonum (f64), complex numbers, mixed arithmetic
+- **Full Unicode** — UTF-8 strings with codepoint-based indexing, Unicode character classification and case mapping (Latin, Greek, Cyrillic, Arabic, CJK, and more)
+- **Exception handling** — `guard`, `raise`, `with-exception-handler`, error objects
 - **Records** — `define-record-type` with constructors, predicates, accessors, mutators
-- **Ports and I/O** — file, string, and bytevector ports
-- **Lazy evaluation** — `delay`, `force`, promises
-- **Multiple values** — `values`, `call-with-values`, `let-values`
-- **Parameter objects** — `make-parameter`, `parameterize`
-- **Vectors and bytevectors** — mutable arrays with full operation set
+- **Ports and I/O** — file, string, and bytevector ports; binary and textual I/O
+- **Lazy evaluation** — `delay`, `delay-force`, `force`, promises
+- **Multiple values** — `values`, `call-with-values`, `let-values`, `let*-values`
+- **Parameter objects** — `make-parameter`, `parameterize` with dynamic-wind integration
+- **Vectors and bytevectors** — mutable arrays with `map`, `for-each`, `copy`, `append`
+- **Quasiquote** — `` ` ``, `,`, `,@` with proper splicing support
 
 ### Data types
 
-| Type | Representation |
-|------|---------------|
-| Integer | 63-bit signed fixnum (tagged u64) |
-| Real | IEEE 754 f64 (heap-allocated) |
-| Complex | Pair of f64 (heap-allocated) |
-| Boolean | Immediate value |
-| Character | 21-bit Unicode codepoint (immediate) |
-| String | Byte array (heap-allocated) |
-| Symbol | Interned string |
-| Pair | Car/cdr cell (heap-allocated) |
-| Vector | Array of values (heap-allocated) |
-| Bytevector | Byte array (heap-allocated) |
-| Port | File descriptor or string buffer |
-| Procedure | Closure or native function |
-| Continuation | Saved VM state |
-| Promise | Lazy thunk wrapper |
-| Record | User-defined structured type |
+| Type | Representation | Notes |
+|------|---------------|-------|
+| Integer | 63-bit signed fixnum | Tagged in low bit of u64, zero allocation |
+| Real | IEEE 754 f64 | Heap-allocated |
+| Complex | Pair of f64 | `make-rectangular`, `make-polar` |
+| Boolean | Immediate `#t` / `#f` | Only `#f` is falsy |
+| Character | 21-bit Unicode codepoint | Immediate value, supports full Unicode |
+| String | UTF-8 byte array | Codepoint-indexed, heap-allocated |
+| Symbol | Interned string | `eq?`-comparable |
+| Pair | Car/cdr cons cell | Heap-allocated |
+| Vector | Growable value array | `#(1 2 3)` literal syntax |
+| Bytevector | Byte array | `#u8(10 20 30)` literal syntax |
+| Port | File descriptor or buffer | File, string, and bytevector ports |
+| Procedure | Closure or native fn | First-class, supports `apply` |
+| Continuation | Saved VM state | Created by `call/cc` |
+| Promise | Lazy thunk | Created by `delay` |
+| Record | User-defined struct | Created by `define-record-type` |
+| Parameter | Dynamic binding | Created by `make-parameter` |
+
+---
 
 ## Architecture
 
 ```
-Source → Reader → Expander → Compiler → Bytecode → VM
-                  (macros)               (register-based)
+Source code
+    │
+    ▼
+┌────────┐     ┌──────────┐     ┌──────────┐     ┌──────────┐     ┌────┐
+│ Reader │ ──▶ │ Expander │ ──▶ │ Compiler │ ──▶ │ Bytecode │ ──▶ │ VM │
+│ (UTF-8 │     │ (syntax- │     │ (register│     │          │     │    │
+│  lexer)│     │  rules)  │     │  -based) │     │          │     │    │
+└────────┘     └──────────┘     └──────────┘     └──────────┘     └────┘
+                                                                    │
+                                                              ┌─────┴─────┐
+                                                              │ GC (mark  │
+                                                              │ & sweep)  │
+                                                              └───────────┘
 ```
 
-- **Reader** (`reader.zig`) — Tokenizer + recursive descent parser for R7RS lexical syntax
-- **Expander** (`expander.zig`) — `syntax-rules` pattern matching and template instantiation
-- **Compiler** (`compiler.zig`) — S-expressions to register-based bytecode with tail-call detection
-- **VM** (`vm.zig`) — Register-based execution with call frames, exception handler stack, and wind stack
-- **GC** (`memory.zig`) — Mark-and-sweep with intrusive object linked list and root tracking
+| Component | File | Role |
+|-----------|------|------|
+| **Reader** | `reader.zig` | Tokenizer + recursive descent parser. Handles full R7RS lexical syntax including Unicode identifiers, `#\λ` character literals, `#(...)` vectors, `#u8(...)` bytevectors. |
+| **Expander** | `expander.zig` | `syntax-rules` pattern matching with ellipsis, literal identifiers, underscore wildcards. Template instantiation with hygienic renaming. |
+| **Compiler** | `compiler.zig` + 4 sub-modules | Compiles S-expressions to register-based bytecode. Detects tail positions for proper tail call optimization. Handles 32 syntax forms across 5 files. |
+| **VM** | `vm.zig` + 3 sub-modules | Executes bytecode with a register file, call frame stack, exception handler stack, and dynamic-wind stack. Supports first-class continuations via stack copying. |
+| **GC** | `memory.zig` | Mark-and-sweep collector with intrusive linked list. Root tracking via `pushRoot`/`popRoot`. Triggered after N allocations. |
+| **Primitives** | 11 `primitives_*.zig` files | 313 built-in procedures organized by domain: arithmetic, strings, vectors, I/O, control flow, etc. |
 
 ### Value representation
 
-Values are tagged 64-bit words:
-- Bit 0 = 1: fixnum (63-bit signed integer, zero allocation)
-- Bits 0-2 = 000: pointer to heap object (8-byte aligned)
-- Bits 0-1 = 10: immediate (nil, boolean, void, eof, character)
+Values are **tagged 64-bit words** — common types require zero heap allocation:
+
+```
+Fixnum:    [...63-bit signed integer...][1]     ← bit 0 = 1
+Pointer:   [...61-bit pointer.........][000]    ← 8-byte aligned heap object
+Immediate: [...payload...][type:5][10]          ← nil, bool, void, eof, char
+```
+
+---
 
 ## Building
 
 ```bash
 zig build              # Build the kaappi executable
 zig build run          # Build and run the REPL
-zig build test         # Run all unit tests
+zig build test         # Run all unit tests (~150 tests)
 ```
 
 The executable is placed in `zig-out/bin/kaappi`.
 
+### Running Scheme files
+
+```bash
+# Run a single file
+zig build run -- examples/hello.scm
+
+# Pipe expressions
+echo '(+ 1 2)' | zig build run
+```
+
+---
+
 ## Project structure
 
 ```
-src/
-  main.zig                 Entry point and REPL
-  types.zig                Value type, heap objects, opcodes
-  memory.zig               GC allocator
-  reader.zig               Tokenizer and S-expression parser
-  expander.zig             Macro expansion engine
-  compiler.zig             Bytecode compiler (core)
-  compiler_forms.zig       Re-export hub for derived forms
-  compiler_conditionals.zig  and, or, cond, when, unless, cond-expand
-  compiler_bindings.zig    let, letrec, do, let-values
-  compiler_advanced.zig    case, case-lambda, guard, quasiquote
-  vm.zig                   Register VM (core)
-  vm_library.zig           Import and define-library handling
-  vm_records.zig           define-record-type desugaring
-  vm_continuations.zig     call/cc, dynamic-wind, continuation state
-  printer.zig              Value display and write
-  library.zig              Library registry and standard libraries
-  primitives.zig           Core data primitives and registration
-  primitives_arithmetic.zig  Numeric procedures
-  primitives_string.zig    String and character comparison
-  primitives_char.zig      (scheme char) library
-  primitives_vector.zig    Vector procedures
-  primitives_bytevector.zig  Bytevector procedures
-  primitives_io.zig        Port and file I/O
-  primitives_control.zig   Exceptions, continuations, values
-  primitives_lazy.zig      Promises (delay/force)
-  primitives_cxr.zig       Car/cdr compositions
-  primitives_r7rs.zig      Time, process-context, eval, load
-
-tests/scheme/             Scheme-level test suites
-docs/                     R7RS specification (PDF)
+kaappi/
+├── build.zig                      Build configuration
+├── build.zig.zon                  Package manifest
+├── CLAUDE.md                      AI assistant project guide
+├── README.md
+├── STATUS.md                      R7RS implementation progress
+│
+├── src/
+│   ├── main.zig                   Entry point, REPL (linenoise integration)
+│   ├── types.zig                  Value type, heap objects, opcodes
+│   ├── memory.zig                 GC allocator (mark-and-sweep)
+│   ├── reader.zig                 Tokenizer + S-expression parser
+│   ├── expander.zig               Macro expansion (syntax-rules)
+│   ├── printer.zig                Value → string (write/display)
+│   ├── linenoise.zig              FFI wrapper for C linenoise library
+│   ├── library.zig                Library registry + standard libs
+│   │
+│   ├── compiler.zig               Bytecode compiler (core)
+│   ├── compiler_forms.zig         Re-export hub for derived forms
+│   ├── compiler_conditionals.zig  and, or, cond, when, unless, cond-expand
+│   ├── compiler_bindings.zig      let, letrec, do, let-values
+│   ├── compiler_advanced.zig      case, case-lambda, guard, quasiquote
+│   │
+│   ├── vm.zig                     Register VM (core)
+│   ├── vm_library.zig             import / define-library / .sld loading
+│   ├── vm_records.zig             define-record-type desugaring
+│   ├── vm_continuations.zig       call/cc, dynamic-wind
+│   │
+│   ├── primitives.zig             Core primitives + registration hub
+│   ├── primitives_arithmetic.zig  Numeric procedures (+, -, *, /, trig, etc.)
+│   ├── primitives_string.zig      String ops (UTF-8 codepoint-indexed)
+│   ├── primitives_char.zig        Unicode char classification + case
+│   ├── primitives_vector.zig      Vector procedures
+│   ├── primitives_bytevector.zig  Bytevector + binary I/O
+│   ├── primitives_io.zig          Ports, file I/O, string ports
+│   ├── primitives_control.zig     Exceptions, continuations, values
+│   ├── primitives_lazy.zig        delay / force / promises
+│   ├── primitives_cxr.zig         24 car/cdr compositions
+│   ├── primitives_r7rs.zig        time, process-context, eval, load
+│   │
+│   ├── testing_helpers.zig        Shared test utilities
+│   └── tests_phase*.zig           Unit tests (split by phase)
+│
+├── tests/scheme/                  Scheme-level test suites
+│   ├── phase1/                    Basic eval, arithmetic, lambda
+│   ├── phase2/                    Tail calls
+│   ├── phase3/                    Derived forms (let, cond, do)
+│   ├── phase4/                    Numeric tower
+│   ├── phase5/                    Macros
+│   ├── phase6/                    Libraries
+│   ├── deferred/                  apply, case, case-lambda, complex, etc.
+│   └── compliance/                Vectors, strings, chars, Unicode, etc.
+│
+├── vendor/linenoise/              Vendored C library (BSD)
+├── testlib/                       Test .sld library files
+└── docs/
+    └── errata-corrected-r7rs.pdf  R7RS specification
 ```
+
+---
+
+## Examples
+
+### Fibonacci
+
+```scheme
+(define (fib n)
+  (if (< n 2) n
+      (+ (fib (- n 1)) (fib (- n 2)))))
+
+(fib 30) ;=> 832040
+```
+
+### Tail-recursive factorial
+
+```scheme
+(define (factorial n)
+  (let loop ((i n) (acc 1))
+    (if (= i 0) acc
+        (loop (- i 1) (* i acc)))))
+
+(factorial 20) ;=> 2432902008176640000
+```
+
+### Macros
+
+```scheme
+(define-syntax my-when
+  (syntax-rules ()
+    ((my-when test body ...)
+     (if test (begin body ...)))))
+
+(my-when #t
+  (display "hello ")
+  (display "world")
+  (newline))
+```
+
+### Libraries
+
+```scheme
+(define-library (mylib math)
+  (export square cube)
+  (import (scheme base))
+  (begin
+    (define (square x) (* x x))
+    (define (cube x) (* x x x))))
+
+(import (mylib math))
+(cube 5) ;=> 125
+```
+
+### Continuations
+
+```scheme
+(define saved #f)
+
+(+ 1 (call/cc (lambda (k)
+                (set! saved k)
+                10)))
+;=> 11
+
+(saved 42)
+;=> 43
+```
+
+### Unicode
+
+```scheme
+(string-length "héllo")     ;=> 5
+(string-ref "λ-calculus" 0) ;=> #\λ
+(char-alphabetic? #\λ)      ;=> #t
+(string-upcase "héllo")     ;=> "HÉLLO"
+```
+
+---
 
 ## Known limitations
 
-- **No bignum**: Integers are 63-bit. Overflow is silent.
-- **No exact rationals**: `/` with non-divisible exact integers returns an inexact result.
-- **ASCII strings**: String operations treat strings as byte arrays. Full Unicode support is not implemented.
-- **Stack-copying continuations**: `call/cc` copies the entire VM state. This is correct but can be expensive for deep stacks.
+- **No bignum**: Integers are 63-bit signed fixnums. Overflow is silent.
+- **No exact rationals**: `/` with non-divisible exact integers returns an inexact (flonum) result.
+- **Stack-copying continuations**: `call/cc` copies the entire VM state (registers, frames, handlers, wind stack). Correct but expensive for deep stacks.
+- **Unicode case mapping**: Covers Latin, Latin Extended-A, Greek, and Cyrillic. Other scripts pass through unchanged.
+- **No `syntax-case`**: Only `syntax-rules` is supported (as specified by R7RS-small).
+
+---
 
 ## License
 
