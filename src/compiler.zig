@@ -121,6 +121,14 @@ pub const Compiler = struct {
         if (self.next_register >= 250) return CompileError.TooManyLocals;
         const reg = self.next_register;
         self.next_register += 1;
+        // Record the high-water mark of register usage for this function.
+        // This is the exact count of registers the frame can ever use, which
+        // lets continuation capture copy only the live register window instead
+        // of a conservative upper bound. All register allocation funnels through
+        // here, so next_register's peak is a sound upper bound.
+        if (self.next_register > self.func.locals_count) {
+            self.func.locals_count = self.next_register;
+        }
         return reg;
     }
 

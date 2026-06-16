@@ -275,6 +275,10 @@ pub const Continuation = struct {
     wind_count: usize,
     dst_reg: u8, // register offset within frame where result goes
     dst_base: u16, // base register of the return frame
+    // Single backing allocation holding registers, frames, handlers and winds
+    // contiguously. The four slices above are views into this buffer; it is
+    // freed as one block on sweep.
+    backing: []Value,
 };
 
 /// Multiple return values (R7RS values/call-with-values).

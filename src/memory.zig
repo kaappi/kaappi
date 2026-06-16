@@ -36,6 +36,10 @@ pub const GC = struct {
     extra_roots: std.ArrayList(Value),
     enabled: bool = true,
     bytes_allocated: usize = 0,
+    // Optional callback to mark roots held outside the GC's own root lists —
+    // notably the VM's live register file and call frames. Set by the VM so a
+    // collection triggered mid-execution does not free in-flight objects.
+    root_marker: ?*const fn (*GC) void = null,
 
     pub fn init(allocator: std.mem.Allocator) GC {
         return .{
@@ -374,10 +378,43 @@ pub const GC = struct {
         dst_base: u16,
     ) !Value {
         self.maybeCollect();
-        const saved_regs = try self.allocator.dupe(Value, registers);
-        const saved_frames = try self.allocator.dupe(SavedFrame, frames);
-        const saved_handlers = try self.allocator.dupe(SavedHandler, handlers);
-        const saved_winds = try self.allocator.dupe(WindRecord, wind_records);
+
+        // Pack the four saved arrays into one backing allocation. Every element
+        // type is a multiple of Value's size and no more strictly aligned than
+        // Value, so a []Value buffer is correctly aligned for each section and
+        // each section begins on a Value boundary.
+        comptime {
+            std.debug.assert(@sizeOf(SavedFrame) % @sizeOf(Value) == 0);
+            std.debug.assert(@sizeOf(SavedHandler) % @sizeOf(Value) == 0);
+            std.debug.assert(@sizeOf(WindRecord) % @sizeOf(Value) == 0);
+            std.debug.assert(@alignOf(SavedFrame) <= @alignOf(Value));
+            std.debug.assert(@alignOf(SavedHandler) <= @alignOf(Value));
+            std.debug.assert(@alignOf(WindRecord) <= @alignOf(Value));
+        }
+        const frame_words = frames.len * (@sizeOf(SavedFrame) / @sizeOf(Value));
+        const handler_words = handlers.len * (@sizeOf(SavedHandler) / @sizeOf(Value));
+        const wind_words = wind_records.len * (@sizeOf(WindRecord) / @sizeOf(Value));
+        const total_words = registers.len + frame_words + handler_words + wind_words;
+
+        const backing = try self.allocator.alloc(Value, total_words);
+        errdefer self.allocator.free(backing);
+
+        var off: usize = 0;
+        const saved_regs = backing[off..][0..registers.len];
+        off += registers.len;
+        const frames_ptr: [*]SavedFrame = @ptrCast(@alignCast(backing.ptr + off));
+        const saved_frames = frames_ptr[0..frames.len];
+        off += frame_words;
+        const handlers_ptr: [*]SavedHandler = @ptrCast(@alignCast(backing.ptr + off));
+        const saved_handlers = handlers_ptr[0..handlers.len];
+        off += handler_words;
+        const winds_ptr: [*]WindRecord = @ptrCast(@alignCast(backing.ptr + off));
+        const saved_winds = winds_ptr[0..wind_records.len];
+
+        @memcpy(saved_regs, registers);
+        @memcpy(saved_frames, frames);
+        @memcpy(saved_handlers, handlers);
+        @memcpy(saved_winds, wind_records);
 
         const cont = try self.allocator.create(Continuation);
         cont.* = .{
@@ -391,6 +428,7 @@ pub const GC = struct {
             .wind_count = wind_count,
             .dst_reg = dst_reg,
             .dst_base = dst_base,
+            .backing = backing,
         };
         self.bytes_allocated += @sizeOf(Continuation) +
             registers.len * @sizeOf(Value) +
@@ -477,6 +515,8 @@ pub const GC = struct {
         while (it.next()) |v| {
             self.markValue(v.*);
         }
+        // Mark VM-owned roots (live registers, call frames, handlers, winds).
+        if (self.root_marker) |mark| mark(self);
     }
 
     pub fn markValue(self: *GC, v: Value) void {
@@ -690,10 +730,9 @@ pub const GC = struct {
             },
             .continuation => {
                 const cont = obj.as(Continuation);
-                self.allocator.free(cont.registers);
-                self.allocator.free(cont.frames);
-                self.allocator.free(cont.handlers);
-                self.allocator.free(cont.wind_records);
+                // registers/frames/handlers/wind_records are all views into
+                // the single backing allocation; free it once.
+                self.allocator.free(cont.backing);
                 self.allocator.destroy(cont);
             },
             .multiple_values => {

@@ -14,10 +14,18 @@ const MAX_WINDS = vm_mod.MAX_WINDS;
 /// dst_reg is the register offset within the caller's frame where the result of call/cc will go.
 /// dst_base is the base register of the caller's frame.
 pub fn captureContinuation(vm: *VM, dst_reg: u8, dst_base: u16) VMError!Value {
-    // Determine how many registers are actually in use
+    // Determine how many registers are actually in use. Each frame's live
+    // register window is [base, base + locals_count): locals_count is the
+    // compiler-recorded high-water mark of registers the function can touch.
+    // Taking the max over all frames gives the exact top of the live register
+    // stack, far tighter than the old conservative `base + 256` per frame.
     var max_reg: usize = 0;
     for (vm.frames[0..vm.frame_count]) |f| {
-        const frame_end = @as(usize, f.base) + 256; // conservative upper bound
+        const window: usize = if (f.closure) |cls| blk: {
+            const lc = cls.func.locals_count;
+            break :blk if (lc == 0) 256 else lc; // 0 => unknown, stay safe
+        } else 256; // native/closure-less frame: conservative fallback
+        const frame_end = @as(usize, f.base) + window;
         if (frame_end > max_reg) max_reg = frame_end;
     }
     if (max_reg > MAX_REGISTERS) max_reg = MAX_REGISTERS;

@@ -32,6 +32,21 @@ pub fn build(b: *std.Build) void {
     const run_step = b.step("run", "Run the Kaappi Scheme REPL");
     run_step.dependOn(&run_cmd.step);
 
+    // Benchmark executable (call/cc capture micro-benchmark)
+    const bench_mod = b.createModule(.{
+        .root_source_file = b.path("src/bench.zig"),
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    const bench_exe = b.addExecutable(.{
+        .name = "bench",
+        .root_module = bench_mod,
+    });
+    const run_bench = b.addRunArtifact(bench_exe);
+    const bench_step = b.step("bench", "Run the call/cc capture benchmark");
+    bench_step.dependOn(&run_bench.step);
+
     // Unit tests
     const test_mod = b.createModule(.{
         .root_source_file = b.path("src/main.zig"),

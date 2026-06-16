@@ -35,6 +35,48 @@ pub fn setVMInstance(vm: *VM) void {
     vm_instance = vm;
 }
 
+/// Mark the VM's live roots during a GC cycle: the register window of every
+/// active call frame, the frame closures, the exception-handler stack,
+/// dynamic-wind thunks, the in-flight exception, and the global/macro tables.
+///
+/// Without this, a collection triggered mid-execution (e.g. while capturing a
+/// continuation in a tight loop) would free objects reachable only through the
+/// VM — including the closures and bytecode currently executing — leading to
+/// use-after-free. Registered as the GC's `root_marker`.
+fn markVMRoots(gc: *memory.GC) void {
+    const vm = vm_instance orelse return;
+    if (vm.gc != gc) return; // only mark the VM that owns this GC
+
+    for (vm.frames[0..vm.frame_count]) |f| {
+        if (f.closure) |cls| gc.markValue(types.makePointer(@ptrCast(cls)));
+        if (f.native) |nf| gc.markValue(types.makePointer(@ptrCast(nf)));
+        // Conservatively mark the frame's whole register window. locals_count
+        // is the compiler-recorded high-water mark of registers the function
+        // can touch; a closure-less frame falls back to a safe upper bound.
+        const window: usize = if (f.closure) |cls| blk: {
+            const lc = cls.func.locals_count;
+            break :blk if (lc == 0) 256 else @as(usize, lc);
+        } else 256;
+        const end: usize = @min(@as(usize, f.base) + window, MAX_REGISTERS);
+        var r: usize = f.base;
+        while (r < end) : (r += 1) gc.markValue(vm.registers[r]);
+    }
+
+    for (vm.handler_stack[0..vm.handler_count]) |h| gc.markValue(h.handler);
+
+    for (vm.wind_stack[0..vm.wind_count]) |wr| {
+        gc.markValue(wr.before);
+        gc.markValue(wr.after);
+    }
+
+    if (vm.current_exception) |exc| gc.markValue(exc);
+
+    var git = vm.globals.valueIterator();
+    while (git.next()) |v| gc.markValue(v.*);
+    var mit = vm.macros.valueIterator();
+    while (mit.next()) |v| gc.markValue(v.*);
+}
+
 const ExceptionHandler = struct {
     handler: Value, // the handler procedure
     frame_count: usize, // saved call stack depth for unwinding
@@ -91,6 +133,10 @@ pub const VM = struct {
             .libraries = library_mod.LibraryRegistry.init(gc.allocator),
         };
         @memset(&vm.registers, types.UNDEFINED);
+        // Teach the GC how to find roots held in the VM (registers, frames,
+        // handlers, winds, globals, macros) so collections during execution
+        // don't free in-flight objects.
+        gc.root_marker = &markVMRoots;
         // Pre-allocate standard ports
         vm.stdin_port = gc.allocPort(0, true, false, "stdin", false) catch types.VOID;
         vm.stdout_port = gc.allocPort(1, false, true, "stdout", false) catch types.VOID;
