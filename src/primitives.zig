@@ -142,6 +142,10 @@ pub fn anyFlonum(args: []const Value) bool {
 pub fn toF64(v: Value) PrimitiveError!f64 {
     if (types.isFixnum(v)) return @floatFromInt(types.toFixnum(v));
     if (types.isFlonum(v)) return types.toFlonum(v);
+    if (types.isBignum(v)) {
+        const bignum_mod = @import("bignum.zig");
+        return bignum_mod.toF64(v);
+    }
     return PrimitiveError.TypeError;
 }
 
@@ -267,7 +271,7 @@ fn numberP(args: []const Value) PrimitiveError!Value {
 }
 
 fn integerP(args: []const Value) PrimitiveError!Value {
-    if (types.isFixnum(args[0])) return types.TRUE;
+    if (types.isFixnum(args[0]) or types.isBignum(args[0])) return types.TRUE;
     if (types.isFlonum(args[0])) {
         const f = types.toFlonum(args[0]);
         if (std.math.isNan(f) or std.math.isInf(f)) return types.FALSE;
@@ -281,11 +285,11 @@ fn complexP(args: []const Value) PrimitiveError!Value {
 }
 
 fn realP(args: []const Value) PrimitiveError!Value {
-    return if (types.isFixnum(args[0]) or types.isFlonum(args[0])) types.TRUE else types.FALSE;
+    return if (types.isFixnum(args[0]) or types.isFlonum(args[0]) or types.isBignum(args[0])) types.TRUE else types.FALSE;
 }
 
 fn rationalP(args: []const Value) PrimitiveError!Value {
-    if (types.isFixnum(args[0])) return types.TRUE;
+    if (types.isFixnum(args[0]) or types.isBignum(args[0])) return types.TRUE;
     if (types.isFlonum(args[0])) {
         const f = types.toFlonum(args[0]);
         return if (std.math.isFinite(f)) types.TRUE else types.FALSE;
@@ -338,6 +342,18 @@ fn eqvP(args: []const Value) PrimitiveError!Value {
         const b: u64 = @bitCast(types.toFlonum(args[1]));
         return if (a == b) types.TRUE else types.FALSE;
     }
+    // Two bignums with equal value are eqv?
+    if (types.isBignum(args[0]) and types.isBignum(args[1])) {
+        const bignum_mod = @import("bignum.zig");
+        return if (bignum_mod.compare(args[0], args[1]) == 0) types.TRUE else types.FALSE;
+    }
+    // Bignum and fixnum with same value are eqv?
+    if ((types.isBignum(args[0]) and types.isFixnum(args[1])) or
+        (types.isFixnum(args[0]) and types.isBignum(args[1])))
+    {
+        const bignum_mod = @import("bignum.zig");
+        return if (bignum_mod.compare(args[0], args[1]) == 0) types.TRUE else types.FALSE;
+    }
     return types.FALSE;
 }
 
@@ -353,6 +369,13 @@ fn deepEqualWithVisited(a: Value, b: Value, visited: *[MAX_VISITED][2]Value, vis
         const fa: u64 = @bitCast(types.toFlonum(a));
         const fb: u64 = @bitCast(types.toFlonum(b));
         return fa == fb;
+    }
+    // Bignum equality (including bignum-fixnum comparison)
+    if ((types.isBignum(a) or types.isFixnum(a)) and (types.isBignum(b) or types.isFixnum(b))) {
+        if (types.isBignum(a) or types.isBignum(b)) {
+            const bignum_mod = @import("bignum.zig");
+            return bignum_mod.compare(a, b) == 0;
+        }
     }
     if (types.isPair(a) and types.isPair(b)) {
         // Check visited set for cycle detection

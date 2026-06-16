@@ -33,6 +33,7 @@ pub const Token = union(enum) {
     character: u21,
     datum_label_def: u32,
     datum_label_ref: u32,
+    bignum_str: []const u8,
     eof,
 };
 
@@ -286,7 +287,12 @@ pub const Reader = struct {
             const f = std.fmt.parseFloat(f64, num_str) catch return ReadError.InvalidNumber;
             return .{ .flonum = f };
         } else {
-            const n = std.fmt.parseInt(i64, num_str, 10) catch return ReadError.InvalidNumber;
+            const n = std.fmt.parseInt(i64, num_str, 10) catch |err| {
+                if (err == error.Overflow) {
+                    return .{ .bignum_str = num_str };
+                }
+                return ReadError.InvalidNumber;
+            };
             return .{ .fixnum = n };
         }
     }
@@ -636,7 +642,12 @@ pub const Reader = struct {
         }
         const num_str = self.source[start..self.pos];
         if (num_str.len == 0 or (num_str.len == 1 and (num_str[0] == '+' or num_str[0] == '-'))) return ReadError.InvalidNumber;
-        const n = std.fmt.parseInt(i64, num_str, radix) catch return ReadError.InvalidNumber;
+        const n = std.fmt.parseInt(i64, num_str, radix) catch |err| {
+            if (err == error.Overflow and radix == 10) {
+                return .{ .bignum_str = num_str };
+            }
+            return ReadError.InvalidNumber;
+        };
         return .{ .fixnum = n };
     }
 
@@ -713,6 +724,10 @@ pub const Reader = struct {
         switch (tok) {
             .fixnum => |n| return types.makeFixnum(n),
             .flonum => |f| return self.gc.allocFlonum(f) catch return ReadError.OutOfMemory,
+            .bignum_str => |digits| {
+                const bignum_mod = @import("bignum.zig");
+                return bignum_mod.parseBignumString(self.gc, digits) catch return ReadError.OutOfMemory;
+            },
             .boolean => |b| return if (b) types.TRUE else types.FALSE,
             .character => |c| return types.makeChar(c),
             .string => |s| {

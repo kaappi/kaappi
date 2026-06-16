@@ -395,6 +395,13 @@ pub fn printValue(writer: anytype, value: Value, mode: PrintMode) anyerror!void 
                 const ffi_fn = obj.as(types.FfiFunction);
                 try writer.print("#<ffi-function \"{s}\">", .{ffi_fn.name});
             },
+            .bignum => {
+                const bignum_mod = @import("bignum.zig");
+                const allocator = std.heap.page_allocator;
+                const s = bignum_mod.toString(allocator, value) catch "?bignum?";
+                defer allocator.free(s);
+                try writer.writeAll(s);
+            },
         }
     } else {
         try writer.writeAll("#<unknown>");

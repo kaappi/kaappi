@@ -29,6 +29,7 @@ const FfiFunction = types.FfiFunction;
 const FfiType = types.FfiType;
 const HashTable = types.HashTable;
 const HashEntry = types.HashEntry;
+const Bignum = types.Bignum;
 
 const GC_THRESHOLD: usize = 1024;
 
@@ -68,7 +69,7 @@ pub const GC = struct {
         self.extra_roots.deinit(self.allocator);
     }
 
-    fn trackObject(self: *GC, obj: *Object) void {
+    pub fn trackObject(self: *GC, obj: *Object) void {
         obj.next = self.objects;
         self.objects = obj;
         self.object_count += 1;
@@ -556,6 +557,39 @@ pub const GC = struct {
         return types.makePointer(@ptrCast(ht));
     }
 
+    pub fn allocBignumFromI64(self: *GC, n: i64) !Value {
+        self.maybeCollect();
+        const bn = try self.allocator.create(Bignum);
+        const limbs = try self.allocator.alloc(u64, 1);
+        const mag: u64 = if (n < 0) @intCast(-@as(i128, n)) else @intCast(n);
+        limbs[0] = mag;
+        bn.* = .{
+            .header = .{ .tag = .bignum },
+            .limbs = limbs,
+            .len = if (mag == 0) 0 else 1,
+            .positive = n >= 0,
+        };
+        self.bytes_allocated += @sizeOf(Bignum) + @sizeOf(u64);
+        self.trackObject(&bn.header);
+        return types.makePointer(@ptrCast(bn));
+    }
+
+    pub fn allocBignumFromLimbs(self: *GC, limbs: []const u64, len: usize, positive: bool) !Value {
+        self.maybeCollect();
+        const bn = try self.allocator.create(Bignum);
+        const owned = try self.allocator.alloc(u64, limbs.len);
+        @memcpy(owned, limbs);
+        bn.* = .{
+            .header = .{ .tag = .bignum },
+            .limbs = owned,
+            .len = len,
+            .positive = positive,
+        };
+        self.bytes_allocated += @sizeOf(Bignum) + limbs.len * @sizeOf(u64);
+        self.trackObject(&bn.header);
+        return types.makePointer(@ptrCast(bn));
+    }
+
     pub fn allocMultipleValues(self: *GC, values: []const Value) !Value {
         self.maybeCollect();
         const owned = try self.allocator.dupe(Value, values);
@@ -713,7 +747,7 @@ pub const GC = struct {
                 }
             },
             .ffi_library, .ffi_function => {},
-            .symbol, .string, .native_fn, .flonum, .port, .complex, .bytevector => {},
+            .symbol, .string, .native_fn, .flonum, .port, .complex, .bytevector, .bignum => {},
         }
     }
 
@@ -870,6 +904,11 @@ pub const GC = struct {
                 self.allocator.free(ffi_fn.name);
                 self.allocator.free(ffi_fn.param_types);
                 self.allocator.destroy(ffi_fn);
+            },
+            .bignum => {
+                const bn = obj.as(Bignum);
+                self.allocator.free(bn.limbs);
+                self.allocator.destroy(bn);
             },
         }
     }

@@ -114,6 +114,7 @@ pub const ObjectTag = enum(u5) {
     ffi_library = 19,
     ffi_function = 20,
     hash_table = 21,
+    bignum = 22,
 };
 
 pub const Object = struct {
@@ -377,6 +378,17 @@ pub const HashTable = struct {
 };
 
 // ---------------------------------------------------------------------------
+// Bignum (arbitrary-precision integer)
+// ---------------------------------------------------------------------------
+
+pub const Bignum = struct {
+    header: Object,
+    limbs: []u64, // little-endian limbs (magnitude)
+    len: usize, // active limbs count
+    positive: bool, // sign (true = positive/zero)
+};
+
+// ---------------------------------------------------------------------------
 // Type predicates on Value
 // ---------------------------------------------------------------------------
 
@@ -496,8 +508,16 @@ pub fn toHashTable(v: Value) *HashTable {
     return toObject(v).as(HashTable);
 }
 
+pub fn isBignum(v: Value) bool {
+    return isPointer(v) and toObject(v).tag == .bignum;
+}
+
+pub fn toBignum(v: Value) *Bignum {
+    return toObject(v).as(Bignum);
+}
+
 pub fn isNumber(v: Value) bool {
-    return isFixnum(v) or isFlonum(v) or isComplex(v);
+    return isFixnum(v) or isFlonum(v) or isComplex(v) or isBignum(v);
 }
 
 pub fn toFlonum(v: Value) f64 {

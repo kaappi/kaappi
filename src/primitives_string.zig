@@ -43,7 +43,7 @@ pub fn registerString(vm: *vm_mod.VM) !void {
     try reg(vm, "string>?", &stringGtFn, .{ .variadic = 2 });
 
     // Number/string conversion (also in arithmetic, but base library needs these)
-    try reg(vm, "number->string", &numberToStringFn, .{ .exact = 1 });
+    // number->string is registered in primitives_arithmetic.zig (handles bignums)
     try reg(vm, "string->number", &stringToNumberFn, .{ .variadic = 1 });
 
     // Char operations

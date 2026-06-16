@@ -311,6 +311,14 @@ pub const Compiler = struct {
             return;
         }
 
+        if (types.isBignum(expr)) {
+            const idx = try self.addConstant(expr);
+            try self.emitOp(.load_const);
+            try self.emit(dst);
+            try self.emitU16(idx);
+            return;
+        }
+
         if (types.isVector(expr)) {
             const idx = try self.addConstant(expr);
             try self.emitOp(.load_const);
