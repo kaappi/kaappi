@@ -75,6 +75,13 @@ fn markVMRoots(gc: *memory.GC) void {
     while (git.next()) |v| gc.markValue(v.*);
     var mit = vm.macros.valueIterator();
     while (mit.next()) |v| gc.markValue(v.*);
+
+    // Mark library export values (loaded .sld libraries store heap objects)
+    var lit = vm.libraries.libraries.valueIterator();
+    while (lit.next()) |lib| {
+        var eit = lib.exports.valueIterator();
+        while (eit.next()) |v| gc.markValue(v.*);
+    }
 }
 
 const ExceptionHandler = struct {

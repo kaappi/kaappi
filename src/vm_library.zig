@@ -12,12 +12,9 @@ const VMError = vm_mod.VMError;
 
 /// Import a binding into the VM, routing macros to vm.macros and values to vm.globals.
 fn importBinding(vm: *VM, name: []const u8, val: Value) !void {
-    if (types.isPointer(val)) {
-        const obj = types.toObject(val);
-        if (obj.tag == .transformer) {
-            vm.macros.put(name, val) catch return error.OutOfMemory;
-            return;
-        }
+    if (types.isTransformer(val)) {
+        vm.macros.put(name, val) catch return error.OutOfMemory;
+        return;
     }
     vm.globals.put(name, val) catch return error.OutOfMemory;
 }
@@ -379,23 +376,12 @@ fn tryLoadLibraryFromFile(vm: *VM, name_list: Value) !void {
         }
     }
 
-    // No cache — compile from source and collect functions for caching
-    var compiled_funcs: std.ArrayList(*types.Function) = .empty;
-    defer compiled_funcs.deinit(allocator);
-
-    vm.lib_compile_collect = &compiled_funcs;
+    // Compile from source (skip .sbc caching for .sld files — collected function
+    // pointers can be freed by GC during library loading, causing use-after-free
+    // in the serializer)
     loadLibrarySource(vm, source) catch {
-        vm.lib_compile_collect = null;
         return error.UndefinedVariable;
     };
-    vm.lib_compile_collect = null;
-
-    // Save .sbc cache (best effort)
-    if (compiled_funcs.items.len > 0) {
-        if (sbc_path) |sp| {
-            bytecode_file.writeFileWithTopLevel(allocator, compiled_funcs.items, source_hash, sp) catch {};
-        }
-    }
 }
 
 /// Evaluate a feature requirement for cond-expand in define-library.
