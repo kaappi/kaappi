@@ -308,6 +308,17 @@ kaappi/
 
 ---
 
+## Known limitations
+
+- **No bignum**: Integers are 63-bit signed fixnums. Overflow wraps silently.
+- **No exact rationals**: `/` with non-divisible exact integers returns an inexact (flonum) result. Rational syntax (`1/2`) is not parsed.
+- **Multi-shot continuations copy the stack**: `call/cc` snapshots the full VM state — correct and re-entrant, but O(stack depth) per capture.
+- **Continuations are scoped to one top-level form**: a continuation captured in one expression cannot re-enter subsequent top-level expressions. Wrap in `(begin ...)` to span them.
+- **Unicode case mapping**: Covers Latin (incl. Extended-A/B), Greek, and Cyrillic. Other scripts pass through unchanged.
+- **No `syntax-case`**: Only `syntax-rules` is supported (as specified by R7RS-small).
+
+---
+
 ## R7RS conformance notes
 
 Kaappi implements every identifier from R7RS Appendix A. The following documents intentional design choices, known deviations, and edge-case behaviors relative to the spec.
