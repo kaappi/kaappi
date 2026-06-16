@@ -1,0 +1,40 @@
+name: Test
+
+on: [push, pull_request]
+
+jobs:
+  test:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: mlugg/setup-zig@v2
+        with:
+          version: '0.16.0'
+
+      - name: Build
+        run: zig build
+
+      - name: Unit tests
+        run: zig build test
+
+      - name: Scheme tests (phases)
+        run: |
+          for f in tests/scheme/phase*/*.scm; do
+            echo "--- $f ---"
+            zig build run -- "$f"
+          done
+
+      - name: Scheme tests (compliance)
+        run: |
+          for f in tests/scheme/compliance/*.scm tests/scheme/deferred/*.scm; do
+            echo "--- $f ---"
+            zig build run -- "$f"
+          done
+
+      - name: FFI test
+        run: zig build run -- tests/scheme/ffi/basic.scm
