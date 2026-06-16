@@ -954,24 +954,44 @@ fn lcmFn(args: []const Value) PrimitiveError!Value {
 
 fn floorFn(args: []const Value) PrimitiveError!Value {
     if (types.isFixnum(args[0])) return args[0];
+    if (types.isBignum(args[0])) return args[0];
+    if (types.isRationalObj(args[0])) {
+        const f = try toF64Ext(args[0]);
+        return types.makeFixnum(@intFromFloat(@floor(f)));
+    }
     if (types.isFlonum(args[0])) return makeFlonumVal(@floor(types.toFlonum(args[0])));
     return PrimitiveError.TypeError;
 }
 
 fn ceilingFn(args: []const Value) PrimitiveError!Value {
     if (types.isFixnum(args[0])) return args[0];
+    if (types.isBignum(args[0])) return args[0];
+    if (types.isRationalObj(args[0])) {
+        const f = try toF64Ext(args[0]);
+        return types.makeFixnum(@intFromFloat(@ceil(f)));
+    }
     if (types.isFlonum(args[0])) return makeFlonumVal(@ceil(types.toFlonum(args[0])));
     return PrimitiveError.TypeError;
 }
 
 fn truncateFn(args: []const Value) PrimitiveError!Value {
     if (types.isFixnum(args[0])) return args[0];
+    if (types.isBignum(args[0])) return args[0];
+    if (types.isRationalObj(args[0])) {
+        const f = try toF64Ext(args[0]);
+        return types.makeFixnum(@intFromFloat(@trunc(f)));
+    }
     if (types.isFlonum(args[0])) return makeFlonumVal(@trunc(types.toFlonum(args[0])));
     return PrimitiveError.TypeError;
 }
 
 fn roundFn(args: []const Value) PrimitiveError!Value {
     if (types.isFixnum(args[0])) return args[0];
+    if (types.isBignum(args[0])) return args[0];
+    if (types.isRationalObj(args[0])) {
+        const f = try toF64Ext(args[0]);
+        return types.makeFixnum(@intFromFloat(@round(f)));
+    }
     if (types.isFlonum(args[0])) return makeFlonumVal(@round(types.toFlonum(args[0])));
     return PrimitiveError.TypeError;
 }
