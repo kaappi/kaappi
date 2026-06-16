@@ -125,7 +125,7 @@ fn runFile(vm: *vm_mod.VM, path: []const u8) !void {
         if (vm.handleTopLevelForm(expr)) |top_result| {
             const result = top_result catch |err| {
                 std.debug.print("Runtime error: {}\n", .{err});
-                return;
+                continue;
             };
             if (result != types.VOID) {
                 const s = printer.valueToString(allocator, result, .write) catch continue;
@@ -138,7 +138,7 @@ fn runFile(vm: *vm_mod.VM, path: []const u8) !void {
 
         const func = compiler.compileExpressionWithMacros(vm.gc, expr, &vm.macros, &vm.globals) catch |err| {
             std.debug.print("Compile error: {}\n", .{err});
-            return;
+            continue;
         };
 
         // Root the function to prevent GC from collecting it before execute wraps it in a closure
@@ -148,7 +148,7 @@ fn runFile(vm: *vm_mod.VM, path: []const u8) !void {
         const result = vm.execute(func) catch |err| {
             vm.gc.popRoot();
             std.debug.print("Runtime error: {}\n", .{err});
-            return;
+            continue;
         };
         vm.gc.popRoot();
 

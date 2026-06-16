@@ -40,6 +40,7 @@ pub const Compiler = struct {
 
     pub fn init(gc: *memory.GC) CompileError!Compiler {
         const func = gc.allocFunction() catch return CompileError.OutOfMemory;
+        gc.extra_roots.append(gc.allocator, types.makePointer(@ptrCast(func))) catch {};
         return .{
             .gc = gc,
             .func = func,
@@ -50,6 +51,13 @@ pub const Compiler = struct {
     }
 
     pub fn deinit(self: *Compiler) void {
+        const func_val = types.makePointer(@ptrCast(self.func));
+        for (self.gc.extra_roots.items, 0..) |v, i| {
+            if (v == func_val) {
+                _ = self.gc.extra_roots.orderedRemove(i);
+                break;
+            }
+        }
         self.locals.deinit(self.gc.allocator);
         self.upvalues.deinit(self.gc.allocator);
         self.macros.deinit();
@@ -57,6 +65,7 @@ pub const Compiler = struct {
 
     pub fn initChild(parent: *Compiler) CompileError!Compiler {
         const func = parent.gc.allocFunction() catch return CompileError.OutOfMemory;
+        parent.gc.extra_roots.append(parent.gc.allocator, types.makePointer(@ptrCast(func))) catch {};
         return .{
             .gc = parent.gc,
             .func = func,
