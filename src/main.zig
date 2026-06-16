@@ -22,6 +22,7 @@ pub const library = @import("library.zig");
 pub const ln = @import("linenoise.zig");
 pub const ffi = @import("ffi.zig");
 pub const primitives_ffi = @import("primitives_ffi.zig");
+pub const bytecode_file = @import("bytecode_file.zig");
 
 var repl_vm: ?*vm_mod.VM = null;
 
@@ -101,10 +102,26 @@ pub fn main(init: std.process.Init.Minimal) !void {
     var args = init.args.iterate();
     _ = args.skip(); // skip program name
     if (args.next()) |path| {
-        try runFile(&vm, path);
+        if (std.mem.eql(u8, path, "--compile")) {
+            if (args.next()) |file| {
+                try compileFile(&vm, file);
+            } else {
+                writeStdout("Usage: kaappi --compile <file.scm>\n");
+            }
+        } else {
+            try runFile(&vm, path);
+        }
     } else {
         try repl(&vm);
     }
+}
+
+fn getSbcPath(allocator: std.mem.Allocator, scm_path: []const u8) ![]u8 {
+    if (std.mem.endsWith(u8, scm_path, ".scm")) {
+        const base = scm_path[0 .. scm_path.len - 4];
+        return std.fmt.allocPrint(allocator, "{s}.sbc", .{base});
+    }
+    return std.fmt.allocPrint(allocator, "{s}.sbc", .{scm_path});
 }
 
 fn runFile(vm: *vm_mod.VM, path: []const u8) !void {
@@ -113,6 +130,46 @@ fn runFile(vm: *vm_mod.VM, path: []const u8) !void {
         return;
     };
     defer allocator.free(source);
+
+    const source_hash = bytecode_file.sourceHash(source);
+
+    // Try loading cached bytecode
+    const sbc_path = getSbcPath(allocator, path) catch null;
+    defer if (sbc_path) |p| allocator.free(p);
+
+    if (sbc_path) |sp| {
+        if (bytecode_file.readFileWithTopLevel(vm.gc, source_hash, sp) catch null) |loaded| {
+            defer allocator.free(loaded.funcs);
+            const top_count = @min(loaded.top_level_count, @as(u32, @intCast(loaded.funcs.len)));
+            for (loaded.funcs[0..top_count]) |func| {
+                var func_val = types.makePointer(@ptrCast(func));
+                vm.gc.pushRoot(&func_val);
+                const result = vm.execute(func) catch |err| {
+                    vm.gc.popRoot();
+                    std.debug.print("Runtime error: {}\n", .{err});
+                    continue;
+                };
+                vm.gc.popRoot();
+
+                var display_result = result;
+                if (types.isMultipleValues(display_result)) {
+                    const mv = types.toObject(display_result).as(types.MultipleValues);
+                    display_result = if (mv.values.len > 0) mv.values[0] else types.VOID;
+                }
+                if (display_result != types.VOID) {
+                    const s = printer.valueToString(allocator, display_result, .write) catch continue;
+                    defer allocator.free(s);
+                    writeStdout(s);
+                    writeStdout("\n");
+                }
+            }
+            return;
+        }
+    }
+
+    // No cache — compile from source
+    var compiled_funcs: std.ArrayList(*types.Function) = .empty;
+    defer compiled_funcs.deinit(allocator);
 
     var r = reader.Reader.init(vm.gc, source);
     defer r.deinit();
@@ -148,6 +205,9 @@ fn runFile(vm: *vm_mod.VM, path: []const u8) !void {
             continue;
         };
 
+        // Collect for caching
+        compiled_funcs.append(allocator, func) catch {};
+
         // Root the function to prevent GC from collecting it before execute wraps it in a closure
         var func_val = types.makePointer(@ptrCast(func));
         vm.gc.pushRoot(&func_val);
@@ -171,6 +231,67 @@ fn runFile(vm: *vm_mod.VM, path: []const u8) !void {
             writeStdout(s);
             writeStdout("\n");
         }
+    }
+
+    // Cache compiled bytecode
+    if (compiled_funcs.items.len > 0) {
+        if (sbc_path) |sp| {
+            bytecode_file.writeFileWithTopLevel(allocator, compiled_funcs.items, source_hash, sp) catch {};
+        }
+    }
+}
+
+fn compileFile(vm: *vm_mod.VM, path: []const u8) !void {
+    const allocator = vm.gc.allocator;
+    const source = readFileContents(allocator, path) catch {
+        return;
+    };
+    defer allocator.free(source);
+
+    const source_hash = bytecode_file.sourceHash(source);
+
+    var compiled_funcs: std.ArrayList(*types.Function) = .empty;
+    defer compiled_funcs.deinit(allocator);
+
+    var r = reader.Reader.init(vm.gc, source);
+    defer r.deinit();
+
+    while (r.hasMore()) {
+        const expr = r.readDatum() catch |err| {
+            std.debug.print("Read error: {}\n", .{err});
+            return;
+        };
+
+        // Skip special top-level forms for compilation — they need runtime
+        if (vm.handleTopLevelForm(expr)) |_| {
+            continue;
+        }
+
+        const func = compiler.compileExpressionWithMacros(vm.gc, expr, &vm.macros, &vm.globals) catch |err| {
+            std.debug.print("Compile error: {}\n", .{err});
+            continue;
+        };
+
+        compiled_funcs.append(allocator, func) catch {};
+    }
+
+    if (compiled_funcs.items.len > 0) {
+        const sbc_path = getSbcPath(allocator, path) catch {
+            std.debug.print("Error creating output path\n", .{});
+            return;
+        };
+        defer allocator.free(sbc_path);
+
+        bytecode_file.writeFileWithTopLevel(allocator, compiled_funcs.items, source_hash, sbc_path) catch {
+            std.debug.print("Error writing bytecode file\n", .{});
+            return;
+        };
+
+        writeStdout("Compiled ");
+        writeStdout(path);
+        writeStdout(" -> ");
+        writeStdout(sbc_path);
+        writeStdout("\n");
     }
 }
 
@@ -374,4 +495,5 @@ test {
     _ = ln;
     _ = ffi;
     _ = primitives_ffi;
+    _ = bytecode_file;
 }
