@@ -228,12 +228,24 @@ pub fn compileNamedLet(self: *Compiler, args: Value, dst: u8, is_tail: bool) Com
     try self.emitU16(name_sym_idx);
     try self.emit(dst);
 
-    // Now compile the initial call: (name init1 init2 ...)
-    // dst already has the closure
+    // Compile the initial call: (name init1 init2 ...)
+    // Arguments must be contiguous at dst+1, dst+2, ... for the call convention.
+    // Use a fresh base register to avoid gaps from outer let locals.
+    const call_base = try self.allocReg();
+    self.freeReg();
+
+    // Move closure to call_base if needed
+    if (call_base != dst) {
+        try self.emitOp(.move);
+        try self.emit(call_base);
+        try self.emit(dst);
+    }
+
     var nargs: u8 = 0;
     for (0..param_count) |j| {
         const arg_reg = try self.allocReg();
-        try self.compileExpr(init_exprs[j], arg_reg, false);
+        _ = arg_reg;
+        try self.compileExpr(init_exprs[j], call_base + 1 + @as(u8, @intCast(j)), false);
         nargs += 1;
     }
 
@@ -242,8 +254,15 @@ pub fn compileNamedLet(self: *Compiler, args: Value, dst: u8, is_tail: bool) Com
     } else {
         try self.emitOp(.call);
     }
-    try self.emit(dst);
+    try self.emit(call_base);
     try self.emit(nargs);
+
+    // Result goes to dst
+    if (call_base != dst) {
+        try self.emitOp(.move);
+        try self.emit(dst);
+        try self.emit(call_base);
+    }
 
     var k: u8 = 0;
     while (k < nargs) : (k += 1) {

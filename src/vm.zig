@@ -558,7 +558,7 @@ pub const VM = struct {
                         return VMError.UndefinedVariable;
                     };
                     self.registers[frame.base + dst] = val;
-                    // Cache only procedure values (closures and native fns)
+                    // Cache procedure values (closures and native fns)
                     if (types.isClosure(val) or types.isNativeFn(val)) {
                         if (func.global_cache) |cache| {
                             if (sym_idx < cache.len) cache[sym_idx] = val;
