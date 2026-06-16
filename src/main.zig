@@ -108,27 +108,47 @@ pub fn main(init: std.process.Init.Minimal) !void {
 
     var args = init.args.iterate();
     _ = args.skip(); // skip program name
-    if (args.next()) |path| {
-        if (std.mem.eql(u8, path, "--compile")) {
-            if (args.next()) |file| {
-                try compileFile(&vm, file);
-            } else {
-                writeStdout("Usage: kaappi --compile <file.scm>\n");
+
+    var lib_paths: [16][]const u8 = undefined;
+    var lib_path_count: usize = 0;
+    var file_path: ?[]const u8 = null;
+    var compile_mode = false;
+
+    while (args.next()) |arg| {
+        if (std.mem.eql(u8, arg, "--lib-path")) {
+            if (args.next()) |lp| {
+                if (lib_path_count < 16) {
+                    lib_paths[lib_path_count] = lp;
+                    lib_path_count += 1;
+                }
             }
+        } else if (std.mem.eql(u8, arg, "--compile")) {
+            compile_mode = true;
+        } else if (std.mem.eql(u8, arg, "--no-cache")) {
+            // future: disable caching
         } else {
-            try runFile(&vm, path);
+            file_path = arg;
+            break;
         }
+    }
+
+    vm.lib_paths = lib_paths[0..lib_path_count];
+
+    if (compile_mode) {
+        if (file_path) |fp| {
+            try compileFile(&vm, fp);
+        } else {
+            writeStdout("Usage: kaappi --compile <file.scm>\n");
+        }
+    } else if (file_path) |fp| {
+        try runFile(&vm, fp);
     } else {
         try repl(&vm);
     }
 }
 
 fn getSbcPath(allocator: std.mem.Allocator, scm_path: []const u8) ![]u8 {
-    if (std.mem.endsWith(u8, scm_path, ".scm")) {
-        const base = scm_path[0 .. scm_path.len - 4];
-        return std.fmt.allocPrint(allocator, "{s}.sbc", .{base});
-    }
-    return std.fmt.allocPrint(allocator, "{s}.sbc", .{scm_path});
+    return bytecode_file.getSbcPath(allocator, scm_path);
 }
 
 fn runFile(vm: *vm_mod.VM, path: []const u8) !void {

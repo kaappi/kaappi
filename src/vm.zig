@@ -125,6 +125,10 @@ pub const VM = struct {
     stdin_port: Value = types.VOID,
     stdout_port: Value = types.VOID,
     stderr_port: Value = types.VOID,
+    lib_paths: []const []const u8 = &.{},
+    /// When non-null, handleDefineLibrary collects compiled functions here
+    /// for .sbc cache writing. Set by tryLoadLibraryFromFile.
+    lib_compile_collect: ?*std.ArrayList(*types.Function) = null,
     last_error_detail: [256]u8 = [_]u8{0} ** 256,
     last_error_detail_len: usize = 0,
     // Debugger state

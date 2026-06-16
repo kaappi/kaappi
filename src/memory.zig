@@ -767,6 +767,9 @@ pub const GC = struct {
                 if (func.debug_locals.len > 0) {
                     self.allocator.free(func.debug_locals);
                 }
+                if (func.owns_name) {
+                    if (func.name) |n| self.allocator.free(n);
+                }
                 self.allocator.destroy(func);
             },
             .native_fn => {

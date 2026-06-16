@@ -500,6 +500,7 @@ pub fn readFileWithTopLevel(gc: *GC, source_hash: u64, path: []const u8) !?struc
         if (name_len > 0) {
             const name_bytes = r.readBytes(name_len) catch return null;
             func.name = allocator.dupe(u8, name_bytes) catch return BytecodeError.OutOfMemory;
+            func.owns_name = true;
         }
 
         // Code
@@ -526,6 +527,22 @@ pub fn readFileWithTopLevel(gc: *GC, source_hash: u64, path: []const u8) !?struc
 
 pub fn sourceHash(source: []const u8) u64 {
     return std.hash.Wyhash.hash(0, source);
+}
+
+// ---------------------------------------------------------------------------
+// Shared helpers
+// ---------------------------------------------------------------------------
+
+/// Derive a .sbc cache path from a source path (.scm or .sld).
+/// Replaces the extension with .sbc, or appends .sbc if no known extension.
+pub fn getSbcPath(allocator: std.mem.Allocator, src_path: []const u8) ![]u8 {
+    if (std.mem.endsWith(u8, src_path, ".scm")) {
+        return std.fmt.allocPrint(allocator, "{s}.sbc", .{src_path[0 .. src_path.len - 4]});
+    }
+    if (std.mem.endsWith(u8, src_path, ".sld")) {
+        return std.fmt.allocPrint(allocator, "{s}.sbc", .{src_path[0 .. src_path.len - 4]});
+    }
+    return std.fmt.allocPrint(allocator, "{s}.sbc", .{src_path});
 }
 
 // ---------------------------------------------------------------------------
