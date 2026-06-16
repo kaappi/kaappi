@@ -187,3 +187,105 @@ test "syntax-rules define-syntax my-and" {
     try std.testing.expectEqual(@as(i64, 3), types.toFixnum(try vm.eval("(my-and 2 3)")));
     try std.testing.expectEqual(types.FALSE, try vm.eval("(my-and #f 3)"));
 }
+
+// ---------------------------------------------------------------------------
+// Hygiene tests
+// ---------------------------------------------------------------------------
+
+test "hygiene: my-or does not capture user temp" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    // Define my-or which uses 'temp' internally
+    _ = try vm.eval(
+        \\(define-syntax my-or
+        \\  (syntax-rules ()
+        \\    ((my-or) #f)
+        \\    ((my-or e) e)
+        \\    ((my-or e1 e2 ...)
+        \\     (let ((temp e1))
+        \\       (if temp temp (my-or e2 ...))))))
+    );
+
+    // Basic cases
+    try std.testing.expectEqual(types.FALSE, try vm.eval("(my-or)"));
+    try std.testing.expectEqual(@as(i64, 1), types.toFixnum(try vm.eval("(my-or 1)")));
+    try std.testing.expectEqual(@as(i64, 2), types.toFixnum(try vm.eval("(my-or #f 2)")));
+
+    // KEY: user's 'temp' must not be captured by macro's internal 'temp'
+    const result = try vm.eval("(let ((temp 42)) (my-or #f temp))");
+    try std.testing.expectEqual(@as(i64, 42), types.toFixnum(result));
+}
+
+test "hygiene: swap! does not capture user tmp" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    // Define swap! which uses 'tmp' internally
+    _ = try vm.eval(
+        \\(define-syntax swap!
+        \\  (syntax-rules ()
+        \\    ((swap! a b)
+        \\     (let ((tmp a))
+        \\       (set! a b)
+        \\       (set! b tmp)))))
+    );
+
+    // KEY: swap variables where one is named 'tmp' (same as macro internal)
+    const result = try vm.eval("(let ((tmp 1) (y 2)) (swap! tmp y) (list tmp y))");
+    try std.testing.expect(types.isPair(result));
+    try std.testing.expectEqual(@as(i64, 2), types.toFixnum(types.car(result)));
+    try std.testing.expectEqual(@as(i64, 1), types.toFixnum(types.car(types.cdr(result))));
+}
+
+test "hygiene: nested my-or with temp" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    _ = try vm.eval(
+        \\(define-syntax my-or
+        \\  (syntax-rules ()
+        \\    ((my-or) #f)
+        \\    ((my-or e) e)
+        \\    ((my-or e1 e2 ...)
+        \\     (let ((temp e1))
+        \\       (if temp temp (my-or e2 ...))))))
+    );
+
+    // Deeply nested: multiple #f then a value
+    const r1 = try vm.eval("(my-or #f #f #f 77)");
+    try std.testing.expectEqual(@as(i64, 77), types.toFixnum(r1));
+
+    // Nested my-or inside my-or, with user 'temp' in scope
+    const r2 = try vm.eval("(let ((temp 100)) (my-or #f (my-or #f temp)))");
+    try std.testing.expectEqual(@as(i64, 100), types.toFixnum(r2));
+}
+
+test "hygiene: multiple macro invocations are independent" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    _ = try vm.eval(
+        \\(define-syntax my-or
+        \\  (syntax-rules ()
+        \\    ((my-or) #f)
+        \\    ((my-or e) e)
+        \\    ((my-or e1 e2 ...)
+        \\     (let ((temp e1))
+        \\       (if temp temp (my-or e2 ...))))))
+    );
+
+    // Each invocation should get its own hygienic renaming
+    const result = try vm.eval("(let ((temp 10)) (let ((a (my-or #f temp)) (b (my-or temp #f))) (list a b)))");
+    try std.testing.expect(types.isPair(result));
+    try std.testing.expectEqual(@as(i64, 10), types.toFixnum(types.car(result)));
+    try std.testing.expectEqual(@as(i64, 10), types.toFixnum(types.car(types.cdr(result))));
+}
