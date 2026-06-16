@@ -24,6 +24,10 @@ const SavedFrame = types.SavedFrame;
 const SavedHandler = types.SavedHandler;
 const WindRecord = types.WindRecord;
 
+const FfiLibrary = types.FfiLibrary;
+const FfiFunction = types.FfiFunction;
+const FfiType = types.FfiType;
+
 const GC_THRESHOLD: usize = 1024;
 
 pub const GC = struct {
@@ -502,6 +506,38 @@ pub const GC = struct {
         return types.makePointer(@ptrCast(p));
     }
 
+    pub fn allocFfiLibrary(self: *GC, handle: ?*anyopaque, name: []const u8) !Value {
+        self.maybeCollect();
+        const owned_name = try self.allocator.dupe(u8, name);
+        const lib = try self.allocator.create(FfiLibrary);
+        lib.* = .{
+            .header = .{ .tag = .ffi_library },
+            .handle = handle,
+            .name = owned_name,
+        };
+        self.bytes_allocated += @sizeOf(FfiLibrary) + name.len;
+        self.trackObject(&lib.header);
+        return types.makePointer(@ptrCast(lib));
+    }
+
+    pub fn allocFfiFunction(self: *GC, symbol: *anyopaque, name: []const u8, param_types: []const FfiType, return_type: FfiType) !Value {
+        self.maybeCollect();
+        const owned_name = try self.allocator.dupe(u8, name);
+        const owned_params = try self.allocator.dupe(FfiType, param_types);
+        const ffi_fn = try self.allocator.create(FfiFunction);
+        ffi_fn.* = .{
+            .header = .{ .tag = .ffi_function },
+            .symbol = symbol,
+            .name = owned_name,
+            .param_types = owned_params,
+            .return_type = return_type,
+            .param_count = @intCast(param_types.len),
+        };
+        self.bytes_allocated += @sizeOf(FfiFunction) + name.len + param_types.len * @sizeOf(FfiType);
+        self.trackObject(&ffi_fn.header);
+        return types.makePointer(@ptrCast(ffi_fn));
+    }
+
     pub fn allocMultipleValues(self: *GC, values: []const Value) !Value {
         self.maybeCollect();
         const owned = try self.allocator.dupe(Value, values);
@@ -651,6 +687,7 @@ pub const GC = struct {
                 self.markValue(param.value);
                 self.markValue(param.converter);
             },
+            .ffi_library, .ffi_function => {},
             .symbol, .string, .native_fn, .flonum, .port, .complex, .bytevector => {},
         }
     }
@@ -785,6 +822,18 @@ pub const GC = struct {
             .parameter => {
                 const p = obj.as(types.ParameterObject);
                 self.allocator.destroy(p);
+            },
+            .ffi_library => {
+                const lib = obj.as(FfiLibrary);
+                // Do NOT dlclose here — let ffi-close handle that explicitly
+                self.allocator.free(lib.name);
+                self.allocator.destroy(lib);
+            },
+            .ffi_function => {
+                const ffi_fn = obj.as(FfiFunction);
+                self.allocator.free(ffi_fn.name);
+                self.allocator.free(ffi_fn.param_types);
+                self.allocator.destroy(ffi_fn);
             },
         }
     }

@@ -111,6 +111,8 @@ pub const ObjectTag = enum(u5) {
     complex = 16,
     promise = 17,
     parameter = 18,
+    ffi_library = 19,
+    ffi_function = 20,
 };
 
 pub const Object = struct {
@@ -318,6 +320,37 @@ pub const ParameterObject = struct {
 };
 
 // ---------------------------------------------------------------------------
+// FFI types (C Foreign Function Interface)
+// ---------------------------------------------------------------------------
+
+pub const FfiType = enum(u8) {
+    int, // c_int (i32)
+    long, // c_long (i64)
+    double, // f64
+    float, // f32
+    string, // [*:0]const u8
+    pointer, // *anyopaque
+    void_type, // void
+    bool_type, // c_int (0/1)
+    uint8, // u8
+};
+
+pub const FfiLibrary = struct {
+    header: Object,
+    handle: ?*anyopaque,
+    name: []const u8,
+};
+
+pub const FfiFunction = struct {
+    header: Object,
+    symbol: *anyopaque,
+    name: []const u8,
+    param_types: []FfiType,
+    return_type: FfiType,
+    param_count: u8,
+};
+
+// ---------------------------------------------------------------------------
 // Type predicates on Value
 // ---------------------------------------------------------------------------
 
@@ -346,7 +379,7 @@ pub fn isFunction(v: Value) bool {
 }
 
 pub fn isProcedure(v: Value) bool {
-    return isClosure(v) or isNativeFn(v) or isContinuation(v) or isParameter(v);
+    return isClosure(v) or isNativeFn(v) or isContinuation(v) or isParameter(v) or isFfiFunction(v);
 }
 
 pub fn isContinuation(v: Value) bool {
@@ -419,6 +452,14 @@ pub fn isParameter(v: Value) bool {
 
 pub fn toParameter(v: Value) *ParameterObject {
     return toObject(v).as(ParameterObject);
+}
+
+pub fn isFfiLibrary(v: Value) bool {
+    return isPointer(v) and toObject(v).tag == .ffi_library;
+}
+
+pub fn isFfiFunction(v: Value) bool {
+    return isPointer(v) and toObject(v).tag == .ffi_function;
 }
 
 pub fn isNumber(v: Value) bool {

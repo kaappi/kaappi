@@ -383,6 +383,14 @@ pub fn printValue(writer: anytype, value: Value, mode: PrintMode) anyerror!void 
                 }
                 try writer.writeByte('>');
             },
+            .ffi_library => {
+                const lib = obj.as(types.FfiLibrary);
+                try writer.print("#<ffi-library \"{s}\">", .{lib.name});
+            },
+            .ffi_function => {
+                const ffi_fn = obj.as(types.FfiFunction);
+                try writer.print("#<ffi-function \"{s}\">", .{ffi_fn.name});
+            },
         }
     } else {
         try writer.writeAll("#<unknown>");

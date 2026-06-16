@@ -312,6 +312,12 @@ pub const VM = struct {
 
     /// Call a procedure with multiple arguments using the VM's call machinery.
     pub fn callWithArgs(self: *VM, proc: Value, args: []const Value) VMError!Value {
+        if (types.isFfiFunction(proc)) {
+            const ffi_fn = types.toObject(proc).as(types.FfiFunction);
+            if (args.len != ffi_fn.param_count) return VMError.ArityMismatch;
+            const ffi_mod = @import("ffi.zig");
+            return ffi_mod.callFfi(ffi_fn, args, self.gc) catch return VMError.TypeError;
+        }
         if (types.isParameter(proc)) {
             const param = types.toObject(proc).as(types.ParameterObject);
             if (args.len == 0) {
@@ -548,7 +554,19 @@ pub const VM = struct {
                     const abs_base = frame.base + base_reg;
                     const callee = self.registers[abs_base];
 
-                    if (types.isParameter(callee)) {
+                    if (types.isFfiFunction(callee)) {
+                        const ffi_fn = types.toObject(callee).as(types.FfiFunction);
+                        if (nargs != ffi_fn.param_count) return VMError.ArityMismatch;
+                        const ffi_mod = @import("ffi.zig");
+                        const result = ffi_mod.callFfi(ffi_fn, self.registers[abs_base + 1 .. abs_base + 1 + nargs], self.gc) catch return VMError.TypeError;
+                        const return_dst = frame.dst;
+                        self.frame_count -= 1;
+                        if (self.frame_count <= target_frame_count) {
+                            return result;
+                        }
+                        const caller = &self.frames[self.frame_count - 1];
+                        self.registers[caller.base + return_dst] = result;
+                    } else if (types.isParameter(callee)) {
                         const param = types.toObject(callee).as(types.ParameterObject);
                         const result = if (nargs == 0) param.value else blk: {
                             var new_val = self.registers[abs_base + 1];
@@ -743,6 +761,14 @@ pub const VM = struct {
     }
 
     fn callValue(self: *VM, callee: Value, base: u16, nargs: u8) VMError!void {
+        if (types.isFfiFunction(callee)) {
+            const ffi_fn = types.toObject(callee).as(types.FfiFunction);
+            if (nargs != ffi_fn.param_count) return VMError.ArityMismatch;
+            const ffi_mod = @import("ffi.zig");
+            const result = ffi_mod.callFfi(ffi_fn, self.registers[base + 1 .. base + 1 + nargs], self.gc) catch return VMError.TypeError;
+            self.registers[base] = result;
+            return;
+        }
         if (types.isParameter(callee)) {
             const param = types.toObject(callee).as(types.ParameterObject);
             if (nargs == 0) {

@@ -20,6 +20,8 @@ pub const printer = @import("printer.zig");
 pub const expander = @import("expander.zig");
 pub const library = @import("library.zig");
 pub const ln = @import("linenoise.zig");
+pub const ffi = @import("ffi.zig");
+pub const primitives_ffi = @import("primitives_ffi.zig");
 
 var repl_vm: ?*vm_mod.VM = null;
 
@@ -370,4 +372,6 @@ test {
     _ = expander;
     _ = library;
     _ = ln;
+    _ = ffi;
+    _ = primitives_ffi;
 }

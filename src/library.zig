@@ -370,6 +370,18 @@ pub fn registerStandardLibraries(registry: *LibraryRegistry, globals: *std.Strin
     // so the library just needs to exist for (import (scheme case-lambda)) to work.
     const case_lambda_lib = Library.init(allocator, "scheme.case-lambda");
     try registry.register(case_lambda_lib);
+
+    // (kaappi ffi) — C FFI library
+    const kaappi_ffi_names = [_][]const u8{
+        "ffi-open", "ffi-fn", "ffi-close",
+    };
+    var ffi_lib = Library.init(allocator, "kaappi.ffi");
+    for (kaappi_ffi_names) |name| {
+        if (globals.get(name)) |val| {
+            try ffi_lib.addExport(name, val);
+        }
+    }
+    try registry.register(ffi_lib);
 }
 
 /// Convert a library name from an S-expression list like (scheme base) to
