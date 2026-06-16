@@ -425,11 +425,22 @@ fn instantiateTemplate(gc: *GC, template: Value, bindings: []Binding, intro_scop
     return gc.allocPair(car_root, new_cdr);
 }
 
+fn templateReferencesVar(template: Value, name: []const u8) bool {
+    if (types.isSymbol(template)) {
+        return std.mem.eql(u8, types.symbolName(template), name);
+    }
+    if (types.isPair(template)) {
+        return templateReferencesVar(types.car(template), name) or
+            templateReferencesVar(types.cdr(template), name);
+    }
+    return false;
+}
+
 fn instantiateEllipsis(gc: *GC, elem_template: Value, rest_template: Value, bindings: []Binding, intro_scope: u32, literals: []const Value, macro_keyword: ?[]const u8, globals: ?*std.StringHashMap(Value), macros: ?*const std.StringHashMap(Value)) (std.mem.Allocator.Error || ExpandError)!Value {
-    // Find the ellipsis-bound variable to determine repetition count
+    // Find the repeat count from ellipsis bindings referenced in elem_template
     var repeat_count: usize = 0;
     for (bindings) |b| {
-        if (b.is_list) {
+        if (b.is_list and templateReferencesVar(elem_template, b.name)) {
             repeat_count = b.ellipsis_count;
             break;
         }
