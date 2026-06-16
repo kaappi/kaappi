@@ -5,9 +5,161 @@ const Value = types.Value;
 pub const PrintMode = enum {
     write, // machine-readable, strings quoted
     display, // human-readable, strings unquoted
+    shared, // write with datum labels for shared/circular structures
 };
 
+// ---------------------------------------------------------------------------
+// Shared-structure detection (write-shared support)
+// ---------------------------------------------------------------------------
+
+const MAX_SHARED = 128;
+
+const SharedState = struct {
+    seen: [MAX_SHARED]Value = undefined,
+    seen_count: usize = 0,
+    shared: [MAX_SHARED]Value = undefined, // objects seen more than once
+    shared_count: usize = 0,
+    labels: [MAX_SHARED]i32 = undefined, // -1 = not yet labeled, >= 0 = label number
+    next_label: i32 = 0,
+
+    fn isShared(self: *SharedState, val: Value) bool {
+        for (self.shared[0..self.shared_count]) |sh| {
+            if (sh == val) return true;
+        }
+        return false;
+    }
+
+    fn getOrAssignLabel(self: *SharedState, val: Value) ?i32 {
+        for (self.shared[0..self.shared_count], 0..) |sh, i| {
+            if (sh == val) {
+                if (self.labels[i] == -1) {
+                    self.labels[i] = self.next_label;
+                    self.next_label += 1;
+                }
+                return self.labels[i];
+            }
+        }
+        return null;
+    }
+
+    fn getLabel(self: *SharedState, val: Value) ?i32 {
+        for (self.shared[0..self.shared_count], 0..) |sh, i| {
+            if (sh == val) {
+                return if (self.labels[i] >= 0) self.labels[i] else null;
+            }
+        }
+        return null;
+    }
+};
+
+/// Pass 1: Walk the datum and record which heap objects are referenced
+/// more than once (shared structures). Uses a simple two-state approach:
+/// first encounter adds to "seen", second encounter adds to "shared".
+/// We only recurse on first encounter to avoid infinite loops on cycles.
+fn markShared(value: Value, state: *SharedState) void {
+    if (!types.isPointer(value)) return;
+    const obj = types.toObject(value);
+    switch (obj.tag) {
+        .pair, .vector => {
+            // Check if already seen
+            for (state.seen[0..state.seen_count]) |s| {
+                if (s == value) {
+                    // Second encounter: mark as shared, don't recurse
+                    for (state.shared[0..state.shared_count]) |sh| {
+                        if (sh == value) return; // already shared
+                    }
+                    if (state.shared_count < MAX_SHARED) {
+                        state.shared[state.shared_count] = value;
+                        state.labels[state.shared_count] = -1;
+                        state.shared_count += 1;
+                    }
+                    return;
+                }
+            }
+            // First encounter: add to seen and recurse into children
+            if (state.seen_count < MAX_SHARED) {
+                state.seen[state.seen_count] = value;
+                state.seen_count += 1;
+            }
+            if (obj.tag == .pair) {
+                markShared(types.car(value), state);
+                markShared(types.cdr(value), state);
+            } else {
+                const vec = obj.as(types.Vector);
+                for (vec.data) |elem| {
+                    markShared(elem, state);
+                }
+            }
+        },
+        else => {},
+    }
+}
+
+/// Pass 2: Print with datum labels for shared structures.
+fn printValueShared(writer: anytype, value: Value, state: *SharedState) anyerror!void {
+    // Check if this value has a label assigned (shared reference)
+    if (types.isPointer(value) and state.isShared(value)) {
+        if (state.getLabel(value)) |label| {
+            // Already labeled -- emit back-reference #N#
+            try writer.print("#{d}#", .{label});
+            return;
+        }
+        // First occurrence -- assign label and emit #N=
+        if (state.getOrAssignLabel(value)) |label| {
+            try writer.print("#{d}=", .{label});
+        }
+    }
+    // Print the value itself
+    if (types.isPair(value)) {
+        try printListShared(writer, value, state);
+    } else if (types.isPointer(value) and types.toObject(value).tag == .vector) {
+        const vec = types.toObject(value).as(types.Vector);
+        try writer.writeAll("#(");
+        for (vec.data, 0..) |elem, i| {
+            if (i > 0) try writer.writeByte(' ');
+            try printValueShared(writer, elem, state);
+        }
+        try writer.writeByte(')');
+    } else {
+        try printValue(writer, value, .write);
+    }
+}
+
+fn printListShared(writer: anytype, value: Value, state: *SharedState) anyerror!void {
+    try writer.writeByte('(');
+    try printValueShared(writer, types.car(value), state);
+
+    var rest = types.cdr(value);
+    while (rest != types.NIL) {
+        if (types.isPair(rest)) {
+            // If this cdr is shared, print as ". #N#" or ". #N=(...)"
+            if (state.isShared(rest)) {
+                try writer.writeAll(" . ");
+                try printValueShared(writer, rest, state);
+                break;
+            }
+            try writer.writeByte(' ');
+            try printValueShared(writer, types.car(rest), state);
+            rest = types.cdr(rest);
+        } else {
+            try writer.writeAll(" . ");
+            try printValueShared(writer, rest, state);
+            break;
+        }
+    }
+    try writer.writeByte(')');
+}
+
 pub fn printValue(writer: anytype, value: Value, mode: PrintMode) anyerror!void {
+    if (mode == .shared) {
+        // Two-pass shared printing
+        var state = SharedState{};
+        // Pass 1: detect shared structure
+        markShared(value, &state);
+        // Pass 2: print with labels
+        try printValueShared(writer, value, &state);
+        return;
+    }
     if (types.isFixnum(value)) {
         try writer.print("{d}", .{types.toFixnum(value)});
     } else if (value == types.NIL) {
@@ -331,4 +483,45 @@ test "print character" {
     w = .fixed(&buf);
     try printValue(&w, types.makeChar('a'), .display);
     try std.testing.expectEqualStrings("a", w.buffered());
+}
+
+test "write-shared non-shared list" {
+    const memory = @import("memory.zig");
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+
+    const items = [_]Value{ types.makeFixnum(1), types.makeFixnum(2), types.makeFixnum(3) };
+    const list_val = try gc.makeList(&items);
+
+    const s = try valueToString(std.testing.allocator, list_val, .shared);
+    defer std.testing.allocator.free(s);
+    try std.testing.expectEqualStrings("(1 2 3)", s);
+}
+
+test "write-shared circular list" {
+    const memory = @import("memory.zig");
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+
+    // Build (1 . <self>)
+    const pair = try gc.allocPair(types.makeFixnum(1), types.NIL);
+    types.setCdr(pair, pair);
+
+    const s = try valueToString(std.testing.allocator, pair, .shared);
+    defer std.testing.allocator.free(s);
+    try std.testing.expectEqualStrings("#0=(1 . #0#)", s);
+}
+
+test "write-shared shared substructure" {
+    const memory = @import("memory.zig");
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+
+    // Build a list where one pair is shared: (X X)
+    const shared = try gc.allocPair(types.makeFixnum(1), types.NIL);
+    const outer = try gc.allocPair(shared, try gc.allocPair(shared, types.NIL));
+
+    const s = try valueToString(std.testing.allocator, outer, .shared);
+    defer std.testing.allocator.free(s);
+    try std.testing.expectEqualStrings("(#0=(1) #0#)", s);
 }

@@ -31,6 +31,8 @@ pub const Token = union(enum) {
     string: []const u8,
     symbol: []const u8,
     character: u21,
+    datum_label_def: u32,
+    datum_label_ref: u32,
     eof,
 };
 
@@ -39,6 +41,8 @@ pub const Reader = struct {
     pos: usize = 0,
     gc: *memory.GC,
     token_buf: std.ArrayList(u8),
+    fold_case: bool = false,
+    labels: [32]?Value = .{null} ** 32,
 
     pub fn init(gc: *memory.GC, source: []const u8) Reader {
         return .{
@@ -263,6 +267,31 @@ pub const Reader = struct {
         }
     }
 
+    /// If fold_case is active, lowercase the symbol text using token_buf
+    /// and check for special float literals on the folded text.
+    /// Returns the (possibly folded) symbol token.
+    fn foldAndReturnSymbol(self: *Reader, sym_text: []const u8) ReadError!Token {
+        if (self.fold_case) {
+            self.token_buf.clearRetainingCapacity();
+            for (sym_text) |ch| {
+                self.token_buf.append(self.gc.allocator, std.ascii.toLower(ch)) catch return ReadError.OutOfMemory;
+            }
+            const folded = self.token_buf.items;
+            // Check special floats on folded text
+            if (std.mem.eql(u8, folded, "+inf.0")) return .{ .flonum = std.math.inf(f64) };
+            if (std.mem.eql(u8, folded, "-inf.0")) return .{ .flonum = -std.math.inf(f64) };
+            if (std.mem.eql(u8, folded, "+nan.0")) return .{ .flonum = std.math.nan(f64) };
+            if (std.mem.eql(u8, folded, "-nan.0")) return .{ .flonum = std.math.nan(f64) };
+            return .{ .symbol = folded };
+        }
+        // Check special floats on original text
+        if (std.mem.eql(u8, sym_text, "+inf.0")) return .{ .flonum = std.math.inf(f64) };
+        if (std.mem.eql(u8, sym_text, "-inf.0")) return .{ .flonum = -std.math.inf(f64) };
+        if (std.mem.eql(u8, sym_text, "+nan.0")) return .{ .flonum = std.math.nan(f64) };
+        if (std.mem.eql(u8, sym_text, "-nan.0")) return .{ .flonum = std.math.nan(f64) };
+        return .{ .symbol = sym_text };
+    }
+
     fn readSymbol(self: *Reader) ReadError!Token {
         const start = self.pos;
         const first = self.source[self.pos];
@@ -271,7 +300,7 @@ pub const Reader = struct {
             self.pos += 1;
             // Bare + or - is a valid symbol
             if (self.pos >= self.source.len or isDelimiter(self.source[self.pos])) {
-                return .{ .symbol = self.source[start..self.pos] };
+                return self.foldAndReturnSymbol(self.source[start..self.pos]);
             }
             // +i, -i, peculiar identifiers with sign subsequent
             if (isSpecialSubsequent(self.source[self.pos]) or std.ascii.isAlphabetic(self.source[self.pos])) {
@@ -279,14 +308,9 @@ pub const Reader = struct {
                     self.pos += 1;
                 }
                 const sym_text = self.source[start..self.pos];
-                // Check for special float literals
-                if (std.mem.eql(u8, sym_text, "+inf.0")) return .{ .flonum = std.math.inf(f64) };
-                if (std.mem.eql(u8, sym_text, "-inf.0")) return .{ .flonum = -std.math.inf(f64) };
-                if (std.mem.eql(u8, sym_text, "+nan.0")) return .{ .flonum = std.math.nan(f64) };
-                if (std.mem.eql(u8, sym_text, "-nan.0")) return .{ .flonum = std.math.nan(f64) };
-                return .{ .symbol = sym_text };
+                return self.foldAndReturnSymbol(sym_text);
             }
-            return .{ .symbol = self.source[start..self.pos] };
+            return self.foldAndReturnSymbol(self.source[start..self.pos]);
         }
 
         if (first == '.') {
@@ -295,7 +319,7 @@ pub const Reader = struct {
             while (self.pos < self.source.len and isSubsequent(self.source[self.pos])) {
                 self.pos += 1;
             }
-            return .{ .symbol = self.source[start..self.pos] };
+            return self.foldAndReturnSymbol(self.source[start..self.pos]);
         }
 
         // Regular identifier (may include Unicode subsequent chars)
@@ -318,7 +342,7 @@ pub const Reader = struct {
                 }
             }
         }
-        return .{ .symbol = self.source[start..self.pos] };
+        return self.foldAndReturnSymbol(self.source[start..self.pos]);
     }
 
     /// Read a symbol that starts with a Unicode (multi-byte) character.
@@ -527,6 +551,44 @@ pub const Reader = struct {
                     else => ReadError.InvalidNumber,
                 };
             },
+            '!' => {
+                self.pos += 1;
+                const dir_start = self.pos;
+                while (self.pos < self.source.len) {
+                    const dc = self.source[self.pos];
+                    if (std.ascii.isAlphabetic(dc) or dc == '-') {
+                        self.pos += 1;
+                    } else {
+                        break;
+                    }
+                }
+                const directive = self.source[dir_start..self.pos];
+                if (std.mem.eql(u8, directive, "fold-case")) {
+                    self.fold_case = true;
+                } else if (std.mem.eql(u8, directive, "no-fold-case")) {
+                    self.fold_case = false;
+                }
+                // Treated as whitespace/comment -- recurse to get next token
+                return self.nextToken();
+            },
+            '0'...'9' => {
+                // Datum labels: #N= (define) and #N# (reference)
+                const label_start = self.pos;
+                while (self.pos < self.source.len and std.ascii.isDigit(self.source[self.pos])) {
+                    self.pos += 1;
+                }
+                const label_str = self.source[label_start..self.pos];
+                const label_num = std.fmt.parseInt(u32, label_str, 10) catch return ReadError.InvalidNumber;
+                if (self.pos >= self.source.len) return ReadError.UnexpectedEof;
+                if (self.source[self.pos] == '=') {
+                    self.pos += 1;
+                    return .{ .datum_label_def = label_num };
+                } else if (self.source[self.pos] == '#') {
+                    self.pos += 1;
+                    return .{ .datum_label_ref = label_num };
+                }
+                return ReadError.UnexpectedChar;
+            },
             else => return ReadError.UnexpectedChar,
         }
     }
@@ -643,6 +705,19 @@ pub const Reader = struct {
             .comma_at => return self.readAbbreviation("unquote-splicing"),
             .hash_lparen => return self.readVector(),
             .hash_u8_lparen => return self.readBytevector(),
+            .datum_label_def => |n| {
+                const datum = try self.readDatum();
+                if (n < self.labels.len) {
+                    self.labels[n] = datum;
+                }
+                return datum;
+            },
+            .datum_label_ref => |n| {
+                if (n < self.labels.len) {
+                    if (self.labels[n]) |val| return val;
+                }
+                return ReadError.InvalidNumber;
+            },
             .rparen => return ReadError.UnexpectedRightParen,
             .dot => return ReadError.DotNotInList,
             .eof => return ReadError.UnexpectedEof,
@@ -914,4 +989,50 @@ test "skip line comment" {
     const s = try readAndPrint(&gc, "; this is a comment\n42");
     defer testing.allocator.free(s);
     try testing.expectEqualStrings("42", s);
+}
+
+test "fold-case directive lowercases symbols" {
+    var gc = memory.GC.init(testing.allocator);
+    defer gc.deinit();
+
+    const s = try readAndPrint(&gc, "#!fold-case FOO");
+    defer testing.allocator.free(s);
+    try testing.expectEqualStrings("foo", s);
+}
+
+test "no-fold-case restores normal casing" {
+    var gc = memory.GC.init(testing.allocator);
+    defer gc.deinit();
+
+    // Read two datums: first folded, second not
+    var reader_inst = Reader.init(&gc, "#!fold-case ABC #!no-fold-case DEF");
+    defer reader_inst.deinit();
+
+    const val1 = try reader_inst.readDatum();
+    const s1 = try printer.valueToString(testing.allocator, val1, .write);
+    defer testing.allocator.free(s1);
+    try testing.expectEqualStrings("abc", s1);
+
+    const val2 = try reader_inst.readDatum();
+    const s2 = try printer.valueToString(testing.allocator, val2, .write);
+    defer testing.allocator.free(s2);
+    try testing.expectEqualStrings("DEF", s2);
+}
+
+test "datum label define and reference" {
+    var gc = memory.GC.init(testing.allocator);
+    defer gc.deinit();
+
+    const s = try readAndPrint(&gc, "(#0=(a b) #0#)");
+    defer testing.allocator.free(s);
+    try testing.expectEqualStrings("((a b) (a b))", s);
+}
+
+test "datum label forward reference in list" {
+    var gc = memory.GC.init(testing.allocator);
+    defer gc.deinit();
+
+    const s = try readAndPrint(&gc, "(#0=42 #0#)");
+    defer testing.allocator.free(s);
+    try testing.expectEqualStrings("(42 42)", s);
 }

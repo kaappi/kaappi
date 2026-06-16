@@ -337,7 +337,9 @@ fn equalP(args: []const Value) PrimitiveError!Value {
     return if (deepEqual(args[0], args[1])) types.TRUE else types.FALSE;
 }
 
-pub fn deepEqual(a: Value, b: Value) bool {
+const MAX_VISITED = 128;
+
+fn deepEqualWithVisited(a: Value, b: Value, visited: *[MAX_VISITED][2]Value, visited_count: *usize) bool {
     if (a == b) return true;
     if (types.isFlonum(a) and types.isFlonum(b)) {
         const fa: u64 = @bitCast(types.toFlonum(a));
@@ -345,8 +347,17 @@ pub fn deepEqual(a: Value, b: Value) bool {
         return fa == fb;
     }
     if (types.isPair(a) and types.isPair(b)) {
-        return deepEqual(types.car(a), types.car(b)) and
-            deepEqual(types.cdr(a), types.cdr(b));
+        // Check visited set for cycle detection
+        for (visited.*[0..visited_count.*]) |pair| {
+            if (pair[0] == a and pair[1] == b) return true;
+        }
+        // Add to visited
+        if (visited_count.* < MAX_VISITED) {
+            visited.*[visited_count.*] = .{ a, b };
+            visited_count.* += 1;
+        }
+        return deepEqualWithVisited(types.car(a), types.car(b), visited, visited_count) and
+            deepEqualWithVisited(types.cdr(a), types.cdr(b), visited, visited_count);
     }
     if (types.isString(a) and types.isString(b)) {
         const sa = types.toObject(a).as(types.SchemeString);
@@ -357,8 +368,16 @@ pub fn deepEqual(a: Value, b: Value) bool {
         const va = types.toVector(a);
         const vb = types.toVector(b);
         if (va.data.len != vb.data.len) return false;
+        // Check visited set for cycle detection
+        for (visited.*[0..visited_count.*]) |pair| {
+            if (pair[0] == a and pair[1] == b) return true;
+        }
+        if (visited_count.* < MAX_VISITED) {
+            visited.*[visited_count.*] = .{ a, b };
+            visited_count.* += 1;
+        }
         for (va.data, vb.data) |ea, eb| {
-            if (!deepEqual(ea, eb)) return false;
+            if (!deepEqualWithVisited(ea, eb, visited, visited_count)) return false;
         }
         return true;
     }
@@ -368,6 +387,12 @@ pub fn deepEqual(a: Value, b: Value) bool {
         return std.mem.eql(u8, ba.data, bb.data);
     }
     return false;
+}
+
+pub fn deepEqual(a: Value, b: Value) bool {
+    var visited: [MAX_VISITED][2]Value = undefined;
+    var count: usize = 0;
+    return deepEqualWithVisited(a, b, &visited, &count);
 }
 
 // ---------------------------------------------------------------------------

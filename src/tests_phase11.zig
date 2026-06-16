@@ -480,3 +480,63 @@ test "cond-expand no match no else is void" {
     );
     try std.testing.expectEqual(types.VOID, result);
 }
+
+// ---------------------------------------------------------------------------
+// equal? on circular structures
+// ---------------------------------------------------------------------------
+
+test "equal? on circular lists terminates" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    _ = try vm.eval("(define a (list 1 2 3))");
+    _ = try vm.eval("(set-cdr! (cddr a) a)");
+    _ = try vm.eval("(define b (list 1 2 3))");
+    _ = try vm.eval("(set-cdr! (cddr b) b)");
+    const result = try vm.eval("(equal? a b)");
+    try std.testing.expectEqual(types.TRUE, result);
+}
+
+test "equal? on different circular lists" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    _ = try vm.eval("(define a (list 1 2))");
+    _ = try vm.eval("(set-cdr! (cdr a) a)");
+    _ = try vm.eval("(define b (list 1 3))");
+    _ = try vm.eval("(set-cdr! (cdr b) b)");
+    const result = try vm.eval("(equal? a b)");
+    try std.testing.expectEqual(types.FALSE, result);
+}
+
+// ---------------------------------------------------------------------------
+// Nested quasiquote
+// ---------------------------------------------------------------------------
+
+test "nested quasiquote preserves inner structure" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    const result = try vm.eval("`(a `(b ,(+ 1 2)))");
+    const s = try @import("printer.zig").valueToString(std.testing.allocator, result, .write);
+    defer std.testing.allocator.free(s);
+    try std.testing.expectEqualStrings("(a (quasiquote (b (unquote (+ 1 2)))))", s);
+}
+
+test "nested quasiquote double unquote" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    const result = try vm.eval("(let ((x 1)) `(a `(b ,,x)))");
+    const s = try @import("printer.zig").valueToString(std.testing.allocator, result, .write);
+    defer std.testing.allocator.free(s);
+    try std.testing.expectEqualStrings("(a (quasiquote (b (unquote 1))))", s);
+}

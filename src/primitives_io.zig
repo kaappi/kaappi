@@ -53,7 +53,7 @@ pub fn registerIO(vm: *vm_mod.VM) !void {
     try reg(vm, "flush-output-port", &flushOutputPort, .{ .variadic = 0 });
     try reg(vm, "delete-file", &deleteFile, .{ .exact = 1 });
     // (scheme write) completions
-    try reg(vm, "write-shared", &write, .{ .variadic = 1 });
+    try reg(vm, "write-shared", &writeShared, .{ .variadic = 1 });
     try reg(vm, "write-simple", &write, .{ .variadic = 1 });
     // File I/O wrappers (R7RS 6.13)
     try reg(vm, "call-with-input-file", &callWithInputFile, .{ .exact = 2 });
@@ -165,6 +165,15 @@ fn write(args: []const Value) PrimitiveError!Value {
     const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
     const port = try getOutputPort(args, 1);
     const s = printer.valueToString(gc.allocator, args[0], .write) catch return PrimitiveError.OutOfMemory;
+    defer gc.allocator.free(s);
+    writeToPort(port, s);
+    return types.VOID;
+}
+
+fn writeShared(args: []const Value) PrimitiveError!Value {
+    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const port = try getOutputPort(args, 1);
+    const s = printer.valueToString(gc.allocator, args[0], .shared) catch return PrimitiveError.OutOfMemory;
     defer gc.allocator.free(s);
     writeToPort(port, s);
     return types.VOID;

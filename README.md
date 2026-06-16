@@ -335,17 +335,10 @@ Kaappi implements every identifier from R7RS Appendix A. The following documents
 
 ### Remaining gaps
 
-These are acknowledged edge cases with workarounds. The spec phrase "is an error" means implementations need not detect them (§1.3.2).
-
 | Gap | Impact | Workaround |
 |-----|--------|------------|
-| **No datum labels** (`#n=`, `#n#`) | Cannot read shared/circular literals | Build circular structures with `set-car!`/`set-cdr!` |
-| **No `#!fold-case`** | Cannot switch to case-insensitive reading | Case sensitivity is the R7RS default |
-| **Nested quasiquote** | `` `(a `(b ,(+ 1 2))) `` treats inner qq as literal | Use explicit `list`/`cons` for nested template construction |
 | **Macro hygiene** | Scope-based renaming covers common cases; deeply nested macro-defining-macro scenarios may have edge cases | Standard `syntax-rules` macros (including `or`, `swap!`) are fully hygienic |
-| **`write-shared`/`write-simple`** | Aliases for `write`; no cycle detection on output | Avoid writing circular structures |
-| **`equal?` on distinct circular structures** | May loop if two different circular objects have same shape | Use `eq?` for identity; `(equal? x x)` terminates via pointer check |
-| **`letrec` init restriction** | Bare variable references to sibling bindings are detected and rejected; complex expressions that indirectly reference siblings are not checked | Spec says "is an error" — use `letrec*` for sequential init |
+| **`letrec` init restriction** | Bare variable references to sibling bindings are detected and rejected; complex expressions that indirectly reference siblings are not checked | Spec says "is an error" (§1.3.2) — use `letrec*` for sequential init |
 | **Unicode case mapping** | Covers Latin, Greek, Cyrillic only | Other scripts pass through `char-upcase`/`char-downcase` unchanged |
 
 ### Fully conformant
@@ -358,6 +351,11 @@ These are acknowledged edge cases with workarounds. The spec phrase "is an error
 - Radix prefixes: `#b1010` → `10`, `#o17` → `15`, `#xff` → `255`; exactness prefixes: `#e1.5` → `1`, `#i3` → `3.0`
 - Multiple values in single-value context: first value extracted automatically
 - `letrec` bare forward references detected at compile time
+- `#!fold-case` / `#!no-fold-case` directives
+- Datum labels: `#0=(a b . #0#)` reads circular structures, `write-shared` emits them
+- `write-shared` detects shared/circular structure with two-pass labeling
+- `equal?` terminates on circular structures via visited-set cycle detection
+- Nested quasiquote: `` `(a `(b ,(+ 1 2))) `` correctly preserves inner quasiquote structure
 - Hex escapes in `|quoted identifiers|`: `|H\x65;llo|` → symbol `Hello`
 - NaN: `(eqv? +nan.0 +nan.0)` → `#t`, `(= +nan.0 +nan.0)` → `#f`
 - Negative zero: `(eqv? 0.0 -0.0)` → `#f`, `(= 0.0 -0.0)` → `#t`
