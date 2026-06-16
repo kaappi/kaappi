@@ -480,6 +480,13 @@ fn instantiateEllipsis(gc: *GC, elem_template: Value, rest_template: Value, bind
 /// maps to the same gensym, ensuring internal references stay consistent
 /// while avoiding capture of user bindings.
 fn renameForHygiene(gc: *GC, name: []const u8, scope: u32, globals: ?*std.StringHashMap(Value)) !Value {
+    // If the name exists as a global binding, keep it as-is.
+    // This preserves referential transparency AND allows set! to
+    // mutate the original global (aliasing would create a separate binding).
+    if (globals) |g| {
+        if (g.contains(name)) return gc.allocSymbol(name);
+    }
+
     // Check if we already renamed this (name, scope) pair
     for (scope_table[0..scope_table_count]) |entry| {
         if (entry.scope == scope and std.mem.eql(u8, entry.original_name, name)) {
@@ -487,21 +494,15 @@ fn renameForHygiene(gc: *GC, name: []const u8, scope: u32, globals: ?*std.String
         }
     }
 
-    // Generate a fresh hygienic name
+    // Generate a fresh hygienic name for truly new identifiers
     gensym_counter += 1;
     var buf: [128]u8 = undefined;
     const len = std.fmt.bufPrint(&buf, "__hyg_{d}_{s}", .{ gensym_counter, name }) catch
         return gc.allocSymbol(name);
 
-    // We need to persist the renamed string because scope_table entries
-    // reference it and allocSymbol interns a copy. The interned copy in
-    // the GC symbol table will outlive scope_table, so we can point at
-    // the slice from the allocated symbol.
     const sym_val = try gc.allocSymbol(len);
     const renamed_persistent = types.symbolName(sym_val);
 
-    // Record the renaming so subsequent occurrences of the same name
-    // in this invocation map to the same gensym.
     if (scope_table_count < MAX_SCOPE_ENTRIES) {
         scope_table[scope_table_count] = .{
             .original_name = name,
@@ -509,16 +510,6 @@ fn renameForHygiene(gc: *GC, name: []const u8, scope: u32, globals: ?*std.String
             .renamed_to = renamed_persistent,
         };
         scope_table_count += 1;
-    }
-
-    // Referential transparency: if the original name refers to an existing
-    // global, alias the gensym to the same value. This way the renamed
-    // identifier still resolves to the definition-site global rather than
-    // being captured by a user local binding of the original name.
-    if (globals) |g| {
-        if (g.get(name)) |global_val| {
-            g.put(renamed_persistent, global_val) catch {};
-        }
     }
 
     return sym_val;
