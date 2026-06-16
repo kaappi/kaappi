@@ -817,6 +817,9 @@ pub const GC = struct {
                 const func = obj.as(Function);
                 func.code.deinit(self.allocator);
                 func.constants.deinit(self.allocator);
+                if (func.global_cache) |cache| {
+                    self.allocator.free(cache);
+                }
                 if (func.debug_locals.len > 0) {
                     self.allocator.free(func.debug_locals);
                 }

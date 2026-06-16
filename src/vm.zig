@@ -544,20 +544,45 @@ pub const VM = struct {
                     const dst = self.readU8(frame);
                     const sym_idx = self.readU16(frame);
                     const closure = frame.closure orelse return VMError.InvalidBytecode;
-                    const sym = closure.func.constants.items[sym_idx];
+                    const func = closure.func;
+                    if (func.global_cache) |cache| {
+                        if (sym_idx < cache.len and cache[sym_idx] != types.VOID) {
+                            self.registers[frame.base + dst] = cache[sym_idx];
+                            continue;
+                        }
+                    }
+                    const sym = func.constants.items[sym_idx];
                     const name = types.symbolName(sym);
-                    self.registers[frame.base + dst] = self.globals.get(name) orelse {
+                    const val = self.globals.get(name) orelse {
                         self.setErrorDetail("undefined variable '{s}'", .{name});
                         return VMError.UndefinedVariable;
                     };
+                    self.registers[frame.base + dst] = val;
+                    // Cache only procedure values (closures and native fns)
+                    if (types.isClosure(val) or types.isNativeFn(val)) {
+                        if (func.global_cache) |cache| {
+                            if (sym_idx < cache.len) cache[sym_idx] = val;
+                        } else {
+                            const cache = self.gc.allocator.alloc(Value, func.constants.items.len) catch continue;
+                            @memset(cache, types.VOID);
+                            cache[sym_idx] = val;
+                            func.global_cache = cache;
+                        }
+                    }
                 },
                 .set_global => {
                     const sym_idx = self.readU16(frame);
                     const src = self.readU8(frame);
                     const closure = frame.closure orelse return VMError.InvalidBytecode;
-                    const sym = closure.func.constants.items[sym_idx];
+                    const func = closure.func;
+                    const sym = func.constants.items[sym_idx];
                     const name = types.symbolName(sym);
-                    self.globals.put(name, self.registers[frame.base + src]) catch return VMError.OutOfMemory;
+                    const val = self.registers[frame.base + src];
+                    self.globals.put(name, val) catch return VMError.OutOfMemory;
+                    // Update own cache
+                    if (func.global_cache) |cache| {
+                        if (sym_idx < cache.len) cache[sym_idx] = val;
+                    }
                 },
                 .get_upvalue => {
                     const dst = self.readU8(frame);
@@ -615,49 +640,7 @@ pub const VM = struct {
                     const abs_base = frame.base + base_reg;
                     const callee = self.registers[abs_base];
 
-                    if (types.isFfiFunction(callee)) {
-                        const ffi_fn = types.toObject(callee).as(types.FfiFunction);
-                        if (nargs != ffi_fn.param_count) return VMError.ArityMismatch;
-                        const ffi_mod = @import("ffi.zig");
-                        const result = ffi_mod.callFfi(ffi_fn, self.registers[abs_base + 1 .. abs_base + 1 + nargs], self.gc) catch return VMError.TypeError;
-                        const return_dst = frame.dst;
-                        self.frame_count -= 1;
-                        if (self.frame_count <= target_frame_count) {
-                            return result;
-                        }
-                        const caller = &self.frames[self.frame_count - 1];
-                        self.registers[caller.base + return_dst] = result;
-                    } else if (types.isParameter(callee)) {
-                        const param = types.toObject(callee).as(types.ParameterObject);
-                        const result = if (nargs == 0) param.value else blk: {
-                            var new_val = self.registers[abs_base + 1];
-                            if (param.converter != types.NIL) {
-                                new_val = self.callWithArgs(param.converter, &[_]Value{new_val}) catch |err| return err;
-                            }
-                            param.value = new_val;
-                            break :blk types.VOID;
-                        };
-                        const return_dst = frame.dst;
-                        self.frame_count -= 1;
-                        if (self.frame_count <= target_frame_count) {
-                            return result;
-                        }
-                        const caller = &self.frames[self.frame_count - 1];
-                        self.registers[caller.base + return_dst] = result;
-                    } else if (types.isContinuation(callee)) {
-                        const cont = types.toObject(callee).as(types.Continuation);
-                        const value = if (nargs == 0) types.VOID else self.registers[abs_base + 1];
-                        if (cont.is_escape) {
-                            try self.invokeEscape(cont, value);
-                        } else {
-                            self.performWindTransition(cont.wind_records[0..cont.wind_count], cont.wind_count) catch return VMError.OutOfMemory;
-                            self.restoreContinuation(cont, value);
-                        }
-                        if (target_frame_count == 0) {
-                            continue;
-                        }
-                        return VMError.ContinuationInvoked;
-                    } else if (types.isClosure(callee)) {
+                    if (types.isClosure(callee)) {
                         const closure = types.toObject(callee).as(types.Closure);
                         const func = closure.func;
 
@@ -727,6 +710,48 @@ pub const VM = struct {
                                 error.ContinuationInvoked => VMError.ContinuationInvoked,
                                 else => VMError.InvalidBytecode,
                             };
+                        };
+                        const return_dst = frame.dst;
+                        self.frame_count -= 1;
+                        if (self.frame_count <= target_frame_count) {
+                            return result;
+                        }
+                        const caller = &self.frames[self.frame_count - 1];
+                        self.registers[caller.base + return_dst] = result;
+                    } else if (types.isContinuation(callee)) {
+                        const cont = types.toObject(callee).as(types.Continuation);
+                        const value = if (nargs == 0) types.VOID else self.registers[abs_base + 1];
+                        if (cont.is_escape) {
+                            try self.invokeEscape(cont, value);
+                        } else {
+                            self.performWindTransition(cont.wind_records[0..cont.wind_count], cont.wind_count) catch return VMError.OutOfMemory;
+                            self.restoreContinuation(cont, value);
+                        }
+                        if (target_frame_count == 0) {
+                            continue;
+                        }
+                        return VMError.ContinuationInvoked;
+                    } else if (types.isFfiFunction(callee)) {
+                        const ffi_fn = types.toObject(callee).as(types.FfiFunction);
+                        if (nargs != ffi_fn.param_count) return VMError.ArityMismatch;
+                        const ffi_mod = @import("ffi.zig");
+                        const result = ffi_mod.callFfi(ffi_fn, self.registers[abs_base + 1 .. abs_base + 1 + nargs], self.gc) catch return VMError.TypeError;
+                        const return_dst = frame.dst;
+                        self.frame_count -= 1;
+                        if (self.frame_count <= target_frame_count) {
+                            return result;
+                        }
+                        const caller = &self.frames[self.frame_count - 1];
+                        self.registers[caller.base + return_dst] = result;
+                    } else if (types.isParameter(callee)) {
+                        const param = types.toObject(callee).as(types.ParameterObject);
+                        const result = if (nargs == 0) param.value else blk: {
+                            var new_val = self.registers[abs_base + 1];
+                            if (param.converter != types.NIL) {
+                                new_val = self.callWithArgs(param.converter, &[_]Value{new_val}) catch |err| return err;
+                            }
+                            param.value = new_val;
+                            break :blk types.VOID;
                         };
                         const return_dst = frame.dst;
                         self.frame_count -= 1;
@@ -838,6 +863,13 @@ pub const VM = struct {
     }
 
     fn callValue(self: *VM, callee: Value, base: u16, nargs: u8) VMError!void {
+        // Check closure first — by far the most common case in Scheme programs
+        if (types.isClosure(callee)) {
+            return self.callClosure(types.toObject(callee).as(types.Closure), base, nargs);
+        }
+        if (types.isNativeFn(callee)) {
+            return self.callNative(types.toObject(callee).as(types.NativeFn), base, nargs);
+        }
         if (types.isFfiFunction(callee)) {
             const ffi_fn = types.toObject(callee).as(types.FfiFunction);
             if (nargs != ffi_fn.param_count) return VMError.ArityMismatch;
@@ -882,8 +914,12 @@ pub const VM = struct {
             // Signal to ALL callers that state was replaced
             return VMError.ContinuationInvoked;
         }
-        if (types.isClosure(callee)) {
-            const closure = types.toObject(callee).as(types.Closure);
+        // Remaining cases handled by the closure/native fast paths above
+        self.setErrorDetail("not a procedure", .{});
+        return VMError.NotAProcedure;
+    }
+
+    fn callClosure(self: *VM, closure: *types.Closure, base: u16, nargs: u8) VMError!void {
             const func = closure.func;
 
             if (!func.is_variadic) {
@@ -935,8 +971,9 @@ pub const VM = struct {
                     }
                 }
             }
-        } else if (types.isNativeFn(callee)) {
-            const native = types.toObject(callee).as(types.NativeFn);
+    }
+
+    fn callNative(self: *VM, native: *types.NativeFn, base: u16, nargs: u8) VMError!void {
             switch (native.arity) {
                 .exact => |expected| {
                     if (nargs != expected) {
@@ -967,13 +1004,7 @@ pub const VM = struct {
                 };
             };
 
-            // Store result in the callee's register (base_reg from the call instruction).
-            // The compiler emits `call base nargs` and expects the result back in base.
             self.registers[base] = result;
-        } else {
-            self.setErrorDetail("not a procedure", .{});
-            return VMError.NotAProcedure;
-        }
     }
 
     // -- Debugger methods --

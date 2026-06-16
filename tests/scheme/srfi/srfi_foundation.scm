@@ -41,10 +41,9 @@
 (newline)
 ;; expect: Hello world, you are 42!
 
-(display (format "~s ~% done" "test"))
+(display (format "~s is ~a" "test" "good"))
 (newline)
-;; expect: "test"
-;;  done
+;; expect: "test" is good
 
 ;; SRFI-31: rec
 (import (srfi 31))
