@@ -70,11 +70,11 @@ All 14 standard libraries are implemented:
 ### Language features
 
 - **Proper tail calls** — iterative recursion in constant stack space
-- **First-class continuations** — `call/cc` via stack copying, `dynamic-wind`
+- **First-class continuations** — `call/cc` (multi-shot, stack-copying), `call/ec` (O(1) escape), `dynamic-wind`
 - **Hygienic macros** — `syntax-rules` with pattern matching, ellipsis, and literals
 - **Library system** — `define-library`, `import` with `only`/`except`/`rename`/`prefix` modifiers, `.sld` file loading
 - **Numeric tower** — fixnum (i64), flonum (f64), complex numbers, mixed arithmetic
-- **Full Unicode** — UTF-8 strings with codepoint-based indexing, Unicode character classification and case mapping (Latin, Greek, Cyrillic, Arabic, CJK, and more)
+- **Full Unicode** — UTF-8 strings with codepoint-based indexing, character classification across many scripts (Latin, Greek, Cyrillic, Arabic, Hebrew, CJK, and more), and case mapping for cased scripts (Latin, Greek, Cyrillic)
 - **Exception handling** — `guard`, `raise`, `with-exception-handler`, error objects
 - **Records** — `define-record-type` with constructors, predicates, accessors, mutators
 - **Ports and I/O** — file, string, and bytevector ports; binary and textual I/O
@@ -312,8 +312,9 @@ kaappi/
 
 - **No bignum**: Integers are 63-bit signed fixnums. Overflow is silent.
 - **No exact rationals**: `/` with non-divisible exact integers returns an inexact (flonum) result.
-- **Stack-copying continuations**: `call/cc` copies the entire VM state (registers, frames, handlers, wind stack). Correct but expensive for deep stacks.
-- **Unicode case mapping**: Covers Latin, Latin Extended-A, Greek, and Cyrillic. Other scripts pass through unchanged.
+- **Multi-shot continuations copy the stack**: `call/cc` snapshots the reachable VM state (live register window, call frames, handlers, wind stack) — fully re-entrant, but O(stack depth) per capture. For the common non-local-exit case, `call/ec` captures an escape continuation in O(1) with no copying.
+- **Continuations are scoped to one top-level form**: a multi-shot continuation captured in one top-level form cannot re-run *subsequent* top-level forms (the driver evaluates forms one at a time). It works fully within any single form — wrap the body in `(begin …)` to span otherwise-separate forms.
+- **Unicode case mapping**: Covers cased scripts only — Latin (incl. Extended-A/-B/Additional), Greek (incl. Extended), and Cyrillic (incl. Supplement). Other scripts pass through unchanged.
 - **No `syntax-case`**: Only `syntax-rules` is supported (as specified by R7RS-small).
 
 ---
