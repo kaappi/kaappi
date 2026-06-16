@@ -342,7 +342,7 @@ These are acknowledged edge cases with workarounds. The spec phrase "is an error
 | **No datum labels** (`#n=`, `#n#`) | Cannot read shared/circular literals | Build circular structures with `set-car!`/`set-cdr!` |
 | **No `#!fold-case`** | Cannot switch to case-insensitive reading | Case sensitivity is the R7RS default |
 | **Nested quasiquote** | `` `(a `(b ,(+ 1 2))) `` treats inner qq as literal | Use explicit `list`/`cons` for nested template construction |
-| **Macro hygiene incomplete** | Template-introduced identifiers not gensym-renamed | Simple macros work; avoid macros that introduce `let` bindings shadowing user variables |
+| **Macro hygiene** | Scope-based renaming covers common cases; deeply nested macro-defining-macro scenarios may have edge cases | Standard `syntax-rules` macros (including `or`, `swap!`) are fully hygienic |
 | **`write-shared`/`write-simple`** | Aliases for `write`; no cycle detection on output | Avoid writing circular structures |
 | **`equal?` on distinct circular structures** | May loop if two different circular objects have same shape | Use `eq?` for identity; `(equal? x x)` terminates via pointer check |
 | **`letrec` init restriction** | Bare variable references to sibling bindings are detected and rejected; complex expressions that indirectly reference siblings are not checked | Spec says "is an error" — use `letrec*` for sequential init |
