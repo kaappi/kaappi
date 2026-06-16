@@ -614,6 +614,8 @@ pub const OpCode = enum(u8) {
     push_handler, // handler_reg:u8
     pop_handler, // (no operands)
     halt,
+    call_global, // base:u8, sym_idx:u16, nargs:u8
+    tail_call_global, // base:u8, sym_idx:u16, nargs:u8
 };
 
 // ---------------------------------------------------------------------------

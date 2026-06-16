@@ -826,6 +826,157 @@ pub const VM = struct {
                 .halt => {
                     return types.VOID;
                 },
+                .call_global => {
+                    const base_reg = self.readU8(frame);
+                    const sym_idx = self.readU16(frame);
+                    const nargs = self.readU8(frame);
+                    const the_closure = frame.closure orelse return VMError.InvalidBytecode;
+                    const the_func = the_closure.func;
+                    const base = frame.base + base_reg;
+
+                    // Resolve global with cache (single dispatch instead of get_global + call)
+                    if (the_func.global_cache) |cache| {
+                        if (sym_idx < cache.len and cache[sym_idx] != types.VOID) {
+                            self.registers[base] = cache[sym_idx];
+                        } else {
+                            const sym = the_func.constants.items[sym_idx];
+                            const name = types.symbolName(sym);
+                            const val = self.globals.get(name) orelse {
+                                self.setErrorDetail("undefined variable '{s}'", .{name});
+                                return VMError.UndefinedVariable;
+                            };
+                            self.registers[base] = val;
+                            if (types.isClosure(val) or types.isNativeFn(val)) {
+                                if (sym_idx < cache.len) cache[sym_idx] = val;
+                            }
+                        }
+                    } else {
+                        const sym = the_func.constants.items[sym_idx];
+                        const name = types.symbolName(sym);
+                        const val = self.globals.get(name) orelse {
+                            self.setErrorDetail("undefined variable '{s}'", .{name});
+                            return VMError.UndefinedVariable;
+                        };
+                        self.registers[base] = val;
+                        if (types.isClosure(val) or types.isNativeFn(val)) {
+                            const cache = self.gc.allocator.alloc(Value, the_func.constants.items.len) catch {
+                                // Skip caching, still call
+                                self.callValue(val, base, nargs) catch |err| {
+                                    if (err == VMError.ContinuationInvoked) {
+                                        if (target_frame_count == 0) continue;
+                                        return VMError.ContinuationInvoked;
+                                    }
+                                    return err;
+                                };
+                                continue;
+                            };
+                            @memset(cache, types.VOID);
+                            cache[sym_idx] = val;
+                            the_func.global_cache = cache;
+                        }
+                    }
+
+                    const callee = self.registers[base];
+                    self.callValue(callee, base, nargs) catch |err| {
+                        if (err == VMError.ContinuationInvoked) {
+                            if (target_frame_count == 0) continue;
+                            return VMError.ContinuationInvoked;
+                        }
+                        return err;
+                    };
+                },
+                .tail_call_global => {
+                    const base_reg = self.readU8(frame);
+                    const sym_idx = self.readU16(frame);
+                    const nargs = self.readU8(frame);
+                    const closure = frame.closure orelse return VMError.InvalidBytecode;
+                    const func = closure.func;
+                    const abs_base = frame.base + base_reg;
+
+                    // Resolve global with cache
+                    var callee: Value = types.VOID;
+                    if (func.global_cache) |cache| {
+                        if (sym_idx < cache.len and cache[sym_idx] != types.VOID) {
+                            callee = cache[sym_idx];
+                        }
+                    }
+                    if (callee == types.VOID) {
+                        const sym = func.constants.items[sym_idx];
+                        const name = types.symbolName(sym);
+                        callee = self.globals.get(name) orelse {
+                            self.setErrorDetail("undefined variable '{s}'", .{name});
+                            return VMError.UndefinedVariable;
+                        };
+                        if (types.isClosure(callee) or types.isNativeFn(callee)) {
+                            if (func.global_cache) |cache| {
+                                if (sym_idx < cache.len) cache[sym_idx] = callee;
+                            } else {
+                                const cache = self.gc.allocator.alloc(Value, func.constants.items.len) catch {
+                                    return VMError.OutOfMemory;
+                                };
+                                @memset(cache, types.VOID);
+                                cache[sym_idx] = callee;
+                                func.global_cache = cache;
+                            }
+                        }
+                    }
+
+                    self.registers[abs_base] = callee;
+
+                    // Reuse tail_call logic for closures
+                    if (types.isClosure(callee)) {
+                        const tclosure = types.toObject(callee).as(types.Closure);
+                        const tfunc = tclosure.func;
+                        if (!tfunc.is_variadic) {
+                            if (nargs != tfunc.arity) {
+                                self.setErrorDetail("expected {d} arguments, got {d}", .{ tfunc.arity, nargs });
+                                return VMError.ArityMismatch;
+                            }
+                        } else {
+                            if (nargs < tfunc.arity) return VMError.ArityMismatch;
+                            const rest_start = tfunc.arity;
+                            var rest_list: Value = types.NIL;
+                            var ri: u8 = nargs;
+                            while (ri > rest_start) {
+                                ri -= 1;
+                                rest_list = self.gc.allocPair(
+                                    self.registers[abs_base + 1 + ri], rest_list,
+                                ) catch return VMError.OutOfMemory;
+                            }
+                            self.registers[abs_base + 1 + rest_start] = rest_list;
+                        }
+                        const arg_count = if (tfunc.is_variadic) tfunc.arity + 1 else nargs;
+                        for (0..arg_count) |ai| {
+                            self.registers[frame.base + ai] = self.registers[abs_base + 1 + ai];
+                        }
+                        frame.closure = tclosure;
+                        frame.code = tfunc.code.items;
+                        frame.ip = 0;
+                    } else if (types.isNativeFn(callee)) {
+                        const native = types.toObject(callee).as(types.NativeFn);
+                        const args = self.registers[abs_base + 1 .. abs_base + 1 + nargs];
+                        const result = native.func(args) catch |err| {
+                            return switch (err) {
+                                error.TypeError => blk: {
+                                    self.setErrorDetail("type error in '{s}'", .{native.name});
+                                    break :blk VMError.TypeError;
+                                },
+                                error.OutOfMemory => VMError.OutOfMemory,
+                                error.ExceptionRaised => VMError.ExceptionRaised,
+                                error.ContinuationInvoked => VMError.ContinuationInvoked,
+                                else => VMError.InvalidBytecode,
+                            };
+                        };
+                        const return_dst = frame.dst;
+                        self.frame_count -= 1;
+                        if (self.frame_count <= target_frame_count) return result;
+                        const caller = &self.frames[self.frame_count - 1];
+                        self.registers[caller.base + return_dst] = result;
+                    } else {
+                        self.setErrorDetail("not a procedure", .{});
+                        return VMError.NotAProcedure;
+                    }
+                },
                 else => return VMError.InvalidBytecode,
             }
         }

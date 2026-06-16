@@ -904,16 +904,22 @@ pub const Compiler = struct {
     }
 
     fn compileCall(self: *Compiler, expr: Value, dst: u8, is_tail: bool) CompileError!void {
+        const operator = types.car(expr);
+
+        // Superinstruction: for non-tail calls to global variables, emit
+        // call_global instead of get_global + call (saves one dispatch).
+        // Disabled for now: causes issues with continuation capture in
+        // nested call/cc scenarios. The global_cache on Function objects
+        // provides similar benefits without changing bytecode layout.
+        // TODO: re-enable after fixing continuation compatibility
+        // if (!is_tail and types.isSymbol(operator) ...) { ... }
+
         // The call instruction expects: operator at base, args at base+1, base+2, ...
-        // If dst+1 != next_register (due to locals in scope), we must allocate a
-        // fresh contiguous block and copy the result back to dst afterward.
         const needs_rebase = (dst + 1 != self.next_register);
         const base = if (needs_rebase) try self.allocReg() else dst;
 
-        // Compile operator (never in tail position)
-        try self.compileExpr(types.car(expr), base, false);
+        try self.compileExpr(operator, base, false);
 
-        // Compile arguments (never in tail position)
         var nargs: u8 = 0;
         var arg_list = types.cdr(expr);
         while (arg_list != types.NIL) {
@@ -933,18 +939,58 @@ pub const Compiler = struct {
         try self.emit(base);
         try self.emit(nargs);
 
-        // Free argument registers
         var i: u8 = 0;
         while (i < nargs) : (i += 1) {
             self.freeReg();
         }
 
-        // If we used a rebased register, copy result back to dst and free the temp
         if (needs_rebase) {
             try self.emitOp(.move);
             try self.emit(dst);
             try self.emit(base);
-            self.freeReg(); // free base
+            self.freeReg();
+        }
+    }
+
+    fn compileCallGlobal(self: *Compiler, expr: Value, operator: Value, dst: u8, is_tail: bool) CompileError!void {
+        _ = is_tail;
+        const sym_idx = try self.addConstant(operator);
+
+        // Use same register layout as regular compileCall
+        const needs_rebase = (dst + 1 != self.next_register);
+        const base = if (needs_rebase) try self.allocReg() else dst;
+
+        // Emit a load_void to "use" the base register (the VM will fill it)
+        try self.emitOp(.load_void);
+        try self.emit(base);
+
+        // Compile arguments contiguously after base
+        var nargs: u8 = 0;
+        var arg_list = types.cdr(expr);
+        while (arg_list != types.NIL) {
+            if (!types.isPair(arg_list)) return CompileError.InvalidSyntax;
+            const arg = types.car(arg_list);
+            const arg_reg = try self.allocReg();
+            try self.compileExpr(arg, arg_reg, false);
+            nargs += 1;
+            arg_list = types.cdr(arg_list);
+        }
+
+        try self.emitOp(.call_global);
+        try self.emit(base);
+        try self.emitU16(sym_idx);
+        try self.emit(nargs);
+
+        var i: u8 = 0;
+        while (i < nargs) : (i += 1) {
+            self.freeReg();
+        }
+
+        if (needs_rebase) {
+            try self.emitOp(.move);
+            try self.emit(dst);
+            try self.emit(base);
+            self.freeReg();
         }
     }
 };
