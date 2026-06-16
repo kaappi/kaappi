@@ -20,22 +20,22 @@ Both must pass before any change is considered complete.
 
 ### Location
 
-Unit tests live in `src/tests_phase1.zig` through `src/tests_phase11.zig`,
+Unit tests live in `src/tests_core_eval.zig` through `src/tests_core_eval1.zig`,
 split by implementation phase:
 
 | File | Coverage |
 |------|----------|
-| `tests_phase1.zig` | Basic eval, arithmetic, lambda, closures |
-| `tests_phase2.zig` | Tail call optimization |
-| `tests_phase3.zig` | Derived forms (let, cond, do, case) |
-| `tests_phase4.zig` | Numeric tower (flonum, complex, exactness) |
-| `tests_phase5.zig` | Macros (syntax-rules, hygiene) |
-| `tests_phase6.zig` | Libraries (import, define-library) |
-| `tests_phase7.zig` | Exceptions (guard, raise, error) |
-| `tests_phase8.zig` | Records (define-record-type) |
-| `tests_phase9.zig` | Ports and I/O |
-| `tests_phase10.zig` | Continuations (call/cc, dynamic-wind) |
-| `tests_phase11.zig` | Remaining R7RS coverage |
+| `tests_core_eval.zig` | Basic eval, arithmetic, lambda, closures |
+| `tests_tail_calls.zig` | Tail call optimization |
+| `tests_derived_forms.zig` | Derived forms (let, cond, do, case) |
+| `tests_numeric.zig` | Numeric tower (flonum, complex, exactness) |
+| `tests_macros.zig` | Macros (syntax-rules, hygiene) |
+| `tests_libraries.zig` | Libraries (import, define-library) |
+| `tests_exceptions.zig` | Exceptions (guard, raise, error) |
+| `tests_records.zig` | Records (define-record-type) |
+| `tests_io.zig` | Ports and I/O |
+| `tests_core_eval0.zig` | Continuations (call/cc, dynamic-wind) |
+| `tests_core_eval1.zig` | Remaining R7RS coverage |
 
 Additional test files:
 - `vm_tests.zig` -- VM-specific tests
