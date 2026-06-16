@@ -383,6 +383,10 @@ pub fn printValue(writer: anytype, value: Value, mode: PrintMode) anyerror!void 
                 }
                 try writer.writeByte('>');
             },
+            .hash_table => {
+                const ht = obj.as(types.HashTable);
+                try writer.print("#<hash-table size={d}>", .{ht.count});
+            },
             .ffi_library => {
                 const lib = obj.as(types.FfiLibrary);
                 try writer.print("#<ffi-library \"{s}\">", .{lib.name});

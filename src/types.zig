@@ -113,6 +113,7 @@ pub const ObjectTag = enum(u5) {
     parameter = 18,
     ffi_library = 19,
     ffi_function = 20,
+    hash_table = 21,
 };
 
 pub const Object = struct {
@@ -353,6 +354,22 @@ pub const FfiFunction = struct {
 };
 
 // ---------------------------------------------------------------------------
+// Hash table (SRFI-69)
+// ---------------------------------------------------------------------------
+
+pub const HashEntry = struct {
+    key: Value,
+    value: Value,
+};
+
+pub const HashTable = struct {
+    header: Object,
+    entries: []HashEntry,
+    count: usize, // number of live entries
+    capacity: usize, // length of entries slice
+};
+
+// ---------------------------------------------------------------------------
 // Type predicates on Value
 // ---------------------------------------------------------------------------
 
@@ -462,6 +479,14 @@ pub fn isFfiLibrary(v: Value) bool {
 
 pub fn isFfiFunction(v: Value) bool {
     return isPointer(v) and toObject(v).tag == .ffi_function;
+}
+
+pub fn isHashTable(v: Value) bool {
+    return isPointer(v) and toObject(v).tag == .hash_table;
+}
+
+pub fn toHashTable(v: Value) *HashTable {
+    return toObject(v).as(HashTable);
 }
 
 pub fn isNumber(v: Value) bool {

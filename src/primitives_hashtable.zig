@@ -1,0 +1,266 @@
+const std = @import("std");
+const types = @import("types.zig");
+const vm_mod = @import("vm.zig");
+const primitives = @import("primitives.zig");
+const Value = types.Value;
+const NativeFn = types.NativeFn;
+const PrimitiveError = primitives.PrimitiveError;
+const HashTable = types.HashTable;
+const HashEntry = types.HashEntry;
+
+fn reg(vm: *vm_mod.VM, name: []const u8, func: types.NativeFnType, arity: NativeFn.Arity) !void {
+    return primitives.reg(vm, name, func, arity);
+}
+
+pub fn registerHashTable(vm: *vm_mod.VM) !void {
+    try reg(vm, "make-hash-table", &makeHashTableFn, .{ .variadic = 0 });
+    try reg(vm, "hash-table?", &hashTablePFn, .{ .exact = 1 });
+    try reg(vm, "hash-table-ref", &hashTableRefFn, .{ .variadic = 2 });
+    try reg(vm, "hash-table-set!", &hashTableSetFn, .{ .exact = 3 });
+    try reg(vm, "hash-table-delete!", &hashTableDeleteFn, .{ .exact = 2 });
+    try reg(vm, "hash-table-exists?", &hashTableExistsFn, .{ .exact = 2 });
+    try reg(vm, "hash-table-size", &hashTableSizeFn, .{ .exact = 1 });
+    try reg(vm, "hash-table-keys", &hashTableKeysFn, .{ .exact = 1 });
+    try reg(vm, "hash-table-values", &hashTableValuesFn, .{ .exact = 1 });
+    try reg(vm, "hash-table-walk", &hashTableWalkFn, .{ .exact = 2 });
+    try reg(vm, "hash-table->alist", &hashTableToAlistFn, .{ .exact = 1 });
+    try reg(vm, "alist->hash-table", &alistToHashTableFn, .{ .exact = 1 });
+    try reg(vm, "hash-table-copy", &hashTableCopyFn, .{ .exact = 1 });
+    try reg(vm, "hash-table-update!/default", &hashTableUpdateDefaultFn, .{ .exact = 4 });
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+fn getHashTable(v: Value) PrimitiveError!*HashTable {
+    if (!types.isHashTable(v)) return PrimitiveError.TypeError;
+    return types.toHashTable(v);
+}
+
+/// Find index of key in entries, or null if not found.
+fn findKey(ht: *HashTable, key: Value) ?usize {
+    for (ht.entries[0..ht.count], 0..) |entry, i| {
+        if (primitives.deepEqual(entry.key, key)) return i;
+    }
+    return null;
+}
+
+fn growIfNeeded(ht: *HashTable) PrimitiveError!void {
+    if (ht.count < ht.capacity) return;
+    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const new_cap = if (ht.capacity == 0) 8 else ht.capacity * 2;
+    const new_entries = gc.allocator.alloc(HashEntry, new_cap) catch return PrimitiveError.OutOfMemory;
+    if (ht.count > 0) {
+        @memcpy(new_entries[0..ht.count], ht.entries[0..ht.count]);
+    }
+    if (ht.capacity > 0) {
+        gc.allocator.free(ht.entries);
+    }
+    ht.entries = new_entries;
+    ht.capacity = new_cap;
+}
+
+// ---------------------------------------------------------------------------
+// Procedures
+// ---------------------------------------------------------------------------
+
+// (make-hash-table) or (make-hash-table equal-proc hash-proc)
+fn makeHashTableFn(args: []const Value) PrimitiveError!Value {
+    _ = args; // ignore optional comparator/hash args; we always use equal?
+    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    return gc.allocHashTable(8) catch return PrimitiveError.OutOfMemory;
+}
+
+// (hash-table? obj)
+fn hashTablePFn(args: []const Value) PrimitiveError!Value {
+    return if (types.isHashTable(args[0])) types.TRUE else types.FALSE;
+}
+
+// (hash-table-ref ht key) or (hash-table-ref ht key default)
+fn hashTableRefFn(args: []const Value) PrimitiveError!Value {
+    const ht = try getHashTable(args[0]);
+    if (findKey(ht, args[1])) |idx| {
+        return ht.entries[idx].value;
+    }
+    // Key not found
+    if (args.len > 2) return args[2]; // default value
+    return PrimitiveError.TypeError; // no default, error
+}
+
+// (hash-table-set! ht key value)
+fn hashTableSetFn(args: []const Value) PrimitiveError!Value {
+    const ht = try getHashTable(args[0]);
+    if (findKey(ht, args[1])) |idx| {
+        ht.entries[idx].value = args[2];
+    } else {
+        try growIfNeeded(ht);
+        ht.entries[ht.count] = .{ .key = args[1], .value = args[2] };
+        ht.count += 1;
+    }
+    return types.VOID;
+}
+
+// (hash-table-delete! ht key)
+fn hashTableDeleteFn(args: []const Value) PrimitiveError!Value {
+    const ht = try getHashTable(args[0]);
+    if (findKey(ht, args[1])) |idx| {
+        // Swap with last element
+        if (idx < ht.count - 1) {
+            ht.entries[idx] = ht.entries[ht.count - 1];
+        }
+        ht.count -= 1;
+    }
+    return types.VOID;
+}
+
+// (hash-table-exists? ht key)
+fn hashTableExistsFn(args: []const Value) PrimitiveError!Value {
+    const ht = try getHashTable(args[0]);
+    return if (findKey(ht, args[1]) != null) types.TRUE else types.FALSE;
+}
+
+// (hash-table-size ht)
+fn hashTableSizeFn(args: []const Value) PrimitiveError!Value {
+    const ht = try getHashTable(args[0]);
+    return types.makeFixnum(@intCast(ht.count));
+}
+
+// (hash-table-keys ht)
+fn hashTableKeysFn(args: []const Value) PrimitiveError!Value {
+    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const ht = try getHashTable(args[0]);
+    var result: Value = types.NIL;
+    var i = ht.count;
+    while (i > 0) {
+        i -= 1;
+        result = gc.allocPair(ht.entries[i].key, result) catch return PrimitiveError.OutOfMemory;
+    }
+    return result;
+}
+
+// (hash-table-values ht)
+fn hashTableValuesFn(args: []const Value) PrimitiveError!Value {
+    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const ht = try getHashTable(args[0]);
+    var result: Value = types.NIL;
+    var i = ht.count;
+    while (i > 0) {
+        i -= 1;
+        result = gc.allocPair(ht.entries[i].value, result) catch return PrimitiveError.OutOfMemory;
+    }
+    return result;
+}
+
+// (hash-table-walk ht proc) — call (proc key value) for each entry
+fn hashTableWalkFn(args: []const Value) PrimitiveError!Value {
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.OutOfMemory;
+    const ht = try getHashTable(args[0]);
+    const proc = args[1];
+
+    for (ht.entries[0..ht.count]) |entry| {
+        const call_args = [2]Value{ entry.key, entry.value };
+        _ = vm.callWithArgs(proc, &call_args) catch |err| {
+            return switch (err) {
+                vm_mod.VMError.ContinuationInvoked => PrimitiveError.ContinuationInvoked,
+                vm_mod.VMError.ExceptionRaised => PrimitiveError.ExceptionRaised,
+                vm_mod.VMError.OutOfMemory => PrimitiveError.OutOfMemory,
+                else => PrimitiveError.TypeError,
+            };
+        };
+    }
+    return types.VOID;
+}
+
+// (hash-table->alist ht)
+fn hashTableToAlistFn(args: []const Value) PrimitiveError!Value {
+    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const ht = try getHashTable(args[0]);
+    var result: Value = types.NIL;
+    var i = ht.count;
+    while (i > 0) {
+        i -= 1;
+        const pair = gc.allocPair(ht.entries[i].key, ht.entries[i].value) catch return PrimitiveError.OutOfMemory;
+        result = gc.allocPair(pair, result) catch return PrimitiveError.OutOfMemory;
+    }
+    return result;
+}
+
+// (alist->hash-table alist)
+fn alistToHashTableFn(args: []const Value) PrimitiveError!Value {
+    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    var current = args[0];
+
+    // Count entries first
+    var count: usize = 0;
+    var tmp = current;
+    while (tmp != types.NIL) {
+        if (!types.isPair(tmp)) return PrimitiveError.TypeError;
+        count += 1;
+        tmp = types.cdr(tmp);
+    }
+
+    const initial_cap = @max(count, @as(usize, 8));
+    const ht_val = gc.allocHashTable(initial_cap) catch return PrimitiveError.OutOfMemory;
+    const ht = types.toHashTable(ht_val);
+
+    while (current != types.NIL) {
+        const entry_pair = types.car(current);
+        if (!types.isPair(entry_pair)) return PrimitiveError.TypeError;
+        const key = types.car(entry_pair);
+        const value = types.cdr(entry_pair);
+
+        // Only add if key not already present (first occurrence wins)
+        if (findKey(ht, key) == null) {
+            ht.entries[ht.count] = .{ .key = key, .value = value };
+            ht.count += 1;
+        }
+        current = types.cdr(current);
+    }
+    return ht_val;
+}
+
+// (hash-table-copy ht)
+fn hashTableCopyFn(args: []const Value) PrimitiveError!Value {
+    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const src = try getHashTable(args[0]);
+    const cap = @max(src.count, @as(usize, 8));
+    const dst_val = gc.allocHashTable(cap) catch return PrimitiveError.OutOfMemory;
+    const dst = types.toHashTable(dst_val);
+    @memcpy(dst.entries[0..src.count], src.entries[0..src.count]);
+    dst.count = src.count;
+    return dst_val;
+}
+
+// (hash-table-update!/default ht key proc default)
+fn hashTableUpdateDefaultFn(args: []const Value) PrimitiveError!Value {
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.OutOfMemory;
+    const ht = try getHashTable(args[0]);
+    const key = args[1];
+    const proc = args[2];
+    const default_val = args[3];
+
+    const old_val = if (findKey(ht, key)) |idx|
+        ht.entries[idx].value
+    else
+        default_val;
+
+    const call_args = [1]Value{old_val};
+    const new_val = vm.callWithArgs(proc, &call_args) catch |err| {
+        return switch (err) {
+            vm_mod.VMError.ContinuationInvoked => PrimitiveError.ContinuationInvoked,
+            vm_mod.VMError.ExceptionRaised => PrimitiveError.ExceptionRaised,
+            vm_mod.VMError.OutOfMemory => PrimitiveError.OutOfMemory,
+            else => PrimitiveError.TypeError,
+        };
+    };
+
+    if (findKey(ht, key)) |idx| {
+        ht.entries[idx].value = new_val;
+    } else {
+        try growIfNeeded(ht);
+        ht.entries[ht.count] = .{ .key = key, .value = new_val };
+        ht.count += 1;
+    }
+    return types.VOID;
+}

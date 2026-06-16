@@ -382,6 +382,100 @@ pub fn registerStandardLibraries(registry: *LibraryRegistry, globals: *std.Strin
         }
     }
     try registry.register(ffi_lib);
+
+    // SRFI-1: List Library
+    const srfi1_names = [_][]const u8{
+        "fold",         "fold-right",    "reduce",       "reduce-right",
+        "filter",       "remove",        "partition",
+        "find",         "find-tail",     "any",          "every",     "count",
+        "iota",         "zip",           "concatenate",
+        "take",         "drop",          "take-while",   "drop-while",
+        "filter-map",   "append-map",
+        "last",         "last-pair",
+        "proper-list?", "dotted-list?",  "circular-list?",
+    };
+    var srfi1_lib = Library.init(allocator, "srfi.1");
+    for (srfi1_names) |name| {
+        if (globals.get(name)) |val| {
+            try srfi1_lib.addExport(name, val);
+        }
+    }
+    try registry.register(srfi1_lib);
+
+    // SRFI-9: define-record-type (alias for existing R7RS record support)
+    const srfi9_lib = Library.init(allocator, "srfi.9");
+    try registry.register(srfi9_lib);
+
+    // SRFI-13: String Library
+    const srfi13_names = [_][]const u8{
+        "string-contains",    "string-prefix?",   "string-suffix?",
+        "string-trim",        "string-trim-right", "string-trim-both",
+        "string-index",       "string-count",
+        "string-split",       "string-join",       "string-concatenate",
+        // Also include standard string ops
+        "string-length",      "string-append",     "substring",
+        "string-copy",        "string-ref",        "string-set!",
+        "string<?",           "string<=?",         "string=?",
+        "string>=?",          "string>?",
+        "string-upcase",      "string-downcase",   "string-foldcase",
+    };
+    var srfi13_lib = Library.init(allocator, "srfi.13");
+    for (srfi13_names) |name| {
+        if (globals.get(name)) |val| {
+            try srfi13_lib.addExport(name, val);
+        }
+    }
+    try registry.register(srfi13_lib);
+
+    // SRFI-27: Random Numbers
+    const srfi27_names = [_][]const u8{
+        "random-integer", "random-real",
+    };
+    var srfi27_lib = Library.init(allocator, "srfi.27");
+    for (srfi27_names) |name| {
+        if (globals.get(name)) |val| {
+            try srfi27_lib.addExport(name, val);
+        }
+    }
+    try registry.register(srfi27_lib);
+
+    // SRFI-39: Parameter objects (alias for existing make-parameter/parameterize)
+    var srfi39_lib = Library.init(allocator, "srfi.39");
+    if (globals.get("make-parameter")) |v| try srfi39_lib.addExport("make-parameter", v);
+    try registry.register(srfi39_lib);
+
+    // SRFI-69: Hash Tables
+    const srfi69_names = [_][]const u8{
+        "make-hash-table",             "hash-table?",
+        "hash-table-ref",              "hash-table-set!",
+        "hash-table-delete!",          "hash-table-exists?",
+        "hash-table-size",             "hash-table-keys",
+        "hash-table-values",           "hash-table-walk",
+        "hash-table->alist",           "alist->hash-table",
+        "hash-table-copy",             "hash-table-update!/default",
+    };
+    var srfi69_lib = Library.init(allocator, "srfi.69");
+    for (srfi69_names) |name| {
+        if (globals.get(name)) |val| {
+            try srfi69_lib.addExport(name, val);
+        }
+    }
+    try registry.register(srfi69_lib);
+
+    // SRFI-133: Vector Library (alias for existing vector ops)
+    const srfi133_names = [_][]const u8{
+        "vector",       "make-vector",   "vector?",      "vector-length",
+        "vector-ref",   "vector-set!",   "vector->list",  "list->vector",
+        "vector-fill!", "vector-copy",   "vector-copy!",  "vector-append",
+        "vector-for-each", "vector-map",
+    };
+    var srfi133_lib = Library.init(allocator, "srfi.133");
+    for (srfi133_names) |name| {
+        if (globals.get(name)) |val| {
+            try srfi133_lib.addExport(name, val);
+        }
+    }
+    try registry.register(srfi133_lib);
 }
 
 /// Convert a library name from an S-expression list like (scheme base) to

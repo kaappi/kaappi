@@ -22,6 +22,9 @@ pub const library = @import("library.zig");
 pub const ln = @import("linenoise.zig");
 pub const ffi = @import("ffi.zig");
 pub const primitives_ffi = @import("primitives_ffi.zig");
+pub const primitives_srfi1 = @import("primitives_srfi1.zig");
+pub const primitives_hashtable = @import("primitives_hashtable.zig");
+pub const primitives_random = @import("primitives_random.zig");
 pub const bytecode_file = @import("bytecode_file.zig");
 
 var repl_vm: ?*vm_mod.VM = null;
@@ -559,5 +562,8 @@ test {
     _ = ln;
     _ = ffi;
     _ = primitives_ffi;
+    _ = primitives_srfi1;
+    _ = primitives_hashtable;
+    _ = primitives_random;
     _ = bytecode_file;
 }

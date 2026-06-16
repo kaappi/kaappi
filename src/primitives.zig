@@ -16,6 +16,9 @@ const primitives_bytevector = @import("primitives_bytevector.zig");
 const primitives_lazy = @import("primitives_lazy.zig");
 const primitives_r7rs = @import("primitives_r7rs.zig");
 const primitives_ffi = @import("primitives_ffi.zig");
+const primitives_srfi1 = @import("primitives_srfi1.zig");
+const primitives_hashtable = @import("primitives_hashtable.zig");
+const primitives_random = @import("primitives_random.zig");
 
 pub const PrimitiveError = error{
     TypeError,
@@ -39,6 +42,9 @@ pub fn registerAll(vm: *vm_mod.VM) !void {
     try primitives_lazy.registerLazy(vm);
     try primitives_r7rs.registerR7RS(vm);
     try primitives_ffi.registerFfi(vm);
+    try primitives_srfi1.registerSrfi1(vm);
+    try primitives_hashtable.registerHashTable(vm);
+    try primitives_random.registerRandom(vm);
 
     // Pairs and lists
     try reg(vm, "cons", &cons, .{ .exact = 2 });

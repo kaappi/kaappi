@@ -27,6 +27,8 @@ const WindRecord = types.WindRecord;
 const FfiLibrary = types.FfiLibrary;
 const FfiFunction = types.FfiFunction;
 const FfiType = types.FfiType;
+const HashTable = types.HashTable;
+const HashEntry = types.HashEntry;
 
 const GC_THRESHOLD: usize = 1024;
 
@@ -538,6 +540,22 @@ pub const GC = struct {
         return types.makePointer(@ptrCast(ffi_fn));
     }
 
+    pub fn allocHashTable(self: *GC, initial_capacity: usize) !Value {
+        self.maybeCollect();
+        const entries = try self.allocator.alloc(HashEntry, initial_capacity);
+        // No need to initialize; count starts at 0 so entries[0..0] is empty
+        const ht = try self.allocator.create(HashTable);
+        ht.* = .{
+            .header = .{ .tag = .hash_table },
+            .entries = entries,
+            .count = 0,
+            .capacity = initial_capacity,
+        };
+        self.bytes_allocated += @sizeOf(HashTable) + initial_capacity * @sizeOf(HashEntry);
+        self.trackObject(&ht.header);
+        return types.makePointer(@ptrCast(ht));
+    }
+
     pub fn allocMultipleValues(self: *GC, values: []const Value) !Value {
         self.maybeCollect();
         const owned = try self.allocator.dupe(Value, values);
@@ -687,6 +705,13 @@ pub const GC = struct {
                 self.markValue(param.value);
                 self.markValue(param.converter);
             },
+            .hash_table => {
+                const ht = obj.as(HashTable);
+                for (ht.entries[0..ht.count]) |entry| {
+                    self.markValue(entry.key);
+                    self.markValue(entry.value);
+                }
+            },
             .ffi_library, .ffi_function => {},
             .symbol, .string, .native_fn, .flonum, .port, .complex, .bytevector => {},
         }
@@ -822,6 +847,11 @@ pub const GC = struct {
             .parameter => {
                 const p = obj.as(types.ParameterObject);
                 self.allocator.destroy(p);
+            },
+            .hash_table => {
+                const ht = obj.as(HashTable);
+                self.allocator.free(ht.entries);
+                self.allocator.destroy(ht);
             },
             .ffi_library => {
                 const lib = obj.as(FfiLibrary);
