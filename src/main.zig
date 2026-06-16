@@ -127,8 +127,13 @@ fn runFile(vm: *vm_mod.VM, path: []const u8) !void {
                 std.debug.print("Runtime error: {}\n", .{err});
                 continue;
             };
-            if (result != types.VOID) {
-                const s = printer.valueToString(allocator, result, .write) catch continue;
+            var dr = result;
+            if (types.isMultipleValues(dr)) {
+                const mv = types.toObject(dr).as(types.MultipleValues);
+                dr = if (mv.values.len > 0) mv.values[0] else types.VOID;
+            }
+            if (dr != types.VOID) {
+                const s = printer.valueToString(allocator, dr, .write) catch continue;
                 defer allocator.free(s);
                 writeStdout(s);
                 writeStdout("\n");
@@ -152,8 +157,14 @@ fn runFile(vm: *vm_mod.VM, path: []const u8) !void {
         };
         vm.gc.popRoot();
 
-        if (result != types.VOID) {
-            const s = printer.valueToString(allocator, result, .write) catch continue;
+        // Unwrap MultipleValues for display (extract first value)
+        var display_result = result;
+        if (types.isMultipleValues(display_result)) {
+            const mv = types.toObject(display_result).as(types.MultipleValues);
+            display_result = if (mv.values.len > 0) mv.values[0] else types.VOID;
+        }
+        if (display_result != types.VOID) {
+            const s = printer.valueToString(allocator, display_result, .write) catch continue;
             defer allocator.free(s);
             writeStdout(s);
             writeStdout("\n");
@@ -293,8 +304,13 @@ fn evalInput(vm: *vm_mod.VM, allocator: std.mem.Allocator, input: []const u8) vo
                 writeStdout(ew.buffered());
                 break;
             };
-            if (result != types.VOID) {
-                const s = printer.valueToString(allocator, result, .write) catch continue;
+            var dr = result;
+            if (types.isMultipleValues(dr)) {
+                const mv = types.toObject(dr).as(types.MultipleValues);
+                dr = if (mv.values.len > 0) mv.values[0] else types.VOID;
+            }
+            if (dr != types.VOID) {
+                const s = printer.valueToString(allocator, dr, .write) catch continue;
                 defer allocator.free(s);
                 writeStdout(s);
                 writeStdout("\n");
