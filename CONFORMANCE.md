@@ -55,48 +55,6 @@ Only `syntax-rules` is supported for macro definitions. R7RS-small deliberately 
 
 3 edge cases remain — all with low practical impact and workarounds.
 
-| Gap | Severity | Summary |
-|-----|----------|---------|
-| [Local-variable macro transparency](#local-variable-referential-transparency-in-macros) | Low | `let-syntax` macros can't reference locals from definition site |
-| [`letrec` init restriction](#letrec-init-restriction) | Very low | Indirect forward references not detected — spec says "is an error" |
-| [Unicode case mapping](#unicode-case-mapping) | Low | Latin/Greek/Cyrillic covered; other cased scripts pass through unchanged |
-
----
-
-## Verified conformant behaviors
-
-These areas have been tested and match R7RS behavior:
-
-- Proper tail calls in all R7RS-specified positions: `if`, `begin`, `cond`, `case`, `and`, `or`, `when`, `unless`, `let`/`let*`/`letrec`/`letrec*`, `do`, `guard`, `parameterize`, lambda bodies
-- Hygienic macros: scope-based renaming prevents template-introduced bindings from capturing user variables; referential transparency for global references
-- String literal immutability enforced; `symbol->string` returns immutable strings
-- `file-error?` / `read-error?` return `#t` for file and reader errors respectively
-- Division by zero raises a catchable error: `(guard (e (#t 'caught)) (/ 1 0))` → `caught`
-- `case` with `=>` arrow syntax: `(case 6 ((6) => (lambda (x) (+ x 1))))` → `7`
-- Radix prefixes: `#b1010` → `10`, `#o17` → `15`, `#xff` → `255`
-- Exactness prefixes: `#e1.5` → `1`, `#i3` → `3.0`
-- Multiple values in single-value context: first value extracted automatically
-- `letrec` bare forward references detected at compile time
-- `#!fold-case` / `#!no-fold-case` directives
-- Datum labels: `#0=(a b . #0#)` reads circular structures
-- `write-shared` detects shared/circular structure with two-pass labeling
-- `equal?` terminates on circular structures via visited-set cycle detection
-- Nested quasiquote: `` `(a `(b ,(+ 1 2))) `` correctly preserves inner structure
-- Hex escapes in `|quoted identifiers|`: `|H\x65;llo|` → symbol `Hello`
-- NaN handling: `(eqv? +nan.0 +nan.0)` → `#t`, `(= +nan.0 +nan.0)` → `#f`
-- Negative zero: `(eqv? 0.0 -0.0)` → `#f`, `(= 0.0 -0.0)` → `#t`
-- Library single-load guarantee
-- `dynamic-wind` correctness across continuation jumps
-- `delay`/`force` with memoization
-- `define-record-type`, `syntax-rules` with ellipsis, `cond-expand`
-- Arbitrary-precision integers (bignums): `(expt 2 100)` → exact result, automatic fixnum↔bignum promotion on overflow
-- Exact rationals: `(/ 1 3)` → `1/3`, `(+ 1/3 1/6)` → `1/2`, `(inexact->exact 1.5)` → `3/2`; reader parses `1/2` syntax
-- All 14 standard libraries registered and importable
-
----
-
-## Gap details
-
 ### Local-variable referential transparency in macros
 
 **What the spec requires:** R7RS §4.3 says macros defined with `syntax-rules` are hygienic and referentially transparent — free identifiers in a template refer to bindings where the macro was *defined*, not where it is *used*.
@@ -157,8 +115,6 @@ Local-variable referential transparency in `let-syntax`:
 (let ((x 2)) (m))  ;=> 1  ✓
 ```
 
----
-
 ### `letrec` init restriction
 
 **What the spec requires:** R7RS §4.2.2 says it is an error to evaluate a `letrec` init expression that references another binding being defined.
@@ -184,8 +140,6 @@ Does not detect indirect references:
 ```scheme
 (letrec* ((y 2) (x (+ y 1))) x)  ;=> 3  ✓
 ```
-
----
 
 ### Unicode case mapping
 
@@ -216,3 +170,35 @@ Other scripts (Armenian, Georgian, Cherokee, etc.) pass through unchanged.
         (integer->char (- cp 48))
         ch)))
 ```
+
+---
+
+## Verified conformant behaviors
+
+These areas have been tested and match R7RS behavior:
+
+- Proper tail calls in all R7RS-specified positions: `if`, `begin`, `cond`, `case`, `and`, `or`, `when`, `unless`, `let`/`let*`/`letrec`/`letrec*`, `do`, `guard`, `parameterize`, lambda bodies
+- Hygienic macros: scope-based renaming prevents template-introduced bindings from capturing user variables; referential transparency for global references
+- String literal immutability enforced; `symbol->string` returns immutable strings
+- `file-error?` / `read-error?` return `#t` for file and reader errors respectively
+- Division by zero raises a catchable error: `(guard (e (#t 'caught)) (/ 1 0))` → `caught`
+- `case` with `=>` arrow syntax: `(case 6 ((6) => (lambda (x) (+ x 1))))` → `7`
+- Radix prefixes: `#b1010` → `10`, `#o17` → `15`, `#xff` → `255`
+- Exactness prefixes: `#e1.5` → `1`, `#i3` → `3.0`
+- Multiple values in single-value context: first value extracted automatically
+- `letrec` bare forward references detected at compile time
+- `#!fold-case` / `#!no-fold-case` directives
+- Datum labels: `#0=(a b . #0#)` reads circular structures
+- `write-shared` detects shared/circular structure with two-pass labeling
+- `equal?` terminates on circular structures via visited-set cycle detection
+- Nested quasiquote: `` `(a `(b ,(+ 1 2))) `` correctly preserves inner structure
+- Hex escapes in `|quoted identifiers|`: `|H\x65;llo|` → symbol `Hello`
+- NaN handling: `(eqv? +nan.0 +nan.0)` → `#t`, `(= +nan.0 +nan.0)` → `#f`
+- Negative zero: `(eqv? 0.0 -0.0)` → `#f`, `(= 0.0 -0.0)` → `#t`
+- Library single-load guarantee
+- `dynamic-wind` correctness across continuation jumps
+- `delay`/`force` with memoization
+- `define-record-type`, `syntax-rules` with ellipsis, `cond-expand`
+- Arbitrary-precision integers (bignums): `(expt 2 100)` → exact result, automatic fixnum↔bignum promotion on overflow
+- Exact rationals: `(/ 1 3)` → `1/3`, `(+ 1/3 1/6)` → `1/2`, `(inexact->exact 1.5)` → `3/2`; reader parses `1/2` syntax
+- All 14 standard libraries registered and importable
