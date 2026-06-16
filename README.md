@@ -227,7 +227,7 @@ kaappi/
 │   ├── primitives_r7rs.zig        time, process-context, eval, load
 │   │
 │   ├── testing_helpers.zig        Shared test utilities
-│   └── tests_phase*.zig           Unit tests (split by phase)
+│   └── tests_*.zig             Unit tests by feature (core_eval, macros, io, etc.)
 │
 ├── tests/scheme/                  Scheme-level test suites
 │   ├── phase1/                    Basic eval, arithmetic, lambda

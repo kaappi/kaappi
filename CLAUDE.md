@@ -100,7 +100,7 @@ Stored as UTF-8 byte arrays. All string operations (string-length, string-ref, s
 | `linenoise.zig` | Zig FFI wrapper for vendored linenoise C library |
 | `main.zig` | Entry point, REPL loop with linenoise, file execution |
 | `testing_helpers.zig` | Shared `makeTestVM` helper for unit tests |
-| `tests_phase1–11.zig` | Unit tests split by implementation phase |
+| `tests_*.zig | Unit tests by feature (core_eval, tail_calls, macros, io, etc.) |
 
 ## Zig 0.16 patterns
 
@@ -189,7 +189,7 @@ Always root `Function*` pointers before calling `vm.execute()` — it allocates 
 
 ## Tests
 
-- **Unit tests**: `src/tests_phase1.zig` through `src/tests_phase11.zig` (split by implementation phase). Run all with `zig build test`.
+- **Unit tests**: `src/tests_*.zig` — named by feature: `tests_core_eval.zig`, `tests_macros.zig`, `tests_io.zig`, etc.. Run all with `zig build test`.
 - **Scheme tests**: `tests/scheme/` organized by phase and compliance area. Run individually with `zig build run -- tests/scheme/compliance/vectors.scm`.
 - **Adding tests**: Add Zig tests to the appropriate phase file. For Scheme tests, create `.scm` files that print expected output.
 

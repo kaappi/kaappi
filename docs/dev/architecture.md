@@ -98,7 +98,7 @@ Source code
 | `bytecode_file.zig` | Bytecode serialization/deserialization (.sbc format) |
 | `bench.zig` | Micro-benchmarks |
 | `testing_helpers.zig` | Shared `makeTestVM` helper for unit tests |
-| `tests_phase1-11.zig` | Unit tests split by implementation phase |
+| `tests_*.zig | Unit tests by feature (core_eval, tail_calls, macros, etc.) |
 
 ---
 

@@ -96,7 +96,7 @@ See [docs/dev/testing.md](docs/dev/testing.md) for the complete testing guide.
 
 **Quick summary:**
 
-- Zig unit tests live in `src/tests_phase1.zig` through `src/tests_phase11.zig`
+- Zig unit tests live in `src/tests_*.zig (e.g., tests_core_eval.zig, tests_macros.zig, tests_io.zig)`
 - Scheme integration tests live in `tests/scheme/`
 - Both types of tests must pass
 

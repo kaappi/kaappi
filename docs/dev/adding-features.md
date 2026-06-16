@@ -82,7 +82,7 @@ fn myHigherOrder(args: []const Value) PrimitiveError!Value {
 
 ### 6. Test
 
-Add unit tests in the appropriate `src/tests_phase*.zig` file and/or a Scheme
+Add unit tests in the appropriate `src/tests_*.zig` file and/or a Scheme
 test in `tests/scheme/`.
 
 ---
