@@ -33,6 +33,7 @@ pub const Compiler = struct {
     locals: std.ArrayList(Local),
     upvalues: std.ArrayList(Upvalue),
     macros: std.StringHashMap(Value),
+    globals: ?*std.StringHashMap(Value) = null,
     scope_depth: u16 = 0,
     next_register: u8 = 0,
     parent: ?*Compiler = null,
@@ -62,6 +63,7 @@ pub const Compiler = struct {
             .locals = .empty,
             .upvalues = .empty,
             .macros = std.StringHashMap(Value).init(parent.gc.allocator),
+            .globals = parent.globals,
             .parent = parent,
         };
     }
@@ -378,7 +380,7 @@ pub const Compiler = struct {
 
             // Check if head is a macro keyword
             if (self.lookupMacro(name)) |transformer| {
-                const expanded = expander.expandMacro(self.gc, expr, transformer) catch return CompileError.InvalidSyntax;
+                const expanded = expander.expandMacro(self.gc, expr, transformer, self.globals, &self.macros) catch return CompileError.InvalidSyntax;
                 return self.compileExpr(expanded, dst, is_tail);
             }
         }
@@ -884,8 +886,9 @@ pub fn compileExpression(gc: *memory.GC, expr: Value) CompileError!*types.Functi
     return c.func;
 }
 
-pub fn compileExpressionWithMacros(gc: *memory.GC, expr: Value, vm_macros: *std.StringHashMap(Value)) CompileError!*types.Function {
+pub fn compileExpressionWithMacros(gc: *memory.GC, expr: Value, vm_macros: *std.StringHashMap(Value), vm_globals: ?*std.StringHashMap(Value)) CompileError!*types.Function {
     var c = try Compiler.init(gc);
+    c.globals = vm_globals;
     defer {
         // Copy any new macros defined during compilation back to the VM
         // and register them as GC extra roots

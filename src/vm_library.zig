@@ -147,7 +147,7 @@ fn tryLoadLibraryFromFile(vm: *VM, name_list: Value) !void {
             if (vm.handleTopLevelForm(expr)) |result| {
                 _ = result catch return error.OutOfMemory;
             } else {
-                const func = compiler_mod.compileExpressionWithMacros(vm.gc, expr, &vm.macros) catch return error.InvalidSyntax;
+                const func = compiler_mod.compileExpressionWithMacros(vm.gc, expr, &vm.macros, &vm.globals) catch return error.InvalidSyntax;
                 var func_val = types.makePointer(@ptrCast(func));
                 vm.gc.pushRoot(&func_val);
                 _ = vm.execute(func) catch |err| {
@@ -405,7 +405,7 @@ pub fn handleDefineLibrary(vm: *VM, args: Value) VMError!Value {
                         return VMError.CompileError;
                     };
                 } else {
-                    const func = compiler_mod.compileExpressionWithMacros(vm.gc, body_expr, &vm.macros) catch {
+                    const func = compiler_mod.compileExpressionWithMacros(vm.gc, body_expr, &vm.macros, &vm.globals) catch {
                         vm.gc.allocator.free(lib_name);
                         return VMError.CompileError;
                     };
@@ -461,7 +461,7 @@ pub fn handleDefineLibrary(vm: *VM, args: Value) VMError!Value {
                             return VMError.CompileError;
                         };
                     } else {
-                        const func = compiler_mod.compileExpressionWithMacros(vm.gc, inc_expr, &vm.macros) catch {
+                        const func = compiler_mod.compileExpressionWithMacros(vm.gc, inc_expr, &vm.macros, &vm.globals) catch {
                             vm.gc.allocator.free(lib_name);
                             return VMError.CompileError;
                         };

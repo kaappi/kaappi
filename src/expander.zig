@@ -131,7 +131,7 @@ const Binding = struct {
 // Public API
 // ---------------------------------------------------------------------------
 
-pub fn expandMacro(gc: *GC, expr: Value, transformer_val: Value) !Value {
+pub fn expandMacro(gc: *GC, expr: Value, transformer_val: Value, globals: ?*std.StringHashMap(Value), macros: ?*const std.StringHashMap(Value)) !Value {
     const transformer = types.toObject(transformer_val).as(types.Transformer);
     const input = types.cdr(expr); // skip the keyword
 
@@ -165,7 +165,7 @@ pub fn expandMacro(gc: *GC, expr: Value, transformer_val: Value) !Value {
         const pattern_body = types.cdr(transformer.patterns[i]);
 
         if (matchPattern(pattern_body, input, transformer.literals[0..], &bindings, &bind_count)) {
-            return instantiateTemplate(gc, transformer.templates[i], bindings[0..bind_count], intro_scope, transformer.literals, macro_keyword);
+            return instantiateTemplate(gc, transformer.templates[i], bindings[0..bind_count], intro_scope, transformer.literals, macro_keyword, globals, macros);
         }
     }
 
@@ -357,7 +357,7 @@ fn collectPatternVars(pattern: Value, literals: []const Value, names: *[16][]con
 // Template instantiation
 // ---------------------------------------------------------------------------
 
-fn instantiateTemplate(gc: *GC, template: Value, bindings: []Binding, intro_scope: u32, literals: []const Value, macro_keyword: ?[]const u8) (std.mem.Allocator.Error || ExpandError)!Value {
+fn instantiateTemplate(gc: *GC, template: Value, bindings: []Binding, intro_scope: u32, literals: []const Value, macro_keyword: ?[]const u8, globals: ?*std.StringHashMap(Value), macros: ?*const std.StringHashMap(Value)) (std.mem.Allocator.Error || ExpandError)!Value {
     if (types.isSymbol(template)) {
         const name = types.symbolName(template);
 
@@ -389,8 +389,15 @@ fn instantiateTemplate(gc: *GC, template: Value, bindings: []Binding, intro_scop
             }
         }
 
+        // 4b. Known macro keyword (for mutual recursion in letrec-syntax) -- keep as-is
+        if (macros) |m| {
+            if (m.contains(name)) {
+                return template;
+            }
+        }
+
         // 5. Template-introduced identifier -- rename for hygiene
-        return renameForHygiene(gc, name, intro_scope);
+        return renameForHygiene(gc, name, intro_scope, globals);
     }
 
     if (!types.isPair(template)) return template;
@@ -404,21 +411,21 @@ fn instantiateTemplate(gc: *GC, template: Value, bindings: []Binding, intro_scop
         if (types.isSymbol(maybe_ellipsis) and std.mem.eql(u8, types.symbolName(maybe_ellipsis), "...")) {
             // Replicate elem for each ellipsis binding
             const after = types.cdr(rest);
-            return instantiateEllipsis(gc, elem, after, bindings, intro_scope, literals, macro_keyword);
+            return instantiateEllipsis(gc, elem, after, bindings, intro_scope, literals, macro_keyword, globals, macros);
         }
     }
 
     // Regular pair: recurse
-    const new_car = try instantiateTemplate(gc, types.car(template), bindings, intro_scope, literals, macro_keyword);
+    const new_car = try instantiateTemplate(gc, types.car(template), bindings, intro_scope, literals, macro_keyword, globals, macros);
     // Root new_car to protect from GC during cdr instantiation
     var car_root = new_car;
     gc.pushRoot(&car_root);
     defer gc.popRoot();
-    const new_cdr = try instantiateTemplate(gc, types.cdr(template), bindings, intro_scope, literals, macro_keyword);
+    const new_cdr = try instantiateTemplate(gc, types.cdr(template), bindings, intro_scope, literals, macro_keyword, globals, macros);
     return gc.allocPair(car_root, new_cdr);
 }
 
-fn instantiateEllipsis(gc: *GC, elem_template: Value, rest_template: Value, bindings: []Binding, intro_scope: u32, literals: []const Value, macro_keyword: ?[]const u8) (std.mem.Allocator.Error || ExpandError)!Value {
+fn instantiateEllipsis(gc: *GC, elem_template: Value, rest_template: Value, bindings: []Binding, intro_scope: u32, literals: []const Value, macro_keyword: ?[]const u8, globals: ?*std.StringHashMap(Value), macros: ?*const std.StringHashMap(Value)) (std.mem.Allocator.Error || ExpandError)!Value {
     // Find the ellipsis-bound variable to determine repetition count
     var repeat_count: usize = 0;
     for (bindings) |b| {
@@ -429,7 +436,7 @@ fn instantiateEllipsis(gc: *GC, elem_template: Value, rest_template: Value, bind
     }
 
     // First instantiate the rest (after the ellipsis)
-    const result = try instantiateTemplate(gc, rest_template, bindings, intro_scope, literals, macro_keyword);
+    const result = try instantiateTemplate(gc, rest_template, bindings, intro_scope, literals, macro_keyword, globals, macros);
     var result_root = result;
     gc.pushRoot(&result_root);
     defer gc.popRoot();
@@ -454,7 +461,7 @@ fn instantiateEllipsis(gc: *GC, elem_template: Value, rest_template: Value, bind
             }
             sub_count += 1;
         }
-        const expanded = try instantiateTemplate(gc, elem_template, sub_bindings[0..sub_count], intro_scope, literals, macro_keyword);
+        const expanded = try instantiateTemplate(gc, elem_template, sub_bindings[0..sub_count], intro_scope, literals, macro_keyword, globals, macros);
         var expanded_root = expanded;
         gc.pushRoot(&expanded_root);
         result_root = try gc.allocPair(expanded_root, result_root);
@@ -472,7 +479,7 @@ fn instantiateEllipsis(gc: *GC, elem_template: Value, rest_template: Value, bind
 /// macro invocation (identified by `scope`), the same original name always
 /// maps to the same gensym, ensuring internal references stay consistent
 /// while avoiding capture of user bindings.
-fn renameForHygiene(gc: *GC, name: []const u8, scope: u32) !Value {
+fn renameForHygiene(gc: *GC, name: []const u8, scope: u32, globals: ?*std.StringHashMap(Value)) !Value {
     // Check if we already renamed this (name, scope) pair
     for (scope_table[0..scope_table_count]) |entry| {
         if (entry.scope == scope and std.mem.eql(u8, entry.original_name, name)) {
@@ -502,6 +509,16 @@ fn renameForHygiene(gc: *GC, name: []const u8, scope: u32) !Value {
             .renamed_to = renamed_persistent,
         };
         scope_table_count += 1;
+    }
+
+    // Referential transparency: if the original name refers to an existing
+    // global, alias the gensym to the same value. This way the renamed
+    // identifier still resolves to the definition-site global rather than
+    // being captured by a user local binding of the original name.
+    if (globals) |g| {
+        if (g.get(name)) |global_val| {
+            g.put(renamed_persistent, global_val) catch {};
+        }
     }
 
     return sym_val;

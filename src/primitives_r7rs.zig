@@ -122,7 +122,7 @@ fn evalFn(args: []const Value) PrimitiveError!Value {
     const expr = args[0];
 
     // Compile the expression
-    const func = compiler_mod.compileExpressionWithMacros(gc, expr, &vm.macros) catch return PrimitiveError.TypeError;
+    const func = compiler_mod.compileExpressionWithMacros(gc, expr, &vm.macros, &vm.globals) catch return PrimitiveError.TypeError;
 
     // Create a closure from the compiled function
     var closure_val = gc.allocClosure(func) catch return PrimitiveError.OutOfMemory;
@@ -186,7 +186,7 @@ fn loadFn(args: []const Value) PrimitiveError!Value {
     while (reader.hasMore()) {
         const expr = reader.readDatum() catch return PrimitiveError.TypeError;
 
-        const func = compiler_mod.compileExpressionWithMacros(gc, expr, &vm.macros) catch return PrimitiveError.TypeError;
+        const func = compiler_mod.compileExpressionWithMacros(gc, expr, &vm.macros, &vm.globals) catch return PrimitiveError.TypeError;
         var func_val = types.makePointer(@ptrCast(func));
         gc.pushRoot(&func_val);
 

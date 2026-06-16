@@ -136,7 +136,7 @@ fn runFile(vm: *vm_mod.VM, path: []const u8) !void {
             continue;
         }
 
-        const func = compiler.compileExpressionWithMacros(vm.gc, expr, &vm.macros) catch |err| {
+        const func = compiler.compileExpressionWithMacros(vm.gc, expr, &vm.macros, &vm.globals) catch |err| {
             std.debug.print("Compile error: {}\n", .{err});
             return;
         };
@@ -302,7 +302,7 @@ fn evalInput(vm: *vm_mod.VM, allocator: std.mem.Allocator, input: []const u8) vo
             continue;
         }
 
-        const func = compiler.compileExpressionWithMacros(vm.gc, expr, &vm.macros) catch |err| {
+        const func = compiler.compileExpressionWithMacros(vm.gc, expr, &vm.macros, &vm.globals) catch |err| {
             var errbuf: [256]u8 = undefined;
             var ew: std.Io.Writer = .fixed(&errbuf);
             ew.print("Compile error: {}\n", .{err}) catch {};

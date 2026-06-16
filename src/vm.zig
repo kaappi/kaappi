@@ -885,7 +885,7 @@ pub const VM = struct {
                 continue;
             }
 
-            const func = compiler_mod.compileExpressionWithMacros(self.gc, expr, &self.macros) catch return VMError.CompileError;
+            const func = compiler_mod.compileExpressionWithMacros(self.gc, expr, &self.macros, &self.globals) catch return VMError.CompileError;
             // Root the function to prevent GC from collecting it before execute wraps it in a closure
             var func_val = types.makePointer(@ptrCast(func));
             self.gc.pushRoot(&func_val);
@@ -908,7 +908,7 @@ pub const VM = struct {
         const expr = types.car(rest);
 
         // Compile and evaluate the expression
-        const func = compiler_mod.compileExpressionWithMacros(self.gc, expr, &self.macros) catch return VMError.CompileError;
+        const func = compiler_mod.compileExpressionWithMacros(self.gc, expr, &self.macros, &self.globals) catch return VMError.CompileError;
         var func_val = types.makePointer(@ptrCast(func));
         self.gc.pushRoot(&func_val);
         const result = self.execute(func) catch |err| {
