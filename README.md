@@ -85,7 +85,7 @@ kaappi> (char-alphabetic? #\λ)
 
 ### Data
 
-- **Numeric tower** — fixnum (63-bit i64), flonum (IEEE 754 f64), complex; mixed arithmetic with automatic promotion
+- **Numeric tower** — fixnum (63-bit), bignum (arbitrary precision), flonum (IEEE 754 f64), complex; automatic promotion on overflow
 - **Full Unicode** — UTF-8 strings indexed by codepoint, Unicode character classification (Latin, Greek, Cyrillic, Arabic, Hebrew, CJK, and more), case mapping
 - **Vectors and bytevectors** — `#(1 2 3)` and `#u8(10 20 30)` literals, `map`, `for-each`, `copy`, `append`
 - **Records** — `define-record-type` with constructors, predicates, field accessors and mutators
@@ -103,7 +103,7 @@ kaappi> (char-alphabetic? #\λ)
 
 | Type | Representation | Allocation |
 |------|---------------|------------|
-| Integer | 63-bit signed fixnum | None (tagged in u64 low bit) |
+| Integer | 63-bit fixnum or arbitrary-precision bignum | Fixnum: none (tagged); bignum: heap |
 | Real | IEEE 754 f64 | Heap |
 | Complex | Pair of f64 | Heap |
 | Boolean | `#t` / `#f` | None (immediate) |
@@ -325,7 +325,7 @@ kaappi/
 
 ## R7RS conformance
 
-Kaappi implements every identifier from R7RS Appendix A. 5 intentional design choices (no bignum, no exact rationals, stack-copying continuations, continuation scope, no syntax-case) and 3 low-severity edge cases remain.
+Kaappi implements every identifier from R7RS Appendix A. 4 intentional design choices (no exact rationals, stack-copying continuations, continuation scope, no syntax-case) and 3 low-severity edge cases remain.
 
 See **[CONFORMANCE.md](CONFORMANCE.md)** for the full details: design rationale, gap explanations with code examples and workarounds, and the complete list of verified conformant behaviors.
 

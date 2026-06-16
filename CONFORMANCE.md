@@ -12,8 +12,7 @@ These are intentional deviations from the full R7RS numeric/continuation/macro t
 
 | Area | Behavior | Rationale |
 |------|----------|-----------|
-| **No bignum** | Integers are 63-bit signed fixnums. Overflow wraps silently. | §6.2.3 allows limited range. 63 bits covers all practical index/size operations. |
-| **No exact rationals** | `/` with non-divisible integers returns a flonum. `inexact->exact` truncates. `1/2` syntax not parsed. | §6.2.3 allows omitting rationals. Use `(/ 1 2)` for `0.5`. |
+| **No exact rationals** | `/` with non-divisible integers returns a flonum. `inexact->exact` truncates. `1/2` syntax not parsed. | §6.2.3 allows omitting rationals. Use `(/ 1 2)` for `0.5`. Bignum support makes rationals feasible as a future addition. |
 | **Stack-copying continuations** | `call/cc` snapshots full VM state (registers, frames, handlers, wind stack) — O(depth) per capture. | Correct and fully re-entrant. Simpler than CPS transform or segmented stacks. |
 | **Continuation scope** | A multi-shot continuation captured in one top-level form cannot re-enter subsequent top-level forms. | The REPL evaluates forms one at a time. Wrap in `(begin ...)` to span them. |
 | **No `syntax-case`** | Only `syntax-rules` is supported. | R7RS-small specifies `syntax-rules` only. |
@@ -58,6 +57,7 @@ These areas have been tested and match R7RS behavior:
 - `dynamic-wind` correctness across continuation jumps
 - `delay`/`force` with memoization
 - `define-record-type`, `syntax-rules` with ellipsis, `cond-expand`
+- Arbitrary-precision integers (bignums): `(expt 2 100)` → exact result, automatic fixnum↔bignum promotion on overflow
 - All 14 standard libraries registered and importable
 
 ---
