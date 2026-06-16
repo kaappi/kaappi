@@ -323,6 +323,21 @@ kaappi/
 
 ---
 
+## Documentation
+
+| Document | Description |
+|----------|-------------|
+| [User Guide](docs/guide.md) | Installation, REPL, language tutorial, command-line reference |
+| [Procedure Reference](docs/procedures.md) | All 360+ built-in procedures with descriptions |
+| [Library Authoring Guide](docs/libraries.md) | Writing and using R7RS libraries |
+| [Contributing](CONTRIBUTING.md) | How to build, test, and contribute |
+| [Architecture](docs/dev/architecture.md) | Pipeline, value representation, GC, file organization |
+| [Adding Features](docs/dev/adding-features.md) | Step-by-step guides for extending the implementation |
+| [Testing Guide](docs/dev/testing.md) | Unit tests, Scheme tests, benchmarks, CI |
+| [R7RS Conformance](CONFORMANCE.md) | Design choices, gaps, and verified behaviors |
+
+---
+
 ## R7RS conformance
 
 Kaappi implements every identifier from R7RS Appendix A. 4 intentional design choices (no exact rationals, stack-copying continuations, continuation scope, no syntax-case) and 3 low-severity edge cases remain.
