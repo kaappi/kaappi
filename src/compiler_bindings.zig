@@ -20,6 +20,26 @@ pub fn compileLet(self: *Compiler, args: Value, dst: u8, is_tail: bool) CompileE
     const body = types.cdr(args);
     if (body == types.NIL) return CompileError.InvalidSyntax;
 
+    // Tail-call optimization for (let ((var init)) var):
+    // When the let is in tail position, has exactly one binding, and the body
+    // is just a reference to that binding, the init IS the tail expression.
+    if (is_tail and types.isPair(bindings) and types.cdr(bindings) == types.NIL) {
+        const binding = types.car(bindings);
+        if (types.isPair(binding)) {
+            const var_name = types.car(binding);
+            if (types.isSymbol(var_name) and types.isPair(body) and types.cdr(body) == types.NIL) {
+                const body_expr = types.car(body);
+                if (types.isSymbol(body_expr) and
+                    std.mem.eql(u8, types.symbolName(body_expr), types.symbolName(var_name)))
+                {
+                    const init_expr = types.car(types.cdr(binding));
+                    try self.compileExpr(init_expr, dst, true);
+                    return;
+                }
+            }
+        }
+    }
+
     // Phase 1: evaluate all inits (no new locals visible yet)
     var slots: [32]u8 = undefined;
     var names: [32][]const u8 = undefined;
