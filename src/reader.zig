@@ -509,6 +509,24 @@ pub const Reader = struct {
                 self.pos += 1;
                 return self.readNumber();
             },
+            'e' => {
+                self.pos += 1;
+                const tok = try self.readNumber();
+                return switch (tok) {
+                    .fixnum => tok,
+                    .flonum => |f| .{ .fixnum = @intFromFloat(f) },
+                    else => ReadError.InvalidNumber,
+                };
+            },
+            'i' => {
+                self.pos += 1;
+                const tok = try self.readNumber();
+                return switch (tok) {
+                    .flonum => tok,
+                    .fixnum => |n| .{ .flonum = @floatFromInt(n) },
+                    else => ReadError.InvalidNumber,
+                };
+            },
             else => return ReadError.UnexpectedChar,
         }
     }

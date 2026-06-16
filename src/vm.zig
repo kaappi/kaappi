@@ -647,7 +647,11 @@ pub const VM = struct {
                 },
                 .@"return" => {
                     const src = self.readU8(frame);
-                    const result = self.registers[frame.base + src];
+                    var result = self.registers[frame.base + src];
+                    if (types.isMultipleValues(result)) {
+                        const mv = types.toObject(result).as(types.MultipleValues);
+                        result = if (mv.values.len > 0) mv.values[0] else types.VOID;
+                    }
                     const return_dst = frame.dst;
                     self.frame_count -= 1;
                     if (self.frame_count <= target_frame_count) {

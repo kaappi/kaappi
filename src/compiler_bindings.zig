@@ -122,6 +122,18 @@ pub fn compileLetrec(self: *Compiler, args: Value, dst: u8, is_tail: bool) Compi
         binding_list = types.cdr(binding_list);
     }
 
+    // Check letrec restriction: init must not be a bare reference to another binding
+    for (0..count) |i| {
+        if (types.isSymbol(inits[i])) {
+            const init_name = types.symbolName(inits[i]);
+            for (0..count) |j| {
+                if (i != j and std.mem.eql(u8, types.symbolName(syms[j]), init_name)) {
+                    return CompileError.InvalidSyntax;
+                }
+            }
+        }
+    }
+
     // Phase 2: evaluate inits and assign to globals (variables visible during evaluation)
     for (0..count) |i| {
         try self.compileExpr(inits[i], dst, false);

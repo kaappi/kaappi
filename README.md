@@ -339,15 +339,13 @@ These are acknowledged edge cases with workarounds. The spec phrase "is an error
 
 | Gap | Impact | Workaround |
 |-----|--------|------------|
-| **No exactness prefixes** (`#e`, `#i`) | Cannot force exactness at read time | Use `(exact x)` / `(inexact x)` after reading |
 | **No datum labels** (`#n=`, `#n#`) | Cannot read shared/circular literals | Build circular structures with `set-car!`/`set-cdr!` |
 | **No `#!fold-case`** | Cannot switch to case-insensitive reading | Case sensitivity is the R7RS default |
 | **Nested quasiquote** | `` `(a `(b ,(+ 1 2))) `` treats inner qq as literal | Use explicit `list`/`cons` for nested template construction |
 | **Macro hygiene incomplete** | Template-introduced identifiers not gensym-renamed | Simple macros work; avoid macros that introduce `let` bindings shadowing user variables |
 | **`write-shared`/`write-simple`** | Aliases for `write`; no cycle detection on output | Avoid writing circular structures |
 | **`equal?` on distinct circular structures** | May loop if two different circular objects have same shape | Use `eq?` for identity; `(equal? x x)` terminates via pointer check |
-| **`letrec` init restriction** | Forward refs to other bindings read `void` silently | Spec says "is an error" — use `letrec*` for sequential init |
-| **Multiple values in wrong context** | `(let ((x (values 1 2))) x)` returns a values object | Use `call-with-values` or `let-values` to receive multiple values |
+| **`letrec` init restriction** | Bare variable references to sibling bindings are detected and rejected; complex expressions that indirectly reference siblings are not checked | Spec says "is an error" — use `letrec*` for sequential init |
 | **Unicode case mapping** | Covers Latin, Greek, Cyrillic only | Other scripts pass through `char-upcase`/`char-downcase` unchanged |
 
 ### Fully conformant
@@ -357,7 +355,9 @@ These are acknowledged edge cases with workarounds. The spec phrase "is an error
 - `file-error?` / `read-error?` return `#t` for file and reader errors respectively
 - Division by zero raises a catchable error: `(guard (e (#t 'caught)) (/ 1 0))` → `caught`
 - `case` with `=>` arrow syntax: `(case 6 ((6) => (lambda (x) (+ x 1))))` → `7`
-- Radix prefixes: `#b1010` → `10`, `#o17` → `15`, `#xff` → `255`
+- Radix prefixes: `#b1010` → `10`, `#o17` → `15`, `#xff` → `255`; exactness prefixes: `#e1.5` → `1`, `#i3` → `3.0`
+- Multiple values in single-value context: first value extracted automatically
+- `letrec` bare forward references detected at compile time
 - Hex escapes in `|quoted identifiers|`: `|H\x65;llo|` → symbol `Hello`
 - NaN: `(eqv? +nan.0 +nan.0)` → `#t`, `(= +nan.0 +nan.0)` → `#f`
 - Negative zero: `(eqv? 0.0 -0.0)` → `#f`, `(= 0.0 -0.0)` → `#t`
