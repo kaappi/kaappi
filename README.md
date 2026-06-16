@@ -335,11 +335,13 @@ Kaappi implements every identifier from R7RS Appendix A. The following documents
 
 ### Remaining gaps
 
-| Gap | Impact | Workaround |
-|-----|--------|------------|
-| **Macro hygiene** | Scope-based renaming covers common cases; deeply nested macro-defining-macro scenarios may have edge cases | Standard `syntax-rules` macros (including `or`, `swap!`) are fully hygienic |
-| **`letrec` init restriction** | Bare variable references to sibling bindings are detected and rejected; complex expressions that indirectly reference siblings are not checked | Spec says "is an error" (§1.3.2) — use `letrec*` for sequential init |
-| **Unicode case mapping** | Covers Latin, Greek, Cyrillic only | Other scripts pass through `char-upcase`/`char-downcase` unchanged |
+3 edge cases remain — all with low practical impact and workarounds. See **[GAPS.md](GAPS.md)** for detailed explanations, code examples, and architectural discussion.
+
+| Gap | Severity | Details |
+|-----|----------|---------|
+| **Local-variable macro transparency** | Low | `let-syntax` macros can't reference locals from definition site — requires environment capture ([details](GAPS.md#1-local-variable-referential-transparency-in-macros)) |
+| **`letrec` init restriction** | Very low | Indirect forward references not detected — spec says "is an error" ([details](GAPS.md#2-letrec-init-restriction-partial)) |
+| **Unicode case mapping** | Low | Latin/Greek/Cyrillic covered; other cased scripts pass through unchanged ([details](GAPS.md#3-unicode-case-mapping-latingreek cyrillic-only)) |
 
 ### Fully conformant
 
