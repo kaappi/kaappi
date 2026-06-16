@@ -176,9 +176,22 @@ pub const VM = struct {
 
     /// Call a handler procedure with a single argument, using the VM's call machinery.
     /// Used by with-exception-handler when an exception is caught.
-    pub fn callHandler(self: *VM, handler_val: Value, arg: Value) VMError!Value {
+    /// Call a 1-argument procedure re-entrantly from native code.
+    /// `return_dst` is the register offset (relative to the *caller's* base)
+    /// where the procedure's result should land if its frame ever returns via
+    /// the normal RETURN path — which happens when the frame is captured in a
+    /// continuation and later restored (the re-entrant runUntil that would
+    /// otherwise capture the return value is gone by then). In the normal,
+    /// non-captured path the result is delivered via runUntil's return value and
+    /// `return_dst` is unused, so callers that never expose the frame to capture
+    /// (e.g. exception handlers) can pass 0.
+    pub fn callHandler(self: *VM, handler_val: Value, arg: Value, return_dst: u8) VMError!Value {
         if (types.isContinuation(handler_val)) {
             const cont = types.toObject(handler_val).as(types.Continuation);
+            if (cont.is_escape) {
+                try vm_continuations.invokeEscape(self, cont, arg);
+                return VMError.ContinuationInvoked;
+            }
             vm_continuations.performWindTransition(self, cont.wind_records[0..cont.wind_count], cont.wind_count) catch return VMError.OutOfMemory;
             vm_continuations.restoreContinuation(self, cont, arg);
             return VMError.ContinuationInvoked;
@@ -213,7 +226,7 @@ pub const VM = struct {
                 .code = func.code.items,
                 .ip = 0,
                 .base = base,
-                .dst = 0,
+                .dst = return_dst,
             };
             self.frame_count += 1;
 

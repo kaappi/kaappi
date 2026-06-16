@@ -89,7 +89,7 @@ fn withExceptionHandlerFn(args: []const Value) PrimitiveError!Value {
             vm.popHandler();
             const exc = vm.current_exception orelse types.FALSE;
             vm.current_exception = null;
-            const handler_result = vm.callHandler(handler, exc) catch |herr| {
+            const handler_result = vm.callHandler(handler, exc, 0) catch |herr| {
                 return switch (herr) {
                     vm_mod.VMError.ContinuationInvoked => PrimitiveError.ContinuationInvoked,
                     vm_mod.VMError.ExceptionRaised => PrimitiveError.ExceptionRaised,
@@ -187,7 +187,7 @@ fn callWithCurrentContinuation(args: []const Value) PrimitiveError!Value {
     vm.gc.pushRoot(&cont_val);
 
     // Call proc(continuation)
-    const result = vm.callHandler(proc, cont_val) catch |err| {
+    const result = vm.callHandler(proc, cont_val, base_reg) catch |err| {
         vm.gc.popRoot();
         return switch (err) {
             vm_mod.VMError.ContinuationInvoked => PrimitiveError.ContinuationInvoked,
@@ -228,7 +228,7 @@ fn callWithEscapeContinuation(args: []const Value) PrimitiveError!Value {
     vm.gc.pushRoot(&cont_val);
     const cont_obj = types.toObject(cont_val).as(types.Continuation);
 
-    const result = vm.callHandler(proc, cont_val) catch |err| {
+    const result = vm.callHandler(proc, cont_val, base_reg) catch |err| {
         // The extent has ended (escape unwound through here, or proc errored).
         cont_obj.valid = false;
         vm.gc.popRoot();
@@ -342,7 +342,7 @@ fn callWithValuesFn(args: []const Value) PrimitiveError!Value {
         return result;
     } else {
         // Single value -- call consumer with one argument
-        const result = vm.callHandler(consumer, produced) catch |err| {
+        const result = vm.callHandler(consumer, produced, 0) catch |err| {
             return switch (err) {
                 vm_mod.VMError.ContinuationInvoked => PrimitiveError.ContinuationInvoked,
                 vm_mod.VMError.ExceptionRaised => PrimitiveError.ExceptionRaised,

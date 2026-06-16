@@ -180,3 +180,56 @@ test "dynamic-wind with escape continuation" {
     try std.testing.expectEqualStrings("in", types.symbolName(types.car(log)));
     try std.testing.expectEqualStrings("out", types.symbolName(types.car(types.cdr(log))));
 }
+
+test "nested call/cc — inner continuation escapes" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    // Inner continuation escapes while captured inside an outer call/cc.
+    // Regression: previously returned NotAProcedure because the call/cc proc
+    // frame was restored with dst=0 instead of the call/cc result register.
+    const r1 = try vm.eval("(call/cc (lambda (o) (call/cc (lambda (i) (i 5)))))");
+    try std.testing.expectEqual(@as(i64, 5), types.toFixnum(r1));
+
+    const r2 = try vm.eval("(call/cc (lambda (o) (+ 1 (call/cc (lambda (i) (i 5))))))");
+    try std.testing.expectEqual(@as(i64, 6), types.toFixnum(r2));
+
+    const r3 = try vm.eval("(call/cc (lambda (o) (let ((x (call/cc (lambda (i) (i 5))))) (+ 1 x))))");
+    try std.testing.expectEqual(@as(i64, 6), types.toFixnum(r3));
+}
+
+test "nested call/cc — outer continuation escapes from inner" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    const r = try vm.eval("(call/cc (lambda (o) (+ 1 (call/cc (lambda (i) (o 7))))))");
+    try std.testing.expectEqual(@as(i64, 7), types.toFixnum(r));
+}
+
+test "triple nested call/cc — innermost escapes" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    const r = try vm.eval(
+        \\(call/cc (lambda (a)
+        \\  (+ 1 (call/cc (lambda (b)
+        \\    (+ 10 (call/cc (lambda (c) (c 100)))))))))
+    );
+    try std.testing.expectEqual(@as(i64, 111), types.toFixnum(r));
+}
+
+test "nested call/ec — inner escapes inside outer" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    const r = try vm.eval("(call/ec (lambda (o) (+ 1 (call/ec (lambda (i) (i 5))))))");
+    try std.testing.expectEqual(@as(i64, 6), types.toFixnum(r));
+}
