@@ -100,7 +100,12 @@ Stored as UTF-8 byte arrays. All string operations (string-length, string-ref, s
 | `linenoise.zig` | Zig FFI wrapper for vendored linenoise C library |
 | `main.zig` | Entry point, REPL loop with linenoise, file execution |
 | `testing_helpers.zig` | Shared `makeTestVM` helper for unit tests |
-| `tests_*.zig | Unit tests by feature (core_eval, tail_calls, macros, io, etc.) |
+| `tests_*.zig` | Unit tests by feature (core_eval, tail_calls, macros, io, etc.) |
+
+### SRFI libraries (in `lib/srfi/`)
+Portable R7RS .sld files loaded on demand via `(import (srfi N))`. Built-in SRFIs (1, 9, 13, 27, 39, 69, 133) are registered in `library.zig` and take priority over .sld files. Foundation SRFIs (2, 8, 11, 16, 26, 28, 31, 34, 111, 145, 219, 222) are pure Scheme .sld files in `lib/srfi/`.
+
+The library loader in `vm_library.zig` supports `cond-expand`, `include` (paths resolved relative to the .sld file), and `(export (rename ...))` in `define-library`. Macro transformers defined with `define-syntax` in library `begin` blocks are exported and imported correctly.
 
 ## Zig 0.16 patterns
 

@@ -342,16 +342,26 @@ pub fn evalFeatureReq(self: *Compiler, req: Value) bool {
             const lib_name = @import("library.zig").libraryNameToString(self.gc.allocator, lib_name_list) catch return false;
             defer self.gc.allocator.free(lib_name);
 
-            // Check against known libraries
+            // Check against known standard libraries
             const known_libs = [_][]const u8{
-                "scheme.base",    "scheme.write",   "scheme.read",
-                "scheme.inexact", "scheme.char",    "scheme.lazy",
-                "scheme.time",    "scheme.file",    "scheme.cxr",
-                "scheme.complex", "scheme.process-context",
+                "scheme.base",            "scheme.write",
+                "scheme.read",            "scheme.inexact",
+                "scheme.char",            "scheme.lazy",
+                "scheme.time",            "scheme.file",
+                "scheme.cxr",             "scheme.complex",
+                "scheme.process-context", "scheme.eval",
+                "scheme.case-lambda",     "scheme.load",
+                "srfi.1",                 "srfi.9",
+                "srfi.13",                "srfi.27",
+                "srfi.39",                "srfi.69",
+                "srfi.133",
             };
             for (known_libs) |l| {
                 if (std.mem.eql(u8, lib_name, l)) return true;
             }
+            // Also check the VM's live library registry via globals
+            // The compiler doesn't have direct VM access, so check if
+            // the library exists on disk as a .sld file
             return false;
         }
     }

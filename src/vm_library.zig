@@ -10,6 +10,18 @@ const vm_mod = @import("vm.zig");
 const VM = vm_mod.VM;
 const VMError = vm_mod.VMError;
 
+/// Import a binding into the VM, routing macros to vm.macros and values to vm.globals.
+fn importBinding(vm: *VM, name: []const u8, val: Value) !void {
+    if (types.isPointer(val)) {
+        const obj = types.toObject(val);
+        if (obj.tag == .transformer) {
+            vm.macros.put(name, val) catch return error.OutOfMemory;
+            return;
+        }
+    }
+    vm.globals.put(name, val) catch return error.OutOfMemory;
+}
+
 /// Handle (import import-set ...)
 /// Each import-set is one of:
 ///   (lib-name ...)          — import all exports
@@ -59,7 +71,7 @@ fn processImportSet(vm: *VM, import_set: Value) !void {
     if (vm.libraries.get(lib_name)) |lib| {
         var it = lib.exports.iterator();
         while (it.next()) |entry| {
-            vm.globals.put(entry.key_ptr.*, entry.value_ptr.*) catch return error.OutOfMemory;
+            importBinding(vm, entry.key_ptr.*, entry.value_ptr.*) catch return error.OutOfMemory;
         }
         return;
     }
@@ -71,7 +83,7 @@ fn processImportSet(vm: *VM, import_set: Value) !void {
     const lib = vm.libraries.get(lib_name) orelse return error.UndefinedVariable;
     var it = lib.exports.iterator();
     while (it.next()) |entry| {
-        vm.globals.put(entry.key_ptr.*, entry.value_ptr.*) catch return error.OutOfMemory;
+        importBinding(vm, entry.key_ptr.*, entry.value_ptr.*) catch return error.OutOfMemory;
     }
 }
 
@@ -189,6 +201,7 @@ fn resolveLibraryPath(allocator: std.mem.Allocator, rel_path: []const u8, lib_pa
 
 const LibraryMeta = struct {
     export_names: [128][]const u8,
+    export_renames: [128]?[]const u8,
     export_count: usize,
     lib_name: []const u8,
 };
@@ -203,6 +216,7 @@ fn extractExportsAndImports(vm: *VM, source: []const u8) !LibraryMeta {
 
     var result: LibraryMeta = .{
         .export_names = undefined,
+        .export_renames = undefined,
         .export_count = 0,
         .lib_name = "",
     };
@@ -238,7 +252,29 @@ fn extractExportsAndImports(vm: *VM, source: []const u8) !LibraryMeta {
                     const id = types.car(id_list);
                     if (types.isSymbol(id) and result.export_count < 128) {
                         result.export_names[result.export_count] = types.symbolName(id);
+                        result.export_renames[result.export_count] = null;
                         result.export_count += 1;
+                    } else if (types.isPair(id)) {
+                        const eh = types.car(id);
+                        if (types.isSymbol(eh) and std.mem.eql(u8, types.symbolName(eh), "rename")) {
+                            var rl = types.cdr(id);
+                            while (rl != types.NIL and types.isPair(rl)) {
+                                const p = types.car(rl);
+                                if (types.isPair(p)) {
+                                    const os = types.car(p);
+                                    const nr = types.cdr(p);
+                                    if (types.isPair(nr)) {
+                                        const ns = types.car(nr);
+                                        if (types.isSymbol(os) and types.isSymbol(ns) and result.export_count < 128) {
+                                            result.export_names[result.export_count] = types.symbolName(os);
+                                            result.export_renames[result.export_count] = types.symbolName(ns);
+                                            result.export_count += 1;
+                                        }
+                                    }
+                                }
+                                rl = types.cdr(rl);
+                            }
+                        }
                     }
                     id_list = types.cdr(id_list);
                 }
@@ -268,6 +304,12 @@ fn tryLoadLibraryFromFile(vm: *VM, name_list: Value) !void {
     const sld_path = resolveLibraryPath(allocator, rel_path, vm.lib_paths) orelse
         return error.UndefinedVariable;
     defer allocator.free(sld_path);
+
+    // Extract the directory of the .sld file for include path resolution
+    const sld_dir = extractDir(sld_path);
+    const saved_lib_dir = vm.current_lib_dir;
+    vm.current_lib_dir = sld_dir;
+    defer vm.current_lib_dir = saved_lib_dir;
 
     // Read the source file
     const source = readFileContents(allocator, sld_path) catch return error.UndefinedVariable;
@@ -310,19 +352,30 @@ fn tryLoadLibraryFromFile(vm: *VM, name_list: Value) !void {
 
             // Register the library with its exports
             var lib = library_mod.Library.initOwned(allocator, meta.lib_name);
-            for (meta.export_names[0..meta.export_count]) |exp_name| {
-                if (vm.globals.get(exp_name)) |val| {
-                    lib.addExport(exp_name, val) catch {
+            var all_exports_found = true;
+            for (0..meta.export_count) |ei| {
+                const internal = meta.export_names[ei];
+                const exported = meta.export_renames[ei] orelse internal;
+                if (vm.globals.get(internal)) |val| {
+                    lib.addExport(exported, val) catch {
                         lib.deinit();
                         return error.OutOfMemory;
                     };
+                } else {
+                    // Macro exports can't be restored from cached bytecode
+                    all_exports_found = false;
+                    break;
                 }
             }
-            vm.libraries.register(lib) catch {
-                lib.deinit();
-                return error.OutOfMemory;
-            };
-            return;
+            if (all_exports_found) {
+                vm.libraries.register(lib) catch {
+                    lib.deinit();
+                    return error.OutOfMemory;
+                };
+                return;
+            }
+            // Cache didn't restore all exports (macros) — fall through to source compilation
+            lib.deinit();
         }
     }
 
@@ -343,6 +396,65 @@ fn tryLoadLibraryFromFile(vm: *VM, name_list: Value) !void {
             bytecode_file.writeFileWithTopLevel(allocator, compiled_funcs.items, source_hash, sp) catch {};
         }
     }
+}
+
+/// Evaluate a feature requirement for cond-expand in define-library.
+/// Unlike the compiler's evalFeatureReq, this has access to the VM's live library registry.
+fn evalLibFeatureReq(vm: *VM, req: Value) bool {
+    if (types.isSymbol(req)) {
+        const name = types.symbolName(req);
+        const known = [_][]const u8{ "r7rs", "kaappi", "ieee-float", "posix", "exact-closed", "exact-complex" };
+        for (known) |f| {
+            if (std.mem.eql(u8, name, f)) return true;
+        }
+        return false;
+    }
+
+    if (types.isPair(req)) {
+        const head = types.car(req);
+        if (!types.isSymbol(head)) return false;
+        const op = types.symbolName(head);
+
+        if (std.mem.eql(u8, op, "and")) {
+            var rest = types.cdr(req);
+            while (rest != types.NIL) {
+                if (!types.isPair(rest)) return false;
+                if (!evalLibFeatureReq(vm, types.car(rest))) return false;
+                rest = types.cdr(rest);
+            }
+            return true;
+        }
+        if (std.mem.eql(u8, op, "or")) {
+            var rest = types.cdr(req);
+            while (rest != types.NIL) {
+                if (!types.isPair(rest)) return false;
+                if (evalLibFeatureReq(vm, types.car(rest))) return true;
+                rest = types.cdr(rest);
+            }
+            return false;
+        }
+        if (std.mem.eql(u8, op, "not")) {
+            const rest = types.cdr(req);
+            if (!types.isPair(rest)) return false;
+            return !evalLibFeatureReq(vm, types.car(rest));
+        }
+        if (std.mem.eql(u8, op, "library")) {
+            const rest = types.cdr(req);
+            if (!types.isPair(rest)) return false;
+            const lib_name_list = types.car(rest);
+            const lib_name = library_mod.libraryNameToString(vm.gc.allocator, lib_name_list) catch return false;
+            defer vm.gc.allocator.free(lib_name);
+            return vm.libraries.get(lib_name) != null;
+        }
+    }
+    return false;
+}
+
+fn extractDir(path: []const u8) []const u8 {
+    if (std.mem.lastIndexOfScalar(u8, path, '/')) |pos| {
+        return path[0 .. pos + 1];
+    }
+    return "";
 }
 
 /// Read file contents (duplicated from main.zig since we can't import it)
@@ -381,7 +493,7 @@ fn processImportOnly(vm: *VM, args: Value) !void {
         if (!types.isSymbol(id)) return error.InvalidSyntax;
         const id_name = types.symbolName(id);
         if (lib.exports.get(id_name)) |val| {
-            vm.globals.put(id_name, val) catch return error.OutOfMemory;
+            importBinding(vm, id_name, val) catch return error.OutOfMemory;
         }
         id_list = types.cdr(id_list);
     }
@@ -424,7 +536,7 @@ fn processImportExcept(vm: *VM, args: Value) !void {
             }
         }
         if (!is_excluded) {
-            vm.globals.put(entry.key_ptr.*, entry.value_ptr.*) catch return error.OutOfMemory;
+            importBinding(vm, entry.key_ptr.*, entry.value_ptr.*) catch return error.OutOfMemory;
         }
     }
 }
@@ -453,7 +565,7 @@ fn processImportPrefix(vm: *VM, args: Value) !void {
         // Intern via allocSymbol so the name persists in the symbol table
         const sym = vm.gc.allocSymbol(prefixed_buf) catch return error.OutOfMemory;
         const interned_name = types.symbolName(sym);
-        vm.globals.put(interned_name, entry.value_ptr.*) catch return error.OutOfMemory;
+        importBinding(vm, interned_name, entry.value_ptr.*) catch return error.OutOfMemory;
     }
 }
 
@@ -500,7 +612,7 @@ fn processImportRename(vm: *VM, args: Value) !void {
                 break;
             }
         }
-        vm.globals.put(imported_name, entry.value_ptr.*) catch return error.OutOfMemory;
+        importBinding(vm, imported_name, entry.value_ptr.*) catch return error.OutOfMemory;
     }
 }
 
@@ -519,8 +631,9 @@ pub fn handleDefineLibrary(vm: *VM, args: Value) VMError!Value {
     // lib_name is owned by allocator; we need it to persist in the registry.
     // The registry key will reference this string.
 
-    // Collect export names and process declarations
+    // Collect export names and optional renames
     var export_names: [128][]const u8 = undefined;
+    var export_renames: [128]?[]const u8 = undefined;
     var export_count: usize = 0;
 
     // First pass: collect exports and process imports/begin
@@ -544,7 +657,7 @@ pub fn handleDefineLibrary(vm: *VM, args: Value) VMError!Value {
         const decl_name = types.symbolName(decl_head);
 
         if (std.mem.eql(u8, decl_name, "export")) {
-            // (export id ...)
+            // (export id ... (rename old new) ...)
             var id_list = types.cdr(declaration);
             while (id_list != types.NIL) {
                 if (!types.isPair(id_list)) {
@@ -552,13 +665,33 @@ pub fn handleDefineLibrary(vm: *VM, args: Value) VMError!Value {
                     return VMError.CompileError;
                 }
                 const id = types.car(id_list);
-                if (!types.isSymbol(id)) {
-                    vm.gc.allocator.free(lib_name);
-                    return VMError.CompileError;
-                }
-                if (export_count < 128) {
-                    export_names[export_count] = types.symbolName(id);
-                    export_count += 1;
+                if (types.isSymbol(id)) {
+                    if (export_count < 128) {
+                        export_names[export_count] = types.symbolName(id);
+                        export_renames[export_count] = null;
+                        export_count += 1;
+                    }
+                } else if (types.isPair(id)) {
+                    const head = types.car(id);
+                    if (types.isSymbol(head) and std.mem.eql(u8, types.symbolName(head), "rename")) {
+                        var rename_list = types.cdr(id);
+                        while (rename_list != types.NIL and types.isPair(rename_list)) {
+                            const pair = types.car(rename_list);
+                            if (types.isPair(pair)) {
+                                const old_sym = types.car(pair);
+                                const new_rest = types.cdr(pair);
+                                if (types.isPair(new_rest)) {
+                                    const new_sym = types.car(new_rest);
+                                    if (types.isSymbol(old_sym) and types.isSymbol(new_sym) and export_count < 128) {
+                                        export_names[export_count] = types.symbolName(old_sym);
+                                        export_renames[export_count] = types.symbolName(new_sym);
+                                        export_count += 1;
+                                    }
+                                }
+                            }
+                            rename_list = types.cdr(rename_list);
+                        }
+                    }
                 }
                 id_list = types.cdr(id_list);
             }
@@ -624,9 +757,23 @@ pub fn handleDefineLibrary(vm: *VM, args: Value) VMError!Value {
                 const file_str = types.toObject(file_val).as(types.SchemeString);
                 const file_path = file_str.data[0..file_str.len];
 
-                const file_source = readFileContents(vm.gc.allocator, file_path) catch {
-                    vm.gc.allocator.free(lib_name);
-                    return VMError.CompileError;
+                // Resolve include path: try relative to .sld directory first, then CWD
+                var resolved_path: ?[]u8 = null;
+                if (vm.current_lib_dir) |dir| {
+                    if (dir.len > 0 and file_path.len > 0 and file_path[0] != '/') {
+                        resolved_path = std.fmt.allocPrint(vm.gc.allocator, "{s}{s}", .{ dir, file_path }) catch null;
+                    }
+                }
+                defer if (resolved_path) |rp| vm.gc.allocator.free(rp);
+
+                const file_source = blk: {
+                    if (resolved_path) |rp| {
+                        if (readFileContents(vm.gc.allocator, rp)) |src| break :blk src else |_| {}
+                    }
+                    break :blk readFileContents(vm.gc.allocator, file_path) catch {
+                        vm.gc.allocator.free(lib_name);
+                        return VMError.CompileError;
+                    };
                 };
                 defer vm.gc.allocator.free(file_source);
 
@@ -669,7 +816,47 @@ pub fn handleDefineLibrary(vm: *VM, args: Value) VMError!Value {
                 file_list = types.cdr(file_list);
             }
         }
-        // Ignore unknown declarations (cond-expand, include-ci, etc.)
+        else if (std.mem.eql(u8, decl_name, "cond-expand")) {
+            // (cond-expand (feature-req decl ...) ...)
+            var clauses = types.cdr(declaration);
+            var matched = false;
+            while (clauses != types.NIL and !matched) {
+                if (!types.isPair(clauses)) break;
+                const clause = types.car(clauses);
+                clauses = types.cdr(clauses);
+
+                if (!types.isPair(clause)) continue;
+                const feature_req = types.car(clause);
+                const clause_decls = types.cdr(clause);
+
+                const is_else = types.isSymbol(feature_req) and std.mem.eql(u8, types.symbolName(feature_req), "else");
+                const feature_match = is_else or evalLibFeatureReq(vm, feature_req);
+
+                if (feature_match) {
+                    matched = true;
+                    // Splice matching clause's declarations into the current declaration stream
+                    // by prepending them to the remaining decl list
+                    const spliced = clause_decls;
+                    var last_pair: Value = types.NIL;
+                    // Find the end of the spliced list to append remaining decls
+                    var scan = spliced;
+                    while (scan != types.NIL and types.isPair(scan)) {
+                        last_pair = scan;
+                        scan = types.cdr(scan);
+                    }
+                    if (last_pair != types.NIL) {
+                        // Temporarily modify the cdr of the last pair to chain in remaining decls
+                        // This is safe because the reader-produced list is ephemeral
+                        const remaining = types.cdr(decl);
+                        types.setCdr(last_pair, remaining);
+                        decl = spliced;
+                        continue; // re-enter the main loop with spliced decls
+                    }
+                }
+            }
+            // If cond-expand matched and spliced, we already set decl above
+            if (matched) continue;
+        }
 
         decl = types.cdr(decl);
     }
@@ -677,9 +864,16 @@ pub fn handleDefineLibrary(vm: *VM, args: Value) VMError!Value {
     // Create the library with exported bindings.
     // Use initOwned so the library takes ownership of lib_name.
     var lib = library_mod.Library.initOwned(vm.gc.allocator, lib_name);
-    for (export_names[0..export_count]) |exp_name| {
-        if (vm.globals.get(exp_name)) |val| {
-            lib.addExport(exp_name, val) catch {
+    for (0..export_count) |i| {
+        const internal_name = export_names[i];
+        const exported_name = export_renames[i] orelse internal_name;
+        if (vm.globals.get(internal_name)) |val| {
+            lib.addExport(exported_name, val) catch {
+                lib.deinit();
+                return VMError.OutOfMemory;
+            };
+        } else if (vm.macros.get(internal_name)) |val| {
+            lib.addExport(exported_name, val) catch {
                 lib.deinit();
                 return VMError.OutOfMemory;
             };

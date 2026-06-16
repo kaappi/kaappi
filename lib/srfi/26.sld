@@ -1,0 +1,50 @@
+(define-library (srfi 26)
+  (import (scheme base))
+  (export cut cute)
+  (begin
+    (define-syntax cut
+      (syntax-rules (<> <...>)
+        ;; No slots — just call
+        ((cut f) f)
+        ;; Variadic
+        ((cut f <...>)
+         (lambda args (apply f args)))
+        ;; One slot patterns
+        ((cut f <>)
+         (lambda (x) (f x)))
+        ((cut f <> b)
+         (lambda (x) (f x b)))
+        ((cut f <> b c)
+         (lambda (x) (f x b c)))
+        ((cut f a <>)
+         (lambda (x) (f a x)))
+        ((cut f a <> c)
+         (lambda (x) (f a x c)))
+        ((cut f a b <>)
+         (lambda (x) (f a b x)))
+        ;; Two slot patterns
+        ((cut f <> <>)
+         (lambda (x y) (f x y)))
+        ((cut f <> <> c)
+         (lambda (x y) (f x y c)))
+        ((cut f <> a <>)
+         (lambda (x y) (f x a y)))
+        ((cut f a <> <>)
+         (lambda (x y) (f a x y)))
+        ;; Slot with variadic
+        ((cut f <> <...>)
+         (lambda (x . rest) (apply f x rest)))
+        ((cut f a <> <...>)
+         (lambda (x . rest) (apply f a x rest)))
+        ;; Fixed args (no slots)
+        ((cut f a)
+         (lambda () (f a)))
+        ((cut f a b)
+         (lambda () (f a b)))
+        ((cut f a b c)
+         (lambda () (f a b c)))))
+
+    (define-syntax cute
+      (syntax-rules ()
+        ((cute . args)
+         (cut . args))))))

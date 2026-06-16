@@ -126,6 +126,8 @@ pub const VM = struct {
     stdout_port: Value = types.VOID,
     stderr_port: Value = types.VOID,
     lib_paths: []const []const u8 = &.{},
+    /// Directory of the .sld file currently being loaded, for resolving include paths.
+    current_lib_dir: ?[]const u8 = null,
     /// When non-null, handleDefineLibrary collects compiled functions here
     /// for .sbc cache writing. Set by tryLoadLibraryFromFile.
     lib_compile_collect: ?*std.ArrayList(*types.Function) = null,

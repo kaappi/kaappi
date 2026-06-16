@@ -207,6 +207,7 @@ fn runFile(vm: *vm_mod.VM, path: []const u8) !void {
     // No cache — compile from source
     var compiled_funcs: std.ArrayList(*types.Function) = .empty;
     defer compiled_funcs.deinit(allocator);
+    var has_imports = false;
 
     var r = reader.Reader.initWithName(vm.gc, source, path);
     defer r.deinit();
@@ -223,6 +224,7 @@ fn runFile(vm: *vm_mod.VM, path: []const u8) !void {
 
         // Check for special top-level forms (import, define-library)
         if (vm.handleTopLevelForm(expr)) |top_result| {
+            has_imports = true;
             const result = top_result catch |err| {
                 const detail = vm.getErrorDetail();
                 if (detail.len > 0) {
@@ -298,8 +300,9 @@ fn runFile(vm: *vm_mod.VM, path: []const u8) !void {
         }
     }
 
-    // Cache compiled bytecode
-    if (compiled_funcs.items.len > 0) {
+    // Cache compiled bytecode (skip when imports are used — GC may have freed
+    // collected function pointers during library loading)
+    if (!has_imports and compiled_funcs.items.len > 0) {
         if (sbc_path) |sp| {
             bytecode_file.writeFileWithTopLevel(allocator, compiled_funcs.items, source_hash, sp) catch {};
         }
