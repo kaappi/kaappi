@@ -201,6 +201,13 @@ Always root `Function*` pointers before calling `vm.execute()` — it allocates 
 
 - No bignum: integers are 63-bit fixnums. Overflow is silent.
 - No exact rationals: `/` with non-divisible exact integers returns inexact.
-- Continuations use stack copying — correct but expensive for deep stacks.
+- `call/cc` uses stack copying (correct, multi-shot); `call/ec` gives an O(1)
+  escape continuation for the common non-local-exit case.
+- Continuations capture only within a single top-level form. A multi-shot
+  continuation captured in one top-level form cannot re-run *subsequent*
+  top-level forms — the driver evaluates forms one at a time, so "the rest of
+  the program" is not part of the captured Scheme stack. Works fully inside any
+  single form; wrap the body in `(begin …)` to span what would otherwise be
+  separate top-level forms.
 - Unicode case mapping covers Latin, Greek, Cyrillic. Other scripts return unchanged.
 - No `tail-form` optimization for `let` (only direct tail calls are optimized).

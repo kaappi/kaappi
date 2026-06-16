@@ -16,14 +16,20 @@
 (display (call/cc (lambda (k) (sum-to 20 k))))  ; expect done
 (newline)
 
-; 4. Multi-shot re-entry: classic generator-style counter using a saved cont
+; 4. Multi-shot re-entry across SEPARATE top-level forms.
+; KNOWN LIMITATION: prints (count 1 result 2), not (count 4 result 4). A
+; continuation captured in one top-level form cannot re-run subsequent
+; top-level forms, because the driver evaluates forms one at a time and the
+; "rest of the program" is not part of the captured Scheme stack. Wrapping the
+; whole body in (begin …) makes it print (count 4 result 4) — see
+; callcc_multishot.scm for the working within-a-single-form version.
 (define k-saved #f)
 (define count 0)
 (define result
   (+ 1 (call/cc (lambda (k) (set! k-saved k) 0))))
 (set! count (+ count 1))
 (if (< count 4) (k-saved count))               ; re-enter 3 times
-(display (list 'count count 'result result))   ; expect (count 4 result 4)
+(display (list 'count count 'result result))   ; LIMITATION: (count 1 result 2)
 (newline)
 
 ; 5. dynamic-wind ordering with continuation escape
