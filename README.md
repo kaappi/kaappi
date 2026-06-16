@@ -46,64 +46,79 @@ kaappi> (char-alphabetic? #\λ)
 
 ## Features
 
-### R7RS compliance
+### Complete R7RS-small implementation
 
-All 14 standard libraries are implemented:
+315 built-in procedures, 32 syntax forms, all 14 standard libraries — every identifier from [Appendix A](https://small.r7rs.org/).
 
-| Library | Procedures | Status |
-|---------|-----------|--------|
-| `(scheme base)` | 230+ | Complete |
-| `(scheme case-lambda)` | 1 | Complete |
-| `(scheme char)` | 21 | Complete |
-| `(scheme complex)` | 6 | Complete |
-| `(scheme cxr)` | 24 | Complete |
-| `(scheme eval)` | 2 | Complete |
-| `(scheme file)` | 10 | Complete |
-| `(scheme inexact)` | 12 | Complete |
-| `(scheme lazy)` | 5 | Complete |
-| `(scheme load)` | 1 | Complete |
-| `(scheme process-context)` | 5 | Complete |
-| `(scheme read)` | 1 | Complete |
-| `(scheme time)` | 3 | Complete |
-| `(scheme write)` | 4 | Complete |
+<details>
+<summary>Standard libraries</summary>
 
-### Language features
+| Library | Exports |
+|---------|---------|
+| `(scheme base)` | 230+ procedures and syntax |
+| `(scheme case-lambda)` | `case-lambda` |
+| `(scheme char)` | 21 Unicode character procedures |
+| `(scheme complex)` | 6 complex number procedures |
+| `(scheme cxr)` | 24 car/cdr compositions |
+| `(scheme eval)` | `eval`, `environment` |
+| `(scheme file)` | 10 file I/O procedures |
+| `(scheme inexact)` | 12 transcendental functions |
+| `(scheme lazy)` | `delay`, `force`, promises |
+| `(scheme load)` | `load` |
+| `(scheme process-context)` | `exit`, `command-line`, env vars |
+| `(scheme read)` | `read` |
+| `(scheme time)` | `current-second`, jiffies |
+| `(scheme write)` | `write`, `display`, `write-shared` |
 
-- **Proper tail calls** — iterative recursion in constant stack space
-- **First-class continuations** — `call/cc` (multi-shot, stack-copying), `call/ec` (O(1) escape), `dynamic-wind`
-- **Hygienic macros** — `syntax-rules` with pattern matching, ellipsis, and literals
-- **Library system** — `define-library`, `import` with `only`/`except`/`rename`/`prefix` modifiers, `.sld` file loading
-- **Numeric tower** — fixnum (i64), flonum (f64), complex numbers, mixed arithmetic
-- **Full Unicode** — UTF-8 strings with codepoint-based indexing, character classification across many scripts (Latin, Greek, Cyrillic, Arabic, Hebrew, CJK, and more), and case mapping for cased scripts (Latin, Greek, Cyrillic)
-- **Exception handling** — `guard`, `raise`, `with-exception-handler`, error objects
-- **Records** — `define-record-type` with constructors, predicates, accessors, mutators
-- **Ports and I/O** — file, string, and bytevector ports; binary and textual I/O
-- **Lazy evaluation** — `delay`, `delay-force`, `force`, promises
+</details>
+
+### Execution
+
+- **Proper tail calls** — `(define (loop n) (loop (+ n 1)))` runs forever without growing the stack
+- **First-class continuations** — multi-shot `call/cc` via stack copying, `dynamic-wind` for cleanup
+- **Exception handling** — `guard`, `raise`, `with-exception-handler`, typed error objects (`file-error?`, `read-error?`)
+
+### Macros and modules
+
+- **Hygienic macros** — `syntax-rules` with scope-based renaming; pattern variables, ellipsis, literals, underscore wildcards; referential transparency for global references
+- **Library system** — `define-library`, `import` with `only`/`except`/`rename`/`prefix`, `.sld` file loading, `cond-expand`
+
+### Data
+
+- **Numeric tower** — fixnum (63-bit i64), flonum (IEEE 754 f64), complex; mixed arithmetic with automatic promotion
+- **Full Unicode** — UTF-8 strings indexed by codepoint, Unicode character classification (Latin, Greek, Cyrillic, Arabic, Hebrew, CJK, and more), case mapping
+- **Vectors and bytevectors** — `#(1 2 3)` and `#u8(10 20 30)` literals, `map`, `for-each`, `copy`, `append`
+- **Records** — `define-record-type` with constructors, predicates, field accessors and mutators
+- **Ports** — file, string, and bytevector ports; textual and binary I/O; datum labels for shared/circular structures
+
+### Other
+
+- **Lazy evaluation** — `delay`, `delay-force`, `force`, `make-promise`
 - **Multiple values** — `values`, `call-with-values`, `let-values`, `let*-values`
-- **Parameter objects** — `make-parameter`, `parameterize` with dynamic-wind integration
-- **Vectors and bytevectors** — mutable arrays with `map`, `for-each`, `copy`, `append`
-- **Quasiquote** — `` ` ``, `,`, `,@` with proper splicing support
+- **Parameters** — `make-parameter`, `parameterize` with `dynamic-wind` integration
+- **Quasiquote** — `` ` ``, `,`, `,@` with proper splicing and nested quasiquote support
+- **REPL** — line editing, persistent history, tab completion, multi-line paren balancing (via [linenoise](https://github.com/antirez/linenoise))
 
 ### Data types
 
-| Type | Representation | Notes |
-|------|---------------|-------|
-| Integer | 63-bit signed fixnum | Tagged in low bit of u64, zero allocation |
-| Real | IEEE 754 f64 | Heap-allocated |
-| Complex | Pair of f64 | `make-rectangular`, `make-polar` |
-| Boolean | Immediate `#t` / `#f` | Only `#f` is falsy |
-| Character | 21-bit Unicode codepoint | Immediate value, supports full Unicode |
-| String | UTF-8 byte array | Codepoint-indexed, heap-allocated |
-| Symbol | Interned string | `eq?`-comparable |
-| Pair | Car/cdr cons cell | Heap-allocated |
-| Vector | Growable value array | `#(1 2 3)` literal syntax |
-| Bytevector | Byte array | `#u8(10 20 30)` literal syntax |
-| Port | File descriptor or buffer | File, string, and bytevector ports |
-| Procedure | Closure or native fn | First-class, supports `apply` |
-| Continuation | Saved VM state | Created by `call/cc` |
-| Promise | Lazy thunk | Created by `delay` |
-| Record | User-defined struct | Created by `define-record-type` |
-| Parameter | Dynamic binding | Created by `make-parameter` |
+| Type | Representation | Allocation |
+|------|---------------|------------|
+| Integer | 63-bit signed fixnum | None (tagged in u64 low bit) |
+| Real | IEEE 754 f64 | Heap |
+| Complex | Pair of f64 | Heap |
+| Boolean | `#t` / `#f` | None (immediate) |
+| Character | 21-bit Unicode codepoint | None (immediate) |
+| String | UTF-8 byte array | Heap, codepoint-indexed |
+| Symbol | Interned string | Heap, `eq?`-comparable |
+| Pair | Car/cdr cons cell | Heap |
+| Vector | Value array | Heap, `#(...)` literal syntax |
+| Bytevector | Byte array | Heap, `#u8(...)` literal syntax |
+| Port | File, string, or bytevector | Heap |
+| Procedure | Closure or native function | Heap |
+| Continuation | Saved VM state | Heap (stack-copied) |
+| Promise | Memoized thunk | Heap |
+| Record | User-defined struct | Heap |
+| Parameter | Dynamic binding cell | Heap |
 
 ---
 
