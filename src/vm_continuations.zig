@@ -93,6 +93,51 @@ pub fn callWithCC(vm: *VM, proc: Value, base: u16) VMError!void {
     try vm.callValue(proc, base, 1);
 }
 
+/// Capture an escape continuation (call/ec). Records only the stack depths to
+/// unwind back to — no register/frame snapshot — so capture is O(1).
+pub fn captureEscape(vm: *VM, dst_reg: u8, dst_base: u16) VMError!Value {
+    return vm.gc.allocEscapeContinuation(
+        vm.frame_count,
+        vm.wind_count,
+        vm.handler_count,
+        dst_reg,
+        dst_base,
+    ) catch return VMError.OutOfMemory;
+}
+
+/// Invoke an escape continuation: unwind the live stack back to the call/ec
+/// point, running any dynamic-wind after-thunks entered since capture, and
+/// deliver `value` to the call/ec result register. The caller then returns
+/// VMError.ContinuationInvoked to unwind the Zig stack to the dispatch loop.
+pub fn invokeEscape(vm: *VM, cont: *types.Continuation, value: Value) VMError!void {
+    if (!cont.valid) {
+        // Invoked after its call/ec call already returned — no live target.
+        const msg = vm.gc.allocString("escape continuation invoked outside its dynamic extent") catch
+            return VMError.OutOfMemory;
+        const err = vm.gc.allocErrorObject(msg, types.NIL) catch return VMError.OutOfMemory;
+        vm.current_exception = err;
+        return VMError.ExceptionRaised;
+    }
+
+    // Run after-thunks for winds entered since capture (we only go outward, so
+    // the common prefix is exactly [0, target_wind_count)).
+    var i = vm.wind_count;
+    while (i > cont.target_wind_count) {
+        i -= 1;
+        _ = vm.callThunk(vm.wind_stack[i].after) catch {};
+    }
+    vm.wind_count = cont.target_wind_count;
+
+    // Discard exception handlers established within the extent.
+    if (cont.target_handler_count <= vm.handler_count) {
+        vm.handler_count = cont.target_handler_count;
+    }
+
+    // Truncate the live stack back to the call/ec point and deliver the value.
+    vm.frame_count = cont.target_frame_count;
+    vm.registers[cont.dst_base + cont.dst_reg] = value;
+}
+
 /// Perform dynamic-wind transition from current wind stack to target wind stack.
 /// Calls after thunks for unwinding and before thunks for rewinding.
 pub fn performWindTransition(vm: *VM, target_winds: []const types.WindRecord, target_count: usize) !void {

@@ -409,6 +409,16 @@ pub const VM = struct {
         return vm_continuations.callWithCC(self, proc, base);
     }
 
+    /// Capture an escape continuation (delegates to vm_continuations).
+    pub fn captureEscape(self: *VM, dst_reg: u8, dst_base: u16) VMError!Value {
+        return vm_continuations.captureEscape(self, dst_reg, dst_base);
+    }
+
+    /// Invoke an escape continuation (delegates to vm_continuations).
+    pub fn invokeEscape(self: *VM, cont: *types.Continuation, value: Value) VMError!void {
+        return vm_continuations.invokeEscape(self, cont, value);
+    }
+
     /// Perform dynamic-wind transition (delegates to vm_continuations).
     pub fn performWindTransition(self: *VM, target_winds: []const types.WindRecord, target_count: usize) !void {
         return vm_continuations.performWindTransition(self, target_winds, target_count);
@@ -545,8 +555,12 @@ pub const VM = struct {
                     } else if (types.isContinuation(callee)) {
                         const cont = types.toObject(callee).as(types.Continuation);
                         const value = if (nargs == 0) types.VOID else self.registers[abs_base + 1];
-                        self.performWindTransition(cont.wind_records[0..cont.wind_count], cont.wind_count) catch return VMError.OutOfMemory;
-                        self.restoreContinuation(cont, value);
+                        if (cont.is_escape) {
+                            try self.invokeEscape(cont, value);
+                        } else {
+                            self.performWindTransition(cont.wind_records[0..cont.wind_count], cont.wind_count) catch return VMError.OutOfMemory;
+                            self.restoreContinuation(cont, value);
+                        }
                         if (target_frame_count == 0) {
                             continue;
                         }
@@ -736,6 +750,12 @@ pub const VM = struct {
             const cont = types.toObject(callee).as(types.Continuation);
             // Get the value to pass (0 args => void, 1 arg => that arg)
             const value = if (nargs == 0) types.VOID else self.registers[base + 1];
+
+            if (cont.is_escape) {
+                // Escape continuation: unwind the live stack, no snapshot restore.
+                try self.invokeEscape(cont, value);
+                return VMError.ContinuationInvoked;
+            }
 
             // Handle dynamic-wind: unwind current, rewind to saved
             self.performWindTransition(cont.wind_records[0..cont.wind_count], cont.wind_count) catch return VMError.OutOfMemory;

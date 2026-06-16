@@ -27,6 +27,8 @@ pub fn registerControl(vm: *vm_mod.VM) !void {
     // Continuations (R7RS 6.10)
     try reg(vm, "call-with-current-continuation", &callWithCurrentContinuation, .{ .exact = 1 });
     try reg(vm, "call/cc", &callWithCurrentContinuation, .{ .exact = 1 });
+    try reg(vm, "call-with-escape-continuation", &callWithEscapeContinuation, .{ .exact = 1 });
+    try reg(vm, "call/ec", &callWithEscapeContinuation, .{ .exact = 1 });
     try reg(vm, "dynamic-wind", &dynamicWindFn, .{ .exact = 3 });
     try reg(vm, "values", &valuesFn, .{ .variadic = 0 });
     try reg(vm, "call-with-values", &callWithValuesFn, .{ .exact = 2 });
@@ -201,6 +203,47 @@ fn callWithCurrentContinuation(args: []const Value) PrimitiveError!Value {
     // If proc returned normally (without invoking the continuation),
     // store the result where call/cc's result goes.
     _ = abs_base;
+    return result;
+}
+
+/// call-with-escape-continuation / call/ec — like call/cc but the continuation
+/// is escape-only (valid only within the dynamic extent of this call). Capture
+/// is O(1): no register/frame snapshot is taken. Invoking the continuation
+/// outside its extent raises an error.
+fn callWithEscapeContinuation(args: []const Value) PrimitiveError!Value {
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError;
+    const proc = args[0];
+    if (!types.isProcedure(proc)) return PrimitiveError.TypeError;
+
+    const caller = &vm.frames[vm.frame_count - 1];
+    const call_ip = caller.ip;
+    // The call opcode is [opcode:1][base_reg:1][nargs:1]; caller.ip points past
+    // nargs, so base_reg is at caller.ip - 2.
+    const base_reg = caller.code[call_ip - 2];
+
+    const cont = vm.captureEscape(@intCast(base_reg), caller.base) catch return PrimitiveError.OutOfMemory;
+
+    // Root the continuation so it survives GC during the proc call.
+    var cont_val = cont;
+    vm.gc.pushRoot(&cont_val);
+    const cont_obj = types.toObject(cont_val).as(types.Continuation);
+
+    const result = vm.callHandler(proc, cont_val) catch |err| {
+        // The extent has ended (escape unwound through here, or proc errored).
+        cont_obj.valid = false;
+        vm.gc.popRoot();
+        return switch (err) {
+            vm_mod.VMError.ContinuationInvoked => PrimitiveError.ContinuationInvoked,
+            vm_mod.VMError.ExceptionRaised => PrimitiveError.ExceptionRaised,
+            vm_mod.VMError.OutOfMemory => PrimitiveError.OutOfMemory,
+            vm_mod.VMError.ArityMismatch => PrimitiveError.TypeError,
+            else => PrimitiveError.TypeError,
+        };
+    };
+
+    // proc returned normally without escaping; the extent is over.
+    cont_obj.valid = false;
+    vm.gc.popRoot();
     return result;
 }
 

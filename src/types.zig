@@ -277,8 +277,20 @@ pub const Continuation = struct {
     dst_base: u16, // base register of the return frame
     // Single backing allocation holding registers, frames, handlers and winds
     // contiguously. The four slices above are views into this buffer; it is
-    // freed as one block on sweep.
+    // freed as one block on sweep. Empty for escape continuations.
     backing: []Value,
+    // --- Escape continuations (call/ec) ---
+    // An escape continuation captures no snapshot: it only records the stack
+    // depths to unwind *back* to (the call/ec point is still live on the stack).
+    // When is_escape is true the four slices above are empty and frame_count/
+    // handler_count/wind_count are 0 (so GC mark loops are no-ops); the unwind
+    // targets live in the target_* fields below. `valid` is cleared once the
+    // call/ec call returns, after which invoking the continuation is an error.
+    is_escape: bool = false,
+    valid: bool = true,
+    target_frame_count: usize = 0,
+    target_wind_count: usize = 0,
+    target_handler_count: usize = 0,
 };
 
 /// Multiple return values (R7RS values/call-with-values).

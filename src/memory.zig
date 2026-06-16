@@ -439,6 +439,43 @@ pub const GC = struct {
         return types.makePointer(@ptrCast(cont));
     }
 
+    /// Allocate an escape continuation (call/ec). Unlike a full continuation,
+    /// this copies nothing: it records only the stack depths to unwind back to.
+    /// Capture is therefore O(1) with a single allocation and no backing buffer.
+    pub fn allocEscapeContinuation(
+        self: *GC,
+        target_frame_count: usize,
+        target_wind_count: usize,
+        target_handler_count: usize,
+        dst_reg: u8,
+        dst_base: u16,
+    ) !Value {
+        self.maybeCollect();
+        const cont = try self.allocator.create(Continuation);
+        cont.* = .{
+            .header = .{ .tag = .continuation },
+            // No snapshot: empty slices keep GC mark loops no-ops.
+            .registers = &.{},
+            .frames = &.{},
+            .frame_count = 0,
+            .handlers = &.{},
+            .handler_count = 0,
+            .wind_records = &.{},
+            .wind_count = 0,
+            .dst_reg = dst_reg,
+            .dst_base = dst_base,
+            .backing = &.{},
+            .is_escape = true,
+            .valid = true,
+            .target_frame_count = target_frame_count,
+            .target_wind_count = target_wind_count,
+            .target_handler_count = target_handler_count,
+        };
+        self.bytes_allocated += @sizeOf(Continuation);
+        self.trackObject(&cont.header);
+        return types.makePointer(@ptrCast(cont));
+    }
+
     pub fn allocComplex(self: *GC, real: f64, imag: f64) !Value {
         self.maybeCollect();
         const c = try self.allocator.create(types.Complex);
@@ -731,8 +768,9 @@ pub const GC = struct {
             .continuation => {
                 const cont = obj.as(Continuation);
                 // registers/frames/handlers/wind_records are all views into
-                // the single backing allocation; free it once.
-                self.allocator.free(cont.backing);
+                // the single backing allocation; free it once. Escape
+                // continuations have no backing (empty slice).
+                if (cont.backing.len > 0) self.allocator.free(cont.backing);
                 self.allocator.destroy(cont);
             },
             .multiple_values => {

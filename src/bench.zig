@@ -1,13 +1,15 @@
-// call/cc capture micro-benchmark.
+// call/cc and call/ec capture micro-benchmark.
 //
-// Isolates the cost of the continuation *capture path* (captureContinuation +
-// allocContinuation + restoreContinuation) by running a tight call/cc loop at
-// an elevated call-stack depth. GC is disabled during the timed region so the
-// measurement reflects capture/restore copy + allocation cost rather than
-// collector overhead (the two capture variants share identical GC behaviour,
-// so GC noise would only obscure the comparison).
+// Isolates the cost of the continuation *capture path* by running a tight loop
+// of immediately-escaping captures at an elevated call-stack depth. GC is
+// disabled during the timed region so the measurement reflects capture/restore
+// copy + allocation cost rather than collector overhead.
+//
+//   call/cc -> full snapshot capture (registers + frames), O(stack)
+//   call/ec -> escape continuation, O(1) capture (no snapshot)
 //
 // Build/run:  zig build bench
+//   (best with -Doptimize=ReleaseFast)
 
 const std = @import("std");
 const types = @import("types.zig");
@@ -16,15 +18,17 @@ const vm_mod = @import("vm.zig");
 const primitives = @import("primitives.zig");
 const library = @import("library.zig");
 
-const Case = struct { depth: u32, iters: u32 };
-
 fn nowNs() u64 {
     var ts: std.c.timespec = undefined;
     _ = std.c.clock_gettime(.MONOTONIC, &ts);
     return @as(u64, @intCast(ts.sec)) * std.time.ns_per_s + @as(u64, @intCast(ts.nsec));
 }
 
-fn run(allocator: std.mem.Allocator, case: Case) !void {
+const Result = struct { ns_per: f64, heap_mb: usize };
+
+/// Time `iters` immediately-escaping captures of `prim` (call/cc or call/ec) at
+/// stack depth `depth`. Each run uses a fresh VM with GC disabled.
+fn measure(allocator: std.mem.Allocator, prim: []const u8, depth: u32, iters: u32) !Result {
     var gc = memory.GC.init(allocator);
     defer gc.deinit();
     var vm = vm_mod.VM.init(&gc);
@@ -33,40 +37,33 @@ fn run(allocator: std.mem.Allocator, case: Case) !void {
     primitives.setGCInstance(&gc);
     try library.registerStandardLibraries(&vm.libraries, &vm.globals);
 
-    // Definitions: build `depth` real (non-tail) frames so the register base is
-    // elevated, then run a tail loop performing `iters` immediately-escaping
-    // call/cc captures.
-    _ = try vm.eval(
+    // at-depth builds `depth` real (non-tail) frames to elevate the register
+    // base; cap runs a tail loop performing `iters` escaping captures.
+    var defs: [256]u8 = undefined;
+    const defs_src = try std.fmt.bufPrint(&defs,
         \\(define (at-depth d t) (if (= d 0) (t) (+ 0 (at-depth (- d 1) t))))
         \\(define (cap n)
         \\  (let loop ((i n) (a 0))
-        \\    (if (= i 0) a (loop (- i 1) (+ a (call/cc (lambda (k) (k 1))))))))
-    );
+        \\    (if (= i 0) a (loop (- i 1) (+ a ({s} (lambda (k) (k 1))))))))
+    , .{prim});
+    _ = try vm.eval(defs_src);
 
     var buf: [128]u8 = undefined;
-    const src = try std.fmt.bufPrint(&buf, "(at-depth {d} (lambda () (cap {d})))", .{ case.depth, case.iters });
+    const src = try std.fmt.bufPrint(&buf, "(at-depth {d} (lambda () (cap {d})))", .{ depth, iters });
 
-    // Disable GC so we measure only the capture/restore path.
-    gc.enabled = false;
+    gc.enabled = false; // measure only the capture/restore path
 
     const start_ns = nowNs();
     const result = try vm.eval(src);
     const elapsed_ns = nowNs() - start_ns;
 
-    if (types.toFixnum(result) != @as(i64, case.iters)) {
-        std.debug.print("  !! wrong result: {d}\n", .{types.toFixnum(result)});
+    if (types.toFixnum(result) != @as(i64, iters)) {
+        std.debug.print("  !! wrong result for {s}: {d}\n", .{ prim, types.toFixnum(result) });
     }
-    const per = @as(f64, @floatFromInt(elapsed_ns)) / @as(f64, @floatFromInt(case.iters));
-    std.debug.print(
-        "  depth={d:>3}  iters={d:>7}  total={d:>7.1}ms  per-capture={d:>7.0}ns  heap={d:>5} MB\n",
-        .{
-            case.depth,
-            case.iters,
-            @as(f64, @floatFromInt(elapsed_ns)) / 1e6,
-            per,
-            gc.bytes_allocated / (1024 * 1024),
-        },
-    );
+    return .{
+        .ns_per = @as(f64, @floatFromInt(elapsed_ns)) / @as(f64, @floatFromInt(iters)),
+        .heap_mb = gc.bytes_allocated / (1024 * 1024),
+    };
 }
 
 pub fn main() !void {
@@ -74,11 +71,18 @@ pub fn main() !void {
     defer _ = da.deinit();
     const allocator = da.allocator();
 
-    std.debug.print("call/cc capture benchmark (GC disabled during timed region)\n", .{});
-    const cases = [_]Case{
-        .{ .depth = 0, .iters = 100000 },
-        .{ .depth = 20, .iters = 100000 },
-        .{ .depth = 40, .iters = 100000 },
-    };
-    for (cases) |c| try run(allocator, c);
+    const iters: u32 = 100000;
+    const depths = [_]u32{ 0, 20, 40 };
+
+    std.debug.print("capture benchmark: {d} immediately-escaping captures, GC off\n", .{iters});
+    std.debug.print("{s:>6} | {s:>22} | {s:>22} | {s:>8}\n", .{ "depth", "call/cc (full)", "call/ec (escape)", "speedup" });
+    std.debug.print("-------+------------------------+------------------------+---------\n", .{});
+    for (depths) |d| {
+        const cc = try measure(allocator, "call/cc", d, iters);
+        const ec = try measure(allocator, "call/ec", d, iters);
+        std.debug.print(
+            "{d:>6} | {d:>9.0} ns  {d:>4} MB | {d:>9.0} ns  {d:>4} MB | {d:>6.1}x\n",
+            .{ d, cc.ns_per, cc.heap_mb, ec.ns_per, ec.heap_mb, cc.ns_per / ec.ns_per },
+        );
+    }
 }

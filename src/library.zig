@@ -149,6 +149,7 @@ pub fn registerStandardLibraries(registry: *LibraryRegistry, globals: *std.Strin
         "eof-object?", "eof-object",
         // Continuations (R7RS 6.10)
         "call-with-current-continuation", "call/cc",
+        "call-with-escape-continuation", "call/ec",
         "dynamic-wind",
         "values", "call-with-values",
         // Complex numbers
