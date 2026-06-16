@@ -56,15 +56,19 @@ test "eval division" {
     try std.testing.expect(types.isFixnum(r1));
     try std.testing.expectEqual(@as(i64, 5), types.toFixnum(r1));
 
-    // Inexact division returns flonum
+    // Non-exact division returns rational
     const r2 = try vm.eval("(/ 10 3)");
-    try std.testing.expect(types.isFlonum(r2));
-    try std.testing.expectApproxEqAbs(@as(f64, 10.0 / 3.0), types.toFlonum(r2), 1e-10);
+    try std.testing.expect(types.isRationalObj(r2));
+    const rat2 = types.toRational(r2);
+    try std.testing.expectEqual(@as(i64, 10), types.toFixnum(rat2.numerator));
+    try std.testing.expectEqual(@as(i64, 3), types.toFixnum(rat2.denominator));
 
-    // Unary division
+    // Unary division returns rational
     const r3 = try vm.eval("(/ 4)");
-    try std.testing.expect(types.isFlonum(r3));
-    try std.testing.expectApproxEqAbs(@as(f64, 0.25), types.toFlonum(r3), 1e-10);
+    try std.testing.expect(types.isRationalObj(r3));
+    const rat3 = types.toRational(r3);
+    try std.testing.expectEqual(@as(i64, 1), types.toFixnum(rat3.numerator));
+    try std.testing.expectEqual(@as(i64, 4), types.toFixnum(rat3.denominator));
 }
 
 test "eval rounding" {

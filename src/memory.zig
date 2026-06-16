@@ -30,6 +30,7 @@ const FfiType = types.FfiType;
 const HashTable = types.HashTable;
 const HashEntry = types.HashEntry;
 const Bignum = types.Bignum;
+const Rational = types.Rational;
 
 const GC_THRESHOLD: usize = 1024;
 
@@ -590,6 +591,19 @@ pub const GC = struct {
         return types.makePointer(@ptrCast(bn));
     }
 
+    pub fn allocRational(self: *GC, num: Value, den: Value) !Value {
+        self.maybeCollect();
+        const rat = try self.allocator.create(Rational);
+        rat.* = .{
+            .header = .{ .tag = .rational },
+            .numerator = num,
+            .denominator = den,
+        };
+        self.bytes_allocated += @sizeOf(Rational);
+        self.trackObject(&rat.header);
+        return types.makePointer(@ptrCast(rat));
+    }
+
     pub fn allocMultipleValues(self: *GC, values: []const Value) !Value {
         self.maybeCollect();
         const owned = try self.allocator.dupe(Value, values);
@@ -745,6 +759,11 @@ pub const GC = struct {
                     self.markValue(entry.key);
                     self.markValue(entry.value);
                 }
+            },
+            .rational => {
+                const rat = obj.as(Rational);
+                self.markValue(rat.numerator);
+                self.markValue(rat.denominator);
             },
             .ffi_library, .ffi_function => {},
             .symbol, .string, .native_fn, .flonum, .port, .complex, .bytevector, .bignum => {},
@@ -909,6 +928,10 @@ pub const GC = struct {
                 const bn = obj.as(Bignum);
                 self.allocator.free(bn.limbs);
                 self.allocator.destroy(bn);
+            },
+            .rational => {
+                const rat = obj.as(Rational);
+                self.allocator.destroy(rat);
             },
         }
     }

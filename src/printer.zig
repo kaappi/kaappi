@@ -402,6 +402,12 @@ pub fn printValue(writer: anytype, value: Value, mode: PrintMode) anyerror!void 
                 defer allocator.free(s);
                 try writer.writeAll(s);
             },
+            .rational => {
+                const rat = obj.as(types.Rational);
+                try printValue(writer, rat.numerator, mode);
+                try writer.writeByte('/');
+                try printValue(writer, rat.denominator, mode);
+            },
         }
     } else {
         try writer.writeAll("#<unknown>");

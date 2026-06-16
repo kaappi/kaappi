@@ -340,7 +340,7 @@ kaappi/
 
 ## R7RS conformance
 
-Kaappi implements every identifier from R7RS Appendix A. 4 intentional design choices (no exact rationals, stack-copying continuations, continuation scope, no syntax-case) and 3 low-severity edge cases remain.
+Kaappi implements every identifier from R7RS Appendix A. 3 intentional design choices (stack-copying continuations, continuation scope, no syntax-case) and 3 low-severity edge cases remain.
 
 See **[CONFORMANCE.md](CONFORMANCE.md)** for the full details: design rationale, gap explanations with code examples and workarounds, and the complete list of verified conformant behaviors.
 

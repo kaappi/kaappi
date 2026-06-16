@@ -14,12 +14,71 @@ fn reg(vm: *vm_mod.VM, name: []const u8, func: types.NativeFnType, arity: Native
     return primitives.reg(vm, name, func, arity);
 }
 
-/// Extended toF64 that also handles bignums.
+/// Extended toF64 that also handles bignums and rationals.
 fn toF64Ext(v: Value) PrimitiveError!f64 {
     if (types.isFixnum(v)) return @floatFromInt(types.toFixnum(v));
     if (types.isFlonum(v)) return types.toFlonum(v);
     if (types.isBignum(v)) return bignum_mod.toF64(v);
+    if (types.isRationalObj(v)) {
+        const r = types.toRational(v);
+        const n = try toF64Ext(r.numerator);
+        const d = try toF64Ext(r.denominator);
+        return n / d;
+    }
     return PrimitiveError.TypeError;
+}
+
+// ---------------------------------------------------------------------------
+// Rational helpers
+// ---------------------------------------------------------------------------
+
+fn anyRational(args: []const Value) bool {
+    for (args) |a| {
+        if (types.isRationalObj(a)) return true;
+    }
+    return false;
+}
+
+const RatParts = struct { num: i64, den: i64 };
+
+/// Extract numerator/denominator from any exact number.
+fn toRationalParts(v: Value) RatParts {
+    if (types.isFixnum(v)) return .{ .num = types.toFixnum(v), .den = 1 };
+    if (types.isRationalObj(v)) {
+        const r = types.toRational(v);
+        return .{ .num = types.toFixnum(r.numerator), .den = types.toFixnum(r.denominator) };
+    }
+    return .{ .num = 0, .den = 1 };
+}
+
+/// Construct a reduced rational (or integer if den divides num).
+/// Always ensures: denominator > 0, gcd(|num|,den) == 1, den==1 => fixnum.
+fn makeRationalReduced(gc: *@import("memory.zig").GC, num_val: Value, den_val: Value) PrimitiveError!Value {
+    if (types.isFixnum(num_val) and types.isFixnum(den_val)) {
+        var n = types.toFixnum(num_val);
+        var d = types.toFixnum(den_val);
+        if (d == 0) return raiseDivByZero();
+        if (n == 0) return types.makeFixnum(0);
+        // Ensure positive denominator
+        if (d < 0) {
+            // Handle overflow of negation
+            if (n == std.math.minInt(i64) or d == std.math.minInt(i64)) {
+                // Fall back to float for these extreme cases
+                const fn_val: f64 = @floatFromInt(n);
+                const fd_val: f64 = @floatFromInt(d);
+                return makeFlonumVal(fn_val / fd_val);
+            }
+            n = -n;
+            d = -d;
+        }
+        const g = gcdTwo(if (n < 0) -n else n, d);
+        n = @divExact(n, g);
+        d = @divExact(d, g);
+        if (d == 1) return types.makeFixnum(n);
+        return gc.allocRational(types.makeFixnum(n), types.makeFixnum(d)) catch return PrimitiveError.OutOfMemory;
+    }
+    // Bignum-containing case: for now pass through without reduction
+    return gc.allocRational(num_val, den_val) catch return PrimitiveError.OutOfMemory;
 }
 
 /// Raise a division-by-zero error through the exception system so that
@@ -124,6 +183,29 @@ pub fn registerArithmetic(vm: *vm_mod.VM) !void {
     try reg(vm, "inexact->exact", &exactFn, .{ .exact = 1 });
 }
 
+/// Public entry point for creating reduced rationals from the reader.
+/// Does not use raiseDivByZero (returns error instead).
+pub fn makeRationalFromReader(gc: *@import("memory.zig").GC, num: i64, den: i64) !Value {
+    if (den == 0) return error.OutOfMemory; // reader should check this
+    var n = num;
+    var d = den;
+    if (n == 0) return types.makeFixnum(0);
+    // Ensure positive denominator
+    if (d < 0) {
+        if (n == std.math.minInt(i64) or d == std.math.minInt(i64)) {
+            // Extreme overflow case: just store as-is
+            return gc.allocRational(types.makeFixnum(n), types.makeFixnum(d));
+        }
+        n = -n;
+        d = -d;
+    }
+    const g = gcdTwo(if (n < 0) -n else n, d);
+    n = @divExact(n, g);
+    d = @divExact(d, g);
+    if (d == 1) return types.makeFixnum(n);
+    return gc.allocRational(types.makeFixnum(n), types.makeFixnum(d));
+}
+
 // ---------------------------------------------------------------------------
 // Arithmetic
 // ---------------------------------------------------------------------------
@@ -203,6 +285,54 @@ fn add(args: []const Value) PrimitiveError!Value {
         }
         return makeFlonumVal(sum);
     }
+    if (anyRational(args)) {
+        const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+        // Rational addition: accumulate as n/d
+        var n: i64 = 0;
+        var d: i64 = 1;
+        for (args) |a| {
+            if (types.isFlonum(a)) {
+                // Mixed: convert accumulator to float
+                var f: f64 = @as(f64, @floatFromInt(n)) / @as(f64, @floatFromInt(d));
+                f += types.toFlonum(a);
+                return makeFlonumVal(f);
+            }
+            if (types.isBignum(a)) {
+                // Fall back to float for bignum + rational
+                var f: f64 = @as(f64, @floatFromInt(n)) / @as(f64, @floatFromInt(d));
+                f += bignum_mod.toF64(a);
+                return makeFlonumVal(f);
+            }
+            const parts = toRationalParts(a);
+            // n/d + parts.num/parts.den = (n*parts.den + parts.num*d) / (d*parts.den)
+            const r1 = @mulWithOverflow(n, parts.den);
+            const r2 = @mulWithOverflow(parts.num, d);
+            const r3 = @mulWithOverflow(d, parts.den);
+            if (r1[1] != 0 or r2[1] != 0 or r3[1] != 0) {
+                // Overflow: fall back to float
+                var f: f64 = @as(f64, @floatFromInt(n)) / @as(f64, @floatFromInt(d));
+                f += @as(f64, @floatFromInt(parts.num)) / @as(f64, @floatFromInt(parts.den));
+                return makeFlonumVal(f);
+            }
+            const r4 = @addWithOverflow(r1[0], r2[0]);
+            if (r4[1] != 0) {
+                var f: f64 = @as(f64, @floatFromInt(n)) / @as(f64, @floatFromInt(d));
+                f += @as(f64, @floatFromInt(parts.num)) / @as(f64, @floatFromInt(parts.den));
+                return makeFlonumVal(f);
+            }
+            n = r4[0];
+            d = r3[0];
+            // Reduce periodically to prevent overflow
+            const g = gcdTwo(if (n < 0) -n else n, d);
+            if (g != 0) {
+                n = @divExact(n, g);
+                d = @divExact(d, g);
+            }
+        }
+        if (d == 1) return types.makeFixnum(n);
+        if (d < 0) { n = -n; d = -d; }
+        return gc.allocRational(types.makeFixnum(n), types.makeFixnum(d)) catch return PrimitiveError.OutOfMemory;
+    }
     if (anyBignum(args)) return bignumAddAll(args);
     // Fixnum path with overflow detection
     var sum: i64 = 0;
@@ -237,7 +367,58 @@ fn sub(args: []const Value) PrimitiveError!Value {
         }
         return makeFlonumVal(result);
     }
+    if (anyRational(args)) {
+        const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+        const first_parts = toRationalParts(args[0]);
+        var n = first_parts.num;
+        var d = first_parts.den;
+        if (args.len == 1) {
+            // Negate
+            if (d == 1) return types.makeFixnum(-n);
+            return gc.allocRational(types.makeFixnum(-n), types.makeFixnum(d)) catch return PrimitiveError.OutOfMemory;
+        }
+        for (args[1..]) |a| {
+            if (types.isFlonum(a)) {
+                var f: f64 = @as(f64, @floatFromInt(n)) / @as(f64, @floatFromInt(d));
+                f -= types.toFlonum(a);
+                return makeFlonumVal(f);
+            }
+            if (types.isBignum(a)) {
+                var f: f64 = @as(f64, @floatFromInt(n)) / @as(f64, @floatFromInt(d));
+                f -= bignum_mod.toF64(a);
+                return makeFlonumVal(f);
+            }
+            const parts = toRationalParts(a);
+            // n/d - parts.num/parts.den = (n*parts.den - parts.num*d) / (d*parts.den)
+            const r1 = @mulWithOverflow(n, parts.den);
+            const r2 = @mulWithOverflow(parts.num, d);
+            const r3 = @mulWithOverflow(d, parts.den);
+            if (r1[1] != 0 or r2[1] != 0 or r3[1] != 0) {
+                var f: f64 = @as(f64, @floatFromInt(n)) / @as(f64, @floatFromInt(d));
+                f -= @as(f64, @floatFromInt(parts.num)) / @as(f64, @floatFromInt(parts.den));
+                return makeFlonumVal(f);
+            }
+            const r4 = @subWithOverflow(r1[0], r2[0]);
+            if (r4[1] != 0) {
+                var f: f64 = @as(f64, @floatFromInt(n)) / @as(f64, @floatFromInt(d));
+                f -= @as(f64, @floatFromInt(parts.num)) / @as(f64, @floatFromInt(parts.den));
+                return makeFlonumVal(f);
+            }
+            n = r4[0];
+            d = r3[0];
+            const g = gcdTwo(if (n < 0) -n else n, d);
+            if (g != 0) {
+                n = @divExact(n, g);
+                d = @divExact(d, g);
+            }
+        }
+        if (n == 0) return types.makeFixnum(0);
+        if (d == 1) return types.makeFixnum(n);
+        if (d < 0) { n = -n; d = -d; }
+        return gc.allocRational(types.makeFixnum(n), types.makeFixnum(d)) catch return PrimitiveError.OutOfMemory;
+    }
     if (anyBignum(args)) return bignumSubAll(args);
+    if (!types.isFixnum(args[0]) and !types.isRationalObj(args[0])) return PrimitiveError.TypeError;
     if (!types.isFixnum(args[0])) return PrimitiveError.TypeError;
     if (args.len == 1) {
         const n = types.toFixnum(args[0]);
@@ -277,6 +458,45 @@ fn mul(args: []const Value) PrimitiveError!Value {
         }
         return makeFlonumVal(product);
     }
+    if (anyRational(args)) {
+        const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+        var n: i64 = 1;
+        var d: i64 = 1;
+        for (args) |a| {
+            if (types.isFlonum(a)) {
+                var f: f64 = @as(f64, @floatFromInt(n)) / @as(f64, @floatFromInt(d));
+                f *= types.toFlonum(a);
+                return makeFlonumVal(f);
+            }
+            if (types.isBignum(a)) {
+                var f: f64 = @as(f64, @floatFromInt(n)) / @as(f64, @floatFromInt(d));
+                f *= bignum_mod.toF64(a);
+                return makeFlonumVal(f);
+            }
+            const parts = toRationalParts(a);
+            // n/d * parts.num/parts.den = (n*parts.num) / (d*parts.den)
+            const r1 = @mulWithOverflow(n, parts.num);
+            const r2 = @mulWithOverflow(d, parts.den);
+            if (r1[1] != 0 or r2[1] != 0) {
+                var f: f64 = @as(f64, @floatFromInt(n)) / @as(f64, @floatFromInt(d));
+                f *= @as(f64, @floatFromInt(parts.num)) / @as(f64, @floatFromInt(parts.den));
+                return makeFlonumVal(f);
+            }
+            n = r1[0];
+            d = r2[0];
+            // Reduce to prevent overflow
+            if (n == 0) return types.makeFixnum(0);
+            const g = gcdTwo(if (n < 0) -n else n, if (d < 0) -d else d);
+            if (g != 0) {
+                n = @divExact(n, g);
+                d = @divExact(d, g);
+            }
+        }
+        if (n == 0) return types.makeFixnum(0);
+        if (d < 0) { n = -n; d = -d; }
+        if (d == 1) return types.makeFixnum(n);
+        return gc.allocRational(types.makeFixnum(n), types.makeFixnum(d)) catch return PrimitiveError.OutOfMemory;
+    }
     if (anyBignum(args)) return bignumMulAll(args);
     var product: i64 = 1;
     for (args) |a| {
@@ -313,21 +533,70 @@ fn divFn(args: []const Value) PrimitiveError!Value {
     }
     if (args.len == 1) {
         // (/ z) = 1/z
+        if (types.isFixnum(args[0])) {
+            const a_val = types.toFixnum(args[0]);
+            if (a_val == 0) return raiseDivByZero();
+            const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+            return makeRationalReduced(gc, types.makeFixnum(1), types.makeFixnum(a_val));
+        }
+        if (types.isRationalObj(args[0])) {
+            // 1 / (n/d) = d/n
+            const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+            const r = types.toRational(args[0]);
+            return makeRationalReduced(gc, r.denominator, r.numerator);
+        }
         const a = try toF64Ext(args[0]);
         if (a == 0) return raiseDivByZero();
         return makeFlonumVal(1.0 / a);
     }
-    // All exact integers (fixnum or bignum) — try exact division
-    if (!anyFlonum(args) and !anyBignum(args)) {
-        var result = types.toFixnum(args[0]);
+    // Handle rational division: any rational arg means rational result
+    if (anyRational(args) and !anyFlonum(args)) {
+        const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+        const first_parts = toRationalParts(args[0]);
+        var n = first_parts.num;
+        var d = first_parts.den;
+        for (args[1..]) |a| {
+            if (types.isBignum(a)) {
+                var f: f64 = @as(f64, @floatFromInt(n)) / @as(f64, @floatFromInt(d));
+                f /= bignum_mod.toF64(a);
+                return makeFlonumVal(f);
+            }
+            const parts = toRationalParts(a);
+            if (parts.num == 0) return raiseDivByZero();
+            // (n/d) / (parts.num/parts.den) = (n*parts.den) / (d*parts.num)
+            const r1 = @mulWithOverflow(n, parts.den);
+            const r2 = @mulWithOverflow(d, parts.num);
+            if (r1[1] != 0 or r2[1] != 0) {
+                var f: f64 = @as(f64, @floatFromInt(n)) / @as(f64, @floatFromInt(d));
+                f /= @as(f64, @floatFromInt(parts.num)) / @as(f64, @floatFromInt(parts.den));
+                return makeFlonumVal(f);
+            }
+            n = r1[0];
+            d = r2[0];
+            if (d < 0) { n = -n; d = -d; }
+            const g = gcdTwo(if (n < 0) -n else n, d);
+            if (g != 0) {
+                n = @divExact(n, g);
+                d = @divExact(d, g);
+            }
+        }
+        if (n == 0) return types.makeFixnum(0);
+        if (d == 1) return types.makeFixnum(n);
+        return gc.allocRational(types.makeFixnum(n), types.makeFixnum(d)) catch return PrimitiveError.OutOfMemory;
+    }
+    // All exact integers (fixnum or bignum) — try exact division, produce rational if needed
+    if (!anyFlonum(args) and !anyBignum(args) and !anyRational(args)) {
+        const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+        var n = types.toFixnum(args[0]);
+        var d: i64 = 1;
         for (args[1..]) |a| {
             if (!types.isFixnum(a)) return PrimitiveError.TypeError;
             const b = types.toFixnum(a);
             if (b == 0) return raiseDivByZero();
-            if (@rem(result, b) == 0) {
-                result = @divExact(result, b);
-            } else {
-                // Fall back to float for all
+            // n/d / b = n / (d*b)
+            const r1 = @mulWithOverflow(d, b);
+            if (r1[1] != 0) {
+                // Overflow: fall back to float
                 var fr: f64 = @floatFromInt(types.toFixnum(args[0]));
                 for (args[1..]) |a2| {
                     const bf: f64 = @floatFromInt(types.toFixnum(a2));
@@ -335,8 +604,18 @@ fn divFn(args: []const Value) PrimitiveError!Value {
                 }
                 return makeFlonumVal(fr);
             }
+            d = r1[0];
+            // Reduce to prevent overflow
+            if (d < 0) { n = -n; d = -d; }
+            const g = gcdTwo(if (n < 0) -n else n, d);
+            if (g != 0) {
+                n = @divExact(n, g);
+                d = @divExact(d, g);
+            }
         }
-        return types.makeFixnum(result);
+        if (n == 0) return types.makeFixnum(0);
+        if (d == 1) return types.makeFixnum(n);
+        return gc.allocRational(types.makeFixnum(n), types.makeFixnum(d)) catch return PrimitiveError.OutOfMemory;
     }
     // At least one flonum or bignum — convert to float
     var result = try toF64Ext(args[0]);
@@ -396,6 +675,23 @@ fn cmpPair(a: Value, b: Value) PrimitiveError!i8 {
     if ((types.isFixnum(a) or types.isBignum(a)) and (types.isFixnum(b) or types.isBignum(b))) {
         return bignum_mod.compare(a, b);
     }
+    // Rational comparison: cross-multiply to avoid floating point
+    if ((types.isRationalObj(a) or types.isFixnum(a)) and (types.isRationalObj(b) or types.isFixnum(b))) {
+        if (types.isRationalObj(a) or types.isRationalObj(b)) {
+            const pa = toRationalParts(a);
+            const pb = toRationalParts(b);
+            // Compare a_num/a_den vs b_num/b_den
+            // a_num * b_den vs b_num * a_den (both denominators positive)
+            const r1 = @mulWithOverflow(pa.num, pb.den);
+            const r2 = @mulWithOverflow(pb.num, pa.den);
+            if (r1[1] == 0 and r2[1] == 0) {
+                if (r1[0] < r2[0]) return -1;
+                if (r1[0] > r2[0]) return 1;
+                return 0;
+            }
+            // Overflow: fall back to float
+        }
+    }
     // Fall back to float
     const fa = try toF64Ext(a);
     const fb = try toF64Ext(b);
@@ -441,18 +737,30 @@ fn numGe(args: []const Value) PrimitiveError!Value {
 
 fn zeroP(args: []const Value) PrimitiveError!Value {
     if (types.isBignum(args[0])) return if (bignum_mod.isZero(args[0])) types.TRUE else types.FALSE;
+    if (types.isRationalObj(args[0])) return types.FALSE; // rationals always have non-zero num
     const v = try toF64(args[0]);
     return if (v == 0) types.TRUE else types.FALSE;
 }
 
 fn positiveP(args: []const Value) PrimitiveError!Value {
     if (types.isBignum(args[0])) return if (bignum_mod.isPositive(args[0])) types.TRUE else types.FALSE;
+    if (types.isRationalObj(args[0])) {
+        const r = types.toRational(args[0]);
+        // Denominator always > 0, so sign is determined by numerator
+        if (types.isFixnum(r.numerator)) return if (types.toFixnum(r.numerator) > 0) types.TRUE else types.FALSE;
+        return types.FALSE;
+    }
     const v = try toF64(args[0]);
     return if (v > 0) types.TRUE else types.FALSE;
 }
 
 fn negativeP(args: []const Value) PrimitiveError!Value {
     if (types.isBignum(args[0])) return if (bignum_mod.isNegative(args[0])) types.TRUE else types.FALSE;
+    if (types.isRationalObj(args[0])) {
+        const r = types.toRational(args[0]);
+        if (types.isFixnum(r.numerator)) return if (types.toFixnum(r.numerator) < 0) types.TRUE else types.FALSE;
+        return types.FALSE;
+    }
     const v = try toF64(args[0]);
     return if (v < 0) types.TRUE else types.FALSE;
 }
@@ -469,6 +777,17 @@ fn absVal(args: []const Value) PrimitiveError!Value {
     if (types.isBignum(args[0])) {
         const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
         return bignum_mod.absVal(gc, args[0]) catch return PrimitiveError.OutOfMemory;
+    }
+    if (types.isRationalObj(args[0])) {
+        const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+        const r = types.toRational(args[0]);
+        // Denominator is always positive; just take abs of numerator
+        if (types.isFixnum(r.numerator)) {
+            const n = types.toFixnum(r.numerator);
+            if (n >= 0) return args[0]; // already positive
+            return gc.allocRational(types.makeFixnum(-n), r.denominator) catch return PrimitiveError.OutOfMemory;
+        }
+        return args[0]; // should not happen for fixnum-only rationals
     }
     if (types.isFlonum(args[0])) {
         return makeFlonumVal(@abs(types.toFlonum(args[0])));
@@ -662,7 +981,7 @@ fn roundFn(args: []const Value) PrimitiveError!Value {
 // ---------------------------------------------------------------------------
 
 fn exactP(args: []const Value) PrimitiveError!Value {
-    return if (types.isFixnum(args[0]) or types.isBignum(args[0])) types.TRUE else types.FALSE;
+    return if (types.isFixnum(args[0]) or types.isBignum(args[0]) or types.isRationalObj(args[0])) types.TRUE else types.FALSE;
 }
 
 fn inexactP(args: []const Value) PrimitiveError!Value {
@@ -676,10 +995,31 @@ fn exactIntegerP(args: []const Value) PrimitiveError!Value {
 fn exactFn(args: []const Value) PrimitiveError!Value {
     if (types.isFixnum(args[0])) return args[0];
     if (types.isBignum(args[0])) return args[0];
+    if (types.isRationalObj(args[0])) return args[0]; // already exact
     if (types.isFlonum(args[0])) {
         const f = types.toFlonum(args[0]);
         if (std.math.isNan(f) or std.math.isInf(f)) return PrimitiveError.TypeError;
-        return types.makeFixnum(@intFromFloat(f));
+        // Check if it's an integer-valued float
+        if (f == @trunc(f)) {
+            return types.makeFixnum(@intFromFloat(f));
+        }
+        // Convert float to exact rational using 2^52 scaling
+        const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+        const scale: f64 = 4503599627370496.0; // 2^52
+        const n_f = f * scale;
+        if (n_f > @as(f64, @floatFromInt(std.math.maxInt(i63))) or n_f < @as(f64, @floatFromInt(std.math.minInt(i63)))) {
+            // Too large for fixnum rational, just truncate
+            return types.makeFixnum(@intFromFloat(f));
+        }
+        var n: i64 = @intFromFloat(n_f);
+        var d: i64 = @intFromFloat(scale);
+        const g = gcdTwo(if (n < 0) -n else n, d);
+        if (g != 0) {
+            n = @divExact(n, g);
+            d = @divExact(d, g);
+        }
+        if (d == 1) return types.makeFixnum(n);
+        return gc.allocRational(types.makeFixnum(n), types.makeFixnum(d)) catch return PrimitiveError.OutOfMemory;
     }
     return PrimitiveError.TypeError;
 }
@@ -688,6 +1028,12 @@ fn inexactFn(args: []const Value) PrimitiveError!Value {
     if (types.isFlonum(args[0])) return args[0];
     if (types.isFixnum(args[0])) return makeFlonumVal(@floatFromInt(types.toFixnum(args[0])));
     if (types.isBignum(args[0])) return makeFlonumVal(bignum_mod.toF64(args[0]));
+    if (types.isRationalObj(args[0])) {
+        const r = types.toRational(args[0]);
+        const n = try toF64Ext(r.numerator);
+        const d = try toF64Ext(r.denominator);
+        return makeFlonumVal(n / d);
+    }
     return PrimitiveError.TypeError;
 }
 
@@ -817,7 +1163,7 @@ fn logFn(args: []const Value) PrimitiveError!Value {
 // ---------------------------------------------------------------------------
 
 fn finiteP(args: []const Value) PrimitiveError!Value {
-    if (types.isFixnum(args[0]) or types.isBignum(args[0])) return types.TRUE;
+    if (types.isFixnum(args[0]) or types.isBignum(args[0]) or types.isRationalObj(args[0])) return types.TRUE;
     if (types.isFlonum(args[0])) {
         return if (std.math.isFinite(types.toFlonum(args[0]))) types.TRUE else types.FALSE;
     }
@@ -825,7 +1171,7 @@ fn finiteP(args: []const Value) PrimitiveError!Value {
 }
 
 fn infiniteP(args: []const Value) PrimitiveError!Value {
-    if (types.isFixnum(args[0]) or types.isBignum(args[0])) return types.FALSE;
+    if (types.isFixnum(args[0]) or types.isBignum(args[0]) or types.isRationalObj(args[0])) return types.FALSE;
     if (types.isFlonum(args[0])) {
         return if (std.math.isInf(types.toFlonum(args[0]))) types.TRUE else types.FALSE;
     }
@@ -833,7 +1179,7 @@ fn infiniteP(args: []const Value) PrimitiveError!Value {
 }
 
 fn nanP(args: []const Value) PrimitiveError!Value {
-    if (types.isFixnum(args[0]) or types.isBignum(args[0])) return types.FALSE;
+    if (types.isFixnum(args[0]) or types.isBignum(args[0]) or types.isRationalObj(args[0])) return types.FALSE;
     if (types.isFlonum(args[0])) {
         return if (std.math.isNan(types.toFlonum(args[0]))) types.TRUE else types.FALSE;
     }
@@ -853,6 +1199,12 @@ fn numberToString(args: []const Value) PrimitiveError!Value {
     }
     if (types.isBignum(args[0])) {
         const s = bignum_mod.toString(gc.allocator, args[0]) catch return PrimitiveError.OutOfMemory;
+        defer gc.allocator.free(s);
+        return gc.allocString(s) catch return PrimitiveError.OutOfMemory;
+    }
+    if (types.isRationalObj(args[0])) {
+        const printer = @import("printer.zig");
+        const s = printer.valueToString(gc.allocator, args[0], .write) catch return PrimitiveError.OutOfMemory;
         defer gc.allocator.free(s);
         return gc.allocString(s) catch return PrimitiveError.OutOfMemory;
     }
@@ -897,6 +1249,7 @@ fn toComplexParts(v: Value) PrimitiveError!struct { real: f64, imag: f64 } {
     if (types.isFixnum(v)) return .{ .real = @floatFromInt(types.toFixnum(v)), .imag = 0.0 };
     if (types.isFlonum(v)) return .{ .real = types.toFlonum(v), .imag = 0.0 };
     if (types.isBignum(v)) return .{ .real = bignum_mod.toF64(v), .imag = 0.0 };
+    if (types.isRationalObj(v)) return .{ .real = try toF64Ext(v), .imag = 0.0 };
     return PrimitiveError.TypeError;
 }
 
@@ -919,6 +1272,20 @@ fn stringToNumber(args: []const Value) PrimitiveError!Value {
     if (std.mem.eql(u8, s, "-inf.0")) return gc.allocFlonum(-std.math.inf(f64)) catch return PrimitiveError.OutOfMemory;
     if (std.mem.eql(u8, s, "+nan.0")) return gc.allocFlonum(std.math.nan(f64)) catch return PrimitiveError.OutOfMemory;
     if (std.mem.eql(u8, s, "-nan.0")) return gc.allocFlonum(std.math.nan(f64)) catch return PrimitiveError.OutOfMemory;
+
+    // Try rational N/D
+    if (std.mem.indexOfScalar(u8, s, '/')) |slash_pos| {
+        if (slash_pos > 0 and slash_pos + 1 < s.len) {
+            const num_str = s[0..slash_pos];
+            const den_str = s[slash_pos + 1 ..];
+            if (std.fmt.parseInt(i64, num_str, 10)) |num| {
+                if (std.fmt.parseInt(i64, den_str, 10)) |den| {
+                    if (den == 0) return types.FALSE;
+                    return makeRationalFromReader(gc, num, den) catch return PrimitiveError.OutOfMemory;
+                } else |_| {}
+            } else |_| {}
+        }
+    }
 
     // Try integer first
     if (std.fmt.parseInt(i64, s, 10)) |n| {
@@ -1087,6 +1454,11 @@ fn truncateDivide(args: []const Value) PrimitiveError!Value {
 
 fn numeratorFn(args: []const Value) PrimitiveError!Value {
     if (types.isFixnum(args[0])) return args[0];
+    if (types.isBignum(args[0])) return args[0];
+    if (types.isRationalObj(args[0])) {
+        const r = types.toRational(args[0]);
+        return r.numerator;
+    }
     if (types.isFlonum(args[0])) {
         const f = types.toFlonum(args[0]);
         if (!std.math.isFinite(f)) return args[0];
@@ -1104,6 +1476,11 @@ fn numeratorFn(args: []const Value) PrimitiveError!Value {
 
 fn denominatorFn(args: []const Value) PrimitiveError!Value {
     if (types.isFixnum(args[0])) return types.makeFixnum(1);
+    if (types.isBignum(args[0])) return types.makeFixnum(1);
+    if (types.isRationalObj(args[0])) {
+        const r = types.toRational(args[0]);
+        return r.denominator;
+    }
     if (types.isFlonum(args[0])) {
         const f = types.toFlonum(args[0]);
         if (!std.math.isFinite(f)) return makeFlonumVal(1.0);

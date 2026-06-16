@@ -34,6 +34,7 @@ pub const Token = union(enum) {
     datum_label_def: u32,
     datum_label_ref: u32,
     bignum_str: []const u8,
+    rational: struct { num: i64, den: i64 },
     eof,
 };
 
@@ -293,6 +294,19 @@ pub const Reader = struct {
                 }
                 return ReadError.InvalidNumber;
             };
+            // Check for rational literal: N/D
+            if (self.pos < self.source.len and self.source[self.pos] == '/' and
+                self.pos + 1 < self.source.len and std.ascii.isDigit(self.source[self.pos + 1]))
+            {
+                self.pos += 1; // skip '/'
+                const den_start = self.pos;
+                while (self.pos < self.source.len and std.ascii.isDigit(self.source[self.pos])) {
+                    self.pos += 1;
+                }
+                const den_str = self.source[den_start..self.pos];
+                const den = std.fmt.parseInt(i64, den_str, 10) catch return ReadError.InvalidNumber;
+                return .{ .rational = .{ .num = n, .den = den } };
+            }
             return .{ .fixnum = n };
         }
     }
@@ -568,6 +582,7 @@ pub const Reader = struct {
                 const tok = try self.readNumber();
                 return switch (tok) {
                     .fixnum => tok,
+                    .rational => tok, // rationals are already exact
                     .flonum => |f| .{ .fixnum = @intFromFloat(f) },
                     else => ReadError.InvalidNumber,
                 };
@@ -578,6 +593,7 @@ pub const Reader = struct {
                 return switch (tok) {
                     .flonum => tok,
                     .fixnum => |n| .{ .flonum = @floatFromInt(n) },
+                    .rational => |r| .{ .flonum = @as(f64, @floatFromInt(r.num)) / @as(f64, @floatFromInt(r.den)) },
                     else => ReadError.InvalidNumber,
                 };
             },
@@ -648,6 +664,30 @@ pub const Reader = struct {
             }
             return ReadError.InvalidNumber;
         };
+        // Check for rational literal: N/D (within same radix)
+        if (self.pos < self.source.len and self.source[self.pos] == '/') {
+            const slash_pos = self.pos;
+            self.pos += 1; // skip '/'
+            const den_start = self.pos;
+            while (self.pos < self.source.len) {
+                const rc = self.source[self.pos];
+                const valid = switch (radix) {
+                    2 => rc == '0' or rc == '1',
+                    8 => rc >= '0' and rc <= '7',
+                    16 => std.ascii.isHex(rc),
+                    else => std.ascii.isDigit(rc),
+                };
+                if (!valid) break;
+                self.pos += 1;
+            }
+            if (self.pos > den_start) {
+                const den_str = self.source[den_start..self.pos];
+                const den = std.fmt.parseInt(i64, den_str, radix) catch return ReadError.InvalidNumber;
+                return .{ .rational = .{ .num = n, .den = den } };
+            }
+            // No digits after '/', backtrack
+            self.pos = slash_pos;
+        }
         return .{ .fixnum = n };
     }
 
@@ -727,6 +767,11 @@ pub const Reader = struct {
             .bignum_str => |digits| {
                 const bignum_mod = @import("bignum.zig");
                 return bignum_mod.parseBignumString(self.gc, digits) catch return ReadError.OutOfMemory;
+            },
+            .rational => |r| {
+                if (r.den == 0) return ReadError.InvalidNumber;
+                const arith = @import("primitives_arithmetic.zig");
+                return arith.makeRationalFromReader(self.gc, r.num, r.den) catch return ReadError.OutOfMemory;
             },
             .boolean => |b| return if (b) types.TRUE else types.FALSE,
             .character => |c| return types.makeChar(c),

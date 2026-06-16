@@ -115,6 +115,7 @@ pub const ObjectTag = enum(u5) {
     ffi_function = 20,
     hash_table = 21,
     bignum = 22,
+    rational = 23,
 };
 
 pub const Object = struct {
@@ -389,6 +390,16 @@ pub const Bignum = struct {
 };
 
 // ---------------------------------------------------------------------------
+// Rational (exact fraction p/q, always in lowest terms, q > 1)
+// ---------------------------------------------------------------------------
+
+pub const Rational = struct {
+    header: Object,
+    numerator: Value, // fixnum or bignum
+    denominator: Value, // fixnum or bignum (always positive, > 1)
+};
+
+// ---------------------------------------------------------------------------
 // Type predicates on Value
 // ---------------------------------------------------------------------------
 
@@ -516,8 +527,21 @@ pub fn toBignum(v: Value) *Bignum {
     return toObject(v).as(Bignum);
 }
 
+pub fn isRational(v: Value) bool {
+    if (isFixnum(v) or isBignum(v)) return true; // integers are rational
+    return isPointer(v) and toObject(v).tag == .rational;
+}
+
+pub fn isRationalObj(v: Value) bool {
+    return isPointer(v) and toObject(v).tag == .rational;
+}
+
+pub fn toRational(v: Value) *Rational {
+    return toObject(v).as(Rational);
+}
+
 pub fn isNumber(v: Value) bool {
-    return isFixnum(v) or isFlonum(v) or isComplex(v) or isBignum(v);
+    return isFixnum(v) or isFlonum(v) or isComplex(v) or isBignum(v) or isRationalObj(v);
 }
 
 pub fn toFlonum(v: Value) f64 {
@@ -527,6 +551,12 @@ pub fn toFlonum(v: Value) f64 {
 pub fn toF64(v: Value) f64 {
     if (isFixnum(v)) return @floatFromInt(toFixnum(v));
     if (isFlonum(v)) return toFlonum(v);
+    if (isRationalObj(v)) {
+        const r = toRational(v);
+        const n = toF64(r.numerator);
+        const d = toF64(r.denominator);
+        return n / d;
+    }
     return 0.0;
 }
 

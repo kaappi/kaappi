@@ -700,6 +700,21 @@ fn stringToNumberFn(args: []const Value) PrimitiveError!Value {
     if (std.mem.eql(u8, s, "+nan.0")) return gc.allocFlonum(std.math.nan(f64)) catch return PrimitiveError.OutOfMemory;
     if (std.mem.eql(u8, s, "-nan.0")) return gc.allocFlonum(std.math.nan(f64)) catch return PrimitiveError.OutOfMemory;
 
+    // Try rational N/D
+    if (std.mem.indexOfScalar(u8, s, '/')) |slash_pos| {
+        if (slash_pos > 0 and slash_pos + 1 < s.len) {
+            const num_str = s[0..slash_pos];
+            const den_str = s[slash_pos + 1 ..];
+            if (std.fmt.parseInt(i64, num_str, 10)) |num| {
+                if (std.fmt.parseInt(i64, den_str, 10)) |den| {
+                    if (den == 0) return types.FALSE;
+                    const arith = @import("primitives_arithmetic.zig");
+                    return arith.makeRationalFromReader(gc, num, den) catch return PrimitiveError.OutOfMemory;
+                } else |_| {}
+            } else |_| {}
+        }
+    }
+
     if (std.fmt.parseInt(i64, s, 10)) |n| {
         return types.makeFixnum(n);
     } else |_| {}

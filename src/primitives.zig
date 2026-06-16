@@ -146,6 +146,12 @@ pub fn toF64(v: Value) PrimitiveError!f64 {
         const bignum_mod = @import("bignum.zig");
         return bignum_mod.toF64(v);
     }
+    if (types.isRationalObj(v)) {
+        const r = types.toRational(v);
+        const n = try toF64(r.numerator);
+        const d = try toF64(r.denominator);
+        return n / d;
+    }
     return PrimitiveError.TypeError;
 }
 
@@ -272,6 +278,7 @@ fn numberP(args: []const Value) PrimitiveError!Value {
 
 fn integerP(args: []const Value) PrimitiveError!Value {
     if (types.isFixnum(args[0]) or types.isBignum(args[0])) return types.TRUE;
+    if (types.isRationalObj(args[0])) return types.FALSE; // rational with den > 1 is not integer
     if (types.isFlonum(args[0])) {
         const f = types.toFlonum(args[0]);
         if (std.math.isNan(f) or std.math.isInf(f)) return types.FALSE;
@@ -285,11 +292,11 @@ fn complexP(args: []const Value) PrimitiveError!Value {
 }
 
 fn realP(args: []const Value) PrimitiveError!Value {
-    return if (types.isFixnum(args[0]) or types.isFlonum(args[0]) or types.isBignum(args[0])) types.TRUE else types.FALSE;
+    return if (types.isFixnum(args[0]) or types.isFlonum(args[0]) or types.isBignum(args[0]) or types.isRationalObj(args[0])) types.TRUE else types.FALSE;
 }
 
 fn rationalP(args: []const Value) PrimitiveError!Value {
-    if (types.isFixnum(args[0]) or types.isBignum(args[0])) return types.TRUE;
+    if (types.isFixnum(args[0]) or types.isBignum(args[0]) or types.isRationalObj(args[0])) return types.TRUE;
     if (types.isFlonum(args[0])) {
         const f = types.toFlonum(args[0]);
         return if (std.math.isFinite(f)) types.TRUE else types.FALSE;
@@ -354,6 +361,18 @@ fn eqvP(args: []const Value) PrimitiveError!Value {
         const bignum_mod = @import("bignum.zig");
         return if (bignum_mod.compare(args[0], args[1]) == 0) types.TRUE else types.FALSE;
     }
+    // Two rationals are eqv? if they have the same numerator and denominator
+    // (they are always in lowest terms so this is sufficient)
+    if (types.isRationalObj(args[0]) and types.isRationalObj(args[1])) {
+        const ra = types.toRational(args[0]);
+        const rb = types.toRational(args[1]);
+        if (ra.numerator == rb.numerator and ra.denominator == rb.denominator) return types.TRUE;
+        // Handle bignum numerator/denominator
+        const bignum_mod = @import("bignum.zig");
+        const n_eq = if (ra.numerator == rb.numerator) true else if ((types.isBignum(ra.numerator) or types.isFixnum(ra.numerator)) and (types.isBignum(rb.numerator) or types.isFixnum(rb.numerator))) bignum_mod.compare(ra.numerator, rb.numerator) == 0 else false;
+        const d_eq = if (ra.denominator == rb.denominator) true else if ((types.isBignum(ra.denominator) or types.isFixnum(ra.denominator)) and (types.isBignum(rb.denominator) or types.isFixnum(rb.denominator))) bignum_mod.compare(ra.denominator, rb.denominator) == 0 else false;
+        return if (n_eq and d_eq) types.TRUE else types.FALSE;
+    }
     return types.FALSE;
 }
 
@@ -376,6 +395,13 @@ fn deepEqualWithVisited(a: Value, b: Value, visited: *[MAX_VISITED][2]Value, vis
             const bignum_mod = @import("bignum.zig");
             return bignum_mod.compare(a, b) == 0;
         }
+    }
+    // Rational equality
+    if (types.isRationalObj(a) and types.isRationalObj(b)) {
+        const ra = types.toRational(a);
+        const rb = types.toRational(b);
+        return deepEqualWithVisited(ra.numerator, rb.numerator, visited, visited_count) and
+            deepEqualWithVisited(ra.denominator, rb.denominator, visited, visited_count);
     }
     if (types.isPair(a) and types.isPair(b)) {
         // Check visited set for cycle detection
