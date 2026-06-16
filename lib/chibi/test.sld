@@ -41,4 +41,34 @@
       (write actual)
       (newline))
 
+    (define-syntax test
+      (syntax-rules ()
+        ((test expected expr)
+         (let ((res expr))
+           (if (equal? res expected)
+               (test-pass)
+               (test-fail expected res))))
+        ((test name expected expr)
+         (test expected expr))))
+
+    (define-syntax test-assert
+      (syntax-rules ()
+        ((test-assert expr)
+         (test #t (if expr #t #f)))
+        ((test-assert name expr)
+         (test-assert expr))))
+
+    (define-syntax test-error
+      (syntax-rules ()
+        ((test-error expr)
+         (test #t (guard (e (#t #t)) expr #f)))
+        ((test-error name expr)
+         (test-error expr))))
+
+    (define-syntax test-values
+      (syntax-rules ()
+        ((test-values expected expr)
+         (test (call-with-values (lambda () expected) list)
+               (call-with-values (lambda () expr) list)))))
+
     ))
