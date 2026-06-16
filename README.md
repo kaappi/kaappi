@@ -308,14 +308,78 @@ kaappi/
 
 ---
 
-## Known limitations
+## R7RS conformance notes
 
-- **No bignum**: Integers are 63-bit signed fixnums. Overflow is silent.
-- **No exact rationals**: `/` with non-divisible exact integers returns an inexact (flonum) result.
-- **Multi-shot continuations copy the stack**: `call/cc` snapshots the reachable VM state (live register window, call frames, handlers, wind stack) — fully re-entrant, but O(stack depth) per capture. For the common non-local-exit case, `call/ec` captures an escape continuation in O(1) with no copying.
-- **Continuations are scoped to one top-level form**: a multi-shot continuation captured in one top-level form cannot re-run *subsequent* top-level forms (the driver evaluates forms one at a time). It works fully within any single form — wrap the body in `(begin …)` to span otherwise-separate forms.
-- **Unicode case mapping**: Covers cased scripts only — Latin (incl. Extended-A/-B/Additional), Greek (incl. Extended), and Cyrillic (incl. Supplement). Other scripts pass through unchanged.
-- **No `syntax-case`**: Only `syntax-rules` is supported (as specified by R7RS-small).
+Kaappi implements every identifier from R7RS Appendix A. The following documents intentional design choices, known deviations, and edge-case behaviors relative to the spec.
+
+### By design
+
+| Area | Behavior | R7RS reference |
+|------|----------|---------------|
+| **No bignum** | Integers are 63-bit signed fixnums. Overflow wraps silently. | §6.2.3 allows limited range |
+| **No exact rationals** | `/` with non-divisible exact integers returns an inexact flonum. `inexact->exact` truncates to the nearest integer instead of producing a rational. | §6.2.3 allows omitting rational type |
+| **No rational syntax** | `1/2`, `22/7` are not parsed by the reader. Use `(/ 1 2)` instead (returns `0.5`). | §6.2.5 |
+| **Stack-copying continuations** | `call/cc` snapshots the full VM state (registers, frames, handlers, wind stack). Fully re-entrant but O(depth) per capture. | §6.10 |
+| **Continuation scope** | A multi-shot continuation captured in one top-level form cannot re-enter *subsequent* top-level forms (the REPL evaluates forms one at a time). Wrap in `(begin ...)` to span multiple forms. | Implementation detail |
+| **No `syntax-case`** | Only `syntax-rules` is supported. | R7RS-small specifies `syntax-rules` only |
+
+### Known deviations
+
+#### Numeric
+
+- **Division by zero** signals a VM-level error that crashes instead of raising a catchable Scheme error object. `(guard (e (#t 'caught)) (/ 1 0))` does not catch it. R7RS says this should be a continuable error (§6.2.6).
+- **`inexact->exact`** truncates: `(inexact->exact 1.5)` → `1`, not `3/2`. This is because there is no rational type — the spec allows this but recommends returning the closest exact value.
+
+#### Reader
+
+- **No radix prefixes**: `#b1010`, `#o17`, `#xff` are not recognized. Only decimal integers and floats are parsed. Use procedures like `(string->number "ff" 16)` instead.
+- **No exactness prefixes**: `#e1.5`, `#i3` are not recognized.
+- **No datum labels**: `#0=(a b . #0#)` for shared/circular structure is not supported. Use `set-car!`/`set-cdr!` to build circular structures.
+- **No `#!fold-case`/`#!no-fold-case`** directives.
+- **No `\x` hex escapes in `|quoted identifiers|`**: `|H\x65;llo|` is not recognized. Plain `|Hello|` works.
+- **Nested quasiquote**: `` `(a `(b ,(+ 1 2))) `` treats the inner quasiquote as a literal datum rather than fully expanding at the correct depth.
+
+#### Tail positions
+
+- **`when` and `unless`** do not propagate tail position to their body. R7RS §3.5 says the last expression should be in tail context when the form itself is. In Kaappi, all body expressions in `when`/`unless` are compiled as non-tail.
+
+#### Macros
+
+- **Hygiene is incomplete**: `syntax-rules` templates do not rename identifiers introduced by the template via gensym. Simple macros work correctly, but macros that introduce bindings (`let`, temporary variables) may capture user-level variables in edge cases. R7RS §4.3.2 requires fresh identifiers for template-introduced bindings.
+
+#### Strings and immutability
+
+- **Literal strings are mutable**: `(string-set! "hello" 0 #\H)` succeeds instead of signaling an error. R7RS §3.4 says literals are immutable.
+- **`symbol->string` returns a mutable string**: the spec says it must be immutable (§6.5).
+
+#### Error types
+
+- **`file-error?` and `read-error?`** always return `#f`. Errors from file operations and the reader are plain error objects, not tagged subtypes. R7RS §6.11 says I/O errors should satisfy `file-error?` and reader errors should satisfy `read-error?`.
+- **`write-shared` and `write-simple`** are aliases for `write`. No shared-structure detection or datum-label output is performed. Writing circular structures may loop. R7RS §6.13.3 distinguishes these.
+
+#### Other
+
+- **`case` with `=>`**: The arrow form `((datum ...) => proc)` is not supported in `case` expressions. Only the standard `((datum ...) expr ...)` and `(else expr ...)` forms work. The `=>` form in `cond` works correctly.
+- **`letrec` restriction not enforced**: `(letrec ((x y) (y 1)) x)` silently evaluates (`x` binds to void) instead of signaling an error. R7RS §4.2.2 says referring to another binding's variable in an init is an error.
+- **Multiple values in wrong context**: `(let ((x (values 1 2))) x)` returns a `#<values>` object instead of signaling an error. R7RS says it's an error to pass multiple values to a continuation that expects one (§6.10).
+- **Unicode case mapping**: Covers Latin (including Extended-A/B), Greek, and Cyrillic. Other scripts (Arabic, Devanagari, etc.) pass through `char-upcase`/`char-downcase` unchanged.
+- **`equal?` on circular structures**: Terminates via pointer-equality short-circuit (`(equal? x x)` → `#t`) but does not implement the full R7RS algorithm for structurally comparing two distinct circular objects. Comparing two different circular structures with the same shape may loop.
+
+### Fully conformant areas
+
+These areas have been tested and match R7RS behavior:
+
+- Proper tail calls in `if`, `begin`, `cond`, `case`, `and`, `or`, `let`/`let*`/`letrec`/`letrec*`, `do`, `guard`, `parameterize`, lambda bodies
+- NaN handling: `(eqv? +nan.0 +nan.0)` → `#t`, `(= +nan.0 +nan.0)` → `#f`
+- Negative zero: `(eqv? 0.0 -0.0)` → `#f`, `(= 0.0 -0.0)` → `#t`
+- Library single-load guarantee: importing the same library twice only evaluates its body once
+- `dynamic-wind` before/after thunks fire correctly on normal return and continuation escape
+- `values`/`call-with-values` protocol
+- `delay`/`force` with memoization
+- `define-record-type` with constructors, predicates, accessors, mutators
+- `syntax-rules` with ellipsis, literals, underscore, multiple rules
+- `cond-expand` with `r7rs`, `kaappi`, `ieee-float`, `posix` features and `(library ...)` checks
+- All 14 standard libraries registered and importable
 
 ---
 
