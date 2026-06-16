@@ -130,13 +130,15 @@ fn errorObjectIrritants(args: []const Value) PrimitiveError!Value {
 }
 
 fn fileErrorP(args: []const Value) PrimitiveError!Value {
-    _ = args;
-    return types.FALSE; // No file errors for now
+    if (!types.isErrorObject(args[0])) return types.FALSE;
+    const err = types.toObject(args[0]).as(types.ErrorObject);
+    return if (err.error_type == .file) types.TRUE else types.FALSE;
 }
 
 fn readErrorP(args: []const Value) PrimitiveError!Value {
-    _ = args;
-    return types.FALSE; // No read errors for now
+    if (!types.isErrorObject(args[0])) return types.FALSE;
+    const err = types.toObject(args[0]).as(types.ErrorObject);
+    return if (err.error_type == .read) types.TRUE else types.FALSE;
 }
 
 fn errorFn(args: []const Value) PrimitiveError!Value {

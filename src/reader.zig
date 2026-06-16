@@ -370,6 +370,21 @@ pub const Reader = struct {
                 switch (escaped) {
                     '|' => self.token_buf.append(alloc, '|') catch return ReadError.OutOfMemory,
                     '\\' => self.token_buf.append(alloc, '\\') catch return ReadError.OutOfMemory,
+                    'x' => {
+                        // \xNN; hex scalar value escape
+                        self.pos += 1;
+                        const hex_start = self.pos;
+                        while (self.pos < self.source.len and self.source[self.pos] != ';') {
+                            self.pos += 1;
+                        }
+                        if (self.pos >= self.source.len) return ReadError.InvalidEscape;
+                        const hex_str = self.source[hex_start..self.pos];
+                        const cp = std.fmt.parseInt(u21, hex_str, 16) catch return ReadError.InvalidEscape;
+                        var buf: [4]u8 = undefined;
+                        const len = std.unicode.utf8Encode(cp, &buf) catch return ReadError.InvalidEscape;
+                        self.token_buf.appendSlice(alloc, buf[0..len]) catch return ReadError.OutOfMemory;
+                        // pos now points at ';', will be advanced by the outer loop
+                    },
                     else => {
                         self.token_buf.append(alloc, '\\') catch return ReadError.OutOfMemory;
                         self.token_buf.append(alloc, escaped) catch return ReadError.OutOfMemory;
@@ -478,8 +493,47 @@ pub const Reader = struct {
                 }
                 return ReadError.UnexpectedChar;
             },
+            'b' => {
+                self.pos += 1;
+                return self.readIntegerWithRadix(2);
+            },
+            'o' => {
+                self.pos += 1;
+                return self.readIntegerWithRadix(8);
+            },
+            'x' => {
+                self.pos += 1;
+                return self.readIntegerWithRadix(16);
+            },
+            'd' => {
+                self.pos += 1;
+                return self.readNumber();
+            },
             else => return ReadError.UnexpectedChar,
         }
+    }
+
+    fn readIntegerWithRadix(self: *Reader, radix: u8) ReadError!Token {
+        const start = self.pos;
+        // Handle optional sign
+        if (self.pos < self.source.len and (self.source[self.pos] == '+' or self.source[self.pos] == '-')) {
+            self.pos += 1;
+        }
+        while (self.pos < self.source.len) {
+            const rc = self.source[self.pos];
+            const valid = switch (radix) {
+                2 => rc == '0' or rc == '1',
+                8 => rc >= '0' and rc <= '7',
+                16 => std.ascii.isHex(rc),
+                else => std.ascii.isDigit(rc),
+            };
+            if (!valid) break;
+            self.pos += 1;
+        }
+        const num_str = self.source[start..self.pos];
+        if (num_str.len == 0 or (num_str.len == 1 and (num_str[0] == '+' or num_str[0] == '-'))) return ReadError.InvalidNumber;
+        const n = std.fmt.parseInt(i64, num_str, radix) catch return ReadError.InvalidNumber;
+        return .{ .fixnum = n };
     }
 
     fn readCharacter(self: *Reader) ReadError!Token {
@@ -557,7 +611,12 @@ pub const Reader = struct {
             .flonum => |f| return self.gc.allocFlonum(f) catch return ReadError.OutOfMemory,
             .boolean => |b| return if (b) types.TRUE else types.FALSE,
             .character => |c| return types.makeChar(c),
-            .string => |s| return self.gc.allocString(s) catch return ReadError.OutOfMemory,
+            .string => |s| {
+                const val = self.gc.allocString(s) catch return ReadError.OutOfMemory;
+                // R7RS: string literals are immutable
+                types.toObject(val).as(types.SchemeString).immutable = true;
+                return val;
+            },
             .symbol => |name| return self.gc.allocSymbol(name) catch return ReadError.OutOfMemory,
             .lparen => return self.readList(),
             .quote => return self.readAbbreviation("quote"),

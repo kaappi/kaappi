@@ -418,7 +418,10 @@ fn stringAppend(args: []const Value) PrimitiveError!Value {
 fn symbolToString(args: []const Value) PrimitiveError!Value {
     if (!types.isSymbol(args[0])) return PrimitiveError.TypeError;
     const gc = gc_instance orelse return PrimitiveError.OutOfMemory;
-    return gc.allocString(types.symbolName(args[0])) catch return PrimitiveError.OutOfMemory;
+    const val = gc.allocString(types.symbolName(args[0])) catch return PrimitiveError.OutOfMemory;
+    // R7RS: strings returned by symbol->string are immutable
+    types.toObject(val).as(types.SchemeString).immutable = true;
+    return val;
 }
 
 // ---------------------------------------------------------------------------

@@ -344,8 +344,8 @@ pub const Compiler = struct {
             // Derived expression forms (in compiler_forms.zig)
             if (std.mem.eql(u8, name, "and")) return forms.compileAnd(self, args, dst, is_tail);
             if (std.mem.eql(u8, name, "or")) return forms.compileOr(self, args, dst, is_tail);
-            if (std.mem.eql(u8, name, "when")) return forms.compileWhen(self, args, dst);
-            if (std.mem.eql(u8, name, "unless")) return forms.compileUnless(self, args, dst);
+            if (std.mem.eql(u8, name, "when")) return forms.compileWhen(self, args, dst, is_tail);
+            if (std.mem.eql(u8, name, "unless")) return forms.compileUnless(self, args, dst, is_tail);
             if (std.mem.eql(u8, name, "cond")) return forms.compileCond(self, args, dst, is_tail);
             if (std.mem.eql(u8, name, "let")) return forms.compileLet(self, args, dst, is_tail);
             if (std.mem.eql(u8, name, "let*")) return forms.compileLetStar(self, args, dst, is_tail);

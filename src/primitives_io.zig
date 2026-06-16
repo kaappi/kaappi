@@ -237,6 +237,17 @@ fn outputPortOpenP(args: []const Value) PrimitiveError!Value {
     return if (port.is_output and port.is_open) types.TRUE else types.FALSE;
 }
 
+fn raiseFileError(gc: *@import("memory.zig").GC, msg_text: []const u8, irritant: Value) PrimitiveError!Value {
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError;
+    const msg = gc.allocString(msg_text) catch return PrimitiveError.OutOfMemory;
+    const irritants = gc.allocPair(irritant, types.NIL) catch return PrimitiveError.OutOfMemory;
+    const err_obj = gc.allocErrorObject(msg, irritants) catch return PrimitiveError.OutOfMemory;
+    // Mark as file error
+    types.toObject(err_obj).as(types.ErrorObject).error_type = .file;
+    vm.current_exception = err_obj;
+    return PrimitiveError.ExceptionRaised;
+}
+
 fn openInputFile(args: []const Value) PrimitiveError!Value {
     if (!types.isString(args[0])) return PrimitiveError.TypeError;
     const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
@@ -248,7 +259,7 @@ fn openInputFile(args: []const Value) PrimitiveError!Value {
     defer gc.allocator.free(path_z);
 
     const fd = std.posix.openat(std.posix.AT.FDCWD, path_z, .{}, 0) catch {
-        return PrimitiveError.TypeError; // file-error
+        return raiseFileError(gc, "cannot open input file", args[0]);
     };
 
     // Dup the name for the port
@@ -270,7 +281,7 @@ fn openOutputFile(args: []const Value) PrimitiveError!Value {
         .CREAT = true,
         .TRUNC = true,
     }, 0o644) catch {
-        return PrimitiveError.TypeError; // file-error
+        return raiseFileError(gc, "cannot open output file", args[0]);
     };
 
     const owned_name = gc.allocator.dupe(u8, path) catch return PrimitiveError.OutOfMemory;

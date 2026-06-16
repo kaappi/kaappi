@@ -138,6 +138,7 @@ pub const SchemeString = struct {
     header: Object,
     data: []u8,
     len: usize,
+    immutable: bool = false,
 };
 
 pub const NativeFnType = *const fn (args: []const Value) anyerror!Value;
@@ -185,9 +186,12 @@ pub const Transformer = struct {
 };
 
 pub const ErrorObject = struct {
+    pub const ErrorType = enum(u8) { general, file, read };
+
     header: Object,
     message: Value, // string
     irritants: Value, // list
+    error_type: ErrorType = .general,
 };
 
 pub const RecordType = struct {

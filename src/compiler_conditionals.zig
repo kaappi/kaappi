@@ -77,7 +77,7 @@ pub fn compileOr(self: *Compiler, args: Value, dst: u8, is_tail: bool) CompileEr
     }
 }
 
-pub fn compileWhen(self: *Compiler, args: Value, dst: u8) CompileError!void {
+pub fn compileWhen(self: *Compiler, args: Value, dst: u8, is_tail: bool) CompileError!void {
     if (args == types.NIL) return CompileError.InvalidSyntax;
     const test_expr = types.car(args);
     const body = types.cdr(args);
@@ -88,12 +88,14 @@ pub fn compileWhen(self: *Compiler, args: Value, dst: u8) CompileError!void {
     const skip_jump = self.currentOffset();
     try self.emitI16(0);
 
-    // Compile body expressions for side effects
+    // Compile body expressions; last one is in tail position if when is
     var current = body;
     while (current != types.NIL) {
         if (!types.isPair(current)) return CompileError.InvalidSyntax;
-        try self.compileExpr(types.car(current), dst, false);
-        current = types.cdr(current);
+        const rest = types.cdr(current);
+        const tail = is_tail and rest == types.NIL;
+        try self.compileExpr(types.car(current), dst, tail);
+        current = rest;
     }
 
     self.patchJump(skip_jump);
@@ -101,7 +103,7 @@ pub fn compileWhen(self: *Compiler, args: Value, dst: u8) CompileError!void {
     try self.emit(dst);
 }
 
-pub fn compileUnless(self: *Compiler, args: Value, dst: u8) CompileError!void {
+pub fn compileUnless(self: *Compiler, args: Value, dst: u8, is_tail: bool) CompileError!void {
     if (args == types.NIL) return CompileError.InvalidSyntax;
     const test_expr = types.car(args);
     const body = types.cdr(args);
@@ -115,8 +117,10 @@ pub fn compileUnless(self: *Compiler, args: Value, dst: u8) CompileError!void {
     var current = body;
     while (current != types.NIL) {
         if (!types.isPair(current)) return CompileError.InvalidSyntax;
-        try self.compileExpr(types.car(current), dst, false);
-        current = types.cdr(current);
+        const rest = types.cdr(current);
+        const tail = is_tail and rest == types.NIL;
+        try self.compileExpr(types.car(current), dst, tail);
+        current = rest;
     }
 
     self.patchJump(skip_jump);

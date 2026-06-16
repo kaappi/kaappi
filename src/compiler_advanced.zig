@@ -209,6 +209,54 @@ pub fn compileCase(self: *Compiler, args: Value, dst: u8, is_tail: bool) Compile
             self.patchJump(j);
         }
 
+        // Check for => form: ((datum ...) => proc)
+        if (clause_body != types.NIL and types.isPair(clause_body)) {
+            const maybe_arrow = types.car(clause_body);
+            if (types.isSymbol(maybe_arrow) and std.mem.eql(u8, types.symbolName(maybe_arrow), "=>")) {
+                // Arrow form: compile proc, call with key value
+                const arrow_rest = types.cdr(clause_body);
+                if (arrow_rest == types.NIL or !types.isPair(arrow_rest)) return CompileError.InvalidSyntax;
+                const proc_expr = types.car(arrow_rest);
+                const proc_reg = try self.allocReg();
+                // Move key value to arg position
+                const arg_reg = try self.allocReg();
+                try self.emitOp(.move);
+                try self.emit(arg_reg);
+                try self.emit(key_reg);
+                // Compile proc
+                try self.compileExpr(proc_expr, proc_reg, false);
+                // Move proc to dst (for call base)
+                try self.emitOp(.move);
+                try self.emit(dst);
+                try self.emit(proc_reg);
+                // Move arg after dst
+                try self.emitOp(.move);
+                try self.emit(@as(u8, dst) + 1);
+                try self.emit(arg_reg);
+                if (is_tail) {
+                    try self.emitOp(.tail_call);
+                } else {
+                    try self.emitOp(.call);
+                }
+                try self.emit(dst);
+                try self.emit(1);
+                self.freeReg(); // arg_reg
+                self.freeReg(); // proc_reg
+
+                // Jump to end
+                try self.emitOp(.jump);
+                if (end_count < 32) {
+                    end_jumps[end_count] = self.currentOffset();
+                    end_count += 1;
+                }
+                try self.emitI16(0);
+
+                // Patch next clause jump
+                self.patchJump(next_clause_jump);
+                continue;
+            }
+        }
+
         // Compile clause body
         try conditionals.compileCondBody(self, clause_body, dst, is_tail);
 

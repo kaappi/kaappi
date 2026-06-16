@@ -13,6 +13,17 @@ fn reg(vm: *vm_mod.VM, name: []const u8, func: types.NativeFnType, arity: Native
     return primitives.reg(vm, name, func, arity);
 }
 
+/// Raise a division-by-zero error through the exception system so that
+/// (guard ...) can catch it.
+fn raiseDivByZero() PrimitiveError!Value {
+    const vm = vm_mod.vm_instance orelse return raiseDivByZero();
+    const gc = primitives.gc_instance orelse return raiseDivByZero();
+    const msg = gc.allocString("division by zero") catch return raiseDivByZero();
+    const err_obj = gc.allocErrorObject(msg, types.NIL) catch return raiseDivByZero();
+    vm.current_exception = err_obj;
+    return PrimitiveError.ExceptionRaised;
+}
+
 pub fn registerArithmetic(vm: *vm_mod.VM) !void {
     // Arithmetic
     try reg(vm, "+", &add, .{ .variadic = 0 });
@@ -202,7 +213,7 @@ fn divFn(args: []const Value) PrimitiveError!Value {
         if (args.len == 1) {
             // 1/(a+bi) = (a-bi)/(a^2+b^2)
             const denom = first.real * first.real + first.imag * first.imag;
-            if (denom == 0.0) return PrimitiveError.DivisionByZero;
+            if (denom == 0.0) return raiseDivByZero();
             return makeComplexOrReal(first.real / denom, -first.imag / denom);
         }
         var real = first.real;
@@ -210,7 +221,7 @@ fn divFn(args: []const Value) PrimitiveError!Value {
         for (args[1..]) |a| {
             const c = try toComplexParts(a);
             const denom = c.real * c.real + c.imag * c.imag;
-            if (denom == 0.0) return PrimitiveError.DivisionByZero;
+            if (denom == 0.0) return raiseDivByZero();
             const new_real = (real * c.real + imag * c.imag) / denom;
             const new_imag = (imag * c.real - real * c.imag) / denom;
             real = new_real;
@@ -221,7 +232,7 @@ fn divFn(args: []const Value) PrimitiveError!Value {
     if (args.len == 1) {
         // (/ z) = 1/z
         const a = try toF64(args[0]);
-        if (a == 0) return PrimitiveError.DivisionByZero;
+        if (a == 0) return raiseDivByZero();
         return makeFlonumVal(1.0 / a);
     }
     // All fixnums — try exact division
@@ -230,7 +241,7 @@ fn divFn(args: []const Value) PrimitiveError!Value {
         for (args[1..]) |a| {
             if (!types.isFixnum(a)) return PrimitiveError.TypeError;
             const b = types.toFixnum(a);
-            if (b == 0) return PrimitiveError.DivisionByZero;
+            if (b == 0) return raiseDivByZero();
             if (@rem(result, b) == 0) {
                 result = @divExact(result, b);
             } else {
@@ -249,7 +260,7 @@ fn divFn(args: []const Value) PrimitiveError!Value {
     var result = try toF64(args[0]);
     for (args[1..]) |a| {
         const b = try toF64(a);
-        if (b == 0) return PrimitiveError.DivisionByZero;
+        if (b == 0) return raiseDivByZero();
         result /= b;
     }
     return makeFlonumVal(result);
@@ -258,21 +269,21 @@ fn divFn(args: []const Value) PrimitiveError!Value {
 fn quotient(args: []const Value) PrimitiveError!Value {
     if (!types.isFixnum(args[0]) or !types.isFixnum(args[1])) return PrimitiveError.TypeError;
     const b = types.toFixnum(args[1]);
-    if (b == 0) return PrimitiveError.DivisionByZero;
+    if (b == 0) return raiseDivByZero();
     return types.makeFixnum(@divTrunc(types.toFixnum(args[0]), b));
 }
 
 fn remainder(args: []const Value) PrimitiveError!Value {
     if (!types.isFixnum(args[0]) or !types.isFixnum(args[1])) return PrimitiveError.TypeError;
     const b = types.toFixnum(args[1]);
-    if (b == 0) return PrimitiveError.DivisionByZero;
+    if (b == 0) return raiseDivByZero();
     return types.makeFixnum(@rem(types.toFixnum(args[0]), b));
 }
 
 fn modulo(args: []const Value) PrimitiveError!Value {
     if (!types.isFixnum(args[0]) or !types.isFixnum(args[1])) return PrimitiveError.TypeError;
     const b = types.toFixnum(args[1]);
-    if (b == 0) return PrimitiveError.DivisionByZero;
+    if (b == 0) return raiseDivByZero();
     return types.makeFixnum(@mod(types.toFixnum(args[0]), b));
 }
 
@@ -816,13 +827,13 @@ fn floorQuotient(args: []const Value) PrimitiveError!Value {
     if (anyFlonum(args)) {
         const a = try toF64(args[0]);
         const b = try toF64(args[1]);
-        if (b == 0.0) return PrimitiveError.DivisionByZero;
+        if (b == 0.0) return raiseDivByZero();
         return makeFlonumVal(@floor(a / b));
     }
     if (!types.isFixnum(args[0]) or !types.isFixnum(args[1])) return PrimitiveError.TypeError;
     const a = types.toFixnum(args[0]);
     const b = types.toFixnum(args[1]);
-    if (b == 0) return PrimitiveError.DivisionByZero;
+    if (b == 0) return raiseDivByZero();
     return types.makeFixnum(@divFloor(a, b));
 }
 
@@ -830,13 +841,13 @@ fn floorRemainder(args: []const Value) PrimitiveError!Value {
     if (anyFlonum(args)) {
         const a = try toF64(args[0]);
         const b = try toF64(args[1]);
-        if (b == 0.0) return PrimitiveError.DivisionByZero;
+        if (b == 0.0) return raiseDivByZero();
         return makeFlonumVal(a - @floor(a / b) * b);
     }
     if (!types.isFixnum(args[0]) or !types.isFixnum(args[1])) return PrimitiveError.TypeError;
     const a = types.toFixnum(args[0]);
     const b = types.toFixnum(args[1]);
-    if (b == 0) return PrimitiveError.DivisionByZero;
+    if (b == 0) return raiseDivByZero();
     return types.makeFixnum(@mod(a, b));
 }
 
@@ -854,12 +865,12 @@ fn truncateQuotient(args: []const Value) PrimitiveError!Value {
     if (anyFlonum(args)) {
         const a = try toF64(args[0]);
         const b = try toF64(args[1]);
-        if (b == 0.0) return PrimitiveError.DivisionByZero;
+        if (b == 0.0) return raiseDivByZero();
         return makeFlonumVal(@trunc(a / b));
     }
     if (!types.isFixnum(args[0]) or !types.isFixnum(args[1])) return PrimitiveError.TypeError;
     const b = types.toFixnum(args[1]);
-    if (b == 0) return PrimitiveError.DivisionByZero;
+    if (b == 0) return raiseDivByZero();
     return types.makeFixnum(@divTrunc(types.toFixnum(args[0]), b));
 }
 
@@ -868,12 +879,12 @@ fn truncateRemainder(args: []const Value) PrimitiveError!Value {
     if (anyFlonum(args)) {
         const a = try toF64(args[0]);
         const b = try toF64(args[1]);
-        if (b == 0.0) return PrimitiveError.DivisionByZero;
+        if (b == 0.0) return raiseDivByZero();
         return makeFlonumVal(a - @trunc(a / b) * b);
     }
     if (!types.isFixnum(args[0]) or !types.isFixnum(args[1])) return PrimitiveError.TypeError;
     const b = types.toFixnum(args[1]);
-    if (b == 0) return PrimitiveError.DivisionByZero;
+    if (b == 0) return raiseDivByZero();
     return types.makeFixnum(@rem(types.toFixnum(args[0]), b));
 }
 

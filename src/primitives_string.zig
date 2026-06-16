@@ -186,6 +186,7 @@ fn stringSetFn(args: []const Value) PrimitiveError!Value {
     if (!types.isChar(args[2])) return PrimitiveError.TypeError;
     const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
     const str = types.toObject(args[0]).as(types.SchemeString);
+    if (str.immutable) return PrimitiveError.TypeError;
     const data = str.data[0..str.len];
     const k = types.toFixnum(args[1]);
     if (k < 0) return PrimitiveError.TypeError;
@@ -271,6 +272,7 @@ fn stringCopyBangFn(args: []const Value) PrimitiveError!Value {
     if (!types.isFixnum(args[1])) return PrimitiveError.TypeError;
     const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
     const to_str = types.toObject(args[0]).as(types.SchemeString);
+    if (to_str.immutable) return PrimitiveError.TypeError;
     const to_data = to_str.data[0..to_str.len];
     const to_cp_count = utf8CodepointCount(to_data);
     const at_val = types.toFixnum(args[1]);
@@ -332,6 +334,7 @@ fn stringFillFn(args: []const Value) PrimitiveError!Value {
     if (!types.isChar(args[1])) return PrimitiveError.TypeError;
     const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
     const str = types.toObject(args[0]).as(types.SchemeString);
+    if (str.immutable) return PrimitiveError.TypeError;
     const data = str.data[0..str.len];
     const cp = types.toChar(args[1]);
     var fill_buf: [4]u8 = undefined;
