@@ -43,6 +43,7 @@ pub const Reader = struct {
     token_buf: std.ArrayList(u8),
     fold_case: bool = false,
     labels: [32]?Value = .{null} ** 32,
+    source_name: []const u8 = "<input>",
 
     pub fn init(gc: *memory.GC, source: []const u8) Reader {
         return .{
@@ -50,6 +51,29 @@ pub const Reader = struct {
             .gc = gc,
             .token_buf = .empty,
         };
+    }
+
+    pub fn initWithName(gc: *memory.GC, source: []const u8, name: []const u8) Reader {
+        var r = init(gc, source);
+        r.source_name = name;
+        return r;
+    }
+
+    /// Compute line and column from the current position by scanning from the
+    /// start of the source. O(n) per call but only used on error paths and
+    /// datum boundaries, not every character advance.
+    pub fn getLineCol(self: *Reader) struct { line: u32, col: u32 } {
+        var line: u32 = 1;
+        var col: u32 = 1;
+        for (self.source[0..self.pos]) |c| {
+            if (c == '\n') {
+                line += 1;
+                col = 1;
+            } else {
+                col += 1;
+            }
+        }
+        return .{ .line = line, .col = col };
     }
 
     pub fn deinit(self: *Reader) void {

@@ -123,6 +123,8 @@ pub const VM = struct {
     stdin_port: Value = types.VOID,
     stdout_port: Value = types.VOID,
     stderr_port: Value = types.VOID,
+    last_error_detail: [256]u8 = [_]u8{0} ** 256,
+    last_error_detail_len: usize = 0,
 
     pub fn init(gc: *memory.GC) VM {
         var vm = VM{
@@ -153,6 +155,20 @@ pub const VM = struct {
         self.macros.deinit();
         self.output.deinit(self.gc.allocator);
         self.libraries.deinit();
+    }
+
+    pub fn setErrorDetail(self: *VM, comptime fmt: []const u8, args: anytype) void {
+        const s = std.fmt.bufPrint(&self.last_error_detail, fmt, args) catch |err| switch (err) {
+            error.NoSpaceLeft => {
+                self.last_error_detail_len = self.last_error_detail.len;
+                return;
+            },
+        };
+        self.last_error_detail_len = s.len;
+    }
+
+    pub fn getErrorDetail(self: *VM) []const u8 {
+        return self.last_error_detail[0..self.last_error_detail_len];
     }
 
     pub fn defineGlobal(self: *VM, name: []const u8, value: Value) !void {
@@ -241,7 +257,10 @@ pub const VM = struct {
             const args = [1]Value{arg};
             const result = native.func(&args) catch |err| {
                 return switch (err) {
-                    error.TypeError => VMError.TypeError,
+                    error.TypeError => blk: {
+                        self.setErrorDetail("type error in '{s}'", .{native.name});
+                        break :blk VMError.TypeError;
+                    },
                     error.DivisionByZero => VMError.DivisionByZero,
                     error.OutOfMemory => VMError.OutOfMemory,
                     error.ExceptionRaised => VMError.ExceptionRaised,
@@ -251,6 +270,7 @@ pub const VM = struct {
             };
             return result;
         } else {
+            self.setErrorDetail("not a procedure", .{});
             return VMError.NotAProcedure;
         }
     }
@@ -396,15 +416,24 @@ pub const VM = struct {
             const native = types.toObject(proc).as(types.NativeFn);
             switch (native.arity) {
                 .exact => |expected| {
-                    if (args.len != expected) return VMError.ArityMismatch;
+                    if (args.len != expected) {
+                        self.setErrorDetail("'{s}': expected {d} arguments, got {d}", .{ native.name, expected, args.len });
+                        return VMError.ArityMismatch;
+                    }
                 },
                 .variadic => |min| {
-                    if (args.len < min) return VMError.ArityMismatch;
+                    if (args.len < min) {
+                        self.setErrorDetail("'{s}': expected at least {d} arguments, got {d}", .{ native.name, min, args.len });
+                        return VMError.ArityMismatch;
+                    }
                 },
             }
             const result = native.func(args) catch |err| {
                 return switch (err) {
-                    error.TypeError => VMError.TypeError,
+                    error.TypeError => blk: {
+                        self.setErrorDetail("type error in '{s}'", .{native.name});
+                        break :blk VMError.TypeError;
+                    },
                     error.DivisionByZero => VMError.DivisionByZero,
                     error.OutOfMemory => VMError.OutOfMemory,
                     error.ExceptionRaised => VMError.ExceptionRaised,
@@ -414,6 +443,7 @@ pub const VM = struct {
             };
             return result;
         } else {
+            self.setErrorDetail("not a procedure", .{});
             return VMError.NotAProcedure;
         }
     }
@@ -488,7 +518,10 @@ pub const VM = struct {
                     const closure = frame.closure orelse return VMError.InvalidBytecode;
                     const sym = closure.func.constants.items[sym_idx];
                     const name = types.symbolName(sym);
-                    self.registers[frame.base + dst] = self.globals.get(name) orelse return VMError.UndefinedVariable;
+                    self.registers[frame.base + dst] = self.globals.get(name) orelse {
+                        self.setErrorDetail("undefined variable '{s}'", .{name});
+                        return VMError.UndefinedVariable;
+                    };
                 },
                 .set_global => {
                     const sym_idx = self.readU16(frame);
@@ -601,9 +634,15 @@ pub const VM = struct {
                         const func = closure.func;
 
                         if (!func.is_variadic) {
-                            if (nargs != func.arity) return VMError.ArityMismatch;
+                            if (nargs != func.arity) {
+                                self.setErrorDetail("expected {d} arguments, got {d}", .{ func.arity, nargs });
+                                return VMError.ArityMismatch;
+                            }
                         } else {
-                            if (nargs < func.arity) return VMError.ArityMismatch;
+                            if (nargs < func.arity) {
+                                self.setErrorDetail("expected at least {d} arguments, got {d}", .{ func.arity, nargs });
+                                return VMError.ArityMismatch;
+                            }
                             const rest_start = func.arity;
                             var rest_list: Value = types.NIL;
                             var ri: u8 = nargs;
@@ -629,10 +668,16 @@ pub const VM = struct {
                         const native = types.toObject(callee).as(types.NativeFn);
                         switch (native.arity) {
                             .exact => |expected| {
-                                if (nargs != expected) return VMError.ArityMismatch;
+                                if (nargs != expected) {
+                                    self.setErrorDetail("'{s}': expected {d} arguments, got {d}", .{ native.name, expected, nargs });
+                                    return VMError.ArityMismatch;
+                                }
                             },
                             .variadic => |min| {
-                                if (nargs < min) return VMError.ArityMismatch;
+                                if (nargs < min) {
+                                    self.setErrorDetail("'{s}': expected at least {d} arguments, got {d}", .{ native.name, min, nargs });
+                                    return VMError.ArityMismatch;
+                                }
                             },
                         }
                         const nargs_slice = self.registers[abs_base + 1 .. abs_base + 1 + nargs];
@@ -644,7 +689,10 @@ pub const VM = struct {
                                 return VMError.ContinuationInvoked;
                             }
                             return switch (err) {
-                                error.TypeError => VMError.TypeError,
+                                error.TypeError => blk: {
+                                    self.setErrorDetail("type error in '{s}'", .{native.name});
+                                    break :blk VMError.TypeError;
+                                },
                                 error.DivisionByZero => VMError.DivisionByZero,
                                 error.OutOfMemory => VMError.OutOfMemory,
                                 error.ExceptionRaised => VMError.ExceptionRaised,
@@ -660,6 +708,7 @@ pub const VM = struct {
                         const caller = &self.frames[self.frame_count - 1];
                         self.registers[caller.base + return_dst] = result;
                     } else {
+                        self.setErrorDetail("not a procedure", .{});
                         return VMError.NotAProcedure;
                     }
                 },
@@ -810,9 +859,15 @@ pub const VM = struct {
             const func = closure.func;
 
             if (!func.is_variadic) {
-                if (nargs != func.arity) return VMError.ArityMismatch;
+                if (nargs != func.arity) {
+                    self.setErrorDetail("expected {d} arguments, got {d}", .{ func.arity, nargs });
+                    return VMError.ArityMismatch;
+                }
             } else {
-                if (nargs < func.arity) return VMError.ArityMismatch;
+                if (nargs < func.arity) {
+                    self.setErrorDetail("expected at least {d} arguments, got {d}", .{ func.arity, nargs });
+                    return VMError.ArityMismatch;
+                }
                 // Collect rest args into a list
                 const rest_start = func.arity;
                 var rest_list: Value = types.NIL;
@@ -844,17 +899,26 @@ pub const VM = struct {
             const native = types.toObject(callee).as(types.NativeFn);
             switch (native.arity) {
                 .exact => |expected| {
-                    if (nargs != expected) return VMError.ArityMismatch;
+                    if (nargs != expected) {
+                        self.setErrorDetail("'{s}': expected {d} arguments, got {d}", .{ native.name, expected, nargs });
+                        return VMError.ArityMismatch;
+                    }
                 },
                 .variadic => |min| {
-                    if (nargs < min) return VMError.ArityMismatch;
+                    if (nargs < min) {
+                        self.setErrorDetail("'{s}': expected at least {d} arguments, got {d}", .{ native.name, min, nargs });
+                        return VMError.ArityMismatch;
+                    }
                 },
             }
 
             const args = self.registers[base + 1 .. base + 1 + nargs];
             const result = native.func(args) catch |err| {
                 return switch (err) {
-                    error.TypeError => VMError.TypeError,
+                    error.TypeError => blk: {
+                        self.setErrorDetail("type error in '{s}'", .{native.name});
+                        break :blk VMError.TypeError;
+                    },
                     error.DivisionByZero => VMError.DivisionByZero,
                     error.OutOfMemory => VMError.OutOfMemory,
                     error.ExceptionRaised => VMError.ExceptionRaised,
@@ -867,6 +931,7 @@ pub const VM = struct {
             // The compiler emits `call base nargs` and expects the result back in base.
             self.registers[base] = result;
         } else {
+            self.setErrorDetail("not a procedure", .{});
             return VMError.NotAProcedure;
         }
     }

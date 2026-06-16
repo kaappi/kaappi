@@ -40,6 +40,10 @@ fn writeStdout(bytes: []const u8) void {
     writeToFd(1, bytes);
 }
 
+fn writeStderr(bytes: []const u8) void {
+    writeToFd(2, bytes);
+}
+
 fn readLine(buf: []u8) ?[]const u8 {
     const fd: std.posix.fd_t = 0;
     var i: usize = 0;
@@ -146,7 +150,17 @@ fn runFile(vm: *vm_mod.VM, path: []const u8) !void {
                 vm.gc.pushRoot(&func_val);
                 const result = vm.execute(func) catch |err| {
                     vm.gc.popRoot();
-                    std.debug.print("Runtime error: {}\n", .{err});
+                    const detail = vm.getErrorDetail();
+                    if (detail.len > 0) {
+                        var errbuf: [256]u8 = undefined;
+                        const s = std.fmt.bufPrint(&errbuf, "{s}: error: {s}\n", .{ path, detail }) catch "runtime error\n";
+                        writeStderr(s);
+                    } else {
+                        var errbuf: [256]u8 = undefined;
+                        const s = std.fmt.bufPrint(&errbuf, "{s}: runtime error: {}\n", .{ path, err }) catch "runtime error\n";
+                        writeStderr(s);
+                    }
+                    vm.last_error_detail_len = 0;
                     continue;
                 };
                 vm.gc.popRoot();
@@ -171,19 +185,33 @@ fn runFile(vm: *vm_mod.VM, path: []const u8) !void {
     var compiled_funcs: std.ArrayList(*types.Function) = .empty;
     defer compiled_funcs.deinit(allocator);
 
-    var r = reader.Reader.init(vm.gc, source);
+    var r = reader.Reader.initWithName(vm.gc, source, path);
     defer r.deinit();
 
     while (r.hasMore()) {
+        const datum_lc = r.getLineCol();
         const expr = r.readDatum() catch |err| {
-            std.debug.print("Read error: {}\n", .{err});
+            const lc = r.getLineCol();
+            var errbuf: [256]u8 = undefined;
+            const s = std.fmt.bufPrint(&errbuf, "{s}:{d}:{d}: read error: {}\n", .{ path, lc.line, lc.col, err }) catch "read error\n";
+            writeStderr(s);
             return;
         };
 
         // Check for special top-level forms (import, define-library)
         if (vm.handleTopLevelForm(expr)) |top_result| {
             const result = top_result catch |err| {
-                std.debug.print("Runtime error: {}\n", .{err});
+                const detail = vm.getErrorDetail();
+                if (detail.len > 0) {
+                    var errbuf: [256]u8 = undefined;
+                    const s = std.fmt.bufPrint(&errbuf, "{s}:{d}: error: {s}\n", .{ path, datum_lc.line, detail }) catch "runtime error\n";
+                    writeStderr(s);
+                } else {
+                    var errbuf: [256]u8 = undefined;
+                    const s = std.fmt.bufPrint(&errbuf, "{s}:{d}: runtime error: {}\n", .{ path, datum_lc.line, err }) catch "runtime error\n";
+                    writeStderr(s);
+                }
+                vm.last_error_detail_len = 0;
                 continue;
             };
             var dr = result;
@@ -201,9 +229,13 @@ fn runFile(vm: *vm_mod.VM, path: []const u8) !void {
         }
 
         const func = compiler.compileExpressionWithMacros(vm.gc, expr, &vm.macros, &vm.globals) catch |err| {
-            std.debug.print("Compile error: {}\n", .{err});
+            var errbuf: [256]u8 = undefined;
+            const s = std.fmt.bufPrint(&errbuf, "{s}:{d}: compile error: {}\n", .{ path, datum_lc.line, err }) catch "compile error\n";
+            writeStderr(s);
             continue;
         };
+        func.source_line = datum_lc.line;
+        func.source_name = path;
 
         // Collect for caching
         compiled_funcs.append(allocator, func) catch {};
@@ -214,7 +246,17 @@ fn runFile(vm: *vm_mod.VM, path: []const u8) !void {
 
         const result = vm.execute(func) catch |err| {
             vm.gc.popRoot();
-            std.debug.print("Runtime error: {}\n", .{err});
+            const detail = vm.getErrorDetail();
+            if (detail.len > 0) {
+                var errbuf: [256]u8 = undefined;
+                const s = std.fmt.bufPrint(&errbuf, "{s}:{d}: error: {s}\n", .{ path, datum_lc.line, detail }) catch "runtime error\n";
+                writeStderr(s);
+            } else {
+                var errbuf: [256]u8 = undefined;
+                const s = std.fmt.bufPrint(&errbuf, "{s}:{d}: runtime error: {}\n", .{ path, datum_lc.line, err }) catch "runtime error\n";
+                writeStderr(s);
+            }
+            vm.last_error_detail_len = 0;
             continue;
         };
         vm.gc.popRoot();
@@ -253,12 +295,16 @@ fn compileFile(vm: *vm_mod.VM, path: []const u8) !void {
     var compiled_funcs: std.ArrayList(*types.Function) = .empty;
     defer compiled_funcs.deinit(allocator);
 
-    var r = reader.Reader.init(vm.gc, source);
+    var r = reader.Reader.initWithName(vm.gc, source, path);
     defer r.deinit();
 
     while (r.hasMore()) {
+        const datum_lc = r.getLineCol();
         const expr = r.readDatum() catch |err| {
-            std.debug.print("Read error: {}\n", .{err});
+            const lc = r.getLineCol();
+            var errbuf: [256]u8 = undefined;
+            const s = std.fmt.bufPrint(&errbuf, "{s}:{d}:{d}: read error: {}\n", .{ path, lc.line, lc.col, err }) catch "read error\n";
+            writeStderr(s);
             return;
         };
 
@@ -268,9 +314,13 @@ fn compileFile(vm: *vm_mod.VM, path: []const u8) !void {
         }
 
         const func = compiler.compileExpressionWithMacros(vm.gc, expr, &vm.macros, &vm.globals) catch |err| {
-            std.debug.print("Compile error: {}\n", .{err});
+            var errbuf: [256]u8 = undefined;
+            const s = std.fmt.bufPrint(&errbuf, "{s}:{d}: compile error: {}\n", .{ path, datum_lc.line, err }) catch "compile error\n";
+            writeStderr(s);
             continue;
         };
+        func.source_line = datum_lc.line;
+        func.source_name = path;
 
         compiled_funcs.append(allocator, func) catch {};
     }
@@ -407,24 +457,31 @@ fn repl(vm: *vm_mod.VM) !void {
 }
 
 fn evalInput(vm: *vm_mod.VM, allocator: std.mem.Allocator, input: []const u8) void {
-    var r = reader.Reader.init(vm.gc, input);
+    var r = reader.Reader.initWithName(vm.gc, input, "<repl>");
     defer r.deinit();
 
     while (r.hasMore()) {
         const expr = r.readDatum() catch |err| {
+            const lc = r.getLineCol();
             var errbuf: [256]u8 = undefined;
-            var ew: std.Io.Writer = .fixed(&errbuf);
-            ew.print("Read error: {}\n", .{err}) catch {};
-            writeStdout(ew.buffered());
+            const s = std.fmt.bufPrint(&errbuf, "<repl>:{d}:{d}: read error: {}\n", .{ lc.line, lc.col, err }) catch "read error\n";
+            writeStderr(s);
             break;
         };
 
         if (vm.handleTopLevelForm(expr)) |top_result| {
             const result = top_result catch |err| {
-                var errbuf: [256]u8 = undefined;
-                var ew: std.Io.Writer = .fixed(&errbuf);
-                ew.print("Runtime error: {}\n", .{err}) catch {};
-                writeStdout(ew.buffered());
+                const detail = vm.getErrorDetail();
+                if (detail.len > 0) {
+                    writeStderr("error: ");
+                    writeStderr(detail);
+                    writeStderr("\n");
+                } else {
+                    var errbuf: [256]u8 = undefined;
+                    const s = std.fmt.bufPrint(&errbuf, "runtime error: {}\n", .{err}) catch "runtime error\n";
+                    writeStderr(s);
+                }
+                vm.last_error_detail_len = 0;
                 break;
             };
             var dr = result;
@@ -443,21 +500,28 @@ fn evalInput(vm: *vm_mod.VM, allocator: std.mem.Allocator, input: []const u8) vo
 
         const func = compiler.compileExpressionWithMacros(vm.gc, expr, &vm.macros, &vm.globals) catch |err| {
             var errbuf: [256]u8 = undefined;
-            var ew: std.Io.Writer = .fixed(&errbuf);
-            ew.print("Compile error: {}\n", .{err}) catch {};
-            writeStdout(ew.buffered());
+            const s = std.fmt.bufPrint(&errbuf, "compile error: {}\n", .{err}) catch "compile error\n";
+            writeStderr(s);
             break;
         };
+        func.source_name = "<repl>";
 
         var func_val = types.makePointer(@ptrCast(func));
         vm.gc.pushRoot(&func_val);
 
         const result = vm.execute(func) catch |err| {
             vm.gc.popRoot();
-            var errbuf: [256]u8 = undefined;
-            var ew: std.Io.Writer = .fixed(&errbuf);
-            ew.print("Runtime error: {}\n", .{err}) catch {};
-            writeStdout(ew.buffered());
+            const detail = vm.getErrorDetail();
+            if (detail.len > 0) {
+                writeStderr("error: ");
+                writeStderr(detail);
+                writeStderr("\n");
+            } else {
+                var errbuf: [256]u8 = undefined;
+                const s = std.fmt.bufPrint(&errbuf, "runtime error: {}\n", .{err}) catch "runtime error\n";
+                writeStderr(s);
+            }
+            vm.last_error_detail_len = 0;
             break;
         };
         vm.gc.popRoot();

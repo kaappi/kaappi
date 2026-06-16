@@ -166,6 +166,8 @@ pub const Function = struct {
     upvalue_count: u8 = 0,
     is_variadic: bool = false,
     name: ?[]const u8 = null,
+    source_line: u32 = 0,
+    source_name: ?[]const u8 = null,
 };
 
 pub const Closure = struct {
