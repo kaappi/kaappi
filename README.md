@@ -308,64 +308,11 @@ kaappi/
 
 ---
 
-## Known limitations
+## R7RS conformance
 
-- **No bignum**: Integers are 63-bit signed fixnums. Overflow wraps silently.
-- **No exact rationals**: `/` with non-divisible exact integers returns an inexact (flonum) result. Rational syntax (`1/2`) is not parsed.
-- **Multi-shot continuations copy the stack**: `call/cc` snapshots the full VM state — correct and re-entrant, but O(stack depth) per capture.
-- **Continuations are scoped to one top-level form**: a continuation captured in one expression cannot re-enter subsequent top-level expressions. Wrap in `(begin ...)` to span them.
-- **Unicode case mapping**: Covers Latin (incl. Extended-A/B), Greek, and Cyrillic. Other scripts pass through unchanged.
-- **No `syntax-case`**: Only `syntax-rules` is supported (as specified by R7RS-small).
+Kaappi implements every identifier from R7RS Appendix A. 5 intentional design choices (no bignum, no exact rationals, stack-copying continuations, continuation scope, no syntax-case) and 3 low-severity edge cases remain.
 
----
-
-## R7RS conformance notes
-
-Kaappi implements every identifier from R7RS Appendix A. The following documents intentional design choices and remaining edge-case behaviors.
-
-### By design
-
-| Area | Behavior | Rationale |
-|------|----------|-----------|
-| **No bignum** | Integers are 63-bit signed fixnums. Overflow wraps. | §6.2.3 allows limited range. 63 bits covers all practical index/size operations. |
-| **No exact rationals** | `/` with non-divisible integers returns a flonum. `inexact->exact` truncates. `1/2` syntax not parsed. | §6.2.3 allows omitting rationals. Use `(/ 1 2)` for `0.5`. |
-| **Stack-copying continuations** | `call/cc` snapshots full VM state — O(depth) per capture. | Correct and re-entrant. Simpler than CPS or segmented stacks. |
-| **Continuation scope** | A continuation cannot re-enter subsequent top-level forms. | REPL evaluates forms one at a time. Wrap in `(begin ...)` to span them. |
-| **No `syntax-case`** | Only `syntax-rules`. | R7RS-small specifies `syntax-rules` only. |
-
-### Remaining gaps
-
-3 edge cases remain — all with low practical impact and workarounds. See **[GAPS.md](GAPS.md)** for detailed explanations, code examples, and architectural discussion.
-
-| Gap | Severity | Details |
-|-----|----------|---------|
-| **Local-variable macro transparency** | Low | `let-syntax` macros can't reference locals from definition site — requires environment capture ([details](GAPS.md#1-local-variable-referential-transparency-in-macros)) |
-| **`letrec` init restriction** | Very low | Indirect forward references not detected — spec says "is an error" ([details](GAPS.md#2-letrec-init-restriction-partial)) |
-| **Unicode case mapping** | Low | Latin/Greek/Cyrillic covered; other cased scripts pass through unchanged ([details](GAPS.md#3-unicode-case-mapping-latingreek cyrillic-only)) |
-
-### Fully conformant
-
-- Proper tail calls in all R7RS-specified positions: `if`, `begin`, `cond`, `case`, `and`, `or`, `when`, `unless`, `let`/`let*`/`letrec`/`letrec*`, `do`, `guard`, `parameterize`, lambda bodies
-- String literal immutability enforced; `symbol->string` returns immutable strings
-- `file-error?` / `read-error?` return `#t` for file and reader errors respectively
-- Division by zero raises a catchable error: `(guard (e (#t 'caught)) (/ 1 0))` → `caught`
-- `case` with `=>` arrow syntax: `(case 6 ((6) => (lambda (x) (+ x 1))))` → `7`
-- Radix prefixes: `#b1010` → `10`, `#o17` → `15`, `#xff` → `255`; exactness prefixes: `#e1.5` → `1`, `#i3` → `3.0`
-- Multiple values in single-value context: first value extracted automatically
-- `letrec` bare forward references detected at compile time
-- `#!fold-case` / `#!no-fold-case` directives
-- Datum labels: `#0=(a b . #0#)` reads circular structures, `write-shared` emits them
-- `write-shared` detects shared/circular structure with two-pass labeling
-- `equal?` terminates on circular structures via visited-set cycle detection
-- Nested quasiquote: `` `(a `(b ,(+ 1 2))) `` correctly preserves inner quasiquote structure
-- Hex escapes in `|quoted identifiers|`: `|H\x65;llo|` → symbol `Hello`
-- NaN: `(eqv? +nan.0 +nan.0)` → `#t`, `(= +nan.0 +nan.0)` → `#f`
-- Negative zero: `(eqv? 0.0 -0.0)` → `#f`, `(= 0.0 -0.0)` → `#t`
-- Library single-load guarantee
-- `dynamic-wind` correctness across continuation jumps
-- `delay`/`force` with memoization
-- `define-record-type`, `syntax-rules` with ellipsis, `cond-expand`
-- All 14 standard libraries
+See **[CONFORMANCE.md](CONFORMANCE.md)** for the full details: design rationale, gap explanations with code examples and workarounds, and the complete list of verified conformant behaviors.
 
 ---
 
