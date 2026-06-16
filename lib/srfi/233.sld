@@ -1,0 +1,66 @@
+(define-library (srfi 233)
+  (import (scheme base) (scheme write))
+  (export ini-file->alist alist->ini-file)
+  (begin
+    (define (ini-file->alist port)
+      (let loop ((result '()) (current-section #f) (section-entries '()))
+        (let ((line (read-line port)))
+          (if (eof-object? line)
+              (reverse (if current-section
+                          (cons (cons current-section (reverse section-entries)) result)
+                          result))
+              (let ((trimmed (string-trim line)))
+                (cond
+                  ((or (= (string-length trimmed) 0)
+                       (char=? (string-ref trimmed 0) #\;)
+                       (char=? (string-ref trimmed 0) #\#))
+                   (loop result current-section section-entries))
+                  ((and (char=? (string-ref trimmed 0) #\[)
+                        (char=? (string-ref trimmed (- (string-length trimmed) 1)) #\]))
+                   (let ((name (substring trimmed 1 (- (string-length trimmed) 1))))
+                     (loop (if current-section
+                               (cons (cons current-section (reverse section-entries)) result)
+                               result)
+                           name '())))
+                  (else
+                   (let ((eq-pos (string-index trimmed #\=)))
+                     (if eq-pos
+                         (loop result current-section
+                               (cons (cons (string-trim (substring trimmed 0 eq-pos))
+                                           (string-trim (substring trimmed (+ eq-pos 1)
+                                                                  (string-length trimmed))))
+                                     section-entries))
+                         (loop result current-section section-entries))))))))))
+
+    (define (string-trim s)
+      (let* ((len (string-length s))
+             (start (let loop ((i 0))
+                      (if (and (< i len) (char-whitespace? (string-ref s i)))
+                          (loop (+ i 1)) i)))
+             (end (let loop ((i (- len 1)))
+                    (if (and (>= i start) (char-whitespace? (string-ref s i)))
+                        (loop (- i 1)) (+ i 1)))))
+        (substring s start end)))
+
+    (define (string-index s ch)
+      (let loop ((i 0))
+        (cond ((= i (string-length s)) #f)
+              ((char=? (string-ref s i) ch) i)
+              (else (loop (+ i 1))))))
+
+    (define (alist->ini-file alist port)
+      (for-each
+        (lambda (section)
+          (display "[" port)
+          (display (car section) port)
+          (display "]" port)
+          (newline port)
+          (for-each
+            (lambda (entry)
+              (display (car entry) port)
+              (display " = " port)
+              (display (cdr entry) port)
+              (newline port))
+            (cdr section))
+          (newline port))
+        alist))))
