@@ -9,9 +9,15 @@ zig build              # build executable (zig-out/bin/kaappi)
 zig build run          # launch REPL (linenoise: arrow keys, history, tab completion)
 zig build run -- f.scm # run a Scheme file
 zig build test         # run all unit tests
+zig build bench        # call/cc vs call/ec capture micro-benchmark
 ```
 
 Requires Zig 0.16+ and libc (for linenoise terminal handling).
+
+Builds default to **ReleaseSafe** (fast, with bounds/safety checks retained;
+fixnum overflow still wraps silently). Debug is ~500x slower for allocation-
+and continuation-heavy workloads — only use it when debugging:
+`zig build -Doptimize=Debug`. For maximum throughput: `-Doptimize=ReleaseFast`.
 
 ## Architecture
 

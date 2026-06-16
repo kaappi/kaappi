@@ -2,7 +2,16 @@ const std = @import("std");
 
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
-    const optimize = b.standardOptimizeOption(.{});
+    // Default to ReleaseSafe rather than Debug: the interpreter exists to *run*
+    // Scheme programs, and Debug is ~500x slower for allocation/continuation-
+    // heavy workloads. ReleaseSafe matches ReleaseFast in throughput here while
+    // keeping bounds/safety checks (fixnum overflow still wraps silently, as
+    // documented). Override for development with `-Doptimize=Debug`.
+    const optimize = b.option(
+        std.builtin.OptimizeMode,
+        "optimize",
+        "Prioritize performance, safety, or binary size (default: ReleaseSafe)",
+    ) orelse .ReleaseSafe;
 
     // Main module
     const main_mod = b.createModule(.{
