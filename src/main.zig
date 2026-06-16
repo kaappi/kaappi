@@ -439,6 +439,55 @@ fn repl(vm: *vm_mod.VM) !void {
         if (parenDepth(input_buf.items) > 0) continue;
 
         const full_input = input_buf.items;
+        const debug_trimmed = std.mem.trim(u8, full_input, " \t\r\n");
+
+        // Debug commands (comma-prefixed)
+        if (std.mem.startsWith(u8, debug_trimmed, ",break ")) {
+            const bp_name = std.mem.trim(u8, debug_trimmed[7..], " ");
+            if (vm.breakpoint_count < 16) {
+                vm.breakpoints[vm.breakpoint_count] = bp_name;
+                vm.breakpoint_count += 1;
+                vm.debug_mode = true;
+                vm.step_mode = .continue_to_break;
+            }
+            writeStdout("Breakpoint set on ");
+            writeStdout(bp_name);
+            writeStdout("\n");
+            input_buf.clearRetainingCapacity();
+            continue;
+        }
+        if (std.mem.eql(u8, debug_trimmed, ",breakpoints")) {
+            for (vm.breakpoints[0..vm.breakpoint_count], 0..) |bp, idx| {
+                var dbuf: [32]u8 = undefined;
+                const s = std.fmt.bufPrint(&dbuf, "  [{d}] ", .{idx}) catch "";
+                writeStdout(s);
+                writeStdout(bp);
+                writeStdout("\n");
+            }
+            if (vm.breakpoint_count == 0) {
+                writeStdout("  (no breakpoints)\n");
+            }
+            input_buf.clearRetainingCapacity();
+            continue;
+        }
+        if (std.mem.eql(u8, debug_trimmed, ",delete all")) {
+            vm.breakpoint_count = 0;
+            vm.debug_mode = false;
+            vm.step_mode = .none;
+            writeStdout("All breakpoints deleted\n");
+            input_buf.clearRetainingCapacity();
+            continue;
+        }
+        if (std.mem.startsWith(u8, debug_trimmed, ",step ")) {
+            const step_expr = debug_trimmed[6..];
+            vm.debug_mode = true;
+            vm.step_mode = .step;
+            evalInput(vm, allocator, step_expr);
+            vm.debug_mode = false;
+            vm.step_mode = .none;
+            input_buf.clearRetainingCapacity();
+            continue;
+        }
 
         // Add to history with newlines replaced by spaces for clean display
         var hist_buf: std.ArrayList(u8) = .empty;

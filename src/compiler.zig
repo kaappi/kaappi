@@ -212,6 +212,17 @@ pub const Compiler = struct {
         try self.compileExpr(expr, dst, false);
         try self.emitOp(.@"return");
         try self.emit(dst);
+
+        // Populate debug_locals for the debugger
+        if (self.locals.items.len > 0) {
+            const debug = self.gc.allocator.alloc(types.DebugLocal, self.locals.items.len) catch null;
+            if (debug) |d| {
+                for (self.locals.items, 0..) |local, i| {
+                    d[i] = .{ .name = local.name, .slot = local.slot };
+                }
+                self.func.debug_locals = d;
+            }
+        }
     }
 
     pub fn compileMultiple(self: *Compiler, exprs: []const Value) CompileError!void {
@@ -234,6 +245,17 @@ pub const Compiler = struct {
         }
         try self.emitOp(.@"return");
         try self.emit(dst);
+
+        // Populate debug_locals for the debugger
+        if (self.locals.items.len > 0) {
+            const debug = self.gc.allocator.alloc(types.DebugLocal, self.locals.items.len) catch null;
+            if (debug) |d| {
+                for (self.locals.items, 0..) |local, i| {
+                    d[i] = .{ .name = local.name, .slot = local.slot };
+                }
+                self.func.debug_locals = d;
+            }
+        }
     }
 
     pub fn compileExpr(self: *Compiler, expr: Value, dst: u8, is_tail: bool) CompileError!void {
@@ -514,6 +536,17 @@ pub const Compiler = struct {
         // Compile body as implicit begin
         try child.compileBody(body);
 
+        // Populate debug_locals for the debugger
+        if (child.locals.items.len > 0) {
+            const debug = self.gc.allocator.alloc(types.DebugLocal, child.locals.items.len) catch null;
+            if (debug) |d| {
+                for (child.locals.items, 0..) |local, i| {
+                    d[i] = .{ .name = local.name, .slot = local.slot };
+                }
+                child.func.debug_locals = d;
+            }
+        }
+
         // Store child function as constant and emit closure instruction
         const func_val = types.makePointer(@ptrCast(child.func));
         const idx = try self.addConstant(func_val);
@@ -563,6 +596,18 @@ pub const Compiler = struct {
             if (rest == types.NIL) return CompileError.InvalidSyntax;
             const value_expr = types.car(rest);
             try self.compileExpr(value_expr, dst, false);
+
+            // If the expression compiled to a lambda, set its name for debugging
+            if (self.func.constants.items.len > 0) {
+                const last_const = self.func.constants.items[self.func.constants.items.len - 1];
+                if (types.isFunction(last_const)) {
+                    const child_func = types.toObject(last_const).as(types.Function);
+                    if (child_func.name == null) {
+                        child_func.name = types.symbolName(target);
+                    }
+                }
+            }
+
             const sym_idx = try self.addConstant(target);
             try self.emitOp(.set_global);
             try self.emitU16(sym_idx);
@@ -582,9 +627,13 @@ pub const Compiler = struct {
             const lambda_args = self.gc.allocPair(param_formals, rest) catch return CompileError.OutOfMemory;
             try self.compileLambda(lambda_args, dst);
 
-            // Set name on the function for debugging
-            if (types.isClosure(self.func.constants.items[self.func.constants.items.len - 1])) {
-                // Can't easily set name here due to timing, skip for now
+            // Set name on the child function for debugging
+            if (self.func.constants.items.len > 0) {
+                const last_const = self.func.constants.items[self.func.constants.items.len - 1];
+                if (types.isFunction(last_const)) {
+                    const child_func = types.toObject(last_const).as(types.Function);
+                    child_func.name = types.symbolName(name);
+                }
             }
 
             const sym_idx = try self.addConstant(name);

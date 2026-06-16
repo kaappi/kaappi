@@ -105,6 +105,8 @@ const CallFrame = struct {
     dst: u8,
 };
 
+pub const StepMode = enum { none, step, next, continue_to_break };
+
 pub const VM = struct {
     gc: *memory.GC,
     registers: [MAX_REGISTERS]Value = undefined,
@@ -125,6 +127,12 @@ pub const VM = struct {
     stderr_port: Value = types.VOID,
     last_error_detail: [256]u8 = [_]u8{0} ** 256,
     last_error_detail_len: usize = 0,
+    // Debugger state
+    debug_mode: bool = false,
+    breakpoints: [16][]const u8 = undefined,
+    breakpoint_count: usize = 0,
+    step_mode: StepMode = .none,
+    step_frame: usize = 0,
 
     pub fn init(gc: *memory.GC) VM {
         var vm = VM{
@@ -483,6 +491,13 @@ pub const VM = struct {
 
             const op: OpCode = @enumFromInt(frame.code[frame.ip]);
             frame.ip += 1;
+
+            // Debug hook -- check if we should pause
+            if (self.debug_mode) {
+                if (self.shouldDebugPause(frame)) {
+                    self.debugPause(frame) catch {};
+                }
+            }
 
             switch (op) {
                 .load_const => {
@@ -895,6 +910,18 @@ pub const VM = struct {
                 .dst = @intCast(base - self.frames[self.frame_count - 1].base),
             };
             self.frame_count += 1;
+
+            // Breakpoint check: pause if entering a function with a matching name
+            if (self.debug_mode and self.breakpoint_count > 0) {
+                if (func.name) |fname| {
+                    for (self.breakpoints[0..self.breakpoint_count]) |bp| {
+                        if (std.mem.eql(u8, bp, fname)) {
+                            self.step_mode = .step;
+                            break;
+                        }
+                    }
+                }
+            }
         } else if (types.isNativeFn(callee)) {
             const native = types.toObject(callee).as(types.NativeFn);
             switch (native.arity) {
@@ -933,6 +960,132 @@ pub const VM = struct {
         } else {
             self.setErrorDetail("not a procedure", .{});
             return VMError.NotAProcedure;
+        }
+    }
+
+    // -- Debugger methods --
+
+    fn shouldDebugPause(self: *VM, frame: *CallFrame) bool {
+        _ = frame;
+        return switch (self.step_mode) {
+            .step => true,
+            .next => self.frame_count <= self.step_frame,
+            .continue_to_break => false,
+            .none => false,
+        };
+    }
+
+    fn debugPause(self: *VM, frame: *CallFrame) !void {
+        const allocator = self.gc.allocator;
+
+        // Print current position
+        if (frame.closure) |cls| {
+            const func = cls.func;
+            writeStderr("Break");
+            if (func.name) |name| {
+                writeStderr(" at ");
+                writeStderr(name);
+            }
+            if (func.source_name) |src| {
+                writeStderr(" (");
+                writeStderr(src);
+                var buf: [32]u8 = undefined;
+                const s = std.fmt.bufPrint(&buf, ":{d}", .{func.source_line}) catch "";
+                writeStderr(s);
+                writeStderr(")");
+            }
+            writeStderr("\n");
+        }
+
+        // Debug command loop
+        var cmd_buf: [256]u8 = undefined;
+        while (true) {
+            writeStderr("debug> ");
+            // Read command from stdin (raw fd 0, bypassing linenoise)
+            var i: usize = 0;
+            while (i < cmd_buf.len) {
+                const result = std.posix.system.read(0, cmd_buf[i .. i + 1].ptr, 1);
+                const n: usize = @intCast(result);
+                if (n == 0) {
+                    self.debug_mode = false;
+                    self.step_mode = .none;
+                    return;
+                }
+                if (cmd_buf[i] == '\n') break;
+                i += 1;
+            }
+            const cmd = std.mem.trim(u8, cmd_buf[0..i], " \t\r");
+
+            if (cmd.len == 0) continue;
+
+            if (std.mem.eql(u8, cmd, "step") or std.mem.eql(u8, cmd, "s")) {
+                self.step_mode = .step;
+                return;
+            }
+            if (std.mem.eql(u8, cmd, "next") or std.mem.eql(u8, cmd, "n")) {
+                self.step_mode = .next;
+                self.step_frame = self.frame_count;
+                return;
+            }
+            if (std.mem.eql(u8, cmd, "continue") or std.mem.eql(u8, cmd, "c")) {
+                self.step_mode = .continue_to_break;
+                return;
+            }
+            if (std.mem.eql(u8, cmd, "locals") or std.mem.eql(u8, cmd, "l")) {
+                self.printLocals(frame, allocator);
+                continue;
+            }
+            if (std.mem.eql(u8, cmd, "backtrace") or std.mem.eql(u8, cmd, "bt")) {
+                self.printBacktrace();
+                continue;
+            }
+            if (std.mem.eql(u8, cmd, "quit") or std.mem.eql(u8, cmd, "q")) {
+                self.debug_mode = false;
+                self.step_mode = .none;
+                return;
+            }
+            writeStderr("Commands: step(s), next(n), continue(c), locals(l), backtrace(bt), quit(q)\n");
+        }
+    }
+
+    fn printLocals(self: *VM, frame: *CallFrame, allocator: std.mem.Allocator) void {
+        if (frame.closure) |cls| {
+            const func = cls.func;
+            const printer = @import("printer.zig");
+            for (func.debug_locals) |local| {
+                writeStderr("  ");
+                writeStderr(local.name);
+                writeStderr(" = ");
+                const val = self.registers[frame.base + local.slot];
+                const s = printer.valueToString(allocator, val, .write) catch continue;
+                defer allocator.free(s);
+                writeStderr(s);
+                writeStderr("\n");
+            }
+            if (func.debug_locals.len == 0) {
+                writeStderr("  (no locals)\n");
+            }
+        }
+    }
+
+    fn printBacktrace(self: *VM) void {
+        var i: usize = self.frame_count;
+        while (i > 0) {
+            i -= 1;
+            const f = self.frames[i];
+            var buf: [32]u8 = undefined;
+            const idx = std.fmt.bufPrint(&buf, "[{d}] ", .{i}) catch "";
+            writeStderr(idx);
+            if (f.closure) |cls| {
+                if (cls.func.name) |name| {
+                    writeStderr(name);
+                } else {
+                    writeStderr("<lambda>");
+                }
+            } else {
+                writeStderr("<native>");
+            }
+            writeStderr("\n");
         }
     }
 

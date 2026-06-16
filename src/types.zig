@@ -158,6 +158,11 @@ pub const NativeFn = struct {
     };
 };
 
+pub const DebugLocal = struct {
+    name: []const u8,
+    slot: u8,
+};
+
 pub const Function = struct {
     header: Object,
     code: std.ArrayList(u8),
@@ -169,6 +174,7 @@ pub const Function = struct {
     name: ?[]const u8 = null,
     source_line: u32 = 0,
     source_name: ?[]const u8 = null,
+    debug_locals: []DebugLocal = &.{},
 };
 
 pub const Closure = struct {
