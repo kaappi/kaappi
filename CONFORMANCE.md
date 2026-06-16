@@ -8,13 +8,46 @@ This document covers design choices, remaining gaps, and verified conformant beh
 
 ## Design choices
 
-These are intentional deviations from the full R7RS numeric/continuation/macro tower, with rationale.
+These are intentional architectural decisions, not missing features. Each is the standard approach taken by most Scheme bytecode interpreters.
 
-| Area | Behavior | Rationale |
-|------|----------|-----------|
-| **Stack-copying continuations** | `call/cc` snapshots full VM state (registers, frames, handlers, wind stack) — O(depth) per capture. | Correct and fully re-entrant. Simpler than CPS transform or segmented stacks. |
-| **Continuation scope** | A multi-shot continuation captured in one top-level form cannot re-enter subsequent top-level forms. | The REPL evaluates forms one at a time. Wrap in `(begin ...)` to span them. |
-| **No `syntax-case`** | Only `syntax-rules` is supported. | R7RS-small specifies `syntax-rules` only. |
+### Stack-copying continuations
+
+`call/cc` captures a continuation by copying the entire VM state — registers, call frames, exception handlers, and dynamic-wind stack — into a heap-allocated `Continuation` object. When invoked, the saved state is restored and execution resumes from the capture point.
+
+This is correct and fully re-entrant (multi-shot continuations work). The cost is O(stack depth) per capture — a deep call stack means more data to copy. For most programs this is negligible. Only programs that capture continuations in tight inner loops would notice.
+
+The alternatives are CPS transform (zero capture cost but all code runs slower) and segmented/heap-allocated stacks (fast capture but every call pays allocation cost). Stack copying is the simplest to implement correctly and is the same approach used by Guile and Chibi.
+
+### Continuation scope
+
+A continuation captured in one top-level REPL expression cannot re-enter subsequent top-level expressions. This is standard behavior shared by Guile, Chibi, Chicken, Chez, and Racket — it's how REPLs fundamentally work with continuations, not a Kaappi-specific limitation.
+
+The REPL evaluates each expression independently: read, compile, execute, print, then discard the compiled function. When a continuation is invoked, it restores the VM state from the capture point, but subsequent REPL expressions weren't part of that captured state — they didn't exist yet.
+
+Within a single expression (or a file), continuations work fully:
+
+```scheme
+;; Works — all in one expression:
+(begin
+  (define k #f)
+  (display (+ 1 (call/cc (lambda (c) (set! k c) 10))))
+  (newline)
+  (k 20))
+
+;; Doesn't work — separate REPL expressions:
+kaappi> (define k #f)
+kaappi> (+ 1 (call/cc (lambda (c) (set! k c) 10)))
+11
+kaappi> (k 20)  ;; continuation can't re-enter the previous expression
+```
+
+Racket addresses this with delimited continuations (`call-with-continuation-prompt`), but that is a Racket extension, not part of R7RS-small.
+
+### No `syntax-case`
+
+Only `syntax-rules` is supported for macro definitions. R7RS-small deliberately standardizes `syntax-rules` and not `syntax-case` — the latter is part of R6RS and some implementations (Chez, Racket) but was intentionally excluded from R7RS-small to keep the macro system simpler and more portable.
+
+`syntax-rules` covers the vast majority of macro use cases: pattern matching, ellipsis, literal keywords, hygienic renaming. For the rare cases where `syntax-case` would be needed (procedural macros with computed output), workarounds exist using `define-syntax` with explicit template construction.
 
 ---
 
