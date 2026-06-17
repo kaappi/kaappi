@@ -1,9 +1,34 @@
 const std = @import("std");
 const types = @import("types.zig");
+const memory = @import("memory.zig");
 const compiler_mod = @import("compiler.zig");
 const Value = types.Value;
 const Compiler = compiler_mod.Compiler;
 const CompileError = compiler_mod.CompileError;
+
+var named_let_counter: u32 = 0;
+
+fn makeUniqueLoopName(gc: *memory.GC, original: []const u8) CompileError!Value {
+    named_let_counter +%= 1;
+    var buf: [128]u8 = undefined;
+    const name = std.fmt.bufPrint(&buf, "__nlet_{d}_{s}", .{ named_let_counter, original }) catch
+        return CompileError.OutOfMemory;
+    return gc.allocSymbol(name) catch return CompileError.OutOfMemory;
+}
+
+fn renameInBody(gc: *memory.GC, expr: Value, old_name: []const u8, new_sym: Value) CompileError!Value {
+    if (types.isSymbol(expr)) {
+        if (std.mem.eql(u8, types.symbolName(expr), old_name)) return new_sym;
+        return expr;
+    }
+    if (types.isPair(expr)) {
+        const new_car = try renameInBody(gc, types.car(expr), old_name, new_sym);
+        const new_cdr = try renameInBody(gc, types.cdr(expr), old_name, new_sym);
+        if (new_car == types.car(expr) and new_cdr == types.cdr(expr)) return expr;
+        return gc.allocPair(new_car, new_cdr) catch return CompileError.OutOfMemory;
+    }
+    return expr;
+}
 
 // -- Binding and iteration forms --
 
@@ -206,24 +231,21 @@ pub fn compileNamedLet(self: *Compiler, args: Value, dst: u8, is_tail: bool) Com
         formals = self.gc.allocPair(var_names[i], formals) catch return CompileError.OutOfMemory;
     }
 
-    // Build lambda args: (formals body...)
-    const lambda_args = self.gc.allocPair(formals, body) catch return CompileError.OutOfMemory;
+    // Named let uses a global for the loop procedure. Use a unique gensym'd
+    // name to prevent collisions when multiple named lets use the same name.
+    const unique_sym = try makeUniqueLoopName(self.gc, types.symbolName(loop_name));
+    const renamed_body = try renameInBody(self.gc, body, types.symbolName(loop_name), unique_sym);
+    const renamed_lambda_args = self.gc.allocPair(formals, renamed_body) catch return CompileError.OutOfMemory;
 
-    // Named let uses a global for the loop procedure so that the recursive
-    // reference works (our upvalues are copy-based, not reference-based).
-
-    // Set loop name to void in globals first
     try self.emitOp(.load_void);
     try self.emit(dst);
-    const name_sym_idx = try self.addConstant(loop_name);
+    const name_sym_idx = try self.addConstant(unique_sym);
     try self.emitOp(.set_global);
     try self.emitU16(name_sym_idx);
     try self.emit(dst);
 
-    // Compile the lambda to dst
-    try self.compileLambda(lambda_args, dst);
+    try self.compileLambda(renamed_lambda_args, dst);
 
-    // Store the closure as a global
     try self.emitOp(.set_global);
     try self.emitU16(name_sym_idx);
     try self.emit(dst);
