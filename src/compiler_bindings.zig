@@ -131,15 +131,13 @@ pub fn compileLetStar(self: *Compiler, args: Value, dst: u8, is_tail: bool) Comp
 pub fn compileLetrec(self: *Compiler, args: Value, dst: u8, is_tail: bool) CompileError!void {
     if (args == types.NIL) return CompileError.InvalidSyntax;
     const bindings = types.car(args);
-    const body = types.cdr(args);
+    var body = types.cdr(args);
     if (body == types.NIL) return CompileError.InvalidSyntax;
 
-    // letrec uses globals so that recursive closures can reference each other.
-    // This is correct because closures capture global references by name at
-    // call time (via get_global), not at closure-creation time.
-    //
-    // Phase 1: set all variables to void in the global environment
+    // letrec uses globals for mutually recursive closures. Use gensym'd
+    // names to avoid overwriting user-visible globals like even?/odd?.
     var syms: [32]Value = undefined;
+    var unique_syms: [32]Value = undefined;
     var inits: [32]Value = undefined;
     var count: usize = 0;
 
@@ -152,37 +150,35 @@ pub fn compileLetrec(self: *Compiler, args: Value, dst: u8, is_tail: bool) Compi
         const var_name = types.car(binding);
         if (!types.isSymbol(var_name)) return CompileError.InvalidSyntax;
 
-        // Set to void initially
-        try self.emitOp(.load_void);
-        try self.emit(dst);
-        const sym_idx = try self.addConstant(var_name);
-        try self.emitOp(.set_global);
-        try self.emitU16(sym_idx);
-        try self.emit(dst);
-
         syms[count] = var_name;
+        unique_syms[count] = try makeUniqueLoopName(self.gc, types.symbolName(var_name));
         inits[count] = types.car(types.cdr(binding));
         count += 1;
-
         binding_list = types.cdr(binding_list);
     }
 
-    // Check letrec restriction: init must not be a bare reference to another binding
+    // Rename all letrec variables in inits and body to gensym'd names
     for (0..count) |i| {
-        if (types.isSymbol(inits[i])) {
-            const init_name = types.symbolName(inits[i]);
-            for (0..count) |j| {
-                if (i != j and std.mem.eql(u8, types.symbolName(syms[j]), init_name)) {
-                    return CompileError.InvalidSyntax;
-                }
-            }
+        for (0..count) |j| {
+            inits[j] = try renameInBody(self.gc, inits[j], types.symbolName(syms[i]), unique_syms[i]);
         }
+        body = try renameInBody(self.gc, body, types.symbolName(syms[i]), unique_syms[i]);
     }
 
-    // Phase 2: evaluate inits and assign to globals (variables visible during evaluation)
+    // Phase 1: set all gensym'd variables to void
+    for (0..count) |i| {
+        try self.emitOp(.load_void);
+        try self.emit(dst);
+        const sym_idx = try self.addConstant(unique_syms[i]);
+        try self.emitOp(.set_global);
+        try self.emitU16(sym_idx);
+        try self.emit(dst);
+    }
+
+    // Phase 2: evaluate inits and assign to gensym'd globals
     for (0..count) |i| {
         try self.compileExpr(inits[i], dst, false);
-        const sym_idx = try self.addConstant(syms[i]);
+        const sym_idx = try self.addConstant(unique_syms[i]);
         try self.emitOp(.set_global);
         try self.emitU16(sym_idx);
         try self.emit(dst);
