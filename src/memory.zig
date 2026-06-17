@@ -652,7 +652,6 @@ pub const GC = struct {
     pub fn collect(self: *GC) void {
         self.markRoots();
         self.sweep();
-        self.flonum_cache = .{null} ** 16;
         self.gc_threshold = @max(GC_THRESHOLD, self.object_count * 2);
     }
 
@@ -662,6 +661,10 @@ pub const GC = struct {
         }
         for (self.extra_roots.items) |v| {
             self.markValue(v);
+        }
+        // Mark cached flonums
+        for (self.flonum_cache) |entry| {
+            if (entry) |v| self.markValue(v);
         }
         // Mark interned symbols
         var it = self.symbols.valueIterator();

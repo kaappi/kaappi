@@ -146,6 +146,7 @@ pub const VM = struct {
     breakpoint_count: usize = 0,
     step_mode: StepMode = .none,
     step_frame: usize = 0,
+    global_version: u32 = 0,
 
     pub fn init(gc: *memory.GC) VM {
         var vm = VM{
@@ -546,7 +547,9 @@ pub const VM = struct {
                     const closure = frame.closure orelse return VMError.InvalidBytecode;
                     const func = closure.func;
                     if (func.global_cache) |cache| {
-                        if (sym_idx < cache.len and cache[sym_idx] != types.VOID) {
+                        if (func.cache_version == self.global_version and
+                            sym_idx < cache.len and cache[sym_idx] != types.VOID)
+                        {
                             self.registers[frame.base + dst] = cache[sym_idx];
                             continue;
                         }
@@ -558,15 +561,16 @@ pub const VM = struct {
                         return VMError.UndefinedVariable;
                     };
                     self.registers[frame.base + dst] = val;
-                    // Cache procedure values (closures and native fns)
                     if (types.isClosure(val) or types.isNativeFn(val)) {
                         if (func.global_cache) |cache| {
                             if (sym_idx < cache.len) cache[sym_idx] = val;
+                            func.cache_version = self.global_version;
                         } else {
                             const cache = self.gc.allocator.alloc(Value, func.constants.items.len) catch continue;
                             @memset(cache, types.VOID);
                             cache[sym_idx] = val;
                             func.global_cache = cache;
+                            func.cache_version = self.global_version;
                         }
                     }
                 },
@@ -579,9 +583,10 @@ pub const VM = struct {
                     const name = types.symbolName(sym);
                     const val = self.registers[frame.base + src];
                     self.globals.put(name, val) catch return VMError.OutOfMemory;
-                    // Update own cache
+                    self.global_version +%= 1;
                     if (func.global_cache) |cache| {
                         if (sym_idx < cache.len) cache[sym_idx] = val;
+                        func.cache_version = self.global_version;
                     }
                 },
                 .get_upvalue => {
@@ -836,7 +841,9 @@ pub const VM = struct {
 
                     // Resolve global with cache (single dispatch instead of get_global + call)
                     if (the_func.global_cache) |cache| {
-                        if (sym_idx < cache.len and cache[sym_idx] != types.VOID) {
+                        if (the_func.cache_version == self.global_version and
+                            sym_idx < cache.len and cache[sym_idx] != types.VOID)
+                        {
                             self.registers[base] = cache[sym_idx];
                         } else {
                             const sym = the_func.constants.items[sym_idx];
@@ -893,10 +900,11 @@ pub const VM = struct {
                     const func = closure.func;
                     const abs_base = frame.base + base_reg;
 
-                    // Resolve global with cache
                     var callee: Value = types.VOID;
                     if (func.global_cache) |cache| {
-                        if (sym_idx < cache.len and cache[sym_idx] != types.VOID) {
+                        if (func.cache_version == self.global_version and
+                            sym_idx < cache.len and cache[sym_idx] != types.VOID)
+                        {
                             callee = cache[sym_idx];
                         }
                     }

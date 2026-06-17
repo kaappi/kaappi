@@ -179,6 +179,7 @@ pub const Function = struct {
     source_name: ?[]const u8 = null,
     debug_locals: []DebugLocal = &.{},
     global_cache: ?[]Value = null,
+    cache_version: u32 = 0,
 };
 
 pub const Closure = struct {
