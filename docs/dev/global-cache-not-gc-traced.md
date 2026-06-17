@@ -2,7 +2,7 @@
 
 ## Status
 
-**Latent / unconfirmed — currently safe, not a known live bug.** Noticed during
+**Fixed.** Noticed during
 the GC reachability investigation (2026-06-17). Documented here because the
 safety rests on an invariant that is *not* uniformly enforced, so it is fragile.
 No fix applied yet.

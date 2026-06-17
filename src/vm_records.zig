@@ -99,6 +99,7 @@ pub fn handleDefineRecordType(vm: *VM, args: Value) VMError!Value {
     const internal_sym = vm.gc.allocSymbol(internal_name_buf) catch return VMError.OutOfMemory;
     const internal_name = types.symbolName(internal_sym);
     vm.globals.put(internal_name, rt_val) catch return VMError.OutOfMemory;
+    vm.global_version +%= 1;
 
     // Map constructor field names to their indices in the all_fields array
     var ctor_field_indices: [32]usize = undefined;
@@ -146,6 +147,7 @@ pub fn handleDefineRecordType(vm: *VM, args: Value) VMError!Value {
             if (!found_in_ctor) {
                 if (!vm.globals.contains("__undefined__")) {
                     vm.globals.put("__undefined__", types.UNDEFINED) catch return VMError.OutOfMemory;
+                    vm.global_version +%= 1;
                 }
                 body_args[2 + fi] = vm.gc.allocSymbol("__undefined__") catch return VMError.OutOfMemory;
             }

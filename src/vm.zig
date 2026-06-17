@@ -198,6 +198,7 @@ pub const VM = struct {
 
     pub fn defineGlobal(self: *VM, name: []const u8, value: Value) !void {
         try self.globals.put(name, value);
+        self.global_version +%= 1;
     }
 
     // -- Exception handling --
@@ -241,13 +242,12 @@ pub const VM = struct {
             const closure = types.toObject(handler_val).as(types.Closure);
             const func = closure.func;
 
-            // Find a safe base register
             const base: u16 = if (self.frame_count > 0)
                 self.frames[self.frame_count - 1].base + 200
             else
                 0;
+            if (base + func.locals_count >= MAX_REGISTERS) return VMError.StackOverflow;
 
-            // Set up the argument
             if (func.is_variadic and func.arity == 0) {
                 // (lambda args ...) — wrap arg in a list
                 self.registers[base] = self.gc.allocPair(arg, types.NIL) catch return VMError.OutOfMemory;
@@ -313,13 +313,12 @@ pub const VM = struct {
             const closure = types.toObject(thunk_val).as(types.Closure);
             const func = closure.func;
 
-            // Find a safe base register
             const base: u16 = if (self.frame_count > 0)
                 self.frames[self.frame_count - 1].base + 200
             else
                 0;
+            if (base >= MAX_REGISTERS) return VMError.StackOverflow;
 
-            // Handle variadic thunks
             if (func.is_variadic and func.arity == 0) {
                 self.registers[base] = types.NIL;
             }
@@ -398,8 +397,8 @@ pub const VM = struct {
                 self.frames[self.frame_count - 1].base + 200
             else
                 0;
+            if (base + args.len + 1 >= MAX_REGISTERS) return VMError.StackOverflow;
 
-            // Set up arguments
             const nargs: u8 = @intCast(args.len);
             if (!func.is_variadic) {
                 if (nargs != func.arity) return VMError.ArityMismatch;

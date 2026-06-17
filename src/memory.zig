@@ -705,6 +705,9 @@ pub const GC = struct {
                 for (func.constants.items) |c| {
                     self.markValue(c);
                 }
+                if (func.global_cache) |cache| {
+                    for (cache) |c| self.markValue(c);
+                }
             },
             .transformer => {
                 const tx = obj.as(Transformer);

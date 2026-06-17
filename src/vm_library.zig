@@ -17,6 +17,7 @@ fn importBinding(vm: *VM, name: []const u8, val: Value) !void {
         return;
     }
     vm.globals.put(name, val) catch return error.OutOfMemory;
+    vm.global_version +%= 1;
 }
 
 /// Handle (import import-set ...)

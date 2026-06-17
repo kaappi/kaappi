@@ -70,6 +70,7 @@ fn handleDefineValues(vm: *VM, args: Value) VMError!Value {
             const var_sym = types.car(formal);
             if (!types.isSymbol(var_sym)) return VMError.CompileError;
             vm.globals.put(types.symbolName(var_sym), mv.values[i]) catch return VMError.OutOfMemory;
+            vm.global_version +%= 1;
             formal = types.cdr(formal);
             i += 1;
         }
@@ -78,6 +79,7 @@ fn handleDefineValues(vm: *VM, args: Value) VMError!Value {
             const var_sym = types.car(formals);
             if (types.isSymbol(var_sym)) {
                 vm.globals.put(types.symbolName(var_sym), result) catch return VMError.OutOfMemory;
+                vm.global_version +%= 1;
             }
         }
     }

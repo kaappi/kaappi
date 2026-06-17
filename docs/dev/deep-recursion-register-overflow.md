@@ -2,7 +2,7 @@
 
 ## Status
 
-**Open, pre-existing.** Found while sweeping the test suite during the GC
+**Fixed.** Found while sweeping the test suite during the GC
 reachability investigation (2026-06-17); confirmed identical on the pre-fix
 commit, so not introduced by that work. Not yet fixed.
 
