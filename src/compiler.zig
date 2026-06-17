@@ -38,6 +38,7 @@ pub const Compiler = struct {
     scope_depth: u16 = 0,
     next_register: u8 = 0,
     parent: ?*Compiler = null,
+    in_body_scope: bool = false,
 
     pub fn init(gc: *memory.GC) CompileError!Compiler {
         const func = gc.allocFunction() catch return CompileError.OutOfMemory;
@@ -702,7 +703,10 @@ pub const Compiler = struct {
             binding_list = types.cdr(binding_list);
         }
 
-        // Compile body
+        // Compile body in a new scope
+        self.beginScope();
+        const saved_body_scope = self.in_body_scope;
+        self.in_body_scope = true;
         var current = body;
         while (current != types.NIL) {
             if (!types.isPair(current)) return CompileError.InvalidSyntax;
@@ -711,6 +715,8 @@ pub const Compiler = struct {
             const tail = is_tail and current == types.NIL;
             try self.compileExpr(expr, dst, tail);
         }
+        self.in_body_scope = saved_body_scope;
+        self.endScope();
 
         // Restore macro table
         for (0..saved_count) |i| {

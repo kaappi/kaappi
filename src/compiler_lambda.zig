@@ -143,6 +143,20 @@ pub fn compileDefine(self: *Compiler, args: Value, dst: u8) CompileError!void {
             }
         }
 
+        if (self.in_body_scope) {
+            const slot = try self.allocReg();
+            try self.emitOp(.move);
+            try self.emit(slot);
+            try self.emit(dst);
+            self.locals.append(self.gc.allocator, .{
+                .name = types.symbolName(target),
+                .depth = self.scope_depth,
+                .slot = slot,
+            }) catch return CompileError.OutOfMemory;
+            try self.emitOp(.load_void);
+            try self.emit(dst);
+            return;
+        }
         const sym_idx = try self.addConstant(target);
         try self.emitOp(.set_global);
         try self.emitU16(sym_idx);
