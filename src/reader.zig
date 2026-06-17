@@ -35,6 +35,7 @@ pub const Token = union(enum) {
     datum_label_ref: u32,
     bignum_str: []const u8,
     rational: struct { num: i64, den: i64 },
+    complex: struct { real: f64, imag: f64 },
     eof,
 };
 
@@ -284,6 +285,57 @@ pub const Reader = struct {
             }
         }
         const num_str = self.source[start..self.pos];
+
+        // Check for complex literal: real+imagi or real-imagi
+        if (self.pos < self.source.len and (self.source[self.pos] == '+' or self.source[self.pos] == '-')) {
+            const imag_start = self.pos;
+            self.pos += 1; // skip +/-
+            // Check for just +i or -i (imaginary unit)
+            if (self.pos < self.source.len and self.source[self.pos] == 'i' and
+                (self.pos + 1 >= self.source.len or isDelimiter(self.source[self.pos + 1])))
+            {
+                self.pos += 1;
+                const real = std.fmt.parseFloat(f64, num_str) catch return ReadError.InvalidNumber;
+                const imag: f64 = if (self.source[imag_start] == '+') 1.0 else -1.0;
+                return .{ .complex = .{ .real = real, .imag = imag } };
+            }
+            // Parse imaginary magnitude
+            var imag_has_dot = false;
+            var imag_has_exp = false;
+            while (self.pos < self.source.len) {
+                const ic = self.source[self.pos];
+                if (std.ascii.isDigit(ic)) {
+                    self.pos += 1;
+                } else if (ic == '.' and !imag_has_dot and !imag_has_exp) {
+                    imag_has_dot = true;
+                    self.pos += 1;
+                } else if ((ic == 'e' or ic == 'E') and !imag_has_exp) {
+                    imag_has_exp = true;
+                    self.pos += 1;
+                    if (self.pos < self.source.len and (self.source[self.pos] == '+' or self.source[self.pos] == '-'))
+                        self.pos += 1;
+                } else break;
+            }
+            // Must end with 'i'
+            if (self.pos < self.source.len and self.source[self.pos] == 'i') {
+                self.pos += 1;
+                const real = std.fmt.parseFloat(f64, num_str) catch return ReadError.InvalidNumber;
+                const imag_str = self.source[imag_start..self.pos - 1];
+                const imag = std.fmt.parseFloat(f64, imag_str) catch return ReadError.InvalidNumber;
+                return .{ .complex = .{ .real = real, .imag = imag } };
+            }
+            // Not a complex literal — backtrack
+            self.pos = imag_start;
+        }
+        // Check for pure imaginary: just "i" suffix (e.g., "2i")
+        if (self.pos < self.source.len and self.source[self.pos] == 'i' and
+            (self.pos + 1 >= self.source.len or isDelimiter(self.source[self.pos + 1])))
+        {
+            self.pos += 1;
+            const imag = std.fmt.parseFloat(f64, num_str) catch return ReadError.InvalidNumber;
+            return .{ .complex = .{ .real = 0.0, .imag = imag } };
+        }
+
         if (has_dot or has_exp) {
             const f = std.fmt.parseFloat(f64, num_str) catch return ReadError.InvalidNumber;
             return .{ .flonum = f };
