@@ -906,10 +906,9 @@ pub const Compiler = struct {
     fn compileCall(self: *Compiler, expr: Value, dst: u8, is_tail: bool) CompileError!void {
         const operator = types.car(expr);
 
-        // Superinstruction: for non-tail calls to global variables, emit
-        // call_global instead of get_global + call (saves one dispatch).
-        // Excluded: call/cc, call-with-current-continuation, dynamic-wind
-        // (these need standard frame setup for continuation capture).
+        // Superinstruction: emit call_global for non-tail global calls
+        // (saves one dispatch vs get_global + call). Tail calls use the
+        // standard path. Excluded: continuation-related procedures.
         if (!is_tail and types.isSymbol(operator) and self.resolveLocal(types.symbolName(operator)) == null) {
             if ((try self.resolveUpvalue(types.symbolName(operator))) == null) {
                 const op_name = types.symbolName(operator);
@@ -921,7 +920,7 @@ pub const Compiler = struct {
                     std.mem.eql(u8, op_name, "dynamic-wind") or
                     std.mem.eql(u8, op_name, "with-exception-handler");
                 if (!is_cont) {
-                    return self.compileCallGlobal(expr, operator, dst, false);
+                    return self.compileCallGlobal(expr, operator, dst, is_tail);
                 }
             }
         }
@@ -965,7 +964,6 @@ pub const Compiler = struct {
     }
 
     fn compileCallGlobal(self: *Compiler, expr: Value, operator: Value, dst: u8, is_tail: bool) CompileError!void {
-        _ = is_tail;
         const sym_idx = try self.addConstant(operator);
 
         // Reserve base register for callee (call_global fills it at runtime)
@@ -990,7 +988,11 @@ pub const Compiler = struct {
             arg_list = types.cdr(arg_list);
         }
 
-        try self.emitOp(.call_global);
+        if (is_tail) {
+            try self.emitOp(.tail_call_global);
+        } else {
+            try self.emitOp(.call_global);
+        }
         try self.emit(base);
         try self.emitU16(sym_idx);
         try self.emit(nargs);
