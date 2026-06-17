@@ -658,7 +658,7 @@ pub const GC = struct {
     pub fn collect(self: *GC) void {
         self.markRoots();
         self.sweep();
-        self.gc_threshold = @max(GC_THRESHOLD, self.object_count * 2);
+        self.gc_threshold = @max(GC_THRESHOLD, self.object_count * 4);
     }
 
     fn markRoots(self: *GC) void {
