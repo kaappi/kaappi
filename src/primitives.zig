@@ -277,7 +277,7 @@ fn integerP(args: []const Value) PrimitiveError!Value {
     }
     if (types.isComplex(args[0])) {
         const c = types.toComplex(args[0]);
-        if (c.imag != 0) return types.FALSE;
+        if (c.imag != 0 or !c.exact_imag) return types.FALSE;
         if (std.math.isNan(c.real) or std.math.isInf(c.real)) return types.FALSE;
         return if (c.real == @trunc(c.real)) types.TRUE else types.FALSE;
     }
@@ -291,7 +291,8 @@ fn complexP(args: []const Value) PrimitiveError!Value {
 fn realP(args: []const Value) PrimitiveError!Value {
     if (types.isFixnum(args[0]) or types.isFlonum(args[0]) or types.isBignum(args[0]) or types.isRationalObj(args[0])) return types.TRUE;
     if (types.isComplex(args[0])) {
-        return if (types.toComplex(args[0]).imag == 0) types.TRUE else types.FALSE;
+        const c = types.toComplex(args[0]);
+        return if (c.imag == 0 and c.exact_imag) types.TRUE else types.FALSE;
     }
     return types.FALSE;
 }

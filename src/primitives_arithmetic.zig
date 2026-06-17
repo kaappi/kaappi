@@ -658,17 +658,23 @@ fn cmpPair(a: Value, b: Value) PrimitiveError!i8 {
             const b_exact = gc.allocBignumFromI64(@intFromFloat(fb)) catch return PrimitiveError.OutOfMemory;
             return bignum_mod.compare(a, b_exact);
         }
-        // For very large integer floats: the bignum converted to the same f64,
-        // but they might differ in low bits. Check by converting back.
+        // For very large integer floats: convert float to exact bignum and compare
         if (fb == @trunc(fb)) {
-            const fa2 = bignum_mod.toF64(a);
-            // If bignum rounds to same float, they're "equal" at float precision
-            // but for R7RS transitivity, we need them to be unequal if they differ
-            // Use the fact that if bignum != float's exact value, subtracting
-            // wouldn't give 0. Approximate: they differ if bignum_as_f64 == fb
-            // but bignum is not a power-of-2 multiple (heuristic for large values)
-            _ = fa2;
-            return 0; // Can't distinguish — accept as equal
+            const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+            const bits: u64 = @bitCast(fb);
+            const biased_exp = @as(i64, @intCast((bits >> 52) & 0x7FF));
+            const mantissa_bits = bits & 0x000FFFFFFFFFFFFF;
+            const exp = biased_exp - 1023 - 52;
+            const mantissa: i64 = @intCast(mantissa_bits | 0x0010000000000000);
+            if (exp >= 0) {
+                var exact = gc.allocBignumFromI64(mantissa) catch return PrimitiveError.OutOfMemory;
+                const two = types.makeFixnum(2);
+                const shift = types.makeFixnum(exp);
+                const scale = bignum_mod.expt(gc, two, shift) catch return PrimitiveError.OutOfMemory;
+                exact = bignum_mod.mul(gc, exact, scale) catch return PrimitiveError.OutOfMemory;
+                if (fb < 0) exact = bignum_mod.negate(gc, exact) catch return PrimitiveError.OutOfMemory;
+                return bignum_mod.compare(a, exact);
+            }
         }
         return 0;
     }
@@ -680,7 +686,7 @@ fn cmpPair(a: Value, b: Value) PrimitiveError!i8 {
     if (types.isFixnum(a) and types.isFlonum(b)) {
         const fb = types.toFlonum(b);
         if (!std.math.isFinite(fb)) {
-            if (std.math.isNan(fb)) return 1; // NaN is unordered, != everything
+            if (std.math.isNan(fb)) return 1;
             return if (fb > 0) @as(i8, -1) else @as(i8, 1);
         }
         if (fb == @trunc(fb) and @abs(fb) < 4.5e18) {
@@ -736,8 +742,18 @@ fn numEq(args: []const Value) PrimitiveError!Value {
 }
 
 
+fn hasNaN(v: Value) bool {
+    if (types.isFlonum(v)) return std.math.isNan(types.toFlonum(v));
+    if (types.isComplex(v)) {
+        const c = types.toComplex(v);
+        return std.math.isNan(c.real) or std.math.isNan(c.imag);
+    }
+    return false;
+}
+
 fn numLt(args: []const Value) PrimitiveError!Value {
     for (0..args.len - 1) |i| {
+        if (hasNaN(args[i]) or hasNaN(args[i + 1])) return types.FALSE;
         if ((try cmpPair(args[i], args[i + 1])) >= 0) return types.FALSE;
     }
     return types.TRUE;
@@ -745,6 +761,7 @@ fn numLt(args: []const Value) PrimitiveError!Value {
 
 fn numGt(args: []const Value) PrimitiveError!Value {
     for (0..args.len - 1) |i| {
+        if (hasNaN(args[i]) or hasNaN(args[i + 1])) return types.FALSE;
         if ((try cmpPair(args[i], args[i + 1])) <= 0) return types.FALSE;
     }
     return types.TRUE;
@@ -752,6 +769,7 @@ fn numGt(args: []const Value) PrimitiveError!Value {
 
 fn numLe(args: []const Value) PrimitiveError!Value {
     for (0..args.len - 1) |i| {
+        if (hasNaN(args[i]) or hasNaN(args[i + 1])) return types.FALSE;
         if ((try cmpPair(args[i], args[i + 1])) > 0) return types.FALSE;
     }
     return types.TRUE;
@@ -759,6 +777,7 @@ fn numLe(args: []const Value) PrimitiveError!Value {
 
 fn numGe(args: []const Value) PrimitiveError!Value {
     for (0..args.len - 1) |i| {
+        if (hasNaN(args[i]) or hasNaN(args[i + 1])) return types.FALSE;
         if ((try cmpPair(args[i], args[i + 1])) < 0) return types.FALSE;
     }
     return types.TRUE;
