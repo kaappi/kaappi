@@ -493,14 +493,24 @@ pub const Compiler = struct {
                 }
                 const tx = types.toObject(transformer).as(types.Transformer);
                 // Temporarily add captured locals to globals so the expander doesn't rename them
+                var temp_globals: [16][]const u8 = undefined;
+                var temp_global_count: usize = 0;
                 if (self.globals) |g| {
                     for (tx.captured_locals) |cap| {
-                        if (!g.contains(cap.name)) {
+                        if (!g.contains(cap.name) and temp_global_count < 16) {
                             g.put(cap.name, types.VOID) catch {};
+                            temp_globals[temp_global_count] = cap.name;
+                            temp_global_count += 1;
                         }
                     }
                 }
                 const expanded = expander.expandMacro(self.gc, expr, transformer, self.globals, &merged_macros) catch return CompileError.InvalidSyntax;
+                // Remove temporary globals
+                if (self.globals) |g| {
+                    for (temp_globals[0..temp_global_count]) |tg| {
+                        _ = g.remove(tg);
+                    }
+                }
                 var expanded_root = expanded;
                 self.gc.pushRoot(&expanded_root);
                 defer self.gc.popRoot();
