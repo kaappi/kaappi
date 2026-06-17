@@ -279,10 +279,20 @@ fn matchListPattern(pattern: Value, input: Value, literals: []const Value, bindi
     return inp == types.NIL;
 }
 
+fn countPairs(v: Value) usize {
+    var n: usize = 0;
+    var cur = v;
+    while (types.isPair(cur)) {
+        n += 1;
+        cur = types.cdr(cur);
+    }
+    return n;
+}
+
 fn matchEllipsis(elem_pattern: Value, rest_pattern: Value, input: Value, literals: []const Value, bindings: *[MAX_BINDINGS]Binding, count: *usize) bool {
-    // Count how many elements the rest_pattern needs
-    const rest_len = types.listLength(rest_pattern) orelse 0;
-    const input_len = types.listLength(input) orelse 0;
+    // Count how many elements the rest_pattern needs (handles improper lists)
+    const rest_len = countPairs(rest_pattern);
+    const input_len = countPairs(input);
 
     if (input_len < rest_len) return false;
     const repeat_count = input_len - rest_len;
