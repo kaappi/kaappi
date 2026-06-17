@@ -629,19 +629,92 @@ pub const GC = struct {
         return types.makePointer(@ptrCast(rat));
     }
 
-    pub fn allocFileInfo(self: *GC, size: i64, mtime: i64, mode: u16, file_type: types.FileInfo.FileType) !Value {
+    pub fn allocFileInfo(self: *GC, info: struct {
+        size: i64,
+        mtime: i64,
+        atime: i64,
+        ctime: i64,
+        dev: i64,
+        ino: i64,
+        nlinks: i64,
+        rdev: i64,
+        blksize: i64,
+        blocks: i64,
+        mode: u32,
+        uid: u32,
+        gid: u32,
+        file_type: types.FileInfo.FileType,
+    }) !Value {
         self.maybeCollect();
         const fi = try self.allocator.create(types.FileInfo);
         fi.* = .{
             .header = .{ .tag = .file_info },
-            .size = size,
-            .mtime = mtime,
-            .mode = mode,
-            .file_type = file_type,
+            .size = info.size,
+            .mtime = info.mtime,
+            .atime = info.atime,
+            .ctime = info.ctime,
+            .dev = info.dev,
+            .ino = info.ino,
+            .nlinks = info.nlinks,
+            .rdev = info.rdev,
+            .blksize = info.blksize,
+            .blocks = info.blocks,
+            .mode = info.mode,
+            .uid = info.uid,
+            .gid = info.gid,
+            .file_type = info.file_type,
         };
         self.bytes_allocated += @sizeOf(types.FileInfo);
         self.trackObject(&fi.header);
         return types.makePointer(@ptrCast(fi));
+    }
+
+    pub fn allocUserInfo(self: *GC, name: []const u8, uid: u32, gid: u32, home_dir: []const u8, shell: []const u8, full_name: []const u8) !Value {
+        self.maybeCollect();
+        const name_copy = try self.allocator.dupe(u8, name);
+        const home_copy = try self.allocator.dupe(u8, home_dir);
+        const shell_copy = try self.allocator.dupe(u8, shell);
+        const gecos_copy = try self.allocator.dupe(u8, full_name);
+        const ui = try self.allocator.create(types.UserInfo);
+        ui.* = .{
+            .header = .{ .tag = .user_info },
+            .name = name_copy,
+            .uid = uid,
+            .gid = gid,
+            .home_dir = home_copy,
+            .shell = shell_copy,
+            .full_name = gecos_copy,
+        };
+        self.bytes_allocated += @sizeOf(types.UserInfo) + name.len + home_dir.len + shell.len + full_name.len;
+        self.trackObject(&ui.header);
+        return types.makePointer(@ptrCast(ui));
+    }
+
+    pub fn allocGroupInfo(self: *GC, name: []const u8, gid: u32) !Value {
+        self.maybeCollect();
+        const name_copy = try self.allocator.dupe(u8, name);
+        const gi = try self.allocator.create(types.GroupInfo);
+        gi.* = .{
+            .header = .{ .tag = .group_info },
+            .name = name_copy,
+            .gid = gid,
+        };
+        self.bytes_allocated += @sizeOf(types.GroupInfo) + name.len;
+        self.trackObject(&gi.header);
+        return types.makePointer(@ptrCast(gi));
+    }
+
+    pub fn allocDirectoryObject(self: *GC, dir: *anyopaque, include_dotfiles: bool) !Value {
+        self.maybeCollect();
+        const d = try self.allocator.create(types.DirectoryObject);
+        d.* = .{
+            .header = .{ .tag = .directory_object },
+            .dir = dir,
+            .include_dotfiles = include_dotfiles,
+        };
+        self.bytes_allocated += @sizeOf(types.DirectoryObject);
+        self.trackObject(&d.header);
+        return types.makePointer(@ptrCast(d));
     }
 
     pub fn allocMultipleValues(self: *GC, values: []const Value) !Value {
@@ -813,7 +886,7 @@ pub const GC = struct {
                 self.markValue(rat.denominator);
             },
             .ffi_library, .ffi_function => {},
-            .symbol, .string, .native_fn, .flonum, .port, .complex, .bytevector, .bignum, .file_info => {},
+            .symbol, .string, .native_fn, .flonum, .port, .complex, .bytevector, .bignum, .file_info, .user_info, .group_info, .directory_object => {},
         }
     }
 
@@ -986,6 +1059,27 @@ pub const GC = struct {
             .file_info => {
                 const fi = obj.as(types.FileInfo);
                 self.allocator.destroy(fi);
+            },
+            .user_info => {
+                const ui = obj.as(types.UserInfo);
+                self.allocator.free(ui.name);
+                self.allocator.free(ui.home_dir);
+                self.allocator.free(ui.shell);
+                self.allocator.free(ui.full_name);
+                self.allocator.destroy(ui);
+            },
+            .group_info => {
+                const gi = obj.as(types.GroupInfo);
+                self.allocator.free(gi.name);
+                self.allocator.destroy(gi);
+            },
+            .directory_object => {
+                const d = obj.as(types.DirectoryObject);
+                if (d.dir) |dir| {
+                    _ = std.c.closedir(@ptrCast(@alignCast(dir)));
+                    d.dir = null;
+                }
+                self.allocator.destroy(d);
             },
         }
     }

@@ -117,6 +117,9 @@ pub const ObjectTag = enum(u5) {
     bignum = 22,
     rational = 23,
     file_info = 24,
+    user_info = 25,
+    group_info = 26,
+    directory_object = 27,
 };
 
 pub const Object = struct {
@@ -416,10 +419,42 @@ pub const FileInfo = struct {
     header: Object,
     size: i64,
     mtime: i64,
-    mode: u16,
+    atime: i64,
+    ctime: i64,
+    dev: i64,
+    ino: i64,
+    nlinks: i64,
+    rdev: i64,
+    blksize: i64,
+    blocks: i64,
+    mode: u32,
+    uid: u32,
+    gid: u32,
     file_type: FileType,
 
-    pub const FileType = enum(u8) { regular, directory, symlink, other };
+    pub const FileType = enum(u8) { regular, directory, symlink, fifo, socket, device, other };
+};
+
+pub const UserInfo = struct {
+    header: Object,
+    name: []const u8,
+    uid: u32,
+    gid: u32,
+    home_dir: []const u8,
+    shell: []const u8,
+    full_name: []const u8,
+};
+
+pub const GroupInfo = struct {
+    header: Object,
+    name: []const u8,
+    gid: u32,
+};
+
+pub const DirectoryObject = struct {
+    header: Object,
+    dir: ?*anyopaque,
+    include_dotfiles: bool,
 };
 
 // ---------------------------------------------------------------------------
@@ -569,6 +604,30 @@ pub fn isFileInfo(v: Value) bool {
 
 pub fn toFileInfo(v: Value) *FileInfo {
     return toObject(v).as(FileInfo);
+}
+
+pub fn isUserInfo(v: Value) bool {
+    return isPointer(v) and toObject(v).tag == .user_info;
+}
+
+pub fn toUserInfo(v: Value) *UserInfo {
+    return toObject(v).as(UserInfo);
+}
+
+pub fn isGroupInfo(v: Value) bool {
+    return isPointer(v) and toObject(v).tag == .group_info;
+}
+
+pub fn toGroupInfo(v: Value) *GroupInfo {
+    return toObject(v).as(GroupInfo);
+}
+
+pub fn isDirectoryObject(v: Value) bool {
+    return isPointer(v) and toObject(v).tag == .directory_object;
+}
+
+pub fn toDirectoryObject(v: Value) *DirectoryObject {
+    return toObject(v).as(DirectoryObject);
 }
 
 pub fn isNumber(v: Value) bool {

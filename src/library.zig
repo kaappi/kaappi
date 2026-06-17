@@ -478,13 +478,44 @@ pub fn registerStandardLibraries(registry: *LibraryRegistry, globals: *std.Strin
     }
     try registry.register(srfi133_lib);
 
-    // SRFI-170: POSIX API (partial)
+    // SRFI-170: POSIX API
     const srfi170_names = [_][]const u8{
+        // File info
         "directory-files",
-        "file-info",          "file-info?",
-        "file-info-directory?", "file-info-regular?", "file-info-symlink?",
-        "file-info:size",     "file-info:mtime",    "file-info:mode",
-        "create-directory",   "delete-directory",
+        "file-info",              "file-info?",
+        "file-info-directory?",   "file-info-regular?",  "file-info-symlink?",
+        "file-info-fifo?",        "file-info-socket?",   "file-info-device?",
+        "file-info:size",         "file-info:mtime",     "file-info:mode",
+        "file-info:device",       "file-info:inode",     "file-info:nlinks",
+        "file-info:uid",          "file-info:gid",       "file-info:rdev",
+        "file-info:blksize",      "file-info:blocks",
+        "file-info:atime",        "file-info:ctime",
+        // File system operations
+        "create-directory",       "delete-directory",
+        "rename-file",            "create-symlink",      "read-symlink",
+        "create-hard-link",       "real-path",            "set-file-mode",
+        "truncate-file",          "create-fifo",
+        "set-file-owner",         "set-file-times",
+        // Process state
+        "pid",                    "umask",               "set-umask!",
+        "current-directory",      "set-current-directory!",
+        "user-uid",               "user-gid",
+        "user-effective-uid",     "user-effective-gid",
+        "user-supplementary-gids", "nice",
+        // Environment variables
+        "set-environment-variable!", "delete-environment-variable!",
+        // Terminal
+        "terminal?",
+        // User/group database
+        "user-info",              "user-info?",
+        "user-info:name",         "user-info:uid",       "user-info:gid",
+        "user-info:home-dir",     "user-info:shell",     "user-info:full-name",
+        "group-info",             "group-info?",
+        "group-info:name",        "group-info:gid",
+        // Directory traversal
+        "open-directory",         "read-directory",      "close-directory",
+        // POSIX time
+        "posix-time",             "monotonic-time",
     };
     var srfi170_lib = Library.init(allocator, "srfi.170");
     for (srfi170_names) |name| {

@@ -604,9 +604,23 @@ pub fn printValue(writer: anytype, value: Value, mode: PrintMode) anyerror!void 
                     .regular => "regular",
                     .directory => "directory",
                     .symlink => "symlink",
+                    .fifo => "fifo",
+                    .socket => "socket",
+                    .device => "device",
                     .other => "other",
                 };
                 try writer.print("#<file-info {s} size={d} mode={o}>", .{ kind, fi.size, fi.mode });
+            },
+            .user_info => {
+                const ui = obj.as(types.UserInfo);
+                try writer.print("#<user-info \"{s}\" uid={d}>", .{ ui.name, ui.uid });
+            },
+            .group_info => {
+                const gi = obj.as(types.GroupInfo);
+                try writer.print("#<group-info \"{s}\" gid={d}>", .{ gi.name, gi.gid });
+            },
+            .directory_object => {
+                try writer.writeAll("#<directory-object>");
             },
         }
     } else {

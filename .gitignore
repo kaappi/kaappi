@@ -2,3 +2,4 @@
 zig-out/
 .kaappi_history
 *.sbc
+test_*.o
