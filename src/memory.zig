@@ -294,6 +294,12 @@ pub const GC = struct {
             .name = name,
             .owns_name = owns_name,
             .peek_byte = null,
+            .is_string_port = false,
+            .string_data = null,
+            .string_pos = 0,
+            .string_out_buf = null,
+            .string_out_len = 0,
+            .string_out_cap = 0,
         };
         self.bytes_allocated += @sizeOf(Port);
         self.trackObject(&port.header);

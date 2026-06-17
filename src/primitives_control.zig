@@ -84,12 +84,14 @@ fn withExceptionHandlerFn(args: []const Value) PrimitiveError!Value {
             return PrimitiveError.ContinuationInvoked;
         }
         if (err == vm_mod.VMError.ExceptionRaised) {
-            // An exception was raised during the thunk.
-            // Pop our handler and call it with the exception.
             vm.popHandler();
+            var handler_root = handler;
+            const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+            gc.pushRoot(&handler_root);
             const exc = vm.current_exception orelse types.FALSE;
             vm.current_exception = null;
-            const handler_result = vm.callHandler(handler, exc, 0) catch |herr| {
+            const handler_result = vm.callHandler(handler_root, exc, 0) catch |herr| {
+                gc.popRoot();
                 return switch (herr) {
                     vm_mod.VMError.ContinuationInvoked => PrimitiveError.ContinuationInvoked,
                     vm_mod.VMError.ExceptionRaised => PrimitiveError.ExceptionRaised,
@@ -97,6 +99,7 @@ fn withExceptionHandlerFn(args: []const Value) PrimitiveError!Value {
                     else => PrimitiveError.TypeError,
                 };
             };
+            gc.popRoot();
             return handler_result;
         }
         vm.popHandler();
