@@ -104,7 +104,7 @@ fn withExceptionHandlerFn(args: []const Value) PrimitiveError!Value {
             gc.pushRoot(&handler_root);
             const exc = vm.current_exception orelse types.FALSE;
             vm.current_exception = null;
-            const handler_result = vm.callHandler(handler_root, exc, 0) catch |herr| {
+            _ = vm.callHandler(handler_root, exc, 0) catch |herr| {
                 gc.popRoot();
                 return switch (herr) {
                     vm_mod.VMError.ContinuationInvoked => PrimitiveError.ContinuationInvoked,
@@ -114,7 +114,11 @@ fn withExceptionHandlerFn(args: []const Value) PrimitiveError!Value {
                 };
             };
             gc.popRoot();
-            return handler_result;
+            // Handler returned from non-continuable raise — re-raise per R7RS
+            const reraise_msg = gc.allocString("handler returned") catch return PrimitiveError.OutOfMemory;
+            const reraise_err = gc.allocErrorObject(reraise_msg, types.NIL) catch return PrimitiveError.OutOfMemory;
+            vm.current_exception = reraise_err;
+            return PrimitiveError.ExceptionRaised;
         }
         vm.popHandler();
         // Convert VM-level errors into Scheme exceptions so guard can catch them

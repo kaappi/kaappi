@@ -54,36 +54,37 @@ pub fn compileGuard(self: *Compiler, args: Value, dst: u8, is_tail: bool) Compil
         cond_clauses = appendToList(self, clauses, else_clause) catch return CompileError.OutOfMemory;
     }
 
-    // Build handler lambda: (lambda (var) (cond clauses...))
-    const cond_sym = self.gc.allocSymbol("cond") catch return CompileError.OutOfMemory;
-    const cond_form = self.gc.allocPair(cond_sym, cond_clauses) catch return CompileError.OutOfMemory;
-    const handler_formals = self.gc.allocPair(var_sym, types.NIL) catch return CompileError.OutOfMemory;
-    const handler_body = self.gc.allocPair(cond_form, types.NIL) catch return CompileError.OutOfMemory;
-    const lambda_sym = self.gc.allocSymbol("lambda") catch return CompileError.OutOfMemory;
-    const handler_lambda = self.gc.allocPair(
-        lambda_sym,
-        self.gc.allocPair(handler_formals, handler_body) catch return CompileError.OutOfMemory,
-    ) catch return CompileError.OutOfMemory;
+    // Desugar to: (call/ec (lambda (__gkN)
+    //               (with-exception-handler
+    //                 (lambda (var) (__gkN (cond clause ... [else (raise var)])))
+    //                 (lambda () body ...))))
+    const gc = self.gc;
+    const lambda_sym = gc.allocSymbol("lambda") catch return CompileError.OutOfMemory;
+    const gk_counter = struct { var n: u32 = 0; };
+    gk_counter.n += 1;
+    var gk_buf: [32]u8 = undefined;
+    const gk_name = std.fmt.bufPrint(&gk_buf, "__gk{d}", .{gk_counter.n}) catch "__gk";
+    const gk = gc.allocSymbol(gk_name) catch return CompileError.OutOfMemory;
 
-    // Build thunk lambda: (lambda () body...)
-    const thunk_formals = types.NIL;
-    const thunk_lambda = self.gc.allocPair(
-        lambda_sym,
-        self.gc.allocPair(thunk_formals, body) catch return CompileError.OutOfMemory,
-    ) catch return CompileError.OutOfMemory;
+    const cond_sym = gc.allocSymbol("cond") catch return CompileError.OutOfMemory;
+    const cond_form = gc.allocPair(cond_sym, cond_clauses) catch return CompileError.OutOfMemory;
+    // (__gkN (cond ...))
+    const k_call = gc.allocPair(gk, gc.allocPair(cond_form, types.NIL) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory;
+    // (lambda (var) (__gkN (cond ...)))
+    const h_formals = gc.allocPair(var_sym, types.NIL) catch return CompileError.OutOfMemory;
+    const handler = gc.allocPair(lambda_sym, gc.allocPair(h_formals, gc.allocPair(k_call, types.NIL) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory;
+    // (lambda () body ...)
+    const thunk = gc.allocPair(lambda_sym, gc.allocPair(types.NIL, body) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory;
+    // (with-exception-handler handler thunk)
+    const weh_sym = gc.allocSymbol("with-exception-handler") catch return CompileError.OutOfMemory;
+    const weh = gc.allocPair(weh_sym, gc.allocPair(handler, gc.allocPair(thunk, types.NIL) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory;
+    // (lambda (__gkN) weh)
+    const outer = gc.allocPair(lambda_sym, gc.allocPair(gc.allocPair(gk, types.NIL) catch return CompileError.OutOfMemory, gc.allocPair(weh, types.NIL) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory;
+    // (call/ec outer)
+    const ec_sym = gc.allocSymbol("call-with-escape-continuation") catch return CompileError.OutOfMemory;
+    const form = gc.allocPair(ec_sym, gc.allocPair(outer, types.NIL) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory;
 
-    // Build (with-exception-handler handler thunk)
-    const weh_sym = self.gc.allocSymbol("with-exception-handler") catch return CompileError.OutOfMemory;
-    const weh_call = self.gc.allocPair(
-        weh_sym,
-        self.gc.allocPair(
-            handler_lambda,
-            self.gc.allocPair(thunk_lambda, types.NIL) catch return CompileError.OutOfMemory,
-        ) catch return CompileError.OutOfMemory,
-    ) catch return CompileError.OutOfMemory;
-
-    // Compile the transformation
-    return self.compileExpr(weh_call, dst, is_tail);
+    return self.compileExpr(form, dst, is_tail);
 }
 
 /// Append an element to the end of a proper list, returning a new list.

@@ -136,6 +136,7 @@ pub fn invokeEscape(vm: *VM, cont: *types.Continuation, value: Value) VMError!vo
     // Truncate the live stack back to the call/ec point and deliver the value.
     vm.frame_count = cont.target_frame_count;
     vm.registers[cont.dst_base + cont.dst_reg] = value;
+    vm.continuation_value = value;
 }
 
 /// Perform dynamic-wind transition from current wind stack to target wind stack.
@@ -210,4 +211,5 @@ pub fn restoreContinuation(vm: *VM, cont: *types.Continuation, value: Value) voi
 
     // Place the result value where call/cc was waiting for it
     vm.registers[cont.dst_base + cont.dst_reg] = value;
+    vm.continuation_value = value;
 }

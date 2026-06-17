@@ -70,6 +70,7 @@ fn markVMRoots(gc: *memory.GC) void {
     }
 
     if (vm.current_exception) |exc| gc.markValue(exc);
+    gc.markValue(vm.continuation_value);
 
     var git = vm.globals.valueIterator();
     while (git.next()) |v| gc.markValue(v.*);
@@ -130,6 +131,7 @@ pub const VM = struct {
     wind_stack: [MAX_WINDS]types.WindRecord = undefined,
     wind_count: usize = 0,
     continuation_invoked: bool = false,
+    continuation_value: Value = types.VOID,
     stdin_port: Value = types.VOID,
     stdout_port: Value = types.VOID,
     stderr_port: Value = types.VOID,
@@ -280,7 +282,10 @@ pub const VM = struct {
             self.frame_count += 1;
 
             const result = self.runUntil(saved_frame_count) catch |err| {
-                if (err == VMError.ContinuationInvoked) return err;
+                if (err == VMError.ContinuationInvoked) {
+                    if (self.frame_count >= saved_frame_count) return self.continuation_value;
+                    return err;
+                }
                 self.frame_count = saved_frame_count;
                 return err;
             };
@@ -351,7 +356,14 @@ pub const VM = struct {
             self.frame_count += 1;
 
             const result = self.runUntil(saved_frame_count) catch |err| {
-                if (err == VMError.ContinuationInvoked) return err;
+                if (err == VMError.ContinuationInvoked) {
+                    // If the escape continuation targeted a frame within our
+                    // scope, the value has been delivered — return it.
+                    if (self.frame_count >= saved_frame_count) {
+                        return self.continuation_value;
+                    }
+                    return err;
+                }
                 // On error, unwind any frames that were pushed during the thunk
                 self.frame_count = saved_frame_count;
                 return err;
@@ -460,7 +472,10 @@ pub const VM = struct {
             self.frame_count += 1;
 
             const result = self.runUntil(saved_frame_count) catch |err| {
-                if (err == VMError.ContinuationInvoked) return err;
+                if (err == VMError.ContinuationInvoked) {
+                    if (self.frame_count >= saved_frame_count) return self.continuation_value;
+                    return err;
+                }
                 self.frame_count = saved_frame_count;
                 return err;
             };
@@ -676,10 +691,7 @@ pub const VM = struct {
                     const callee = self.registers[frame.base + base_reg];
                     self.callValue(callee, frame.base + base_reg, nargs) catch |err| {
                         if (err == VMError.ContinuationInvoked) {
-                            // State was replaced. If we're the outermost runUntil
-                            // (target=0), restart the dispatch loop with new state.
-                            // Otherwise, propagate up so all nested runUntils unwind.
-                            if (target_frame_count == 0) {
+                            if (self.frame_count > target_frame_count) {
                                 continue;
                             }
                             return VMError.ContinuationInvoked;

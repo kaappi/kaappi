@@ -59,10 +59,11 @@ test "with-exception-handler basic" {
     var vm = try th.makeTestVM(&gc);
     defer vm.deinit();
 
+    // R7RS: handler returning from non-continuable raise triggers re-raise.
+    // Use guard instead, which properly escapes via continuation.
     const result = try vm.eval(
-        \\(with-exception-handler
-        \\  (lambda (e) 42)
-        \\  (lambda () (raise "boom")))
+        \\(guard (e (#t 42))
+        \\  (raise "boom"))
     );
     try std.testing.expectEqual(@as(i64, 42), types.toFixnum(result));
 }
