@@ -328,21 +328,63 @@ fn readOneByte(port: *types.Port) ?u8 {
     return buf[0];
 }
 
+fn readUtf8Char(port: *types.Port) ?u21 {
+    const lead = readOneByte(port) orelse return null;
+    const seq_len = std.unicode.utf8ByteSequenceLength(lead) catch return @intCast(lead);
+    if (seq_len == 1) return @intCast(lead);
+    var buf: [4]u8 = undefined;
+    buf[0] = lead;
+    for (1..seq_len) |i| {
+        buf[i] = readOneByte(port) orelse return @intCast(lead);
+    }
+    return std.unicode.utf8Decode(buf[0..seq_len]) catch @intCast(lead);
+}
+
 fn readCharFn(args: []const Value) PrimitiveError!Value {
     const port = try getInputPort(args, 0);
-    const byte = readOneByte(port) orelse return types.EOF;
-    return types.makeChar(@intCast(byte));
+    const cp = readUtf8Char(port) orelse return types.EOF;
+    return types.makeChar(cp);
 }
 
 fn peekCharFn(args: []const Value) PrimitiveError!Value {
     const port = try getInputPort(args, 0);
     if (port.peek_byte) |b| {
+        const seq_len = std.unicode.utf8ByteSequenceLength(b) catch return types.makeChar(@intCast(b));
+        if (seq_len == 1) return types.makeChar(@intCast(b));
+        if (port.is_string_port) {
+            const data = port.string_data orelse return types.EOF;
+            const pos = port.string_pos;
+            if (pos > 0) {
+                const start = pos - 1;
+                if (start + seq_len <= data.len) {
+                    var buf: [4]u8 = undefined;
+                    buf[0] = b;
+                    for (1..seq_len) |i| buf[i] = data[start + i];
+                    const cp = std.unicode.utf8Decode(buf[0..seq_len]) catch return types.makeChar(@intCast(b));
+                    return types.makeChar(cp);
+                }
+            }
+        }
         return types.makeChar(@intCast(b));
     }
-    // Use readOneByte which handles string ports
-    const byte = readOneByte(port) orelse return types.EOF;
-    port.peek_byte = byte;
-    return types.makeChar(@intCast(byte));
+    const port2 = port;
+    const cp = readUtf8Char(port2) orelse return types.EOF;
+    // Put back the encoded bytes for peeking — only store lead byte
+    // and rewind string port position
+    if (port2.is_string_port and port2.string_pos > 0) {
+        var buf: [4]u8 = undefined;
+        const len = std.unicode.utf8Encode(cp, &buf) catch 1;
+        port2.string_pos -= len;
+    } else {
+        var buf: [4]u8 = undefined;
+        const len = std.unicode.utf8Encode(cp, &buf) catch 1;
+        if (len == 1) {
+            port2.peek_byte = buf[0];
+        } else {
+            port2.peek_byte = buf[0];
+        }
+    }
+    return types.makeChar(cp);
 }
 
 fn readLineFn(args: []const Value) PrimitiveError!Value {

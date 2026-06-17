@@ -402,6 +402,12 @@ pub const Reader = struct {
                         self.token_buf.appendSlice(alloc, buf[0..len]) catch return ReadError.OutOfMemory;
                         // pos now points at ';', will be advanced by the outer loop
                     },
+                    'a' => self.token_buf.append(alloc, 0x07) catch return ReadError.OutOfMemory,
+                    'b' => self.token_buf.append(alloc, 0x08) catch return ReadError.OutOfMemory,
+                    'n' => self.token_buf.append(alloc, '\n') catch return ReadError.OutOfMemory,
+                    'r' => self.token_buf.append(alloc, '\r') catch return ReadError.OutOfMemory,
+                    't' => self.token_buf.append(alloc, '\t') catch return ReadError.OutOfMemory,
+                    '"' => self.token_buf.append(alloc, '"') catch return ReadError.OutOfMemory,
                     else => {
                         self.token_buf.append(alloc, escaped) catch return ReadError.OutOfMemory;
                     },

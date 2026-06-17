@@ -634,6 +634,32 @@ fn truncateDivide(args: []const Value) PrimitiveError!Value {
 // Rational operations (R7RS 6.2.6)
 // ---------------------------------------------------------------------------
 
+fn floatToRational(f: f64) struct { num: i64, den: i64 } {
+    if (f == @trunc(f)) return .{ .num = @intFromFloat(f), .den = 1 };
+    const sign: i64 = if (f < 0) -1 else 1;
+    const abs_f = @abs(f);
+    var best_num: i64 = @intFromFloat(@round(abs_f));
+    var best_den: i64 = 1;
+    var best_err: f64 = @abs(abs_f - @as(f64, @floatFromInt(best_num)));
+    var den: i64 = 2;
+    while (den <= 1000000) : (den += 1) {
+        const num: i64 = @intFromFloat(@round(abs_f * @as(f64, @floatFromInt(den))));
+        const err = @abs(abs_f - @as(f64, @floatFromInt(num)) / @as(f64, @floatFromInt(den)));
+        if (err < best_err) {
+            best_num = num;
+            best_den = den;
+            best_err = err;
+            if (err == 0) break;
+        }
+    }
+    const g = @import("primitives_arithmetic.zig").gcdTwo(best_num, best_den);
+    if (g > 1) {
+        best_num = @divExact(best_num, g);
+        best_den = @divExact(best_den, g);
+    }
+    return .{ .num = sign * best_num, .den = best_den };
+}
+
 fn numeratorFn(args: []const Value) PrimitiveError!Value {
     if (types.isFixnum(args[0])) return args[0];
     if (types.isBignum(args[0])) return args[0];
@@ -644,14 +670,8 @@ fn numeratorFn(args: []const Value) PrimitiveError!Value {
     if (types.isFlonum(args[0])) {
         const f = types.toFlonum(args[0]);
         if (!std.math.isFinite(f)) return args[0];
-        if (f == @trunc(f)) return args[0]; // integer-valued flonum
-        // Approximate: find numerator of rational approximation
-        // Simple approach: n/d where d is a power of 2
-        const t = @trunc(f);
-        const frac = f - t;
-        const scale: f64 = 1e15;
-        const n = @round(frac * scale);
-        return makeFlonumVal(t * scale + n);
+        const rat = floatToRational(f);
+        return makeFlonumVal(@floatFromInt(rat.num));
     }
     return PrimitiveError.TypeError;
 }
@@ -666,15 +686,52 @@ fn denominatorFn(args: []const Value) PrimitiveError!Value {
     if (types.isFlonum(args[0])) {
         const f = types.toFlonum(args[0]);
         if (!std.math.isFinite(f)) return makeFlonumVal(1.0);
-        if (f == @trunc(f)) return makeFlonumVal(1.0);
-        return makeFlonumVal(1e15);
+        const rat = floatToRational(f);
+        return makeFlonumVal(@floatFromInt(rat.den));
     }
     return PrimitiveError.TypeError;
 }
 
 fn rationalizeFn(args: []const Value) PrimitiveError!Value {
-    // (rationalize x y) — return simplest rational within y of x
-    // Simplified: just return x itself
-    _ = args[1];
-    return args[0];
+    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const x = try primitives.toF64(args[0]);
+    const y = try primitives.toF64(args[1]);
+    if (!std.math.isFinite(x)) return args[0];
+    const lo = x - @abs(y);
+    const hi = x + @abs(y);
+    // Find simplest rational p/q in [lo, hi] (smallest denominator first)
+    var best_num: i64 = @intFromFloat(@round(x));
+    var best_den: i64 = 1;
+    const bv = @as(f64, @floatFromInt(best_num));
+    if (bv >= lo and bv <= hi) {
+        // Integer in range — simplest possible
+    } else {
+        var found = false;
+        var den: i64 = 2;
+        while (den <= 1000000) : (den += 1) {
+            const fden = @as(f64, @floatFromInt(den));
+            const lo_num = @as(i64, @intFromFloat(@ceil(lo * fden)));
+            const hi_num = @as(i64, @intFromFloat(@floor(hi * fden)));
+            if (lo_num <= hi_num) {
+                best_num = lo_num;
+                best_den = den;
+                found = true;
+                break;
+            }
+        }
+        if (!found) {
+            best_num = @intFromFloat(@round(x * 1000000.0));
+            best_den = 1000000;
+        }
+    }
+    const g = arith.gcdTwo(if (best_num < 0) -best_num else best_num, best_den);
+    if (g > 1) {
+        best_num = @divExact(best_num, g);
+        best_den = @divExact(best_den, g);
+    }
+    if (types.isFixnum(args[0]) or types.isRationalObj(args[0])) {
+        if (best_den == 1) return types.makeFixnum(best_num);
+        return gc.allocRational(types.makeFixnum(best_num), types.makeFixnum(best_den)) catch return PrimitiveError.OutOfMemory;
+    }
+    return makeFlonumVal(@as(f64, @floatFromInt(best_num)) / @as(f64, @floatFromInt(best_den)));
 }

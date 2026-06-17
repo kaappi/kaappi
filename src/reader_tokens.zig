@@ -78,7 +78,7 @@ pub fn readNumber(self: *Reader) ReadError!Token {
         const imag_start = self.pos;
         self.pos += 1; // skip +/-
         // Check for just +i or -i (imaginary unit)
-        if (self.pos < self.source.len and self.source[self.pos] == 'i' and
+        if (self.pos < self.source.len and (self.source[self.pos] == 'i' or self.source[self.pos] == 'I') and
             (self.pos + 1 >= self.source.len or Reader.isDelimiter(self.source[self.pos + 1])))
         {
             self.pos += 1;
@@ -86,17 +86,21 @@ pub fn readNumber(self: *Reader) ReadError!Token {
             const imag: f64 = if (self.source[imag_start] == '+') 1.0 else -1.0;
             return .{ .complex = .{ .real = real, .imag = imag } };
         }
-        // Parse imaginary magnitude
+        // Parse imaginary magnitude (decimal, rational, or with exponent)
         var imag_has_dot = false;
         var imag_has_exp = false;
+        var imag_has_slash = false;
         while (self.pos < self.source.len) {
             const ic = self.source[self.pos];
             if (std.ascii.isDigit(ic)) {
                 self.pos += 1;
-            } else if (ic == '.' and !imag_has_dot and !imag_has_exp) {
+            } else if (ic == '.' and !imag_has_dot and !imag_has_exp and !imag_has_slash) {
                 imag_has_dot = true;
                 self.pos += 1;
-            } else if (isExpMarker(ic) and !imag_has_exp) {
+            } else if (ic == '/' and !imag_has_slash and !imag_has_dot and !imag_has_exp) {
+                imag_has_slash = true;
+                self.pos += 1;
+            } else if (isExpMarker(ic) and !imag_has_exp and !imag_has_slash) {
                 imag_has_exp = true;
                 self.pos += 1;
                 if (self.pos < self.source.len and (self.source[self.pos] == '+' or self.source[self.pos] == '-'))
@@ -104,7 +108,7 @@ pub fn readNumber(self: *Reader) ReadError!Token {
             } else break;
         }
         // Must end with 'i'
-        if (self.pos < self.source.len and self.source[self.pos] == 'i') {
+        if (self.pos < self.source.len and (self.source[self.pos] == 'i' or self.source[self.pos] == 'I')) {
             self.pos += 1;
             const real = parseDecimalReal(num_str) orelse return ReadError.InvalidNumber;
             const imag_str = self.source[imag_start..self.pos - 1];
@@ -115,7 +119,7 @@ pub fn readNumber(self: *Reader) ReadError!Token {
         self.pos = imag_start;
     }
     // Check for pure imaginary: just "i" suffix (e.g., "2i", "+i", "-i")
-    if (self.pos < self.source.len and self.source[self.pos] == 'i' and
+    if (self.pos < self.source.len and (self.source[self.pos] == 'i' or self.source[self.pos] == 'I') and
         (self.pos + 1 >= self.source.len or Reader.isDelimiter(self.source[self.pos + 1])))
     {
         self.pos += 1;
@@ -154,7 +158,7 @@ pub fn readNumber(self: *Reader) ReadError!Token {
                 const real_val: f64 = @as(f64, @floatFromInt(n)) / @as(f64, @floatFromInt(den));
                 self.pos += 1;
                 // +i or -i
-                if (self.pos < self.source.len and self.source[self.pos] == 'i' and
+                if (self.pos < self.source.len and (self.source[self.pos] == 'i' or self.source[self.pos] == 'I') and
                     (self.pos + 1 >= self.source.len or Reader.isDelimiter(self.source[self.pos + 1])))
                 {
                     self.pos += 1;
@@ -166,7 +170,7 @@ pub fn readNumber(self: *Reader) ReadError!Token {
                 while (imag_end < self.source.len and (std.ascii.isDigit(self.source[imag_end]) or self.source[imag_end] == '.' or self.source[imag_end] == '/')) {
                     imag_end += 1;
                 }
-                if (imag_end < self.source.len and self.source[imag_end] == 'i' and
+                if (imag_end < self.source.len and (self.source[imag_end] == 'i' or self.source[imag_end] == 'I') and
                     (imag_end + 1 >= self.source.len or Reader.isDelimiter(self.source[imag_end + 1])))
                 {
                     self.pos = imag_end + 1;
@@ -202,7 +206,7 @@ pub fn foldAndReturnSymbol(self: *Reader, sym_text: []const u8) ReadError!Token 
     if (std.ascii.eqlIgnoreCase(text, "+nan.0")) return .{ .flonum = std.math.nan(f64) };
     if (std.ascii.eqlIgnoreCase(text, "-nan.0")) return .{ .flonum = std.math.nan(f64) };
     // Check for complex literals with special floats: +inf.0+inf.0i etc.
-    if (text.len > 2 and text[text.len - 1] == 'i') {
+    if (text.len > 2 and (text[text.len - 1] == 'i' or text[text.len - 1] == 'I')) {
         if (tryParseComplexSymbol(text)) |cpx| return .{ .complex = cpx };
     }
     return .{ .symbol = text };

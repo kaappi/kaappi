@@ -12,7 +12,7 @@ pub const PrintMode = enum {
 // Shared-structure detection (write-shared support)
 // ---------------------------------------------------------------------------
 
-const MAX_SHARED = 128;
+const MAX_SHARED = 1024;
 
 const SharedState = struct {
     seen: [MAX_SHARED]Value = undefined,
@@ -95,9 +95,11 @@ fn markShared(value: Value, state: *SharedState) void {
     }
 }
 
-/// Pass 2: Print with datum labels for shared structures.
-fn printValueShared(writer: anytype, value: Value, state: *SharedState) anyerror!void {
-    // Check if this value has a label assigned (shared reference)
+/// Pass 2: Print with datum labels for the objects recorded in `state.shared`.
+/// `atom_mode` selects write vs display rendering for leaf atoms (strings,
+/// chars); list/vector structure renders identically in both.
+fn printValueShared(writer: anytype, value: Value, state: *SharedState, atom_mode: PrintMode) anyerror!void {
+    // Check if this value has a label assigned (shared/cyclic reference)
     if (types.isPointer(value) and state.isShared(value)) {
         if (state.getLabel(value)) |label| {
             // Already labeled -- emit back-reference #N#
@@ -111,23 +113,23 @@ fn printValueShared(writer: anytype, value: Value, state: *SharedState) anyerror
     }
     // Print the value itself
     if (types.isPair(value)) {
-        try printListShared(writer, value, state);
+        try printListShared(writer, value, state, atom_mode);
     } else if (types.isPointer(value) and types.toObject(value).tag == .vector) {
         const vec = types.toObject(value).as(types.Vector);
         try writer.writeAll("#(");
         for (vec.data, 0..) |elem, i| {
             if (i > 0) try writer.writeByte(' ');
-            try printValueShared(writer, elem, state);
+            try printValueShared(writer, elem, state, atom_mode);
         }
         try writer.writeByte(')');
     } else {
-        try printValue(writer, value, .write);
+        try printValue(writer, value, atom_mode);
     }
 }
 
-fn printListShared(writer: anytype, value: Value, state: *SharedState) anyerror!void {
+fn printListShared(writer: anytype, value: Value, state: *SharedState, atom_mode: PrintMode) anyerror!void {
     try writer.writeByte('(');
-    try printValueShared(writer, types.car(value), state);
+    try printValueShared(writer, types.car(value), state, atom_mode);
 
     var rest = types.cdr(value);
     while (rest != types.NIL) {
@@ -135,19 +137,170 @@ fn printListShared(writer: anytype, value: Value, state: *SharedState) anyerror!
             // If this cdr is shared, print as ". #N#" or ". #N=(...)"
             if (state.isShared(rest)) {
                 try writer.writeAll(" . ");
-                try printValueShared(writer, rest, state);
+                try printValueShared(writer, rest, state, atom_mode);
                 break;
             }
             try writer.writeByte(' ');
-            try printValueShared(writer, types.car(rest), state);
+            try printValueShared(writer, types.car(rest), state, atom_mode);
             rest = types.cdr(rest);
         } else {
             try writer.writeAll(" . ");
-            try printValueShared(writer, rest, state);
+            try printValueShared(writer, rest, state, atom_mode);
             break;
         }
     }
     try writer.writeByte(')');
+}
+
+/// Record `value` as a node that needs a datum label (it closes a cycle).
+fn recordSharedNode(state: *SharedState, value: Value) void {
+    if (state.isShared(value)) return;
+    if (state.shared_count < MAX_SHARED) {
+        state.shared[state.shared_count] = value;
+        state.labels[state.shared_count] = -1;
+        state.shared_count += 1;
+    }
+}
+
+/// Detect heap objects that lie on a cycle (the target of a DFS back-edge) and
+/// record them in `state.shared`. Only cycles need datum labels for `write`/
+/// `display` to terminate; acyclic sharing is printed in full per R7RS.
+///
+/// The list spine is walked iteratively (recursing only into cars and a dotted
+/// tail) so deep proper lists don't overflow the native stack. Traversal sets
+/// live on the heap, so detection terminates on structures of any size.
+fn markCycles(allocator: std.mem.Allocator, value: Value, state: *SharedState) void {
+    var on_stack = std.AutoHashMap(Value, void).init(allocator);
+    defer on_stack.deinit();
+    var done = std.AutoHashMap(Value, void).init(allocator);
+    defer done.deinit();
+    markCyclesRec(allocator, value, state, &on_stack, &done);
+}
+
+fn markCyclesRec(
+    allocator: std.mem.Allocator,
+    value: Value,
+    state: *SharedState,
+    on_stack: *std.AutoHashMap(Value, void),
+    done: *std.AutoHashMap(Value, void),
+) void {
+    if (!types.isPointer(value)) return;
+    const obj = types.toObject(value);
+
+    if (obj.tag == .vector) {
+        if (on_stack.contains(value)) return recordSharedNode(state, value);
+        if (done.contains(value)) return;
+        on_stack.put(value, {}) catch return;
+        const vec = obj.as(types.Vector);
+        for (vec.data) |elem| markCyclesRec(allocator, elem, state, on_stack, done);
+        _ = on_stack.remove(value);
+        done.put(value, {}) catch {};
+        return;
+    }
+
+    if (obj.tag != .pair) return;
+
+    // Walk the cdr spine iteratively; the spine pairs stay on the DFS stack
+    // until the whole spine is processed, then unwind together.
+    var spine: std.ArrayList(Value) = .empty;
+    defer spine.deinit(allocator);
+
+    var cur = value;
+    while (types.isPointer(cur)) {
+        const o = types.toObject(cur);
+        if (o.tag != .pair) {
+            // Dotted tail that is itself a heap object (e.g. vector).
+            markCyclesRec(allocator, cur, state, on_stack, done);
+            break;
+        }
+        if (on_stack.contains(cur)) {
+            recordSharedNode(state, cur);
+            break;
+        }
+        if (done.contains(cur)) break;
+        on_stack.put(cur, {}) catch break;
+        spine.append(allocator, cur) catch {};
+        markCyclesRec(allocator, types.car(cur), state, on_stack, done);
+        cur = types.cdr(cur);
+    }
+
+    var i = spine.items.len;
+    while (i > 0) {
+        i -= 1;
+        _ = on_stack.remove(spine.items[i]);
+        done.put(spine.items[i], {}) catch {};
+    }
+}
+
+fn startsWithIgnoreCase(s: []const u8, prefix: []const u8) bool {
+    return s.len >= prefix.len and std.ascii.eqlIgnoreCase(s[0..prefix.len], prefix);
+}
+
+/// Whether a symbol must be written with `|...|` bars so it reads back as the
+/// same symbol: empty names, a lone `.`, names containing delimiters/special
+/// characters, and names that would otherwise read as a number.
+fn symbolNeedsBars(name: []const u8) bool {
+    if (name.len == 0) return true;
+    for (name) |c| {
+        switch (c) {
+            0...' ', '(', ')', '[', ']', '{', '}', '"', ';', '|', '\\', '\'', '`', ',', '#' => return true,
+            else => {},
+        }
+    }
+    if (name.len == 1 and name[0] == '.') return true;
+
+    const c0 = name[0];
+    if (std.ascii.isDigit(c0)) return true;
+    if (c0 == '+' or c0 == '-') {
+        if (name.len == 1) return false; // bare + / - are identifiers
+        const c1 = name[1];
+        if (std.ascii.isDigit(c1)) return true;
+        if (c1 == '.' and name.len > 2 and std.ascii.isDigit(name[2])) return true;
+        const rest = name[1..];
+        if (std.ascii.eqlIgnoreCase(rest, "i")) return true;
+        if (startsWithIgnoreCase(rest, "inf.0") or startsWithIgnoreCase(rest, "nan.0")) return true;
+        return false;
+    }
+    if (c0 == '.' and name.len > 1 and std.ascii.isDigit(name[1])) return true;
+    return false;
+}
+
+/// Format a flonum in Scheme syntax into `buf`, returning the slice. Uses
+/// scientific notation for very large/small magnitudes so the output stays
+/// bounded (plain `{d}` expands denormals/huge values to hundreds of decimal
+/// digits, overflowing fixed buffers). Always includes a `.`/`e` so the result
+/// reads back as inexact.
+fn formatComplexPart(buf: []u8, f: f64) []const u8 {
+    if (std.math.isNan(f) or std.math.isInf(f)) return formatFlonum(buf, f);
+    const trunc = @trunc(f);
+    if (f == trunc and @abs(f) < 1e15) {
+        const i: i64 = @intFromFloat(trunc);
+        return std.fmt.bufPrint(buf, "{d}", .{i}) catch return formatFlonum(buf, f);
+    }
+    return formatFlonum(buf, f);
+}
+
+pub fn formatFlonum(buf: []u8, f: f64) []const u8 {
+    if (std.math.isNan(f)) return "+nan.0";
+    if (std.math.isInf(f)) return if (f > 0) "+inf.0" else "-inf.0";
+
+    const abs = @abs(f);
+    const use_sci = abs != 0 and (abs < 1e-10 or abs >= 1e21);
+    const s = if (use_sci)
+        (std.fmt.bufPrint(buf, "{e}", .{f}) catch return "+nan.0")
+    else
+        (std.fmt.bufPrint(buf, "{d}", .{f}) catch
+            (std.fmt.bufPrint(buf, "{e}", .{f}) catch return "+nan.0"));
+
+    for (s) |c| {
+        if (c == '.' or c == 'e' or c == 'E') return s;
+    }
+    if (s.len + 2 <= buf.len) {
+        buf[s.len] = '.';
+        buf[s.len + 1] = '0';
+        return buf[0 .. s.len + 2];
+    }
+    return s;
 }
 
 pub fn printValue(writer: anytype, value: Value, mode: PrintMode) anyerror!void {
@@ -157,7 +310,7 @@ pub fn printValue(writer: anytype, value: Value, mode: PrintMode) anyerror!void 
         // Pass 1: detect shared structure
         markShared(value, &state);
         // Pass 2: print with labels
-        try printValueShared(writer, value, &state);
+        try printValueShared(writer, value, &state, .write);
         return;
     }
     if (types.isFixnum(value)) {
@@ -205,7 +358,16 @@ pub fn printValue(writer: anytype, value: Value, mode: PrintMode) anyerror!void 
             .pair => try printList(writer, value, mode),
             .symbol => {
                 const sym = obj.as(types.Symbol);
-                try writer.writeAll(sym.name);
+                if (mode != .display and symbolNeedsBars(sym.name)) {
+                    try writer.writeByte('|');
+                    for (sym.name) |c| {
+                        if (c == '|' or c == '\\') try writer.writeByte('\\');
+                        try writer.writeByte(c);
+                    }
+                    try writer.writeByte('|');
+                } else {
+                    try writer.writeAll(sym.name);
+                }
             },
             .string => {
                 const str = obj.as(types.SchemeString);
@@ -230,23 +392,8 @@ pub fn printValue(writer: anytype, value: Value, mode: PrintMode) anyerror!void 
             },
             .flonum => {
                 const flo = obj.as(types.Flonum);
-                const f = flo.value;
-                if (std.math.isNan(f)) {
-                    try writer.writeAll("+nan.0");
-                } else if (std.math.isInf(f)) {
-                    if (f > 0) try writer.writeAll("+inf.0") else try writer.writeAll("-inf.0");
-                } else {
-                    var buf: [64]u8 = undefined;
-                    const s = std.fmt.bufPrint(&buf, "{d}", .{f}) catch "?";
-                    try writer.writeAll(s);
-                    // Ensure at least one decimal point for inexact display
-                    if (std.mem.indexOfScalar(u8, s, '.') == null and
-                        std.mem.indexOfScalar(u8, s, 'e') == null and
-                        std.mem.indexOfScalar(u8, s, 'E') == null)
-                    {
-                        try writer.writeAll(".0");
-                    }
-                }
+                var buf: [64]u8 = undefined;
+                try writer.writeAll(formatFlonum(&buf, flo.value));
             },
             .closure => {
                 const cls = obj.as(types.Closure);
@@ -313,38 +460,23 @@ pub fn printValue(writer: anytype, value: Value, mode: PrintMode) anyerror!void 
             },
             .complex => {
                 const c = obj.as(types.Complex);
-                // Print real part (skip if zero, unless imag is also zero)
-                if (c.real != 0.0 or c.imag == 0.0) {
-                    var buf: [64]u8 = undefined;
-                    const s = std.fmt.bufPrint(&buf, "{d}", .{c.real}) catch "?";
-                    try writer.writeAll(s);
-                    // Ensure decimal point
-                    if (std.mem.indexOfScalar(u8, s, '.') == null and
-                        std.mem.indexOfScalar(u8, s, 'e') == null)
-                    {
-                        try writer.writeAll(".0");
-                    }
-                }
-                // Print imaginary part
-                if (c.imag != 0.0) {
-                    if (c.imag > 0.0 and (c.real != 0.0 or c.imag == 0.0)) {
-                        try writer.writeByte('+');
-                    }
-                    if (c.imag == 1.0) {
-                        // nothing, just +i
-                    } else if (c.imag == -1.0) {
-                        try writer.writeByte('-');
+                var buf: [64]u8 = undefined;
+                if (c.imag == 0.0) {
+                    try writer.writeAll(formatFlonum(&buf, c.real));
+                } else {
+                    const has_real = c.real != 0.0;
+                    if (has_real) try writer.writeAll(formatComplexPart(&buf, c.real));
+                    const im = c.imag;
+                    if (std.math.isNan(im)) {
+                        try writer.writeAll("+nan.0i");
+                    } else if (std.math.isInf(im)) {
+                        try writer.writeAll(if (im > 0) "+inf.0i" else "-inf.0i");
                     } else {
-                        var buf: [64]u8 = undefined;
-                        const s = std.fmt.bufPrint(&buf, "{d}", .{c.imag}) catch "?";
-                        try writer.writeAll(s);
-                        if (std.mem.indexOfScalar(u8, s, '.') == null and
-                            std.mem.indexOfScalar(u8, s, 'e') == null)
-                        {
-                            try writer.writeAll(".0");
-                        }
+                        try writer.writeByte(if (im < 0) '-' else '+');
+                        const mag = @abs(im);
+                        if (mag != 1.0 or has_real) try writer.writeAll(formatComplexPart(&buf, mag));
+                        try writer.writeByte('i');
                     }
-                    try writer.writeByte('i');
                 }
             },
             .vector => {
@@ -435,6 +567,20 @@ fn printList(writer: anytype, value: Value, mode: PrintMode) anyerror!void {
 
 pub fn valueToString(allocator: std.mem.Allocator, value: Value, mode: PrintMode) ![]u8 {
     var aw: std.Io.Writer.Allocating = .init(allocator);
+
+    // For `write`/`display`, R7RS requires labeling only structure that forms a
+    // cycle (so output terminates) while leaving acyclic sharing in full. Detect
+    // cycles up front; if none exist, take the plain fast path so non-cyclic
+    // output is byte-for-byte unchanged.
+    if (mode == .write or mode == .display) {
+        var state = SharedState{};
+        markCycles(allocator, value, &state);
+        if (state.shared_count > 0) {
+            try printValueShared(&aw.writer, value, &state, mode);
+            return aw.toOwnedSlice();
+        }
+    }
+
     try printValue(&aw.writer, value, mode);
     return aw.toOwnedSlice();
 }
