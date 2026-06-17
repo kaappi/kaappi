@@ -622,7 +622,16 @@ fn deleteFile(args: []const Value) PrimitiveError!Value {
     const path_z = gc.allocator.dupeZ(u8, path) catch return PrimitiveError.OutOfMemory;
     defer gc.allocator.free(path_z);
 
-    _ = std.posix.system.unlink(path_z);
+    const result = std.posix.system.unlink(path_z);
+    if (result < 0) {
+        const msg = gc.allocString("cannot delete file") catch return PrimitiveError.OutOfMemory;
+        const irritant = gc.allocString(path) catch return PrimitiveError.OutOfMemory;
+        const irr_list = gc.allocPair(irritant, types.NIL) catch return PrimitiveError.OutOfMemory;
+        const err_obj = gc.allocErrorObject(msg, irr_list) catch return PrimitiveError.OutOfMemory;
+        types.toObject(err_obj).as(types.ErrorObject).error_type = .file;
+        const raise_args = [1]Value{err_obj};
+        return primitives_control.raiseFn(&raise_args);
+    }
     return types.VOID;
 }
 
