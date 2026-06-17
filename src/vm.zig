@@ -1223,102 +1223,14 @@ pub const VM = struct {
         return @bitCast(self.readU16(frame));
     }
 
-    // -- High-level eval --
+    const vm_eval = @import("vm_eval.zig");
 
     pub fn eval(self: *VM, source: []const u8) VMError!Value {
-        const reader_mod = @import("reader.zig");
-        var reader = reader_mod.Reader.init(self.gc, source);
-        defer reader.deinit();
-
-        var last_result: Value = types.VOID;
-        while (reader.hasMore()) {
-            const expr = reader.readDatum() catch return VMError.CompileError;
-
-            // Check for special top-level forms handled by the VM directly
-            if (self.handleTopLevelForm(expr)) |result| {
-                last_result = result catch |err| return err;
-                continue;
-            }
-
-            const func = compiler_mod.compileExpressionWithMacros(self.gc, expr, &self.macros, &self.globals) catch return VMError.CompileError;
-            // Root the function to prevent GC from collecting it before execute wraps it in a closure
-            var func_val = types.makePointer(@ptrCast(func));
-            self.gc.pushRoot(&func_val);
-            last_result = self.execute(func) catch |err| {
-                self.gc.popRoot();
-                return err;
-            };
-            self.gc.popRoot();
-        }
-        return last_result;
+        return vm_eval.eval(self, source);
     }
 
-    /// Handle (define-values (var ...) expr)
-    /// Evaluates expr, expects multiple values, and binds each to a global.
-    fn handleDefineValues(self: *VM, args: Value) VMError!Value {
-        if (!types.isPair(args)) return VMError.CompileError;
-        const formals = types.car(args);
-        const rest = types.cdr(args);
-        if (!types.isPair(rest)) return VMError.CompileError;
-        const expr = types.car(rest);
-
-        // Compile and evaluate the expression
-        const func = compiler_mod.compileExpressionWithMacros(self.gc, expr, &self.macros, &self.globals) catch return VMError.CompileError;
-        var func_val = types.makePointer(@ptrCast(func));
-        self.gc.pushRoot(&func_val);
-        const result = self.execute(func) catch |err| {
-            self.gc.popRoot();
-            return err;
-        };
-        self.gc.popRoot();
-
-        // Extract values and bind them
-        if (types.isMultipleValues(result)) {
-            const mv = types.toObject(result).as(types.MultipleValues);
-            var formal = formals;
-            var i: usize = 0;
-            while (formal != types.NIL and i < mv.values.len) {
-                if (!types.isPair(formal)) return VMError.CompileError;
-                const var_sym = types.car(formal);
-                if (!types.isSymbol(var_sym)) return VMError.CompileError;
-                self.globals.put(types.symbolName(var_sym), mv.values[i]) catch return VMError.OutOfMemory;
-                formal = types.cdr(formal);
-                i += 1;
-            }
-        } else {
-            // Single value: bind to first variable only
-            const formal = formals;
-            if (types.isPair(formal)) {
-                const var_sym = types.car(formal);
-                if (types.isSymbol(var_sym)) {
-                    self.globals.put(types.symbolName(var_sym), result) catch return VMError.OutOfMemory;
-                }
-            }
-        }
-        return types.VOID;
-    }
-
-    /// Check if expr is a special top-level form (import, define-library).
-    /// Returns null if the form should be compiled normally.
     pub fn handleTopLevelForm(self: *VM, expr: Value) ?VMError!Value {
-        if (!types.isPair(expr)) return null;
-        const head = types.car(expr);
-        if (!types.isSymbol(head)) return null;
-        const name = types.symbolName(head);
-
-        if (std.mem.eql(u8, name, "import")) {
-            return vm_library.handleImport(self, types.cdr(expr));
-        }
-        if (std.mem.eql(u8, name, "define-library")) {
-            return vm_library.handleDefineLibrary(self, types.cdr(expr));
-        }
-        if (std.mem.eql(u8, name, "define-record-type")) {
-            return vm_records.handleDefineRecordType(self, types.cdr(expr));
-        }
-        if (std.mem.eql(u8, name, "define-values")) {
-            return self.handleDefineValues(types.cdr(expr));
-        }
-        return null;
+        return vm_eval.handleTopLevelForm(self, expr);
     }
 
 };
