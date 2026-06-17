@@ -165,12 +165,14 @@ pub fn readNumber(self: *Reader) ReadError!Token {
                     (self.pos + 1 >= self.source.len or Reader.isDelimiter(self.source[self.pos + 1])))
                 {
                     self.pos += 1;
-                    return .{ .complex = .{ .real = real_val, .imag = if (self.source[csave] == '+') 1.0 else -1.0 } };
+                    return .{ .complex = .{ .real = real_val, .imag = if (self.source[csave] == '+') 1.0 else -1.0, .exact_real = true, .exact_imag = true } };
                 }
                 // Try parsing imaginary part
                 const imag_start2 = csave;
                 var imag_end = self.pos;
+                var imag_has_dot2 = false;
                 while (imag_end < self.source.len and (std.ascii.isDigit(self.source[imag_end]) or self.source[imag_end] == '.' or self.source[imag_end] == '/')) {
+                    if (self.source[imag_end] == '.') imag_has_dot2 = true;
                     imag_end += 1;
                 }
                 if (imag_end < self.source.len and (self.source[imag_end] == 'i' or self.source[imag_end] == 'I') and
@@ -182,7 +184,7 @@ pub fn readNumber(self: *Reader) ReadError!Token {
                         self.pos = csave;
                         return .{ .rational = .{ .num = n, .den = den } };
                     };
-                    return .{ .complex = .{ .real = real_val, .imag = imag_val } };
+                    return .{ .complex = .{ .real = real_val, .imag = imag_val, .exact_real = true, .exact_imag = !imag_has_dot2 } };
                 }
                 self.pos = csave;
             }

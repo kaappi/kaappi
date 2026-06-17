@@ -278,6 +278,13 @@ fn formatComplexPart(buf: []u8, f: f64, exact: bool) []const u8 {
             const i: i64 = @intFromFloat(trunc);
             return std.fmt.bufPrint(buf, "{d}", .{i}) catch return formatFlonum(buf, f);
         }
+        // Exact non-integer: try rational notation
+        const numeric = @import("primitives_numeric.zig");
+        const rat = numeric.floatToRational(f);
+        if (rat.den != 1) {
+            return std.fmt.bufPrint(buf, "{d}/{d}", .{ rat.num, rat.den }) catch return formatFlonum(buf, f);
+        }
+        return std.fmt.bufPrint(buf, "{d}", .{rat.num}) catch return formatFlonum(buf, f);
     }
     return formatFlonum(buf, f);
 }

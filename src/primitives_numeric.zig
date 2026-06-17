@@ -651,7 +651,7 @@ fn truncateDivide(args: []const Value) PrimitiveError!Value {
 // Rational operations (R7RS 6.2.6)
 // ---------------------------------------------------------------------------
 
-fn floatToRational(f: f64) struct { num: i64, den: i64 } {
+pub fn floatToRational(f: f64) struct { num: i64, den: i64 } {
     if (f == @trunc(f)) return .{ .num = @intFromFloat(f), .den = 1 };
     const sign: i64 = if (f < 0) -1 else 1;
     const abs_f = @abs(f);
