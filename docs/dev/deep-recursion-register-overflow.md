@@ -2,7 +2,7 @@
 
 ## Status
 
-**Fixed.** Found while sweeping the test suite during the GC
+**Fixed.** Bounds checks added at all three re-entrant call sites. Adaptive stride (locals_count+2, min 16) replaces flat +200, allowing ~60 re-entrant levels. Found while sweeping the test suite during the GC
 reachability investigation (2026-06-17); confirmed identical on the pre-fix
 commit, so not introduced by that work. Not yet fixed.
 
