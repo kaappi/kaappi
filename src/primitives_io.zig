@@ -439,18 +439,22 @@ fn writeStringFn(args: []const Value) PrimitiveError!Value {
     const port = try getOutputPort(args, 1);
     const str = types.toObject(args[0]).as(types.SchemeString);
     const data = str.data[0..str.len];
-    var start: usize = 0;
-    var end: usize = data.len;
+    const string_mod = @import("primitives_string.zig");
+    const cp_count = string_mod.utf8CodepointCount(data);
+    var start_cp: usize = 0;
+    var end_cp: usize = cp_count;
     if (args.len > 2) {
         if (!types.isFixnum(args[2])) return PrimitiveError.TypeError;
-        start = @intCast(types.toFixnum(args[2]));
+        start_cp = @intCast(types.toFixnum(args[2]));
     }
     if (args.len > 3) {
         if (!types.isFixnum(args[3])) return PrimitiveError.TypeError;
-        end = @intCast(types.toFixnum(args[3]));
+        end_cp = @intCast(types.toFixnum(args[3]));
     }
-    if (start > end or end > data.len) return PrimitiveError.TypeError;
-    writeToPort(port, data[start..end]);
+    if (start_cp > end_cp or end_cp > cp_count) return PrimitiveError.TypeError;
+    const byte_start = string_mod.utf8IndexToByteOffset(data, start_cp) orelse return PrimitiveError.TypeError;
+    const byte_end = string_mod.utf8IndexToByteOffset(data, end_cp) orelse return PrimitiveError.TypeError;
+    writeToPort(port, data[byte_start..byte_end]);
     return types.VOID;
 }
 
@@ -597,8 +601,10 @@ fn readStringFn(args: []const Value) PrimitiveError!Value {
 
     var chars_read: usize = 0;
     while (chars_read < count) {
-        const byte = readOneByte(port) orelse break;
-        result.append(gc.allocator, byte) catch return PrimitiveError.OutOfMemory;
+        const cp = readUtf8Char(port) orelse break;
+        var buf: [4]u8 = undefined;
+        const len = std.unicode.utf8Encode(cp, &buf) catch break;
+        result.appendSlice(gc.allocator, buf[0..len]) catch return PrimitiveError.OutOfMemory;
         chars_read += 1;
     }
     if (result.items.len == 0) return types.EOF;

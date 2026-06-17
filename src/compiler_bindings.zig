@@ -22,6 +22,9 @@ fn renameInBody(gc: *memory.GC, expr: Value, old_name: []const u8, new_sym: Valu
         return expr;
     }
     if (types.isPair(expr)) {
+        const head = types.car(expr);
+        if (types.isSymbol(head) and std.mem.eql(u8, types.symbolName(head), "quote"))
+            return expr;
         const new_car = try renameInBody(gc, types.car(expr), old_name, new_sym);
         const new_cdr = try renameInBody(gc, types.cdr(expr), old_name, new_sym);
         if (new_car == types.car(expr) and new_cdr == types.cdr(expr)) return expr;

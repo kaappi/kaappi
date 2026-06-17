@@ -174,7 +174,7 @@ pub fn expandMacro(gc: *GC, expr: Value, transformer_val: Value, globals: ?*std.
         // Skip the keyword in the pattern (first element of pattern)
         const pattern_body = types.cdr(transformer.patterns[i]);
 
-        if (matchPattern(pattern_body, input, transformer.literals[0..], &bindings, &bind_count)) {
+        if (matchPattern(pattern_body, input, transformer.literals[0..], &bindings, &bind_count, gc)) {
             return instantiateTemplate(gc, transformer.templates[i], bindings[0..bind_count], intro_scope, transformer.literals, macro_keyword, globals, macros);
         }
     }
@@ -191,7 +191,7 @@ pub const ExpandError = error{
 // Pattern matching
 // ---------------------------------------------------------------------------
 
-fn matchPattern(pattern: Value, input: Value, literals: []const Value, bindings: *[MAX_BINDINGS]Binding, count: *usize) bool {
+fn matchPattern(pattern: Value, input: Value, literals: []const Value, bindings: *[MAX_BINDINGS]Binding, count: *usize, gc: ?*GC) bool {
     // Symbol patterns
     if (types.isSymbol(pattern)) {
         const name = types.symbolName(pattern);
@@ -239,20 +239,20 @@ fn matchPattern(pattern: Value, input: Value, literals: []const Value, bindings:
 
     // List pattern
     if (types.isPair(pattern)) {
-        return matchListPattern(pattern, input, literals, bindings, count);
+        return matchListPattern(pattern, input, literals, bindings, count, gc);
     }
 
     return false;
 }
 
-fn matchListPattern(pattern: Value, input: Value, literals: []const Value, bindings: *[MAX_BINDINGS]Binding, count: *usize) bool {
+fn matchListPattern(pattern: Value, input: Value, literals: []const Value, bindings: *[MAX_BINDINGS]Binding, count: *usize, gc: ?*GC) bool {
     var pat = pattern;
     var inp = input;
 
     while (pat != types.NIL) {
         if (!types.isPair(pat)) {
             // Dotted pattern tail
-            return matchPattern(pat, inp, literals, bindings, count);
+            return matchPattern(pat, inp, literals, bindings, count, gc);
         }
 
         const pat_elem = types.car(pat);
@@ -264,13 +264,13 @@ fn matchListPattern(pattern: Value, input: Value, literals: []const Value, bindi
             if (types.isSymbol(maybe_ellipsis) and std.mem.eql(u8, types.symbolName(maybe_ellipsis), "...")) {
                 // Ellipsis: pat_elem matches zero or more input elements
                 const after_ellipsis = types.cdr(pat_rest);
-                return matchEllipsis(pat_elem, after_ellipsis, inp, literals, bindings, count);
+                return matchEllipsis(pat_elem, after_ellipsis, inp, literals, bindings, count, gc);
             }
         }
 
         // Regular element: input must be a pair
         if (!types.isPair(inp)) return false;
-        if (!matchPattern(pat_elem, types.car(inp), literals, bindings, count)) return false;
+        if (!matchPattern(pat_elem, types.car(inp), literals, bindings, count, gc)) return false;
 
         pat = pat_rest;
         inp = types.cdr(inp);
@@ -289,7 +289,7 @@ fn countPairs(v: Value) usize {
     return n;
 }
 
-fn matchEllipsis(elem_pattern: Value, rest_pattern: Value, input: Value, literals: []const Value, bindings: *[MAX_BINDINGS]Binding, count: *usize) bool {
+fn matchEllipsis(elem_pattern: Value, rest_pattern: Value, input: Value, literals: []const Value, bindings: *[MAX_BINDINGS]Binding, count: *usize, gc: ?*GC) bool {
     // Count how many elements the rest_pattern needs (handles improper lists)
     const rest_len = countPairs(rest_pattern);
     const input_len = countPairs(input);
@@ -320,7 +320,7 @@ fn matchEllipsis(elem_pattern: Value, rest_pattern: Value, input: Value, literal
     for (0..repeat_count) |_| {
         var sub_bindings: [MAX_BINDINGS]Binding = undefined;
         var sub_count: usize = 0;
-        if (!matchPattern(elem_pattern, types.car(inp), literals, &sub_bindings, &sub_count))
+        if (!matchPattern(elem_pattern, types.car(inp), literals, &sub_bindings, &sub_count, gc))
             return false;
 
         // Append each sub-binding value to the corresponding list binding
@@ -328,7 +328,23 @@ fn matchEllipsis(elem_pattern: Value, rest_pattern: Value, input: Value, literal
             for (base_count..count.*) |bi| {
                 if (std.mem.eql(u8, bindings[bi].name, sub_bindings[si].name)) {
                     if (bindings[bi].ellipsis_count < MAX_ELLIPSIS_VALUES) {
-                        bindings[bi].ellipsis_values[bindings[bi].ellipsis_count] = sub_bindings[si].value;
+                        if (sub_bindings[si].is_list) {
+                            // Nested ellipsis: build list from inner values
+                            if (gc) |g| {
+                                var inner_list: Value = types.NIL;
+                                var k = sub_bindings[si].ellipsis_count;
+                                while (k > 0) {
+                                    k -= 1;
+                                    inner_list = g.allocPair(sub_bindings[si].ellipsis_values[k], inner_list) catch return false;
+                                }
+                                bindings[bi].ellipsis_values[bindings[bi].ellipsis_count] = inner_list;
+                                bindings[bi].depth = sub_bindings[si].depth + 1;
+                            } else {
+                                bindings[bi].ellipsis_values[bindings[bi].ellipsis_count] = sub_bindings[si].value;
+                            }
+                        } else {
+                            bindings[bi].ellipsis_values[bindings[bi].ellipsis_count] = sub_bindings[si].value;
+                        }
                         bindings[bi].ellipsis_count += 1;
                     }
                     break;
@@ -341,7 +357,7 @@ fn matchEllipsis(elem_pattern: Value, rest_pattern: Value, input: Value, literal
 
     // Match remaining input against rest_pattern
     if (rest_pattern == types.NIL) return inp == types.NIL;
-    return matchListPattern(rest_pattern, inp, literals, bindings, count);
+    return matchListPattern(rest_pattern, inp, literals, bindings, count, gc);
 }
 
 fn collectPatternVars(pattern: Value, literals: []const Value, names: *[16][]const u8, count: *usize) void {
@@ -502,12 +518,30 @@ fn instantiateEllipsis(gc: *GC, elem_template: Value, rest_template: Value, bind
         var sub_count: usize = 0;
         for (bindings) |b| {
             if (b.is_list) {
-                sub_bindings[sub_count] = .{
-                    .name = b.name,
-                    .value = b.ellipsis_values[i],
-                    .depth = 0,
-                    .is_list = false,
-                };
+                if (b.depth > 1) {
+                    // Nested ellipsis: unpack list into sub-binding
+                    sub_bindings[sub_count] = .{
+                        .name = b.name,
+                        .value = types.NIL,
+                        .depth = b.depth - 1,
+                        .is_list = true,
+                    };
+                    var list_val = b.ellipsis_values[i];
+                    var ev_count: usize = 0;
+                    while (types.isPair(list_val) and ev_count < MAX_ELLIPSIS_VALUES) {
+                        sub_bindings[sub_count].ellipsis_values[ev_count] = types.car(list_val);
+                        ev_count += 1;
+                        list_val = types.cdr(list_val);
+                    }
+                    sub_bindings[sub_count].ellipsis_count = ev_count;
+                } else {
+                    sub_bindings[sub_count] = .{
+                        .name = b.name,
+                        .value = b.ellipsis_values[i],
+                        .depth = 0,
+                        .is_list = false,
+                    };
+                }
             } else {
                 sub_bindings[sub_count] = b;
             }

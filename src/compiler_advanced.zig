@@ -680,48 +680,42 @@ pub fn compileParameterize(self: *Compiler, args: Value, dst: u8, is_tail: bool)
         let_bindings = gc.allocPair(binding_pair, let_bindings) catch return CompileError.OutOfMemory;
     }
 
-    // Build set calls: (p1 v1) (p2 v2) ...
-    var set_calls: Value = types.NIL;
-    // Build restore calls: (p1 old1) (p2 old2) ...
-    var restore_calls: Value = types.NIL;
+    // Desugar to: (let ((old1 (p1)) ...) (dynamic-wind
+    //   (lambda () (p1 v1) (p2 v2) ...)
+    //   (lambda () body ...)
+    //   (lambda () (%parameter-set! p1 old1) ...)))
+    const dw_sym = gc.allocSymbol("dynamic-wind") catch return CompileError.OutOfMemory;
+    const lambda_sym = gc.allocSymbol("lambda") catch return CompileError.OutOfMemory;
+    const pset_sym = gc.allocSymbol("%parameter-set!") catch return CompileError.OutOfMemory;
+
+    // before-thunk body: (p1 v1) (p2 v2) ...
+    var before_body: Value = types.NIL;
     i = binding_count;
     while (i > 0) {
         i -= 1;
         const set_call = gc.allocPair(param_exprs[i], gc.allocPair(val_exprs[i], types.NIL) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory;
-        set_calls = gc.allocPair(set_call, set_calls) catch return CompileError.OutOfMemory;
-
-        const restore_call = gc.allocPair(param_exprs[i], gc.allocPair(old_syms[i], types.NIL) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory;
-        restore_calls = gc.allocPair(restore_call, restore_calls) catch return CompileError.OutOfMemory;
+        before_body = gc.allocPair(set_call, before_body) catch return CompileError.OutOfMemory;
     }
+    const before_thunk = gc.allocPair(lambda_sym, gc.allocPair(types.NIL, before_body) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory;
 
-    // Build inner result binding: ((%result (begin body ...)))
-    const result_sym = gc.allocSymbol("%pres") catch return CompileError.OutOfMemory;
-    const body_begin = gc.allocPair(begin_sym, body) catch return CompileError.OutOfMemory;
-    const result_binding = gc.allocPair(result_sym, gc.allocPair(body_begin, types.NIL) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory;
-    const inner_bindings = gc.allocPair(result_binding, types.NIL) catch return CompileError.OutOfMemory;
+    // body-thunk: (lambda () body ...)
+    const body_thunk = gc.allocPair(lambda_sym, gc.allocPair(types.NIL, body) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory;
 
-    // Build inner let body: (p1 old1) (p2 old2) ... %result
-    var inner_body = gc.allocPair(result_sym, types.NIL) catch return CompileError.OutOfMemory;
+    // after-thunk body: (%parameter-set! p1 old1) ...
+    var after_body: Value = types.NIL;
     i = binding_count;
     while (i > 0) {
         i -= 1;
-        const restore_call = gc.allocPair(param_exprs[i], gc.allocPair(old_syms[i], types.NIL) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory;
-        inner_body = gc.allocPair(restore_call, inner_body) catch return CompileError.OutOfMemory;
+        const restore_call = gc.allocPair(pset_sym, gc.allocPair(param_exprs[i], gc.allocPair(old_syms[i], types.NIL) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory;
+        after_body = gc.allocPair(restore_call, after_body) catch return CompileError.OutOfMemory;
     }
+    const after_thunk = gc.allocPair(lambda_sym, gc.allocPair(types.NIL, after_body) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory;
 
-    // Build inner let: (let ((%result (begin body ...))) (p1 old1) ... %result)
-    const inner_let = gc.allocPair(let_sym, gc.allocPair(inner_bindings, inner_body) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory;
+    // (dynamic-wind before body after)
+    const dw_call = gc.allocPair(dw_sym, gc.allocPair(before_thunk, gc.allocPair(body_thunk, gc.allocPair(after_thunk, types.NIL) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory;
 
-    // Build outer let body: (p1 v1) (p2 v2) ... (inner-let)
-    var outer_body = gc.allocPair(inner_let, types.NIL) catch return CompileError.OutOfMemory;
-    i = binding_count;
-    while (i > 0) {
-        i -= 1;
-        const set_call = gc.allocPair(param_exprs[i], gc.allocPair(val_exprs[i], types.NIL) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory;
-        outer_body = gc.allocPair(set_call, outer_body) catch return CompileError.OutOfMemory;
-    }
-
-    // Build outer let: (let ((old1 (p1)) ...) (p1 v1) ... inner-let)
+    // (let ((old1 (p1)) ...) (dynamic-wind ...))
+    const outer_body = gc.allocPair(dw_call, types.NIL) catch return CompileError.OutOfMemory;
     const outer_let = gc.allocPair(let_sym, gc.allocPair(let_bindings, outer_body) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory;
 
     return self.compileExpr(outer_let, dst, is_tail);
@@ -744,6 +738,7 @@ pub fn compileCaseLambda(self: *Compiler, args: Value, dst: u8) CompileError!voi
     const let_sym = try gc.allocSymbol("let");
     const cond_sym = try gc.allocSymbol("cond");
     const eq_sym = try gc.allocSymbol("=");
+    const ge_sym = try gc.allocSymbol(">=");
     const length_sym = try gc.allocSymbol("length");
     const apply_sym = try gc.allocSymbol("apply");
     const else_sym = try gc.allocSymbol("else");
@@ -778,10 +773,10 @@ pub fn compileCaseLambda(self: *Compiler, args: Value, dst: u8) CompileError!voi
             flist = types.cdr(flist);
         }
 
-        // Build: ((= n arity) (apply (lambda formals body...) args))
+        const has_rest = flist != types.NIL;
         const arity_val = types.makeFixnum(arity);
-        // (= n arity)
-        const test_expr = try gc.allocPair(eq_sym, try gc.allocPair(n_sym, try gc.allocPair(arity_val, types.NIL)));
+        const cmp_sym = if (has_rest) ge_sym else eq_sym;
+        const test_expr = try gc.allocPair(cmp_sym, try gc.allocPair(n_sym, try gc.allocPair(arity_val, types.NIL)));
         // (lambda formals body...)
         const inner_lambda = try gc.allocPair(lambda_sym, try gc.allocPair(formals, body));
         // (apply inner_lambda args)

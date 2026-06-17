@@ -28,6 +28,7 @@ pub fn registerR7RS(vm: *vm_mod.VM) !void {
 
     // Parameters (R7RS 4.2.6)
     try reg(vm, "make-parameter", &makeParameterFn, .{ .variadic = 1 });
+    try reg(vm, "%parameter-set!", &parameterSetDirectFn, .{ .exact = 2 });
 
     // (scheme eval)
     try reg(vm, "eval", &evalFn, .{ .variadic = 1 });
@@ -241,6 +242,13 @@ fn makeParameterFn(args: []const Value) PrimitiveError!Value {
         };
     }
     return gc.allocParameter(val, converter) catch return PrimitiveError.OutOfMemory;
+}
+
+fn parameterSetDirectFn(args: []const Value) PrimitiveError!Value {
+    if (!types.isParameter(args[0])) return PrimitiveError.TypeError;
+    const param = types.toObject(args[0]).as(types.ParameterObject);
+    param.value = args[1];
+    return types.VOID;
 }
 
 // ---------------------------------------------------------------------------
