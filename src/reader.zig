@@ -164,7 +164,7 @@ pub const Reader = struct {
         return isUnicodeLetter(cp);
     }
 
-    fn isDelimiter(c: u8) bool {
+    pub fn isDelimiter(c: u8) bool {
         return c == ' ' or c == '\t' or c == '\n' or c == '\r' or
             c == '(' or c == ')' or c == '"' or c == ';' or c == '|';
     }
@@ -188,7 +188,7 @@ pub const Reader = struct {
         return c == '+' or c == '-' or c == '.' or c == '@';
     }
 
-    fn nextToken(self: *Reader) ReadError!Token {
+    pub fn nextToken(self: *Reader) ReadError!Token {
         self.skipWhitespaceAndComments();
         if (self.pos >= self.source.len) return .eof;
 
@@ -753,182 +753,10 @@ pub const Reader = struct {
         return .{ .character = first_byte };
     }
 
-    // -- Datum reader (produces Values) --
+    const reader_datum = @import("reader_datum.zig");
 
     pub fn readDatum(self: *Reader) ReadError!Value {
-        const tok = try self.nextToken();
-        return self.tokenToValue(tok);
-    }
-
-    fn tokenToValue(self: *Reader, tok: Token) ReadError!Value {
-        switch (tok) {
-            .fixnum => |n| return types.makeFixnum(n),
-            .flonum => |f| return self.gc.allocFlonum(f) catch return ReadError.OutOfMemory,
-            .bignum_str => |digits| {
-                const bignum_mod = @import("bignum.zig");
-                return bignum_mod.parseBignumString(self.gc, digits) catch return ReadError.OutOfMemory;
-            },
-            .rational => |r| {
-                if (r.den == 0) return ReadError.InvalidNumber;
-                const arith = @import("primitives_arithmetic.zig");
-                return arith.makeRationalFromReader(self.gc, r.num, r.den) catch return ReadError.OutOfMemory;
-            },
-            .boolean => |b| return if (b) types.TRUE else types.FALSE,
-            .character => |c| return types.makeChar(c),
-            .string => |s| {
-                const val = self.gc.allocString(s) catch return ReadError.OutOfMemory;
-                // R7RS: string literals are immutable
-                types.toObject(val).as(types.SchemeString).immutable = true;
-                return val;
-            },
-            .symbol => |name| return self.gc.allocSymbol(name) catch return ReadError.OutOfMemory,
-            .lparen => return self.readList(),
-            .quote => return self.readAbbreviation("quote"),
-            .backquote => return self.readAbbreviation("quasiquote"),
-            .comma => return self.readAbbreviation("unquote"),
-            .comma_at => return self.readAbbreviation("unquote-splicing"),
-            .hash_lparen => return self.readVector(),
-            .hash_u8_lparen => return self.readBytevector(),
-            .datum_label_def => |n| {
-                const datum = try self.readDatum();
-                if (n < self.labels.len) {
-                    self.labels[n] = datum;
-                }
-                return datum;
-            },
-            .datum_label_ref => |n| {
-                if (n < self.labels.len) {
-                    if (self.labels[n]) |val| return val;
-                }
-                return ReadError.InvalidNumber;
-            },
-            .rparen => return ReadError.UnexpectedRightParen,
-            .dot => return ReadError.DotNotInList,
-            .eof => return ReadError.UnexpectedEof,
-        }
-    }
-
-    fn readList(self: *Reader) ReadError!Value {
-        self.skipWhitespaceAndComments();
-        if (self.pos < self.source.len and self.source[self.pos] == ')') {
-            self.pos += 1;
-            return types.NIL;
-        }
-
-        const first = try self.readDatum();
-        var first_root = first;
-        self.gc.pushRoot(&first_root);
-        defer self.gc.popRoot();
-
-        // Check for dotted pair
-        self.skipWhitespaceAndComments();
-        if (self.pos < self.source.len and self.source[self.pos] == '.') {
-            // Peek ahead: is it a dot delimiter or start of a symbol like ...?
-            if (self.pos + 1 < self.source.len and isDelimiter(self.source[self.pos + 1])) {
-                self.pos += 1; // skip dot
-                const rest = try self.readDatum();
-                self.skipWhitespaceAndComments();
-                if (self.pos >= self.source.len or self.source[self.pos] != ')') {
-                    return ReadError.UnexpectedChar;
-                }
-                self.pos += 1;
-                return self.gc.allocPair(first_root, rest) catch return ReadError.OutOfMemory;
-            }
-        }
-
-        // Regular list
-        var rest = try self.readListTail();
-        _ = &rest;
-        return self.gc.allocPair(first_root, rest) catch return ReadError.OutOfMemory;
-    }
-
-    fn readListTail(self: *Reader) ReadError!Value {
-        self.skipWhitespaceAndComments();
-        if (self.pos >= self.source.len) return ReadError.UnexpectedEof;
-        if (self.source[self.pos] == ')') {
-            self.pos += 1;
-            return types.NIL;
-        }
-
-        // Check for dot
-        if (self.source[self.pos] == '.' and
-            self.pos + 1 < self.source.len and
-            isDelimiter(self.source[self.pos + 1]))
-        {
-            self.pos += 1;
-            const rest = try self.readDatum();
-            self.skipWhitespaceAndComments();
-            if (self.pos >= self.source.len or self.source[self.pos] != ')') {
-                return ReadError.UnexpectedChar;
-            }
-            self.pos += 1;
-            return rest;
-        }
-
-        const elem = try self.readDatum();
-        var elem_root = elem;
-        self.gc.pushRoot(&elem_root);
-        defer self.gc.popRoot();
-
-        const rest = try self.readListTail();
-        return self.gc.allocPair(elem_root, rest) catch return ReadError.OutOfMemory;
-    }
-
-    fn readAbbreviation(self: *Reader, keyword: []const u8) ReadError!Value {
-        const datum = try self.readDatum();
-        var datum_root = datum;
-        self.gc.pushRoot(&datum_root);
-        defer self.gc.popRoot();
-
-        const sym = self.gc.allocSymbol(keyword) catch return ReadError.OutOfMemory;
-        var sym_root = sym;
-        self.gc.pushRoot(&sym_root);
-        defer self.gc.popRoot();
-
-        const rest = self.gc.allocPair(datum_root, types.NIL) catch return ReadError.OutOfMemory;
-        return self.gc.allocPair(sym_root, rest) catch return ReadError.OutOfMemory;
-    }
-
-    fn readVector(self: *Reader) ReadError!Value {
-        var elems: std.ArrayList(Value) = .empty;
-        defer elems.deinit(self.gc.allocator);
-
-        while (true) {
-            self.skipWhitespaceAndComments();
-            if (self.pos >= self.source.len) return ReadError.UnexpectedEof;
-            if (self.source[self.pos] == ')') {
-                self.pos += 1;
-                break;
-            }
-            const elem = try self.readDatum();
-            elems.append(self.gc.allocator, elem) catch return ReadError.OutOfMemory;
-        }
-
-        return self.gc.allocVector(elems.items) catch return ReadError.OutOfMemory;
-    }
-
-    fn readBytevector(self: *Reader) ReadError!Value {
-        var bytes: std.ArrayList(u8) = .empty;
-        defer bytes.deinit(self.gc.allocator);
-
-        while (true) {
-            self.skipWhitespaceAndComments();
-            if (self.pos >= self.source.len) return ReadError.UnexpectedEof;
-            if (self.source[self.pos] == ')') {
-                self.pos += 1;
-                break;
-            }
-            const tok = try self.nextToken();
-            switch (tok) {
-                .fixnum => |n| {
-                    if (n < 0 or n > 255) return ReadError.InvalidNumber;
-                    bytes.append(self.gc.allocator, @intCast(@as(u64, @bitCast(n)))) catch return ReadError.OutOfMemory;
-                },
-                else => return ReadError.UnexpectedChar,
-            }
-        }
-
-        return self.gc.allocBytevector(bytes.items) catch return ReadError.OutOfMemory;
+        return reader_datum.readDatum(self);
     }
 
     pub fn hasMore(self: *Reader) bool {
