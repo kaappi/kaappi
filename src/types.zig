@@ -235,7 +235,8 @@ pub const Bytevector = struct {
 pub const Promise = struct {
     header: Object,
     forced: bool,
-    value: Value, // result after forcing, or the thunk before
+    forcing: bool = false,
+    value: Value,
 };
 
 pub const Port = struct {
