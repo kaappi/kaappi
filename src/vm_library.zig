@@ -73,6 +73,13 @@ fn processImportSet(vm: *VM, import_set: Value) !void {
         return;
     }
 
+    // Circular import detection
+    if (vm.loading_libs.contains(lib_name)) {
+        return error.UndefinedVariable;
+    }
+    vm.loading_libs.put(lib_name, {}) catch return error.OutOfMemory;
+    defer _ = vm.loading_libs.remove(lib_name);
+
     // Not found in registry — try loading from .sld file
     tryLoadLibraryFromFile(vm, import_set) catch return error.UndefinedVariable;
 

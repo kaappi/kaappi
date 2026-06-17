@@ -133,6 +133,7 @@ pub const VM = struct {
     stdout_port: Value = types.VOID,
     stderr_port: Value = types.VOID,
     lib_paths: []const []const u8 = &.{},
+    loading_libs: std.StringHashMap(void),
     /// Directory of the .sld file currently being loaded, for resolving include paths.
     current_lib_dir: ?[]const u8 = null,
     /// When non-null, handleDefineLibrary collects compiled functions here
@@ -155,6 +156,7 @@ pub const VM = struct {
             .macros = std.StringHashMap(Value).init(gc.allocator),
             .output = .empty,
             .libraries = library_mod.LibraryRegistry.init(gc.allocator),
+            .loading_libs = std.StringHashMap(void).init(gc.allocator),
         };
         @memset(&vm.registers, types.UNDEFINED);
         // Teach the GC how to find roots held in the VM (registers, frames,
@@ -177,6 +179,7 @@ pub const VM = struct {
         self.macros.deinit();
         self.output.deinit(self.gc.allocator);
         self.libraries.deinit();
+        self.loading_libs.deinit();
     }
 
     pub fn setErrorDetail(self: *VM, comptime fmt: []const u8, args: anytype) void {
