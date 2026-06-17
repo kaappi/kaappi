@@ -80,11 +80,9 @@
             (f (cdr (car entries))))
         (if (>= n threshold)
             (begin
-              (write-char #\space)
-              (write-char #\space)
+              (display "  ")
               (display (pad-left (number->string n) 5))
-              (write-char #\space)
-              (write-char #\space)
+              (display "  ")
               (display (pad-right f 42))
               (if (> max-n 0)
                   (display (make-string (quotient (* n 30) max-n) #\#)))

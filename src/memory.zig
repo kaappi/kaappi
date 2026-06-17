@@ -802,6 +802,19 @@ pub const GC = struct {
                 prev = o;
                 obj = o.next;
             } else {
+                // Don't free immutable strings — they're constant pool
+                // literals that should survive for the program's lifetime.
+                // This works around a GC reachability bug where string
+                // literals become unmarked during heavy allocation.
+                if (o.tag == .string) {
+                    const str = o.as(SchemeString);
+                    if (str.immutable) {
+                        o.marked = false;
+                        prev = o;
+                        obj = o.next;
+                        continue;
+                    }
+                }
                 const next = o.next;
                 if (prev) |p| {
                     p.next = next;
