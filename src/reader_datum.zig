@@ -41,10 +41,23 @@ fn tokenToValue(self: *Reader, tok: Token) ReadError!Value {
         .hash_lparen => return readVector(self),
         .hash_u8_lparen => return readBytevector(self),
         .datum_label_def => |n| {
-            const datum = try readDatum(self);
             if (n < self.labels.len) {
-                self.labels[n] = datum;
+                // Pre-allocate a placeholder pair for circular references
+                const placeholder = self.gc.allocPair(types.VOID, types.NIL) catch return ReadError.OutOfMemory;
+                self.labels[n] = placeholder;
+                const datum = try readDatum(self);
+                if (types.isPair(datum)) {
+                    // Copy the read pair's contents into the placeholder
+                    types.setCar(placeholder, types.car(datum));
+                    types.setCdr(placeholder, types.cdr(datum));
+                    return placeholder;
+                } else {
+                    // Non-pair datum: just store directly
+                    self.labels[n] = datum;
+                    return datum;
+                }
             }
+            const datum = try readDatum(self);
             return datum;
         },
         .datum_label_ref => |n| {
