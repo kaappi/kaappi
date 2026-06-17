@@ -444,6 +444,126 @@ fn evalLibFeatureReq(vm: *VM, req: Value) bool {
     return false;
 }
 
+/// Handle a top-level `(include "file" ...)` / `(include-ci "file" ...)` form.
+///
+/// Reads each named file, parses it, and evaluates every datum as a top-level
+/// form. Relative paths resolve against the directory of the including file
+/// (`vm.current_lib_dir`), falling back to the current working directory. While
+/// a file is being processed, `current_lib_dir` points at that file's directory
+/// so nested includes resolve relative to it.
+///
+/// Errors in an included form are reported to stderr and processing continues
+/// with the next form, matching the per-form error isolation of the top-level
+/// file runner in `main.zig`.
+pub fn handleTopLevelInclude(vm: *VM, args: Value, ci: bool) VMError!Value {
+    // include-ci should fold case while reading; the reader currently only
+    // honors inline `#!fold-case` directives, so the two behave identically.
+    _ = ci;
+
+    const reader_mod = @import("reader.zig");
+
+    // Root the argument spine: evaluating included forms allocates and may
+    // trigger GC, which would otherwise reclaim the pair list and filename
+    // strings we are still walking.
+    var file_list = args;
+    vm.gc.pushRoot(&file_list);
+    defer vm.gc.popRoot();
+
+    while (file_list != types.NIL) {
+        if (!types.isPair(file_list)) return VMError.CompileError;
+        const file_val = types.car(file_list);
+        if (!types.isString(file_val)) return VMError.CompileError;
+        const file_str = types.toObject(file_val).as(types.SchemeString);
+        const file_path = file_str.data[0..file_str.len];
+
+        // Resolve include path: relative to the including file's dir, then cwd.
+        var resolved_path: ?[]u8 = null;
+        if (vm.current_lib_dir) |dir| {
+            if (dir.len > 0 and file_path.len > 0 and file_path[0] != '/') {
+                resolved_path = std.fmt.allocPrint(vm.gc.allocator, "{s}{s}", .{ dir, file_path }) catch null;
+            }
+        }
+        defer if (resolved_path) |rp| vm.gc.allocator.free(rp);
+
+        var used_path: []const u8 = file_path;
+        const file_source = blk: {
+            if (resolved_path) |rp| {
+                if (readFileContents(vm.gc.allocator, rp)) |src| {
+                    used_path = rp;
+                    break :blk src;
+                } else |_| {}
+            }
+            break :blk readFileContents(vm.gc.allocator, file_path) catch return VMError.CompileError;
+        };
+        defer vm.gc.allocator.free(file_source);
+
+        // Own a copy of the path: error reporting and current_lib_dir slice into
+        // it across operations that may free `resolved_path` or GC `file_path`.
+        const owned_path = vm.gc.allocator.dupe(u8, used_path) catch return VMError.OutOfMemory;
+        defer vm.gc.allocator.free(owned_path);
+
+        // Nested includes within this file resolve relative to this file's dir.
+        const saved_lib_dir = vm.current_lib_dir;
+        vm.current_lib_dir = extractDir(owned_path);
+        defer vm.current_lib_dir = saved_lib_dir;
+
+        var file_reader = reader_mod.Reader.initWithName(vm.gc, file_source, owned_path);
+        defer file_reader.deinit();
+
+        while (file_reader.hasMore()) {
+            const lc = file_reader.getLineCol();
+            const inc_expr = file_reader.readDatum() catch {
+                reportIncludeError(vm, owned_path, lc.line, null, error.CompileError);
+                break; // reader position is unreliable after a read error
+            };
+            evalIncludedForm(vm, inc_expr, owned_path, lc.line);
+        }
+
+        file_list = types.cdr(file_list);
+    }
+    return types.VOID;
+}
+
+/// Evaluate a single datum read from an included file, isolating errors so one
+/// bad form does not abort the rest of the include.
+fn evalIncludedForm(vm: *VM, expr: Value, path: []const u8, line: u32) void {
+    if (vm.handleTopLevelForm(expr)) |result| {
+        _ = result catch |err| reportIncludeError(vm, path, line, vm.getErrorDetail(), err);
+        vm.last_error_detail_len = 0;
+        return;
+    }
+
+    const func = compiler_mod.compileExpressionWithMacros(vm.gc, expr, &vm.macros, &vm.globals) catch |err| {
+        reportIncludeError(vm, path, line, null, err);
+        return;
+    };
+    // If we are compiling a library body, collect for .sbc caching.
+    if (vm.lib_compile_collect) |collect| {
+        collect.append(vm.gc.allocator, func) catch {};
+    }
+    var func_val = types.makePointer(@ptrCast(func));
+    vm.gc.pushRoot(&func_val);
+    _ = vm.execute(func) catch |err| {
+        vm.gc.popRoot();
+        reportIncludeError(vm, path, line, vm.getErrorDetail(), err);
+        vm.last_error_detail_len = 0;
+        return;
+    };
+    vm.gc.popRoot();
+}
+
+fn reportIncludeError(vm: *VM, path: []const u8, line: u32, detail: ?[]const u8, err: anyerror) void {
+    _ = vm;
+    var buf: [320]u8 = undefined;
+    const s = if (detail) |d| (if (d.len > 0)
+        std.fmt.bufPrint(&buf, "{s}:{d}: error: {s}\n", .{ path, line, d }) catch "include error\n"
+    else
+        std.fmt.bufPrint(&buf, "{s}:{d}: runtime error: {}\n", .{ path, line, err }) catch "include error\n")
+    else
+        std.fmt.bufPrint(&buf, "{s}:{d}: error: {}\n", .{ path, line, err }) catch "include error\n";
+    vm_mod.writeStderr(s);
+}
+
 fn extractDir(path: []const u8) []const u8 {
     if (std.mem.lastIndexOfScalar(u8, path, '/')) |pos| {
         return path[0 .. pos + 1];

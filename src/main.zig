@@ -154,6 +154,12 @@ fn getSbcPath(allocator: std.mem.Allocator, scm_path: []const u8) ![]u8 {
 
 fn runFile(vm: *vm_mod.VM, path: []const u8) !void {
     const allocator = vm.gc.allocator;
+
+    // Resolve top-level `(include ...)` paths relative to the program's directory.
+    const saved_lib_dir = vm.current_lib_dir;
+    vm.current_lib_dir = if (std.mem.lastIndexOfScalar(u8, path, '/')) |pos| path[0 .. pos + 1] else "";
+    defer vm.current_lib_dir = saved_lib_dir;
+
     const source = readFileContents(allocator, path) catch {
         return;
     };

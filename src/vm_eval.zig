@@ -42,6 +42,8 @@ pub fn handleTopLevelForm(vm: *VM, expr: Value) ?VMError!Value {
     if (std.mem.eql(u8, name, "define-library")) return vm_library.handleDefineLibrary(vm, types.cdr(expr));
     if (std.mem.eql(u8, name, "define-record-type")) return vm_records.handleDefineRecordType(vm, types.cdr(expr));
     if (std.mem.eql(u8, name, "define-values")) return handleDefineValues(vm, types.cdr(expr));
+    if (std.mem.eql(u8, name, "include")) return vm_library.handleTopLevelInclude(vm, types.cdr(expr), false);
+    if (std.mem.eql(u8, name, "include-ci")) return vm_library.handleTopLevelInclude(vm, types.cdr(expr), true);
     return null;
 }
 
