@@ -126,7 +126,25 @@ Hard-won insights from building Kaappi. Each section describes a class of bug, h
 
 ---
 
-## 10. Performance: what worked and what didn't
+## 10. GC reachability: root source data during read and compile
+
+**Symptom:** String literals displayed as `0xAA` (DebugAllocator poison) after heavy file I/O. Only happened under specific allocation pressure patterns.
+
+**Root cause:** The reader and compiler held in-flight source data (S-expression trees) in unrooted local variables across allocations that trigger `maybeCollect()`. `allocPair` runs `maybeCollect()` BEFORE allocating, so any heap Value passed as an argument is vulnerable if not rooted. Two gaps:
+- **Reader:** `readList`/`readListTail` passed the tail to `allocPair(car, rest)` with `rest` unrooted
+- **Compiler:** `compile(expr)` walked the expression tree without rooting it; macro expansion created fresh unrooted forms
+
+**Fix:** Root all in-flight data across allocation boundaries using `gc.pushRoot`/`gc.popRoot` and `gc.extra_roots`. The initial workaround (skipping immutable strings in sweep) was removed once the real root cause was fixed.
+
+**Lesson:** Every Value held across ANY function call that might allocate must be rooted. `allocPair`, `allocString`, `allocSymbol`, `allocClosure`, `allocVector` all call `maybeCollect()` before allocating. The GC can run at any of these points.
+
+**Files:** `src/reader_datum.zig`, `src/compiler.zig`, `src/memory.zig`
+
+See `docs/dev/gc-reachability-bug.md` for the full investigation.
+
+---
+
+## 11. Performance: what worked and what didn't
 
 **What worked:**
 - **Global variable cache** (+10%): Cache resolved procedure values in Function objects. Avoids hash table lookups on repeated `get_global` instructions.
