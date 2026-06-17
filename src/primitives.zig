@@ -212,11 +212,18 @@ fn list(args: []const Value) PrimitiveError!Value {
 
 fn length(args: []const Value) PrimitiveError!Value {
     var count: i64 = 0;
-    var current = args[0];
-    while (current != types.NIL) {
-        if (!types.isPair(current)) return PrimitiveError.TypeError;
+    var slow = args[0];
+    var fast = args[0];
+    while (fast != types.NIL) {
+        if (!types.isPair(fast)) return PrimitiveError.TypeError;
+        fast = types.cdr(fast);
         count += 1;
-        current = types.cdr(current);
+        if (fast == types.NIL) break;
+        if (!types.isPair(fast)) return PrimitiveError.TypeError;
+        fast = types.cdr(fast);
+        count += 1;
+        slow = types.cdr(slow);
+        if (slow == fast) return PrimitiveError.TypeError;
     }
     return types.makeFixnum(count);
 }
@@ -325,12 +332,18 @@ fn procedureP(args: []const Value) PrimitiveError!Value {
 }
 
 fn listP(args: []const Value) PrimitiveError!Value {
-    var current = args[0];
-    while (current != types.NIL) {
-        if (!types.isPair(current)) return types.FALSE;
-        current = types.cdr(current);
+    var slow = args[0];
+    var fast = args[0];
+    while (true) {
+        if (fast == types.NIL) return types.TRUE;
+        if (!types.isPair(fast)) return types.FALSE;
+        fast = types.cdr(fast);
+        if (fast == types.NIL) return types.TRUE;
+        if (!types.isPair(fast)) return types.FALSE;
+        fast = types.cdr(fast);
+        slow = types.cdr(slow);
+        if (slow == fast) return types.FALSE;
     }
-    return types.TRUE;
 }
 
 // ---------------------------------------------------------------------------

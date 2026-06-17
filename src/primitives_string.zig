@@ -21,7 +21,7 @@ pub fn registerString(vm: *vm_mod.VM) !void {
     try reg(vm, "substring", &substringFn, .{ .exact = 3 });
     try reg(vm, "string-copy", &stringCopyFn, .{ .variadic = 1 });
     try reg(vm, "string-copy!", &stringCopyBangFn, .{ .variadic = 3 });
-    try reg(vm, "string-fill!", &stringFillFn, .{ .exact = 2 });
+    try reg(vm, "string-fill!", &stringFillFn, .{ .variadic = 2 });
 
     // Conversion
     try reg(vm, "string->list", &stringToListFn, .{ .variadic = 1 });
@@ -350,17 +350,35 @@ fn stringFillFn(args: []const Value) PrimitiveError!Value {
     if (str.immutable) return PrimitiveError.TypeError;
     const data = str.data[0..str.len];
     const cp = types.toChar(args[1]);
+    const char_count = utf8CodepointCount(data);
+    const start: usize = if (args.len > 2) @intCast(@as(u64, @bitCast(types.toFixnum(args[2])))) else 0;
+    const end: usize = if (args.len > 3) @intCast(@as(u64, @bitCast(types.toFixnum(args[3])))) else char_count;
     var fill_buf: [4]u8 = undefined;
     const fill_len = std.unicode.utf8Encode(cp, &fill_buf) catch return PrimitiveError.TypeError;
-    const char_count = utf8CodepointCount(data);
-    const new_total = char_count * fill_len;
-    const new_data = gc.allocator.alloc(u8, new_total) catch return PrimitiveError.OutOfMemory;
-    for (0..char_count) |i| {
-        @memcpy(new_data[i * fill_len .. (i + 1) * fill_len], fill_buf[0..fill_len]);
+    const fill_count = end - start;
+    const unfilled = char_count - fill_count;
+    const new_total = unfilled * 1 + fill_count * fill_len;
+    _ = new_total;
+    // Build new string: [0..start] unchanged, [start..end] filled, [end..] unchanged
+    var result: std.ArrayList(u8) = .empty;
+    defer result.deinit(gc.allocator);
+    var cp_idx: usize = 0;
+    var byte_idx: usize = 0;
+    while (byte_idx < data.len) {
+        const cp_len = std.unicode.utf8ByteSequenceLength(data[byte_idx]) catch 1;
+        if (cp_idx >= start and cp_idx < end) {
+            result.appendSlice(gc.allocator, fill_buf[0..fill_len]) catch return PrimitiveError.OutOfMemory;
+        } else {
+            result.appendSlice(gc.allocator, data[byte_idx .. byte_idx + cp_len]) catch return PrimitiveError.OutOfMemory;
+        }
+        byte_idx += cp_len;
+        cp_idx += 1;
     }
+    const new_data = gc.allocator.alloc(u8, result.items.len) catch return PrimitiveError.OutOfMemory;
+    @memcpy(new_data, result.items);
     gc.allocator.free(str.data);
     str.data = new_data;
-    str.len = new_total;
+    str.len = new_data.len;
     return types.VOID;
 }
 
