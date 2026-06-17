@@ -41,11 +41,28 @@
       (write actual)
       (newline))
 
+    ;; Inexact real results are compared with a small relative tolerance, the
+    ;; way the real (chibi test) does: the R7RS suite hard-codes constants like
+    ;; 3.14159265358979 that differ from a full-precision result only in the
+    ;; last few digits. Exact values, and any non-real/complex values, use
+    ;; equal?. NaN/inf match through the equal? fast path.
+    (define (test-approx=? a b)
+      (or (equal? a b)
+          (and (real? a) (real? b)
+               (let ((diff (abs (- a b))))
+                 (<= diff (* 1e-6 (max 1.0 (abs a) (abs b))))))))
+
+    (define (test-equal? expected actual)
+      (if (and (number? expected) (number? actual)
+               (inexact? expected) (inexact? actual))
+          (test-approx=? expected actual)
+          (equal? expected actual)))
+
     (define-syntax test
       (syntax-rules ()
         ((test expected expr)
          (let ((res expr))
-           (if (equal? res expected)
+           (if (test-equal? expected res)
                (test-pass)
                (test-fail expected res))))
         ((test name expected expr)
