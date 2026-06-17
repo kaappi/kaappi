@@ -746,11 +746,11 @@
 
 (test-begin "6.2 Numbers")
 
-;; SKIP: (test #t (complex? 3+4i))
+(test #t (complex? 3+4i))
 (test #t (complex? 3))
 (test #t (real? 3))
-;; SKIP: (test #t (real? -2.5+0i))
-;; SKIP: (test #f (real? -2.5+0.0i))
+(test #t (real? -2.5+0i))
+(test #f (real? -2.5+0.0i))
 (test #t (real? #e1e10))
 (test #t (real? +inf.0))
 (test #f (rational? -inf.0))
@@ -760,7 +760,7 @@
 (test #t (rational? 1.7976931348623157e308))
 (test #t (rational? 6/10))
 (test #t (rational? 6/3))
-;; SKIP: (test #t (integer? 3+0i))
+(test #t (integer? 3+0i))
 (test #t (integer? 3.0))
 (test #t (integer? 8/4))
 
@@ -784,10 +784,10 @@
 (test #t (nan? +nan.0))
 (test #f (nan? 32))
 ;; (test #t (nan? +nan.0+5.0i))
-;; SKIP: (test #f (nan? 1+2i))
+(test #f (nan? 1+2i))
 
-;; SKIP: (test #t (= 1 1.0 1.0+0.0i))
-;; SKIP: (test #f (= 1.0 1.0+1.0i))
+(test #t (= 1 1.0 1.0+0.0i))
+(test #f (= 1.0 1.0+1.0i))
 (test #t (< 1 2 3))
 (test #f (< 1 1 2))
 (test #t (> 3.0 2.0 1.0))
@@ -839,7 +839,7 @@
 
 (test #t (zero? 0))
 (test #t (zero? 0.0))
-;; SKIP: (test #t (zero? 0.0+0.0i))
+(test #t (zero? 0.0+0.0i))
 (test #f (zero? 1))
 (test #f (zero? -1))
 
@@ -893,7 +893,7 @@
 (test -6 (- 3 4 5))
 (test -3 (- 3))
 (test -3/2 (- 3/2))
-;; SKIP: (test -3/2-i (- 3/2+i))
+(test -3/2-i (- 3/2+i))
 (test 3/20 (/ 3 4 5))
 (test 1/3 (/ 3))
 
@@ -1019,15 +1019,15 @@
 (test 1.0 (expt 0.0 0))
 (test 0.0 (expt 0 1.0))
 
-;; (test 1+2i (make-rectangular 1 2))
+(test 1+2i (make-rectangular 1 2))
 
 ;; (test 0.54030230586814+0.841470984807897i (make-polar 1 1))
 
 ;; Complex literal tests skipped (reader doesn't parse 1+2i)
-;; (test 1 (real-part 1+2i))
-;; (test 2 (imag-part 1+2i))
-;; (test 2.23606797749979 (magnitude 1+2i))
-;; (test 1.10714871779409 (angle 1+2i))
+(test 1 (real-part 1+2i))
+(test 2 (imag-part 1+2i))
+(test 2.23606797749979 (magnitude 1+2i))
+(test 1.10714871779409 (angle 1+2i))
 
 (test 1.0 (inexact 1))
 (test #t (inexact? (inexact 1)))

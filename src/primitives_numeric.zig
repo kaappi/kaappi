@@ -246,12 +246,17 @@ fn sqrtFn(args: []const Value) PrimitiveError!Value {
 
 fn exactIntegerSqrt(args: []const Value) PrimitiveError!Value {
     if (!types.isFixnum(args[0])) return PrimitiveError.TypeError;
+    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
     const n = types.toFixnum(args[0]);
     if (n < 0) return PrimitiveError.TypeError;
     const f: f64 = @floatFromInt(n);
-    const s: i64 = @intFromFloat(@sqrt(f));
-    // R7RS: returns two values (s, n - s*s) but we only support single values for now
-    return types.makeFixnum(s);
+    var s: i64 = @intFromFloat(@sqrt(f));
+    // Adjust for floating-point imprecision
+    while (s * s > n) s -= 1;
+    while ((s + 1) * (s + 1) <= n) s += 1;
+    const rem = n - s * s;
+    const vals = [_]Value{ types.makeFixnum(s), types.makeFixnum(rem) };
+    return gc.allocMultipleValues(&vals) catch return PrimitiveError.OutOfMemory;
 }
 
 // ---------------------------------------------------------------------------
