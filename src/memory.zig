@@ -629,6 +629,21 @@ pub const GC = struct {
         return types.makePointer(@ptrCast(rat));
     }
 
+    pub fn allocFileInfo(self: *GC, size: i64, mtime: i64, mode: u16, file_type: types.FileInfo.FileType) !Value {
+        self.maybeCollect();
+        const fi = try self.allocator.create(types.FileInfo);
+        fi.* = .{
+            .header = .{ .tag = .file_info },
+            .size = size,
+            .mtime = mtime,
+            .mode = mode,
+            .file_type = file_type,
+        };
+        self.bytes_allocated += @sizeOf(types.FileInfo);
+        self.trackObject(&fi.header);
+        return types.makePointer(@ptrCast(fi));
+    }
+
     pub fn allocMultipleValues(self: *GC, values: []const Value) !Value {
         self.maybeCollect();
         const owned = try self.allocator.dupe(Value, values);
@@ -798,7 +813,7 @@ pub const GC = struct {
                 self.markValue(rat.denominator);
             },
             .ffi_library, .ffi_function => {},
-            .symbol, .string, .native_fn, .flonum, .port, .complex, .bytevector, .bignum => {},
+            .symbol, .string, .native_fn, .flonum, .port, .complex, .bytevector, .bignum, .file_info => {},
         }
     }
 
@@ -967,6 +982,10 @@ pub const GC = struct {
             .rational => {
                 const rat = obj.as(Rational);
                 self.allocator.destroy(rat);
+            },
+            .file_info => {
+                const fi = obj.as(types.FileInfo);
+                self.allocator.destroy(fi);
             },
         }
     }

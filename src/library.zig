@@ -322,6 +322,7 @@ pub fn registerStandardLibraries(registry: *LibraryRegistry, globals: *std.Strin
         "file-exists?", "delete-file",
         "call-with-input-file", "call-with-output-file",
         "with-input-from-file", "with-output-to-file",
+        "create-directory",     "delete-directory",
     };
     var file_lib = Library.init(allocator, "scheme.file");
     for (scheme_file_names) |name| {
@@ -476,6 +477,22 @@ pub fn registerStandardLibraries(registry: *LibraryRegistry, globals: *std.Strin
         }
     }
     try registry.register(srfi133_lib);
+
+    // SRFI-170: POSIX API (partial)
+    const srfi170_names = [_][]const u8{
+        "directory-files",
+        "file-info",          "file-info?",
+        "file-info-directory?", "file-info-regular?", "file-info-symlink?",
+        "file-info:size",     "file-info:mtime",    "file-info:mode",
+        "create-directory",   "delete-directory",
+    };
+    var srfi170_lib = Library.init(allocator, "srfi.170");
+    for (srfi170_names) |name| {
+        if (globals.get(name)) |val| {
+            try srfi170_lib.addExport(name, val);
+        }
+    }
+    try registry.register(srfi170_lib);
 }
 
 /// Convert a library name from an S-expression list like (scheme base) to

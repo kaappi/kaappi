@@ -19,6 +19,7 @@ const primitives_ffi = @import("primitives_ffi.zig");
 const primitives_srfi1 = @import("primitives_srfi1.zig");
 const primitives_hashtable = @import("primitives_hashtable.zig");
 const primitives_random = @import("primitives_random.zig");
+const primitives_filesystem = @import("primitives_filesystem.zig");
 
 pub const PrimitiveError = error{
     TypeError,
@@ -45,6 +46,7 @@ pub fn registerAll(vm: *vm_mod.VM) !void {
     try primitives_srfi1.registerSrfi1(vm);
     try primitives_hashtable.registerHashTable(vm);
     try primitives_random.registerRandom(vm);
+    try primitives_filesystem.registerFilesystem(vm);
 
     // Pairs and lists
     try reg(vm, "cons", &cons, .{ .exact = 2 });

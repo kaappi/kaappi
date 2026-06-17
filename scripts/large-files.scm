@@ -1,12 +1,23 @@
 ;; large-files.scm — Find source files that may need refactoring
 ;;
-;; Usage: zig build run -- scripts/large-files.scm
+;; Usage: zig build run -- scripts/large-files.scm [dir [ext]]
 ;;
-;; Reads source files directly and reports line counts.
+;; Recursively walks a directory (default: src/) and reports line counts
+;; for files matching the given extension (default: .zig).
 
-(import (scheme base) (scheme write) (scheme file))
+(import (scheme base) (scheme write) (scheme file)
+        (scheme process-context)
+        (srfi 1) (srfi 170))
 
 (define threshold 800)
+
+(define cl (command-line))
+
+(define scan-dir
+  (if (>= (length cl) 3) (list-ref cl 2) "src"))
+
+(define scan-ext
+  (if (>= (length cl) 4) (list-ref cl 3) ".zig"))
 
 (define (count-lines filename)
   (if (file-exists? filename)
@@ -18,22 +29,25 @@
           n))
       0))
 
-(define known-source-files
-  '("src/vm.zig" "src/compiler.zig" "src/reader.zig" "src/memory.zig"
-    "src/types.zig" "src/expander.zig" "src/printer.zig" "src/library.zig"
-    "src/main.zig" "src/bignum.zig" "src/bytecode_file.zig"
-    "src/primitives.zig" "src/primitives_arithmetic.zig"
-    "src/primitives_numeric.zig" "src/primitives_string.zig"
-    "src/primitives_char.zig" "src/primitives_vector.zig"
-    "src/primitives_bytevector.zig" "src/primitives_io.zig"
-    "src/primitives_control.zig" "src/primitives_lazy.zig"
-    "src/primitives_cxr.zig" "src/primitives_r7rs.zig"
-    "src/primitives_srfi1.zig" "src/primitives_hashtable.zig"
-    "src/compiler_conditionals.zig" "src/compiler_bindings.zig"
-    "src/compiler_advanced.zig" "src/compiler_forms.zig"
-    "src/vm_library.zig" "src/vm_records.zig"
-    "src/vm_continuations.zig" "src/vm_debug.zig"
-    "src/reader_datum.zig" "src/testing_helpers.zig"))
+(define (has-ext? name ext)
+  (let ((nlen (string-length name))
+        (elen (string-length ext)))
+    (and (> nlen elen)
+         (string=? (substring name (- nlen elen) nlen) ext))))
+
+(define (find-files dir ext)
+  (let ((entries (directory-files dir)))
+    (fold (lambda (name acc)
+            (let ((path (string-append dir "/" name)))
+              (if (file-info-directory? (file-info path))
+                  (append (find-files path ext) acc)
+                  (if (has-ext? name ext)
+                      (cons path acc)
+                      acc))))
+          '()
+          entries)))
+
+(define known-source-files (find-files scan-dir scan-ext))
 
 (define (pad-left s w)
   (if (>= (string-length s) w) s

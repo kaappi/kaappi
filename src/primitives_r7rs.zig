@@ -72,10 +72,24 @@ fn jiffiesPerSecond(args: []const Value) PrimitiveError!Value {
 fn commandLine(args: []const Value) PrimitiveError!Value {
     _ = args;
     const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
-    // Return a list with just the program name for now
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError;
+
+    var result: Value = types.NIL;
+    gc.pushRoot(&result);
+    defer gc.popRoot();
+
+    // Build list in reverse: script args then program name at the front.
+    var i = vm.command_line_args.len;
+    while (i > 0) {
+        i -= 1;
+        const s = gc.allocString(vm.command_line_args[i]) catch return PrimitiveError.OutOfMemory;
+        result = gc.allocPair(s, result) catch return PrimitiveError.OutOfMemory;
+    }
+
+    // Prepend program name.
     const name = gc.allocString("kaappi") catch return PrimitiveError.OutOfMemory;
-    const items = [_]Value{name};
-    return gc.makeList(&items) catch return PrimitiveError.OutOfMemory;
+    result = gc.allocPair(name, result) catch return PrimitiveError.OutOfMemory;
+    return result;
 }
 
 fn exitFn(args: []const Value) PrimitiveError!Value {

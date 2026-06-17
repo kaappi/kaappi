@@ -116,6 +116,7 @@ pub const ObjectTag = enum(u5) {
     hash_table = 21,
     bignum = 22,
     rational = 23,
+    file_info = 24,
 };
 
 pub const Object = struct {
@@ -411,6 +412,16 @@ pub const Rational = struct {
     denominator: Value, // fixnum or bignum (always positive, > 1)
 };
 
+pub const FileInfo = struct {
+    header: Object,
+    size: i64,
+    mtime: i64,
+    mode: u16,
+    file_type: FileType,
+
+    pub const FileType = enum(u8) { regular, directory, symlink, other };
+};
+
 // ---------------------------------------------------------------------------
 // Type predicates on Value
 // ---------------------------------------------------------------------------
@@ -550,6 +561,14 @@ pub fn isRationalObj(v: Value) bool {
 
 pub fn toRational(v: Value) *Rational {
     return toObject(v).as(Rational);
+}
+
+pub fn isFileInfo(v: Value) bool {
+    return isPointer(v) and toObject(v).tag == .file_info;
+}
+
+pub fn toFileInfo(v: Value) *FileInfo {
+    return toObject(v).as(FileInfo);
 }
 
 pub fn isNumber(v: Value) bool {

@@ -598,6 +598,16 @@ pub fn printValue(writer: anytype, value: Value, mode: PrintMode) anyerror!void 
                 try writer.writeByte('/');
                 try printValue(writer, rat.denominator, mode);
             },
+            .file_info => {
+                const fi = obj.as(types.FileInfo);
+                const kind = switch (fi.file_type) {
+                    .regular => "regular",
+                    .directory => "directory",
+                    .symlink => "symlink",
+                    .other => "other",
+                };
+                try writer.print("#<file-info {s} size={d} mode={o}>", .{ kind, fi.size, fi.mode });
+            },
         }
     } else {
         try writer.writeAll("#<unknown>");

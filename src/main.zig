@@ -133,6 +133,21 @@ pub fn main(init: std.process.Init.Minimal) !void {
         }
     }
 
+    // Collect remaining args after the file path for (command-line).
+    var script_args: [64][]const u8 = undefined;
+    var script_arg_count: usize = 0;
+    if (file_path) |fp| {
+        script_args[0] = fp;
+        script_arg_count = 1;
+        while (args.next()) |extra| {
+            if (script_arg_count < 64) {
+                script_args[script_arg_count] = extra;
+                script_arg_count += 1;
+            }
+        }
+    }
+    vm.command_line_args = script_args[0..script_arg_count];
+
     vm.lib_paths = lib_paths[0..lib_path_count];
 
     if (compile_mode) {
