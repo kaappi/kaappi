@@ -6,8 +6,8 @@ Baseline measurements on Apple M-series (macOS, ReleaseSafe build).
 
 | Benchmark | Input | Result | Kaappi | Notes |
 |-----------|-------|--------|--------|-------|
-| **fib** | 35 | 9227465 | **2.69s** | Pure recursion, fixnum arithmetic |
-| **tak** | 33,22,11 | 22 | **60.4s** | Deep recursion + arithmetic + comparisons |
+| **fib** | 35 | 9227465 | **~2.0s** | Pure recursion, fixnum arithmetic |
+| **tak** | 33,22,11 | 22 | **~45s** | Deep recursion + arithmetic + comparisons |
 
 Measured with `(current-jiffy)` / `(jiffies-per-second)`. Pre-built executable (`zig-out/bin/kaappi`), no compilation overhead.
 

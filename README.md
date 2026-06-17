@@ -344,6 +344,14 @@ Kaappi implements every identifier from R7RS Appendix A. 3 intentional design ch
 
 See **[CONFORMANCE.md](CONFORMANCE.md)** for the full details: design rationale, gap explanations with code examples and workarounds, and the complete list of verified conformant behaviors.
 
+### SRFI support
+
+37 SRFIs supported (7 built-in, 30 as portable `.sld` files in `lib/srfi/`):
+
+**Built-in:** 1, 9, 13, 27, 39, 69, 133
+
+**Portable:** 2, 8, 11, 14, 16, 26, 28, 31, 34, 41, 111, 117, 125, 128, 132, 141, 143, 145, 151, 152, 158, 174, 175, 189, 219, 222, 227, 232, 233, 235
+
 ---
 
 ## License
