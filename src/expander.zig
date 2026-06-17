@@ -409,23 +409,35 @@ fn instantiateTemplate(gc: *GC, template: Value, bindings: []Binding, intro_scop
 
     if (!types.isPair(template)) return template;
 
+    const QUOTE_FLAG: u32 = 0x40000000;
+    const ESCAPE_FLAG: u32 = 0x80000000;
+    const in_escape = (intro_scope & ESCAPE_FLAG) != 0;
+
     // Check for (quote ...) — substitute pattern vars but skip hygiene renaming
     const tmpl_head = types.car(template);
     if (types.isSymbol(tmpl_head) and std.mem.eql(u8, types.symbolName(tmpl_head), "quote")) {
         const q_rest = types.cdr(template);
         if (q_rest != types.NIL and types.isPair(q_rest)) {
             const quoted = types.car(q_rest);
-            const new_quoted = try instantiateTemplate(gc, quoted, bindings, 0, literals, macro_keyword, globals, macros);
+            const new_quoted = try instantiateTemplate(gc, quoted, bindings, intro_scope | QUOTE_FLAG, literals, macro_keyword, globals, macros);
             return gc.allocPair(tmpl_head, try gc.allocPair(new_quoted, types.NIL));
         }
         return template;
     }
 
-    // Check for ellipsis in template: (Te ...)
+    // Check for ellipsis escape: (... <template>) — treat ... as literal inside
     const elem = types.car(template);
     const rest = types.cdr(template);
+    if (!in_escape and types.isSymbol(elem) and std.mem.eql(u8, types.symbolName(elem), "...")) {
+        if (rest != types.NIL and types.isPair(rest) and types.cdr(rest) == types.NIL) {
+            const inner = types.car(rest);
+            return instantiateTemplate(gc, inner, bindings, intro_scope | ESCAPE_FLAG | QUOTE_FLAG, literals, macro_keyword, globals, macros);
+        }
+        return template;
+    }
 
-    if (rest != types.NIL and types.isPair(rest)) {
+    // Check for ellipsis in template: (Te ...) — skip inside escape context
+    if (!in_escape and rest != types.NIL and types.isPair(rest)) {
         const maybe_ellipsis = types.car(rest);
         if (types.isSymbol(maybe_ellipsis) and std.mem.eql(u8, types.symbolName(maybe_ellipsis), "...")) {
             // Replicate elem for each ellipsis binding
@@ -527,8 +539,8 @@ fn substitutePatternVarsOnly(gc: *GC, template: Value, bindings: []Binding) !Val
 }
 
 fn renameForHygiene(gc: *GC, name: []const u8, scope: u32, globals: ?*std.StringHashMap(Value)) !Value {
-    // scope 0 means inside (quote ...) — skip renaming
-    if (scope == 0) return gc.allocSymbol(name);
+    // Skip renaming inside quote or ellipsis escape contexts
+    if ((scope & 0xC0000000) != 0) return gc.allocSymbol(name);
     // If the name exists as a global binding, keep it as-is.
     // This preserves referential transparency AND allows set! to
     // mutate the original global (aliasing would create a separate binding).
