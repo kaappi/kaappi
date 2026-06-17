@@ -32,9 +32,9 @@ test "eval when and unless" {
     var vm = try th.makeTestVM(&gc);
     defer vm.deinit();
 
-    try std.testing.expectEqual(types.VOID, try vm.eval("(when #t 42)"));
+    try std.testing.expectEqual(@as(i64, 42), types.toFixnum(try vm.eval("(when #t 42)")));
     try std.testing.expectEqual(types.VOID, try vm.eval("(when #f 42)"));
-    try std.testing.expectEqual(types.VOID, try vm.eval("(unless #f 42)"));
+    try std.testing.expectEqual(@as(i64, 42), types.toFixnum(try vm.eval("(unless #f 42)")));
     try std.testing.expectEqual(types.VOID, try vm.eval("(unless #t 42)"));
 }
 

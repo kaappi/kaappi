@@ -216,23 +216,27 @@ fn stringToUtf8(args: []const Value) PrimitiveError!Value {
     if (!types.isString(args[0])) return PrimitiveError.TypeError;
     const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
     const str = types.toObject(args[0]).as(types.SchemeString);
+    const string_mod = @import("primitives_string.zig");
 
-    var start: usize = 0;
-    var end: usize = str.len;
+    const cp_count = string_mod.utf8CodepointCount(str.data[0..str.len]);
+    var start_cp: usize = 0;
+    var end_cp: usize = cp_count;
     if (args.len > 1) {
         if (!types.isFixnum(args[1])) return PrimitiveError.TypeError;
         const s = types.toFixnum(args[1]);
         if (s < 0) return PrimitiveError.TypeError;
-        start = @intCast(@as(u64, @bitCast(s)));
+        start_cp = @intCast(@as(u64, @bitCast(s)));
     }
     if (args.len > 2) {
         if (!types.isFixnum(args[2])) return PrimitiveError.TypeError;
         const e = types.toFixnum(args[2]);
         if (e < 0) return PrimitiveError.TypeError;
-        end = @intCast(@as(u64, @bitCast(e)));
+        end_cp = @intCast(@as(u64, @bitCast(e)));
     }
-    if (start > end or end > str.len) return PrimitiveError.TypeError;
-    return gc.allocBytevector(str.data[start..end]) catch return PrimitiveError.OutOfMemory;
+    if (start_cp > end_cp or end_cp > cp_count) return PrimitiveError.TypeError;
+    const byte_start = string_mod.utf8IndexToByteOffset(str.data[0..str.len], start_cp) orelse return PrimitiveError.TypeError;
+    const byte_end = string_mod.utf8IndexToByteOffset(str.data[0..str.len], end_cp) orelse return PrimitiveError.TypeError;
+    return gc.allocBytevector(str.data[byte_start..byte_end]) catch return PrimitiveError.OutOfMemory;
 }
 
 // ---------------------------------------------------------------------------

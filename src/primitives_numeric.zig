@@ -121,14 +121,24 @@ fn truncateFn(args: []const Value) PrimitiveError!Value {
     return PrimitiveError.TypeError;
 }
 
+fn bankersRound(f: f64) f64 {
+    const floored = @floor(f);
+    const frac = @abs(f - floored);
+    if (frac == 0.5) {
+        const i: i64 = @intFromFloat(floored);
+        return if (@mod(i, @as(i64, 2)) != 0) @ceil(f) else floored;
+    }
+    return @round(f);
+}
+
 fn roundFn(args: []const Value) PrimitiveError!Value {
     if (types.isFixnum(args[0])) return args[0];
     if (types.isBignum(args[0])) return args[0];
     if (types.isRationalObj(args[0])) {
         const f = try toF64Ext(args[0]);
-        return types.makeFixnum(@intFromFloat(@round(f)));
+        return types.makeFixnum(@intFromFloat(bankersRound(f)));
     }
-    if (types.isFlonum(args[0])) return makeFlonumVal(@round(types.toFlonum(args[0])));
+    if (types.isFlonum(args[0])) return makeFlonumVal(bankersRound(types.toFlonum(args[0])));
     return PrimitiveError.TypeError;
 }
 
@@ -198,14 +208,16 @@ fn inexactFn(args: []const Value) PrimitiveError!Value {
 // ---------------------------------------------------------------------------
 
 fn exptFn(args: []const Value) PrimitiveError!Value {
-    // If both are exact integers and exponent is non-negative, use bignum expt
     if ((types.isFixnum(args[0]) or types.isBignum(args[0])) and types.isFixnum(args[1])) {
         const exp = types.toFixnum(args[1]);
+        const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
         if (exp >= 0) {
-            // Use bignum exponentiation (handles overflow automatically)
-            const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
             return bignum_mod.expt(gc, args[0], args[1]) catch return PrimitiveError.OutOfMemory;
         }
+        // Negative exponent with exact base: return rational 1 / base^(-exp)
+        const pos_exp = types.makeFixnum(-exp);
+        const denom = bignum_mod.expt(gc, args[0], pos_exp) catch return PrimitiveError.OutOfMemory;
+        return arith.makeRationalReduced(gc, types.makeFixnum(1), denom);
     }
     const base_f = try toF64Ext(args[0]);
     const exp_f = try toF64Ext(args[1]);
@@ -235,9 +247,13 @@ fn squareFn(args: []const Value) PrimitiveError!Value {
 
 fn sqrtFn(args: []const Value) PrimitiveError!Value {
     const f = try toF64(args[0]);
+    if (f < 0.0) {
+        const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+        const imag = @sqrt(-f);
+        return gc.allocComplex(0.0, imag) catch return PrimitiveError.OutOfMemory;
+    }
     const result = @sqrt(f);
-    // If input was fixnum and result is exact integer, return fixnum
-    if (types.isFixnum(args[0]) and f >= 0) {
+    if (types.isFixnum(args[0])) {
         const ri: i64 = @intFromFloat(result);
         if (ri * ri == types.toFixnum(args[0])) return types.makeFixnum(ri);
     }

@@ -57,7 +57,7 @@ fn toRationalParts(v: Value) RatParts {
 
 /// Construct a reduced rational (or integer if den divides num).
 /// Always ensures: denominator > 0, gcd(|num|,den) == 1, den==1 => fixnum.
-fn makeRationalReduced(gc: *@import("memory.zig").GC, num_val: Value, den_val: Value) PrimitiveError!Value {
+pub fn makeRationalReduced(gc: *@import("memory.zig").GC, num_val: Value, den_val: Value) PrimitiveError!Value {
     if (types.isFixnum(num_val) and types.isFixnum(den_val)) {
         var n = types.toFixnum(num_val);
         var d = types.toFixnum(den_val);
@@ -728,6 +728,7 @@ fn cmpPair(a: Value, b: Value) PrimitiveError!i8 {
 
 fn numEq(args: []const Value) PrimitiveError!Value {
     for (0..args.len - 1) |i| {
+        if (hasNaN(args[i]) or hasNaN(args[i + 1])) return types.FALSE;
         const a = args[i];
         const b = args[i + 1];
         if (types.isComplex(a) or types.isComplex(b)) {

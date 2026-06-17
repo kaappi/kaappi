@@ -85,10 +85,9 @@ pub fn compileWhen(self: *Compiler, args: Value, dst: u8, is_tail: bool) Compile
     try self.compileExpr(test_expr, dst, false);
     try self.emitOp(.jump_false);
     try self.emit(dst);
-    const skip_jump = self.currentOffset();
+    const false_jump = self.currentOffset();
     try self.emitI16(0);
 
-    // Compile body expressions; last one is in tail position if when is
     var current = body;
     while (current != types.NIL) {
         if (!types.isPair(current)) return CompileError.InvalidSyntax;
@@ -98,9 +97,15 @@ pub fn compileWhen(self: *Compiler, args: Value, dst: u8, is_tail: bool) Compile
         current = rest;
     }
 
-    self.patchJump(skip_jump);
+    try self.emitOp(.jump);
+    const end_jump = self.currentOffset();
+    try self.emitI16(0);
+
+    self.patchJump(false_jump);
     try self.emitOp(.load_void);
     try self.emit(dst);
+
+    self.patchJump(end_jump);
 }
 
 pub fn compileUnless(self: *Compiler, args: Value, dst: u8, is_tail: bool) CompileError!void {
@@ -111,7 +116,7 @@ pub fn compileUnless(self: *Compiler, args: Value, dst: u8, is_tail: bool) Compi
     try self.compileExpr(test_expr, dst, false);
     try self.emitOp(.jump_true);
     try self.emit(dst);
-    const skip_jump = self.currentOffset();
+    const true_jump = self.currentOffset();
     try self.emitI16(0);
 
     var current = body;
@@ -123,9 +128,15 @@ pub fn compileUnless(self: *Compiler, args: Value, dst: u8, is_tail: bool) Compi
         current = rest;
     }
 
-    self.patchJump(skip_jump);
+    try self.emitOp(.jump);
+    const end_jump = self.currentOffset();
+    try self.emitI16(0);
+
+    self.patchJump(true_jump);
     try self.emitOp(.load_void);
     try self.emit(dst);
+
+    self.patchJump(end_jump);
 }
 
 pub fn compileCond(self: *Compiler, args: Value, dst: u8, is_tail: bool) CompileError!void {
