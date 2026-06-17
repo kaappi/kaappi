@@ -908,11 +908,23 @@ pub const Compiler = struct {
 
         // Superinstruction: for non-tail calls to global variables, emit
         // call_global instead of get_global + call (saves one dispatch).
-        // Disabled for now: causes issues with continuation capture in
-        // nested call/cc scenarios. The global_cache on Function objects
-        // provides similar benefits without changing bytecode layout.
-        // TODO: re-enable after fixing continuation compatibility
-        // if (!is_tail and types.isSymbol(operator) ...) { ... }
+        // Excluded: call/cc, call-with-current-continuation, dynamic-wind
+        // (these need standard frame setup for continuation capture).
+        if (!is_tail and types.isSymbol(operator) and self.resolveLocal(types.symbolName(operator)) == null) {
+            if ((try self.resolveUpvalue(types.symbolName(operator))) == null) {
+                const op_name = types.symbolName(operator);
+                const is_cont = std.mem.eql(u8, op_name, "call-with-current-continuation") or
+                    std.mem.eql(u8, op_name, "call/cc") or
+                    std.mem.eql(u8, op_name, "call/ec") or
+                    std.mem.eql(u8, op_name, "call-with-escape-continuation") or
+                    std.mem.eql(u8, op_name, "call-with-values") or
+                    std.mem.eql(u8, op_name, "dynamic-wind") or
+                    std.mem.eql(u8, op_name, "with-exception-handler");
+                if (!is_cont) {
+                    return self.compileCallGlobal(expr, operator, dst, false);
+                }
+            }
+        }
 
         // The call instruction expects: operator at base, args at base+1, base+2, ...
         const needs_rebase = (dst + 1 != self.next_register);
@@ -956,13 +968,15 @@ pub const Compiler = struct {
         _ = is_tail;
         const sym_idx = try self.addConstant(operator);
 
-        // Use same register layout as regular compileCall
+        // Reserve base register for callee (call_global fills it at runtime)
         const needs_rebase = (dst + 1 != self.next_register);
-        const base = if (needs_rebase) try self.allocReg() else dst;
-
-        // Emit a load_void to "use" the base register (the VM will fill it)
-        try self.emitOp(.load_void);
-        try self.emit(base);
+        const base = if (needs_rebase) try self.allocReg() else blk: {
+            // Advance next_register past base so args start at base+1
+            if (self.next_register == dst) {
+                _ = try self.allocReg();
+            }
+            break :blk dst;
+        };
 
         // Compile arguments contiguously after base
         var nargs: u8 = 0;
