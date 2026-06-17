@@ -243,7 +243,13 @@ pub const VM = struct {
             const func = closure.func;
 
             const base: u16 = if (self.frame_count > 0)
-                self.frames[self.frame_count - 1].base + 200
+                blk: {
+                    const prev = self.frames[self.frame_count - 1];
+                    const stride: u16 = if (prev.closure) |c|
+                        @max(16, @as(u16, c.func.locals_count) + 2)
+                    else 32;
+                    break :blk prev.base + stride;
+                }
             else
                 0;
             if (base + func.locals_count >= MAX_REGISTERS) return VMError.StackOverflow;
@@ -314,7 +320,13 @@ pub const VM = struct {
             const func = closure.func;
 
             const base: u16 = if (self.frame_count > 0)
-                self.frames[self.frame_count - 1].base + 200
+                blk: {
+                    const prev = self.frames[self.frame_count - 1];
+                    const stride: u16 = if (prev.closure) |c|
+                        @max(16, @as(u16, c.func.locals_count) + 2)
+                    else 32;
+                    break :blk prev.base + stride;
+                }
             else
                 0;
             if (base >= MAX_REGISTERS) return VMError.StackOverflow;
@@ -394,7 +406,13 @@ pub const VM = struct {
             const func = closure.func;
 
             const base: u16 = if (self.frame_count > 0)
-                self.frames[self.frame_count - 1].base + 200
+                blk: {
+                    const prev = self.frames[self.frame_count - 1];
+                    const stride: u16 = if (prev.closure) |c|
+                        @max(16, @as(u16, c.func.locals_count) + 2)
+                    else 32;
+                    break :blk prev.base + stride;
+                }
             else
                 0;
             if (base + args.len + 1 >= MAX_REGISTERS) return VMError.StackOverflow;
