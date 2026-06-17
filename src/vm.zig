@@ -283,7 +283,14 @@ pub const VM = struct {
             const result = native.func(&args) catch |err| {
                 return switch (err) {
                     error.TypeError => blk: {
-                        self.setErrorDetail("type error in '{s}'", .{native.name});
+                        if (args.len > 0) {
+                            const p = @import("printer.zig");
+                            const s = p.valueToString(self.gc.allocator, args[0], .write) catch "";
+                            defer if (s.len > 0) self.gc.allocator.free(s);
+                            self.setErrorDetail("type error in '{s}': got {s}", .{ native.name, s });
+                        } else {
+                            self.setErrorDetail("type error in '{s}'", .{native.name});
+                        }
                         break :blk VMError.TypeError;
                     },
                     error.DivisionByZero => VMError.DivisionByZero,
@@ -456,7 +463,14 @@ pub const VM = struct {
             const result = native.func(args) catch |err| {
                 return switch (err) {
                     error.TypeError => blk: {
-                        self.setErrorDetail("type error in '{s}'", .{native.name});
+                        if (args.len > 0) {
+                            const p = @import("printer.zig");
+                            const s = p.valueToString(self.gc.allocator, args[0], .write) catch "";
+                            defer if (s.len > 0) self.gc.allocator.free(s);
+                            self.setErrorDetail("type error in '{s}': got {s}", .{ native.name, s });
+                        } else {
+                            self.setErrorDetail("type error in '{s}'", .{native.name});
+                        }
                         break :blk VMError.TypeError;
                     },
                     error.DivisionByZero => VMError.DivisionByZero,
@@ -1159,7 +1173,14 @@ pub const VM = struct {
             const result = native.func(args) catch |err| {
                 return switch (err) {
                     error.TypeError => blk: {
-                        self.setErrorDetail("type error in '{s}'", .{native.name});
+                        if (args.len > 0) {
+                            const p = @import("printer.zig");
+                            const s = p.valueToString(self.gc.allocator, args[0], .write) catch "";
+                            defer if (s.len > 0) self.gc.allocator.free(s);
+                            self.setErrorDetail("type error in '{s}': got {s}", .{ native.name, s });
+                        } else {
+                            self.setErrorDetail("type error in '{s}'", .{native.name});
+                        }
                         break :blk VMError.TypeError;
                     },
                     error.DivisionByZero => VMError.DivisionByZero,
