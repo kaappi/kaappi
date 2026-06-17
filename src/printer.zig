@@ -301,8 +301,57 @@ pub fn formatFlonum(buf: []u8, f: f64) []const u8 {
         (std.fmt.bufPrint(buf, "{d}", .{f}) catch
             (std.fmt.bufPrint(buf, "{e}", .{f}) catch return "+nan.0"));
 
+    // Post-process scientific notation
+    var has_dot = false;
+    var e_pos: ?usize = null;
+    for (s, 0..) |c, idx| {
+        if (c == '.') has_dot = true;
+        if (c == 'e' or c == 'E') e_pos = idx;
+    }
+    if (e_pos) |ep| {
+        var result_len = s.len;
+        // Insert '.0' before 'e' if no decimal point (e.g., 5e-324 -> 5.0e-324)
+        if (!has_dot and result_len + 2 <= buf.len) {
+            var j: usize = result_len + 1;
+            while (j > ep + 1) {
+                buf[j] = buf[j - 2];
+                j -= 1;
+            }
+            buf[ep] = '.';
+            buf[ep + 1] = '0';
+            result_len += 2;
+            // Update e_pos after insertion
+            const new_ep = ep + 2;
+            // Ensure positive exponents have '+' sign
+            if (new_ep + 1 < result_len and buf[new_ep + 1] != '+' and buf[new_ep + 1] != '-') {
+                if (result_len + 1 <= buf.len) {
+                    j = result_len;
+                    while (j > new_ep + 1) {
+                        buf[j] = buf[j - 1];
+                        j -= 1;
+                    }
+                    buf[new_ep + 1] = '+';
+                    result_len += 1;
+                }
+            }
+            return buf[0..result_len];
+        }
+        // Ensure positive exponents have '+' sign: e308 -> e+308
+        if (ep + 1 < result_len and s[ep + 1] != '+' and s[ep + 1] != '-') {
+            if (result_len + 1 <= buf.len) {
+                var j: usize = result_len;
+                while (j > ep + 1) {
+                    buf[j] = buf[j - 1];
+                    j -= 1;
+                }
+                buf[ep + 1] = '+';
+                return buf[0 .. result_len + 1];
+            }
+        }
+        return s;
+    }
     for (s) |c| {
-        if (c == '.' or c == 'e' or c == 'E') return s;
+        if (c == '.') return s;
     }
     if (s.len + 2 <= buf.len) {
         buf[s.len] = '.';
