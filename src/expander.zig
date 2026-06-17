@@ -114,13 +114,12 @@ var scope_table_count: usize = 0;
 // Pattern variable binding
 // ---------------------------------------------------------------------------
 
-const MAX_BINDINGS = 64;
-const MAX_ELLIPSIS_VALUES = 256;
+const MAX_BINDINGS = 128;
+const MAX_ELLIPSIS_VALUES = 1024;
 
 const Binding = struct {
     name: []const u8,
     value: Value,
-    // For ellipsis-bound variables (depth > 0): collected values stored inline
     ellipsis_values: [MAX_ELLIPSIS_VALUES]Value = undefined,
     ellipsis_count: usize = 0,
     depth: u8,
