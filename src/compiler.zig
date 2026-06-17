@@ -476,7 +476,21 @@ pub const Compiler = struct {
 
             // Check if head is a macro keyword
             if (self.lookupMacro(name)) |transformer| {
-                const expanded = expander.expandMacro(self.gc, expr, transformer, self.globals, &self.macros) catch return CompileError.InvalidSyntax;
+                // Build merged macro view including parent scopes
+                var merged_macros = std.StringHashMap(Value).init(self.gc.allocator);
+                defer merged_macros.deinit();
+                var p: ?*Compiler = self.parent;
+                while (p) |par| : (p = par.parent) {
+                    var it = par.macros.iterator();
+                    while (it.next()) |entry| {
+                        merged_macros.put(entry.key_ptr.*, entry.value_ptr.*) catch {};
+                    }
+                }
+                var it = self.macros.iterator();
+                while (it.next()) |entry| {
+                    merged_macros.put(entry.key_ptr.*, entry.value_ptr.*) catch {};
+                }
+                const expanded = expander.expandMacro(self.gc, expr, transformer, self.globals, &merged_macros) catch return CompileError.InvalidSyntax;
                 // The expanded form is freshly allocated and unreachable from
                 // any root; compiling it allocates further, so keep it rooted.
                 var expanded_root = expanded;

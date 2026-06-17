@@ -40,7 +40,6 @@ pub fn registerControl(vm: *vm_mod.VM) !void {
 
 pub fn raiseFn(args: []const Value) PrimitiveError!Value {
     const vm = vm_mod.vm_instance orelse {
-        // No VM -- print error and abort
         const gc = primitives.gc_instance orelse return PrimitiveError.TypeError;
         primitives_io.writeStderr("Error: unhandled exception: ");
         const s = printer.valueToString(gc.allocator, args[0], .write) catch return PrimitiveError.TypeError;
@@ -63,8 +62,23 @@ fn raiseContinuableFn(args: []const Value) PrimitiveError!Value {
         primitives_io.writeStderr("\n");
         return PrimitiveError.TypeError;
     };
-    vm.current_exception = args[0];
-    return PrimitiveError.ExceptionRaised;
+    if (vm.handler_count == 0) {
+        vm.current_exception = args[0];
+        return PrimitiveError.ExceptionRaised;
+    }
+    const handler = vm.handler_stack[vm.handler_count - 1].handler;
+    vm.popHandler();
+    const result = vm.callHandler(handler, args[0], 0) catch |err| {
+        vm.pushHandler(handler) catch {};
+        return switch (err) {
+            vm_mod.VMError.ContinuationInvoked => PrimitiveError.ContinuationInvoked,
+            vm_mod.VMError.ExceptionRaised => PrimitiveError.ExceptionRaised,
+            vm_mod.VMError.OutOfMemory => PrimitiveError.OutOfMemory,
+            else => PrimitiveError.TypeError,
+        };
+    };
+    vm.pushHandler(handler) catch {};
+    return result;
 }
 
 fn withExceptionHandlerFn(args: []const Value) PrimitiveError!Value {

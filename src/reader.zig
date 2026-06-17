@@ -222,8 +222,21 @@ pub const Reader = struct {
             '"' => return self.readString(),
             '#' => return self.readHash(),
             '+', '-' => {
-                if (self.pos + 1 < self.source.len and std.ascii.isDigit(self.source[self.pos + 1])) {
-                    return self.readNumber();
+                if (self.pos + 1 < self.source.len) {
+                    const n1 = self.source[self.pos + 1];
+                    if (std.ascii.isDigit(n1)) return self.readNumber();
+                    // Sign followed by a leading-dot decimal, e.g. -.1 or +.5
+                    if (n1 == '.' and self.pos + 2 < self.source.len and
+                        std.ascii.isDigit(self.source[self.pos + 2]))
+                    {
+                        return self.readNumber();
+                    }
+                    // Imaginary unit: +i / -i (but not +inf.0, +identifier)
+                    if ((n1 == 'i' or n1 == 'I') and
+                        (self.pos + 2 >= self.source.len or isDelimiter(self.source[self.pos + 2])))
+                    {
+                        return self.readNumber();
+                    }
                 }
                 // Check for peculiar identifiers: +, -, +inf.0, -inf.0, etc.
                 return self.readSymbol();
@@ -390,7 +403,6 @@ pub const Reader = struct {
                         // pos now points at ';', will be advanced by the outer loop
                     },
                     else => {
-                        self.token_buf.append(alloc, '\\') catch return ReadError.OutOfMemory;
                         self.token_buf.append(alloc, escaped) catch return ReadError.OutOfMemory;
                     },
                 }
@@ -438,6 +450,38 @@ pub const Reader = struct {
                         const len = std.unicode.utf8Encode(cp, &buf) catch return ReadError.InvalidEscape;
                         self.token_buf.appendSlice(alloc, buf[0..len]) catch return ReadError.OutOfMemory;
                         // pos now points at ';', will be advanced below
+                    },
+                    '\n' => {
+                        // Line continuation: skip whitespace after newline
+                        self.pos += 1;
+                        while (self.pos < self.source.len and (self.source[self.pos] == ' ' or self.source[self.pos] == '\t')) {
+                            self.pos += 1;
+                        }
+                        continue;
+                    },
+                    '\r' => {
+                        self.pos += 1;
+                        if (self.pos < self.source.len and self.source[self.pos] == '\n') self.pos += 1;
+                        while (self.pos < self.source.len and (self.source[self.pos] == ' ' or self.source[self.pos] == '\t')) {
+                            self.pos += 1;
+                        }
+                        continue;
+                    },
+                    ' ', '\t' => {
+                        // Skip whitespace before newline
+                        self.pos += 1;
+                        while (self.pos < self.source.len and (self.source[self.pos] == ' ' or self.source[self.pos] == '\t')) {
+                            self.pos += 1;
+                        }
+                        if (self.pos < self.source.len and (self.source[self.pos] == '\n' or self.source[self.pos] == '\r')) {
+                            if (self.source[self.pos] == '\r') self.pos += 1;
+                            if (self.pos < self.source.len and self.source[self.pos] == '\n') self.pos += 1;
+                            while (self.pos < self.source.len and (self.source[self.pos] == ' ' or self.source[self.pos] == '\t')) {
+                                self.pos += 1;
+                            }
+                            continue;
+                        }
+                        return ReadError.InvalidEscape;
                     },
                     else => return ReadError.InvalidEscape,
                 }

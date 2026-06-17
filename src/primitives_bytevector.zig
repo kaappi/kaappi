@@ -403,14 +403,20 @@ fn writeBytevectorFn(args: []const Value) PrimitiveError!Value {
 fn openInputBytevector(args: []const Value) PrimitiveError!Value {
     if (!types.isBytevector(args[0])) return PrimitiveError.TypeError;
     const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
-    const bv = types.toBytevector(args[0]);
-    return gc.allocStringInputPort(bv.data) catch return PrimitiveError.OutOfMemory;
+    const port_val = gc.allocStringInputPort(bv_data: {
+        const bv = types.toBytevector(args[0]);
+        break :bv_data bv.data;
+    }) catch return PrimitiveError.OutOfMemory;
+    types.toObject(port_val).as(types.Port).is_binary = true;
+    return port_val;
 }
 
 fn openOutputBytevector(args: []const Value) PrimitiveError!Value {
     _ = args;
     const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
-    return gc.allocStringOutputPort() catch return PrimitiveError.OutOfMemory;
+    const port_val = gc.allocStringOutputPort() catch return PrimitiveError.OutOfMemory;
+    types.toObject(port_val).as(types.Port).is_binary = true;
+    return port_val;
 }
 
 fn getOutputBytevector(args: []const Value) PrimitiveError!Value {
@@ -423,17 +429,31 @@ fn getOutputBytevector(args: []const Value) PrimitiveError!Value {
 }
 
 fn readBytevectorMut(args: []const Value) PrimitiveError!Value {
-    // (read-bytevector! bv [port])
+    // (read-bytevector! bv port [start [end]])
     if (!types.isBytevector(args[0])) return PrimitiveError.TypeError;
     const bv = types.toBytevector(args[0]);
     const port = try getInputPort(args, 1);
+    const len = bv.data.len;
+
+    var start: usize = 0;
+    var end: usize = len;
+    if (args.len > 2) {
+        if (!types.isFixnum(args[2])) return PrimitiveError.TypeError;
+        start = @intCast(types.toFixnum(args[2]));
+    }
+    if (args.len > 3) {
+        if (!types.isFixnum(args[3])) return PrimitiveError.TypeError;
+        end = @intCast(types.toFixnum(args[3]));
+    }
+    if (start > end or end > len) return PrimitiveError.TypeError;
 
     var read_count: usize = 0;
-    while (read_count < bv.data.len) {
+    while (start + read_count < end) {
         const byte = portReadOneByte(port) orelse break;
-        bv.data[read_count] = byte;
+        bv.data[start + read_count] = byte;
         read_count += 1;
     }
+    if (read_count == 0 and start == end and len > 0) return types.makeFixnum(0);
     if (read_count == 0) return types.EOF;
     return types.makeFixnum(@intCast(read_count));
 }

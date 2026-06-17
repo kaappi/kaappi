@@ -4,6 +4,7 @@ const vm_mod = @import("vm.zig");
 const primitives = @import("primitives.zig");
 const printer = @import("printer.zig");
 const reader_mod = @import("reader.zig");
+const primitives_control = @import("primitives_control.zig");
 const Value = types.Value;
 const NativeFn = types.NativeFn;
 const PrimitiveError = primitives.PrimitiveError;
@@ -229,9 +230,9 @@ fn textualPortP(args: []const Value) PrimitiveError!Value {
 }
 
 fn binaryPortP(args: []const Value) PrimitiveError!Value {
-    // We don't have binary ports yet
-    _ = args;
-    return types.FALSE;
+    if (!types.isPort(args[0])) return types.FALSE;
+    const port = types.toObject(args[0]).as(types.Port);
+    return if (port.is_binary) types.TRUE else types.FALSE;
 }
 
 fn inputPortOpenP(args: []const Value) PrimitiveError!Value {
@@ -395,7 +396,19 @@ fn writeStringFn(args: []const Value) PrimitiveError!Value {
     if (!types.isString(args[0])) return PrimitiveError.TypeError;
     const port = try getOutputPort(args, 1);
     const str = types.toObject(args[0]).as(types.SchemeString);
-    writeToPort(port, str.data[0..str.len]);
+    const data = str.data[0..str.len];
+    var start: usize = 0;
+    var end: usize = data.len;
+    if (args.len > 2) {
+        if (!types.isFixnum(args[2])) return PrimitiveError.TypeError;
+        start = @intCast(types.toFixnum(args[2]));
+    }
+    if (args.len > 3) {
+        if (!types.isFixnum(args[3])) return PrimitiveError.TypeError;
+        end = @intCast(types.toFixnum(args[3]));
+    }
+    if (start > end or end > data.len) return PrimitiveError.TypeError;
+    writeToPort(port, data[start..end]);
     return types.VOID;
 }
 
@@ -423,7 +436,15 @@ fn readDatumFn(args: []const Value) PrimitiveError!Value {
 
         var reader = reader_mod.Reader.init(gc, source);
         defer reader.deinit();
-        const datum = reader.readDatum() catch return types.EOF;
+        const datum = reader.readDatum() catch |err| {
+            if (err == reader_mod.ReadError.UnexpectedEof or err == reader_mod.ReadError.OutOfMemory) return types.EOF;
+            const msg = gc.allocString("read error") catch return PrimitiveError.OutOfMemory;
+            const err_obj = gc.allocErrorObject(msg, types.NIL) catch return PrimitiveError.OutOfMemory;
+            const errObj = types.toObject(err_obj).as(types.ErrorObject);
+            errObj.error_type = .read;
+            const raise_args = [1]Value{err_obj};
+            return primitives_control.raiseFn(&raise_args);
+        };
         // Advance string_pos by amount consumed
         port.string_pos += reader.pos;
         if (combined.items.len > 0 and reader.pos > 0) {

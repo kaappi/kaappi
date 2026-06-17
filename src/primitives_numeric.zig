@@ -344,6 +344,10 @@ fn nanP(args: []const Value) PrimitiveError!Value {
     if (types.isFlonum(args[0])) {
         return if (std.math.isNan(types.toFlonum(args[0]))) types.TRUE else types.FALSE;
     }
+    if (types.isComplex(args[0])) {
+        const c = types.toComplex(args[0]);
+        return if (std.math.isNan(c.real) or std.math.isNan(c.imag)) types.TRUE else types.FALSE;
+    }
     return PrimitiveError.TypeError;
 }
 
@@ -397,26 +401,9 @@ fn numberToString(args: []const Value) PrimitiveError!Value {
         return gc.allocString(s) catch return PrimitiveError.OutOfMemory;
     }
     if (types.isFlonum(args[0])) {
-        const f = types.toFlonum(args[0]);
-        if (std.math.isNan(f)) return gc.allocString("+nan.0") catch return PrimitiveError.OutOfMemory;
-        if (std.math.isInf(f)) {
-            if (f > 0) return gc.allocString("+inf.0") catch return PrimitiveError.OutOfMemory;
-            return gc.allocString("-inf.0") catch return PrimitiveError.OutOfMemory;
-        }
+        const printer = @import("printer.zig");
         var buf: [64]u8 = undefined;
-        const s = std.fmt.bufPrint(&buf, "{d}", .{f}) catch return PrimitiveError.OutOfMemory;
-        // Check if we need to append ".0"
-        var needs_dot = true;
-        for (s) |c| {
-            if (c == '.' or c == 'e' or c == 'E') {
-                needs_dot = false;
-                break;
-            }
-        }
-        if (needs_dot) {
-            const s2 = std.fmt.bufPrint(buf[s.len..], ".0", .{}) catch return PrimitiveError.OutOfMemory;
-            return gc.allocString(buf[0 .. s.len + s2.len]) catch return PrimitiveError.OutOfMemory;
-        }
+        const s = printer.formatFlonum(&buf, types.toFlonum(args[0]));
         return gc.allocString(s) catch return PrimitiveError.OutOfMemory;
     }
     return PrimitiveError.TypeError;

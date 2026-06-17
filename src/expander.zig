@@ -155,6 +155,17 @@ pub fn expandMacro(gc: *GC, expr: Value, transformer_val: Value, globals: ?*std.
     // gensym) while differing from user identifiers.
     const intro_scope = freshScope();
 
+    // The scope table is only a dedup cache for renames *within* this
+    // expansion: each expansion has a globally-unique scope id, so entries
+    // from prior expansions are never matched again. Release them on return
+    // so the fixed-size table doesn't fill up over many expansions. (Once it
+    // was full, new renames went unrecorded, so repeated references to the
+    // same template identifier got *different* gensyms — splitting a binding
+    // from its uses, e.g. `__hyg_N_res` undefined.) Save/restore rather than
+    // zeroing keeps this correct even if expansion ever becomes re-entrant.
+    const saved_scope_count = scope_table_count;
+    defer scope_table_count = saved_scope_count;
+
     // Try each rule in order
     for (0..transformer.num_rules) |i| {
         var bindings: [MAX_BINDINGS]Binding = undefined;
@@ -495,6 +506,12 @@ fn renameForHygiene(gc: *GC, name: []const u8, scope: u32, globals: ?*std.String
     // mutate the original global (aliasing would create a separate binding).
     if (globals) |g| {
         if (g.contains(name)) return gc.allocSymbol(name);
+    }
+    // Also check the VM's global environment for runtime-defined bindings
+    // and imported macros that aren't in the compiler's globals table.
+    const vm_mod = @import("vm.zig");
+    if (vm_mod.vm_instance) |vm| {
+        if (vm.globals.contains(name)) return gc.allocSymbol(name);
     }
 
     // Check if we already renamed this (name, scope) pair

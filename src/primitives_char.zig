@@ -183,6 +183,18 @@ fn unicodeUpcase(cp: u21) u21 {
     if (cp >= 0xF8 and cp <= 0xFE) return cp - 0x20;
     // Latin Extended-A: odd (lowercase) -> even (uppercase)
     if (cp >= 0x101 and cp <= 0x17E and (cp & 1) == 1) return cp - 1;
+    // Long s
+    if (cp == 0x017F) return 'S';
+    // Greek accented lowercase -> uppercase
+    if (cp == 0x03AC) return 0x0386; // ά -> Ά
+    if (cp == 0x03AD) return 0x0388; // έ -> Έ
+    if (cp == 0x03AE) return 0x0389; // ή -> Ή
+    if (cp == 0x03AF) return 0x038A; // ί -> Ί
+    if (cp == 0x03CC) return 0x038C; // ό -> Ό
+    if (cp == 0x03CD) return 0x038E; // ύ -> Ύ
+    if (cp == 0x03CE) return 0x038F; // ώ -> Ώ
+    // Greek final sigma -> Sigma (before range check since 0x3C2 is in range)
+    if (cp == 0x03C2) return 0x03A3;
     // Greek lowercase (0x3B1-0x3C9) -> uppercase (0x391-0x3A9)
     if (cp >= 0x3B1 and cp <= 0x3C9) return cp - 0x20;
     // Cyrillic lowercase (0x430-0x44F) -> uppercase (0x410-0x42F)
@@ -197,6 +209,14 @@ fn unicodeDowncase(cp: u21) u21 {
     if (cp >= 0xD8 and cp <= 0xDE) return cp + 0x20;
     // Latin Extended-A: even (uppercase) -> odd (lowercase)
     if (cp >= 0x100 and cp <= 0x17E and (cp & 1) == 0) return cp + 1;
+    // Greek accented uppercase -> lowercase
+    if (cp == 0x0386) return 0x03AC; // Ά -> ά
+    if (cp == 0x0388) return 0x03AD; // Έ -> έ
+    if (cp == 0x0389) return 0x03AE; // Ή -> ή
+    if (cp == 0x038A) return 0x03AF; // Ί -> ί
+    if (cp == 0x038C) return 0x03CC; // Ό -> ό
+    if (cp == 0x038E) return 0x03CD; // Ύ -> ύ
+    if (cp == 0x038F) return 0x03CE; // Ώ -> ώ
     // Greek uppercase (0x391-0x3A9) -> lowercase (0x3B1-0x3C9), skip 0x3A2
     if (cp >= 0x391 and cp <= 0x3A9 and cp != 0x3A2) return cp + 0x20;
     // Cyrillic uppercase (0x410-0x42F) -> lowercase (0x430-0x44F)
@@ -248,9 +268,12 @@ fn charDowncaseFn(args: []const Value) PrimitiveError!Value {
 }
 
 fn charFoldcaseFn(args: []const Value) PrimitiveError!Value {
-    // foldcase == downcase for our supported ranges
     if (!types.isChar(args[0])) return PrimitiveError.TypeError;
-    return types.makeChar(unicodeDowncase(types.toChar(args[0])));
+    const cp = types.toChar(args[0]);
+    return types.makeChar(switch (cp) {
+        0x017F => 's',
+        else => unicodeDowncase(cp),
+    });
 }
 
 // ---------------------------------------------------------------------------
@@ -430,15 +453,97 @@ fn stringCaseMap(data: []const u8, comptime case_fn: fn (u21) u21) PrimitiveErro
 
 fn stringUpcaseFn(args: []const Value) PrimitiveError!Value {
     const data = try getStringSlice(args[0]);
-    return stringCaseMap(data, unicodeUpcase);
+    return stringCaseMapExpanding(data, .upcase);
 }
 
 fn stringDowncaseFn(args: []const Value) PrimitiveError!Value {
     const data = try getStringSlice(args[0]);
-    return stringCaseMap(data, unicodeDowncase);
+    return stringCaseMapExpanding(data, .downcase);
 }
 
 fn stringFoldcaseFn(args: []const Value) PrimitiveError!Value {
     const data = try getStringSlice(args[0]);
-    return stringCaseMap(data, unicodeDowncase);
+    return stringCaseMapExpanding(data, .foldcase);
 }
+
+const CaseMode = enum { upcase, downcase, foldcase };
+
+fn appendCodepoint(result: *std.ArrayList(u8), alloc: std.mem.Allocator, cp: u21) PrimitiveError!void {
+    var tmp: [4]u8 = undefined;
+    const n = std.unicode.utf8Encode(cp, &tmp) catch return PrimitiveError.OutOfMemory;
+    result.appendSlice(alloc, tmp[0..n]) catch return PrimitiveError.OutOfMemory;
+}
+
+fn stringCaseMapExpanding(data: []const u8, mode: CaseMode) PrimitiveError!Value {
+    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    var result: std.ArrayList(u8) = .empty;
+    defer result.deinit(gc.allocator);
+
+    var i: usize = 0;
+    var prev_cased = false;
+    while (i < data.len) {
+        const seq_len = std.unicode.utf8ByteSequenceLength(data[i]) catch 1;
+        if (i + seq_len > data.len) {
+            result.append(gc.allocator, data[i]) catch return PrimitiveError.OutOfMemory;
+            i += 1;
+            continue;
+        }
+        const cp = std.unicode.utf8Decode(data[i .. i + seq_len]) catch {
+            result.append(gc.allocator, data[i]) catch return PrimitiveError.OutOfMemory;
+            i += 1;
+            continue;
+        };
+
+        switch (mode) {
+            .upcase => {
+                switch (cp) {
+                    0x00DF => { try appendCodepoint(&result, gc.allocator, 'S'); try appendCodepoint(&result, gc.allocator, 'S'); },
+                    0x01F0 => { try appendCodepoint(&result, gc.allocator, 'J'); try appendCodepoint(&result, gc.allocator, 0x030C); },
+                    0x0390 => { try appendCodepoint(&result, gc.allocator, 0x0399); try appendCodepoint(&result, gc.allocator, 0x0308); try appendCodepoint(&result, gc.allocator, 0x0301); },
+                    0x03B0 => { try appendCodepoint(&result, gc.allocator, 0x03A5); try appendCodepoint(&result, gc.allocator, 0x0308); try appendCodepoint(&result, gc.allocator, 0x0301); },
+                    0xFB00 => { try appendCodepoint(&result, gc.allocator, 'F'); try appendCodepoint(&result, gc.allocator, 'F'); },
+                    0xFB01 => { try appendCodepoint(&result, gc.allocator, 'F'); try appendCodepoint(&result, gc.allocator, 'I'); },
+                    0xFB02 => { try appendCodepoint(&result, gc.allocator, 'F'); try appendCodepoint(&result, gc.allocator, 'L'); },
+                    0xFB03 => { try appendCodepoint(&result, gc.allocator, 'F'); try appendCodepoint(&result, gc.allocator, 'F'); try appendCodepoint(&result, gc.allocator, 'I'); },
+                    0xFB04 => { try appendCodepoint(&result, gc.allocator, 'F'); try appendCodepoint(&result, gc.allocator, 'F'); try appendCodepoint(&result, gc.allocator, 'L'); },
+                    else => try appendCodepoint(&result, gc.allocator, unicodeUpcase(cp)),
+                }
+            },
+            .downcase => {
+                switch (cp) {
+                    0x0130 => { try appendCodepoint(&result, gc.allocator, 0x0069); try appendCodepoint(&result, gc.allocator, 0x0307); },
+                    0x03A3 => {
+                        // Greek final sigma: Σ at end of word → ς
+                        const next_cp = blk: {
+                            const ni = i + seq_len;
+                            if (ni >= data.len) break :blk @as(?u21, null);
+                            const nsl = std.unicode.utf8ByteSequenceLength(data[ni]) catch break :blk @as(?u21, null);
+                            if (ni + nsl > data.len) break :blk @as(?u21, null);
+                            break :blk std.unicode.utf8Decode(data[ni .. ni + nsl]) catch null;
+                        };
+                        const next_is_cased = if (next_cp) |nc| isUnicodeLetter(nc) else false;
+                        if (prev_cased and !next_is_cased)
+                            try appendCodepoint(&result, gc.allocator, 0x03C2) // ς
+                        else
+                            try appendCodepoint(&result, gc.allocator, 0x03C3); // σ
+                    },
+                    else => try appendCodepoint(&result, gc.allocator, unicodeDowncase(cp)),
+                }
+            },
+            .foldcase => {
+                switch (cp) {
+                    0x00DF => { try appendCodepoint(&result, gc.allocator, 's'); try appendCodepoint(&result, gc.allocator, 's'); },
+                    0x0130 => { try appendCodepoint(&result, gc.allocator, 0x0069); try appendCodepoint(&result, gc.allocator, 0x0307); },
+                    0x017F => try appendCodepoint(&result, gc.allocator, 's'),
+                    0x01F0 => { try appendCodepoint(&result, gc.allocator, 'j'); try appendCodepoint(&result, gc.allocator, 0x030C); },
+                    0x03A3 => try appendCodepoint(&result, gc.allocator, 0x03C3),
+                    else => try appendCodepoint(&result, gc.allocator, unicodeDowncase(cp)),
+                }
+            },
+        }
+        prev_cased = isUnicodeLetter(cp);
+        i += seq_len;
+    }
+    return gc.allocString(result.items) catch return PrimitiveError.OutOfMemory;
+}
+

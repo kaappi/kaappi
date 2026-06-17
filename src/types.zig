@@ -255,6 +255,7 @@ pub const Port = struct {
     string_out_buf: ?[]u8 = null, // for output string ports (owned, growable)
     string_out_len: usize = 0,
     string_out_cap: usize = 0,
+    is_binary: bool = false,
 };
 
 // ---------------------------------------------------------------------------
