@@ -163,14 +163,16 @@ fn isUnicodeWhitespace(cp: u21) bool {
 
 fn isUnicodeNumeric(cp: u21) bool {
     if (cp >= '0' and cp <= '9') return true;
-    // Arabic-Indic digits
-    if (cp >= 0x0660 and cp <= 0x0669) return true;
-    // Extended Arabic-Indic digits
-    if (cp >= 0x06F0 and cp <= 0x06F9) return true;
-    // Devanagari digits
-    if (cp >= 0x0966 and cp <= 0x096F) return true;
-    // Fullwidth digits
-    if (cp >= 0xFF10 and cp <= 0xFF19) return true;
+    const digit_zeros = [_]u21{
+        0x0660, 0x06F0, 0x07C0, 0x0966, 0x09E6, 0x0A66, 0x0AE6, 0x0B66,
+        0x0BE6, 0x0C66, 0x0CE6, 0x0D66, 0x0DE6, 0x0E50, 0x0ED0, 0x0F20,
+        0x1040, 0x1090, 0x17E0, 0x1810, 0x1946, 0x19D0, 0x1A80, 0x1A90,
+        0x1B50, 0x1BB0, 0x1C40, 0x1C50, 0xA620, 0xA8D0, 0xA900, 0xA9D0,
+        0xA9F0, 0xAA50, 0xABF0, 0xFF10,
+    };
+    for (digit_zeros) |zero| {
+        if (cp >= zero and cp <= zero + 9) return true;
+    }
     return false;
 }
 
@@ -260,6 +262,18 @@ fn digitValueFn(args: []const Value) PrimitiveError!Value {
     const cp = types.toChar(args[0]);
     if (cp >= '0' and cp <= '9') {
         return types.makeFixnum(@as(i64, cp) - '0');
+    }
+    const digit_zeros = [_]u21{
+        0x0660, 0x06F0, 0x07C0, 0x0966, 0x09E6, 0x0A66, 0x0AE6, 0x0B66,
+        0x0BE6, 0x0C66, 0x0CE6, 0x0D66, 0x0DE6, 0x0E50, 0x0ED0, 0x0F20,
+        0x1040, 0x1090, 0x17E0, 0x1810, 0x1946, 0x19D0, 0x1A80, 0x1A90,
+        0x1B50, 0x1BB0, 0x1C40, 0x1C50, 0xA620, 0xA8D0, 0xA900, 0xA9D0,
+        0xA9F0, 0xAA50, 0xABF0, 0xFF10,
+    };
+    for (digit_zeros) |zero| {
+        if (cp >= zero and cp <= zero + 9) {
+            return types.makeFixnum(@as(i64, cp) - @as(i64, zero));
+        }
     }
     return types.FALSE;
 }

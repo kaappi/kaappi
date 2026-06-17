@@ -19,13 +19,13 @@ pub fn registerVector(vm: *vm_mod.VM) !void {
     try reg(vm, "vector-set!", &vectorSetFn, .{ .exact = 3 });
     try reg(vm, "vector->list", &vectorToListFn, .{ .variadic = 1 });
     try reg(vm, "list->vector", &listToVectorFn, .{ .exact = 1 });
-    try reg(vm, "vector-fill!", &vectorFillFn, .{ .exact = 2 });
+    try reg(vm, "vector-fill!", &vectorFillFn, .{ .variadic = 2 });
     try reg(vm, "vector-copy", &vectorCopyFn, .{ .variadic = 1 });
     try reg(vm, "vector-copy!", &vectorCopyBangFn, .{ .variadic = 3 });
     try reg(vm, "vector-append", &vectorAppendFn, .{ .variadic = 0 });
     try reg(vm, "vector-for-each", &vectorForEachFn, .{ .variadic = 2 });
     try reg(vm, "vector-map", &vectorMapFn, .{ .variadic = 2 });
-    try reg(vm, "vector->string", &vectorToStringFn, .{ .exact = 1 });
+    try reg(vm, "vector->string", &vectorToStringFn, .{ .variadic = 1 });
 }
 
 // ---------------------------------------------------------------------------
@@ -166,7 +166,25 @@ fn listToVectorFn(args: []const Value) PrimitiveError!Value {
 fn vectorFillFn(args: []const Value) PrimitiveError!Value {
     if (!types.isVector(args[0])) return PrimitiveError.TypeError;
     const vec = types.toVector(args[0]);
-    @memset(vec.data, args[1]);
+    const len = vec.data.len;
+
+    var start: usize = 0;
+    var end: usize = len;
+
+    if (args.len > 2) {
+        if (!types.isFixnum(args[2])) return PrimitiveError.TypeError;
+        const s = types.toFixnum(args[2]);
+        if (s < 0 or @as(usize, @intCast(s)) > len) return PrimitiveError.TypeError;
+        start = @intCast(s);
+    }
+    if (args.len > 3) {
+        if (!types.isFixnum(args[3])) return PrimitiveError.TypeError;
+        const e = types.toFixnum(args[3]);
+        if (e < 0 or @as(usize, @intCast(e)) > len) return PrimitiveError.TypeError;
+        end = @intCast(e);
+    }
+    if (start > end) return PrimitiveError.TypeError;
+    @memset(vec.data[start..end], args[1]);
     return types.VOID;
 }
 
@@ -373,10 +391,30 @@ fn vectorToStringFn(args: []const Value) PrimitiveError!Value {
     const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
     if (!types.isVector(args[0])) return PrimitiveError.TypeError;
     const vec = types.toVector(args[0]);
+    const len = vec.data.len;
+
+    var start: usize = 0;
+    var end: usize = len;
+
+    if (args.len > 1) {
+        if (!types.isFixnum(args[1])) return PrimitiveError.TypeError;
+        const s = types.toFixnum(args[1]);
+        if (s < 0 or @as(usize, @intCast(s)) > len) return PrimitiveError.TypeError;
+        start = @intCast(s);
+    }
+    if (args.len > 2) {
+        if (!types.isFixnum(args[2])) return PrimitiveError.TypeError;
+        const e = types.toFixnum(args[2]);
+        if (e < 0 or @as(usize, @intCast(e)) > len) return PrimitiveError.TypeError;
+        end = @intCast(e);
+    }
+    if (start > end) return PrimitiveError.TypeError;
+
+    const data = vec.data[start..end];
 
     // Calculate UTF-8 length
     var utf8_len: usize = 0;
-    for (vec.data) |elem| {
+    for (data) |elem| {
         if (!types.isChar(elem)) return PrimitiveError.TypeError;
         const cp = types.toChar(elem);
         utf8_len += std.unicode.utf8CodepointSequenceLength(cp) catch return PrimitiveError.TypeError;
@@ -386,7 +424,7 @@ fn vectorToStringFn(args: []const Value) PrimitiveError!Value {
     const buf = gc.allocator.alloc(u8, utf8_len) catch return PrimitiveError.OutOfMemory;
     defer gc.allocator.free(buf);
     var pos: usize = 0;
-    for (vec.data) |elem| {
+    for (data) |elem| {
         const cp = types.toChar(elem);
         var tmp: [4]u8 = undefined;
         const n = std.unicode.utf8Encode(cp, &tmp) catch return PrimitiveError.TypeError;

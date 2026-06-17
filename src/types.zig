@@ -618,6 +618,9 @@ pub const OpCode = enum(u8) {
     halt,
     call_global, // base:u8, sym_idx:u16, nargs:u8
     tail_call_global, // base:u8, sym_idx:u16, nargs:u8
+    box_local, // reg:u8 — wrap register value in a pair (box) for shared mutation
+    get_box_local, // dst:u8, reg:u8 — read car of boxed register
+    set_box_local, // reg:u8, src:u8 — set car of boxed register
 };
 
 // ---------------------------------------------------------------------------

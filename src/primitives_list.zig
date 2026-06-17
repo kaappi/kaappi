@@ -20,10 +20,10 @@ pub fn registerList(vm: *vm_mod.VM) !void {
     try reg(vm, "list-set!", &listSetFn, .{ .exact = 3 });
     try reg(vm, "list-copy", &listCopyFn, .{ .exact = 1 });
     try reg(vm, "make-list", &makeListFn, .{ .variadic = 1 });
-    try reg(vm, "member", &memberFn, .{ .exact = 2 });
+    try reg(vm, "member", &memberFn, .{ .variadic = 2 });
     try reg(vm, "memq", &memqFn, .{ .exact = 2 });
     try reg(vm, "memv", &memvFn, .{ .exact = 2 });
-    try reg(vm, "assoc", &assocFn, .{ .exact = 2 });
+    try reg(vm, "assoc", &assocFn, .{ .variadic = 2 });
     try reg(vm, "assq", &assqFn, .{ .exact = 2 });
     try reg(vm, "assv", &assvFn, .{ .exact = 2 });
     try reg(vm, "map", &mapFn, .{ .variadic = 2 });
@@ -125,10 +125,26 @@ fn makeListFn(args: []const Value) PrimitiveError!Value {
 }
 
 fn memberFn(args: []const Value) PrimitiveError!Value {
+    const has_compare = args.len >= 3;
+    const compare = if (has_compare) args[2] else types.NIL;
+    if (has_compare and !types.isProcedure(compare)) return PrimitiveError.TypeError;
     var current = args[1];
     while (current != types.NIL) {
         if (!types.isPair(current)) return PrimitiveError.TypeError;
-        if (deepEqual(args[0], types.car(current))) return current;
+        if (has_compare) {
+            const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError;
+            const call_args = [2]Value{ args[0], types.car(current) };
+            const result = vm.callWithArgs(compare, &call_args) catch |err| {
+                return switch (err) {
+                    vm_mod.VMError.ContinuationInvoked => PrimitiveError.ContinuationInvoked,
+                    vm_mod.VMError.ExceptionRaised => PrimitiveError.ExceptionRaised,
+                    else => PrimitiveError.TypeError,
+                };
+            };
+            if (result != types.FALSE) return current;
+        } else {
+            if (deepEqual(args[0], types.car(current))) return current;
+        }
         current = types.cdr(current);
     }
     return types.FALSE;
@@ -162,12 +178,28 @@ fn memvFn(args: []const Value) PrimitiveError!Value {
 }
 
 fn assocFn(args: []const Value) PrimitiveError!Value {
+    const has_compare = args.len >= 3;
+    const compare = if (has_compare) args[2] else types.NIL;
+    if (has_compare and !types.isProcedure(compare)) return PrimitiveError.TypeError;
     var current = args[1];
     while (current != types.NIL) {
         if (!types.isPair(current)) return PrimitiveError.TypeError;
         const pair = types.car(current);
         if (!types.isPair(pair)) return PrimitiveError.TypeError;
-        if (deepEqual(args[0], types.car(pair))) return pair;
+        if (has_compare) {
+            const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError;
+            const call_args = [2]Value{ args[0], types.car(pair) };
+            const result = vm.callWithArgs(compare, &call_args) catch |err| {
+                return switch (err) {
+                    vm_mod.VMError.ContinuationInvoked => PrimitiveError.ContinuationInvoked,
+                    vm_mod.VMError.ExceptionRaised => PrimitiveError.ExceptionRaised,
+                    else => PrimitiveError.TypeError,
+                };
+            };
+            if (result != types.FALSE) return pair;
+        } else {
+            if (deepEqual(args[0], types.car(pair))) return pair;
+        }
         current = types.cdr(current);
     }
     return types.FALSE;

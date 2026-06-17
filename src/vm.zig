@@ -631,13 +631,19 @@ pub const VM = struct {
                     const dst = self.readU8(frame);
                     const idx = self.readU8(frame);
                     const closure = frame.closure orelse return VMError.InvalidBytecode;
-                    self.registers[frame.base + dst] = closure.upvalues[idx];
+                    const uv = closure.upvalues[idx];
+                    self.registers[frame.base + dst] = if (types.isPair(uv)) types.car(uv) else uv;
                 },
                 .set_upvalue => {
                     const idx = self.readU8(frame);
                     const src = self.readU8(frame);
                     const closure = frame.closure orelse return VMError.InvalidBytecode;
-                    closure.upvalues[idx] = self.registers[frame.base + src];
+                    const uv = closure.upvalues[idx];
+                    if (types.isPair(uv)) {
+                        types.setCar(uv, self.registers[frame.base + src]);
+                    } else {
+                        closure.upvalues[idx] = self.registers[frame.base + src];
+                    }
                 },
                 .jump => {
                     const offset = self.readI16(frame);
@@ -1022,6 +1028,22 @@ pub const VM = struct {
                         self.setErrorDetail("not a procedure", .{});
                         return VMError.NotAProcedure;
                     }
+                },
+                .box_local => {
+                    const reg = self.readU8(frame);
+                    const val = self.registers[frame.base + reg];
+                    const box = self.gc.allocPair(val, types.NIL) catch return VMError.OutOfMemory;
+                    self.registers[frame.base + reg] = box;
+                },
+                .get_box_local => {
+                    const dst = self.readU8(frame);
+                    const reg = self.readU8(frame);
+                    self.registers[frame.base + dst] = types.car(self.registers[frame.base + reg]);
+                },
+                .set_box_local => {
+                    const reg = self.readU8(frame);
+                    const src = self.readU8(frame);
+                    types.setCar(self.registers[frame.base + reg], self.registers[frame.base + src]);
                 },
                 else => return VMError.InvalidBytecode,
             }

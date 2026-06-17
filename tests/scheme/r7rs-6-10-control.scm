@@ -1,3 +1,9 @@
+(import (scheme base) (scheme char) (scheme lazy)
+        (scheme inexact) (scheme complex) (scheme time)
+        (scheme file) (scheme read) (scheme write)
+        (scheme eval) (scheme process-context) (scheme case-lambda)
+        (chibi test))
+
 (test-begin "6.10 Control Features")
 
 (test #t (procedure? car))

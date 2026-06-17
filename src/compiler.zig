@@ -20,6 +20,7 @@ const Local = struct {
     name: []const u8,
     depth: u16,
     slot: u8,
+    is_boxed: bool = false,
 };
 
 const Upvalue = struct {
@@ -156,6 +157,28 @@ pub const Compiler = struct {
             }
         }
         return null;
+    }
+
+    pub fn isLocalBoxed(self: *Compiler, name: []const u8) bool {
+        var i: usize = self.locals.items.len;
+        while (i > 0) {
+            i -= 1;
+            if (std.mem.eql(u8, self.locals.items[i].name, name)) {
+                return self.locals.items[i].is_boxed;
+            }
+        }
+        return false;
+    }
+
+    pub fn markLocalBoxedBySlot(self: *Compiler, slot: u8) CompileError!void {
+        for (self.locals.items) |*local| {
+            if (local.slot == slot and !local.is_boxed) {
+                local.is_boxed = true;
+                try self.emitOp(.box_local);
+                try self.emit(slot);
+                return;
+            }
+        }
     }
 
     pub fn resolveUpvalue(self: *Compiler, name: []const u8) CompileError!?u8 {
@@ -376,7 +399,11 @@ pub const Compiler = struct {
         const name = types.symbolName(sym);
 
         if (self.resolveLocal(name)) |slot| {
-            if (slot != dst) {
+            if (self.isLocalBoxed(name)) {
+                try self.emitOp(.get_box_local);
+                try self.emit(dst);
+                try self.emit(slot);
+            } else if (slot != dst) {
                 try self.emitOp(.move);
                 try self.emit(dst);
                 try self.emit(slot);

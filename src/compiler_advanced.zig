@@ -127,6 +127,34 @@ pub fn compileCase(self: *Compiler, args: Value, dst: u8, is_tail: bool) Compile
 
         // Check for else clause
         if (types.isSymbol(datums) and std.mem.eql(u8, types.symbolName(datums), "else")) {
+            // (else => proc): apply proc to the key value.
+            if (types.isPair(clause_body)) {
+                const maybe_arrow = types.car(clause_body);
+                if (types.isSymbol(maybe_arrow) and std.mem.eql(u8, types.symbolName(maybe_arrow), "=>")) {
+                    const arrow_rest = types.cdr(clause_body);
+                    if (!types.isPair(arrow_rest)) return CompileError.InvalidSyntax;
+                    const proc_expr = types.car(arrow_rest);
+                    const proc_reg = try self.allocReg();
+                    const arg_reg = try self.allocReg();
+                    try self.emitOp(.move);
+                    try self.emit(arg_reg);
+                    try self.emit(key_reg);
+                    try self.compileExpr(proc_expr, proc_reg, false);
+                    try self.emitOp(.move);
+                    try self.emit(dst);
+                    try self.emit(proc_reg);
+                    try self.emitOp(.move);
+                    try self.emit(@as(u8, dst) + 1);
+                    try self.emit(arg_reg);
+                    if (is_tail) try self.emitOp(.tail_call) else try self.emitOp(.call);
+                    try self.emit(dst);
+                    try self.emit(1);
+                    self.freeReg(); // arg_reg
+                    self.freeReg(); // proc_reg
+                    had_else = true;
+                    break;
+                }
+            }
             try conditionals.compileCondBody(self, clause_body, dst, is_tail);
             had_else = true;
             break;
@@ -301,6 +329,25 @@ pub fn compileQuasiquote(self: *Compiler, args: Value, dst: u8) CompileError!voi
 }
 
 fn compileQQ(self: *Compiler, tmpl: Value, dst: u8, depth: u8) CompileError!void {
+    if (types.isVector(tmpl)) {
+        // Vector quasiquote: desugar #(a ,b ,@c d) to (list->vector `(a ,b ,@c d))
+        const gc = self.gc;
+        const vec = types.toVector(tmpl);
+        // Convert vector elements to a list
+        var list: Value = types.NIL;
+        var i = vec.data.len;
+        while (i > 0) {
+            i -= 1;
+            list = gc.allocPair(vec.data[i], list) catch return CompileError.OutOfMemory;
+        }
+        // Build (list->vector <quasiquoted-list>)
+        const l2v_sym = gc.allocSymbol("list->vector") catch return CompileError.OutOfMemory;
+        const qq_sym = gc.allocSymbol("quasiquote") catch return CompileError.OutOfMemory;
+        const qq_form = gc.allocPair(qq_sym, gc.allocPair(list, types.NIL) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory;
+        const call = gc.allocPair(l2v_sym, gc.allocPair(qq_form, types.NIL) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory;
+        return self.compileExpr(call, dst, false);
+    }
+
     if (!types.isPair(tmpl)) {
         // Atom: treat as quoted constant
         const idx = try self.addConstant(tmpl);

@@ -103,12 +103,31 @@ fn withExceptionHandlerFn(args: []const Value) PrimitiveError!Value {
             return handler_result;
         }
         vm.popHandler();
-        return switch (err) {
-            vm_mod.VMError.TypeError => PrimitiveError.TypeError,
-            vm_mod.VMError.OutOfMemory => PrimitiveError.OutOfMemory,
-            vm_mod.VMError.DivisionByZero => PrimitiveError.DivisionByZero,
-            else => PrimitiveError.TypeError,
+        // Convert VM-level errors into Scheme exceptions so guard can catch them
+        const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+        const detail = vm.getErrorDetail();
+        const msg_str = if (detail.len > 0)
+            gc.allocString(detail) catch return PrimitiveError.OutOfMemory
+        else
+            gc.allocString("error") catch return PrimitiveError.OutOfMemory;
+        const err_obj = gc.allocErrorObject(msg_str, types.NIL) catch return PrimitiveError.OutOfMemory;
+        var handler_root = handler;
+        gc.pushRoot(&handler_root);
+        var err_root = err_obj;
+        gc.pushRoot(&err_root);
+        const handler_result = vm.callHandler(handler_root, err_root, 0) catch |herr| {
+            gc.popRoot();
+            gc.popRoot();
+            return switch (herr) {
+                vm_mod.VMError.ContinuationInvoked => PrimitiveError.ContinuationInvoked,
+                vm_mod.VMError.ExceptionRaised => PrimitiveError.ExceptionRaised,
+                vm_mod.VMError.OutOfMemory => PrimitiveError.OutOfMemory,
+                else => PrimitiveError.TypeError,
+            };
         };
+        gc.popRoot();
+        gc.popRoot();
+        return handler_result;
     };
 
     // Normal return -- pop the handler

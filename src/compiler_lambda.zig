@@ -75,6 +75,13 @@ pub fn compileLambda(self: *Compiler, args: Value, dst: u8) CompileError!void {
         }
     }
 
+    // Box parent locals that are captured as upvalues (enables shared mutation)
+    for (child.upvalues.items) |uv| {
+        if (uv.is_local) {
+            try self.markLocalBoxedBySlot(uv.index);
+        }
+    }
+
     // Store child function as constant and emit closure instruction
     const func_val = types.makePointer(@ptrCast(child.func));
     const idx = try self.addConstant(func_val);
@@ -188,9 +195,15 @@ pub fn compileSet(self: *Compiler, args: Value, dst: u8) CompileError!void {
 
     const name = types.symbolName(target);
     if (self.resolveLocal(name)) |slot| {
-        try self.emitOp(.move);
-        try self.emit(slot);
-        try self.emit(dst);
+        if (self.isLocalBoxed(name)) {
+            try self.emitOp(.set_box_local);
+            try self.emit(slot);
+            try self.emit(dst);
+        } else {
+            try self.emitOp(.move);
+            try self.emit(slot);
+            try self.emit(dst);
+        }
     } else if (try self.resolveUpvalue(name)) |idx| {
         try self.emitOp(.set_upvalue);
         try self.emit(idx);
