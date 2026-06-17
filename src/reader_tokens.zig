@@ -320,9 +320,25 @@ pub fn readCharacter(self: *Reader) ReadError!Token {
 
     const first_byte = self.source[self.pos];
 
-    // Try named character or single ASCII letter
+    // Try named character, hex literal, or single ASCII letter
     if (std.ascii.isAlphabetic(first_byte)) {
         const start = self.pos;
+        // If first char is 'x', also consume hex digits for #\xHHHH
+        if (first_byte == 'x' or first_byte == 'X') {
+            self.pos += 1;
+            if (self.pos < self.source.len and std.ascii.isHex(self.source[self.pos])) {
+                while (self.pos < self.source.len and std.ascii.isHex(self.source[self.pos])) {
+                    self.pos += 1;
+                }
+                const hex_str = self.source[start + 1 .. self.pos];
+                const cp = std.fmt.parseInt(u21, hex_str, 16) catch return ReadError.InvalidNumber;
+                return .{ .character = cp };
+            }
+            // Just #\x alone — return 'x'
+            if (self.pos >= self.source.len or !std.ascii.isAlphabetic(self.source[self.pos])) {
+                return .{ .character = first_byte };
+            }
+        }
         while (self.pos < self.source.len and std.ascii.isAlphabetic(self.source[self.pos])) {
             self.pos += 1;
         }
@@ -340,20 +356,6 @@ pub fn readCharacter(self: *Reader) ReadError!Token {
         if (std.ascii.eqlIgnoreCase(name, "delete")) return .{ .character = 0x7F };
         if (std.ascii.eqlIgnoreCase(name, "escape")) return .{ .character = 0x1B };
         return ReadError.InvalidCharacterName;
-    }
-
-    // Try hex escape: #\xNN...
-    if (first_byte == 'x' and self.pos + 1 < self.source.len and
-        std.ascii.isHex(self.source[self.pos + 1]))
-    {
-        // Already handled above for named chars like "x" alone,
-        // but "x" followed by hex digits is a hex literal
-        // Actually, single "x" was consumed above if alphabetic. This handles
-        // the case where the named char lookup fell through. But wait - "x" alone
-        // would be caught by name.len == 1 above. So #\x alone returns 'x'.
-        // For #\x41; we need to handle it: but R7RS hex chars use #\x<hex>;
-        // Let's not handle that here since the spec uses ; terminator and
-        // that's more complex. The simple #\x returns 'x' which is correct.
     }
 
     // Multi-byte UTF-8 character (e.g., #\λ)
