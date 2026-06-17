@@ -110,6 +110,7 @@ pub const CallFrame = struct {
     ip: usize,
     base: u16,
     dst: u8,
+    saved_wind_count: u16 = 0,
 };
 
 pub const StepMode = enum { none, step, next, continue_to_break };
@@ -274,6 +275,7 @@ pub const VM = struct {
                 .ip = 0,
                 .base = base,
                 .dst = return_dst,
+                .saved_wind_count = @intCast(self.wind_count),
             };
             self.frame_count += 1;
 
@@ -344,6 +346,7 @@ pub const VM = struct {
                 .ip = 0,
                 .base = base,
                 .dst = 0,
+                .saved_wind_count = @intCast(self.wind_count),
             };
             self.frame_count += 1;
 
@@ -452,6 +455,7 @@ pub const VM = struct {
                 .ip = 0,
                 .base = base,
                 .dst = 0,
+                .saved_wind_count = @intCast(self.wind_count),
             };
             self.frame_count += 1;
 
@@ -818,7 +822,13 @@ pub const VM = struct {
                     const src = self.readU8(frame);
                     const result = self.registers[frame.base + src];
                     const return_dst = frame.dst;
+                    const frame_wind = frame.saved_wind_count;
                     self.frame_count -= 1;
+                    // Unwind dynamic-wind records established in this frame
+                    while (self.wind_count > frame_wind) {
+                        self.wind_count -= 1;
+                        _ = self.callThunk(self.wind_stack[self.wind_count].after) catch {};
+                    }
                     if (self.frame_count <= target_frame_count) {
                         return result;
                     }
@@ -1176,6 +1186,7 @@ pub const VM = struct {
                 .ip = 0,
                 .base = new_base,
                 .dst = @intCast(base - self.frames[self.frame_count - 1].base),
+                .saved_wind_count = @intCast(self.wind_count),
             };
             self.frame_count += 1;
 
