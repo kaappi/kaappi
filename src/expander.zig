@@ -555,13 +555,17 @@ fn renameForHygiene(gc: *GC, name: []const u8, scope: u32, globals: ?*std.String
     // This preserves referential transparency AND allows set! to
     // mutate the original global (aliasing would create a separate binding).
     if (globals) |g| {
-        if (g.contains(name)) return gc.allocSymbol(name);
+        if (g.get(name)) |val| {
+            if (types.isProcedure(val) or types.isTransformer(val) or val == types.VOID) return gc.allocSymbol(name);
+        }
     }
-    // Also check the VM's global environment for runtime-defined bindings
-    // and imported macros that aren't in the compiler's globals table.
+    // Also check the VM's global environment for procedures and macros
+    // (but not plain variables, to avoid hygiene interference)
     const vm_mod = @import("vm.zig");
     if (vm_mod.vm_instance) |vm| {
-        if (vm.globals.contains(name)) return gc.allocSymbol(name);
+        if (vm.globals.get(name)) |val| {
+            if (types.isProcedure(val) or types.isTransformer(val)) return gc.allocSymbol(name);
+        }
     }
 
     // Check if we already renamed this (name, scope) pair
