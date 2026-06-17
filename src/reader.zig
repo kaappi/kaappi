@@ -96,6 +96,10 @@ pub const Reader = struct {
     }
 
     pub fn skipWhitespaceAndComments(self: *Reader) void {
+        self.skipWhitespaceAndCommentsChecked() catch {};
+    }
+
+    pub fn skipWhitespaceAndCommentsChecked(self: *Reader) ReadError!void {
         while (self.pos < self.source.len) {
             const c = self.source[self.pos];
             if (c == ' ' or c == '\t' or c == '\n' or c == '\r') {
@@ -106,7 +110,7 @@ pub const Reader = struct {
                 }
             } else if (c == '#' and self.pos + 1 < self.source.len and self.source[self.pos + 1] == ';') {
                 self.pos += 2;
-                _ = self.readDatum() catch {};
+                _ = try self.readDatum();
             } else if (c == '#' and self.pos + 1 < self.source.len and self.source[self.pos + 1] == '|') {
                 self.pos += 2;
                 self.skipBlockComment();

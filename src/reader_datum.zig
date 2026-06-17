@@ -73,7 +73,7 @@ fn tokenToValue(self: *Reader, tok: Token) ReadError!Value {
 }
 
 fn readList(self: *Reader) ReadError!Value {
-    self.skipWhitespaceAndComments();
+    try self.skipWhitespaceAndCommentsChecked();
     if (self.pos < self.source.len and self.source[self.pos] == ')') {
         self.pos += 1;
         return types.NIL;
@@ -84,12 +84,12 @@ fn readList(self: *Reader) ReadError!Value {
     self.gc.pushRoot(&first_root);
     defer self.gc.popRoot();
 
-    self.skipWhitespaceAndComments();
+    try self.skipWhitespaceAndCommentsChecked();
     if (self.pos < self.source.len and self.source[self.pos] == '.') {
         if (self.pos + 1 < self.source.len and Reader.isDelimiter(self.source[self.pos + 1])) {
             self.pos += 1;
             const rest = try readDatum(self);
-            self.skipWhitespaceAndComments();
+            try self.skipWhitespaceAndCommentsChecked();
             if (self.pos >= self.source.len or self.source[self.pos] != ')') {
                 return ReadError.UnexpectedChar;
             }
@@ -111,7 +111,7 @@ fn readList(self: *Reader) ReadError!Value {
 }
 
 fn readListTail(self: *Reader) ReadError!Value {
-    self.skipWhitespaceAndComments();
+    try self.skipWhitespaceAndCommentsChecked();
     if (self.pos >= self.source.len) return ReadError.UnexpectedEof;
     if (self.source[self.pos] == ')') {
         self.pos += 1;
@@ -124,7 +124,7 @@ fn readListTail(self: *Reader) ReadError!Value {
     {
         self.pos += 1;
         const rest = try readDatum(self);
-        self.skipWhitespaceAndComments();
+        try self.skipWhitespaceAndCommentsChecked();
         if (self.pos >= self.source.len or self.source[self.pos] != ')') {
             return ReadError.UnexpectedChar;
         }
@@ -175,7 +175,7 @@ fn readVector(self: *Reader) ReadError!Value {
     defer self.gc.extra_roots.shrinkRetainingCapacity(roots_base);
 
     while (true) {
-        self.skipWhitespaceAndComments();
+        try self.skipWhitespaceAndCommentsChecked();
         if (self.pos >= self.source.len) return ReadError.UnexpectedEof;
         if (self.source[self.pos] == ')') {
             self.pos += 1;
@@ -194,7 +194,7 @@ fn readBytevector(self: *Reader) ReadError!Value {
     defer bytes.deinit(self.gc.allocator);
 
     while (true) {
-        self.skipWhitespaceAndComments();
+        try self.skipWhitespaceAndCommentsChecked();
         if (self.pos >= self.source.len) return ReadError.UnexpectedEof;
         if (self.source[self.pos] == ')') {
             self.pos += 1;
