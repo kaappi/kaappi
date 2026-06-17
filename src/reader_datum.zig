@@ -81,13 +81,20 @@ fn readList(self: *Reader) ReadError!Value {
                 return ReadError.UnexpectedChar;
             }
             self.pos += 1;
-            return self.gc.allocPair(first_root, rest) catch return ReadError.OutOfMemory;
+            var rest_root = rest;
+            self.gc.pushRoot(&rest_root);
+            defer self.gc.popRoot();
+            return self.gc.allocPair(first_root, rest_root) catch return ReadError.OutOfMemory;
         }
     }
 
-    var rest = try readListTail(self);
-    _ = &rest;
-    return self.gc.allocPair(first_root, rest) catch return ReadError.OutOfMemory;
+    const rest = try readListTail(self);
+    // Root the tail across the final allocPair: allocPair runs maybeCollect()
+    // before allocating, and `rest` is otherwise unreachable from any GC root.
+    var rest_root = rest;
+    self.gc.pushRoot(&rest_root);
+    defer self.gc.popRoot();
+    return self.gc.allocPair(first_root, rest_root) catch return ReadError.OutOfMemory;
 }
 
 fn readListTail(self: *Reader) ReadError!Value {
@@ -118,7 +125,11 @@ fn readListTail(self: *Reader) ReadError!Value {
     defer self.gc.popRoot();
 
     const rest = try readListTail(self);
-    return self.gc.allocPair(elem_root, rest) catch return ReadError.OutOfMemory;
+    // Root the tail across the final allocPair (see readList).
+    var rest_root = rest;
+    self.gc.pushRoot(&rest_root);
+    defer self.gc.popRoot();
+    return self.gc.allocPair(elem_root, rest_root) catch return ReadError.OutOfMemory;
 }
 
 fn readAbbreviation(self: *Reader, keyword: []const u8) ReadError!Value {
@@ -133,12 +144,22 @@ fn readAbbreviation(self: *Reader, keyword: []const u8) ReadError!Value {
     defer self.gc.popRoot();
 
     const rest = self.gc.allocPair(datum_root, types.NIL) catch return ReadError.OutOfMemory;
-    return self.gc.allocPair(sym_root, rest) catch return ReadError.OutOfMemory;
+    var rest_root = rest;
+    self.gc.pushRoot(&rest_root);
+    defer self.gc.popRoot();
+    return self.gc.allocPair(sym_root, rest_root) catch return ReadError.OutOfMemory;
 }
 
 fn readVector(self: *Reader) ReadError!Value {
     var elems: std.ArrayList(Value) = .empty;
     defer elems.deinit(self.gc.allocator);
+
+    // Each readDatum below allocates and may trigger GC. Elements already read
+    // live only in `elems`, which is not a GC root, and rooting `&elems.items[i]`
+    // is unsafe because the list can realloc. Mirror them into the GC's by-value
+    // extra_roots (realloc-safe, scanned during marking) and drop them after.
+    const roots_base = self.gc.extra_roots.items.len;
+    defer self.gc.extra_roots.shrinkRetainingCapacity(roots_base);
 
     while (true) {
         self.skipWhitespaceAndComments();
@@ -149,6 +170,7 @@ fn readVector(self: *Reader) ReadError!Value {
         }
         const elem = try readDatum(self);
         elems.append(self.gc.allocator, elem) catch return ReadError.OutOfMemory;
+        self.gc.extra_roots.append(self.gc.allocator, elem) catch return ReadError.OutOfMemory;
     }
 
     return self.gc.allocVector(elems.items) catch return ReadError.OutOfMemory;

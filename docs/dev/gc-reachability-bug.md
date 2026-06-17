@@ -2,11 +2,19 @@
 
 ## Status
 
-**Workaround applied.** The sweep phase now skips immutable strings. The deeper root cause — why the mark phase fails to reach string literals in Function constant pools — is not fully resolved.
+**Resolved.** Root cause found and fixed; the immutable-string sweep workaround
+has been removed. The strings were never the problem with marking — they were
+being freed by the GC *before* they reached a constant pool, because the
+**reader and compiler held the source datum in unrooted locals across
+allocations that can trigger a collection**.
 
 ## Symptoms
 
-String literals display as `0xAA 0xAA` (DebugAllocator's freed-memory poison) instead of their actual content. Only occurs under heavy allocation pressure (35+ file reads in the `scripts/large-files.scm` tool). 100% reproducible and deterministic.
+String literals displayed as `0xAA 0xAA` (DebugAllocator's freed-memory poison)
+instead of their actual content. Occurred under heavy allocation pressure (e.g.
+35+ file reads in `scripts/large-files.scm`). Deterministic for a given build,
+but sensitive to exact allocation counts (a "heisenbug": adding/removing a few
+lines anywhere shifts GC timing and makes it appear/disappear).
 
 ## Reproduction
 
@@ -14,160 +22,89 @@ String literals display as `0xAA 0xAA` (DebugAllocator's freed-memory poison) in
 zig build run -- scripts/large-files.scm
 ```
 
-Output before fix:
+Output before the fix:
 ```
    1243██src/vm.zig    ##############################
 ```
+The `██` are bytes `0xAA 0xAA` — the literal `"  "` (two spaces) freed by GC and
+its data buffer overwritten by the poison pattern.
 
-The `██` characters are bytes `0xAA 0xAA` — the string `"  "` (two spaces) was freed by GC and its data buffer overwritten by DebugAllocator's poison pattern.
+## How it was diagnosed
 
-## Evidence collected
+1. **Amplified the bug deterministically.** The original symptom depended on
+   exact allocation counts. Temporarily forcing a full collection on *every*
+   allocation (`maybeCollect` → always `collect()`) made the corruption fire
+   reliably regardless of workload — the technique suggested as item #4 in the
+   original investigation.
 
-### 1. The corruption is in string DATA, not the string object
+2. **Instrumented the sweep.** After marking but before sweeping, the diagnostic
+   walked the heap for unmarked `immutable` strings and reported what held them.
+   The decisive finding contradicted the original hypothesis: the freed `"  "`
+   strings were **not in any function constant pool** — they were held by an
+   **unmarked pair**, i.e. they were still part of the in-flight source datum,
+   not yet compiled.
 
-The SchemeString object itself survives (otherwise `display` would crash on a bad tag). But `str.data` points to freed memory. When `freeObject` runs for a string, it does:
+3. **Followed the datum upstream.** That pointed at two unrooted windows:
+   - **Reader.** In `readList`/`readListTail`/`readAbbreviation`, the list *tail*
+     (`rest`) was passed to `allocPair(car, rest)` while unrooted. `allocPair`
+     runs `maybeCollect()` *before* allocating, so a collection there could free
+     the tail (its pairs **and** their string elements). `readVector` had the
+     same flaw: elements already read sat in an unrooted `ArrayList` while later
+     elements were read.
+   - **Compiler.** `Compiler.compile(expr)` walked `expr` without rooting it. The
+     compiler roots its in-progress `Function` (via `extra_roots`), so a literal
+     was safe *once `addConstant` stored it* — but the expander and derived-form
+     compilers allocate while walking earlier parts of the form, and any
+     collection then freed the not-yet-compiled tail of `expr`, leaving the
+     compiler to store a dangling string pointer in the constant pool. The
+     macro-expansion path (`compileExpr(expanded, …)`) had the same gap for the
+     freshly allocated expanded form.
 
-```zig
-self.allocator.free(str.data);   // fills with 0xAA
-self.allocator.destroy(str);      // frees the object
-```
+This is why only **reader-created (immutable) strings** were affected, why they
+were always in list **tails**, and why it only happened under allocation
+pressure (a GC had to fire *during* a read or compile).
 
-The data is freed first, so a dangling SchemeString pointing to freed data would read `0xAA` bytes.
+## Fix
 
-### 2. Exactly 2 immutable strings are freed
+Root the in-flight data across the allocations that can collect:
 
-Instrumentation in the sweep phase confirmed that exactly 2 strings with `immutable = true`, length 2, content `"  "` were freed. These match the two `(display "  ")` calls in the script at lines 83 and 85.
+- `reader_datum.zig`: root `rest` before each terminal `allocPair` in
+  `readList`, `readListTail`, and `readAbbreviation`; mirror `readVector`
+  elements into the GC's by-value `extra_roots` while accumulating (rooting
+  `&elems.items[i]` would be unsafe — the `ArrayList` can realloc).
+- `compiler.zig`: root the source `expr` for the duration of `compile()`, root
+  the expanded form across the macro-expansion `compileExpr` call, and root all
+  `exprs` across `compileMultiple()`.
+- `memory.zig`: removed the immutable-string sweep workaround.
 
-### 3. The strings are constant pool entries
+## Related bug found and fixed (same class)
 
-String literals from source code are:
-1. Read by the reader → `gc.allocString(data)`
-2. Marked as immutable: `str.immutable = true`
-3. Returned as datum Values
-4. Compiled: stored in Function's constant pool via `addConstant`
-5. At runtime: loaded via `load_const` instruction
+`runFile` collects every top-level `*Function` into a plain `ArrayList`
+(`compiled_funcs`) to write the `.sbc` bytecode cache at the end. That list is
+not a GC root, and each function is removed from `extra_roots` after its own
+compile and `popRoot`'d after its own `execute` — so a collection triggered
+while executing a *later* top-level form could free an earlier function. The
+cache writer (`bytecode_file.collectNestedFunctions`) then walked freed memory
+and segfaulted (`0xaaaaaaaaaaaaaaaa`). This affected import-free scripts (the
+cache is skipped when imports are present), e.g. `tests/scheme/compliance/lists.scm`.
+Fixed by rooting each collected function in `extra_roots` for the rest of the run.
 
-### 4. The reachability chain (should work but doesn't)
+## Verification
 
-```
-Root: markVMRoots()
-  ↓
-  vm.frames[i].closure → Closure object (marked)
-  ↓
-  closure.func → Function object (marked)
-  ↓
-  function.constants.items[j] → string literal (SHOULD be marked)
-```
+- `zig build test` passes.
+- `scripts/large-files.scm` renders correctly with the workaround removed.
+- With GC forced on every allocation, the freed-string diagnostic reports zero
+  live strings freed; with an aggressive fixed threshold the entire
+  `tests/scheme` suite (41 files) runs crash-free.
 
-Each step in this chain has correct marking code:
-- `markVMRoots` marks all frame closures (line 51, vm.zig)
-- Closure marking traces `cls.func` (line 698, memory.zig)
-- Function marking iterates ALL constants (line 703, memory.zig)
+## Unrelated pre-existing crashes (not GC; out of scope)
 
-### 5. The bug does NOT reproduce in structurally similar test files
+Surfaced while sweeping the test suite; confirmed identical on the pre-fix
+commit, so not introduced here:
 
-A standalone test file with the exact same logic (read 35 files, sort, display with pad-left/pad-right) does NOT corrupt strings. The corruption only occurs in the actual `scripts/large-files.scm` file.
-
-## Hypotheses
-
-### H1: The Function is freed during execution (UNLIKELY)
-
-If the Function object itself is freed, all its constants would be freed. This would cause crashes in the bytecode dispatch loop (reading freed code bytes), not just string corruption. Since only strings are corrupted, the Function is likely alive.
-
-### H2: The constant pool ArrayList backing array is reallocated (UNLIKELY)
-
-`Function.constants` is an `ArrayList(Value)`. If the ArrayList were resized during execution, the old backing array would be freed and the new one wouldn't be in the GC's object list (it's not a GC-tracked object — it's a raw allocator array). But the constant pool is only modified during COMPILATION, not during EXECUTION. After compilation, `constants.items` is stable.
-
-### H3: The string literal's GC object is reused (POSSIBLE)
-
-The GC tracks objects via an intrusive linked list (`Object.next`). When a string is freed in `sweep`, it's unlinked from the list and destroyed. If the freed memory is reused for a NEW string with the same data pointer... no, DebugAllocator wouldn't reuse memory that fast.
-
-### H4: The frame's `locals_count` is too small, causing register under-marking (MOST LIKELY)
-
-`markVMRoots` marks each frame's register window:
-
-```zig
-const window: usize = if (f.closure) |cls| blk: {
-    const lc = cls.func.locals_count;
-    break :blk if (lc == 0) 256 else @as(usize, lc);
-} else 256;
-const end: usize = @min(@as(usize, f.base) + window, MAX_REGISTERS);
-```
-
-`locals_count` is the compiler's recorded high-water mark of registers used. If a function uses register N for a `load_const` but `locals_count < N`, the register won't be marked. The Value in that register (the string) becomes unreachable from the frame's perspective.
-
-However, the string is ALSO in the Function's constant pool, which should be marked independently. Unless the Function is reached via a different path (globals, not frame closure) and the global's Function pointer doesn't match.
-
-### H5: The `call_global` superinstruction doesn't set `frame.closure` correctly (POSSIBLE)
-
-The `call_global` opcode stores the callee at `registers[base]` and calls `callValue`. For closures, `callValue` → `callClosure` creates a new frame with `frame.closure = closure`. But `call_global` bypasses the normal `get_global + call` path. If the callee resolved from the global cache is a STALE closure (from a previous compilation), the frame's Function has different constants.
-
-But we fixed the global cache to clear on version mismatch. And the `show` function is defined once and called multiple times with the same closure.
-
-### H6: The `string-append` in `pad-left`/`pad-right` triggers GC that frees string constants (POSSIBLE)
-
-`pad-left` calls `(string-append (make-string N #\space) s)`. The `string-append` native function:
-1. Computes total length
-2. Allocates temporary buffer via `gc.allocator.alloc` (raw, no GC)
-3. Copies data from arguments
-4. Calls `gc.allocString(result)` which triggers `maybeCollect()`
-5. GC runs, marks reachable objects, sweeps unreachable ones
-
-At step 4, the arguments are in VM registers (from the `call` instruction). The caller's frame should mark them. But if the caller's `locals_count` doesn't cover the argument registers...
-
-This is essentially H4 again. The issue is that `locals_count` might not cover all live registers.
-
-## How `locals_count` is set
-
-In `allocReg()` (compiler.zig):
-
-```zig
-pub fn allocReg(self: *Compiler) CompileError!u8 {
-    ...
-    if (self.next_register > self.func.locals_count) {
-        self.func.locals_count = self.next_register;
-    }
-    return reg;
-}
-```
-
-`locals_count` tracks the peak register usage during compilation. It should cover all registers used by the function. But if a register is used for a temporary value (like a call argument) and then freed, `locals_count` still records the peak.
-
-The issue might be: `compileCallGlobal` uses `allocReg` for the base register but doesn't allocate a register for the CALLEE (the `call_global` handler fills it at runtime). So `locals_count` might be 1 less than expected, leaving the callee's register unmarked.
-
-But the callee register holds the closure, not the string. The string is in a different register (the argument).
-
-## Recommended further investigation
-
-1. **Add assertion in markVMRoots**: verify that `frame.closure.func.locals_count` covers `frame.base + <highest used register>` for each frame. Log any discrepancy.
-
-2. **Track string constant pool membership**: add a `in_constant_pool: bool` flag to SchemeString. Set it when `addConstant` adds a string. In sweep, assert that `in_constant_pool` strings are always marked.
-
-3. **Compare frame closures**: log the closure and function pointers for each frame during GC. Verify the function's constants include the string literal.
-
-4. **Test with GC on every allocation**: set `GC_THRESHOLD = 1` to trigger GC maximally. This amplifies any timing-dependent reachability bugs.
-
-5. **Binary search for the trigger**: start with 5 files (works) and increase until corruption appears. Find the exact allocation count that triggers the bug.
-
-## Current workaround
-
-The sweep phase skips immutable strings:
-
-```zig
-if (o.tag == .string) {
-    const str = o.as(SchemeString);
-    if (str.immutable) {
-        o.marked = false;
-        prev = o;
-        obj = o.next;
-        continue;
-    }
-}
-```
-
-This is safe because:
-- Immutable strings are only created by the reader for string literals
-- They're never mutated
-- They're typically small (< 100 bytes)
-- The memory leak is negligible
-- The correctness benefit is critical
+- `string-copy!` calls `@memcpy` with overlapping source/destination
+  (`primitives_string.zig` `stringCopyBangFn`) — panics on aliasing input
+  (`tests/scheme/r7rs-tests.scm`).
+- Deep `force`/promise recursion overflows the fixed 1024-entry frame/register
+  arrays (`index out of bounds: index 1201, len 1024`) in
+  `tests/scheme/r7rs/{combined-tests,r7rs-tests}.scm`.

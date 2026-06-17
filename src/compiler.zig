@@ -208,8 +208,17 @@ pub const Compiler = struct {
     // -- Public compilation API --
 
     pub fn compile(self: *Compiler, expr: Value) CompileError!void {
+        // Root the source datum for the whole compile: the expander and the
+        // derived-form compilers allocate (triggering GC), and the datum tree
+        // is otherwise reachable only through this unrooted argument. Without
+        // this, not-yet-compiled tails of the form (e.g. string literals) can
+        // be swept mid-compilation and end up as dangling constant-pool entries.
+        var expr_root = expr;
+        self.gc.pushRoot(&expr_root);
+        defer self.gc.popRoot();
+
         const dst = try self.allocReg();
-        try self.compileExpr(expr, dst, false);
+        try self.compileExpr(expr_root, dst, false);
         try self.emitOp(.@"return");
         try self.emit(dst);
 
@@ -226,6 +235,11 @@ pub const Compiler = struct {
     }
 
     pub fn compileMultiple(self: *Compiler, exprs: []const Value) CompileError!void {
+        // Keep all source data rooted across compilation (see compile()).
+        const roots_base = self.gc.extra_roots.items.len;
+        defer self.gc.extra_roots.shrinkRetainingCapacity(roots_base);
+        for (exprs) |e| self.gc.extra_roots.append(self.gc.allocator, e) catch {};
+
         if (exprs.len == 0) {
             const dst = try self.allocReg();
             try self.emitOp(.load_void);
@@ -436,7 +450,12 @@ pub const Compiler = struct {
             // Check if head is a macro keyword
             if (self.lookupMacro(name)) |transformer| {
                 const expanded = expander.expandMacro(self.gc, expr, transformer, self.globals, &self.macros) catch return CompileError.InvalidSyntax;
-                return self.compileExpr(expanded, dst, is_tail);
+                // The expanded form is freshly allocated and unreachable from
+                // any root; compiling it allocates further, so keep it rooted.
+                var expanded_root = expanded;
+                self.gc.pushRoot(&expanded_root);
+                defer self.gc.popRoot();
+                return self.compileExpr(expanded_root, dst, is_tail);
             }
         }
 

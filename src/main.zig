@@ -263,8 +263,12 @@ fn runFile(vm: *vm_mod.VM, path: []const u8) !void {
         func.source_line = datum_lc.line;
         func.source_name = path;
 
-        // Collect for caching
+        // Collect for caching. Keep each collected function rooted for the rest
+        // of the run: the .sbc cache writer walks compiled_funcs at the end, so
+        // these pointers must survive GC triggered while executing later forms.
+        // (A plain ArrayList of *Function is not a GC root.)
         compiled_funcs.append(allocator, func) catch {};
+        vm.gc.extra_roots.append(allocator, types.makePointer(@ptrCast(func))) catch {};
 
         // Root the function to prevent GC from collecting it before execute wraps it in a closure
         var func_val = types.makePointer(@ptrCast(func));
