@@ -423,42 +423,49 @@ fn stringToNumber(args: []const Value) PrimitiveError!Value {
     const str = types.toObject(args[0]).as(types.SchemeString);
     const s = str.data[0..str.len];
 
-    // Check for special float values
+    var radix: u8 = 10;
+    if (args.len > 1) {
+        if (!types.isFixnum(args[1])) return PrimitiveError.TypeError;
+        const r = types.toFixnum(args[1]);
+        if (r < 2 or r > 36) return types.FALSE;
+        radix = @intCast(@as(u64, @bitCast(r)));
+    }
+
     if (std.mem.eql(u8, s, "+inf.0")) return gc.allocFlonum(std.math.inf(f64)) catch return PrimitiveError.OutOfMemory;
     if (std.mem.eql(u8, s, "-inf.0")) return gc.allocFlonum(-std.math.inf(f64)) catch return PrimitiveError.OutOfMemory;
     if (std.mem.eql(u8, s, "+nan.0")) return gc.allocFlonum(std.math.nan(f64)) catch return PrimitiveError.OutOfMemory;
     if (std.mem.eql(u8, s, "-nan.0")) return gc.allocFlonum(std.math.nan(f64)) catch return PrimitiveError.OutOfMemory;
 
-    // Try rational N/D
-    if (std.mem.indexOfScalar(u8, s, '/')) |slash_pos| {
-        if (slash_pos > 0 and slash_pos + 1 < s.len) {
-            const num_str = s[0..slash_pos];
-            const den_str = s[slash_pos + 1 ..];
-            if (std.fmt.parseInt(i64, num_str, 10)) |num| {
-                if (std.fmt.parseInt(i64, den_str, 10)) |den| {
-                    if (den == 0) return types.FALSE;
-                    return arith.makeRationalFromReader(gc, num, den) catch return PrimitiveError.OutOfMemory;
+    if (radix == 10) {
+        if (std.mem.indexOfScalar(u8, s, '/')) |slash_pos| {
+            if (slash_pos > 0 and slash_pos + 1 < s.len) {
+                const num_str = s[0..slash_pos];
+                const den_str = s[slash_pos + 1 ..];
+                if (std.fmt.parseInt(i64, num_str, 10)) |num| {
+                    if (std.fmt.parseInt(i64, den_str, 10)) |den| {
+                        if (den == 0) return types.FALSE;
+                        return arith.makeRationalFromReader(gc, num, den) catch return PrimitiveError.OutOfMemory;
+                    } else |_| {}
                 } else |_| {}
-            } else |_| {}
+            }
         }
     }
 
-    // Try integer first
-    if (std.fmt.parseInt(i64, s, 10)) |n| {
+    if (std.fmt.parseInt(i64, s, radix)) |n| {
         return types.makeFixnum(n);
     } else |err| {
-        if (err == error.Overflow) {
-            // Try as bignum
+        if (err == error.Overflow and radix == 10) {
             return bignum_mod.parseBignumString(gc, s) catch return PrimitiveError.OutOfMemory;
         }
     }
 
-    // Try float
-    if (std.fmt.parseFloat(f64, s)) |f| {
-        return gc.allocFlonum(f) catch return PrimitiveError.OutOfMemory;
-    } else |_| {}
+    if (radix == 10) {
+        if (std.fmt.parseFloat(f64, s)) |f| {
+            return gc.allocFlonum(f) catch return PrimitiveError.OutOfMemory;
+        } else |_| {}
+    }
 
-    return types.FALSE; // R7RS: return #f on failure
+    return types.FALSE;
 }
 
 // ---------------------------------------------------------------------------

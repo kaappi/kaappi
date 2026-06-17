@@ -44,7 +44,7 @@ pub fn registerString(vm: *vm_mod.VM) !void {
 
     // Number/string conversion (also in arithmetic, but base library needs these)
     // number->string is registered in primitives_arithmetic.zig (handles bignums)
-    try reg(vm, "string->number", &stringToNumberFn, .{ .variadic = 1 });
+    // string->number registered in primitives_numeric.zig (supports radix parameter)
 
     // Char operations
     try reg(vm, "char->integer", &charToIntegerFn, .{ .exact = 1 });
