@@ -56,7 +56,7 @@ pub fn registerNumeric(vm: *vm_mod.VM) !void {
     try reg(vm, "nan?", &nanP, .{ .exact = 1 });
 
     // Number/string conversion
-    try reg(vm, "number->string", &numberToString, .{ .exact = 1 });
+    try reg(vm, "number->string", &numberToString, .{ .variadic = 1 });
     try reg(vm, "string->number", &stringToNumber, .{ .variadic = 1 });
 
     // Complex numbers
@@ -348,7 +348,34 @@ fn nanP(args: []const Value) PrimitiveError!Value {
 
 fn numberToString(args: []const Value) PrimitiveError!Value {
     const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    var radix: u8 = 10;
+    if (args.len > 1) {
+        if (!types.isFixnum(args[1])) return PrimitiveError.TypeError;
+        const r = types.toFixnum(args[1]);
+        if (r < 2 or r > 36) return PrimitiveError.TypeError;
+        radix = @intCast(@as(u64, @bitCast(r)));
+    }
     if (types.isFixnum(args[0])) {
+        if (radix != 10) {
+            var buf: [68]u8 = undefined;
+            var n = types.toFixnum(args[0]);
+            const neg = n < 0;
+            if (neg) n = -n;
+            var pos: usize = buf.len;
+            if (n == 0) {
+                pos -= 1;
+                buf[pos] = '0';
+            } else {
+                while (n > 0) {
+                    pos -= 1;
+                    const digit: u8 = @intCast(@as(u64, @bitCast(@rem(n, @as(i64, radix)))));
+                    buf[pos] = if (digit < 10) '0' + digit else 'a' + digit - 10;
+                    n = @divTrunc(n, @as(i64, radix));
+                }
+            }
+            if (neg) { pos -= 1; buf[pos] = '-'; }
+            return gc.allocString(buf[pos..]) catch return PrimitiveError.OutOfMemory;
+        }
         var buf: [32]u8 = undefined;
         const s = std.fmt.bufPrint(&buf, "{d}", .{types.toFixnum(args[0])}) catch return PrimitiveError.OutOfMemory;
         return gc.allocString(s) catch return PrimitiveError.OutOfMemory;
