@@ -192,22 +192,19 @@ pub const ExpandError = error{
 // ---------------------------------------------------------------------------
 
 fn matchPattern(pattern: Value, input: Value, literals: []const Value, bindings: *[MAX_BINDINGS]Binding, count: *usize) bool {
-    // Underscore: match anything, bind nothing
-    if (types.isSymbol(pattern) and std.mem.eql(u8, types.symbolName(pattern), "_")) {
-        return true;
-    }
-
     // Symbol patterns
     if (types.isSymbol(pattern)) {
         const name = types.symbolName(pattern);
 
-        // Check if it's a literal
+        // Check if it's a literal (including _ when in literals list)
         for (literals) |lit| {
             if (types.isSymbol(lit) and std.mem.eql(u8, types.symbolName(lit), name)) {
-                // Literal: must match exactly
                 return types.isSymbol(input) and std.mem.eql(u8, types.symbolName(input), name);
             }
         }
+
+        // Underscore (not in literals): match anything, bind nothing
+        if (std.mem.eql(u8, name, "_")) return true;
 
         // Pattern variable: bind to input
         if (count.* >= MAX_BINDINGS) return false;
@@ -412,6 +409,18 @@ fn instantiateTemplate(gc: *GC, template: Value, bindings: []Binding, intro_scop
 
     if (!types.isPair(template)) return template;
 
+    // Check for (quote ...) — substitute pattern vars but skip hygiene renaming
+    const tmpl_head = types.car(template);
+    if (types.isSymbol(tmpl_head) and std.mem.eql(u8, types.symbolName(tmpl_head), "quote")) {
+        const q_rest = types.cdr(template);
+        if (q_rest != types.NIL and types.isPair(q_rest)) {
+            const quoted = types.car(q_rest);
+            const new_quoted = try instantiateTemplate(gc, quoted, bindings, 0, literals, macro_keyword, globals, macros);
+            return gc.allocPair(tmpl_head, try gc.allocPair(new_quoted, types.NIL));
+        }
+        return template;
+    }
+
     // Check for ellipsis in template: (Te ...)
     const elem = types.car(template);
     const rest = types.cdr(template);
@@ -500,7 +509,26 @@ fn instantiateEllipsis(gc: *GC, elem_template: Value, rest_template: Value, bind
 /// macro invocation (identified by `scope`), the same original name always
 /// maps to the same gensym, ensuring internal references stay consistent
 /// while avoiding capture of user bindings.
+fn substitutePatternVarsOnly(gc: *GC, template: Value, bindings: []Binding) !Value {
+    if (types.isSymbol(template)) {
+        const name = types.symbolName(template);
+        for (bindings) |b| {
+            if (std.mem.eql(u8, b.name, name)) return b.value;
+        }
+        return template;
+    }
+    if (!types.isPair(template)) return template;
+    const new_car = try substitutePatternVarsOnly(gc, types.car(template), bindings);
+    var car_root = new_car;
+    gc.pushRoot(&car_root);
+    const new_cdr = try substitutePatternVarsOnly(gc, types.cdr(template), bindings);
+    gc.popRoot();
+    return gc.allocPair(car_root, new_cdr);
+}
+
 fn renameForHygiene(gc: *GC, name: []const u8, scope: u32, globals: ?*std.StringHashMap(Value)) !Value {
+    // scope 0 means inside (quote ...) — skip renaming
+    if (scope == 0) return gc.allocSymbol(name);
     // If the name exists as a global binding, keep it as-is.
     // This preserves referential transparency AND allows set! to
     // mutate the original global (aliasing would create a separate binding).
