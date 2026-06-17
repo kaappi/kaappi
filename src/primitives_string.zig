@@ -313,8 +313,15 @@ fn stringCopyBangFn(args: []const Value) PrimitiveError!Value {
     const dst_old_len = to_byte_end - to_byte_start;
 
     if (src_bytes.len == dst_old_len) {
-        // Same byte length: copy in-place
-        @memcpy(to_str.data[to_byte_start..to_byte_end], src_bytes);
+        // Same byte length: copy in-place. `to` and `from` may be the same
+        // string with overlapping ranges, so use overlap-safe (memmove-style)
+        // copies rather than @memcpy, which traps on aliasing arguments.
+        const dst = to_str.data[to_byte_start..to_byte_end];
+        if (@intFromPtr(dst.ptr) < @intFromPtr(src_bytes.ptr)) {
+            std.mem.copyForwards(u8, dst, src_bytes);
+        } else {
+            std.mem.copyBackwards(u8, dst, src_bytes);
+        }
     } else {
         // Different byte lengths: rebuild target string
         const new_total = to_data.len - dst_old_len + src_bytes.len;
