@@ -65,23 +65,77 @@ fn handleDefineValues(vm: *VM, args: Value) VMError!Value {
 
     if (types.isMultipleValues(result)) {
         const mv = types.toObject(result).as(types.MultipleValues);
-        var formal = formals;
-        var i: usize = 0;
-        while (formal != types.NIL and i < mv.values.len) {
-            if (!types.isPair(formal)) return VMError.CompileError;
-            const var_sym = types.car(formal);
-            if (!types.isSymbol(var_sym)) return VMError.CompileError;
-            vm.globals.put(types.symbolName(var_sym), mv.values[i]) catch return VMError.OutOfMemory;
+        if (types.isSymbol(formals)) {
+            // (define-values x (values 1 2 3)) → x = (1 2 3)
+            var result_root = result;
+            vm.gc.pushRoot(&result_root);
+            var list: Value = types.NIL;
+            vm.gc.pushRoot(&list);
+            const mv2 = types.toObject(result_root).as(types.MultipleValues);
+            var j: usize = mv2.values.len;
+            while (j > 0) {
+                j -= 1;
+                list = vm.gc.allocPair(mv2.values[j], list) catch {
+                    vm.gc.popRoot();
+                    vm.gc.popRoot();
+                    return VMError.OutOfMemory;
+                };
+            }
+            vm.gc.popRoot();
+            vm.gc.popRoot();
+            vm.globals.put(types.symbolName(formals), list) catch return VMError.OutOfMemory;
             vm.global_version +%= 1;
-            formal = types.cdr(formal);
-            i += 1;
+        } else {
+            var formal = formals;
+            var i: usize = 0;
+            while (formal != types.NIL and i < mv.values.len) {
+                if (types.isSymbol(formal)) {
+                    // Rest parameter: (define-values (a b . rest) ...)
+                    var result_root = result;
+                    vm.gc.pushRoot(&result_root);
+                    var rest_list: Value = types.NIL;
+                    vm.gc.pushRoot(&rest_list);
+                    const mv2 = types.toObject(result_root).as(types.MultipleValues);
+                    var j: usize = mv2.values.len;
+                    while (j > i) {
+                        j -= 1;
+                        rest_list = vm.gc.allocPair(mv2.values[j], rest_list) catch {
+                            vm.gc.popRoot();
+                            vm.gc.popRoot();
+                            return VMError.OutOfMemory;
+                        };
+                    }
+                    vm.gc.popRoot();
+                    vm.gc.popRoot();
+                    vm.globals.put(types.symbolName(formal), rest_list) catch return VMError.OutOfMemory;
+                    vm.global_version +%= 1;
+                    break;
+                }
+                if (!types.isPair(formal)) return VMError.CompileError;
+                const var_sym = types.car(formal);
+                if (!types.isSymbol(var_sym)) return VMError.CompileError;
+                vm.globals.put(types.symbolName(var_sym), mv.values[i]) catch return VMError.OutOfMemory;
+                vm.global_version +%= 1;
+                formal = types.cdr(formal);
+                i += 1;
+            }
         }
     } else {
-        if (types.isPair(formals)) {
+        if (types.isSymbol(formals)) {
+            // (define-values x expr) → x = (result)
+            const list = vm.gc.allocPair(result, types.NIL) catch return VMError.OutOfMemory;
+            vm.globals.put(types.symbolName(formals), list) catch return VMError.OutOfMemory;
+            vm.global_version +%= 1;
+        } else if (types.isPair(formals)) {
             const var_sym = types.car(formals);
             if (types.isSymbol(var_sym)) {
                 vm.globals.put(types.symbolName(var_sym), result) catch return VMError.OutOfMemory;
                 vm.global_version +%= 1;
+                const next = types.cdr(formals);
+                if (types.isSymbol(next)) {
+                    vm.globals.put(types.symbolName(next), types.NIL) catch return VMError.OutOfMemory;
+                    vm.global_version +%= 1;
+                }
             }
         }
     }
