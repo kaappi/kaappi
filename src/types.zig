@@ -193,12 +193,18 @@ pub const Flonum = struct {
     value: f64,
 };
 
+pub const CapturedLocal = struct {
+    name: []const u8,
+    slot: u8,
+};
+
 pub const Transformer = struct {
     header: Object,
     literals: []Value,
     patterns: []Value,
     templates: []Value,
     num_rules: u16,
+    captured_locals: []CapturedLocal = &.{},
 };
 
 pub const ErrorObject = struct {

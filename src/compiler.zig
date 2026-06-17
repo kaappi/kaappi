@@ -491,13 +491,34 @@ pub const Compiler = struct {
                 while (it.next()) |entry| {
                     merged_macros.put(entry.key_ptr.*, entry.value_ptr.*) catch {};
                 }
+                const tx = types.toObject(transformer).as(types.Transformer);
+                // Temporarily add captured locals to globals so the expander doesn't rename them
+                if (self.globals) |g| {
+                    for (tx.captured_locals) |cap| {
+                        if (!g.contains(cap.name)) {
+                            g.put(cap.name, types.VOID) catch {};
+                        }
+                    }
+                }
                 const expanded = expander.expandMacro(self.gc, expr, transformer, self.globals, &merged_macros) catch return CompileError.InvalidSyntax;
-                // The expanded form is freshly allocated and unreachable from
-                // any root; compiling it allocates further, so keep it rooted.
                 var expanded_root = expanded;
                 self.gc.pushRoot(&expanded_root);
                 defer self.gc.popRoot();
-                return self.compileExpr(expanded_root, dst, is_tail);
+                // Inject captured locals from the macro definition site
+                const saved_locals_len = self.locals.items.len;
+                for (tx.captured_locals) |cap| {
+                    self.locals.append(self.gc.allocator, .{
+                        .name = cap.name,
+                        .depth = self.scope_depth,
+                        .slot = cap.slot,
+                    }) catch {};
+                }
+                const result_err = self.compileExpr(expanded_root, dst, is_tail);
+                // Remove injected locals
+                while (self.locals.items.len > saved_locals_len) {
+                    _ = self.locals.pop();
+                }
+                return result_err;
             }
         }
 
@@ -698,6 +719,17 @@ pub const Compiler = struct {
                 saved_count += 1;
             }
 
+            // Capture current locals for referential transparency
+            if (self.locals.items.len > 0) {
+                const tx = types.toObject(transformer).as(types.Transformer);
+                const caps = self.gc.allocator.alloc(types.CapturedLocal, self.locals.items.len) catch return CompileError.OutOfMemory;
+                if (caps.len > 0) {
+                    for (self.locals.items, 0..) |local, ci| {
+                        caps[ci] = .{ .name = local.name, .slot = local.slot };
+                    }
+                    tx.captured_locals = caps;
+                }
+            }
             self.macros.put(name, transformer) catch return CompileError.OutOfMemory;
 
             binding_list = types.cdr(binding_list);
