@@ -269,11 +269,17 @@ fn numberP(args: []const Value) PrimitiveError!Value {
 
 fn integerP(args: []const Value) PrimitiveError!Value {
     if (types.isFixnum(args[0]) or types.isBignum(args[0])) return types.TRUE;
-    if (types.isRationalObj(args[0])) return types.FALSE; // rational with den > 1 is not integer
+    if (types.isRationalObj(args[0])) return types.FALSE;
     if (types.isFlonum(args[0])) {
         const f = types.toFlonum(args[0]);
         if (std.math.isNan(f) or std.math.isInf(f)) return types.FALSE;
         return if (f == @trunc(f)) types.TRUE else types.FALSE;
+    }
+    if (types.isComplex(args[0])) {
+        const c = types.toComplex(args[0]);
+        if (c.imag != 0) return types.FALSE;
+        if (std.math.isNan(c.real) or std.math.isInf(c.real)) return types.FALSE;
+        return if (c.real == @trunc(c.real)) types.TRUE else types.FALSE;
     }
     return types.FALSE;
 }
@@ -283,7 +289,11 @@ fn complexP(args: []const Value) PrimitiveError!Value {
 }
 
 fn realP(args: []const Value) PrimitiveError!Value {
-    return if (types.isFixnum(args[0]) or types.isFlonum(args[0]) or types.isBignum(args[0]) or types.isRationalObj(args[0])) types.TRUE else types.FALSE;
+    if (types.isFixnum(args[0]) or types.isFlonum(args[0]) or types.isBignum(args[0]) or types.isRationalObj(args[0])) return types.TRUE;
+    if (types.isComplex(args[0])) {
+        return if (types.toComplex(args[0]).imag == 0) types.TRUE else types.FALSE;
+    }
+    return types.FALSE;
 }
 
 fn rationalP(args: []const Value) PrimitiveError!Value {
@@ -358,6 +368,17 @@ fn eqvP(args: []const Value) PrimitiveError!Value {
         const bignum_mod = @import("bignum.zig");
         return if (bignum_mod.compare(args[0], args[1]) == 0) types.TRUE else types.FALSE;
     }
+    // Two complex numbers are eqv? if both components match bitwise (same rule
+    // as flonums, so NaN/-0.0 behave consistently).
+    if (types.isComplex(args[0]) and types.isComplex(args[1])) {
+        const ca = types.toComplex(args[0]);
+        const cb = types.toComplex(args[1]);
+        const ra: u64 = @bitCast(ca.real);
+        const rb: u64 = @bitCast(cb.real);
+        const ia: u64 = @bitCast(ca.imag);
+        const ib: u64 = @bitCast(cb.imag);
+        return if (ra == rb and ia == ib) types.TRUE else types.FALSE;
+    }
     // Two rationals are eqv? if they have the same numerator and denominator
     // (they are always in lowest terms so this is sufficient)
     if (types.isRationalObj(args[0]) and types.isRationalObj(args[1])) {
@@ -392,6 +413,16 @@ fn deepEqualWithVisited(a: Value, b: Value, visited: *[MAX_VISITED][2]Value, vis
             const bignum_mod = @import("bignum.zig");
             return bignum_mod.compare(a, b) == 0;
         }
+    }
+    // Complex equality (bitwise on both components, matching eqv?)
+    if (types.isComplex(a) and types.isComplex(b)) {
+        const ca = types.toComplex(a);
+        const cb = types.toComplex(b);
+        const ra: u64 = @bitCast(ca.real);
+        const rb: u64 = @bitCast(cb.real);
+        const ia: u64 = @bitCast(ca.imag);
+        const ib: u64 = @bitCast(cb.imag);
+        return ra == rb and ia == ib;
     }
     // Rational equality
     if (types.isRationalObj(a) and types.isRationalObj(b)) {
