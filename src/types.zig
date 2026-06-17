@@ -326,6 +326,8 @@ pub const Complex = struct {
     header: Object,
     real: f64,
     imag: f64,
+    exact_real: bool = false,
+    exact_imag: bool = false,
 };
 
 /// Parameter object (R7RS make-parameter / parameterize).

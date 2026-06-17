@@ -429,11 +429,18 @@ pub fn toComplexParts(v: Value) PrimitiveError!struct { real: f64, imag: f64 } {
 }
 
 pub fn makeComplexOrReal(real: f64, imag: f64) PrimitiveError!Value {
+    return makeComplexOrRealEx(real, imag, false, false);
+}
+
+pub fn makeComplexOrRealEx(real: f64, imag: f64, exact_real: bool, exact_imag: bool) PrimitiveError!Value {
     const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
     if (imag == 0.0) {
+        if (exact_real and real == @trunc(real) and @abs(real) < 4.5e18) {
+            return types.makeFixnum(@intFromFloat(real));
+        }
         return gc.allocFlonum(real) catch return PrimitiveError.OutOfMemory;
     }
-    return gc.allocComplex(real, imag) catch return PrimitiveError.OutOfMemory;
+    return gc.allocComplexEx(real, imag, exact_real, exact_imag) catch return PrimitiveError.OutOfMemory;
 }
 
 fn stringToNumber(args: []const Value) PrimitiveError!Value {
@@ -494,7 +501,9 @@ fn stringToNumber(args: []const Value) PrimitiveError!Value {
 fn makeRectangular(args: []const Value) PrimitiveError!Value {
     const real = try toF64(args[0]);
     const imag = try toF64(args[1]);
-    return makeComplexOrReal(real, imag);
+    const er = types.isFixnum(args[0]) or types.isBignum(args[0]) or types.isRationalObj(args[0]);
+    const ei = types.isFixnum(args[1]) or types.isBignum(args[1]) or types.isRationalObj(args[1]);
+    return makeComplexOrRealEx(real, imag, er, ei);
 }
 
 fn makePolar(args: []const Value) PrimitiveError!Value {
@@ -507,7 +516,11 @@ fn makePolar(args: []const Value) PrimitiveError!Value {
 
 fn realPart(args: []const Value) PrimitiveError!Value {
     if (types.isComplex(args[0])) {
-        return makeFlonumVal(types.toComplex(args[0]).real);
+        const c = types.toComplex(args[0]);
+        if (c.exact_real and c.real == @trunc(c.real) and @abs(c.real) < 4.5e18) {
+            return types.makeFixnum(@intFromFloat(c.real));
+        }
+        return makeFlonumVal(c.real);
     }
     if (types.isFixnum(args[0]) or types.isFlonum(args[0])) return args[0];
     return PrimitiveError.TypeError;
@@ -515,7 +528,11 @@ fn realPart(args: []const Value) PrimitiveError!Value {
 
 fn imagPart(args: []const Value) PrimitiveError!Value {
     if (types.isComplex(args[0])) {
-        return makeFlonumVal(types.toComplex(args[0]).imag);
+        const c = types.toComplex(args[0]);
+        if (c.exact_imag and c.imag == @trunc(c.imag) and @abs(c.imag) < 4.5e18) {
+            return types.makeFixnum(@intFromFloat(c.imag));
+        }
+        return makeFlonumVal(c.imag);
     }
     if (types.isFixnum(args[0])) return types.makeFixnum(0);
     if (types.isFlonum(args[0])) return makeFlonumVal(0.0);

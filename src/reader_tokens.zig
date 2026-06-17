@@ -78,13 +78,14 @@ pub fn readNumber(self: *Reader) ReadError!Token {
         const imag_start = self.pos;
         self.pos += 1; // skip +/-
         // Check for just +i or -i (imaginary unit)
+        const real_exact = !has_dot and !has_exp;
         if (self.pos < self.source.len and (self.source[self.pos] == 'i' or self.source[self.pos] == 'I') and
             (self.pos + 1 >= self.source.len or Reader.isDelimiter(self.source[self.pos + 1])))
         {
             self.pos += 1;
             const real = parseDecimalReal(num_str) orelse return ReadError.InvalidNumber;
             const imag: f64 = if (self.source[imag_start] == '+') 1.0 else -1.0;
-            return .{ .complex = .{ .real = real, .imag = imag } };
+            return .{ .complex = .{ .real = real, .imag = imag, .exact_real = real_exact, .exact_imag = true } };
         }
         // Parse imaginary magnitude (decimal, rational, or with exponent)
         var imag_has_dot = false;
@@ -113,7 +114,8 @@ pub fn readNumber(self: *Reader) ReadError!Token {
             const real = parseDecimalReal(num_str) orelse return ReadError.InvalidNumber;
             const imag_str = self.source[imag_start..self.pos - 1];
             const imag = parseDecimalReal(imag_str) orelse return ReadError.InvalidNumber;
-            return .{ .complex = .{ .real = real, .imag = imag } };
+            const imag_exact = !imag_has_dot and !imag_has_exp;
+            return .{ .complex = .{ .real = real, .imag = imag, .exact_real = real_exact, .exact_imag = imag_exact } };
         }
         // Not a complex literal — backtrack
         self.pos = imag_start;
@@ -128,7 +130,8 @@ pub fn readNumber(self: *Reader) ReadError!Token {
             (if (num_str.len == 1 and num_str[0] == '-') @as(f64, -1.0) else @as(f64, 1.0))
         else
             parseDecimalReal(num_str) orelse return ReadError.InvalidNumber;
-        return .{ .complex = .{ .real = 0.0, .imag = imag } };
+        const imag_exact2 = !has_dot and !has_exp;
+        return .{ .complex = .{ .real = 0.0, .imag = imag, .exact_real = true, .exact_imag = imag_exact2 } };
     }
 
     if (has_dot or has_exp) {

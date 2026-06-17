@@ -35,7 +35,7 @@ pub const Token = union(enum) {
     datum_label_ref: u32,
     bignum_str: []const u8,
     rational: struct { num: i64, den: i64 },
-    complex: struct { real: f64, imag: f64 },
+    complex: struct { real: f64, imag: f64, exact_real: bool = false, exact_imag: bool = false },
     eof,
 };
 

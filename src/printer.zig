@@ -270,12 +270,14 @@ fn symbolNeedsBars(name: []const u8) bool {
 /// bounded (plain `{d}` expands denormals/huge values to hundreds of decimal
 /// digits, overflowing fixed buffers). Always includes a `.`/`e` so the result
 /// reads back as inexact.
-fn formatComplexPart(buf: []u8, f: f64) []const u8 {
+fn formatComplexPart(buf: []u8, f: f64, exact: bool) []const u8 {
     if (std.math.isNan(f) or std.math.isInf(f)) return formatFlonum(buf, f);
-    const trunc = @trunc(f);
-    if (f == trunc and @abs(f) < 1e15) {
-        const i: i64 = @intFromFloat(trunc);
-        return std.fmt.bufPrint(buf, "{d}", .{i}) catch return formatFlonum(buf, f);
+    if (exact) {
+        const trunc = @trunc(f);
+        if (f == trunc and @abs(f) < 4.5e18) {
+            const i: i64 = @intFromFloat(trunc);
+            return std.fmt.bufPrint(buf, "{d}", .{i}) catch return formatFlonum(buf, f);
+        }
     }
     return formatFlonum(buf, f);
 }
@@ -465,7 +467,7 @@ pub fn printValue(writer: anytype, value: Value, mode: PrintMode) anyerror!void 
                     try writer.writeAll(formatFlonum(&buf, c.real));
                 } else {
                     const has_real = c.real != 0.0;
-                    if (has_real) try writer.writeAll(formatComplexPart(&buf, c.real));
+                    if (has_real) try writer.writeAll(formatComplexPart(&buf, c.real, c.exact_real));
                     const im = c.imag;
                     if (std.math.isNan(im)) {
                         try writer.writeAll("+nan.0i");
@@ -474,7 +476,7 @@ pub fn printValue(writer: anytype, value: Value, mode: PrintMode) anyerror!void 
                     } else {
                         try writer.writeByte(if (im < 0) '-' else '+');
                         const mag = @abs(im);
-                        if (mag != 1.0 or has_real) try writer.writeAll(formatComplexPart(&buf, mag));
+                        if (mag != 1.0 or has_real) try writer.writeAll(formatComplexPart(&buf, mag, c.exact_imag));
                         try writer.writeByte('i');
                     }
                 }

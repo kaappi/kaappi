@@ -24,7 +24,7 @@ fn tokenToValue(self: *Reader, tok: Token) ReadError!Value {
             const arith = @import("primitives_arithmetic.zig");
             return arith.makeRationalFromReader(self.gc, r.num, r.den) catch return ReadError.OutOfMemory;
         },
-        .complex => |c| return self.gc.allocComplex(c.real, c.imag) catch return ReadError.OutOfMemory,
+        .complex => |c| return self.gc.allocComplexEx(c.real, c.imag, c.exact_real, c.exact_imag) catch return ReadError.OutOfMemory,
         .boolean => |b| return if (b) types.TRUE else types.FALSE,
         .character => |c| return types.makeChar(c),
         .string => |s| {

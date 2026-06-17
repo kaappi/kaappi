@@ -504,12 +504,18 @@ pub const GC = struct {
     }
 
     pub fn allocComplex(self: *GC, real: f64, imag: f64) !Value {
+        return self.allocComplexEx(real, imag, false, false);
+    }
+
+    pub fn allocComplexEx(self: *GC, real: f64, imag: f64, exact_real: bool, exact_imag: bool) !Value {
         self.maybeCollect();
         const c = try self.allocator.create(types.Complex);
         c.* = .{
             .header = .{ .tag = .complex },
             .real = real,
             .imag = imag,
+            .exact_real = exact_real,
+            .exact_imag = exact_imag,
         };
         self.bytes_allocated += @sizeOf(types.Complex);
         self.trackObject(&c.header);
