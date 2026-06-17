@@ -556,6 +556,11 @@ pub const VM = struct {
                             self.registers[frame.base + dst] = cache[sym_idx];
                             continue;
                         }
+                        // Version mismatch: clear entire cache to avoid stale entries
+                        if (func.cache_version != self.global_version) {
+                            @memset(cache, types.VOID);
+                            func.cache_version = self.global_version;
+                        }
                     }
                     const sym = func.constants.items[sym_idx];
                     const name = types.symbolName(sym);
@@ -567,7 +572,6 @@ pub const VM = struct {
                     if (types.isClosure(val) or types.isNativeFn(val)) {
                         if (func.global_cache) |cache| {
                             if (sym_idx < cache.len) cache[sym_idx] = val;
-                            func.cache_version = self.global_version;
                         } else {
                             const cache = self.gc.allocator.alloc(Value, func.constants.items.len) catch continue;
                             @memset(cache, types.VOID);

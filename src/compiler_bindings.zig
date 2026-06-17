@@ -237,30 +237,31 @@ pub fn compileNamedLet(self: *Compiler, args: Value, dst: u8, is_tail: bool) Com
     const renamed_body = try renameInBody(self.gc, body, types.symbolName(loop_name), unique_sym);
     const renamed_lambda_args = self.gc.allocPair(formals, renamed_body) catch return CompileError.OutOfMemory;
 
+    // Use a fresh register for the closure to avoid overwriting live locals
+    // (e.g., when dst=0 and a parameter is also at register 0).
+    const loop_reg = try self.allocReg();
+
     try self.emitOp(.load_void);
-    try self.emit(dst);
+    try self.emit(loop_reg);
     const name_sym_idx = try self.addConstant(unique_sym);
     try self.emitOp(.set_global);
     try self.emitU16(name_sym_idx);
-    try self.emit(dst);
+    try self.emit(loop_reg);
 
-    try self.compileLambda(renamed_lambda_args, dst);
+    try self.compileLambda(renamed_lambda_args, loop_reg);
 
     try self.emitOp(.set_global);
     try self.emitU16(name_sym_idx);
-    try self.emit(dst);
+    try self.emit(loop_reg);
 
-    // Compile the initial call: (name init1 init2 ...)
-    // Arguments must be contiguous at dst+1, dst+2, ... for the call convention.
-    // Use a fresh base register to avoid gaps from outer let locals.
+    // Compile the initial call
     const call_base = try self.allocReg();
     self.freeReg();
 
-    // Move closure to call_base if needed
-    if (call_base != dst) {
+    if (call_base != loop_reg) {
         try self.emitOp(.move);
         try self.emit(call_base);
-        try self.emit(dst);
+        try self.emit(loop_reg);
     }
 
     var nargs: u8 = 0;
@@ -290,6 +291,7 @@ pub fn compileNamedLet(self: *Compiler, args: Value, dst: u8, is_tail: bool) Com
     while (k < nargs) : (k += 1) {
         self.freeReg();
     }
+    self.freeReg(); // free loop_reg
 }
 
 pub fn compileDo(self: *Compiler, args: Value, dst: u8, is_tail: bool) CompileError!void {
