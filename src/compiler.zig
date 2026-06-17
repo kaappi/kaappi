@@ -35,6 +35,7 @@ pub const Compiler = struct {
     upvalues: std.ArrayList(Upvalue),
     macros: std.StringHashMap(Value),
     globals: ?*std.StringHashMap(Value) = null,
+    lib_env: ?*std.StringHashMap(Value) = null,
     scope_depth: u16 = 0,
     next_register: u8 = 0,
     parent: ?*Compiler = null,
@@ -67,6 +68,7 @@ pub const Compiler = struct {
 
     pub fn initChild(parent: *Compiler) CompileError!Compiler {
         const func = parent.gc.allocFunction() catch return CompileError.OutOfMemory;
+        func.env = parent.lib_env;
         parent.gc.extra_roots.append(parent.gc.allocator, types.makePointer(@ptrCast(func))) catch {};
         return .{
             .gc = parent.gc,
@@ -75,6 +77,7 @@ pub const Compiler = struct {
             .upvalues = .empty,
             .macros = std.StringHashMap(Value).init(parent.gc.allocator),
             .globals = parent.globals,
+            .lib_env = parent.lib_env,
             .parent = parent,
         };
     }
@@ -532,6 +535,10 @@ pub const Compiler = struct {
             }
         }
 
+        if (is_tail and types.isSymbol(head) and std.mem.eql(u8, types.symbolName(head), "apply")) {
+            return self.compileApplyTail(expr, dst);
+        }
+
         return self.compileCall(expr, dst, is_tail);
     }
 
@@ -837,6 +844,40 @@ pub const Compiler = struct {
         }
     }
 
+    fn compileApplyTail(self: *Compiler, expr: Value, dst: u8) CompileError!void {
+        var arg_list = types.cdr(expr);
+        if (arg_list == types.NIL) return CompileError.InvalidSyntax;
+
+        const needs_rebase = (dst + 1 != self.next_register);
+        const base = if (needs_rebase) try self.allocReg() else dst;
+
+        try self.compileExpr(types.car(arg_list), base, false);
+        arg_list = types.cdr(arg_list);
+
+        var nargs: u8 = 0;
+        while (arg_list != types.NIL) {
+            if (!types.isPair(arg_list)) return CompileError.InvalidSyntax;
+            const arg_reg = try self.allocReg();
+            try self.compileExpr(types.car(arg_list), arg_reg, false);
+            nargs += 1;
+            arg_list = types.cdr(arg_list);
+        }
+
+        if (nargs < 1) return CompileError.InvalidSyntax;
+
+        try self.emitOp(.tail_apply);
+        try self.emit(base);
+        try self.emit(nargs);
+
+        var i: u8 = 0;
+        while (i < nargs) : (i += 1) {
+            self.freeReg();
+        }
+        if (needs_rebase) {
+            self.freeReg();
+        }
+    }
+
     fn compileCallGlobal(self: *Compiler, expr: Value, operator: Value, dst: u8, is_tail: bool) CompileError!void {
         const sym_idx = try self.addConstant(operator);
 
@@ -915,6 +956,27 @@ pub fn compileExpressionWithMacros(gc: *memory.GC, expr: Value, vm_macros: *std.
         c.macros.put(entry.key_ptr.*, entry.value_ptr.*) catch return CompileError.OutOfMemory;
     }
     try c.compile(expr);
+    return c.func;
+}
+
+pub fn compileExpressionInEnv(gc: *memory.GC, expr: Value, vm_macros: *std.StringHashMap(Value), env: *std.StringHashMap(Value)) CompileError!*types.Function {
+    var c = try Compiler.init(gc);
+    c.globals = env;
+    c.lib_env = env;
+    defer {
+        var it = c.macros.iterator();
+        while (it.next()) |entry| {
+            vm_macros.put(entry.key_ptr.*, entry.value_ptr.*) catch {};
+            gc.extra_roots.append(gc.allocator, entry.value_ptr.*) catch {};
+        }
+        c.deinit();
+    }
+    var it = vm_macros.iterator();
+    while (it.next()) |entry| {
+        c.macros.put(entry.key_ptr.*, entry.value_ptr.*) catch return CompileError.OutOfMemory;
+    }
+    try c.compile(expr);
+    c.func.env = env;
     return c.func;
 }
 

@@ -173,7 +173,7 @@ pub fn compileLetrec(self: *Compiler, args: Value, dst: u8, is_tail: bool) Compi
         try self.emitOp(.load_void);
         try self.emit(dst);
         const sym_idx = try self.addConstant(unique_syms[i]);
-        try self.emitOp(.set_global);
+        try self.emitOp(.define_global);
         try self.emitU16(sym_idx);
         try self.emit(dst);
     }
@@ -182,7 +182,7 @@ pub fn compileLetrec(self: *Compiler, args: Value, dst: u8, is_tail: bool) Compi
     for (0..count) |i| {
         try self.compileExpr(inits[i], dst, false);
         const sym_idx = try self.addConstant(unique_syms[i]);
-        try self.emitOp(.set_global);
+        try self.emitOp(.define_global);
         try self.emitU16(sym_idx);
         try self.emit(dst);
     }
@@ -243,13 +243,13 @@ pub fn compileNamedLet(self: *Compiler, args: Value, dst: u8, is_tail: bool) Com
     try self.emitOp(.load_void);
     try self.emit(loop_reg);
     const name_sym_idx = try self.addConstant(unique_sym);
-    try self.emitOp(.set_global);
+    try self.emitOp(.define_global);
     try self.emitU16(name_sym_idx);
     try self.emit(loop_reg);
 
     try self.compileLambda(renamed_lambda_args, loop_reg);
 
-    try self.emitOp(.set_global);
+    try self.emitOp(.define_global);
     try self.emitU16(name_sym_idx);
     try self.emit(loop_reg);
 

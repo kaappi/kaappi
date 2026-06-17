@@ -7,7 +7,7 @@ const GC = memory.GC;
 
 // File format constants
 const MAGIC = [4]u8{ 'K', 'P', 'B', 'C' };
-const VERSION: u16 = 1;
+const VERSION: u16 = 2;
 
 // Constant type tags
 const TAG_FIXNUM: u8 = 0;
@@ -22,6 +22,9 @@ const TAG_FUNCTION: u8 = 8;
 const TAG_PAIR: u8 = 9;
 const TAG_VECTOR: u8 = 10;
 const TAG_BYTEVECTOR: u8 = 11;
+const TAG_BIGNUM: u8 = 12;
+const TAG_RATIONAL: u8 = 13;
+const TAG_COMPLEX: u8 = 14;
 
 pub const BytecodeError = error{
     InvalidMagic,
@@ -196,7 +199,11 @@ fn findFunctionIndex(all_funcs: []*Function, func: *Function) ?u32 {
 // Write constant
 // ---------------------------------------------------------------------------
 
-fn writeConstant(w: *Writer, allocator: std.mem.Allocator, val: Value, all_funcs: []*Function) !void {
+fn writeConstant(w: *Writer, allocator: std.mem.Allocator, val: Value, all_funcs: []*Function, depth: u32) !void {
+    if (depth > 256) {
+        try w.writeU8(allocator, TAG_NIL);
+        return;
+    }
     if (types.isFixnum(val)) {
         try w.writeU8(allocator, TAG_FIXNUM);
         try w.writeI64(allocator, types.toFixnum(val));
@@ -259,15 +266,15 @@ fn writeConstant(w: *Writer, allocator: std.mem.Allocator, val: Value, all_funcs
             },
             .pair => {
                 try w.writeU8(allocator, TAG_PAIR);
-                try writeConstant(w, allocator, types.car(val), all_funcs);
-                try writeConstant(w, allocator, types.cdr(val), all_funcs);
+                try writeConstant(w, allocator, types.car(val), all_funcs, depth + 1);
+                try writeConstant(w, allocator, types.cdr(val), all_funcs, depth + 1);
             },
             .vector => {
                 const vec = obj.as(types.Vector);
                 try w.writeU8(allocator, TAG_VECTOR);
                 try w.writeU32(allocator, @intCast(vec.data.len));
                 for (vec.data) |elem| {
-                    try writeConstant(w, allocator, elem, all_funcs);
+                    try writeConstant(w, allocator, elem, all_funcs, depth + 1);
                 }
             },
             .bytevector => {
@@ -276,8 +283,30 @@ fn writeConstant(w: *Writer, allocator: std.mem.Allocator, val: Value, all_funcs
                 try w.writeU32(allocator, @intCast(bv.data.len));
                 try w.writeBytes(allocator, bv.data);
             },
+            .bignum => {
+                const bn = obj.as(types.Bignum);
+                try w.writeU8(allocator, TAG_BIGNUM);
+                try w.writeU8(allocator, if (bn.positive) @as(u8, 1) else @as(u8, 0));
+                try w.writeU32(allocator, @intCast(bn.len));
+                for (bn.limbs[0..bn.len]) |limb| {
+                    try w.writeU64(allocator, limb);
+                }
+            },
+            .rational => {
+                const rat = obj.as(types.Rational);
+                try w.writeU8(allocator, TAG_RATIONAL);
+                try writeConstant(w, allocator, rat.numerator, all_funcs, depth + 1);
+                try writeConstant(w, allocator, rat.denominator, all_funcs, depth + 1);
+            },
+            .complex => {
+                const cx = obj.as(types.Complex);
+                try w.writeU8(allocator, TAG_COMPLEX);
+                try w.writeF64(allocator, cx.real);
+                try w.writeF64(allocator, cx.imag);
+                try w.writeU8(allocator, if (cx.exact_real) @as(u8, 1) else @as(u8, 0));
+                try w.writeU8(allocator, if (cx.exact_imag) @as(u8, 1) else @as(u8, 0));
+            },
             else => {
-                // Unsupported constant type — skip by writing nil as placeholder
                 try w.writeU8(allocator, TAG_NIL);
             },
         }
@@ -352,6 +381,32 @@ fn readConstant(r: *Reader, gc: *GC, all_funcs: []*Function) !Value {
             const data = try r.readBytes(len);
             return gc.allocBytevector(data) catch return BytecodeError.OutOfMemory;
         },
+        TAG_BIGNUM => {
+            const positive = (try r.readU8()) != 0;
+            const len = try r.readU32();
+            const allocator = gc.allocator;
+            const limbs = allocator.alloc(u64, len) catch return BytecodeError.OutOfMemory;
+            defer allocator.free(limbs);
+            for (0..len) |i| {
+                limbs[i] = try r.readU64();
+            }
+            return gc.allocBignumFromLimbs(limbs, len, positive) catch return BytecodeError.OutOfMemory;
+        },
+        TAG_RATIONAL => {
+            const num = try readConstant(r, gc, all_funcs);
+            var num_root = num;
+            gc.pushRoot(&num_root);
+            const den = try readConstant(r, gc, all_funcs);
+            gc.popRoot();
+            return gc.allocRational(num_root, den) catch return BytecodeError.OutOfMemory;
+        },
+        TAG_COMPLEX => {
+            const real = try r.readF64();
+            const imag = try r.readF64();
+            const exact_real = (try r.readU8()) != 0;
+            const exact_imag = (try r.readU8()) != 0;
+            return gc.allocComplexEx(real, imag, exact_real, exact_imag) catch return BytecodeError.OutOfMemory;
+        },
         else => return BytecodeError.InvalidConstantTag,
     }
 }
@@ -424,7 +479,7 @@ pub fn writeFileWithTopLevel(allocator: std.mem.Allocator, top_level_funcs: []*F
         // Constants
         try w.writeU32(allocator, @intCast(func.constants.items.len));
         for (func.constants.items) |constant| {
-            try writeConstant(&w, allocator, constant, all_funcs);
+            try writeConstant(&w, allocator, constant, all_funcs, 0);
         }
     }
 

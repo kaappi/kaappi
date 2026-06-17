@@ -10,35 +10,36 @@ const vm_mod = @import("vm.zig");
 const VM = vm_mod.VM;
 const VMError = vm_mod.VMError;
 
-/// Import a binding into the VM, routing macros to vm.macros and values to vm.globals.
-fn importBinding(vm: *VM, name: []const u8, val: Value) !void {
+/// Import a binding into the target environment, routing macros to vm.macros.
+fn importBinding(vm: *VM, target: *std.StringHashMap(Value), name: []const u8, val: Value) !void {
     if (types.isTransformer(val)) {
         vm.macros.put(name, val) catch return error.OutOfMemory;
         return;
     }
-    vm.globals.put(name, val) catch return error.OutOfMemory;
-    vm.global_version +%= 1;
+    target.put(name, val) catch return error.OutOfMemory;
+    if (target == &vm.globals) {
+        vm.global_version +%= 1;
+    }
 }
 
-/// Handle (import import-set ...)
-/// Each import-set is one of:
-///   (lib-name ...)          — import all exports
-///   (only (lib) id ...)     — import only named ids
-///   (except (lib) id ...)   — import all except named ids
-///   (prefix (lib) prefix)   — prefix all imported names
-///   (rename (lib) (old new) ...) — rename on import
-pub fn handleImport(vm: *VM, args: Value) VMError!Value {
+/// Handle (import import-set ...) into a specific target environment.
+pub fn handleImportInto(vm: *VM, target: *std.StringHashMap(Value), args: Value) VMError!Value {
     var current = args;
     while (current != types.NIL) {
         if (!types.isPair(current)) return VMError.CompileError;
         const import_set = types.car(current);
-        processImportSet(vm, import_set) catch return VMError.CompileError;
+        processImportSet(vm, target, import_set) catch return VMError.CompileError;
         current = types.cdr(current);
     }
     return types.VOID;
 }
 
-fn processImportSet(vm: *VM, import_set: Value) !void {
+/// Handle (import import-set ...) — top-level variant that imports into vm.globals.
+pub fn handleImport(vm: *VM, args: Value) VMError!Value {
+    return handleImportInto(vm, &vm.globals, args);
+}
+
+fn processImportSet(vm: *VM, target: *std.StringHashMap(Value), import_set: Value) !void {
     if (!types.isPair(import_set)) return error.InvalidSyntax;
 
     const first = types.car(import_set);
@@ -48,16 +49,16 @@ fn processImportSet(vm: *VM, import_set: Value) !void {
         const modifier = types.symbolName(first);
 
         if (std.mem.eql(u8, modifier, "only")) {
-            return processImportOnly(vm, types.cdr(import_set));
+            return processImportOnly(vm, target, types.cdr(import_set));
         }
         if (std.mem.eql(u8, modifier, "except")) {
-            return processImportExcept(vm, types.cdr(import_set));
+            return processImportExcept(vm, target, types.cdr(import_set));
         }
         if (std.mem.eql(u8, modifier, "prefix")) {
-            return processImportPrefix(vm, types.cdr(import_set));
+            return processImportPrefix(vm, target, types.cdr(import_set));
         }
         if (std.mem.eql(u8, modifier, "rename")) {
-            return processImportRename(vm, types.cdr(import_set));
+            return processImportRename(vm, target, types.cdr(import_set));
         }
     }
 
@@ -69,7 +70,7 @@ fn processImportSet(vm: *VM, import_set: Value) !void {
     if (vm.libraries.get(lib_name)) |lib| {
         var it = lib.exports.iterator();
         while (it.next()) |entry| {
-            importBinding(vm, entry.key_ptr.*, entry.value_ptr.*) catch return error.OutOfMemory;
+            importBinding(vm, target, entry.key_ptr.*, entry.value_ptr.*) catch return error.OutOfMemory;
         }
         return;
     }
@@ -88,7 +89,7 @@ fn processImportSet(vm: *VM, import_set: Value) !void {
     const lib = vm.libraries.get(lib_name) orelse return error.UndefinedVariable;
     var it = lib.exports.iterator();
     while (it.next()) |entry| {
-        importBinding(vm, entry.key_ptr.*, entry.value_ptr.*) catch return error.OutOfMemory;
+        importBinding(vm, target, entry.key_ptr.*, entry.value_ptr.*) catch return error.OutOfMemory;
     }
 }
 
@@ -589,7 +590,7 @@ fn readFileContents(allocator: std.mem.Allocator, path: []const u8) ![]u8 {
     return result.toOwnedSlice(allocator);
 }
 
-fn processImportOnly(vm: *VM, args: Value) !void {
+fn processImportOnly(vm: *VM, target: *std.StringHashMap(Value), args: Value) !void {
     // (only (lib-name) id ...)
     if (!types.isPair(args)) return error.InvalidSyntax;
     const lib_spec = types.car(args);
@@ -607,13 +608,13 @@ fn processImportOnly(vm: *VM, args: Value) !void {
         if (!types.isSymbol(id)) return error.InvalidSyntax;
         const id_name = types.symbolName(id);
         if (lib.exports.get(id_name)) |val| {
-            importBinding(vm, id_name, val) catch return error.OutOfMemory;
+            importBinding(vm, target, id_name, val) catch return error.OutOfMemory;
         }
         id_list = types.cdr(id_list);
     }
 }
 
-fn processImportExcept(vm: *VM, args: Value) !void {
+fn processImportExcept(vm: *VM, target: *std.StringHashMap(Value), args: Value) !void {
     // (except (lib-name) id ...)
     if (!types.isPair(args)) return error.InvalidSyntax;
     const lib_spec = types.car(args);
@@ -650,12 +651,12 @@ fn processImportExcept(vm: *VM, args: Value) !void {
             }
         }
         if (!is_excluded) {
-            importBinding(vm, entry.key_ptr.*, entry.value_ptr.*) catch return error.OutOfMemory;
+            importBinding(vm, target, entry.key_ptr.*, entry.value_ptr.*) catch return error.OutOfMemory;
         }
     }
 }
 
-fn processImportPrefix(vm: *VM, args: Value) !void {
+fn processImportPrefix(vm: *VM, target: *std.StringHashMap(Value), args: Value) !void {
     // (prefix (lib-name) prefix-id)
     if (!types.isPair(args)) return error.InvalidSyntax;
     const lib_spec = types.car(args);
@@ -672,18 +673,15 @@ fn processImportPrefix(vm: *VM, args: Value) !void {
 
     var it = lib.exports.iterator();
     while (it.next()) |entry| {
-        // Create prefixed name by interning a symbol through the GC.
-        // This ensures the name string is owned by the GC and won't leak.
         const prefixed_buf = std.fmt.allocPrint(vm.gc.allocator, "{s}{s}", .{ prefix, entry.key_ptr.* }) catch return error.OutOfMemory;
         defer vm.gc.allocator.free(prefixed_buf);
-        // Intern via allocSymbol so the name persists in the symbol table
         const sym = vm.gc.allocSymbol(prefixed_buf) catch return error.OutOfMemory;
         const interned_name = types.symbolName(sym);
-        importBinding(vm, interned_name, entry.value_ptr.*) catch return error.OutOfMemory;
+        importBinding(vm, target, interned_name, entry.value_ptr.*) catch return error.OutOfMemory;
     }
 }
 
-fn processImportRename(vm: *VM, args: Value) !void {
+fn processImportRename(vm: *VM, target: *std.StringHashMap(Value), args: Value) !void {
     // (rename (lib-name) (old new) ...)
     if (!types.isPair(args)) return error.InvalidSyntax;
     const lib_spec = types.car(args);
@@ -726,7 +724,7 @@ fn processImportRename(vm: *VM, args: Value) !void {
                 break;
             }
         }
-        importBinding(vm, imported_name, entry.value_ptr.*) catch return error.OutOfMemory;
+        importBinding(vm, target, imported_name, entry.value_ptr.*) catch return error.OutOfMemory;
     }
 }
 
@@ -740,44 +738,39 @@ pub fn handleDefineLibrary(vm: *VM, args: Value) VMError!Value {
     const name_list = types.car(args);
     const decls = types.cdr(args);
 
-    // Convert library name list to canonical string
     const lib_name = library_mod.libraryNameToString(vm.gc.allocator, name_list) catch return VMError.CompileError;
-    // lib_name is owned by allocator; we need it to persist in the registry.
-    // The registry key will reference this string.
 
-    // Collect export names and optional renames
+    const lib_env = vm.gc.allocator.create(std.StringHashMap(Value)) catch {
+        vm.gc.allocator.free(lib_name);
+        return VMError.OutOfMemory;
+    };
+    lib_env.* = std.StringHashMap(Value).init(vm.gc.allocator);
+    var lib_env_owned = true;
+
+    defer if (lib_env_owned) {
+        lib_env.deinit();
+        vm.gc.allocator.destroy(lib_env);
+        vm.gc.allocator.free(lib_name);
+    };
+
     var export_names: [128][]const u8 = undefined;
     var export_renames: [128]?[]const u8 = undefined;
     var export_count: usize = 0;
 
-    // First pass: collect exports and process imports/begin
     var decl = decls;
     while (decl != types.NIL) {
-        if (!types.isPair(decl)) {
-            vm.gc.allocator.free(lib_name);
-            return VMError.CompileError;
-        }
+        if (!types.isPair(decl)) return VMError.CompileError;
         const declaration = types.car(decl);
-        if (!types.isPair(declaration)) {
-            vm.gc.allocator.free(lib_name);
-            return VMError.CompileError;
-        }
+        if (!types.isPair(declaration)) return VMError.CompileError;
 
         const decl_head = types.car(declaration);
-        if (!types.isSymbol(decl_head)) {
-            vm.gc.allocator.free(lib_name);
-            return VMError.CompileError;
-        }
+        if (!types.isSymbol(decl_head)) return VMError.CompileError;
         const decl_name = types.symbolName(decl_head);
 
         if (std.mem.eql(u8, decl_name, "export")) {
-            // (export id ... (rename old new) ...)
             var id_list = types.cdr(declaration);
             while (id_list != types.NIL) {
-                if (!types.isPair(id_list)) {
-                    vm.gc.allocator.free(lib_name);
-                    return VMError.CompileError;
-                }
+                if (!types.isPair(id_list)) return VMError.CompileError;
                 const id = types.car(id_list);
                 if (types.isSymbol(id)) {
                     if (export_count < 128) {
@@ -810,128 +803,14 @@ pub fn handleDefineLibrary(vm: *VM, args: Value) VMError!Value {
                 id_list = types.cdr(id_list);
             }
         } else if (std.mem.eql(u8, decl_name, "import")) {
-            // (import import-set ...)
-            // Process imports into the current globals (which the begin body will use)
-            _ = handleImport(vm, types.cdr(declaration)) catch {
-                vm.gc.allocator.free(lib_name);
-                return VMError.CompileError;
-            };
+            _ = handleImportInto(vm, lib_env, types.cdr(declaration)) catch return VMError.CompileError;
         } else if (std.mem.eql(u8, decl_name, "begin")) {
-            // (begin expr ...)
-            // Evaluate expressions in the current environment
-            var body = types.cdr(declaration);
-            while (body != types.NIL) {
-                if (!types.isPair(body)) {
-                    vm.gc.allocator.free(lib_name);
-                    return VMError.CompileError;
-                }
-                const body_expr = types.car(body);
-
-                // Check for top-level forms in begin body
-                if (vm.handleTopLevelForm(body_expr)) |result| {
-                    _ = result catch {
-                        vm.gc.allocator.free(lib_name);
-                        return VMError.CompileError;
-                    };
-                } else {
-                    const func = compiler_mod.compileExpressionWithMacros(vm.gc, body_expr, &vm.macros, &vm.globals) catch {
-                        vm.gc.allocator.free(lib_name);
-                        return VMError.CompileError;
-                    };
-                    // Collect compiled function for .sbc caching
-                    if (vm.lib_compile_collect) |collect| {
-                        collect.append(vm.gc.allocator, func) catch {};
-                    }
-                    var func_val = types.makePointer(@ptrCast(func));
-                    vm.gc.pushRoot(&func_val);
-                    _ = vm.execute(func) catch |err| {
-                        vm.gc.popRoot();
-                        vm.gc.allocator.free(lib_name);
-                        return err;
-                    };
-                    vm.gc.popRoot();
-                }
-
-                body = types.cdr(body);
-            }
+            try compileLibBeginBlock(vm, lib_env, types.cdr(declaration));
         }
         else if (std.mem.eql(u8, decl_name, "include") or std.mem.eql(u8, decl_name, "include-ci")) {
-            // (include "file.scm" ...)
-            var file_list = types.cdr(declaration);
-            while (file_list != types.NIL) {
-                if (!types.isPair(file_list)) {
-                    vm.gc.allocator.free(lib_name);
-                    return VMError.CompileError;
-                }
-                const file_val = types.car(file_list);
-                if (!types.isString(file_val)) {
-                    vm.gc.allocator.free(lib_name);
-                    return VMError.CompileError;
-                }
-                const file_str = types.toObject(file_val).as(types.SchemeString);
-                const file_path = file_str.data[0..file_str.len];
-
-                // Resolve include path: try relative to .sld directory first, then CWD
-                var resolved_path: ?[]u8 = null;
-                if (vm.current_lib_dir) |dir| {
-                    if (dir.len > 0 and file_path.len > 0 and file_path[0] != '/') {
-                        resolved_path = std.fmt.allocPrint(vm.gc.allocator, "{s}{s}", .{ dir, file_path }) catch null;
-                    }
-                }
-                defer if (resolved_path) |rp| vm.gc.allocator.free(rp);
-
-                const file_source = blk: {
-                    if (resolved_path) |rp| {
-                        if (readFileContents(vm.gc.allocator, rp)) |src| break :blk src else |_| {}
-                    }
-                    break :blk readFileContents(vm.gc.allocator, file_path) catch {
-                        vm.gc.allocator.free(lib_name);
-                        return VMError.CompileError;
-                    };
-                };
-                defer vm.gc.allocator.free(file_source);
-
-                // Parse and evaluate the included file
-                const reader_mod = @import("reader.zig");
-                var file_reader = reader_mod.Reader.init(vm.gc, file_source);
-                defer file_reader.deinit();
-
-                while (file_reader.hasMore()) {
-                    const inc_expr = file_reader.readDatum() catch {
-                        vm.gc.allocator.free(lib_name);
-                        return VMError.CompileError;
-                    };
-
-                    if (vm.handleTopLevelForm(inc_expr)) |inc_result| {
-                        _ = inc_result catch {
-                            vm.gc.allocator.free(lib_name);
-                            return VMError.CompileError;
-                        };
-                    } else {
-                        const func = compiler_mod.compileExpressionWithMacros(vm.gc, inc_expr, &vm.macros, &vm.globals) catch {
-                            vm.gc.allocator.free(lib_name);
-                            return VMError.CompileError;
-                        };
-                        // Collect compiled function for .sbc caching
-                        if (vm.lib_compile_collect) |collect| {
-                            collect.append(vm.gc.allocator, func) catch {};
-                        }
-                        var func_val = types.makePointer(@ptrCast(func));
-                        vm.gc.pushRoot(&func_val);
-                        _ = vm.execute(func) catch |err| {
-                            vm.gc.popRoot();
-                            vm.gc.allocator.free(lib_name);
-                            return err;
-                        };
-                        vm.gc.popRoot();
-                    }
-                }
-
-                file_list = types.cdr(file_list);
-            }
+            try compileLibInclude(vm, lib_env, types.cdr(declaration));
         }
         else if (std.mem.eql(u8, decl_name, "cond-expand")) {
-            // (cond-expand (feature-req decl ...) ...)
             var clauses = types.cdr(declaration);
             var matched = false;
             while (clauses != types.NIL and !matched) {
@@ -948,40 +827,34 @@ pub fn handleDefineLibrary(vm: *VM, args: Value) VMError!Value {
 
                 if (feature_match) {
                     matched = true;
-                    // Splice matching clause's declarations into the current declaration stream
-                    // by prepending them to the remaining decl list
                     const spliced = clause_decls;
                     var last_pair: Value = types.NIL;
-                    // Find the end of the spliced list to append remaining decls
                     var scan = spliced;
                     while (scan != types.NIL and types.isPair(scan)) {
                         last_pair = scan;
                         scan = types.cdr(scan);
                     }
                     if (last_pair != types.NIL) {
-                        // Temporarily modify the cdr of the last pair to chain in remaining decls
-                        // This is safe because the reader-produced list is ephemeral
                         const remaining = types.cdr(decl);
                         types.setCdr(last_pair, remaining);
                         decl = spliced;
-                        continue; // re-enter the main loop with spliced decls
+                        continue;
                     }
                 }
             }
-            // If cond-expand matched and spliced, we already set decl above
             if (matched) continue;
         }
 
         decl = types.cdr(decl);
     }
 
-    // Create the library with exported bindings.
-    // Use initOwned so the library takes ownership of lib_name.
     var lib = library_mod.Library.initOwned(vm.gc.allocator, lib_name);
+    lib.lib_env = lib_env;
+    lib_env_owned = false; // library now owns both lib_env and lib_name
     for (0..export_count) |i| {
         const internal_name = export_names[i];
         const exported_name = export_renames[i] orelse internal_name;
-        if (vm.globals.get(internal_name)) |val| {
+        if (lib_env.get(internal_name)) |val| {
             lib.addExport(exported_name, val) catch {
                 lib.deinit();
                 return VMError.OutOfMemory;
@@ -1000,4 +873,87 @@ pub fn handleDefineLibrary(vm: *VM, args: Value) VMError!Value {
     };
 
     return types.VOID;
+}
+
+/// Compile and evaluate a library begin block against a per-library env.
+fn compileLibBeginBlock(vm: *VM, lib_env: *std.StringHashMap(Value), body_list: Value) VMError!void {
+    var body = body_list;
+    while (body != types.NIL) {
+        if (!types.isPair(body)) return VMError.CompileError;
+        const body_expr = types.car(body);
+        try compileLibExpr(vm, lib_env, body_expr);
+        body = types.cdr(body);
+    }
+}
+
+/// Compile and evaluate a single expression in a library context.
+fn compileLibExpr(vm: *VM, lib_env: *std.StringHashMap(Value), expr: Value) VMError!void {
+    if (isLibTopLevelForm(expr)) {
+        // Set the library env so handleDefineRecordType etc. use it
+        const saved_env = vm.current_lib_env;
+        vm.current_lib_env = lib_env;
+        defer vm.current_lib_env = saved_env;
+        if (vm.handleTopLevelForm(expr)) |result| {
+            _ = try result;
+        }
+        return;
+    }
+
+    const func = compiler_mod.compileExpressionInEnv(vm.gc, expr, &vm.macros, lib_env) catch return VMError.CompileError;
+    if (vm.lib_compile_collect) |collect| {
+        collect.append(vm.gc.allocator, func) catch {};
+    }
+    var func_val = types.makePointer(@ptrCast(func));
+    vm.gc.pushRoot(&func_val);
+    defer vm.gc.popRoot();
+    _ = try vm.execute(func);
+}
+
+/// Compile and evaluate included files in a library context.
+fn compileLibInclude(vm: *VM, lib_env: *std.StringHashMap(Value), file_list_val: Value) VMError!void {
+    var file_list = file_list_val;
+    while (file_list != types.NIL) {
+        if (!types.isPair(file_list)) return VMError.CompileError;
+        const file_val = types.car(file_list);
+        if (!types.isString(file_val)) return VMError.CompileError;
+        const file_str = types.toObject(file_val).as(types.SchemeString);
+        const file_path = file_str.data[0..file_str.len];
+
+        var resolved_path: ?[]u8 = null;
+        if (vm.current_lib_dir) |dir| {
+            if (dir.len > 0 and file_path.len > 0 and file_path[0] != '/') {
+                resolved_path = std.fmt.allocPrint(vm.gc.allocator, "{s}{s}", .{ dir, file_path }) catch null;
+            }
+        }
+        defer if (resolved_path) |rp| vm.gc.allocator.free(rp);
+
+        const file_source = blk: {
+            if (resolved_path) |rp| {
+                if (readFileContents(vm.gc.allocator, rp)) |src| break :blk src else |_| {}
+            }
+            break :blk readFileContents(vm.gc.allocator, file_path) catch return VMError.CompileError;
+        };
+        defer vm.gc.allocator.free(file_source);
+
+        const reader_mod = @import("reader.zig");
+        var file_reader = reader_mod.Reader.init(vm.gc, file_source);
+        defer file_reader.deinit();
+
+        while (file_reader.hasMore()) {
+            const inc_expr = file_reader.readDatum() catch return VMError.CompileError;
+            try compileLibExpr(vm, lib_env, inc_expr);
+        }
+
+        file_list = types.cdr(file_list);
+    }
+}
+
+fn isLibTopLevelForm(expr: Value) bool {
+    if (!types.isPair(expr)) return false;
+    const head = types.car(expr);
+    if (!types.isSymbol(head)) return false;
+    const name = types.symbolName(head);
+    if (std.mem.eql(u8, name, "define-record-type")) return true;
+    if (std.mem.eql(u8, name, "define-values")) return true;
+    return false;
 }

@@ -7,6 +7,7 @@ pub const Library = struct {
     name: []const u8, // canonical name like "scheme.base"
     owned_name: ?[]const u8, // if non-null, this is a heap-allocated name to free
     exports: std.StringHashMap(Value),
+    lib_env: ?*std.StringHashMap(Value) = null, // per-library environment (heap-allocated)
     allocator: std.mem.Allocator,
 
     /// Create a library with a borrowed name (string literal or other static string).
@@ -31,6 +32,10 @@ pub const Library = struct {
 
     pub fn deinit(self: *Library) void {
         self.exports.deinit();
+        if (self.lib_env) |env| {
+            env.deinit();
+            self.allocator.destroy(env);
+        }
         if (self.owned_name) |owned| {
             self.allocator.free(owned);
         }

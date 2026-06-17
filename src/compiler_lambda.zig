@@ -97,6 +97,9 @@ pub fn compileLambda(self: *Compiler, args: Value, dst: u8) CompileError!void {
 }
 
 pub fn compileBody(self: *Compiler, body: Value) CompileError!void {
+    const saved_body_scope = self.in_body_scope;
+    self.in_body_scope = true;
+
     var current = body;
     var last_dst: u8 = 0;
 
@@ -117,6 +120,7 @@ pub fn compileBody(self: *Compiler, body: Value) CompileError!void {
         current = rest;
     }
 
+    self.in_body_scope = saved_body_scope;
     try self.emitOp(.@"return");
     try self.emit(last_dst);
 }
@@ -158,7 +162,7 @@ pub fn compileDefine(self: *Compiler, args: Value, dst: u8) CompileError!void {
             return;
         }
         const sym_idx = try self.addConstant(target);
-        try self.emitOp(.set_global);
+        try self.emitOp(.define_global);
         try self.emitU16(sym_idx);
         try self.emit(dst);
         try self.emitOp(.load_void);
@@ -186,7 +190,7 @@ pub fn compileDefine(self: *Compiler, args: Value, dst: u8) CompileError!void {
         }
 
         const sym_idx = try self.addConstant(name);
-        try self.emitOp(.set_global);
+        try self.emitOp(.define_global);
         try self.emitU16(sym_idx);
         try self.emit(dst);
         try self.emitOp(.load_void);

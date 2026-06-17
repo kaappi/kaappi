@@ -77,11 +77,15 @@ fn markVMRoots(gc: *memory.GC) void {
     var mit = vm.macros.valueIterator();
     while (mit.next()) |v| gc.markValue(v.*);
 
-    // Mark library export values (loaded .sld libraries store heap objects)
+    // Mark library export values and per-library environments
     var lit = vm.libraries.libraries.valueIterator();
     while (lit.next()) |lib| {
         var eit = lib.exports.valueIterator();
         while (eit.next()) |v| gc.markValue(v.*);
+        if (lib.lib_env) |env| {
+            var eit2 = env.valueIterator();
+            while (eit2.next()) |v| gc.markValue(v.*);
+        }
     }
 }
 
@@ -140,6 +144,7 @@ pub const VM = struct {
     loading_libs: std.StringHashMap(void),
     /// Directory of the .sld file currently being loaded, for resolving include paths.
     current_lib_dir: ?[]const u8 = null,
+    current_lib_env: ?*std.StringHashMap(Value) = null,
     /// When non-null, handleDefineLibrary collects compiled functions here
     /// for .sbc cache writing. Set by tryLoadLibraryFromFile.
     lib_compile_collect: ?*std.ArrayList(*types.Function) = null,
@@ -337,7 +342,7 @@ pub const VM = struct {
                 }
             else
                 0;
-            if (base >= MAX_REGISTERS) return VMError.StackOverflow;
+            if (base + @as(u16, func.locals_count) >= MAX_REGISTERS) return VMError.StackOverflow;
 
             if (func.is_variadic and func.arity == 0) {
                 self.registers[base] = types.NIL;
@@ -600,27 +605,29 @@ pub const VM = struct {
                     const sym_idx = self.readU16(frame);
                     const closure = frame.closure orelse return VMError.InvalidBytecode;
                     const func = closure.func;
-                    if (func.global_cache) |cache| {
-                        if (func.cache_version == self.global_version and
-                            sym_idx < cache.len and cache[sym_idx] != types.VOID)
-                        {
-                            self.registers[frame.base + dst] = cache[sym_idx];
-                            continue;
-                        }
-                        // Version mismatch: clear entire cache to avoid stale entries
-                        if (func.cache_version != self.global_version) {
-                            @memset(cache, types.VOID);
-                            func.cache_version = self.global_version;
+                    const env: *std.StringHashMap(Value) = func.env orelse &self.globals;
+                    if (func.env == null) {
+                        if (func.global_cache) |cache| {
+                            if (func.cache_version == self.global_version and
+                                sym_idx < cache.len and cache[sym_idx] != types.VOID)
+                            {
+                                self.registers[frame.base + dst] = cache[sym_idx];
+                                continue;
+                            }
+                            if (func.cache_version != self.global_version) {
+                                @memset(cache, types.VOID);
+                                func.cache_version = self.global_version;
+                            }
                         }
                     }
                     const sym = func.constants.items[sym_idx];
                     const name = types.symbolName(sym);
-                    const val = self.globals.get(name) orelse {
+                    const val = env.get(name) orelse {
                         self.setErrorDetail("undefined variable '{s}'", .{name});
                         return VMError.UndefinedVariable;
                     };
                     self.registers[frame.base + dst] = val;
-                    if (types.isClosure(val) or types.isNativeFn(val)) {
+                    if (func.env == null and (types.isClosure(val) or types.isNativeFn(val))) {
                         if (func.global_cache) |cache| {
                             if (sym_idx < cache.len) cache[sym_idx] = val;
                         } else {
@@ -637,14 +644,40 @@ pub const VM = struct {
                     const src = self.readU8(frame);
                     const closure = frame.closure orelse return VMError.InvalidBytecode;
                     const func = closure.func;
+                    const env: *std.StringHashMap(Value) = func.env orelse &self.globals;
+                    const sym = func.constants.items[sym_idx];
+                    const name = types.symbolName(sym);
+                    if (env.getPtr(name)) |ptr| {
+                        const val = self.registers[frame.base + src];
+                        ptr.* = val;
+                        if (func.env == null) {
+                            self.global_version +%= 1;
+                            if (func.global_cache) |cache| {
+                                if (sym_idx < cache.len) cache[sym_idx] = val;
+                                func.cache_version = self.global_version;
+                            }
+                        }
+                    } else {
+                        self.setErrorDetail("set!: unbound variable '{s}'", .{name});
+                        return VMError.UndefinedVariable;
+                    }
+                },
+                .define_global => {
+                    const sym_idx = self.readU16(frame);
+                    const src = self.readU8(frame);
+                    const closure = frame.closure orelse return VMError.InvalidBytecode;
+                    const func = closure.func;
+                    const env: *std.StringHashMap(Value) = func.env orelse &self.globals;
                     const sym = func.constants.items[sym_idx];
                     const name = types.symbolName(sym);
                     const val = self.registers[frame.base + src];
-                    self.globals.put(name, val) catch return VMError.OutOfMemory;
-                    self.global_version +%= 1;
-                    if (func.global_cache) |cache| {
-                        if (sym_idx < cache.len) cache[sym_idx] = val;
-                        func.cache_version = self.global_version;
+                    env.put(name, val) catch return VMError.OutOfMemory;
+                    if (func.env == null) {
+                        self.global_version +%= 1;
+                        if (func.global_cache) |cache| {
+                            if (sym_idx < cache.len) cache[sym_idx] = val;
+                            func.cache_version = self.global_version;
+                        }
                     }
                 },
                 .get_upvalue => {
@@ -831,6 +864,106 @@ pub const VM = struct {
                         return VMError.NotAProcedure;
                     }
                 },
+                .tail_apply => {
+                    const base_reg = self.readU8(frame);
+                    const nargs = self.readU8(frame);
+                    const abs_base = frame.base + @as(u16, base_reg);
+                    const proc = self.registers[abs_base];
+
+                    var flat_args: [256]Value = undefined;
+                    var count: usize = 0;
+
+                    // Copy fixed args (all except last, which is the list)
+                    if (nargs > 1) {
+                        var fi: u8 = 0;
+                        while (fi < nargs - 1) : (fi += 1) {
+                            if (count >= 256) return VMError.StackOverflow;
+                            flat_args[count] = self.registers[abs_base + 1 + fi];
+                            count += 1;
+                        }
+                    }
+
+                    // Unpack trailing list
+                    var rest = self.registers[abs_base + @as(u16, nargs)];
+                    while (rest != types.NIL) {
+                        if (!types.isPair(rest)) {
+                            self.setErrorDetail("apply: last argument must be a list", .{});
+                            return VMError.TypeError;
+                        }
+                        if (count >= 256) return VMError.StackOverflow;
+                        flat_args[count] = types.car(rest);
+                        count += 1;
+                        rest = types.cdr(rest);
+                    }
+
+                    if (types.isClosure(proc)) {
+                        const closure = types.toObject(proc).as(types.Closure);
+                        const func = closure.func;
+                        const total_nargs: u8 = @intCast(count);
+
+                        if (!func.is_variadic) {
+                            if (total_nargs != func.arity) {
+                                self.setErrorDetail("expected {d} arguments, got {d}", .{ func.arity, total_nargs });
+                                return VMError.ArityMismatch;
+                            }
+                        } else {
+                            if (total_nargs < func.arity) {
+                                self.setErrorDetail("expected at least {d} arguments, got {d}", .{ func.arity, total_nargs });
+                                return VMError.ArityMismatch;
+                            }
+                            const rest_start = func.arity;
+                            var rest_list: Value = types.NIL;
+                            var ri: u8 = total_nargs;
+                            while (ri > rest_start) {
+                                ri -= 1;
+                                rest_list = self.gc.allocPair(flat_args[ri], rest_list) catch return VMError.OutOfMemory;
+                            }
+                            flat_args[rest_start] = rest_list;
+                        }
+
+                        const arg_count: u8 = if (func.is_variadic) func.arity + 1 else total_nargs;
+                        for (0..arg_count) |i| {
+                            self.registers[frame.base + i] = flat_args[i];
+                        }
+
+                        frame.closure = closure;
+                        frame.code = func.code.items;
+                        frame.ip = 0;
+                    } else if (types.isNativeFn(proc)) {
+                        const native = types.toObject(proc).as(types.NativeFn);
+                        const result = native.func(flat_args[0..count]) catch |err| {
+                            if (err == error.ContinuationInvoked) {
+                                if (target_frame_count == 0) continue;
+                                return VMError.ContinuationInvoked;
+                            }
+                            return switch (err) {
+                                error.TypeError => VMError.TypeError,
+                                error.OutOfMemory => VMError.OutOfMemory,
+                                error.ExceptionRaised => VMError.ExceptionRaised,
+                                else => VMError.InvalidBytecode,
+                            };
+                        };
+                        const return_dst = frame.dst;
+                        self.frame_count -= 1;
+                        if (self.frame_count <= target_frame_count) return result;
+                        const caller = &self.frames[self.frame_count - 1];
+                        self.registers[caller.base + return_dst] = result;
+                    } else if (types.isContinuation(proc)) {
+                        const cont = types.toObject(proc).as(types.Continuation);
+                        const value = if (count == 0) types.VOID else flat_args[0];
+                        if (cont.is_escape) {
+                            try self.invokeEscape(cont, value);
+                        } else {
+                            self.performWindTransition(cont.wind_records[0..cont.wind_count], cont.wind_count) catch return VMError.OutOfMemory;
+                            self.restoreContinuation(cont, value);
+                        }
+                        if (target_frame_count == 0) continue;
+                        return VMError.ContinuationInvoked;
+                    } else {
+                        self.setErrorDetail("apply: not a procedure", .{});
+                        return VMError.NotAProcedure;
+                    }
+                },
                 .@"return" => {
                     const src = self.readU8(frame);
                     const result = self.registers[frame.base + src];
@@ -904,50 +1037,59 @@ pub const VM = struct {
                     const nargs = self.readU8(frame);
                     const the_closure = frame.closure orelse return VMError.InvalidBytecode;
                     const the_func = the_closure.func;
+                    const env: *std.StringHashMap(Value) = the_func.env orelse &self.globals;
                     const base = frame.base + base_reg;
 
-                    // Resolve global with cache (single dispatch instead of get_global + call)
-                    if (the_func.global_cache) |cache| {
-                        if (the_func.cache_version == self.global_version and
-                            sym_idx < cache.len and cache[sym_idx] != types.VOID)
-                        {
-                            self.registers[base] = cache[sym_idx];
+                    if (the_func.env == null) {
+                        if (the_func.global_cache) |cache| {
+                            if (the_func.cache_version == self.global_version and
+                                sym_idx < cache.len and cache[sym_idx] != types.VOID)
+                            {
+                                self.registers[base] = cache[sym_idx];
+                            } else {
+                                const sym = the_func.constants.items[sym_idx];
+                                const name = types.symbolName(sym);
+                                const val = env.get(name) orelse {
+                                    self.setErrorDetail("undefined variable '{s}'", .{name});
+                                    return VMError.UndefinedVariable;
+                                };
+                                self.registers[base] = val;
+                                if (types.isClosure(val) or types.isNativeFn(val)) {
+                                    if (sym_idx < cache.len) cache[sym_idx] = val;
+                                }
+                            }
                         } else {
                             const sym = the_func.constants.items[sym_idx];
                             const name = types.symbolName(sym);
-                            const val = self.globals.get(name) orelse {
+                            const val = env.get(name) orelse {
                                 self.setErrorDetail("undefined variable '{s}'", .{name});
                                 return VMError.UndefinedVariable;
                             };
                             self.registers[base] = val;
                             if (types.isClosure(val) or types.isNativeFn(val)) {
-                                if (sym_idx < cache.len) cache[sym_idx] = val;
+                                const cache = self.gc.allocator.alloc(Value, the_func.constants.items.len) catch {
+                                    self.callValue(val, base, nargs) catch |err| {
+                                        if (err == VMError.ContinuationInvoked) {
+                                            if (target_frame_count == 0) continue;
+                                            return VMError.ContinuationInvoked;
+                                        }
+                                        return err;
+                                    };
+                                    continue;
+                                };
+                                @memset(cache, types.VOID);
+                                cache[sym_idx] = val;
+                                the_func.global_cache = cache;
                             }
                         }
                     } else {
                         const sym = the_func.constants.items[sym_idx];
                         const name = types.symbolName(sym);
-                        const val = self.globals.get(name) orelse {
+                        const val = env.get(name) orelse {
                             self.setErrorDetail("undefined variable '{s}'", .{name});
                             return VMError.UndefinedVariable;
                         };
                         self.registers[base] = val;
-                        if (types.isClosure(val) or types.isNativeFn(val)) {
-                            const cache = self.gc.allocator.alloc(Value, the_func.constants.items.len) catch {
-                                // Skip caching, still call
-                                self.callValue(val, base, nargs) catch |err| {
-                                    if (err == VMError.ContinuationInvoked) {
-                                        if (target_frame_count == 0) continue;
-                                        return VMError.ContinuationInvoked;
-                                    }
-                                    return err;
-                                };
-                                continue;
-                            };
-                            @memset(cache, types.VOID);
-                            cache[sym_idx] = val;
-                            the_func.global_cache = cache;
-                        }
                     }
 
                     const callee = self.registers[base];
@@ -965,24 +1107,27 @@ pub const VM = struct {
                     const nargs = self.readU8(frame);
                     const closure = frame.closure orelse return VMError.InvalidBytecode;
                     const func = closure.func;
+                    const env: *std.StringHashMap(Value) = func.env orelse &self.globals;
                     const abs_base = frame.base + base_reg;
 
                     var callee: Value = types.VOID;
-                    if (func.global_cache) |cache| {
-                        if (func.cache_version == self.global_version and
-                            sym_idx < cache.len and cache[sym_idx] != types.VOID)
-                        {
-                            callee = cache[sym_idx];
+                    if (func.env == null) {
+                        if (func.global_cache) |cache| {
+                            if (func.cache_version == self.global_version and
+                                sym_idx < cache.len and cache[sym_idx] != types.VOID)
+                            {
+                                callee = cache[sym_idx];
+                            }
                         }
                     }
                     if (callee == types.VOID) {
                         const sym = func.constants.items[sym_idx];
                         const name = types.symbolName(sym);
-                        callee = self.globals.get(name) orelse {
+                        callee = env.get(name) orelse {
                             self.setErrorDetail("undefined variable '{s}'", .{name});
                             return VMError.UndefinedVariable;
                         };
-                        if (types.isClosure(callee) or types.isNativeFn(callee)) {
+                        if (func.env == null and (types.isClosure(callee) or types.isNativeFn(callee))) {
                             if (func.global_cache) |cache| {
                                 if (sym_idx < cache.len) cache[sym_idx] = callee;
                             } else {
@@ -1164,6 +1309,9 @@ pub const VM = struct {
     fn callClosure(self: *VM, closure: *types.Closure, base: u16, nargs: u8) VMError!void {
             const func = closure.func;
 
+            if (base + @as(u16, @max(nargs + 1, func.locals_count)) >= MAX_REGISTERS)
+                return VMError.StackOverflow;
+
             if (!func.is_variadic) {
                 if (nargs != func.arity) {
                     self.setErrorDetail("expected {d} arguments, got {d}", .{ func.arity, nargs });
@@ -1217,6 +1365,9 @@ pub const VM = struct {
     }
 
     fn callNative(self: *VM, native: *types.NativeFn, base: u16, nargs: u8) VMError!void {
+            if (base + @as(u16, nargs) + 1 >= MAX_REGISTERS)
+                return VMError.StackOverflow;
+
             switch (native.arity) {
                 .exact => |expected| {
                     if (nargs != expected) {

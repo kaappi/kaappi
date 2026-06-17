@@ -184,6 +184,7 @@ pub const Function = struct {
     debug_locals: []DebugLocal = &.{},
     global_cache: ?[]Value = null,
     cache_version: u32 = 0,
+    env: ?*std.StringHashMap(Value) = null,
 };
 
 pub const Closure = struct {
@@ -687,6 +688,8 @@ pub const OpCode = enum(u8) {
     move, // dst:u8, src:u8
     get_global, // dst:u8, sym_idx:u16
     set_global, // sym_idx:u16, src:u8
+    define_global, // sym_idx:u16, src:u8
+    tail_apply, // base:u8, nargs:u8
     get_local, // dst:u8, slot:u8
     set_local, // slot:u8, src:u8
     get_upvalue, // dst:u8, idx:u8
