@@ -50,6 +50,11 @@ pub fn registerSrfi1(vm: *vm_mod.VM) !void {
     try reg(vm, "proper-list?", &properListPFn, .{ .exact = 1 });
     try reg(vm, "dotted-list?", &dottedListPFn, .{ .exact = 1 });
     try reg(vm, "circular-list?", &circularListPFn, .{ .exact = 1 });
+
+    // Set operations
+    try reg(vm, "lset-intersection", &lsetIntersectionFn, .{ .variadic = 2 });
+    try reg(vm, "lset-difference", &lsetDifferenceFn, .{ .variadic = 2 });
+    try reg(vm, "lset=", &lsetEqualFn, .{ .variadic = 1 });
 }
 
 // ---------------------------------------------------------------------------
@@ -934,4 +939,128 @@ fn circularListPFn(args: []const Value) PrimitiveError!Value {
         if (slow == fast) return types.TRUE;
     }
     _ = &current;
+}
+
+// ---------------------------------------------------------------------------
+// Set operations
+// ---------------------------------------------------------------------------
+
+fn memberByPred(pred: Value, elem: Value, list: Value) PrimitiveError!bool {
+    var current = list;
+    while (current != types.NIL) {
+        if (!types.isPair(current)) return PrimitiveError.TypeError;
+        const call_args = [2]Value{ elem, types.car(current) };
+        const result = try callVM(pred, &call_args);
+        if (isTruthyResult(result)) return true;
+        current = types.cdr(current);
+    }
+    return false;
+}
+
+// (lset-intersection = list1 list2 ...) — elements of list1 in ALL other lists
+fn lsetIntersectionFn(args: []const Value) PrimitiveError!Value {
+    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const pred = args[0];
+    const list1 = args[1];
+    const other_count = args.len - 2;
+
+    if (other_count == 0) return list1;
+
+    var results: std.ArrayList(Value) = .empty;
+    defer results.deinit(gc.allocator);
+
+    var current = list1;
+    while (current != types.NIL) {
+        if (!types.isPair(current)) return PrimitiveError.TypeError;
+        const elem = types.car(current);
+
+        var in_all = true;
+        for (0..other_count) |i| {
+            if (!try memberByPred(pred, elem, args[2 + i])) {
+                in_all = false;
+                break;
+            }
+        }
+        if (in_all) {
+            results.append(gc.allocator, elem) catch return PrimitiveError.OutOfMemory;
+        }
+        current = types.cdr(current);
+    }
+
+    var result_list: Value = types.NIL;
+    var i = results.items.len;
+    while (i > 0) {
+        i -= 1;
+        result_list = gc.allocPair(results.items[i], result_list) catch return PrimitiveError.OutOfMemory;
+    }
+    return result_list;
+}
+
+// (lset-difference = list1 list2 ...) — elements of list1 NOT in any other list
+fn lsetDifferenceFn(args: []const Value) PrimitiveError!Value {
+    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const pred = args[0];
+    const list1 = args[1];
+    const other_count = args.len - 2;
+
+    if (other_count == 0) return list1;
+
+    var results: std.ArrayList(Value) = .empty;
+    defer results.deinit(gc.allocator);
+
+    var current = list1;
+    while (current != types.NIL) {
+        if (!types.isPair(current)) return PrimitiveError.TypeError;
+        const elem = types.car(current);
+
+        var in_any = false;
+        for (0..other_count) |i| {
+            if (try memberByPred(pred, elem, args[2 + i])) {
+                in_any = true;
+                break;
+            }
+        }
+        if (!in_any) {
+            results.append(gc.allocator, elem) catch return PrimitiveError.OutOfMemory;
+        }
+        current = types.cdr(current);
+    }
+
+    var result_list: Value = types.NIL;
+    var i = results.items.len;
+    while (i > 0) {
+        i -= 1;
+        result_list = gc.allocPair(results.items[i], result_list) catch return PrimitiveError.OutOfMemory;
+    }
+    return result_list;
+}
+
+// (lset= = list1 list2 ...) — all lists contain the same elements
+fn lsetEqualFn(args: []const Value) PrimitiveError!Value {
+    const pred = args[0];
+    const list_count = args.len - 1;
+
+    if (list_count <= 1) return types.TRUE;
+
+    for (0..list_count - 1) |i| {
+        const a = args[1 + i];
+        const b = args[2 + i];
+
+        // Every element of a must be in b
+        var current = a;
+        while (current != types.NIL) {
+            if (!types.isPair(current)) return PrimitiveError.TypeError;
+            if (!try memberByPred(pred, types.car(current), b)) return types.FALSE;
+            current = types.cdr(current);
+        }
+
+        // Every element of b must be in a
+        current = b;
+        while (current != types.NIL) {
+            if (!types.isPair(current)) return PrimitiveError.TypeError;
+            if (!try memberByPred(pred, types.car(current), a)) return types.FALSE;
+            current = types.cdr(current);
+        }
+    }
+    return types.TRUE;
 }

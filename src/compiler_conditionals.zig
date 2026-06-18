@@ -364,8 +364,8 @@ pub fn evalFeatureReq(self: *Compiler, req: Value) bool {
                 "scheme.case-lambda",     "scheme.load",
                 "srfi.1",                 "srfi.9",
                 "srfi.13",                "srfi.27",
-                "srfi.39",                "srfi.69",
-                "srfi.133",
+                "srfi.35",                "srfi.39",
+                "srfi.69",                "srfi.133",
             };
             for (known_libs) |l| {
                 if (std.mem.eql(u8, lib_name, l)) return true;

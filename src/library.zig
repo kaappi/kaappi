@@ -399,6 +399,7 @@ pub fn registerStandardLibraries(registry: *LibraryRegistry, globals: *std.Strin
         "filter-map",   "append-map",
         "last",         "last-pair",
         "proper-list?", "dotted-list?",  "circular-list?",
+        "lset-intersection", "lset-difference", "lset=",
     };
     var srfi1_lib = Library.init(allocator, "srfi.1");
     for (srfi1_names) |name| {
