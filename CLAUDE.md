@@ -93,7 +93,7 @@ Stored as UTF-8 byte arrays. All string operations (string-length, string-ref, s
 | `primitives_vector.zig` | vector ops, vector-map, vector-for-each |
 | `primitives_bytevector.zig` | bytevector ops, binary I/O, bytevector ports |
 | `primitives_list.zig` | list-ref, list-tail, list-set!, list-copy, make-list, member, assoc |
-| `primitives_srfi1.zig` | SRFI-1 list library (fold, filter, find, any, every, iota) |
+| `primitives_srfi1.zig` | SRFI-1 list library (fold, filter, find, any, every, iota, lset-intersection, lset-difference, lset=) |
 | `primitives_hashtable.zig` | SRFI-69 hash tables |
 | `primitives_random.zig` | SRFI-27 random numbers |
 | `primitives_io.zig` | Port ops, file I/O, string ports, read/write/display |
@@ -118,7 +118,7 @@ Stored as UTF-8 byte arrays. All string operations (string-length, string-ref, s
 | `tests_*.zig` | Unit tests by feature (core_eval, tail_calls, macros, io, etc.) |
 
 ### SRFI libraries (in `lib/srfi/`)
-38 SRFIs supported. 8 built-in (Zig primitives in `library.zig`): 1, 9, 13, 27, 39, 69, 133, 170. 30 portable R7RS .sld files loaded on demand via `(import (srfi N))`: 2, 8, 11, 14, 16, 26, 28, 31, 34, 41, 111, 117, 125, 128, 132, 141, 143, 145, 151, 152, 158, 174, 175, 189, 219, 222, 227, 232, 233, 235.
+41 SRFIs supported. 8 built-in (Zig primitives in `library.zig`): 1, 9, 13, 27, 39, 69, 133, 170. 33 portable R7RS .sld files loaded on demand via `(import (srfi N))`: 2, 8, 11, 14, 16, 26, 28, 31, 34, 35, 41, 64, 111, 117, 125, 128, 132, 141, 143, 145, 151, 152, 158, 174, 175, 189, 219, 222, 227, 232, 233, 235.
 
 The library loader in `vm_library.zig` supports `cond-expand`, `include` (paths resolved relative to the .sld file), and `(export (rename ...))` in `define-library`. Macro transformers defined with `define-syntax` in library `begin` blocks are exported and imported correctly.
 

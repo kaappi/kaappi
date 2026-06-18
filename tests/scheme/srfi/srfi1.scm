@@ -13,3 +13,15 @@
 (newline)
 (display (drop '(a b c d) 2))           ; (c d)
 (newline)
+(display (lset-intersection eq? '(a b c d) '(b c e)))  ; (b c)
+(newline)
+(display (lset-difference eq? '(a b c d) '(b c e)))    ; (a d)
+(newline)
+(display (lset= eq? '(a b c) '(c b a)))                ; #t
+(newline)
+(display (lset= eq? '(a b) '(a b c)))                  ; #f
+(newline)
+(display (lset-intersection eq? '(a b c) '(b c d) '(c d e)))  ; (c)
+(newline)
+(display (lset-difference eq? '(a b c d) '(b) '(d)))          ; (a c)
+(newline)

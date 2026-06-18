@@ -4,7 +4,7 @@
 
 A complete **R7RS-small** Scheme implementation written in **Zig**.
 
-Kaappi implements every identifier from [R7RS Appendix A](https://small.r7rs.org/) — 420 built-in procedures, 32 syntax forms, and all 14 standard libraries — plus 38 SRFIs, a C FFI, and a stepping debugger. The runtime uses a bytecode compiler with a register-based VM, mark-and-sweep garbage collection, and stack-copying first-class continuations.
+Kaappi implements every identifier from [R7RS Appendix A](https://small.r7rs.org/) — 420 built-in procedures, 32 syntax forms, and all 14 standard libraries — plus 41 SRFIs, a C FFI, and a stepping debugger. The runtime uses a bytecode compiler with a register-based VM, mark-and-sweep garbage collection, and stack-copying first-class continuations.
 
 ---
 
@@ -376,11 +376,11 @@ See **[CONFORMANCE.md](CONFORMANCE.md)** for the full details: design rationale,
 
 ### SRFI support
 
-38 SRFIs supported (8 built-in, 30 as portable `.sld` files in `lib/srfi/`):
+41 SRFIs supported (8 built-in, 33 as portable `.sld` files in `lib/srfi/`):
 
 **Built-in:** 1, 9, 13, 27, 39, 69, 133, 170
 
-**Portable:** 2, 8, 11, 14, 16, 26, 28, 31, 34, 41, 111, 117, 125, 128, 132, 141, 143, 145, 151, 152, 158, 174, 175, 189, 219, 222, 227, 232, 233, 235
+**Portable:** 2, 8, 11, 14, 16, 26, 28, 31, 34, 35, 41, 64, 111, 117, 125, 128, 132, 141, 143, 145, 151, 152, 158, 174, 175, 189, 219, 222, 227, 232, 233, 235
 
 ---
 
