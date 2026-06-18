@@ -34,6 +34,18 @@ const Rational = types.Rational;
 
 const GC_THRESHOLD: usize = 1024;
 
+pub const GcStats = struct {
+    collections: usize = 0,
+    total_mark_ns: u64 = 0,
+    total_sweep_ns: u64 = 0,
+    objects_freed: usize = 0,
+    bytes_freed: usize = 0,
+    peak_object_count: usize = 0,
+    peak_bytes_allocated: usize = 0,
+    allocs_by_type: [28]usize = .{0} ** 28,
+    no_collect_deferred: usize = 0,
+};
+
 pub const GC = struct {
     allocator: std.mem.Allocator,
     objects: ?*Object = null,
@@ -45,12 +57,10 @@ pub const GC = struct {
     enabled: bool = true,
     no_collect: u32 = 0,
     bytes_allocated: usize = 0,
-    // Optional callback to mark roots held outside the GC's own root lists —
-    // notably the VM's live register file and call frames. Set by the VM so a
-    // collection triggered mid-execution does not free in-flight objects.
     root_marker: ?*const fn (*GC) void = null,
     flonum_cache: [16]?Value = .{null} ** 16,
     source_lines: std.AutoHashMap(Value, u32) = undefined,
+    stats: GcStats = .{},
 
     pub fn init(allocator: std.mem.Allocator) GC {
         return .{
@@ -79,6 +89,11 @@ pub const GC = struct {
         obj.next = self.objects;
         self.objects = obj;
         self.object_count += 1;
+        self.stats.allocs_by_type[@intFromEnum(obj.tag)] += 1;
+        if (self.object_count > self.stats.peak_object_count)
+            self.stats.peak_object_count = self.object_count;
+        if (self.bytes_allocated > self.stats.peak_bytes_allocated)
+            self.stats.peak_bytes_allocated = self.bytes_allocated;
     }
 
     pub fn allocPair(self: *GC, car_val: Value, cdr_val: Value) !Value {
@@ -748,14 +763,30 @@ pub const GC = struct {
     // -- GC --
 
     fn maybeCollect(self: *GC) void {
-        if (self.enabled and self.no_collect == 0 and self.object_count >= self.gc_threshold) {
-            self.collect();
+        if (self.enabled and self.object_count >= self.gc_threshold) {
+            if (self.no_collect > 0) {
+                self.stats.no_collect_deferred += 1;
+            } else {
+                self.collect();
+            }
         }
     }
 
+    fn clockNs() u64 {
+        var ts: std.c.timespec = undefined;
+        _ = std.c.clock_gettime(.MONOTONIC, &ts);
+        return @intCast(@as(i128, ts.sec) * 1_000_000_000 + ts.nsec);
+    }
+
     pub fn collect(self: *GC) void {
+        self.stats.collections += 1;
+        const mark_start = clockNs();
         self.markRoots();
+        const mark_end = clockNs();
         self.sweep();
+        const sweep_end = clockNs();
+        self.stats.total_mark_ns +%= mark_end -% mark_start;
+        self.stats.total_sweep_ns +%= sweep_end -% mark_end;
         self.gc_threshold = @max(GC_THRESHOLD, self.object_count * 4);
     }
 
@@ -909,11 +940,60 @@ pub const GC = struct {
                 } else {
                     self.objects = next;
                 }
+                const freed = objectSize(o);
+                self.stats.objects_freed += 1;
+                self.stats.bytes_freed += freed;
+                if (self.bytes_allocated >= freed)
+                    self.bytes_allocated -= freed;
                 self.freeObject(o);
                 self.object_count -= 1;
                 obj = next;
             }
         }
+    }
+
+    fn objectSize(obj: *Object) usize {
+        return switch (obj.tag) {
+            .pair => @sizeOf(Pair),
+            .symbol => @sizeOf(Symbol) + obj.as(Symbol).name.len,
+            .string => @sizeOf(SchemeString) + obj.as(SchemeString).data.len,
+            .closure => @sizeOf(Closure) + obj.as(Closure).upvalues.len * @sizeOf(Value),
+            .function => blk: {
+                const f = obj.as(Function);
+                var s: usize = @sizeOf(Function);
+                s += f.code.capacity;
+                s += f.constants.capacity * @sizeOf(Value);
+                if (f.global_cache) |c| s += c.len * @sizeOf(Value);
+                break :blk s;
+            },
+            .native_fn => @sizeOf(NativeFn),
+            .flonum => @sizeOf(Flonum),
+            .vector => @sizeOf(Vector) + obj.as(Vector).data.len * @sizeOf(Value),
+            .bytevector => @sizeOf(Bytevector) + obj.as(Bytevector).data.len,
+            .transformer => blk: {
+                const t = obj.as(Transformer);
+                break :blk @sizeOf(Transformer) + t.literals.len * @sizeOf(Value) +
+                    t.patterns.len * @sizeOf(Value) + t.templates.len * @sizeOf(Value);
+            },
+            .error_object => @sizeOf(types.ErrorObject),
+            .record_type => @sizeOf(RecordType) + obj.as(RecordType).name.len,
+            .record_instance => @sizeOf(RecordInstance) + obj.as(RecordInstance).fields.len * @sizeOf(Value),
+            .port => @sizeOf(Port),
+            .continuation => @sizeOf(Continuation) + obj.as(Continuation).backing.len,
+            .multiple_values => @sizeOf(MultipleValues) + obj.as(MultipleValues).values.len * @sizeOf(Value),
+            .complex => @sizeOf(types.Complex),
+            .promise => @sizeOf(Promise),
+            .parameter => @sizeOf(types.ParameterObject),
+            .hash_table => @sizeOf(HashTable) + obj.as(HashTable).entries.len * @sizeOf(types.HashEntry),
+            .ffi_library => @sizeOf(FfiLibrary),
+            .ffi_function => @sizeOf(FfiFunction),
+            .bignum => @sizeOf(Bignum) + obj.as(Bignum).limbs.len * @sizeOf(u64),
+            .rational => @sizeOf(Rational),
+            .file_info => @sizeOf(types.FileInfo),
+            .user_info => @sizeOf(types.UserInfo),
+            .group_info => @sizeOf(types.GroupInfo),
+            .directory_object => @sizeOf(types.DirectoryObject),
+        };
     }
 
     fn freeObject(self: *GC, obj: *Object) void {

@@ -47,6 +47,62 @@ fn writeStderr(bytes: []const u8) void {
     writeToFd(2, bytes);
 }
 
+fn printGcStats(gc: *@import("memory.zig").GC) void {
+    const s = &gc.stats;
+    const mark_ms = @as(f64, @floatFromInt(s.total_mark_ns)) / 1_000_000.0;
+    const sweep_ms = @as(f64, @floatFromInt(s.total_sweep_ns)) / 1_000_000.0;
+    var buf: [2048]u8 = undefined;
+
+    const header = std.fmt.bufPrint(&buf,
+        \\GC Statistics:
+        \\  Collections:       {d}
+        \\  Live objects:      {d} (peak: {d})
+        \\  Heap size:         {d} bytes (peak: {d})
+        \\  Freed:             {d} objects, {d} bytes
+        \\  Mark time:         {d:.2} ms total
+        \\  Sweep time:        {d:.2} ms total
+        \\
+    , .{
+        s.collections,
+        gc.object_count, s.peak_object_count,
+        gc.bytes_allocated, s.peak_bytes_allocated,
+        s.objects_freed, s.bytes_freed,
+        mark_ms, sweep_ms,
+    }) catch "";
+    writeStderr(header);
+
+    if (s.no_collect_deferred > 0) {
+        const defer_line = std.fmt.bufPrint(&buf, "  No-collect defers: {d}\n", .{s.no_collect_deferred}) catch "";
+        writeStderr(defer_line);
+    }
+
+    const type_names = [_][]const u8{
+        "pair",      "symbol",    "string",    "closure",
+        "native_fn", "vector",    "bytevec",   "port",
+        "rec_type",  "function",  "flonum",    "xformer",
+        "error",     "rec_inst",  "contin",    "multi_val",
+        "complex",   "promise",   "parameter", "ffi_lib",
+        "ffi_fn",    "hashtable", "bignum",    "rational",
+        "file_info", "user_info", "grp_info",  "dir_obj",
+    };
+
+    writeStderr("  Allocations by type:\n");
+    var col: usize = 0;
+    for (type_names, 0..) |name, i| {
+        const count = s.allocs_by_type[i];
+        if (count == 0) continue;
+        if (col == 0) writeStderr("    ");
+        const entry = std.fmt.bufPrint(&buf, "{s: <10} {d: >8}  ", .{ name, count }) catch "";
+        writeStderr(entry);
+        col += 1;
+        if (col >= 3) {
+            writeStderr("\n");
+            col = 0;
+        }
+    }
+    if (col > 0) writeStderr("\n");
+}
+
 fn readLine(buf: []u8) ?[]const u8 {
     const fd: std.posix.fd_t = 0;
     var i: usize = 0;
@@ -115,9 +171,12 @@ pub fn main(init: std.process.Init.Minimal) !void {
     var file_path: ?[]const u8 = null;
     var compile_mode = false;
     var disassemble_mode = false;
+    var gc_stats_mode = false;
 
     while (args.next()) |arg| {
-        if (std.mem.eql(u8, arg, "--lib-path")) {
+        if (std.mem.eql(u8, arg, "--gc-stats")) {
+            gc_stats_mode = true;
+        } else if (std.mem.eql(u8, arg, "--lib-path")) {
             if (args.next()) |lp| {
                 if (lib_path_count < 16) {
                     lib_paths[lib_path_count] = lp;
@@ -152,6 +211,8 @@ pub fn main(init: std.process.Init.Minimal) !void {
     vm.command_line_args = script_args[0..script_arg_count];
 
     vm.lib_paths = lib_paths[0..lib_path_count];
+
+    defer if (gc_stats_mode) printGcStats(&gc);
 
     if (disassemble_mode) {
         if (file_path) |fp| {
@@ -626,12 +687,18 @@ fn repl(vm: *vm_mod.VM) !void {
             input_buf.clearRetainingCapacity();
             continue;
         }
+        if (std.mem.eql(u8, debug_trimmed, ",gc")) {
+            printGcStats(vm.gc);
+            input_buf.clearRetainingCapacity();
+            continue;
+        }
         if (std.mem.eql(u8, debug_trimmed, ",help")) {
             writeStdout(
                 \\Commands:
                 \\  ,time <expr>      Measure execution time
                 \\  ,expand <expr>    Show macro expansion
                 \\  ,env [prefix]     List global bindings
+                \\  ,gc               Show GC statistics
                 \\  ,break <name>     Set breakpoint on function
                 \\  ,breakpoints      List active breakpoints
                 \\  ,delete all       Clear all breakpoints
