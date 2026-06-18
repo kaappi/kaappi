@@ -169,6 +169,11 @@ pub const DebugLocal = struct {
     slot: u8,
 };
 
+pub const LineEntry = struct {
+    offset: u16,
+    line: u32,
+};
+
 pub const Function = struct {
     header: Object,
     code: std.ArrayList(u8),
@@ -182,9 +187,18 @@ pub const Function = struct {
     source_line: u32 = 0,
     source_name: ?[]const u8 = null,
     debug_locals: []DebugLocal = &.{},
+    line_table: std.ArrayList(LineEntry) = .empty,
     global_cache: ?[]Value = null,
     cache_version: u32 = 0,
     env: ?*std.StringHashMap(Value) = null,
+
+    pub fn lineForOffset(self: *const Function, offset: usize) u32 {
+        var best: u32 = self.source_line;
+        for (self.line_table.items) |entry| {
+            if (entry.offset <= offset) best = entry.line else break;
+        }
+        return best;
+    }
 };
 
 pub const Closure = struct {

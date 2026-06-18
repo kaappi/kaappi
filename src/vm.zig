@@ -212,9 +212,19 @@ pub const VM = struct {
         while (i > 0) {
             i -= 1;
             if (self.frames[i].closure) |cls| {
-                if (cls.func.source_line > 0) {
-                    self.last_error_line = cls.func.source_line;
-                    self.last_error_source = cls.func.source_name;
+                const func = cls.func;
+                if (func.line_table.items.len > 0) {
+                    const ip = if (self.frames[i].ip > 0) self.frames[i].ip - 1 else 0;
+                    const line = func.lineForOffset(ip);
+                    if (line > 0) {
+                        self.last_error_line = line;
+                        self.last_error_source = func.source_name;
+                        return;
+                    }
+                }
+                if (func.source_line > 0) {
+                    self.last_error_line = func.source_line;
+                    self.last_error_source = func.source_name;
                     return;
                 }
             }

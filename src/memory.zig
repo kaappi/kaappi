@@ -49,6 +49,7 @@ pub const GC = struct {
     // collection triggered mid-execution does not free in-flight objects.
     root_marker: ?*const fn (*GC) void = null,
     flonum_cache: [16]?Value = .{null} ** 16,
+    source_lines: std.AutoHashMap(Value, u32) = undefined,
 
     pub fn init(allocator: std.mem.Allocator) GC {
         return .{
@@ -56,6 +57,7 @@ pub const GC = struct {
             .symbols = std.StringHashMap(Value).init(allocator),
             .roots = .empty,
             .extra_roots = .empty,
+            .source_lines = std.AutoHashMap(Value, u32).init(allocator),
         };
     }
 
@@ -69,6 +71,7 @@ pub const GC = struct {
         self.symbols.deinit();
         self.roots.deinit(self.allocator);
         self.extra_roots.deinit(self.allocator);
+        self.source_lines.deinit();
     }
 
     pub fn trackObject(self: *GC, obj: *Object) void {
@@ -937,6 +940,7 @@ pub const GC = struct {
                 const func = obj.as(Function);
                 func.code.deinit(self.allocator);
                 func.constants.deinit(self.allocator);
+                func.line_table.deinit(self.allocator);
                 if (func.global_cache) |cache| {
                     self.allocator.free(cache);
                 }

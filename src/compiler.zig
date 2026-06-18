@@ -40,6 +40,7 @@ pub const Compiler = struct {
     next_register: u8 = 0,
     parent: ?*Compiler = null,
     in_body_scope: bool = false,
+    current_line: u32 = 0,
 
     pub fn init(gc: *memory.GC) CompileError!Compiler {
         const func = gc.allocFunction() catch return CompileError.OutOfMemory;
@@ -395,6 +396,15 @@ pub const Compiler = struct {
         }
 
         if (types.isPair(expr)) {
+            if (self.gc.source_lines.get(expr)) |line| {
+                if (line != self.current_line and line > 0) {
+                    self.current_line = line;
+                    self.func.line_table.append(self.gc.allocator, .{
+                        .offset = @intCast(self.func.code.items.len),
+                        .line = line,
+                    }) catch {};
+                }
+            }
             return self.compileForm(expr, dst, is_tail);
         }
 

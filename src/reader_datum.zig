@@ -84,6 +84,7 @@ fn readList(self: *Reader) ReadError!Value {
         return types.NIL;
     }
 
+    const list_line = self.getLineCol().line;
     const first = try readDatum(self);
     var first_root = first;
     self.gc.pushRoot(&first_root);
@@ -102,17 +103,19 @@ fn readList(self: *Reader) ReadError!Value {
             var rest_root = rest;
             self.gc.pushRoot(&rest_root);
             defer self.gc.popRoot();
-            return self.gc.allocPair(first_root, rest_root) catch return ReadError.OutOfMemory;
+            const pair = self.gc.allocPair(first_root, rest_root) catch return ReadError.OutOfMemory;
+            self.gc.source_lines.put(pair, list_line) catch {};
+            return pair;
         }
     }
 
     const rest = try readListTail(self);
-    // Root the tail across the final allocPair: allocPair runs maybeCollect()
-    // before allocating, and `rest` is otherwise unreachable from any GC root.
     var rest_root = rest;
     self.gc.pushRoot(&rest_root);
     defer self.gc.popRoot();
-    return self.gc.allocPair(first_root, rest_root) catch return ReadError.OutOfMemory;
+    const pair = self.gc.allocPair(first_root, rest_root) catch return ReadError.OutOfMemory;
+    self.gc.source_lines.put(pair, list_line) catch {};
+    return pair;
 }
 
 fn readListTail(self: *Reader) ReadError!Value {
@@ -137,17 +140,19 @@ fn readListTail(self: *Reader) ReadError!Value {
         return rest;
     }
 
+    const elem_line = self.getLineCol().line;
     const elem = try readDatum(self);
     var elem_root = elem;
     self.gc.pushRoot(&elem_root);
     defer self.gc.popRoot();
 
     const rest = try readListTail(self);
-    // Root the tail across the final allocPair (see readList).
     var rest_root = rest;
     self.gc.pushRoot(&rest_root);
     defer self.gc.popRoot();
-    return self.gc.allocPair(elem_root, rest_root) catch return ReadError.OutOfMemory;
+    const pair = self.gc.allocPair(elem_root, rest_root) catch return ReadError.OutOfMemory;
+    self.gc.source_lines.put(pair, elem_line) catch {};
+    return pair;
 }
 
 fn readAbbreviation(self: *Reader, keyword: []const u8) ReadError!Value {
