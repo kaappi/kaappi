@@ -1,5 +1,7 @@
 # Kaappi
 
+> **Note:** Kaappi was built with the assistance of AI (Claude by Anthropic).
+
 A complete **R7RS-small** Scheme implementation written in **Zig**.
 
 Kaappi implements every identifier from [R7RS Appendix A](https://small.r7rs.org/) — 420 built-in procedures, 32 syntax forms, and all 14 standard libraries — plus 38 SRFIs, a C FFI, and a stepping debugger. The runtime uses a bytecode compiler with a register-based VM, mark-and-sweep garbage collection, and stack-copying first-class continuations.
