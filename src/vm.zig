@@ -150,6 +150,8 @@ pub const VM = struct {
     lib_compile_collect: ?*std.ArrayList(*types.Function) = null,
     last_error_detail: [256]u8 = [_]u8{0} ** 256,
     last_error_detail_len: usize = 0,
+    last_error_line: u32 = 0,
+    last_error_source: ?[]const u8 = null,
     // Debugger state
     debug_mode: bool = false,
     breakpoints: [16][]const u8 = undefined,
@@ -199,10 +201,61 @@ pub const VM = struct {
             },
         };
         self.last_error_detail_len = s.len;
+        self.captureErrorLocation();
+    }
+
+    fn captureErrorLocation(self: *VM) void {
+        self.last_error_line = 0;
+        self.last_error_source = null;
+        if (self.frame_count == 0) return;
+        var i = self.frame_count;
+        while (i > 0) {
+            i -= 1;
+            if (self.frames[i].closure) |cls| {
+                if (cls.func.source_line > 0) {
+                    self.last_error_line = cls.func.source_line;
+                    self.last_error_source = cls.func.source_name;
+                    return;
+                }
+            }
+        }
     }
 
     pub fn getErrorDetail(self: *VM) []const u8 {
         return self.last_error_detail[0..self.last_error_detail_len];
+    }
+
+    pub const StackFrame = struct {
+        name: ?[]const u8,
+        source: ?[]const u8,
+        line: u32,
+    };
+
+    pub fn getStackTrace(self: *VM, buf: []StackFrame) usize {
+        var count: usize = 0;
+        if (self.frame_count == 0) return 0;
+        var i = self.frame_count;
+        while (i > 0 and count < buf.len) {
+            i -= 1;
+            if (self.frames[i].closure) |cls| {
+                const func = cls.func;
+                if (func.source_line > 0 or func.name != null) {
+                    if (count > 0) {
+                        const prev = buf[count - 1];
+                        if (prev.line == func.source_line and
+                            std.mem.eql(u8, prev.source orelse "", func.source_name orelse ""))
+                            continue;
+                    }
+                    buf[count] = .{
+                        .name = func.name,
+                        .source = func.source_name,
+                        .line = func.source_line,
+                    };
+                    count += 1;
+                }
+            }
+        }
+        return count;
     }
 
     pub fn defineGlobal(self: *VM, name: []const u8, value: Value) !void {
@@ -722,16 +775,21 @@ pub const VM = struct {
                 .call => {
                     const base_reg = self.readU8(frame);
                     const nargs = self.readU8(frame);
-                    const callee = self.registers[frame.base + base_reg];
-                    self.callValue(callee, frame.base + base_reg, nargs) catch |err| {
-                        if (err == VMError.ContinuationInvoked) {
-                            if (self.frame_count > target_frame_count) {
-                                continue;
+                    const base = frame.base + base_reg;
+                    const callee = self.registers[base];
+                    if (types.isClosure(callee)) {
+                        self.callClosure(types.toObject(callee).as(types.Closure), base, nargs) catch |err| return err;
+                    } else {
+                        self.callValue(callee, base, nargs) catch |err| {
+                            if (err == VMError.ContinuationInvoked) {
+                                if (self.frame_count > target_frame_count) {
+                                    continue;
+                                }
+                                return VMError.ContinuationInvoked;
                             }
-                            return VMError.ContinuationInvoked;
-                        }
-                        return err;
-                    };
+                            return err;
+                        };
+                    }
                 },
                 .tail_call => {
                     const base_reg = self.readU8(frame);
@@ -1093,13 +1151,17 @@ pub const VM = struct {
                     }
 
                     const callee = self.registers[base];
-                    self.callValue(callee, base, nargs) catch |err| {
-                        if (err == VMError.ContinuationInvoked) {
-                            if (target_frame_count == 0) continue;
-                            return VMError.ContinuationInvoked;
-                        }
-                        return err;
-                    };
+                    if (types.isClosure(callee)) {
+                        self.callClosure(types.toObject(callee).as(types.Closure), base, nargs) catch |err| return err;
+                    } else {
+                        self.callValue(callee, base, nargs) catch |err| {
+                            if (err == VMError.ContinuationInvoked) {
+                                if (target_frame_count == 0) continue;
+                                return VMError.ContinuationInvoked;
+                            }
+                            return err;
+                        };
+                    }
                 },
                 .tail_call_global => {
                     const base_reg = self.readU8(frame);

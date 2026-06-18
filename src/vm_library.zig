@@ -14,6 +14,18 @@ const VMError = vm_mod.VMError;
 fn importBinding(vm: *VM, target: *std.StringHashMap(Value), name: []const u8, val: Value) !void {
     if (types.isTransformer(val)) {
         vm.macros.put(name, val) catch return error.OutOfMemory;
+        // Also import the macro's definition-site bindings so free
+        // references in the template resolve at runtime (R7RS §4.3.2).
+        const tx = types.toObject(val).as(types.Transformer);
+        if (tx.def_env) |env| {
+            var it = env.iterator();
+            while (it.next()) |entry| {
+                if (!target.contains(entry.key_ptr.*)) {
+                    target.put(entry.key_ptr.*, entry.value_ptr.*) catch {};
+                    if (target == &vm.globals) vm.global_version +%= 1;
+                }
+            }
+        }
         return;
     }
     target.put(name, val) catch return error.OutOfMemory;

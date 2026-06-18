@@ -594,7 +594,6 @@ fn renameForHygiene(gc: *GC, name: []const u8, scope: u32, globals: ?*std.String
         }
     }
     // Also check the VM's global environment for procedures and macros
-    // (but not plain variables, to avoid hygiene interference)
     const vm_mod = @import("vm.zig");
     if (vm_mod.vm_instance) |vm| {
         if (vm.globals.get(name)) |val| {

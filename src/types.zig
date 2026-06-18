@@ -210,6 +210,7 @@ pub const Transformer = struct {
     templates: []Value,
     num_rules: u16,
     captured_locals: []CapturedLocal = &.{},
+    def_env: ?*std.StringHashMap(Value) = null,
 };
 
 pub const ErrorObject = struct {

@@ -69,6 +69,8 @@ pub const Compiler = struct {
     pub fn initChild(parent: *Compiler) CompileError!Compiler {
         const func = parent.gc.allocFunction() catch return CompileError.OutOfMemory;
         func.env = parent.lib_env;
+        func.source_line = parent.func.source_line;
+        func.source_name = parent.func.source_name;
         parent.gc.extra_roots.append(parent.gc.allocator, types.makePointer(@ptrCast(func))) catch {};
         return .{
             .gc = parent.gc,
@@ -496,14 +498,26 @@ pub const Compiler = struct {
                 }
                 const tx = types.toObject(transformer).as(types.Transformer);
                 // Temporarily add captured locals to globals so the expander doesn't rename them
-                var temp_globals: [16][]const u8 = undefined;
+                var temp_globals: [128][]const u8 = undefined;
                 var temp_global_count: usize = 0;
                 if (self.globals) |g| {
                     for (tx.captured_locals) |cap| {
-                        if (!g.contains(cap.name) and temp_global_count < 16) {
+                        if (!g.contains(cap.name) and temp_global_count < 128) {
                             g.put(cap.name, types.VOID) catch {};
                             temp_globals[temp_global_count] = cap.name;
                             temp_global_count += 1;
+                        }
+                    }
+                    // Add definition-site library env bindings so free
+                    // references in the macro template resolve correctly
+                    if (tx.def_env) |env| {
+                        var env_it = env.iterator();
+                        while (env_it.next()) |entry| {
+                            if (!g.contains(entry.key_ptr.*) and temp_global_count < 128) {
+                                g.put(entry.key_ptr.*, entry.value_ptr.*) catch {};
+                                temp_globals[temp_global_count] = entry.key_ptr.*;
+                                temp_global_count += 1;
+                            }
                         }
                     }
                 }
@@ -643,6 +657,11 @@ pub const Compiler = struct {
 
         // Parse the syntax-rules form and get a transformer value
         const transformer = self.parseSyntaxRules(transformer_spec) catch return CompileError.InvalidSyntax;
+
+        const tx = types.toObject(transformer).as(types.Transformer);
+        if (self.lib_env) |env| {
+            tx.def_env = env;
+        }
 
         // Store in macro table
         self.macros.put(types.symbolName(keyword), transformer) catch return CompileError.OutOfMemory;
@@ -938,11 +957,15 @@ pub fn compileExpression(gc: *memory.GC, expr: Value) CompileError!*types.Functi
 }
 
 pub fn compileExpressionWithMacros(gc: *memory.GC, expr: Value, vm_macros: *std.StringHashMap(Value), vm_globals: ?*std.StringHashMap(Value)) CompileError!*types.Function {
+    return compileExpressionWithMacrosAt(gc, expr, vm_macros, vm_globals, 0, null);
+}
+
+pub fn compileExpressionWithMacrosAt(gc: *memory.GC, expr: Value, vm_macros: *std.StringHashMap(Value), vm_globals: ?*std.StringHashMap(Value), source_line: u32, source_name: ?[]const u8) CompileError!*types.Function {
     var c = try Compiler.init(gc);
     c.globals = vm_globals;
+    c.func.source_line = source_line;
+    c.func.source_name = source_name;
     defer {
-        // Copy any new macros defined during compilation back to the VM
-        // and register them as GC extra roots
         var it = c.macros.iterator();
         while (it.next()) |entry| {
             vm_macros.put(entry.key_ptr.*, entry.value_ptr.*) catch {};
@@ -950,7 +973,6 @@ pub fn compileExpressionWithMacros(gc: *memory.GC, expr: Value, vm_macros: *std.
         }
         c.deinit();
     }
-    // Copy existing macros from VM into the compiler
     var it = vm_macros.iterator();
     while (it.next()) |entry| {
         c.macros.put(entry.key_ptr.*, entry.value_ptr.*) catch return CompileError.OutOfMemory;

@@ -275,14 +275,12 @@ fn runFile(vm: *vm_mod.VM, path: []const u8) !void {
             continue;
         }
 
-        const func = compiler.compileExpressionWithMacros(vm.gc, expr, &vm.macros, &vm.globals) catch |err| {
+        const func = compiler.compileExpressionWithMacrosAt(vm.gc, expr, &vm.macros, &vm.globals, datum_lc.line, path) catch |err| {
             var errbuf: [256]u8 = undefined;
             const s = std.fmt.bufPrint(&errbuf, "{s}:{d}: compile error: {}\n", .{ path, datum_lc.line, err }) catch "compile error\n";
             writeStderr(s);
             continue;
         };
-        func.source_line = datum_lc.line;
-        func.source_name = path;
 
         // Collect for caching. Keep each collected function rooted for the rest
         // of the run: the .sbc cache writer walks compiled_funcs at the end, so
@@ -298,14 +296,31 @@ fn runFile(vm: *vm_mod.VM, path: []const u8) !void {
         const result = vm.execute(func) catch |err| {
             vm.gc.popRoot();
             const detail = vm.getErrorDetail();
+            const err_line = if (vm.last_error_line > 0) vm.last_error_line else datum_lc.line;
+            const err_source = vm.last_error_source orelse path;
             if (detail.len > 0) {
-                var errbuf: [256]u8 = undefined;
-                const s = std.fmt.bufPrint(&errbuf, "{s}:{d}: error: {s}\n", .{ path, datum_lc.line, detail }) catch "runtime error\n";
+                var errbuf: [512]u8 = undefined;
+                const s = std.fmt.bufPrint(&errbuf, "{s}:{d}: error: {s}\n", .{ err_source, err_line, detail }) catch "runtime error\n";
                 writeStderr(s);
             } else {
-                var errbuf: [256]u8 = undefined;
-                const s = std.fmt.bufPrint(&errbuf, "{s}:{d}: runtime error: {}\n", .{ path, datum_lc.line, err }) catch "runtime error\n";
+                var errbuf: [512]u8 = undefined;
+                const s = std.fmt.bufPrint(&errbuf, "{s}:{d}: runtime error: {}\n", .{ err_source, err_line, err }) catch "runtime error\n";
                 writeStderr(s);
+            }
+            // Print stack trace for file execution
+            var trace_buf: [8]vm_mod.VM.StackFrame = undefined;
+            const trace_len = vm.getStackTrace(&trace_buf);
+            if (trace_len > 1) {
+                for (trace_buf[1..trace_len]) |frame| {
+                    var tbuf: [256]u8 = undefined;
+                    if (frame.name) |name| {
+                        const ts = std.fmt.bufPrint(&tbuf, "  in {s} ({s}:{d})\n", .{ name, frame.source orelse "?", frame.line }) catch continue;
+                        writeStderr(ts);
+                    } else if (frame.line > 0) {
+                        const ts = std.fmt.bufPrint(&tbuf, "  called from {s}:{d}\n", .{ frame.source orelse "?", frame.line }) catch continue;
+                        writeStderr(ts);
+                    }
+                }
             }
             vm.last_error_detail_len = 0;
             continue;
@@ -365,14 +380,12 @@ fn compileFile(vm: *vm_mod.VM, path: []const u8) !void {
             continue;
         }
 
-        const func = compiler.compileExpressionWithMacros(vm.gc, expr, &vm.macros, &vm.globals) catch |err| {
+        const func = compiler.compileExpressionWithMacrosAt(vm.gc, expr, &vm.macros, &vm.globals, datum_lc.line, path) catch |err| {
             var errbuf: [256]u8 = undefined;
             const s = std.fmt.bufPrint(&errbuf, "{s}:{d}: compile error: {}\n", .{ path, datum_lc.line, err }) catch "compile error\n";
             writeStderr(s);
             continue;
         };
-        func.source_line = datum_lc.line;
-        func.source_name = path;
 
         compiled_funcs.append(allocator, func) catch {};
     }
@@ -599,13 +612,12 @@ fn evalInput(vm: *vm_mod.VM, allocator: std.mem.Allocator, input: []const u8) vo
             continue;
         }
 
-        const func = compiler.compileExpressionWithMacros(vm.gc, expr, &vm.macros, &vm.globals) catch |err| {
+        const func = compiler.compileExpressionWithMacrosAt(vm.gc, expr, &vm.macros, &vm.globals, 0, "<repl>") catch |err| {
             var errbuf: [256]u8 = undefined;
             const s = std.fmt.bufPrint(&errbuf, "compile error: {}\n", .{err}) catch "compile error\n";
             writeStderr(s);
             break;
         };
-        func.source_name = "<repl>";
 
         var func_val = types.makePointer(@ptrCast(func));
         vm.gc.pushRoot(&func_val);
