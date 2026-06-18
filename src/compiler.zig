@@ -440,7 +440,7 @@ pub const Compiler = struct {
             // Primitive forms (kept in compiler.zig)
             if (std.mem.eql(u8, name, "quote")) return self.compileQuote(args, dst);
             if (std.mem.eql(u8, name, "if")) return self.compileIf(args, dst, is_tail);
-            if (std.mem.eql(u8, name, "lambda")) return self.compileLambda(args, dst);
+            if (std.mem.eql(u8, name, "lambda")) return self.compileLambda(args, dst, null);
             if (std.mem.eql(u8, name, "define")) return self.compileDefine(args, dst);
             if (std.mem.eql(u8, name, "set!")) return self.compileSet(args, dst);
             if (std.mem.eql(u8, name, "begin")) return self.compileBegin(args, dst, is_tail);
@@ -650,8 +650,8 @@ pub const Compiler = struct {
 
     const compiler_lambda = @import("compiler_lambda.zig");
 
-    pub fn compileLambda(self: *Compiler, args: Value, dst: u8) CompileError!void {
-        return compiler_lambda.compileLambda(self, args, dst);
+    pub fn compileLambda(self: *Compiler, args: Value, dst: u8, name: ?[]const u8) CompileError!void {
+        return compiler_lambda.compileLambda(self, args, dst, name);
     }
 
     fn compileBody(self: *Compiler, body: Value) CompileError!void {
@@ -839,10 +839,41 @@ pub const Compiler = struct {
     fn compileCall(self: *Compiler, expr: Value, dst: u8, is_tail: bool) CompileError!void {
         const operator = types.car(expr);
 
-        // Superinstruction: emit call_global for non-tail global calls
-        // (saves one dispatch vs get_global + call). Tail calls use the
-        // standard path. Excluded: continuation-related procedures.
-        if (!is_tail and types.isSymbol(operator) and self.resolveLocal(types.symbolName(operator)) == null) {
+        // Count args first to know the arity and support self-tail-call checks
+        var nargs: u8 = 0;
+        var arg_list = types.cdr(expr);
+        var args_valid = true;
+        while (arg_list != types.NIL) {
+            if (!types.isPair(arg_list)) {
+                args_valid = false;
+                break;
+            }
+            nargs += 1;
+            arg_list = types.cdr(arg_list);
+        }
+
+        // 1. Self-Tail-Call Optimization: when a function tail-calls itself.
+        if (args_valid and is_tail and types.isSymbol(operator) and self.func.name != null) {
+            const op_name = types.symbolName(operator);
+            if (std.mem.eql(u8, op_name, self.func.name.?) and !self.func.is_variadic and nargs == self.func.arity) {
+                if (self.resolveLocal(op_name) == null and (try self.resolveUpvalue(op_name)) == null) {
+                    return self.compileSelfTailCall(expr, dst, nargs);
+                }
+            }
+        }
+
+        // 2. Global Call Optimization: fuse get_global + call into a single
+        // call_global instruction (saves one dispatch vs get_global + call).
+        //
+        // Restricted to NON-tail calls. tail_call_global only handles closure
+        // and native-fn callees; the regular tail_call handler also handles
+        // parameter objects, continuations, and FFI functions. Routing tail
+        // calls through tail_call_global breaks any tail call to a global that
+        // holds one of those values (e.g. `(define (get) (p))` where p is a
+        // parameter, or parameterize bodies). Self-recursive tail calls — the
+        // common hot case — are already handled above by self_tail_call.
+        // Other tail calls fall through to the standard get_global + tail_call.
+        if (!is_tail and args_valid and types.isSymbol(operator) and self.resolveLocal(types.symbolName(operator)) == null) {
             if ((try self.resolveUpvalue(types.symbolName(operator))) == null) {
                 const op_name = types.symbolName(operator);
                 const is_cont = std.mem.eql(u8, op_name, "call-with-current-continuation") or
@@ -858,20 +889,19 @@ pub const Compiler = struct {
             }
         }
 
+        if (!args_valid) return CompileError.InvalidSyntax;
+
         // The call instruction expects: operator at base, args at base+1, base+2, ...
         const needs_rebase = (dst + 1 != self.next_register);
         const base = if (needs_rebase) try self.allocReg() else dst;
 
         try self.compileExpr(operator, base, false);
 
-        var nargs: u8 = 0;
-        var arg_list = types.cdr(expr);
+        arg_list = types.cdr(expr);
         while (arg_list != types.NIL) {
-            if (!types.isPair(arg_list)) return CompileError.InvalidSyntax;
             const arg = types.car(arg_list);
             const arg_reg = try self.allocReg();
             try self.compileExpr(arg, arg_reg, false);
-            nargs += 1;
             arg_list = types.cdr(arg_list);
         }
 
@@ -892,6 +922,32 @@ pub const Compiler = struct {
             try self.emitOp(.move);
             try self.emit(dst);
             try self.emit(base);
+            self.freeReg();
+        }
+    }
+
+    fn compileSelfTailCall(self: *Compiler, expr: Value, dst: u8, nargs: u8) CompileError!void {
+        const needs_rebase = (dst + 1 != self.next_register);
+        const base = if (needs_rebase) try self.allocReg() else dst;
+
+        var arg_list = types.cdr(expr);
+        while (arg_list != types.NIL) {
+            const arg = types.car(arg_list);
+            const arg_reg = try self.allocReg();
+            try self.compileExpr(arg, arg_reg, false);
+            arg_list = types.cdr(arg_list);
+        }
+
+        try self.emitOp(.self_tail_call);
+        try self.emit(base);
+        try self.emit(nargs);
+
+        var i: u8 = 0;
+        while (i < nargs) : (i += 1) {
+            self.freeReg();
+        }
+
+        if (needs_rebase) {
             self.freeReg();
         }
     }

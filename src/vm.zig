@@ -1275,6 +1275,16 @@ pub const VM = struct {
                     const src = self.readU8(frame);
                     types.setCar(self.registers[frame.base + reg], self.registers[frame.base + src]);
                 },
+                .self_tail_call => {
+                    const base_reg = self.readU8(frame);
+                    const nargs = self.readU8(frame);
+                    const abs_base = frame.base + base_reg;
+                    // Copy args to frame base (no callee register to skip)
+                    for (0..nargs) |i| {
+                        self.registers[frame.base + i] = self.registers[abs_base + 1 + i];
+                    }
+                    frame.ip = 0;
+                },
                 else => return VMError.InvalidBytecode,
             }
         }

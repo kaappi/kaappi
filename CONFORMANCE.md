@@ -53,7 +53,7 @@ Only `syntax-rules` is supported for macro definitions. R7RS-small deliberately 
 
 ## Remaining gaps
 
-3 edge cases remain — all with low practical impact and workarounds.
+4 edge cases remain — all with low practical impact and workarounds.
 
 ### Local-variable referential transparency in macros
 
@@ -163,6 +163,50 @@ Other scripts (Coptic, Glagolitic, Deseret, etc.) pass through unchanged.
 **Why:** Full Unicode case mapping requires ~1,400 codepoint entries. The
 scripts above cover the most commonly needed case conversions. Some mappings
 are one-to-many (e.g., `ß` → `SS`), requiring string-level handling (supported).
+
+### Self-redefinition during self-tail-recursion
+
+**What the spec requires:** A reference to a top-level variable observes its
+current value, even if the variable was just mutated with `set!`.
+
+**What Kaappi does:** A procedure that tail-calls *itself* by name compiles to a
+dedicated `self_tail_call` instruction that loops in place (copy args, reset the
+instruction pointer) instead of re-reading the global binding. If such a
+procedure reassigns its own name mid-recursion and then tail-calls itself, the
+optimized loop keeps running the *original* body rather than the new one:
+
+```scheme
+(define (f n)
+  (if (= n 0)
+      'original
+      (begin
+        (if (= n 1) (set! f (lambda (x) 'redefined)))
+        (f (- n 1)))))   ; self-tail-call: loops in place
+(f 3)
+;=> 'original   (a strict reading would give 'redefined)
+```
+
+**Why:** Skipping the global lookup on every self-tail-call is the core of the
+optimization (it is what makes deep self-recursion like `tak` fast). Re-reading
+and re-validating the binding on each iteration would defeat the purpose. Note
+this only affects *self* calls — a tail call to a *different* global (mutual
+recursion) still goes through the standard path and observes redefinition:
+
+```scheme
+(define (a n)
+  (if (= n 0) 'original
+      (begin (if (= n 1) (set! a (lambda (x) 'redefined))) (helper n))))
+(define (helper n) (a (- n 1)))
+(a 3)
+;=> 'redefined   ✓  non-self tail call re-reads the global
+```
+
+**Practical impact:** Negligible. It requires a procedure to reassign its own
+name to a *different* procedure while recursing on itself — a pattern with no
+real use. Most production Schemes (Chez, Gauche, Chibi) make the same trade-off.
+
+**Workaround:** To force redefinition to take effect, make the recursive call go
+through a different binding (e.g., an indirection) so it is not a self-call.
 
 ---
 

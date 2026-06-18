@@ -712,6 +712,7 @@ pub const OpCode = enum(u8) {
     box_local, // reg:u8 — wrap register value in a pair (box) for shared mutation
     get_box_local, // dst:u8, reg:u8 — read car of boxed register
     set_box_local, // reg:u8, src:u8 — set car of boxed register
+    self_tail_call, // base:u8, nargs:u8
 };
 
 // ---------------------------------------------------------------------------

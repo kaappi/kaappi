@@ -2,7 +2,32 @@
 
 ## Status
 
-**Not yet implemented.** Analysis and design document.
+**Option A implemented.** The `self_tail_call` opcode is in place: self-recursive
+tail calls (direct `define` recursion and named `let` loops) compile to a
+dedicated instruction that copies arguments to the frame base and resets the
+instruction pointer, skipping the global lookup, type check, and arity check.
+Measured ~23% speedup on `tak(33,22,11)`.
+
+**Option B NOT shipped.** Enabling `tail_call_global` for *all* tail calls was
+attempted and reverted. The blocker is not the register overlap discussed below
+(forward copy is provably safe because `abs_base >= frame.base`), but that the
+`tail_call_global` VM handler only knows how to call closures and native
+functions. The regular `tail_call` handler also dispatches **parameter objects,
+continuations, and FFI functions**. Routing tail calls through `tail_call_global`
+therefore breaks any tail call to a global holding one of those values — e.g.
+`(define (get) (p))` for a parameter `p`, or every `parameterize` body (which
+desugars to thunks that tail-call the parameter and `%parameter-set!`). The
+compiler's name-based exclusion list cannot catch these, since the offending
+value is bound to a user global whose type is unknown at compile time. Shipping
+Option B safely would require `tail_call_global` to handle the same five callee
+types (and error mappings) as `tail_call` — deferred as a separate, benchmarked
+change. Self-recursion (the hot case for `tak`) is already covered by Option A.
+
+One accepted behavioral trade-off of Option A: a procedure that `set!`s its own
+name mid-self-recursion keeps running the original body. See CONFORMANCE.md,
+"Self-redefinition during self-tail-recursion."
+
+The remainder of this document is the original analysis and design.
 
 ## Background
 

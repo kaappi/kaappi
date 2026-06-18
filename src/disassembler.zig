@@ -307,6 +307,14 @@ fn disassembleInstruction(func: *types.Function, code: []const u8, offset: usize
             const s = std.fmt.bufPrint(&buf, "set_box_local   r{d}, r{d}\n", .{ reg, src }) catch "set_box_local\n";
             writeStderr(s);
         },
+        .self_tail_call => {
+            const base = code[ip];
+            ip += 1;
+            const nargs = code[ip];
+            ip += 1;
+            const s = std.fmt.bufPrint(&buf, "self_tail_call  r{d}, {d}\n", .{ base, nargs }) catch "self_tail_call\n";
+            writeStderr(s);
+        },
     }
     return ip;
 }

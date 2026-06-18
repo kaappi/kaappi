@@ -247,7 +247,7 @@ pub fn compileNamedLet(self: *Compiler, args: Value, dst: u8, is_tail: bool) Com
     try self.emitU16(name_sym_idx);
     try self.emit(loop_reg);
 
-    try self.compileLambda(renamed_lambda_args, loop_reg);
+    try self.compileLambda(renamed_lambda_args, loop_reg, types.symbolName(unique_sym));
 
     try self.emitOp(.define_global);
     try self.emitU16(name_sym_idx);

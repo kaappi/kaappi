@@ -5,7 +5,7 @@ const compiler_mod = @import("compiler.zig");
 const Compiler = compiler_mod.Compiler;
 const CompileError = compiler_mod.CompileError;
 const Value = types.Value;
-pub fn compileLambda(self: *Compiler, args: Value, dst: u8) CompileError!void {
+pub fn compileLambda(self: *Compiler, args: Value, dst: u8, name: ?[]const u8) CompileError!void {
     if (args == types.NIL) return CompileError.InvalidSyntax;
     const formals = types.car(args);
     const body = types.cdr(args);
@@ -59,6 +59,7 @@ pub fn compileLambda(self: *Compiler, args: Value, dst: u8) CompileError!void {
 
     child.func.arity = arity;
     child.func.is_variadic = is_variadic;
+    child.func.name = name;
     child.scope_depth = 1;
 
     // Compile body as implicit begin
@@ -176,18 +177,10 @@ pub fn compileDefine(self: *Compiler, args: Value, dst: u8) CompileError!void {
         if (!types.isSymbol(name)) return CompileError.InvalidSyntax;
         const param_formals = types.cdr(target);
 
-        // Build lambda body list
+        // Build lambda body list. compileLambda sets the function's name (used
+        // for debugging and for self-tail-call detection in the body).
         const lambda_args = self.gc.allocPair(param_formals, rest) catch return CompileError.OutOfMemory;
-        try compileLambda(self,lambda_args, dst);
-
-        // Set name on the child function for debugging
-        if (self.func.constants.items.len > 0) {
-            const last_const = self.func.constants.items[self.func.constants.items.len - 1];
-            if (types.isFunction(last_const)) {
-                const child_func = types.toObject(last_const).as(types.Function);
-                child_func.name = types.symbolName(name);
-            }
-        }
+        try compileLambda(self, lambda_args, dst, types.symbolName(name));
 
         const sym_idx = try self.addConstant(name);
         try self.emitOp(.define_global);
