@@ -183,6 +183,7 @@ pub fn handleDefineRecordType(vm: *VM, args: Value) VMError!Value {
         vm.gc.popRoot();
         var func_val = types.makePointer(@ptrCast(func));
         vm.gc.pushRoot(&func_val);
+        compiler_mod.Compiler.unrootFunction(vm.gc, func);
         _ = vm.execute(func) catch |err| {
             vm.gc.popRoot();
             return err;
@@ -212,6 +213,7 @@ pub fn handleDefineRecordType(vm: *VM, args: Value) VMError!Value {
         vm.gc.popRoot();
         var func_val = types.makePointer(@ptrCast(func));
         vm.gc.pushRoot(&func_val);
+        compiler_mod.Compiler.unrootFunction(vm.gc, func);
         _ = vm.execute(func) catch |err| {
             vm.gc.popRoot();
             return err;

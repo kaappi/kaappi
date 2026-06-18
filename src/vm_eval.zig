@@ -23,6 +23,7 @@ pub fn eval(vm: *VM, source: []const u8) VMError!Value {
         const func = compiler_mod.compileExpressionWithMacros(vm.gc, expr, &vm.macros, &vm.globals) catch return VMError.CompileError;
         var func_val = types.makePointer(@ptrCast(func));
         vm.gc.pushRoot(&func_val);
+        compiler_mod.Compiler.unrootFunction(vm.gc, func);
         last_result = vm.execute(func) catch |err| {
             vm.gc.popRoot();
             return err;
@@ -57,6 +58,7 @@ fn handleDefineValues(vm: *VM, args: Value) VMError!Value {
     const func = compiler_mod.compileExpressionWithMacros(vm.gc, expr, &vm.macros, &vm.globals) catch return VMError.CompileError;
     var func_val = types.makePointer(@ptrCast(func));
     vm.gc.pushRoot(&func_val);
+    compiler_mod.Compiler.unrootFunction(vm.gc, func);
     const result = vm.execute(func) catch |err| {
         vm.gc.popRoot();
         return err;

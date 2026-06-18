@@ -164,6 +164,7 @@ fn loadLibrarySource(vm: *VM, source: []const u8) !void {
             const func = compiler_mod.compileExpressionWithMacros(vm.gc, expr, &vm.macros, &vm.globals) catch return error.InvalidSyntax;
             var func_val = types.makePointer(@ptrCast(func));
             vm.gc.pushRoot(&func_val);
+            compiler_mod.Compiler.unrootFunction(vm.gc, func);
             _ = vm.execute(func) catch |err| {
                 vm.gc.popRoot();
                 return err;
@@ -550,12 +551,12 @@ fn evalIncludedForm(vm: *VM, expr: Value, path: []const u8, line: u32) void {
         reportIncludeError(vm, path, line, null, err);
         return;
     };
-    // If we are compiling a library body, collect for .sbc caching.
     if (vm.lib_compile_collect) |collect| {
         collect.append(vm.gc.allocator, func) catch {};
     }
     var func_val = types.makePointer(@ptrCast(func));
     vm.gc.pushRoot(&func_val);
+    compiler_mod.Compiler.unrootFunction(vm.gc, func);
     _ = vm.execute(func) catch |err| {
         vm.gc.popRoot();
         reportIncludeError(vm, path, line, vm.getErrorDetail(), err);
@@ -939,6 +940,7 @@ fn compileLibExpr(vm: *VM, lib_env: *std.StringHashMap(Value), expr: Value) VMEr
     }
     var func_val = types.makePointer(@ptrCast(func));
     vm.gc.pushRoot(&func_val);
+    compiler_mod.Compiler.unrootFunction(vm.gc, func);
     defer vm.gc.popRoot();
     _ = try vm.execute(func);
 }

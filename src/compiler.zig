@@ -55,16 +55,19 @@ pub const Compiler = struct {
     }
 
     pub fn deinit(self: *Compiler) void {
-        const func_val = types.makePointer(@ptrCast(self.func));
-        for (self.gc.extra_roots.items, 0..) |v, i| {
-            if (v == func_val) {
-                _ = self.gc.extra_roots.orderedRemove(i);
-                break;
-            }
-        }
         self.locals.deinit(self.gc.allocator);
         self.upvalues.deinit(self.gc.allocator);
         self.macros.deinit();
+    }
+
+    pub fn unrootFunction(gc: *memory.GC, func: *types.Function) void {
+        const func_val = types.makePointer(@ptrCast(func));
+        for (gc.extra_roots.items, 0..) |v, i| {
+            if (v == func_val) {
+                _ = gc.extra_roots.orderedRemove(i);
+                return;
+            }
+        }
     }
 
     pub fn initChild(parent: *Compiler) CompileError!Compiler {
@@ -1050,8 +1053,13 @@ pub const Compiler = struct {
 
 pub fn compileExpression(gc: *memory.GC, expr: Value) CompileError!*types.Function {
     var c = try Compiler.init(gc);
-    defer c.deinit();
+    var ok = false;
+    defer {
+        if (!ok) Compiler.unrootFunction(gc, c.func);
+        c.deinit();
+    }
     try c.compile(expr);
+    ok = true;
     return c.func;
 }
 
@@ -1064,12 +1072,14 @@ pub fn compileExpressionWithMacrosAt(gc: *memory.GC, expr: Value, vm_macros: *st
     c.globals = vm_globals;
     c.func.source_line = source_line;
     c.func.source_name = source_name;
+    var ok = false;
     defer {
         var it = c.macros.iterator();
         while (it.next()) |entry| {
             vm_macros.put(entry.key_ptr.*, entry.value_ptr.*) catch {};
             gc.extra_roots.append(gc.allocator, entry.value_ptr.*) catch {};
         }
+        if (!ok) Compiler.unrootFunction(gc, c.func);
         c.deinit();
     }
     var it = vm_macros.iterator();
@@ -1077,6 +1087,7 @@ pub fn compileExpressionWithMacrosAt(gc: *memory.GC, expr: Value, vm_macros: *st
         c.macros.put(entry.key_ptr.*, entry.value_ptr.*) catch return CompileError.OutOfMemory;
     }
     try c.compile(expr);
+    ok = true;
     return c.func;
 }
 
@@ -1084,12 +1095,14 @@ pub fn compileExpressionInEnv(gc: *memory.GC, expr: Value, vm_macros: *std.Strin
     var c = try Compiler.init(gc);
     c.globals = env;
     c.lib_env = env;
+    var ok = false;
     defer {
         var it = c.macros.iterator();
         while (it.next()) |entry| {
             vm_macros.put(entry.key_ptr.*, entry.value_ptr.*) catch {};
             gc.extra_roots.append(gc.allocator, entry.value_ptr.*) catch {};
         }
+        if (!ok) Compiler.unrootFunction(gc, c.func);
         c.deinit();
     }
     var it = vm_macros.iterator();
@@ -1098,13 +1111,19 @@ pub fn compileExpressionInEnv(gc: *memory.GC, expr: Value, vm_macros: *std.Strin
     }
     try c.compile(expr);
     c.func.env = env;
+    ok = true;
     return c.func;
 }
 
 pub fn compileProgram(gc: *memory.GC, exprs: []const Value) CompileError!*types.Function {
     var c = try Compiler.init(gc);
-    defer c.deinit();
+    var ok = false;
+    defer {
+        if (!ok) Compiler.unrootFunction(gc, c.func);
+        c.deinit();
+    }
     try c.compileMultiple(exprs);
+    ok = true;
     return c.func;
 }
 

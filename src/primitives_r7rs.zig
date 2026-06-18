@@ -148,11 +148,9 @@ fn evalFn(args: []const Value) PrimitiveError!Value {
     // args[0] = expression, args[1] = environment (optional, ignored)
     const expr = args[0];
 
-    // Compile the expression
     const func = compiler_mod.compileExpressionWithMacros(gc, expr, &vm.macros, &vm.globals) catch return PrimitiveError.TypeError;
-
-    // Create a closure from the compiled function
     var closure_val = gc.allocClosure(func) catch return PrimitiveError.OutOfMemory;
+    compiler_mod.Compiler.unrootFunction(gc, func);
     gc.pushRoot(&closure_val);
     defer gc.popRoot();
 
@@ -216,6 +214,7 @@ fn loadFn(args: []const Value) PrimitiveError!Value {
         const func = compiler_mod.compileExpressionWithMacros(gc, expr, &vm.macros, &vm.globals) catch return PrimitiveError.TypeError;
         var func_val = types.makePointer(@ptrCast(func));
         gc.pushRoot(&func_val);
+        compiler_mod.Compiler.unrootFunction(gc, func);
 
         last_result = vm.execute(func) catch |err| {
             gc.popRoot();
