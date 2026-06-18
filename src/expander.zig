@@ -80,7 +80,7 @@ const well_known_forms = [_][]const u8{
     "...",          "_",
 };
 
-fn isWellKnown(name: []const u8) bool {
+pub fn isWellKnown(name: []const u8) bool {
     for (&well_known_forms) |wk| {
         if (std.mem.eql(u8, wk, name)) return true;
     }

@@ -261,18 +261,67 @@ fn sqrtFn(args: []const Value) PrimitiveError!Value {
 }
 
 fn exactIntegerSqrt(args: []const Value) PrimitiveError!Value {
-    if (!types.isFixnum(args[0])) return PrimitiveError.TypeError;
     const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
-    const n = types.toFixnum(args[0]);
-    if (n < 0) return PrimitiveError.TypeError;
-    const f: f64 = @floatFromInt(n);
-    var s: i64 = @intFromFloat(@sqrt(f));
-    // Adjust for floating-point imprecision
-    while (s * s > n) s -= 1;
-    while ((s + 1) * (s + 1) <= n) s += 1;
-    const rem = n - s * s;
-    const vals = [_]Value{ types.makeFixnum(s), types.makeFixnum(rem) };
-    return gc.allocMultipleValues(&vals) catch return PrimitiveError.OutOfMemory;
+    if (types.isFixnum(args[0])) {
+        const n = types.toFixnum(args[0]);
+        if (n < 0) return PrimitiveError.TypeError;
+        const f: f64 = @floatFromInt(n);
+        var s: i64 = @intFromFloat(@sqrt(f));
+        while (s * s > n) s -= 1;
+        while ((s + 1) * (s + 1) <= n) s += 1;
+        const rem = n - s * s;
+        const vals = [_]Value{ types.makeFixnum(s), types.makeFixnum(rem) };
+        return gc.allocMultipleValues(&vals) catch return PrimitiveError.OutOfMemory;
+    }
+    if (types.isBignum(args[0])) {
+        if (bignum_mod.isNegative(args[0])) return PrimitiveError.TypeError;
+        const n = args[0];
+        // Newton's method with bignum arithmetic
+        // Start from float approximation, clamped to fixnum range
+        const approx = @sqrt(bignum_mod.toF64(n));
+        const approx_i: i64 = if (approx >= @as(f64, @floatFromInt(std.math.maxInt(i64))))
+            std.math.maxInt(i64)
+        else if (approx < 1.0)
+            1
+        else
+            @intFromFloat(approx);
+        var s: Value = types.makeFixnum(approx_i);
+        // If approx overflowed fixnum, promote to bignum
+        if (approx >= @as(f64, @floatFromInt(std.math.maxInt(i64)))) {
+            // Use n as initial guess (will converge quickly)
+            s = n;
+        }
+        // Newton iterations: s = (s + n/s) / 2
+        const two = types.makeFixnum(2);
+        var iters: usize = 0;
+        while (iters < 500) : (iters += 1) {
+            if (bignum_mod.isZero(s)) break;
+            const q = bignum_mod.quotient(gc, n, s) catch return PrimitiveError.OutOfMemory;
+            const sum = bignum_mod.add(gc, s, q) catch return PrimitiveError.OutOfMemory;
+            const next = bignum_mod.quotient(gc, sum, two) catch return PrimitiveError.OutOfMemory;
+            if (bignum_mod.compare(next, s) == 0) break;
+            s = next;
+        }
+        // Adjust downward: ensure s*s <= n
+        var s2 = bignum_mod.mul(gc, s, s) catch return PrimitiveError.OutOfMemory;
+        while (bignum_mod.compare(s2, n) > 0) {
+            s = bignum_mod.sub(gc, s, types.makeFixnum(1)) catch return PrimitiveError.OutOfMemory;
+            s2 = bignum_mod.mul(gc, s, s) catch return PrimitiveError.OutOfMemory;
+        }
+        // Adjust upward: ensure (s+1)^2 > n
+        var s1 = bignum_mod.add(gc, s, types.makeFixnum(1)) catch return PrimitiveError.OutOfMemory;
+        var s1_sq = bignum_mod.mul(gc, s1, s1) catch return PrimitiveError.OutOfMemory;
+        while (bignum_mod.compare(s1_sq, n) <= 0) {
+            s = s1;
+            s2 = s1_sq;
+            s1 = bignum_mod.add(gc, s, types.makeFixnum(1)) catch return PrimitiveError.OutOfMemory;
+            s1_sq = bignum_mod.mul(gc, s1, s1) catch return PrimitiveError.OutOfMemory;
+        }
+        const rem = bignum_mod.sub(gc, n, s2) catch return PrimitiveError.OutOfMemory;
+        const vals = [_]Value{ bignum_mod.demote(s), bignum_mod.demote(rem) };
+        return gc.allocMultipleValues(&vals) catch return PrimitiveError.OutOfMemory;
+    }
+    return PrimitiveError.TypeError;
 }
 
 // ---------------------------------------------------------------------------
@@ -344,6 +393,10 @@ fn finiteP(args: []const Value) PrimitiveError!Value {
     if (types.isFlonum(args[0])) {
         return if (std.math.isFinite(types.toFlonum(args[0]))) types.TRUE else types.FALSE;
     }
+    if (types.isComplex(args[0])) {
+        const c = types.toComplex(args[0]);
+        return if (std.math.isFinite(c.real) and std.math.isFinite(c.imag)) types.TRUE else types.FALSE;
+    }
     return PrimitiveError.TypeError;
 }
 
@@ -351,6 +404,10 @@ fn infiniteP(args: []const Value) PrimitiveError!Value {
     if (types.isFixnum(args[0]) or types.isBignum(args[0]) or types.isRationalObj(args[0])) return types.FALSE;
     if (types.isFlonum(args[0])) {
         return if (std.math.isInf(types.toFlonum(args[0]))) types.TRUE else types.FALSE;
+    }
+    if (types.isComplex(args[0])) {
+        const c = types.toComplex(args[0]);
+        return if (std.math.isInf(c.real) or std.math.isInf(c.imag)) types.TRUE else types.FALSE;
     }
     return PrimitiveError.TypeError;
 }

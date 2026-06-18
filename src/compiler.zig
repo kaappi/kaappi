@@ -497,35 +497,68 @@ pub const Compiler = struct {
                     merged_macros.put(entry.key_ptr.*, entry.value_ptr.*) catch {};
                 }
                 const tx = types.toObject(transformer).as(types.Transformer);
-                // Temporarily add captured locals to globals so the expander doesn't rename them
-                var temp_globals: [128][]const u8 = undefined;
+                // Temporarily add/modify globals so the expander doesn't
+                // rename template free references.
+                const TempGlobal = struct { name: []const u8, old_val: ?Value, was_present: bool };
+                var temp_globals: [128]TempGlobal = undefined;
                 var temp_global_count: usize = 0;
                 if (self.globals) |g| {
                     for (tx.captured_locals) |cap| {
                         if (!g.contains(cap.name) and temp_global_count < 128) {
-                            g.put(cap.name, types.VOID) catch {};
-                            temp_globals[temp_global_count] = cap.name;
+                            temp_globals[temp_global_count] = .{ .name = cap.name, .old_val = null, .was_present = false };
                             temp_global_count += 1;
+                            g.put(cap.name, types.VOID) catch {};
                         }
                     }
-                    // Add definition-site library env bindings so free
-                    // references in the macro template resolve correctly
                     if (tx.def_env) |env| {
                         var env_it = env.iterator();
                         while (env_it.next()) |entry| {
                             if (!g.contains(entry.key_ptr.*) and temp_global_count < 128) {
-                                g.put(entry.key_ptr.*, entry.value_ptr.*) catch {};
-                                temp_globals[temp_global_count] = entry.key_ptr.*;
+                                temp_globals[temp_global_count] = .{ .name = entry.key_ptr.*, .old_val = null, .was_present = false };
                                 temp_global_count += 1;
+                                g.put(entry.key_ptr.*, entry.value_ptr.*) catch {};
+                            }
+                        }
+                    }
+                    // Temporarily mark non-procedure free globals as VOID so
+                    // renameForHygiene preserves them.
+                    const vm_mod2 = @import("vm.zig");
+                    if (vm_mod2.vm_instance) |vm| {
+                        var cand_names: [64][]const u8 = undefined;
+                        var cand_count: usize = 0;
+                        var pv_names: [64][]const u8 = undefined;
+                        var pv_count: usize = 0;
+                        for (tx.patterns[0..tx.num_rules]) |pat| {
+                            collectSymbols(pat, &pv_names, &pv_count);
+                        }
+                        for (tx.templates[0..tx.num_rules]) |tmpl| {
+                            collectFreeRefs(tmpl, pv_names[0..pv_count], tx.literals, &cand_names, &cand_count);
+                        }
+                        for (cand_names[0..cand_count]) |cname| {
+                            const in_g = g.get(cname);
+                            const in_vm = if (vm.globals.count() > 0) vm.globals.get(cname) else null;
+                            const existing = in_g orelse in_vm;
+                            if (existing) |val| {
+                                if (!types.isProcedure(val) and !types.isTransformer(val) and val != types.VOID) {
+                                    if (temp_global_count < 128) {
+                                        temp_globals[temp_global_count] = .{ .name = cname, .old_val = in_g, .was_present = in_g != null };
+                                        temp_global_count += 1;
+                                        g.put(cname, types.VOID) catch {};
+                                    }
+                                }
                             }
                         }
                     }
                 }
                 const expanded = expander.expandMacro(self.gc, expr, transformer, self.globals, &merged_macros) catch return CompileError.InvalidSyntax;
-                // Remove temporary globals
+                // Restore globals
                 if (self.globals) |g| {
                     for (temp_globals[0..temp_global_count]) |tg| {
-                        _ = g.remove(tg);
+                        if (tg.was_present) {
+                            g.put(tg.name, tg.old_val.?) catch {};
+                        } else {
+                            _ = g.remove(tg.name);
+                        }
                     }
                 }
                 var expanded_root = expanded;
@@ -1007,6 +1040,132 @@ pub fn compileProgram(gc: *memory.GC, exprs: []const Value) CompileError!*types.
     defer c.deinit();
     try c.compileMultiple(exprs);
     return c.func;
+}
+
+// ---------------------------------------------------------------------------
+// Free-reference collection for macro hygiene
+// ---------------------------------------------------------------------------
+
+fn collectSymbols(expr: Value, out: *[64][]const u8, count: *usize) void {
+    if (types.isSymbol(expr)) {
+        const n = types.symbolName(expr);
+        for (out[0..count.*]) |e| {
+            if (std.mem.eql(u8, e, n)) return;
+        }
+        if (count.* < 64) {
+            out[count.*] = n;
+            count.* += 1;
+        }
+        return;
+    }
+    if (types.isPair(expr)) {
+        collectSymbols(types.car(expr), out, count);
+        collectSymbols(types.cdr(expr), out, count);
+    }
+}
+
+fn collectFreeRefs(template: Value, pat_vars: []const []const u8, literals: []const Value, out: *[64][]const u8, count: *usize) void {
+    collectFreeRefsWithLocals(template, pat_vars, literals, &.{}, out, count);
+}
+
+fn collectFreeRefsWithLocals(template: Value, pat_vars: []const []const u8, literals: []const Value, local_binds: []const []const u8, out: *[64][]const u8, count: *usize) void {
+    if (types.isSymbol(template)) {
+        const name = types.symbolName(template);
+        for (pat_vars) |pv| {
+            if (std.mem.eql(u8, pv, name)) return;
+        }
+        for (local_binds) |lb| {
+            if (std.mem.eql(u8, lb, name)) return;
+        }
+        for (literals) |lit| {
+            if (types.isSymbol(lit) and std.mem.eql(u8, types.symbolName(lit), name)) return;
+        }
+        if (expander.isWellKnown(name)) return;
+        for (out[0..count.*]) |e| {
+            if (std.mem.eql(u8, e, name)) return;
+        }
+        if (count.* < 64) {
+            out[count.*] = name;
+            count.* += 1;
+        }
+        return;
+    }
+    if (!types.isPair(template)) return;
+    const head = types.car(template);
+    const rest = types.cdr(template);
+    if (types.isSymbol(head)) {
+        const hname = types.symbolName(head);
+        if (isLetForm(hname)) {
+            if (rest != types.NIL and types.isPair(rest)) {
+                var bab = rest;
+                if (types.isSymbol(types.car(rest))) bab = types.cdr(rest);
+                if (bab != types.NIL and types.isPair(bab)) {
+                    // Collect let-binding names to exclude from body
+                    var let_names: [16][]const u8 = undefined;
+                    var let_count: usize = 0;
+                    for (local_binds) |lb| {
+                        if (let_count < 16) {
+                            let_names[let_count] = lb;
+                            let_count += 1;
+                        }
+                    }
+                    var binds = types.car(bab);
+                    while (types.isPair(binds)) {
+                        const b = types.car(binds);
+                        if (types.isPair(b)) {
+                            const bname = types.car(b);
+                            if (types.isSymbol(bname) and let_count < 16) {
+                                let_names[let_count] = types.symbolName(bname);
+                                let_count += 1;
+                            }
+                            const init_rest2 = types.cdr(b);
+                            if (init_rest2 != types.NIL and types.isPair(init_rest2))
+                                collectFreeRefsWithLocals(types.car(init_rest2), pat_vars, literals, local_binds, out, count);
+                        }
+                        binds = types.cdr(binds);
+                    }
+                    collectFreeRefsWithLocals(types.cdr(bab), pat_vars, literals, let_names[0..let_count], out, count);
+                }
+            }
+            return;
+        }
+        if (std.mem.eql(u8, hname, "lambda")) {
+            if (rest != types.NIL and types.isPair(rest)) {
+                var lam_names: [16][]const u8 = undefined;
+                var lam_count: usize = 0;
+                for (local_binds) |lb| {
+                    if (lam_count < 16) { lam_names[lam_count] = lb; lam_count += 1; }
+                }
+                var params = types.car(rest);
+                while (types.isPair(params)) {
+                    const p = types.car(params);
+                    if (types.isSymbol(p) and lam_count < 16) {
+                        lam_names[lam_count] = types.symbolName(p);
+                        lam_count += 1;
+                    }
+                    params = types.cdr(params);
+                }
+                if (types.isSymbol(params) and lam_count < 16) {
+                    lam_names[lam_count] = types.symbolName(params);
+                    lam_count += 1;
+                }
+                collectFreeRefsWithLocals(types.cdr(rest), pat_vars, literals, lam_names[0..lam_count], out, count);
+            }
+            return;
+        }
+        if (std.mem.eql(u8, hname, "define")) {
+            if (rest != types.NIL and types.isPair(rest))
+                collectFreeRefsWithLocals(types.cdr(rest), pat_vars, literals, local_binds, out, count);
+            return;
+        }
+    }
+    collectFreeRefsWithLocals(head, pat_vars, literals, local_binds, out, count);
+    collectFreeRefsWithLocals(rest, pat_vars, literals, local_binds, out, count);
+}
+
+fn isLetForm(name: []const u8) bool {
+    return std.mem.eql(u8, name, "let") or std.mem.eql(u8, name, "let*") or
+        std.mem.eql(u8, name, "letrec") or std.mem.eql(u8, name, "letrec*");
 }
 
 // ---------------------------------------------------------------------------

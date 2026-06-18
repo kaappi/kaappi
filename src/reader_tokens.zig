@@ -87,6 +87,28 @@ pub fn readNumber(self: *Reader) ReadError!Token {
             const imag: f64 = if (self.source[imag_start] == '+') 1.0 else -1.0;
             return .{ .complex = .{ .real = real, .imag = imag, .exact_real = real_exact, .exact_imag = true } };
         }
+        // Check for inf.0/nan.0 as imaginary part (e.g., 3.0+inf.0i)
+        const rest_after_sign = self.source[self.pos..];
+        if (rest_after_sign.len >= 5) {
+            const maybe_special = blk: {
+                if (rest_after_sign.len >= 5 and std.ascii.eqlIgnoreCase(rest_after_sign[0..5], "inf.0"))
+                    break :blk @as(?f64, std.math.inf(f64));
+                if (rest_after_sign.len >= 5 and std.ascii.eqlIgnoreCase(rest_after_sign[0..5], "nan.0"))
+                    break :blk @as(?f64, std.math.nan(f64));
+                break :blk @as(?f64, null);
+            };
+            if (maybe_special) |special_val| {
+                if (self.pos + 5 < self.source.len and
+                    (self.source[self.pos + 5] == 'i' or self.source[self.pos + 5] == 'I') and
+                    (self.pos + 6 >= self.source.len or Reader.isDelimiter(self.source[self.pos + 6])))
+                {
+                    self.pos += 6; // skip inf.0i / nan.0i
+                    const real = parseDecimalReal(num_str) orelse return ReadError.InvalidNumber;
+                    const imag = if (self.source[imag_start] == '-') -special_val else special_val;
+                    return .{ .complex = .{ .real = real, .imag = imag, .exact_real = real_exact, .exact_imag = false } };
+                }
+            }
+        }
         // Parse imaginary magnitude (decimal, rational, or with exponent)
         var imag_has_dot = false;
         var imag_has_exp = false;
@@ -210,6 +232,11 @@ pub fn foldAndReturnSymbol(self: *Reader, sym_text: []const u8) ReadError!Token 
     if (std.ascii.eqlIgnoreCase(text, "-inf.0")) return .{ .flonum = -std.math.inf(f64) };
     if (std.ascii.eqlIgnoreCase(text, "+nan.0")) return .{ .flonum = std.math.nan(f64) };
     if (std.ascii.eqlIgnoreCase(text, "-nan.0")) return .{ .flonum = std.math.nan(f64) };
+    // Pure imaginary special floats: +inf.0i, -inf.0i, +nan.0i, -nan.0i
+    if (std.ascii.eqlIgnoreCase(text, "+inf.0i")) return .{ .complex = .{ .real = 0.0, .imag = std.math.inf(f64) } };
+    if (std.ascii.eqlIgnoreCase(text, "-inf.0i")) return .{ .complex = .{ .real = 0.0, .imag = -std.math.inf(f64) } };
+    if (std.ascii.eqlIgnoreCase(text, "+nan.0i")) return .{ .complex = .{ .real = 0.0, .imag = std.math.nan(f64) } };
+    if (std.ascii.eqlIgnoreCase(text, "-nan.0i")) return .{ .complex = .{ .real = 0.0, .imag = std.math.nan(f64) } };
     // Check for complex literals with special floats: +inf.0+inf.0i etc.
     if (text.len > 2 and (text[text.len - 1] == 'i' or text[text.len - 1] == 'I')) {
         if (tryParseComplexSymbol(text)) |cpx| return .{ .complex = cpx };
