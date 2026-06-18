@@ -89,45 +89,39 @@ tests discovered through the import graph from `main.zig`.
 
 ### Location
 
-Scheme tests live in `tests/scheme/`, organized by category:
+Scheme tests live in `tests/scheme/`, organized by purpose:
 
 ```
 tests/scheme/
-  phase1/         Basic eval, arithmetic, lambda
-  phase2/         Tail calls
-  phase3/         Derived forms
-  phase4/         Numeric tower
-  phase5/         Macros
-  phase6/         Libraries
-  deferred/       apply, case, case-lambda, complex, etc.
-  compliance/     R7RS conformance tests by topic
-    bytevectors.scm
-    chars.scm
-    eval.scm
-    hygiene.scm
-    lazy.scm
-    lists.scm
-    strings.scm
-    unicode.scm
-    vectors.scm
-    ...
-  r7rs/           R7RS-specific tests
-  srfi/           SRFI library tests
-    srfi1.scm
-    srfi69.scm
-  ffi/            FFI tests
-    basic.scm
+  r7rs/             R7RS test suite (1,380 tests via chibi test)
+    r7rs-tests.scm  Canonical suite — imports (chibi test)
+  smoke/            Quick sanity checks
+    basic.scm       Arithmetic, if, define, lambda, pairs
+    tail-calls.scm  Proper tail recursion
+    derived.scm     and/or/when/unless/cond/do/case/let*
+    numeric.scm     Flonums, inf/nan, mixed arithmetic
+    macros.scm      syntax-rules, ellipsis, hygiene
+    libraries.scm   import/only/rename/prefix
+  compliance/       Targeted conformance tests by topic
+    strings.scm, vectors.scm, chars.scm, unicode.scm, etc.
+  continuations/    Advanced call/cc and call/ec edge cases
+  hygiene/          Macro hygiene edge cases
+  srfi/             SRFI library tests
+  ffi/              C FFI tests
+  run-all.sh        Run all suites with summary
 ```
 
 ### Running
 
 ```bash
+# Run the full R7RS suite (1,380 tests)
+zig build run -- tests/scheme/r7rs/r7rs-tests.scm
+
 # Run a specific test file
 zig build run -- tests/scheme/compliance/strings.scm
 
-# Run SRFI tests
-zig build run -- tests/scheme/srfi/srfi1.scm
-zig build run -- tests/scheme/srfi/srfi69.scm
+# Run all test suites with summary
+bash tests/scheme/run-all.sh
 ```
 
 ### Writing a Scheme test

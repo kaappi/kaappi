@@ -209,9 +209,16 @@ Always root `Function*` pointers before calling `vm.execute()` — it allocates 
 
 ## Tests
 
-- **Unit tests**: `src/tests_*.zig` — named by feature: `tests_core_eval.zig`, `tests_macros.zig`, `tests_io.zig`, etc.. Run all with `zig build test`.
-- **Scheme tests**: `tests/scheme/` organized by phase and compliance area. Run individually with `zig build run -- tests/scheme/compliance/vectors.scm`.
-- **Adding tests**: Add Zig tests to the appropriate phase file. For Scheme tests, create `.scm` files that print expected output.
+- **Unit tests**: `src/tests_*.zig` — named by feature: `tests_core_eval.zig`, `tests_macros.zig`, `tests_io.zig`, etc. Run all with `zig build test`.
+- **R7RS test suite**: `tests/scheme/r7rs/r7rs-tests.scm` — 1,380 tests using `(chibi test)`. Run with `zig build run -- tests/scheme/r7rs/r7rs-tests.scm`.
+- **Scheme tests**: `tests/scheme/` organized by purpose:
+  - `smoke/` — quick sanity checks (basic, tail-calls, derived, numeric, macros, libraries)
+  - `compliance/` — targeted R7RS conformance tests by topic (strings, vectors, chars, unicode, etc.)
+  - `continuations/` — advanced call/cc and call/ec edge cases
+  - `hygiene/` — macro hygiene edge cases
+  - `srfi/` — SRFI conformance tests
+  - `ffi/` — C FFI integration tests
+- **Run all**: `bash tests/scheme/run-all.sh`
 
 ## Dependencies
 

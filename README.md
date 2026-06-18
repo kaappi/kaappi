@@ -255,17 +255,14 @@ kaappi/
 │   └── tests_*.zig                Unit tests by feature (core_eval, macros, io, …)
 │
 ├── tests/scheme/                  Scheme-level test suites
-│   ├── phase1/                    Basic eval, arithmetic, lambda
-│   ├── phase2/                    Tail calls
-│   ├── phase3/                    Derived forms (let, cond, do)
-│   ├── phase4/                    Numeric tower
-│   ├── phase5/                    Macros
-│   ├── phase6/                    Libraries
-│   ├── deferred/                  apply, case, case-lambda, complex, etc.
-│   ├── compliance/                Vectors, strings, chars, Unicode, etc.
-│   ├── r7rs/                      R7RS feature coverage
+│   ├── r7rs/                      R7RS test suite (1,380 tests via chibi test)
+│   ├── smoke/                     Quick sanity checks (basic, tail-calls, macros, etc.)
+│   ├── compliance/                Targeted conformance tests by topic
+│   ├── continuations/             Advanced call/cc and call/ec edge cases
+│   ├── hygiene/                   Macro hygiene edge cases
 │   ├── srfi/                      SRFI conformance suites
-│   └── ffi/                       FFI tests
+│   ├── ffi/                       FFI tests
+│   └── run-all.sh                 Run all test suites with summary
 │
 ├── lib/srfi/                      Portable SRFI .sld libraries
 ├── vendor/linenoise/              Vendored C library (BSD)
