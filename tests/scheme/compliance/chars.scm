@@ -1,49 +1,62 @@
-;;; R7RS Char compliance tests
+;;; R7RS Char compliance tests (SRFI 64)
 
-;; Character classification
-(display (char-alphabetic? #\a)) (newline)       ; => #t
-(display (char-alphabetic? #\Z)) (newline)       ; => #t
-(display (char-alphabetic? #\1)) (newline)       ; => #f
-(display (char-alphabetic? #\space)) (newline)   ; => #f
+(import (scheme base) (scheme char) (scheme process-context) (srfi 64))
 
-(display (char-numeric? #\0)) (newline)          ; => #t
-(display (char-numeric? #\9)) (newline)          ; => #t
-(display (char-numeric? #\a)) (newline)          ; => #f
+(test-begin "chars")
 
-(display (char-whitespace? #\space)) (newline)   ; => #t
-(display (char-whitespace? #\newline)) (newline) ; => #t
-(display (char-whitespace? #\a)) (newline)       ; => #f
+(test-group "character classification"
+  ;; char-alphabetic?
+  (test-assert "char-alphabetic? #\\a" (char-alphabetic? #\a))
+  (test-assert "char-alphabetic? #\\Z" (char-alphabetic? #\Z))
+  (test-eqv "char-alphabetic? #\\1" #f (char-alphabetic? #\1))
+  (test-eqv "char-alphabetic? #\\space" #f (char-alphabetic? #\space))
 
-(display (char-upper-case? #\A)) (newline)       ; => #t
-(display (char-upper-case? #\a)) (newline)       ; => #f
+  ;; char-numeric?
+  (test-assert "char-numeric? #\\0" (char-numeric? #\0))
+  (test-assert "char-numeric? #\\9" (char-numeric? #\9))
+  (test-eqv "char-numeric? #\\a" #f (char-numeric? #\a))
 
-(display (char-lower-case? #\a)) (newline)       ; => #t
-(display (char-lower-case? #\A)) (newline)       ; => #f
+  ;; char-whitespace?
+  (test-assert "char-whitespace? #\\space" (char-whitespace? #\space))
+  (test-assert "char-whitespace? #\\newline" (char-whitespace? #\newline))
+  (test-eqv "char-whitespace? #\\a" #f (char-whitespace? #\a))
 
-;; Case operations
-(display (char-upcase #\a)) (newline)            ; => A
-(display (char-upcase #\A)) (newline)            ; => A
-(display (char-downcase #\A)) (newline)          ; => a
-(display (char-downcase #\a)) (newline)          ; => a
-(display (char-foldcase #\A)) (newline)          ; => a
+  ;; char-upper-case?
+  (test-assert "char-upper-case? #\\A" (char-upper-case? #\A))
+  (test-eqv "char-upper-case? #\\a" #f (char-upper-case? #\a))
 
-;; digit-value
-(display (digit-value #\0)) (newline)            ; => 0
-(display (digit-value #\5)) (newline)            ; => 5
-(display (digit-value #\9)) (newline)            ; => 9
-(display (digit-value #\a)) (newline)            ; => #f
+  ;; char-lower-case?
+  (test-assert "char-lower-case? #\\a" (char-lower-case? #\a))
+  (test-eqv "char-lower-case? #\\A" #f (char-lower-case? #\A)))
 
-;; Case-insensitive char comparison
-(display (char-ci=? #\A #\a)) (newline)          ; => #t
-(display (char-ci<? #\A #\b)) (newline)          ; => #t
-(display (char-ci>? #\z #\A)) (newline)          ; => #t
+(test-group "case operations"
+  (test-eqv "char-upcase #\\a" #\A (char-upcase #\a))
+  (test-eqv "char-upcase #\\A" #\A (char-upcase #\A))
+  (test-eqv "char-downcase #\\A" #\a (char-downcase #\A))
+  (test-eqv "char-downcase #\\a" #\a (char-downcase #\a))
+  (test-eqv "char-foldcase #\\A" #\a (char-foldcase #\A)))
 
-;; String case operations
-(display (string-upcase "hello")) (newline)      ; => HELLO
-(display (string-downcase "HELLO")) (newline)    ; => hello
-(display (string-foldcase "HeLLo")) (newline)    ; => hello
+(test-group "digit-value"
+  (test-eqv "digit-value #\\0" 0 (digit-value #\0))
+  (test-eqv "digit-value #\\5" 5 (digit-value #\5))
+  (test-eqv "digit-value #\\9" 9 (digit-value #\9))
+  (test-eqv "digit-value #\\a" #f (digit-value #\a)))
 
-;; Case-insensitive string comparison
-(display (string-ci=? "Hello" "hello")) (newline)  ; => #t
-(display (string-ci<? "abc" "ABD")) (newline)      ; => #t
-(display (string-ci>? "abd" "ABC")) (newline)      ; => #t
+(test-group "case-insensitive char comparison"
+  (test-assert "char-ci=? #\\A #\\a" (char-ci=? #\A #\a))
+  (test-assert "char-ci<? #\\A #\\b" (char-ci<? #\A #\b))
+  (test-assert "char-ci>? #\\z #\\A" (char-ci>? #\z #\A)))
+
+(test-group "string case operations"
+  (test-equal "string-upcase hello" "HELLO" (string-upcase "hello"))
+  (test-equal "string-downcase HELLO" "hello" (string-downcase "HELLO"))
+  (test-equal "string-foldcase HeLLo" "hello" (string-foldcase "HeLLo")))
+
+(test-group "case-insensitive string comparison"
+  (test-assert "string-ci=? Hello hello" (string-ci=? "Hello" "hello"))
+  (test-assert "string-ci<? abc ABD" (string-ci<? "abc" "ABD"))
+  (test-assert "string-ci>? abd ABC" (string-ci>? "abd" "ABC")))
+
+(define %test-fail-count (test-runner-fail-count (test-runner-current)))
+(test-end "chars")
+(if (> %test-fail-count 0) (exit 1))

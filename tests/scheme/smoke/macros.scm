@@ -1,4 +1,8 @@
 ;;; Phase 5: Hygienic Macros Tests
+(import (scheme base) (scheme process-context) (srfi 64))
+
+(define %test-fail-count 0)
+(test-begin "macros")
 
 ;; 1. Simple alias macro
 (define-syntax my-if
@@ -6,18 +10,15 @@
     ((my-if test then else)
      (if test then else))))
 
-(display (my-if #t 1 2))  ; => 1
-(newline)
-(display (my-if #f 1 2))  ; => 2
-(newline)
+(test-eqv "my-if true" 1 (my-if #t 1 2))
+(test-eqv "my-if false" 2 (my-if #f 1 2))
 
 ;; 2. Constant macro
 (define-syntax my-const
   (syntax-rules ()
     ((my-const) 42)))
 
-(display (my-const))  ; => 42
-(newline)
+(test-eqv "my-const" 42 (my-const))
 
 ;; 3. Ellipsis
 (define-syntax my-begin
@@ -25,8 +26,7 @@
     ((my-begin e1 e2 ...)
      (begin e1 e2 ...))))
 
-(display (my-begin 1 2 3))  ; => 3
-(newline)
+(test-eqv "my-begin ellipsis" 3 (my-begin 1 2 3))
 
 ;; 4. my-list using ellipsis
 (define-syntax my-list
@@ -34,8 +34,7 @@
     ((my-list e ...)
      (list e ...))))
 
-(display (my-list 1 2 3))  ; => (1 2 3)
-(newline)
+(test-equal "my-list ellipsis" '(1 2 3) (my-list 1 2 3))
 
 ;; 5. Multiple rules
 (define-syntax my-and
@@ -44,14 +43,10 @@
     ((my-and x) x)
     ((my-and x y) (if x y #f))))
 
-(display (my-and))       ; => #t
-(newline)
-(display (my-and 5))     ; => 5
-(newline)
-(display (my-and 2 3))   ; => 3
-(newline)
-(display (my-and #f 3))  ; => #f
-(newline)
+(test-eqv "my-and nullary" #t (my-and))
+(test-eqv "my-and unary" 5 (my-and 5))
+(test-eqv "my-and binary true" 3 (my-and 2 3))
+(test-eqv "my-and binary false" #f (my-and #f 3))
 
 ;; 6. Literals
 (define-syntax my-case
@@ -59,16 +54,13 @@
     ((my-case x is y)
      (if (= x y) #t #f))))
 
-(display (my-case 3 is 3))  ; => #t
-(newline)
-(display (my-case 3 is 4))  ; => #f
-(newline)
+(test-eqv "my-case match" #t (my-case 3 is 3))
+(test-eqv "my-case no match" #f (my-case 3 is 4))
 
 ;; 7. let-syntax
-(display
+(test-eqv "let-syntax" 99
   (let-syntax ((my-const (syntax-rules () ((my-const) 99))))
-    (my-const)))  ; => 99
-(newline)
+    (my-const)))
 
 ;; 8. swap macro
 (define-syntax my-swap
@@ -78,22 +70,21 @@
        (set! a b)
        (set! b tmp)))))
 
-(define x 10)
-(define y 20)
-(my-swap x y)
-(display x)  ; => 20
-(newline)
-(display y)  ; => 10
-(newline)
+(test-equal "swap macro" '(20 10)
+  (let ((x 10) (y 20))
+    (my-swap x y)
+    (list x y)))
 
 ;; 9. Underscore wildcard
 (define-syntax second
   (syntax-rules ()
     ((second _ x) x)))
 
-(display (second 1 2))  ; => 2
-(newline)
+(test-eqv "underscore wildcard" 2 (second 1 2))
 
 ;; 10. Zero ellipsis matches
-(display (my-begin 42))  ; => 42
-(newline)
+(test-eqv "zero ellipsis matches" 42 (my-begin 42))
+
+(set! %test-fail-count (test-runner-fail-count (test-runner-current)))
+(test-end "macros")
+(if (> %test-fail-count 0) (exit 1))

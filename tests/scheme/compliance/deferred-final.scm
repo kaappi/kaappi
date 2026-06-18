@@ -1,148 +1,127 @@
 ;;; Deferred R7RS features — final compliance tests
+(import (scheme base) (scheme eval) (scheme process-context) (srfi 64))
+
+(define %test-fail-count 0)
+(test-begin "deferred-final")
+
+;; Top-level defines needed by multiple test-groups
+(define param-p (make-parameter 10))
+(define param-q (make-parameter 5 (lambda (x) (* x 2))))
+(define-values (dv-a dv-b dv-c) (values 10 20 30))
 
 ;; ============================================================
 ;; 1. QUASIQUOTE
 ;; ============================================================
 
-;; Basic quasiquote (no unquotes)
-(display (equal? `(1 2 3) '(1 2 3)))
-(newline)
+(test-group "quasiquote"
 
-;; Unquote
-(display (equal? `(1 ,(+ 1 1) 3) '(1 2 3)))
-(newline)
+  (test-equal "basic quasiquote" '(1 2 3) `(1 2 3))
 
-;; Unquote in variable context
-(let ((x 42))
-  (display (equal? `(x is ,x) '(x is 42)))
-  (newline))
+  (test-equal "unquote" '(1 2 3) `(1 ,(+ 1 1) 3))
 
-;; Dotted pair with unquote
-(display (equal? `(a . ,(+ 1 2)) '(a . 3)))
-(newline)
+  (test-equal "unquote in variable context"
+    '(x is 42)
+    (let ((x 42)) `(x is ,x)))
 
-;; Unquote-splicing
-(display (equal? `(a ,@(list 'b 'c)) '(a b c)))
-(newline)
+  (test-equal "dotted pair with unquote" '(a . 3) `(a . ,(+ 1 2)))
 
-;; Splicing with mixed elements
-(display (equal? `(1 ,@(list 2 3) 4) '(1 2 3 4)))
-(newline)
+  (test-equal "unquote-splicing" '(a b c) `(a ,@(list 'b 'c)))
 
-;; Multiple splices
-(display (equal? `(,@(list 1) ,@(list 2 3)) '(1 2 3)))
-(newline)
+  (test-equal "splicing with mixed elements" '(1 2 3 4) `(1 ,@(list 2 3) 4))
 
-;; Empty splice
-(display (equal? `(a ,@'() b) '(a b)))
-(newline)
+  (test-equal "multiple splices" '(1 2 3) `(,@(list 1) ,@(list 2 3)))
 
-;; Nested unquote in splice context
-(let ((x 10))
-  (display (equal? `(,x ,@(list 20 30)) '(10 20 30)))
-  (newline))
+  (test-equal "empty splice" '(a b) `(a ,@'() b))
+
+  (test-equal "nested unquote in splice context"
+    '(10 20 30)
+    (let ((x 10)) `(,x ,@(list 20 30)))))
 
 ;; ============================================================
 ;; 2. MAKE-PARAMETER / PARAMETERIZE
 ;; ============================================================
 
-;; Basic parameter
-(define p (make-parameter 10))
-(display (= (p) 10))
-(newline)
+(test-group "make-parameter / parameterize"
 
-;; Setting parameter
-(p 20)
-(display (= (p) 20))
-(newline)
-(p 10) ;; restore
+  (test-eqv "basic parameter" 10 (param-p))
 
-;; Parameterize
-(display (= (parameterize ((p 99)) (p)) 99))
-(newline)
+  (param-p 20)
+  (test-eqv "setting parameter" 20 (param-p))
+  (param-p 10) ;; restore
 
-;; Value restored after parameterize
-(display (= (p) 10))
-(newline)
+  (test-eqv "parameterize" 99 (parameterize ((param-p 99)) (param-p)))
 
-;; Nested parameterize
-(display (= (parameterize ((p 100))
-              (parameterize ((p 200))
-                (p)))
-            200))
-(newline)
+  (test-eqv "value restored after parameterize" 10 (param-p))
 
-;; Outer value restored
-(display (= (p) 10))
-(newline)
+  (test-eqv "nested parameterize" 200
+    (parameterize ((param-p 100))
+      (parameterize ((param-p 200))
+        (param-p))))
 
-;; Parameter with converter
-(define q (make-parameter 5 (lambda (x) (* x 2))))
-(display (= (q) 10))  ;; converter applied to initial value
-(newline)
+  (test-eqv "outer value restored" 10 (param-p))
+
+  (test-eqv "parameter with converter" 10 (param-q)))
 
 ;; ============================================================
 ;; 3. DEFINE-VALUES
 ;; ============================================================
 
-(define-values (dv-a dv-b dv-c) (values 10 20 30))
-(display (= dv-a 10))
-(newline)
-(display (= dv-b 20))
-(newline)
-(display (= dv-c 30))
-(newline)
+(test-group "define-values"
+
+  (test-eqv "define-values a" 10 dv-a)
+  (test-eqv "define-values b" 20 dv-b)
+  (test-eqv "define-values c" 30 dv-c))
 
 ;; ============================================================
 ;; 4. I/O WRAPPERS
 ;; ============================================================
 
-;; call-with-port
-(let ((p (open-input-string "hello")))
-  (display (equal? (call-with-port p read-line) "hello"))
-  (newline))
+(test-group "I/O wrappers"
 
-;; open-binary-input-file / open-binary-output-file are aliases
-(display (procedure? open-binary-input-file))
-(newline)
-(display (procedure? open-binary-output-file))
-(newline)
+  (test-equal "call-with-port"
+    "hello"
+    (let ((port (open-input-string "hello")))
+      (call-with-port port read-line)))
+
+  (test-assert "open-binary-input-file exists"
+    (procedure? open-binary-input-file))
+
+  (test-assert "open-binary-output-file exists"
+    (procedure? open-binary-output-file)))
 
 ;; ============================================================
-;; 5. SYNTAX-ERROR — cannot test at runtime since it's compile-time
-;;    but we can verify it doesn't crash the system
+;; 5. SYNTAX-ERROR
 ;; ============================================================
 
-;; syntax-error is handled by the compiler; we just confirm it exists
-;; as a form by testing it in a conditional context where it's never reached
-(display #t)
-(newline)
+(test-group "syntax-error"
+  ;; syntax-error is compile-time; we just confirm the form exists
+  ;; by verifying we reach this point without crashing
+  (test-assert "syntax-error form recognized" #t))
 
 ;; ============================================================
 ;; 6. INTERACTION-ENVIRONMENT
 ;; ============================================================
 
-(display (not (eq? (interaction-environment) #f)))
-(newline)
+(test-group "interaction-environment"
+  (test-assert "interaction-environment returns truthy value"
+    (not (eq? (interaction-environment) #f))))
 
 ;; ============================================================
 ;; 7. Binary I/O
 ;; ============================================================
 
-(display (procedure? read-u8))
-(newline)
-(display (procedure? write-u8))
-(newline)
-(display (procedure? peek-u8))
-(newline)
+(test-group "binary I/O"
 
-;; Test via string ports
-(let ((p (open-input-string "AB")))
-  (display (= (read-u8 p) 65))  ;; A = 65
-  (newline)
-  (display (= (peek-u8 p) 66))  ;; B = 66, peeked
-  (newline)
-  (display (= (read-u8 p) 66))  ;; B = 66, consumed
-  (newline)
-  (display (eof-object? (read-u8 p)))  ;; EOF
-  (newline))
+  (test-assert "read-u8 exists" (procedure? read-u8))
+  (test-assert "write-u8 exists" (procedure? write-u8))
+  (test-assert "peek-u8 exists" (procedure? peek-u8))
+
+  (let ((port (open-input-string "AB")))
+    (test-eqv "read-u8 returns byte value" 65 (read-u8 port))
+    (test-eqv "peek-u8 peeks without consuming" 66 (peek-u8 port))
+    (test-eqv "read-u8 consumes peeked byte" 66 (read-u8 port))
+    (test-assert "read-u8 returns eof at end" (eof-object? (read-u8 port)))))
+
+(set! %test-fail-count (test-runner-fail-count (test-runner-current)))
+(test-end "deferred-final")
+(if (> %test-fail-count 0) (exit 1))

@@ -2,5 +2,6 @@
 zig-out/
 .kaappi_history
 *.sbc
+*.log
 test_*.o
 .claude/worktrees/

@@ -1,23 +1,28 @@
 ;;; Time library compliance tests (R7RS 6.14)
+(import (scheme base) (scheme time) (scheme process-context) (srfi 64))
 
-;; current-second returns a real number
-(display (number? (current-second)))  ; => #t
-(newline)
+(define %test-fail-count 0)
+(test-begin "time")
 
-;; current-jiffy returns an integer
-(display (integer? (current-jiffy)))  ; => #t
-(newline)
+;; --- current-second ---
+(test-group "current-second"
+  (test-assert "current-second returns a number" (number? (current-second)))
+  (test-assert "current-second is positive" (> (current-second) 0)))
 
-;; jiffies-per-second
-(display (> (jiffies-per-second) 0))  ; => #t
-(newline)
+;; --- current-jiffy ---
+(test-group "current-jiffy"
+  (test-assert "current-jiffy returns an integer" (integer? (current-jiffy))))
 
-;; current-second is positive (after Unix epoch)
-(display (> (current-second) 0))  ; => #t
-(newline)
+;; --- jiffies-per-second ---
+(test-group "jiffies-per-second"
+  (test-assert "jiffies-per-second is positive" (> (jiffies-per-second) 0)))
 
-;; Two consecutive jiffies should be monotonically increasing or equal
-(let ((j1 (current-jiffy))
-      (j2 (current-jiffy)))
-  (display (>= j2 j1)))  ; => #t
-(newline)
+;; --- monotonicity ---
+(test-group "monotonicity"
+  (let ((j1 (current-jiffy))
+        (j2 (current-jiffy)))
+    (test-assert "consecutive jiffies are non-decreasing" (>= j2 j1))))
+
+(set! %test-fail-count (test-runner-fail-count (test-runner-current)))
+(test-end "time")
+(if (> %test-fail-count 0) (exit 1))

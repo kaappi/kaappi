@@ -1,50 +1,33 @@
-; Phase 6: Libraries tests
+;; Phase 6: Libraries tests
+(import (scheme base) (scheme inexact) (scheme process-context) (srfi 64))
 
-; Basic import
-(import (scheme base))
-(display (+ 1 2))
-(newline)
-; => 3
+(define %test-fail-count 0)
+(test-begin "libraries")
 
-; Import only specific bindings
+;; Basic import (scheme base already imported)
+(test-eqv "basic +" 3 (+ 1 2))
+
+;; Import only specific bindings
 (import (only (scheme base) + -))
-(display (+ 10 5))
-(newline)
-; => 15
+(test-eqv "only +" 15 (+ 10 5))
+(test-eqv "only -" 7 (- 10 3))
 
-(display (- 10 3))
-(newline)
-; => 7
-
-; Import with rename
+;; Import with rename
 (import (rename (scheme base) (+ add) (- subtract)))
-(display (add 3 4))
-(newline)
-; => 7
+(test-eqv "renamed add" 7 (add 3 4))
+(test-eqv "renamed subtract" 7 (subtract 10 3))
 
-(display (subtract 10 3))
-(newline)
-; => 7
-
-; Import with prefix
+;; Import with prefix
 (import (prefix (scheme base) s:))
-(display (s:+ 100 200))
-(newline)
-; => 300
+(test-eqv "prefixed s:+" 300 (s:+ 100 200))
 
-; Import from scheme inexact
-(import (scheme inexact))
-(display (sin 0))
-(newline)
-; => 0.0
+;; Import from scheme inexact
+(test-approximate "sin 0" 0.0 (sin 0) 0.0001)
 
-; Import multiple libraries
-(import (scheme base) (scheme inexact))
-(display (+ 1 (exact (cos 0))))
-(newline)
-; => 2
+;; Import multiple libraries
+(test-eqv "multi-library expr" 2 (+ 1 (exact (cos 0))))
 
-; Define and use a custom library
+;; Define and use a custom library
 (define-library (mylib)
   (import (scheme base))
   (export double triple)
@@ -53,15 +36,10 @@
     (define (triple x) (* x 3))))
 
 (import (mylib))
-(display (double 21))
-(newline)
-; => 42
+(test-eqv "custom lib double" 42 (double 21))
+(test-eqv "custom lib triple" 30 (triple 10))
 
-(display (triple 10))
-(newline)
-; => 30
-
-; Define a library with dotted name
+;; Define a library with dotted name
 (define-library (my utils)
   (import (scheme base))
   (export add5)
@@ -69,9 +47,8 @@
     (define (add5 x) (+ x 5))))
 
 (import (my utils))
-(display (add5 10))
-(newline)
-; => 15
+(test-eqv "dotted name lib" 15 (add5 10))
 
-(display "All Phase 6 tests passed!")
-(newline)
+(set! %test-fail-count (test-runner-fail-count (test-runner-current)))
+(test-end "libraries")
+(if (> %test-fail-count 0) (exit 1))

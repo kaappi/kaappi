@@ -1,56 +1,91 @@
 ;;; String port compliance tests (R7RS 6.13)
+(import (scheme base) (scheme read) (scheme process-context) (srfi 64))
 
-;; open-input-string / read-char
-(let ((p (open-input-string "hello")))
-  (display (read-char p))    ; => h
-  (display (read-char p))    ; => e
-  (display (read-char p))    ; => l
-  (newline))
+(define %test-fail-count 0)
+(test-begin "string-ports")
 
-;; open-output-string / get-output-string
-(let ((p (open-output-string)))
-  (write-char #\H p)
-  (write-string "ello" p)
-  (display (get-output-string p)))  ; => Hello
-(newline)
+;; --- open-input-string / read-char ---
+(test-group "read-char from string port"
+  (test-eqv "read-char first"
+    #\h
+    (let ((p (open-input-string "hello")))
+      (read-char p)))
+  (test-eqv "read-char sequential"
+    #\l
+    (let ((p (open-input-string "hello")))
+      (read-char p)  ; h
+      (read-char p)  ; e
+      (read-char p))))
 
-;; read-line from string port
-(let ((p (open-input-string "line1\nline2\n")))
-  (display (read-line p))  ; => line1
-  (newline)
-  (display (read-line p))  ; => line2
-  (newline))
+;; --- open-output-string / get-output-string ---
+(test-group "output string port"
+  (test-equal "write-char and write-string"
+    "Hello"
+    (let ((p (open-output-string)))
+      (write-char #\H p)
+      (write-string "ello" p)
+      (get-output-string p))))
 
-;; read from string port
-(let ((p (open-input-string "(+ 1 2)")))
-  (let ((datum (read p)))
-    (display datum)))  ; => (+ 1 2)
-(newline)
+;; --- read-line ---
+(test-group "read-line from string port"
+  (test-equal "read-line first line"
+    "line1"
+    (let ((p (open-input-string "line1\nline2\n")))
+      (read-line p)))
+  (test-equal "read-line second line"
+    "line2"
+    (let ((p (open-input-string "line1\nline2\n")))
+      (read-line p)
+      (read-line p))))
 
-;; peek-char from string port
-(let ((p (open-input-string "ab")))
-  (display (peek-char p))   ; => a  (doesn't consume)
-  (display (read-char p))   ; => a  (now consumes)
-  (display (read-char p)))  ; => b
-(newline)
+;; --- read ---
+(test-group "read from string port"
+  (test-equal "read s-expression"
+    '(+ 1 2)
+    (let ((p (open-input-string "(+ 1 2)")))
+      (read p))))
 
-;; read-string
-(let ((p (open-input-string "hello world")))
-  (display (read-string 5 p)))  ; => hello
-(newline)
+;; --- peek-char ---
+(test-group "peek-char from string port"
+  (test-eqv "peek-char does not consume"
+    #\a
+    (let ((p (open-input-string "ab")))
+      (peek-char p)
+      (read-char p)))
+  (test-eqv "read-char after peek-char"
+    #\b
+    (let ((p (open-input-string "ab")))
+      (peek-char p)
+      (read-char p)
+      (read-char p))))
 
-;; eof on empty string port
-(let ((p (open-input-string "")))
-  (display (eof-object? (read-char p))))  ; => #t
-(newline)
+;; --- read-string ---
+(test-group "read-string"
+  (test-equal "read-string partial"
+    "hello"
+    (let ((p (open-input-string "hello world")))
+      (read-string 5 p))))
 
-;; flush-output-port (should be no-op, no error)
-(flush-output-port)
+;; --- eof on empty string port ---
+(test-group "eof on empty string port"
+  (test-assert "eof-object? on empty port"
+    (let ((p (open-input-string "")))
+      (eof-object? (read-char p)))))
 
-;; port predicates on string ports
-(let ((ip (open-input-string "test"))
-      (op (open-output-string)))
-  (display (port? ip))         ; => #t
-  (display (input-port? ip))   ; => #t
-  (display (output-port? op))  ; => #t
-  (newline))
+;; --- flush-output-port ---
+(test-group "flush-output-port"
+  (test-assert "flush-output-port completes"
+    (begin (flush-output-port) #t)))
+
+;; --- port predicates ---
+(test-group "port predicates on string ports"
+  (test-assert "port? on input string port"
+    (port? (open-input-string "test")))
+  (test-assert "input-port? on input string port"
+    (input-port? (open-input-string "test")))
+  (test-assert "output-port? on output string port"
+    (output-port? (open-output-string))))
+
+(set! %test-fail-count (test-runner-fail-count (test-runner-current)))
+(test-end "string-ports")
+(if (> %test-fail-count 0) (exit 1))

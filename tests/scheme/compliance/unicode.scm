@@ -1,104 +1,147 @@
-;;; R7RS Unicode compliance tests
+;;; R7RS Unicode compliance tests (SRFI 64)
+
+(import (scheme base) (scheme char) (scheme process-context) (srfi 64))
+
+(define %test-fail-count 0)
+(test-begin "unicode")
 
 ;; ---- string-length: count codepoints, not bytes ----
-(display (string-length "hello")) (newline)          ; => 5
-(display (string-length "")) (newline)               ; => 0
-(display (string-length "h\x00E9;llo")) (newline)    ; => 5  (e-acute is 2 bytes UTF-8)
-(display (string-length "\x03BB;-calculus")) (newline) ; => 10 (lambda is 2 bytes UTF-8)
+(test-group "string-length"
+  (test-eqv "string-length ascii" 5 (string-length "hello"))
+  (test-eqv "string-length empty" 0 (string-length ""))
+  (test-eqv "string-length with e-acute" 5 (string-length "h\x00E9;llo"))
+  (test-eqv "string-length with lambda" 10 (string-length "\x03BB;-calculus")))
 
 ;; ---- string-ref: codepoint indexing ----
-(display (string-ref "hello" 0)) (newline)           ; => h
-(display (string-ref "h\x00E9;llo" 1)) (newline)     ; => e-acute character
-(display (char->integer (string-ref "h\x00E9;llo" 1))) (newline)  ; => 233
-(display (string-ref "\x03BB;-calculus" 0)) (newline)  ; => lambda character
-(display (char->integer (string-ref "\x03BB;-calculus" 0))) (newline)  ; => 955
+(test-group "string-ref"
+  (test-eqv "string-ref ascii first" #\h (string-ref "hello" 0))
+  (test-eqv "string-ref e-acute codepoint" 233
+    (char->integer (string-ref "h\x00E9;llo" 1)))
+  (test-eqv "string-ref lambda codepoint" 955
+    (char->integer (string-ref "\x03BB;-calculus" 0))))
 
 ;; ---- substring: codepoint indices ----
-(display (substring "h\x00E9;llo" 0 2)) (newline)    ; => he-acute
-(display (string-length (substring "h\x00E9;llo" 0 2))) (newline)  ; => 2
-(display (substring "h\x00E9;llo" 2 5)) (newline)    ; => llo
+(test-group "substring"
+  (test-eqv "substring with e-acute length" 2
+    (string-length (substring "h\x00E9;llo" 0 2)))
+  (test-equal "substring ascii portion" "llo"
+    (substring "h\x00E9;llo" 2 5)))
 
 ;; ---- string->list: iterate codepoints ----
-(display (length (string->list "abc"))) (newline)     ; => 3
-(display (length (string->list "h\x00E9;llo"))) (newline) ; => 5
-(display (char->integer (car (string->list "\x03BB;x")))) (newline) ; => 955
+(test-group "string->list"
+  (test-eqv "string->list ascii length" 3
+    (length (string->list "abc")))
+  (test-eqv "string->list unicode length" 5
+    (length (string->list "h\x00E9;llo")))
+  (test-eqv "string->list lambda first char" 955
+    (char->integer (car (string->list "\x03BB;x")))))
 
 ;; ---- string-copy: codepoint indices ----
-(display (string-copy "h\x00E9;llo" 1 3)) (newline)  ; => e-acute + l
-(display (string-length (string-copy "h\x00E9;llo" 1 3))) (newline) ; => 2
+(test-group "string-copy"
+  (test-eqv "string-copy unicode range length" 2
+    (string-length (string-copy "h\x00E9;llo" 1 3))))
 
 ;; ---- make-string: non-ASCII fill ----
-(display (string-length (make-string 3 #\a))) (newline)  ; => 3
-(display (make-string 3 #\a)) (newline)                  ; => aaa
+(test-group "make-string"
+  (test-eqv "make-string length" 3
+    (string-length (make-string 3 #\a)))
+  (test-equal "make-string with fill" "aaa"
+    (make-string 3 #\a)))
 
 ;; ---- char-alphabetic? with Unicode ----
-(display (char-alphabetic? #\a)) (newline)            ; => #t
-(display (char-alphabetic? #\Z)) (newline)            ; => #t
-(display (char-alphabetic? #\1)) (newline)            ; => #f
-(display (char-alphabetic? (integer->char 955))) (newline)   ; => #t  (lambda)
-(display (char-alphabetic? (integer->char 233))) (newline)   ; => #t  (e-acute)
+(test-group "char-alphabetic?"
+  (test-assert "char-alphabetic? lowercase" (char-alphabetic? #\a))
+  (test-assert "char-alphabetic? uppercase" (char-alphabetic? #\Z))
+  (test-eqv "char-alphabetic? digit" #f (char-alphabetic? #\1))
+  (test-assert "char-alphabetic? lambda" (char-alphabetic? (integer->char 955)))
+  (test-assert "char-alphabetic? e-acute" (char-alphabetic? (integer->char 233))))
 
 ;; ---- char-numeric? ----
-(display (char-numeric? #\5)) (newline)               ; => #t
-(display (char-numeric? #\a)) (newline)               ; => #f
+(test-group "char-numeric?"
+  (test-assert "char-numeric? digit" (char-numeric? #\5))
+  (test-eqv "char-numeric? letter" #f (char-numeric? #\a)))
 
 ;; ---- char-whitespace? ----
-(display (char-whitespace? #\space)) (newline)        ; => #t
-(display (char-whitespace? #\tab)) (newline)          ; => #t
-(display (char-whitespace? #\a)) (newline)            ; => #f
+(test-group "char-whitespace?"
+  (test-assert "char-whitespace? space" (char-whitespace? #\space))
+  (test-assert "char-whitespace? tab" (char-whitespace? #\tab))
+  (test-eqv "char-whitespace? letter" #f (char-whitespace? #\a)))
 
 ;; ---- char-upper-case? / char-lower-case? ----
-(display (char-upper-case? #\A)) (newline)            ; => #t
-(display (char-upper-case? #\a)) (newline)            ; => #f
-(display (char-lower-case? #\a)) (newline)            ; => #t
-(display (char-lower-case? #\A)) (newline)            ; => #f
-;; Latin-1 uppercase (201 = E-acute, 233 = e-acute)
-(display (char-upper-case? (integer->char 201))) (newline)  ; => #t  (E-acute)
-(display (char-lower-case? (integer->char 233))) (newline)  ; => #t  (e-acute)
+(test-group "char-upper-case? / char-lower-case?"
+  (test-assert "char-upper-case? A" (char-upper-case? #\A))
+  (test-eqv "char-upper-case? a" #f (char-upper-case? #\a))
+  (test-assert "char-lower-case? a" (char-lower-case? #\a))
+  (test-eqv "char-lower-case? A" #f (char-lower-case? #\A))
+  (test-assert "char-upper-case? E-acute" (char-upper-case? (integer->char 201)))
+  (test-assert "char-lower-case? e-acute" (char-lower-case? (integer->char 233))))
 
 ;; ---- char-upcase / char-downcase ----
-(display (char->integer (char-upcase #\a))) (newline)   ; => 65
-(display (char->integer (char-downcase #\A))) (newline)  ; => 97
-;; Latin-1 case conversion (201 = E-acute, 233 = e-acute)
-(display (char->integer (char-upcase (integer->char 233)))) (newline)  ; => 201 (E-acute)
-(display (char->integer (char-downcase (integer->char 201)))) (newline) ; => 233 (e-acute)
+(test-group "char-upcase / char-downcase"
+  (test-eqv "char-upcase a" 65 (char->integer (char-upcase #\a)))
+  (test-eqv "char-downcase A" 97 (char->integer (char-downcase #\A)))
+  (test-eqv "char-upcase e-acute" 201
+    (char->integer (char-upcase (integer->char 233))))
+  (test-eqv "char-downcase E-acute" 233
+    (char->integer (char-downcase (integer->char 201)))))
 
 ;; ---- string-upcase / string-downcase ----
-(display (string-upcase "hello")) (newline)           ; => HELLO
-(display (string-downcase "HELLO")) (newline)         ; => hello
-(display (string-upcase "h\x00E9;llo")) (newline)    ; => HELLO-with-E-acute
-(display (string-length (string-upcase "h\x00E9;llo"))) (newline) ; => 5
+(test-group "string-upcase / string-downcase"
+  (test-equal "string-upcase ascii" "HELLO" (string-upcase "hello"))
+  (test-equal "string-downcase ascii" "hello" (string-downcase "HELLO"))
+  (test-eqv "string-upcase unicode length" 5
+    (string-length (string-upcase "h\x00E9;llo")))
+  (test-eqv "string-upcase unicode char 1 codepoint" 201
+    (char->integer (string-ref (string-upcase "h\x00E9;llo") 1))))
 
 ;; ---- string-set! ----
-(define s (string-copy "hello"))
-(string-set! s 0 #\H)
-(display s) (newline)                                  ; => Hello
+(test-group "string-set!"
+  (test-equal "string-set! first char"
+    "Hello"
+    (let ((s (string-copy "hello")))
+      (string-set! s 0 #\H)
+      s)))
 
 ;; ---- string-fill! ----
-(define sf (make-string 3 #\a))
-(string-fill! sf #\z)
-(display sf) (newline)                                 ; => zzz
+(test-group "string-fill!"
+  (test-equal "string-fill! all"
+    "zzz"
+    (let ((sf (make-string 3 #\a)))
+      (string-fill! sf #\z)
+      sf)))
 
 ;; ---- string-for-each ----
-(define count 0)
-(string-for-each (lambda (c) (set! count (+ count 1))) "h\x00E9;llo")
-(display count) (newline)                              ; => 5
+(test-group "string-for-each"
+  (test-eqv "string-for-each counts codepoints" 5
+    (let ((count 0))
+      (string-for-each (lambda (c) (set! count (+ count 1))) "h\x00E9;llo")
+      count)))
 
 ;; ---- string->vector ----
-(display (vector-length (string->vector "h\x00E9;llo"))) (newline) ; => 5
+(test-group "string->vector"
+  (test-eqv "string->vector unicode length" 5
+    (vector-length (string->vector "h\x00E9;llo"))))
 
-;; ---- string comparisons (still work correctly) ----
-(display (string=? "abc" "abc")) (newline)            ; => #t
-(display (string<? "abc" "abd")) (newline)            ; => #t
+;; ---- string comparisons ----
+(test-group "string comparisons"
+  (test-assert "string=? equal" (string=? "abc" "abc"))
+  (test-assert "string<? less" (string<? "abc" "abd")))
 
 ;; ---- char CI comparisons ----
-(display (char-ci=? #\A #\a)) (newline)               ; => #t
-(display (char-ci<? #\a #\B)) (newline)               ; => #t
+(test-group "char CI comparisons"
+  (test-assert "char-ci=? case insensitive" (char-ci=? #\A #\a))
+  (test-assert "char-ci<? case insensitive" (char-ci<? #\a #\B)))
 
 ;; ---- string CI comparisons ----
-(display (string-ci=? "Hello" "hello")) (newline)     ; => #t
+(test-group "string CI comparisons"
+  (test-assert "string-ci=? case insensitive" (string-ci=? "Hello" "hello")))
 
 ;; ---- digit-value ----
-(display (digit-value #\0)) (newline)                 ; => 0
-(display (digit-value #\9)) (newline)                 ; => 9
-(display (digit-value #\a)) (newline)                 ; => #f
+(test-group "digit-value"
+  (test-eqv "digit-value 0" 0 (digit-value #\0))
+  (test-eqv "digit-value 9" 9 (digit-value #\9))
+  (test-eqv "digit-value non-digit" #f (digit-value #\a)))
+
+(set! %test-fail-count (test-runner-fail-count (test-runner-current)))
+(test-end "unicode")
+(if (> %test-fail-count 0) (exit 1))

@@ -1,41 +1,35 @@
-;;; Numeric gap compliance tests (R7RS 6.2)
+;;; Numeric gap compliance tests (R7RS 6.2, SRFI 64)
 
-;; floor-quotient, floor-remainder
-(display (floor-quotient 7 3))     ; => 2
-(newline)
-(display (floor-remainder 7 3))    ; => 1
-(newline)
-(display (floor-quotient -7 3))    ; => -3
-(newline)
-(display (floor-remainder -7 3))   ; => 2
-(newline)
+(import (scheme base) (scheme process-context) (srfi 64))
 
-;; truncate-quotient, truncate-remainder
-(display (truncate-quotient 7 3))    ; => 2
-(newline)
-(display (truncate-remainder 7 3))   ; => 1
-(newline)
-(display (truncate-quotient -7 3))   ; => -2
-(newline)
-(display (truncate-remainder -7 3))  ; => -1
-(newline)
+(test-begin "numeric-gaps")
 
-;; numerator, denominator
-(display (numerator 3))       ; => 3
-(newline)
-(display (denominator 3))     ; => 1
-(newline)
+(test-group "floor-quotient and floor-remainder"
+  (test-eqv "floor-quotient 7 3" 2 (floor-quotient 7 3))
+  (test-eqv "floor-remainder 7 3" 1 (floor-remainder 7 3))
+  (test-eqv "floor-quotient -7 3" -3 (floor-quotient -7 3))
+  (test-eqv "floor-remainder -7 3" 2 (floor-remainder -7 3)))
 
-;; exact->inexact, inexact->exact aliases
-(display (exact->inexact 3))   ; => 3.0
-(newline)
-(display (inexact->exact 3.0)) ; => 3
-(newline)
+(test-group "truncate-quotient and truncate-remainder"
+  (test-eqv "truncate-quotient 7 3" 2 (truncate-quotient 7 3))
+  (test-eqv "truncate-remainder 7 3" 1 (truncate-remainder 7 3))
+  (test-eqv "truncate-quotient -7 3" -2 (truncate-quotient -7 3))
+  (test-eqv "truncate-remainder -7 3" -1 (truncate-remainder -7 3)))
 
-;; rationalize
-(display (rationalize 3 1))    ; => 3
-(newline)
+(test-group "numerator and denominator"
+  (test-eqv "numerator 3" 3 (numerator 3))
+  (test-eqv "denominator 3" 1 (denominator 3)))
 
-;; features
-(display (list? (features)))   ; => #t
-(newline)
+(test-group "exactness conversion"
+  (test-approximate "exact->inexact 3" 3.0 (exact->inexact 3) 0.0001)
+  (test-eqv "inexact->exact 3.0" 3 (inexact->exact 3.0)))
+
+(test-group "rationalize"
+  (test-eqv "rationalize 3 1" 3 (rationalize 3 1)))
+
+(test-group "features"
+  (test-assert "features returns a list" (list? (features))))
+
+(define %test-fail-count (test-runner-fail-count (test-runner-current)))
+(test-end "numeric-gaps")
+(if (> %test-fail-count 0) (exit 1))

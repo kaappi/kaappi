@@ -1,10 +1,14 @@
 ;;; Hygienic macros compliance tests
 ;;; Tests that syntax-rules macros correctly prevent variable capture.
+(import (scheme base) (scheme process-context) (srfi 64))
 
-;; --------------------------------------------------------------------------
+(define %test-fail-count 0)
+(test-begin "hygiene")
+
+;; -------------------------------------------------------------------------
 ;; 1. Classic or/my-or hygiene: macro's internal 'temp' must not capture
 ;;    a user variable also called 'temp'.
-;; --------------------------------------------------------------------------
+;; -------------------------------------------------------------------------
 
 (define-syntax my-or
   (syntax-rules ()
@@ -14,31 +18,27 @@
      (let ((temp e1))
        (if temp temp (my-or e2 ...))))))
 
-;; Basic my-or functionality
-(display (my-or))           ; => #f
-(newline)
-(display (my-or 1))         ; => 1
-(newline)
-(display (my-or #f 2))      ; => 2
-(newline)
-(display (my-or 1 2))       ; => 1
-(newline)
-(display (my-or #f #f 3))   ; => 3
-(newline)
+(test-group "my-or basics"
+  (test-eqv "my-or no args" #f (my-or))
+  (test-eqv "my-or single arg" 1 (my-or 1))
+  (test-eqv "my-or false then value" 2 (my-or #f 2))
+  (test-eqv "my-or true then value" 1 (my-or 1 2))
+  (test-eqv "my-or two false then value" 3 (my-or #f #f 3)))
 
-;; KEY HYGIENE TEST: user's 'temp' must not be captured by macro's 'temp'
-(let ((temp 42))
-  (display (my-or #f temp)))  ; => 42 (NOT #f)
-(newline)
+(test-group "my-or hygiene"
+  ;; KEY HYGIENE TEST: user's 'temp' must not be captured by macro's 'temp'
+  (test-eqv "user temp not captured (falsy first)" 42
+    (let ((temp 42))
+      (my-or #f temp)))
 
-;; Another capture test: temp is the truthy value
-(let ((temp 99))
-  (display (my-or temp 0)))   ; => 99
-(newline)
+  ;; Another capture test: temp is the truthy value
+  (test-eqv "user temp not captured (truthy first)" 99
+    (let ((temp 99))
+      (my-or temp 0))))
 
-;; --------------------------------------------------------------------------
+;; -------------------------------------------------------------------------
 ;; 2. swap! hygiene: macro's internal 'tmp' must not capture user's 'tmp'.
-;; --------------------------------------------------------------------------
+;; -------------------------------------------------------------------------
 
 (define-syntax swap!
   (syntax-rules ()
@@ -47,89 +47,90 @@
        (set! a b)
        (set! b tmp)))))
 
-;; Basic swap with distinct names
+;; Basic swap with distinct names (top-level defines needed for set! in swap!)
 (define x 10)
 (define y 20)
 (swap! x y)
-(display x)  ; => 20
-(newline)
-(display y)  ; => 10
-(newline)
+(test-eqv "swap x" 20 x)
+(test-eqv "swap y" 10 y)
 
-;; KEY HYGIENE TEST: swap variables named 'tmp' and 'y'
-(let ((tmp 1) (y 2))
-  (swap! tmp y)
-  (display (list tmp y)))  ; => (2 1)
-(newline)
+(test-group "swap! hygiene"
+  ;; KEY HYGIENE TEST: swap variables named 'tmp' and 'y'
+  (test-equal "swap user tmp and y" '(2 1)
+    (let ((tmp 1) (y 2))
+      (swap! tmp y)
+      (list tmp y))))
 
-;; --------------------------------------------------------------------------
+;; -------------------------------------------------------------------------
 ;; 3. Nested macro expansions with hygiene
-;; --------------------------------------------------------------------------
+;; -------------------------------------------------------------------------
 
-;; Using my-or inside my-or (via recursive expansion)
-(display (my-or #f #f #f 77))  ; => 77
-(newline)
+(test-group "nested expansions"
+  ;; Using my-or inside my-or (via recursive expansion)
+  (test-eqv "deeply nested my-or" 77
+    (my-or #f #f #f 77))
 
-;; Nested let with same name as macro internal
-(let ((temp 100))
-  (display (my-or #f (my-or #f temp))))  ; => 100
-(newline)
+  ;; Nested let with same name as macro internal
+  (test-eqv "nested my-or with user temp" 100
+    (let ((temp 100))
+      (my-or #f (my-or #f temp)))))
 
-;; --------------------------------------------------------------------------
+;; -------------------------------------------------------------------------
 ;; 4. Multiple macro invocations don't interfere
-;; --------------------------------------------------------------------------
+;; -------------------------------------------------------------------------
 
-;; Each invocation of my-or should get its own gensym for 'temp'
-(let ((temp 10))
-  (let ((a (my-or #f temp))
-        (b (my-or temp #f)))
-    (display (list a b))))  ; => (10 10)
-(newline)
+(test-group "multiple invocations"
+  ;; Each invocation of my-or should get its own gensym for 'temp'
+  (test-equal "independent invocations" '(10 10)
+    (let ((temp 10))
+      (let ((a (my-or #f temp))
+            (b (my-or temp #f)))
+        (list a b)))))
 
-;; --------------------------------------------------------------------------
+;; -------------------------------------------------------------------------
 ;; 5. Macros that don't introduce bindings work unchanged
-;; --------------------------------------------------------------------------
+;; -------------------------------------------------------------------------
 
 (define-syntax my-if
   (syntax-rules ()
     ((my-if test then else)
      (if test then else))))
 
-(display (my-if #t 1 2))  ; => 1
-(newline)
-(display (my-if #f 1 2))  ; => 2
-(newline)
+(test-group "non-binding macros"
+  (test-eqv "my-if true" 1 (my-if #t 1 2))
+  (test-eqv "my-if false" 2 (my-if #f 1 2)))
 
-;; --------------------------------------------------------------------------
+;; -------------------------------------------------------------------------
 ;; 6. Macros with literals still work
-;; --------------------------------------------------------------------------
+;; -------------------------------------------------------------------------
 
 (define-syntax my-case
   (syntax-rules (is)
     ((my-case x is y)
      (if (= x y) #t #f))))
 
-(display (my-case 3 is 3))  ; => #t
-(newline)
-(display (my-case 3 is 4))  ; => #f
-(newline)
+(test-group "macros with literals"
+  (test-eqv "my-case equal" #t (my-case 3 is 3))
+  (test-eqv "my-case not equal" #f (my-case 3 is 4)))
 
-;; --------------------------------------------------------------------------
+;; -------------------------------------------------------------------------
 ;; 7. Ellipsis-based macros still work
-;; --------------------------------------------------------------------------
+;; -------------------------------------------------------------------------
 
 (define-syntax my-list
   (syntax-rules ()
     ((my-list e ...)
      (list e ...))))
 
-(display (my-list 1 2 3))  ; => (1 2 3)
-(newline)
-
 (define-syntax my-begin
   (syntax-rules ()
     ((my-begin e1 e2 ...)
      (begin e1 e2 ...))))
 
-(display (my-begin 1 2 3))  ; => 3
-(newline)
+(test-group "ellipsis macros"
+  (test-equal "my-list" '(1 2 3) (my-list 1 2 3))
+  (test-eqv "my-begin" 3 (my-begin 1 2 3)))
+
+(set! %test-fail-count (test-runner-fail-count (test-runner-current)))
+(test-end "hygiene")
+(if (> %test-fail-count 0) (exit 1))

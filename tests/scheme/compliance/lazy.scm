@@ -1,27 +1,33 @@
 ;;; Lazy evaluation compliance tests (R7RS 4.2.5)
+(import (scheme base) (scheme lazy) (scheme process-context) (srfi 64))
 
-;; promise?
-(display (promise? (delay 1)))  ; => #t
-(newline)
-(display (promise? 42))         ; => #f
-(newline)
+(define %test-fail-count 0)
+(test-begin "lazy")
 
-;; force / delay
-(display (force (delay (+ 1 2))))  ; => 3
-(newline)
+;; --- promise? ---
+(test-group "promise?"
+  (test-eqv "delay creates a promise" #t (promise? (delay 1)))
+  (test-eqv "integer is not a promise" #f (promise? 42)))
 
-;; make-promise
-(display (force (make-promise 42)))  ; => 42
-(newline)
+;; --- force / delay ---
+(test-group "force/delay"
+  (test-eqv "force evaluates delayed expression" 3 (force (delay (+ 1 2)))))
 
-;; Memoization: delay should only evaluate once
-(let ((count 0))
-  (let ((p (delay (begin (set! count (+ count 1)) count))))
-    (display (force p))  ; => 1
-    (newline)
-    (display (force p))  ; => 1 (cached)
-    (newline)))
+;; --- make-promise ---
+(test-group "make-promise"
+  (test-eqv "force on make-promise returns value" 42 (force (make-promise 42))))
 
-;; Nested delay
-(display (force (delay (force (delay 99)))))  ; => 99
-(newline)
+;; --- memoization ---
+(test-group "memoization"
+  (let ((count 0))
+    (let ((p (delay (begin (set! count (+ count 1)) count))))
+      (test-eqv "first force evaluates body" 1 (force p))
+      (test-eqv "second force returns cached value" 1 (force p)))))
+
+;; --- nested delay ---
+(test-group "nested delay"
+  (test-eqv "force nested delays" 99 (force (delay (force (delay 99))))))
+
+(set! %test-fail-count (test-runner-fail-count (test-runner-current)))
+(test-end "lazy")
+(if (> %test-fail-count 0) (exit 1))

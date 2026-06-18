@@ -1,83 +1,113 @@
 ;;; R7RS String compliance tests
+(import (scheme base) (scheme process-context) (srfi 64))
 
-;; string constructor
-(display (string #\a #\b #\c)) (newline)         ; => abc
-(display (string)) (newline)                      ; =>
+(define %test-fail-count 0)
+(test-begin "strings")
 
-;; make-string
-(display (string-length (make-string 5))) (newline)  ; => 5
-(display (make-string 3 #\x)) (newline)              ; => xxx
+;; --- string constructor ---
+(test-group "string constructor"
+  (test-equal "string from chars" "abc" (string #\a #\b #\c))
+  (test-equal "string from no chars" "" (string)))
 
-;; string-ref
-(display (string-ref "hello" 0)) (newline)       ; => h
-(display (string-ref "hello" 4)) (newline)       ; => o
+;; --- make-string ---
+(test-group "make-string"
+  (test-eqv "make-string length" 5 (string-length (make-string 5)))
+  (test-equal "make-string with fill char" "xxx" (make-string 3 #\x)))
 
-;; string-length
-(display (string-length "hello")) (newline)      ; => 5
-(display (string-length "")) (newline)           ; => 0
+;; --- string-ref ---
+(test-group "string-ref"
+  (test-eqv "string-ref first" #\h (string-ref "hello" 0))
+  (test-eqv "string-ref last" #\o (string-ref "hello" 4)))
 
-;; substring
-(display (substring "hello world" 0 5)) (newline) ; => hello
-(display (substring "hello world" 6 11)) (newline) ; => world
-(display (substring "abc" 1 2)) (newline)          ; => b
+;; --- string-length ---
+(test-group "string-length"
+  (test-eqv "string-length non-empty" 5 (string-length "hello"))
+  (test-eqv "string-length empty" 0 (string-length "")))
 
-;; string-append
-(display (string-append "hello" " " "world")) (newline)  ; => hello world
-(display (string-append)) (newline)                       ; =>
+;; --- substring ---
+(test-group "substring"
+  (test-equal "substring first word" "hello" (substring "hello world" 0 5))
+  (test-equal "substring last word" "world" (substring "hello world" 6 11))
+  (test-equal "substring single char" "b" (substring "abc" 1 2)))
 
-;; string-copy
-(display (string-copy "hello")) (newline)        ; => hello
-(display (string-copy "hello" 1 3)) (newline)    ; => el
+;; --- string-append ---
+(test-group "string-append"
+  (test-equal "string-append multiple" "hello world" (string-append "hello" " " "world"))
+  (test-equal "string-append no args" "" (string-append)))
 
-;; string->list
-(display (string->list "abc")) (newline)         ; => (a b c)
-(display (string->list "")) (newline)            ; => ()
+;; --- string-copy ---
+(test-group "string-copy"
+  (test-equal "string-copy whole" "hello" (string-copy "hello"))
+  (test-equal "string-copy with range" "el" (string-copy "hello" 1 3)))
 
-;; list->string
-(display (list->string '(#\a #\b #\c))) (newline)  ; => abc
-(display (list->string '())) (newline)               ; =>
+;; --- string->list ---
+(test-group "string->list"
+  (test-equal "string->list non-empty" '(#\a #\b #\c) (string->list "abc"))
+  (test-equal "string->list empty" '() (string->list "")))
 
-;; string->symbol
-(display (string->symbol "hello")) (newline)     ; => hello
-(display (symbol? (string->symbol "test"))) (newline)  ; => #t
+;; --- list->string ---
+(test-group "list->string"
+  (test-equal "list->string non-empty" "abc" (list->string '(#\a #\b #\c)))
+  (test-equal "list->string empty" "" (list->string '())))
 
-;; symbol->string
-(display (symbol->string 'hello)) (newline)      ; => hello
+;; --- string->symbol ---
+(test-group "string->symbol"
+  (test-eqv "string->symbol value" 'hello (string->symbol "hello"))
+  (test-assert "string->symbol returns symbol" (symbol? (string->symbol "test"))))
 
-;; string comparisons
-(display (string<? "abc" "abd")) (newline)       ; => #t
-(display (string<? "abd" "abc")) (newline)       ; => #f
-(display (string=? "abc" "abc")) (newline)       ; => #t
-(display (string=? "abc" "abd")) (newline)       ; => #f
-(display (string>? "abd" "abc")) (newline)       ; => #t
-(display (string<=? "abc" "abc")) (newline)      ; => #t
-(display (string>=? "abc" "abc")) (newline)      ; => #t
+;; --- symbol->string ---
+(test-group "symbol->string"
+  (test-equal "symbol->string" "hello" (symbol->string 'hello)))
 
-;; char->integer, integer->char
-(display (char->integer #\A)) (newline)          ; => 65
-(display (char->integer #\a)) (newline)          ; => 97
-(display (integer->char 65)) (newline)           ; => A
-(display (integer->char 97)) (newline)           ; => a
+;; --- string comparisons ---
+(test-group "string comparisons"
+  (test-assert "string<? true" (string<? "abc" "abd"))
+  (test-assert "string<? false" (not (string<? "abd" "abc")))
+  (test-assert "string=? true" (string=? "abc" "abc"))
+  (test-assert "string=? false" (not (string=? "abc" "abd")))
+  (test-assert "string>? true" (string>? "abd" "abc"))
+  (test-assert "string<=? equal" (string<=? "abc" "abc"))
+  (test-assert "string>=? equal" (string>=? "abc" "abc")))
 
-;; char comparisons
-(display (char<? #\a #\b)) (newline)             ; => #t
-(display (char=? #\a #\a)) (newline)             ; => #t
-(display (char>? #\b #\a)) (newline)             ; => #t
+;; --- char->integer, integer->char ---
+(test-group "char->integer, integer->char"
+  (test-eqv "char->integer A" 65 (char->integer #\A))
+  (test-eqv "char->integer a" 97 (char->integer #\a))
+  (test-eqv "integer->char 65" #\A (integer->char 65))
+  (test-eqv "integer->char 97" #\a (integer->char 97)))
 
-;; number->string
-(display (number->string 42)) (newline)          ; => 42
-(display (number->string -7)) (newline)          ; => -7
+;; --- char comparisons ---
+(test-group "char comparisons"
+  (test-assert "char<? true" (char<? #\a #\b))
+  (test-assert "char=? true" (char=? #\a #\a))
+  (test-assert "char>? true" (char>? #\b #\a)))
 
-;; string->number
-(display (string->number "42")) (newline)        ; => 42
-(display (string->number "bad")) (newline)       ; => #f
+;; --- number->string ---
+(test-group "number->string"
+  (test-equal "number->string positive" "42" (number->string 42))
+  (test-equal "number->string negative" "-7" (number->string -7)))
 
-;; string-set!
-(define s (string-copy "hello"))
-(string-set! s 0 #\H)
-(display s) (newline)                             ; => Hello
+;; --- string->number ---
+(test-group "string->number"
+  (test-eqv "string->number valid" 42 (string->number "42"))
+  (test-eqv "string->number invalid" #f (string->number "bad")))
 
-;; string-fill!
-(define sf (make-string 3 #\a))
-(string-fill! sf #\z)
-(display sf) (newline)                            ; => zzz
+;; --- string-set! ---
+(test-group "string-set!"
+  (test-equal "string-set! first char"
+    "Hello"
+    (let ((s (string-copy "hello")))
+      (string-set! s 0 #\H)
+      s)))
+
+;; --- string-fill! ---
+(test-group "string-fill!"
+  (test-equal "string-fill! all"
+    "zzz"
+    (let ((sf (make-string 3 #\a)))
+      (string-fill! sf #\z)
+      sf)))
+
+(set! %test-fail-count (test-runner-fail-count (test-runner-current)))
+(test-end "strings")
+(if (> %test-fail-count 0) (exit 1))

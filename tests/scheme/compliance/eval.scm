@@ -1,13 +1,21 @@
 ;;; Eval library compliance tests (R7RS 6.5)
+(import (scheme base) (scheme eval) (scheme process-context) (srfi 64))
 
-;; eval basic expression
-(display (eval '(+ 1 2)))  ; => 3
-(newline)
+(define %test-fail-count 0)
+(test-begin "eval")
 
-;; eval with environment (environment is a no-op for now)
-(display (eval '(* 3 4) (environment '(scheme base))))  ; => 12
-(newline)
+;; --- eval basic ---
+(test-group "eval basic"
+  (test-eqv "eval arithmetic" 3 (eval '(+ 1 2))))
 
-;; eval quoted list
-(display (eval '(list 1 2 3)))  ; => (1 2 3)
-(newline)
+;; --- eval with environment ---
+(test-group "eval with environment"
+  (test-eqv "eval with scheme base environment" 12 (eval '(* 3 4) (environment '(scheme base)))))
+
+;; --- eval list construction ---
+(test-group "eval list"
+  (test-equal "eval quoted list" '(1 2 3) (eval '(list 1 2 3))))
+
+(set! %test-fail-count (test-runner-fail-count (test-runner-current)))
+(test-end "eval")
+(if (> %test-fail-count 0) (exit 1))
