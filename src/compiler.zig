@@ -1158,6 +1158,26 @@ fn collectFreeRefsWithLocals(template: Value, pat_vars: []const []const u8, lite
                 collectFreeRefsWithLocals(types.cdr(rest), pat_vars, literals, local_binds, out, count);
             return;
         }
+        if (std.mem.eql(u8, hname, "syntax-rules")) {
+            // Inner syntax-rules: collect pattern variables and exclude them
+            if (rest != types.NIL and types.isPair(rest)) {
+                var sr_names: [16][]const u8 = undefined;
+                var sr_count: usize = 0;
+                for (local_binds) |lb| {
+                    if (sr_count < 16) { sr_names[sr_count] = lb; sr_count += 1; }
+                }
+                var rules = types.cdr(rest); // skip literals
+                while (types.isPair(rules)) {
+                    const rule = types.car(rules);
+                    if (types.isPair(rule)) {
+                        collectSymbols(types.car(rule), @ptrCast(&sr_names), &sr_count);
+                    }
+                    rules = types.cdr(rules);
+                }
+                collectFreeRefsWithLocals(rest, pat_vars, literals, sr_names[0..sr_count], out, count);
+            }
+            return;
+        }
     }
     collectFreeRefsWithLocals(head, pat_vars, literals, local_binds, out, count);
     collectFreeRefsWithLocals(rest, pat_vars, literals, local_binds, out, count);

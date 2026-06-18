@@ -1,5 +1,5 @@
 (define-library (chibi test)
-  (import (scheme base) (scheme write))
+  (import (scheme base) (scheme write) (scheme complex))
   (export test test-assert test-error test-values test-begin test-end)
   (begin
 
@@ -50,13 +50,21 @@
       (or (equal? a b)
           (and (real? a) (real? b)
                (let ((diff (abs (- a b))))
-                 (<= diff (* 1e-6 (max 1.0 (abs a) (abs b))))))))
+                 (<= diff (* 1e-6 (max 1.0 (abs a) (abs b))))))
+          (and (complex? a) (complex? b)
+               (not (real? a)) (not (real? b))
+               (test-approx=? (real-part a) (real-part b))
+               (test-approx=? (imag-part a) (imag-part b)))))
 
     (define (test-equal? expected actual)
-      (if (and (number? expected) (number? actual)
-               (inexact? expected) (inexact? actual))
-          (test-approx=? expected actual)
-          (equal? expected actual)))
+      (cond
+        ((and (number? expected) (number? actual)
+              (inexact? expected) (inexact? actual))
+         (test-approx=? expected actual))
+        ((and (complex? expected) (complex? actual)
+              (not (real? expected)) (not (real? actual)))
+         (test-approx=? expected actual))
+        (else (equal? expected actual))))
 
     (define-syntax test
       (syntax-rules ()

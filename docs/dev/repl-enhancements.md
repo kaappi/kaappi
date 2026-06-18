@@ -126,9 +126,9 @@ significantly for exploratory programming.
 
 ## Priority order
 
-1. `,time` — highest value, lowest effort
-2. `,help` — trivial, immediately useful
-3. `,env` — low effort, helps exploration
+1. ~~`,time`~~ — **Done**
+2. ~~`,help`~~ — **Done**
+3. ~~`,env`~~ — **Done**
 4. Incomplete-expression detection — small fix, avoids confusion
 5. `,expand` — medium effort, valuable for macro development
 6. Pretty-printing — highest effort, best deferred

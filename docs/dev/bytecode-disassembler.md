@@ -2,9 +2,8 @@
 
 ## Overview
 
-Add a `(disassemble <proc>)` procedure and a `--disassemble` CLI flag to
-inspect compiled bytecode. This aids debugging, optimization work, and
-understanding the compilation pipeline.
+`(disassemble <proc>)` is implemented in `src/disassembler.zig`.
+A `--disassemble` CLI flag is not yet added (future work).
 
 ## Instruction set reference
 

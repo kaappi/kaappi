@@ -2,7 +2,7 @@
 
 A complete **R7RS-small** Scheme implementation written in **Zig**.
 
-Kaappi implements every identifier from [R7RS Appendix A](https://small.r7rs.org/) — 419 built-in procedures, 32 syntax forms, and all 14 standard libraries — plus 38 SRFIs, a C FFI, and a stepping debugger. The runtime uses a bytecode compiler with a register-based VM, mark-and-sweep garbage collection, and stack-copying first-class continuations.
+Kaappi implements every identifier from [R7RS Appendix A](https://small.r7rs.org/) — 420 built-in procedures, 32 syntax forms, and all 14 standard libraries — plus 38 SRFIs, a C FFI, and a stepping debugger. The runtime uses a bytecode compiler with a register-based VM, mark-and-sweep garbage collection, and stack-copying first-class continuations.
 
 ---
 
@@ -48,7 +48,7 @@ kaappi> (char-alphabetic? #\λ)
 
 ### Complete R7RS-small implementation
 
-419 built-in procedures, 32 syntax forms, all 14 standard libraries — every identifier from [Appendix A](https://small.r7rs.org/).
+420 built-in procedures, 32 syntax forms, all 14 standard libraries — every identifier from [Appendix A](https://small.r7rs.org/).
 
 <details>
 <summary>Standard libraries</summary>
@@ -154,7 +154,7 @@ Source code
 | **Compiler** | `compiler.zig` + 5 sub-modules | Compiles S-expressions to register-based bytecode. Detects tail positions for proper tail call optimization. Handles 32 syntax forms across 6 files. |
 | **VM** | `vm.zig` + 5 sub-modules | Executes bytecode with a register file, call frame stack, exception handler stack, and dynamic-wind stack. Supports first-class continuations via stack copying, plus a stepping debugger. |
 | **GC** | `memory.zig` | Mark-and-sweep collector with intrusive linked list. Root tracking via `pushRoot`/`popRoot`. Triggered after N allocations. |
-| **Primitives** | 18 `primitives_*.zig` files | 419 built-in procedures organized by domain: arithmetic, strings, vectors, I/O, control flow, etc. |
+| **Primitives** | 18 `primitives_*.zig` files | 420 built-in procedures organized by domain: arithmetic, strings, vectors, I/O, control flow, etc. |
 
 ### Value representation
 

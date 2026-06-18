@@ -472,13 +472,58 @@ fn instantiateTemplate(gc: *GC, template: Value, bindings: []Binding, intro_scop
         }
     }
 
+    // Nested syntax-rules: protect inner pattern variables from outer substitution
+    if (types.isSymbol(elem) and std.mem.eql(u8, types.symbolName(elem), "syntax-rules")) {
+        return instantiateNestedSyntaxRules(gc, template, bindings, intro_scope, literals, macro_keyword, globals, macros);
+    }
+
     // Regular pair: recurse
     const new_car = try instantiateTemplate(gc, types.car(template), bindings, intro_scope, literals, macro_keyword, globals, macros);
-    // Root new_car to protect from GC during cdr instantiation
     var car_root = new_car;
     gc.pushRoot(&car_root);
     defer gc.popRoot();
     const new_cdr = try instantiateTemplate(gc, types.cdr(template), bindings, intro_scope, literals, macro_keyword, globals, macros);
+    return gc.allocPair(car_root, new_cdr);
+}
+
+fn instantiateNestedSyntaxRules(gc: *GC, template: Value, bindings: []Binding, intro_scope: u32, literals: []const Value, macro_keyword: ?[]const u8, globals: ?*std.StringHashMap(Value), macros: ?*const std.StringHashMap(Value)) (std.mem.Allocator.Error || ExpandError)!Value {
+    // template = (syntax-rules (lits...) (pat tmpl) ...)
+    // Collect inner pattern variable names to exclude from outer bindings
+    var inner_pvs: [16][]const u8 = undefined;
+    var inner_pv_count: usize = 0;
+    const sr_rest = types.cdr(template); // skip 'syntax-rules'
+    if (sr_rest != types.NIL and types.isPair(sr_rest)) {
+        var rules = types.cdr(sr_rest); // skip literals list
+        while (rules != types.NIL and types.isPair(rules)) {
+            const rule = types.car(rules);
+            if (types.isPair(rule)) {
+                collectPatternVars(types.car(rule), literals, &inner_pvs, &inner_pv_count);
+            }
+            rules = types.cdr(rules);
+        }
+    }
+    // Filter outer bindings: remove any that clash with inner pattern variables
+    var filtered: [MAX_BINDINGS]Binding = undefined;
+    var filt_count: usize = 0;
+    for (bindings) |b| {
+        var is_inner = false;
+        for (inner_pvs[0..inner_pv_count]) |ipv| {
+            if (std.mem.eql(u8, b.name, ipv)) {
+                is_inner = true;
+                break;
+            }
+        }
+        if (!is_inner) {
+            filtered[filt_count] = b;
+            filt_count += 1;
+        }
+    }
+    // Recurse with filtered bindings
+    const new_car = try instantiateTemplate(gc, types.car(template), filtered[0..filt_count], intro_scope, literals, macro_keyword, globals, macros);
+    var car_root = new_car;
+    gc.pushRoot(&car_root);
+    defer gc.popRoot();
+    const new_cdr = try instantiateTemplate(gc, types.cdr(template), filtered[0..filt_count], intro_scope, literals, macro_keyword, globals, macros);
     return gc.allocPair(car_root, new_cdr);
 }
 

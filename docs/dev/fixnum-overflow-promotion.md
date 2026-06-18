@@ -2,9 +2,9 @@
 
 ## Status
 
-**Not yet implemented.** The overflow checks use `@addWithOverflow` etc. on
-`i64` values, but fixnums are 63-bit — values between 2^62 and 2^63-1 pass
-the `i64` check but overflow the fixnum encoding, wrapping silently.
+**Fixed.** Added `makeFixnumChecked` helper that checks the i63 range and
+auto-promotes to bignum via `gc.allocBignumFromI64`. Applied at all
+arithmetic result sites (+, -, *, /, quotient, abs).
 
 ## Problem
 

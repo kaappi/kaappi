@@ -1,6 +1,6 @@
 # Kaappi — R7RS Scheme in Zig
 
-Complete R7RS-small Scheme implementation. Zig 0.16, ~15k lines, 419 built-in procedures.
+Complete R7RS-small Scheme implementation. Zig 0.16, ~27k lines, 420 built-in procedures.
 
 ## Build
 
@@ -15,7 +15,7 @@ zig build bench        # call/cc vs call/ec capture micro-benchmark
 Requires Zig 0.16+ and libc (for linenoise terminal handling).
 
 Builds default to **ReleaseSafe** (fast, with bounds/safety checks retained;
-fixnum overflow still wraps silently). Debug is ~500x slower for allocation-
+fixnum overflow auto-promotes to bignum). Debug is ~500x slower for allocation-
 and continuation-heavy workloads — only use it when debugging:
 `zig build -Doptimize=Debug`. For maximum throughput: `-Doptimize=ReleaseFast`.
 
@@ -111,6 +111,7 @@ Stored as UTF-8 byte arrays. All string operations (string-length, string-ref, s
 | `bignum.zig` | Arbitrary-precision integer arithmetic |
 | `ffi.zig` | C FFI call dispatcher (type marshaling, arity routing) |
 | `bytecode_file.zig` | Bytecode serialization/deserialization (.sbc cache format) |
+| `disassembler.zig` | Bytecode disassembler for `(disassemble proc)` |
 | `linenoise.zig` | Zig FFI wrapper for vendored linenoise C library |
 | `main.zig` | Entry point, REPL loop with linenoise, file execution, CLI flags |
 | `testing_helpers.zig` | Shared `makeTestVM` helper for unit tests |
@@ -219,6 +220,3 @@ Always root `Function*` pointers before calling `vm.execute()` — it allocates 
 ## Known limitations
 
 See the "Known limitations" section in `README.md` (single source of truth).
-Implementation gotcha worth repeating here: fixnum arithmetic wraps on overflow
-**silently** — no error even in Debug/ReleaseSafe builds, so a test that
-overflows a 63-bit fixnum gets a wrapped result, not a failure.

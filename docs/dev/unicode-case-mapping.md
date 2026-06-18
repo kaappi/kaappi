@@ -15,8 +15,9 @@ implementation covers:
 | Greek and Coptic | U+0370-U+03FF | Yes | Yes | Includes 6 accented mappings, final sigma |
 | Cyrillic | U+0400-U+04FF | Yes | Yes | U+0410-042F ↔ U+0430-044F |
 | Cyrillic Supplement | U+0500-U+052F | Letter classification only | No case mapping | Pass-through |
-| Armenian | U+0530-U+058F | No | No | Classified as letters, no case ops |
-| Georgian | U+10A0-U+10FF | No | No | Classified as letters, no case ops |
+| Armenian | U+0530-U+058F | Yes | Yes | +0x30 offset mapping |
+| Georgian (Mtavruli) | U+1C90-U+1CBA | Yes | Yes | ↔ Mkhedruli U+10D0-10FA |
+| Cherokee | U+13A0-U+13EF / U+AB70-U+ABBF | Yes | Yes | +0x97D0 offset |
 
 String operations also handle multi-codepoint expansions:
 - `string-upcase`: ß→SS, ǰ→J+caron, ΐ/ΰ→decomposed, ff/fi/fl ligatures

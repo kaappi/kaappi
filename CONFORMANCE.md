@@ -154,22 +154,15 @@ Does not detect indirect references:
 | Latin Extended-A | `(char-downcase #\Ā)` → `#\ā` |
 | Greek | `(char-upcase #\α)` → `#\Α` |
 | Cyrillic | `(char-upcase #\а)` → `#\А` |
+| Armenian | `(char-downcase #\x531;)` → lowercase |
+| Georgian (Mtavruli) | `(char-upcase #\x10D0;)` → Mtavruli |
+| Cherokee | `(char-downcase #\x13A0;)` → lowercase |
 
-Other scripts (Armenian, Georgian, Cherokee, etc.) pass through unchanged.
+Other scripts (Coptic, Glagolitic, Deseret, etc.) pass through unchanged.
 
-**Why:** Full Unicode case mapping requires ~1,400 codepoint entries. Some mappings are one-to-many (e.g., `ß` → `SS`), requiring string-level handling.
-
-**Practical impact:** Low. Latin, Greek, and Cyrillic cover the vast majority of case-sensitive text processing.
-
-**Workaround:** Use explicit codepoint arithmetic for uncovered scripts:
-
-```scheme
-(define (armenian-upcase ch)
-  (let ((cp (char->integer ch)))
-    (if (and (>= cp #x561) (<= cp #x586))
-        (integer->char (- cp 48))
-        ch)))
-```
+**Why:** Full Unicode case mapping requires ~1,400 codepoint entries. The
+scripts above cover the most commonly needed case conversions. Some mappings
+are one-to-many (e.g., `ß` → `SS`), requiring string-level handling (supported).
 
 ---
 
