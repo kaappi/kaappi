@@ -782,12 +782,6 @@ pub fn handleDefineLibrary(vm: *VM, args: Value) VMError!Value {
         if (vm.pending_lib_env_count > 0) vm.pending_lib_env_count -= 1;
     }
 
-    // Inject internal primitives needed by compiler desugaring (e.g.
-    // parameterize uses %parameter-set! which is only in vm.globals).
-    if (vm.globals.get("%parameter-set!")) |val| {
-        lib_env.put("%parameter-set!", val) catch {};
-    }
-
     var export_names: [128][]const u8 = undefined;
     var export_renames: [128]?[]const u8 = undefined;
     var export_count: usize = 0;

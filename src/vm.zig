@@ -699,7 +699,10 @@ pub const VM = struct {
                     }
                     const sym = func.constants.items[sym_idx];
                     const name = types.symbolName(sym);
-                    const val = env.get(name) orelse {
+                    const val = env.get(name) orelse blk: {
+                        if (func.env != null) {
+                            if (self.globals.get(name)) |gval| break :blk gval;
+                        }
                         self.setErrorDetail("undefined variable '{s}'", .{name});
                         return VMError.UndefinedVariable;
                     };
