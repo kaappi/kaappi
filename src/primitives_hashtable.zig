@@ -27,6 +27,13 @@ pub fn registerHashTable(vm: *vm_mod.VM) !void {
     try reg(vm, "alist->hash-table", &alistToHashTableFn, .{ .exact = 1 });
     try reg(vm, "hash-table-copy", &hashTableCopyFn, .{ .exact = 1 });
     try reg(vm, "hash-table-update!/default", &hashTableUpdateDefaultFn, .{ .exact = 4 });
+    try reg(vm, "hash", &hashFn, .{ .variadic = 1 });
+    try reg(vm, "string-hash", &stringHashFn, .{ .variadic = 1 });
+    try reg(vm, "string-ci-hash", &stringCiHashFn, .{ .variadic = 1 });
+    try reg(vm, "hash-by-identity", &hashByIdentityFn, .{ .variadic = 1 });
+    try reg(vm, "hash-table-ref/default", &hashTableRefDefaultFn, .{ .exact = 3 });
+    try reg(vm, "hash-table-fold", &hashTableFoldFn, .{ .exact = 3 });
+    try reg(vm, "hash-table-merge!", &hashTableMergeFn, .{ .exact = 2 });
 }
 
 // ---------------------------------------------------------------------------
@@ -263,4 +270,143 @@ fn hashTableUpdateDefaultFn(args: []const Value) PrimitiveError!Value {
         ht.count += 1;
     }
     return types.VOID;
+}
+
+// (hash obj [bound]) — generic hash function
+fn hashFn(args: []const Value) PrimitiveError!Value {
+    const h = valueHash(args[0]);
+    if (args.len > 1) {
+        if (!types.isFixnum(args[1])) return PrimitiveError.TypeError;
+        const bound = types.toFixnum(args[1]);
+        if (bound <= 0) return PrimitiveError.TypeError;
+        return types.makeFixnum(@intCast(@mod(h, @as(u64, @intCast(bound)))));
+    }
+    return types.makeFixnum(@intCast(h & 0x3FFFFFFFFFFFFFFF));
+}
+
+fn valueHash(v: Value) u64 {
+    if (types.isFixnum(v)) {
+        const n: u64 = @bitCast(types.toFixnum(v));
+        return n *% 2654435761;
+    }
+    if (types.isString(v)) {
+        const str_obj = types.toObject(v).as(types.SchemeString);
+        const data = str_obj.data[0..str_obj.len];
+        var h: u64 = 0;
+        for (data) |c| {
+            h = h *% 31 +% c;
+        }
+        return h;
+    }
+    if (v == types.TRUE) return 1;
+    if (v == types.FALSE) return 0;
+    if (v == types.NIL) return 2;
+    if (types.isSymbol(v)) {
+        const sym = types.toObject(v).as(types.Symbol);
+        var h: u64 = 5381;
+        for (sym.name) |c| {
+            h = h *% 33 +% c;
+        }
+        return h;
+    }
+    if (types.isChar(v)) {
+        return @as(u64, types.toChar(v)) *% 2654435761;
+    }
+    // Fallback: use bit pattern
+    const bits: u64 = @bitCast(v);
+    return bits *% 2654435761;
+}
+
+// (string-hash s [bound])
+fn stringHashFn(args: []const Value) PrimitiveError!Value {
+    if (!types.isString(args[0])) return PrimitiveError.TypeError;
+    const str_obj = types.toObject(args[0]).as(types.SchemeString);
+    const str = str_obj.data[0..str_obj.len];
+    var h: u64 = 0;
+    for (str) |c| {
+        h = h *% 31 +% c;
+    }
+    if (args.len > 1) {
+        if (!types.isFixnum(args[1])) return PrimitiveError.TypeError;
+        const bound = types.toFixnum(args[1]);
+        if (bound <= 0) return PrimitiveError.TypeError;
+        return types.makeFixnum(@intCast(@mod(h, @as(u64, @intCast(bound)))));
+    }
+    return types.makeFixnum(@intCast(h & 0x3FFFFFFFFFFFFFFF));
+}
+
+// (string-ci-hash s [bound])
+fn stringCiHashFn(args: []const Value) PrimitiveError!Value {
+    if (!types.isString(args[0])) return PrimitiveError.TypeError;
+    const str_obj = types.toObject(args[0]).as(types.SchemeString);
+    const str = str_obj.data[0..str_obj.len];
+    var h: u64 = 0;
+    for (str) |c| {
+        const lower: u8 = if (c >= 'A' and c <= 'Z') c + 32 else c;
+        h = h *% 31 +% lower;
+    }
+    if (args.len > 1) {
+        if (!types.isFixnum(args[1])) return PrimitiveError.TypeError;
+        const bound = types.toFixnum(args[1]);
+        if (bound <= 0) return PrimitiveError.TypeError;
+        return types.makeFixnum(@intCast(@mod(h, @as(u64, @intCast(bound)))));
+    }
+    return types.makeFixnum(@intCast(h & 0x3FFFFFFFFFFFFFFF));
+}
+
+// (hash-by-identity obj [bound])
+fn hashByIdentityFn(args: []const Value) PrimitiveError!Value {
+    const h: u64 = @bitCast(args[0]);
+    if (args.len > 1) {
+        if (!types.isFixnum(args[1])) return PrimitiveError.TypeError;
+        const bound = types.toFixnum(args[1]);
+        if (bound <= 0) return PrimitiveError.TypeError;
+        return types.makeFixnum(@intCast(@mod(h, @as(u64, @intCast(bound)))));
+    }
+    return types.makeFixnum(@intCast(h & 0x3FFFFFFFFFFFFFFF));
+}
+
+// (hash-table-ref/default ht key default)
+fn hashTableRefDefaultFn(args: []const Value) PrimitiveError!Value {
+    const ht = try getHashTable(args[0]);
+    if (findKey(ht, args[1])) |idx| {
+        return ht.entries[idx].value;
+    }
+    return args[2];
+}
+
+// (hash-table-fold ht f init) — fold over hash table entries
+fn hashTableFoldFn(args: []const Value) PrimitiveError!Value {
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.OutOfMemory;
+    const ht = try getHashTable(args[0]);
+    const proc = args[1];
+    var acc = args[2];
+
+    for (ht.entries[0..ht.count]) |entry| {
+        const call_args = [3]Value{ entry.key, entry.value, acc };
+        acc = vm.callWithArgs(proc, &call_args) catch |err| {
+            return switch (err) {
+                vm_mod.VMError.ContinuationInvoked => PrimitiveError.ContinuationInvoked,
+                vm_mod.VMError.ExceptionRaised => PrimitiveError.ExceptionRaised,
+                vm_mod.VMError.OutOfMemory => PrimitiveError.OutOfMemory,
+                else => PrimitiveError.TypeError,
+            };
+        };
+    }
+    return acc;
+}
+
+// (hash-table-merge! ht1 ht2)
+fn hashTableMergeFn(args: []const Value) PrimitiveError!Value {
+    const ht1 = try getHashTable(args[0]);
+    const ht2 = try getHashTable(args[1]);
+
+    for (ht2.entries[0..ht2.count]) |entry| {
+        if (findKey(ht1, entry.key) == null) {
+            try growIfNeeded(ht1);
+            ht1.entries[ht1.count] = entry;
+            ht1.count += 1;
+        }
+    }
+    return args[0];
 }

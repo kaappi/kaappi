@@ -400,6 +400,17 @@ pub fn registerStandardLibraries(registry: *LibraryRegistry, globals: *std.Strin
         "last",         "last-pair",
         "proper-list?", "dotted-list?",  "circular-list?",
         "lset-intersection", "lset-difference", "lset=",
+        "lset-adjoin",  "lset-union",    "lset-xor",
+        "xcons",        "cons*",         "list-tabulate", "circular-list",
+        "not-pair?",    "null-list?",    "list=",
+        "first",        "second",        "third",        "fourth",    "fifth",
+        "car+cdr",      "take-right",    "drop-right",   "split-at",
+        "list-index",   "span",          "break",
+        "delete",       "delete-duplicates",
+        "alist-cons",   "alist-copy",    "alist-delete",
+        "unfold",       "unfold-right",
+        "append-reverse", "length+",     "unzip1",       "unzip2",
+        "pair-for-each", "pair-fold",
     };
     var srfi1_lib = Library.init(allocator, "srfi.1");
     for (srfi1_names) |name| {
@@ -425,6 +436,11 @@ pub fn registerStandardLibraries(registry: *LibraryRegistry, globals: *std.Strin
         "string<?",           "string<=?",         "string=?",
         "string>=?",          "string>?",
         "string-upcase",      "string-downcase",   "string-foldcase",
+        "string-take",        "string-drop",       "string-take-right", "string-drop-right",
+        "string-pad",         "string-pad-right",  "string-reverse",
+        "string-filter",      "string-delete",     "string-replace",
+        "string-titlecase",   "string-every",      "string-any",
+        "string-tabulate",
     };
     var srfi13_lib = Library.init(allocator, "srfi.13");
     for (srfi13_names) |name| {
@@ -460,6 +476,10 @@ pub fn registerStandardLibraries(registry: *LibraryRegistry, globals: *std.Strin
         "hash-table-values",           "hash-table-walk",
         "hash-table->alist",           "alist->hash-table",
         "hash-table-copy",             "hash-table-update!/default",
+        "hash",                        "string-hash",
+        "string-ci-hash",             "hash-by-identity",
+        "hash-table-ref/default",      "hash-table-fold",
+        "hash-table-merge!",
     };
     var srfi69_lib = Library.init(allocator, "srfi.69");
     for (srfi69_names) |name| {
@@ -475,6 +495,12 @@ pub fn registerStandardLibraries(registry: *LibraryRegistry, globals: *std.Strin
         "vector-ref",   "vector-set!",   "vector->list",  "list->vector",
         "vector-fill!", "vector-copy",   "vector-copy!",  "vector-append",
         "vector-for-each", "vector-map",
+        "vector-empty?",    "vector-count",     "vector-any",
+        "vector-every",     "vector-index",     "vector-index-right",
+        "vector-skip",      "vector-skip-right",
+        "vector-swap!",     "vector-reverse!",  "vector-reverse-copy",
+        "vector-unfold",    "vector-concatenate",
+        "vector-cumulate",  "vector-partition",
     };
     var srfi133_lib = Library.init(allocator, "srfi.133");
     for (srfi133_names) |name| {

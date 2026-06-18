@@ -27,6 +27,21 @@ pub fn registerStringExt(vm: *vm_mod.VM) !void {
     try reg(vm, "string-split", &stringSplitFn, .{ .exact = 2 });
     try reg(vm, "string-join", &stringJoinFn, .{ .variadic = 1 });
     try reg(vm, "string-concatenate", &stringConcatenateFn, .{ .exact = 1 });
+    // SRFI 13 additions
+    try reg(vm, "string-take", &stringTakeFn, .{ .exact = 2 });
+    try reg(vm, "string-drop", &stringDropFn, .{ .exact = 2 });
+    try reg(vm, "string-take-right", &stringTakeRightFn, .{ .exact = 2 });
+    try reg(vm, "string-drop-right", &stringDropRightFn, .{ .exact = 2 });
+    try reg(vm, "string-pad", &stringPadFn, .{ .variadic = 2 });
+    try reg(vm, "string-pad-right", &stringPadRightFn, .{ .variadic = 2 });
+    try reg(vm, "string-reverse", &stringReverseFn, .{ .exact = 1 });
+    try reg(vm, "string-filter", &stringFilterFn, .{ .exact = 2 });
+    try reg(vm, "string-delete", &stringDeleteFn, .{ .exact = 2 });
+    try reg(vm, "string-replace", &stringReplaceFn, .{ .exact = 4 });
+    try reg(vm, "string-titlecase", &stringTitlecaseFn, .{ .exact = 1 });
+    try reg(vm, "string-every", &stringEveryFn, .{ .exact = 2 });
+    try reg(vm, "string-any", &stringAnyFn, .{ .exact = 2 });
+    try reg(vm, "string-tabulate", &stringTabulateFn, .{ .exact = 2 });
 }
 // ---------------------------------------------------------------------------
 // SRFI-13 String Library
@@ -256,7 +271,6 @@ fn stringJoinFn(args: []const Value) PrimitiveError!Value {
 // (string-concatenate list-of-strings) -> string
 fn stringConcatenateFn(args: []const Value) PrimitiveError!Value {
     const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
-    // Calculate total length
     var total: usize = 0;
     var current = args[0];
     while (current != types.NIL) {
@@ -278,4 +292,242 @@ fn stringConcatenateFn(args: []const Value) PrimitiveError!Value {
         current = types.cdr(current);
     }
     return gc.allocString(buf) catch return PrimitiveError.OutOfMemory;
+}
+
+// ---------------------------------------------------------------------------
+// SRFI 13 additions
+// ---------------------------------------------------------------------------
+
+fn callVM(proc: Value, call_args: []const Value) PrimitiveError!Value {
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.OutOfMemory;
+    return vm.callWithArgs(proc, call_args) catch |err| switch (err) {
+        vm_mod.VMError.ContinuationInvoked => PrimitiveError.ContinuationInvoked,
+        vm_mod.VMError.ExceptionRaised => PrimitiveError.ExceptionRaised,
+        vm_mod.VMError.OutOfMemory => PrimitiveError.OutOfMemory,
+        else => PrimitiveError.TypeError,
+    };
+}
+
+fn stringTakeFn(args: []const Value) PrimitiveError!Value {
+    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const data = try getStringSlice(args[0]);
+    if (!types.isFixnum(args[1])) return PrimitiveError.TypeError;
+    const n: usize = @intCast(types.toFixnum(args[1]));
+    const byte_end = pstr.utf8IndexToByteOffset(data, n) orelse data.len;
+    return gc.allocString(data[0..byte_end]) catch return PrimitiveError.OutOfMemory;
+}
+
+fn stringDropFn(args: []const Value) PrimitiveError!Value {
+    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const data = try getStringSlice(args[0]);
+    if (!types.isFixnum(args[1])) return PrimitiveError.TypeError;
+    const n: usize = @intCast(types.toFixnum(args[1]));
+    const byte_start = pstr.utf8IndexToByteOffset(data, n) orelse data.len;
+    return gc.allocString(data[byte_start..]) catch return PrimitiveError.OutOfMemory;
+}
+
+fn stringTakeRightFn(args: []const Value) PrimitiveError!Value {
+    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const data = try getStringSlice(args[0]);
+    if (!types.isFixnum(args[1])) return PrimitiveError.TypeError;
+    const n: usize = @intCast(types.toFixnum(args[1]));
+    const total_cp = utf8CodepointCount(data);
+    if (n >= total_cp) return gc.allocString(data) catch return PrimitiveError.OutOfMemory;
+    const byte_start = pstr.utf8IndexToByteOffset(data, total_cp - n) orelse data.len;
+    return gc.allocString(data[byte_start..]) catch return PrimitiveError.OutOfMemory;
+}
+
+fn stringDropRightFn(args: []const Value) PrimitiveError!Value {
+    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const data = try getStringSlice(args[0]);
+    if (!types.isFixnum(args[1])) return PrimitiveError.TypeError;
+    const n: usize = @intCast(types.toFixnum(args[1]));
+    const total_cp = utf8CodepointCount(data);
+    if (n >= total_cp) return gc.allocString("") catch return PrimitiveError.OutOfMemory;
+    const byte_end = pstr.utf8IndexToByteOffset(data, total_cp - n) orelse data.len;
+    return gc.allocString(data[0..byte_end]) catch return PrimitiveError.OutOfMemory;
+}
+
+fn stringPadFn(args: []const Value) PrimitiveError!Value {
+    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const data = try getStringSlice(args[0]);
+    if (!types.isFixnum(args[1])) return PrimitiveError.TypeError;
+    const target_len: usize = @intCast(types.toFixnum(args[1]));
+    const pad_char: u8 = if (args.len > 2 and types.isChar(args[2])) @intCast(types.toChar(args[2])) else ' ';
+    const current_len = utf8CodepointCount(data);
+    if (current_len >= target_len) {
+        const byte_start = pstr.utf8IndexToByteOffset(data, current_len - target_len) orelse data.len;
+        return gc.allocString(data[byte_start..]) catch return PrimitiveError.OutOfMemory;
+    }
+    const pad_count = target_len - current_len;
+    const alloc_buf = gc.allocator.alloc(u8, pad_count + data.len) catch return PrimitiveError.OutOfMemory;
+    defer gc.allocator.free(alloc_buf);
+    @memset(alloc_buf[0..pad_count], pad_char);
+    @memcpy(alloc_buf[pad_count..], data);
+    return gc.allocString(alloc_buf) catch return PrimitiveError.OutOfMemory;
+}
+
+fn stringPadRightFn(args: []const Value) PrimitiveError!Value {
+    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const data = try getStringSlice(args[0]);
+    if (!types.isFixnum(args[1])) return PrimitiveError.TypeError;
+    const target_len: usize = @intCast(types.toFixnum(args[1]));
+    const pad_char: u8 = if (args.len > 2 and types.isChar(args[2])) @intCast(types.toChar(args[2])) else ' ';
+    const current_len = utf8CodepointCount(data);
+    if (current_len >= target_len) {
+        const byte_end = pstr.utf8IndexToByteOffset(data, target_len) orelse data.len;
+        return gc.allocString(data[0..byte_end]) catch return PrimitiveError.OutOfMemory;
+    }
+    const pad_count = target_len - current_len;
+    const alloc_buf = gc.allocator.alloc(u8, data.len + pad_count) catch return PrimitiveError.OutOfMemory;
+    defer gc.allocator.free(alloc_buf);
+    @memcpy(alloc_buf[0..data.len], data);
+    @memset(alloc_buf[data.len..], pad_char);
+    return gc.allocString(alloc_buf) catch return PrimitiveError.OutOfMemory;
+}
+
+fn stringReverseFn(args: []const Value) PrimitiveError!Value {
+    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const data = try getStringSlice(args[0]);
+    if (data.len == 0) return gc.allocString("") catch return PrimitiveError.OutOfMemory;
+    var offsets: std.ArrayList([2]usize) = .empty;
+    defer offsets.deinit(gc.allocator);
+    var i: usize = 0;
+    while (i < data.len) {
+        const len = std.unicode.utf8ByteSequenceLength(data[i]) catch 1;
+        offsets.append(gc.allocator, .{ i, i + len }) catch return PrimitiveError.OutOfMemory;
+        i += len;
+    }
+    const alloc_buf = gc.allocator.alloc(u8, data.len) catch return PrimitiveError.OutOfMemory;
+    defer gc.allocator.free(alloc_buf);
+    var pos: usize = 0;
+    var j = offsets.items.len;
+    while (j > 0) {
+        j -= 1;
+        const range = offsets.items[j];
+        const cp_len = range[1] - range[0];
+        @memcpy(alloc_buf[pos .. pos + cp_len], data[range[0]..range[1]]);
+        pos += cp_len;
+    }
+    return gc.allocString(alloc_buf) catch return PrimitiveError.OutOfMemory;
+}
+
+fn stringFilterFn(args: []const Value) PrimitiveError!Value {
+    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const pred = args[0];
+    const data = try getStringSlice(args[1]);
+    var result: std.ArrayList(u8) = .empty;
+    defer result.deinit(gc.allocator);
+    var i: usize = 0;
+    while (i < data.len) {
+        const len = std.unicode.utf8ByteSequenceLength(data[i]) catch 1;
+        const cp = std.unicode.utf8Decode(data[i .. i + len]) catch { i += len; continue; };
+        const r = try callVM(pred, &[1]Value{types.makeChar(cp)});
+        if (types.isTruthy(r)) result.appendSlice(gc.allocator, data[i .. i + len]) catch return PrimitiveError.OutOfMemory;
+        i += len;
+    }
+    return gc.allocString(result.items) catch return PrimitiveError.OutOfMemory;
+}
+
+fn stringDeleteFn(args: []const Value) PrimitiveError!Value {
+    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const pred = args[0];
+    const data = try getStringSlice(args[1]);
+    var result: std.ArrayList(u8) = .empty;
+    defer result.deinit(gc.allocator);
+    var i: usize = 0;
+    while (i < data.len) {
+        const len = std.unicode.utf8ByteSequenceLength(data[i]) catch 1;
+        const cp = std.unicode.utf8Decode(data[i .. i + len]) catch { i += len; continue; };
+        const r = try callVM(pred, &[1]Value{types.makeChar(cp)});
+        if (!types.isTruthy(r)) result.appendSlice(gc.allocator, data[i .. i + len]) catch return PrimitiveError.OutOfMemory;
+        i += len;
+    }
+    return gc.allocString(result.items) catch return PrimitiveError.OutOfMemory;
+}
+
+fn stringReplaceFn(args: []const Value) PrimitiveError!Value {
+    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const data1 = try getStringSlice(args[0]);
+    const data2 = try getStringSlice(args[1]);
+    if (!types.isFixnum(args[2]) or !types.isFixnum(args[3])) return PrimitiveError.TypeError;
+    const start: usize = @intCast(types.toFixnum(args[2]));
+    const end: usize = @intCast(types.toFixnum(args[3]));
+    const byte_start = pstr.utf8IndexToByteOffset(data1, start) orelse data1.len;
+    const byte_end = pstr.utf8IndexToByteOffset(data1, end) orelse data1.len;
+    const new_len = byte_start + data2.len + (data1.len - byte_end);
+    const alloc_buf = gc.allocator.alloc(u8, new_len) catch return PrimitiveError.OutOfMemory;
+    defer gc.allocator.free(alloc_buf);
+    @memcpy(alloc_buf[0..byte_start], data1[0..byte_start]);
+    @memcpy(alloc_buf[byte_start .. byte_start + data2.len], data2);
+    @memcpy(alloc_buf[byte_start + data2.len ..], data1[byte_end..]);
+    return gc.allocString(alloc_buf) catch return PrimitiveError.OutOfMemory;
+}
+
+fn stringTitlecaseFn(args: []const Value) PrimitiveError!Value {
+    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const data = try getStringSlice(args[0]);
+    if (data.len == 0) return gc.allocString("") catch return PrimitiveError.OutOfMemory;
+    const alloc_buf = gc.allocator.alloc(u8, data.len) catch return PrimitiveError.OutOfMemory;
+    defer gc.allocator.free(alloc_buf);
+    @memcpy(alloc_buf, data);
+    var word_start = true;
+    for (alloc_buf) |*c| {
+        if (c.* == ' ' or c.* == '\t' or c.* == '\n' or c.* == '\r') {
+            word_start = true;
+        } else if (word_start) {
+            if (c.* >= 'a' and c.* <= 'z') c.* -= 32;
+            word_start = false;
+        } else {
+            if (c.* >= 'A' and c.* <= 'Z') c.* += 32;
+        }
+    }
+    return gc.allocString(alloc_buf) catch return PrimitiveError.OutOfMemory;
+}
+
+fn stringEveryFn(args: []const Value) PrimitiveError!Value {
+    const pred = args[0];
+    const data = try getStringSlice(args[1]);
+    var last: Value = types.TRUE;
+    var i: usize = 0;
+    while (i < data.len) {
+        const len = std.unicode.utf8ByteSequenceLength(data[i]) catch 1;
+        const cp = std.unicode.utf8Decode(data[i .. i + len]) catch { i += len; continue; };
+        const r = try callVM(pred, &[1]Value{types.makeChar(cp)});
+        if (!types.isTruthy(r)) return types.FALSE;
+        last = r;
+        i += len;
+    }
+    return last;
+}
+
+fn stringAnyFn(args: []const Value) PrimitiveError!Value {
+    const pred = args[0];
+    const data = try getStringSlice(args[1]);
+    var i: usize = 0;
+    while (i < data.len) {
+        const len = std.unicode.utf8ByteSequenceLength(data[i]) catch 1;
+        const cp = std.unicode.utf8Decode(data[i .. i + len]) catch { i += len; continue; };
+        const r = try callVM(pred, &[1]Value{types.makeChar(cp)});
+        if (types.isTruthy(r)) return r;
+        i += len;
+    }
+    return types.FALSE;
+}
+
+fn stringTabulateFn(args: []const Value) PrimitiveError!Value {
+    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const proc = args[0];
+    if (!types.isFixnum(args[1])) return PrimitiveError.TypeError;
+    const length: usize = @intCast(types.toFixnum(args[1]));
+    var result: std.ArrayList(u8) = .empty;
+    defer result.deinit(gc.allocator);
+    for (0..length) |i| {
+        const r = try callVM(proc, &[1]Value{types.makeFixnum(@intCast(i))});
+        if (!types.isChar(r)) return PrimitiveError.TypeError;
+        var tmp: [4]u8 = undefined;
+        const n = std.unicode.utf8Encode(types.toChar(r), &tmp) catch return PrimitiveError.TypeError;
+        result.appendSlice(gc.allocator, tmp[0..n]) catch return PrimitiveError.OutOfMemory;
+    }
+    return gc.allocString(result.items) catch return PrimitiveError.OutOfMemory;
 }

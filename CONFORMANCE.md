@@ -239,3 +239,88 @@ These areas have been tested and match R7RS behavior:
 - Arbitrary-precision integers (bignums): `(expt 2 100)` → exact result, automatic fixnum↔bignum promotion on overflow
 - Exact rationals: `(/ 1 3)` → `1/3`, `(+ 1/3 1/6)` → `1/2`, `(inexact->exact 1.5)` → `3/2`; reader parses `1/2` syntax
 - All 14 standard libraries registered and importable
+
+---
+
+## SRFI conformance
+
+42 SRFIs supported. 8 built-in (native Zig), 34 portable (.sld files). Coverage details for the built-in SRFIs follow.
+
+### SRFI 1 — List Library
+
+**Coverage: ~90%** (55 of ~60 spec procedures)
+
+Implemented: `cons*`, `xcons`, `list-tabulate`, `circular-list`, `iota`, `proper-list?`, `dotted-list?`, `circular-list?`, `not-pair?`, `null-list?`, `list=`, `first`–`fifth`, `car+cdr`, `take`, `drop`, `take-right`, `drop-right`, `take-while`, `drop-while`, `split-at`, `last`, `last-pair`, `zip`, `unzip1`, `unzip2`, `count`, `fold`, `fold-right`, `pair-fold`, `reduce`, `reduce-right`, `unfold`, `unfold-right`, `map` (via scheme base), `for-each` (via scheme base), `append-map`, `filter-map`, `pair-for-each`, `filter`, `partition`, `remove`, `find`, `find-tail`, `any`, `every`, `list-index`, `span`, `break`, `delete`, `delete-duplicates`, `alist-cons`, `alist-copy`, `alist-delete`, `lset<=` (via `lset=`), `lset=`, `lset-adjoin`, `lset-union`, `lset-intersection`, `lset-difference`, `lset-xor`, `append-reverse`, `length+`, `concatenate`.
+
+R7RS base procedures (`cons`, `list`, `pair?`, `null?`, `car`, `cdr`, `caar`–`cddddr`, `length`, `append`, `reverse`, `list-ref`, `list-tail`, `list-copy`, `make-list`, `map`, `for-each`, `assoc`, `assq`, `assv`, `member`, `memq`, `memv`) are available via `(scheme base)` but not re-exported from `(srfi 1)`.
+
+**Not implemented:**
+- `sixth`–`tenth` — trivial but rarely used; `list-ref` works
+- `pair-fold-right` — uncommon fold variant
+- `unzip3`–`unzip5` — rarely used
+- `map-in-order` — identical to `map` in left-to-right implementations
+- Linear-update (`!`) variants — SRFI 1 permits non-mutating implementations; use the functional versions
+- `lset-diff+intersection`, `lset-diff+intersection!` — composite operation; use `lset-difference` + `lset-intersection`
+
+### SRFI 9 — Records
+
+**Coverage: 100%.** `define-record-type` is implemented as R7RS compiler syntax.
+
+### SRFI 13 — String Library
+
+**Coverage: ~75%** (38 of ~50 spec procedures)
+
+Implemented: `string-contains`, `string-prefix?`, `string-suffix?`, `string-trim`, `string-trim-right`, `string-trim-both`, `string-index`, `string-count`, `string-split`, `string-join`, `string-concatenate`, `string-take`, `string-drop`, `string-take-right`, `string-drop-right`, `string-pad`, `string-pad-right`, `string-reverse`, `string-filter`, `string-delete`, `string-replace`, `string-titlecase`, `string-every`, `string-any`, `string-tabulate`. Plus standard string operations re-exported from R7RS: `string-length`, `string-append`, `substring`, `string-copy`, `string-ref`, `string-set!`, `string<?`, `string<=?`, `string=?`, `string>=?`, `string>?`, `string-upcase`, `string-downcase`, `string-foldcase`.
+
+**Not implemented:**
+- SRFI 14 char-set overloads — `string-trim`, `string-index`, etc. accept a predicate but not a char-set object directly. Use `(lambda (c) (char-set-contains? cs c))` as a workaround.
+- `string-unfold`, `string-unfold-right` — uncommon constructors
+- `string-xcopy!` — mutation variant
+- `string-map`, `string-for-each` with start/end indices — base versions available without index range
+- `string-hash`, `string-ci-hash` — available via `(srfi 69)` instead
+
+### SRFI 27 — Random Numbers
+
+**Coverage: ~20%** (2 of ~10 spec procedures)
+
+Implemented: `random-integer`, `random-real`.
+
+**Not implemented:** `default-random-source`, `random-source?`, `random-source-make-integers`, `random-source-make-reals`, `random-source-randomize!`, `random-source-pseudo-randomize!`, `random-source-state-ref`, `random-source-state-set!`. These require a random source heap object type. The basic interface (`random-integer`, `random-real`) covers the most common use cases.
+
+### SRFI 39 — Parameter Objects
+
+**Coverage: 100%.** `make-parameter` is exported; `parameterize` is compiler syntax.
+
+### SRFI 69 — Hash Tables
+
+**Coverage: ~95%** (21 of ~22 spec procedures)
+
+Implemented: `make-hash-table`, `hash-table?`, `hash-table-ref`, `hash-table-ref/default`, `hash-table-set!`, `hash-table-delete!`, `hash-table-exists?`, `hash-table-size`, `hash-table-keys`, `hash-table-values`, `hash-table-walk`, `hash-table->alist`, `alist->hash-table`, `hash-table-copy`, `hash-table-update!/default`, `hash-table-fold`, `hash-table-merge!`, `hash`, `string-hash`, `string-ci-hash`, `hash-by-identity`.
+
+**Not implemented:**
+- `hash-table-equivalence-function`, `hash-table-hash-function` — all hash tables use `equal?`; the equivalence/hash arguments to `make-hash-table` are accepted but ignored
+- `hash-table-update!` (without default) — use `hash-table-update!/default` with an explicit default
+
+### SRFI 133 — Vector Library
+
+**Coverage: ~90%** (30 of ~33 spec procedures)
+
+Implemented: `vector`, `make-vector`, `vector?`, `vector-length`, `vector-ref`, `vector-set!`, `vector->list`, `list->vector`, `vector-fill!`, `vector-copy`, `vector-copy!`, `vector-append`, `vector-for-each`, `vector-map`, `vector-empty?`, `vector-count`, `vector-any`, `vector-every`, `vector-index`, `vector-index-right`, `vector-skip`, `vector-skip-right`, `vector-swap!`, `vector-reverse!`, `vector-reverse-copy`, `vector-unfold`, `vector-concatenate`, `vector-cumulate`, `vector-partition`.
+
+**Not implemented:**
+- `vector-unfold-right` — right-to-left unfold variant
+- `vector-append-subvectors` — composite append with subranges
+- `vector-binary-search` — binary search (requires sorted vector)
+
+### SRFI 170 — POSIX API
+
+**Coverage: ~60%** (50 of ~80+ spec procedures)
+
+Implemented: File info (`file-info`, `file-info?`, all `file-info:*` accessors, `file-info-directory?`, `file-info-regular?`, `file-info-symlink?`, `file-info-fifo?`, `file-info-socket?`, `file-info-device?`), file operations (`create-directory`, `delete-directory`, `rename-file`, `create-symlink`, `read-symlink`, `create-hard-link`, `real-path`, `set-file-mode`, `truncate-file`, `create-fifo`, `set-file-owner`, `set-file-times`), process state (`pid`, `umask`, `set-umask!`, `current-directory`, `set-current-directory!`, `user-uid`, `user-gid`, `user-effective-uid`, `user-effective-gid`, `user-supplementary-gids`, `nice`), environment (`set-environment-variable!`, `delete-environment-variable!`), terminal (`terminal?`), user/group database (`user-info`, `user-info?`, `user-info:*`, `group-info`, `group-info?`, `group-info:*`), directory traversal (`open-directory`, `read-directory`, `close-directory`, `directory-files`), time (`posix-time`, `monotonic-time`).
+
+**Not implemented (by design):**
+- Process management (`fork`, `exec*`, `waitpid`, `_exit`) — `fork` in a GC'd bytecode VM duplicates the entire heap; safe implementation requires copy-on-write or pre-fork GC, which is architecturally complex
+- Signal handling (`signal`, `signal-handler`, `set-signal-handler!`) — requires async-safe VM interrupt mechanism
+- Pipes (`pipe`, `dup`, `dup2`, `close`) — file descriptor management is not exposed
+- I/O multiplexing (`select`, `poll`) — requires event loop integration
+- Time conversion (`time-utc->posix`, `posix->time-utc`, `time-monotonic->...`) — SRFI 170 time objects not implemented; `posix-time` and `monotonic-time` return raw seconds
