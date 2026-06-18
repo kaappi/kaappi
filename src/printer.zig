@@ -647,6 +647,85 @@ fn printList(writer: anytype, value: Value, mode: PrintMode) anyerror!void {
     try writer.writeByte(')');
 }
 
+pub fn prettyPrint(allocator: std.mem.Allocator, value: Value, width: u16) ![]u8 {
+    const flat = try valueToString(allocator, value, .write);
+    if (flat.len <= width) return flat;
+    allocator.free(flat);
+    var aw: std.Io.Writer.Allocating = .init(allocator);
+    try ppValue(&aw.writer, value, 0, width);
+    return aw.toOwnedSlice();
+}
+
+fn ppValue(writer: anytype, value: Value, indent: u16, width: u16) anyerror!void {
+    if (!types.isPair(value) and !types.isVector(value)) {
+        try printValue(writer, value, .write);
+        return;
+    }
+    if (types.isVector(value)) {
+        const vec = types.toObject(value).as(types.Vector);
+        try writer.writeAll("#(");
+        for (vec.data, 0..) |elem, i| {
+            if (i > 0) try writer.writeByte(' ');
+            try ppValue(writer, elem, indent + 2, width);
+        }
+        try writer.writeByte(')');
+        return;
+    }
+    // Check if the list fits on one line
+    const flat_len = estimateLen(value);
+    if (indent + flat_len <= width) {
+        try printValue(writer, value, .write);
+        return;
+    }
+    try writer.writeByte('(');
+    const new_indent = indent + 2;
+    var first = true;
+    var cur = value;
+    while (cur != types.NIL) {
+        if (!types.isPair(cur)) {
+            try writer.writeAll(". ");
+            try ppValue(writer, cur, new_indent, width);
+            break;
+        }
+        if (!first) {
+            try writer.writeByte('\n');
+            var sp: u16 = 0;
+            while (sp < new_indent) : (sp += 1) try writer.writeByte(' ');
+        }
+        try ppValue(writer, types.car(cur), new_indent, width);
+        first = false;
+        cur = types.cdr(cur);
+    }
+    try writer.writeByte(')');
+}
+
+fn estimateLen(value: Value) u16 {
+    if (types.isFixnum(value)) return if (types.toFixnum(value) < 0) 5 else 3;
+    if (types.isSymbol(value)) {
+        const name = types.symbolName(value);
+        return @intCast(@min(name.len, 60));
+    }
+    if (value == types.NIL) return 2;
+    if (value == types.TRUE) return 2;
+    if (value == types.FALSE) return 2;
+    if (types.isString(value)) {
+        const s = types.toObject(value).as(types.SchemeString);
+        return @intCast(@min(s.len + 2, 60));
+    }
+    if (types.isPair(value)) {
+        var len: u16 = 2; // parens
+        var cur = value;
+        var count: u16 = 0;
+        while (cur != types.NIL and types.isPair(cur) and count < 20) {
+            len += estimateLen(types.car(cur)) + 1;
+            cur = types.cdr(cur);
+            count += 1;
+        }
+        return len;
+    }
+    return 10;
+}
+
 pub fn valueToString(allocator: std.mem.Allocator, value: Value, mode: PrintMode) ![]u8 {
     var aw: std.Io.Writer.Allocating = .init(allocator);
 

@@ -114,6 +114,7 @@ pub fn main(init: std.process.Init.Minimal) !void {
     var lib_path_count: usize = 0;
     var file_path: ?[]const u8 = null;
     var compile_mode = false;
+    var disassemble_mode = false;
 
     while (args.next()) |arg| {
         if (std.mem.eql(u8, arg, "--lib-path")) {
@@ -125,6 +126,8 @@ pub fn main(init: std.process.Init.Minimal) !void {
             }
         } else if (std.mem.eql(u8, arg, "--compile")) {
             compile_mode = true;
+        } else if (std.mem.eql(u8, arg, "--disassemble")) {
+            disassemble_mode = true;
         } else if (std.mem.eql(u8, arg, "--no-cache")) {
             // future: disable caching
         } else {
@@ -150,7 +153,13 @@ pub fn main(init: std.process.Init.Minimal) !void {
 
     vm.lib_paths = lib_paths[0..lib_path_count];
 
-    if (compile_mode) {
+    if (disassemble_mode) {
+        if (file_path) |fp| {
+            try disassembleFile(&vm, fp);
+        } else {
+            writeStdout("Usage: kaappi --disassemble <file.scm>\n");
+        }
+    } else if (compile_mode) {
         if (file_path) |fp| {
             try compileFile(&vm, fp);
         } else {
@@ -350,6 +359,38 @@ fn runFile(vm: *vm_mod.VM, path: []const u8) !void {
     }
 }
 
+fn disassembleFile(vm: *vm_mod.VM, path: []const u8) !void {
+    const allocator = vm.gc.allocator;
+    const source = readFileContents(allocator, path) catch return;
+    defer allocator.free(source);
+
+    var r = reader.Reader.initWithName(vm.gc, source, path);
+    defer r.deinit();
+
+    while (r.hasMore()) {
+        const datum_lc = r.getLineCol();
+        const expr = r.readDatum() catch |err| {
+            const lc = r.getLineCol();
+            var errbuf: [256]u8 = undefined;
+            const s = std.fmt.bufPrint(&errbuf, "{s}:{d}:{d}: read error: {}\n", .{ path, lc.line, lc.col, err }) catch "read error\n";
+            writeStderr(s);
+            return;
+        };
+
+        if (vm.handleTopLevelForm(expr)) |_| continue;
+
+        const func = compiler.compileExpressionWithMacrosAt(vm.gc, expr, &vm.macros, &vm.globals, datum_lc.line, path) catch |err| {
+            var errbuf: [256]u8 = undefined;
+            const s = std.fmt.bufPrint(&errbuf, "{s}:{d}: compile error: {}\n", .{ path, datum_lc.line, err }) catch "compile error\n";
+            writeStderr(s);
+            continue;
+        };
+
+        const disasm = @import("disassembler.zig");
+        disasm.disassemble(func, allocator);
+    }
+}
+
 fn compileFile(vm: *vm_mod.VM, path: []const u8) !void {
     const allocator = vm.gc.allocator;
     const source = readFileContents(allocator, path) catch {
@@ -429,9 +470,22 @@ fn parenDepth(src: []const u8) i32 {
     var in_string = false;
     var in_escape = false;
     var in_line_comment = false;
-    for (src) |ch| {
+    var block_comment_depth: i32 = 0;
+    var i: usize = 0;
+    while (i < src.len) : (i += 1) {
+        const ch = src[i];
         if (in_line_comment) {
             if (ch == '\n') in_line_comment = false;
+            continue;
+        }
+        if (block_comment_depth > 0) {
+            if (ch == '#' and i + 1 < src.len and src[i + 1] == '|') {
+                block_comment_depth += 1;
+                i += 1;
+            } else if (ch == '|' and i + 1 < src.len and src[i + 1] == '#') {
+                block_comment_depth -= 1;
+                i += 1;
+            }
             continue;
         }
         if (in_escape) {
@@ -442,6 +496,11 @@ fn parenDepth(src: []const u8) i32 {
             if (ch == '\\') in_escape = true else if (ch == '"') in_string = false;
             continue;
         }
+        if (ch == '#' and i + 1 < src.len and src[i + 1] == '|') {
+            block_comment_depth += 1;
+            i += 1;
+            continue;
+        }
         switch (ch) {
             '"' => in_string = true,
             ';' => in_line_comment = true,
@@ -450,6 +509,8 @@ fn parenDepth(src: []const u8) i32 {
             else => {},
         }
     }
+    if (in_string) depth += 1;
+    if (block_comment_depth > 0) depth += 1;
     return depth;
 }
 
@@ -569,6 +630,7 @@ fn repl(vm: *vm_mod.VM) !void {
             writeStdout(
                 \\Commands:
                 \\  ,time <expr>      Measure execution time
+                \\  ,expand <expr>    Show macro expansion
                 \\  ,env [prefix]     List global bindings
                 \\  ,break <name>     Set breakpoint on function
                 \\  ,breakpoints      List active breakpoints
@@ -577,6 +639,40 @@ fn repl(vm: *vm_mod.VM) !void {
                 \\  ,help             This message
                 \\
             );
+            input_buf.clearRetainingCapacity();
+            continue;
+        }
+        if (std.mem.startsWith(u8, debug_trimmed, ",expand ")) {
+            const expand_src = debug_trimmed[8..];
+            const reader_mod = @import("reader.zig");
+            var er = reader_mod.Reader.init(vm.gc, expand_src);
+            defer er.deinit();
+            const expr = er.readDatum() catch {
+                writeStderr("read error\n");
+                input_buf.clearRetainingCapacity();
+                continue;
+            };
+            if (types.isPair(expr) and types.isSymbol(types.car(expr))) {
+                const ename = types.symbolName(types.car(expr));
+                if (vm.macros.get(ename)) |transformer| {
+                    const exp_mod = @import("expander.zig");
+                    const expanded = exp_mod.expandMacro(vm.gc, expr, transformer, &vm.globals, &vm.macros) catch {
+                        writeStderr("expansion error\n");
+                        input_buf.clearRetainingCapacity();
+                        continue;
+                    };
+                    const s = printer.valueToString(allocator, expanded, .write) catch "";
+                    defer if (s.len > 0) allocator.free(s);
+                    writeStdout(s);
+                    writeStdout("\n");
+                } else {
+                    writeStderr("not a macro: ");
+                    writeStderr(ename);
+                    writeStderr("\n");
+                }
+            } else {
+                writeStderr("not a macro invocation\n");
+            }
             input_buf.clearRetainingCapacity();
             continue;
         }
@@ -688,7 +784,8 @@ fn evalInput(vm: *vm_mod.VM, allocator: std.mem.Allocator, input: []const u8) vo
         vm.gc.popRoot();
 
         if (result != types.VOID) {
-            const s = printer.valueToString(allocator, result, .write) catch continue;
+            const s = printer.prettyPrint(allocator, result, 80) catch
+                (printer.valueToString(allocator, result, .write) catch continue);
             defer allocator.free(s);
             writeStdout(s);
             writeStdout("\n");
