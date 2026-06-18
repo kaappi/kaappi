@@ -37,6 +37,18 @@ pub fn registerR7RS(vm: *vm_mod.VM) !void {
 
     // (scheme load)
     try reg(vm, "load", &loadFn, .{ .exact = 1 });
+
+    // (kaappi debug)
+    try reg(vm, "disassemble", &disassembleFn, .{ .exact = 1 });
+}
+
+fn disassembleFn(args: []const Value) PrimitiveError!Value {
+    if (!types.isClosure(args[0])) return PrimitiveError.TypeError;
+    const closure = types.toObject(args[0]).as(types.Closure);
+    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const disasm = @import("disassembler.zig");
+    disasm.disassemble(closure.func, gc.allocator);
+    return types.VOID;
 }
 
 // ---------------------------------------------------------------------------

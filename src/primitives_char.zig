@@ -98,10 +98,16 @@ fn isUnicodeLetter(cp: u21) bool {
     if (cp >= 0xAC00 and cp <= 0xD7AF) return true;
     // CJK Extension A
     if (cp >= 0x3400 and cp <= 0x4DBF) return true;
+    // Cherokee
+    if (cp >= 0x13A0 and cp <= 0x13EF) return true;
     // Latin Extended Additional
     if (cp >= 0x1E00 and cp <= 0x1EFF) return true;
+    // Georgian Mtavruli (uppercase)
+    if (cp >= 0x1C90 and cp <= 0x1CBA) return true;
     // Greek Extended
     if (cp >= 0x1F00 and cp <= 0x1FFF) return true;
+    // Cherokee lowercase
+    if (cp >= 0xAB70 and cp <= 0xABBF) return true;
     return false;
 }
 
@@ -120,6 +126,12 @@ fn isUnicodeUppercase(cp: u21) bool {
     if (cp >= 0x391 and cp <= 0x3A9 and cp != 0x3A2) return true;
     // Cyrillic uppercase (0x410-0x42F)
     if (cp >= 0x410 and cp <= 0x42F) return true;
+    // Armenian uppercase (0x531-0x556)
+    if (cp >= 0x531 and cp <= 0x556) return true;
+    // Georgian Mtavruli (0x1C90-0x1CBA)
+    if (cp >= 0x1C90 and cp <= 0x1CBA) return true;
+    // Cherokee uppercase (0x13A0-0x13EF)
+    if (cp >= 0x13A0 and cp <= 0x13EF) return true;
     return false;
 }
 
@@ -136,6 +148,10 @@ fn isUnicodeLowercase(cp: u21) bool {
     if (cp >= 0x3B1 and cp <= 0x3C9) return true;
     // Cyrillic lowercase (0x430-0x44F)
     if (cp >= 0x430 and cp <= 0x44F) return true;
+    // Armenian lowercase (0x561-0x586)
+    if (cp >= 0x561 and cp <= 0x586) return true;
+    // Cherokee lowercase (0xAB70-0xABBF)
+    if (cp >= 0xAB70 and cp <= 0xABBF) return true;
     return false;
 }
 
@@ -199,6 +215,12 @@ fn unicodeUpcase(cp: u21) u21 {
     if (cp >= 0x3B1 and cp <= 0x3C9) return cp - 0x20;
     // Cyrillic lowercase (0x430-0x44F) -> uppercase (0x410-0x42F)
     if (cp >= 0x430 and cp <= 0x44F) return cp - 0x20;
+    // Armenian lowercase (0x561-0x586) -> uppercase (0x531-0x556)
+    if (cp >= 0x561 and cp <= 0x586) return cp - 0x30;
+    // Georgian Mkhedruli (0x10D0-0x10FA) -> Mtavruli (0x1C90-0x1CBA)
+    if (cp >= 0x10D0 and cp <= 0x10FA) return cp + 0xBC0;
+    // Cherokee lowercase (0xAB70-0xABBF) -> uppercase (0x13A0-0x13EF)
+    if (cp >= 0xAB70 and cp <= 0xABBF) return cp - 0x97D0;
     return cp;
 }
 
@@ -221,6 +243,12 @@ fn unicodeDowncase(cp: u21) u21 {
     if (cp >= 0x391 and cp <= 0x3A9 and cp != 0x3A2) return cp + 0x20;
     // Cyrillic uppercase (0x410-0x42F) -> lowercase (0x430-0x44F)
     if (cp >= 0x410 and cp <= 0x42F) return cp + 0x20;
+    // Armenian uppercase (0x531-0x556) -> lowercase (0x561-0x586)
+    if (cp >= 0x531 and cp <= 0x556) return cp + 0x30;
+    // Georgian Mtavruli (0x1C90-0x1CBA) -> Mkhedruli (0x10D0-0x10FA)
+    if (cp >= 0x1C90 and cp <= 0x1CBA) return cp - 0xBC0;
+    // Cherokee uppercase (0x13A0-0x13EF) -> lowercase (0xAB70-0xABBF)
+    if (cp >= 0x13A0 and cp <= 0x13EF) return cp + 0x97D0;
     return cp;
 }
 

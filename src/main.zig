@@ -550,6 +550,54 @@ fn repl(vm: *vm_mod.VM) !void {
             input_buf.clearRetainingCapacity();
             continue;
         }
+        if (std.mem.startsWith(u8, debug_trimmed, ",time ")) {
+            const time_expr = debug_trimmed[6..];
+            var ts: std.c.timespec = undefined;
+            _ = std.c.clock_gettime(.MONOTONIC, &ts);
+            evalInput(vm, allocator, time_expr);
+            var te: std.c.timespec = undefined;
+            _ = std.c.clock_gettime(.MONOTONIC, &te);
+            const secs = @as(f64, @floatFromInt(te.sec - ts.sec)) +
+                @as(f64, @floatFromInt(te.nsec - ts.nsec)) / 1_000_000_000.0;
+            var tbuf: [64]u8 = undefined;
+            const ts_str = std.fmt.bufPrint(&tbuf, "; {d:.3} seconds\n", .{secs}) catch "; ? seconds\n";
+            writeStdout(ts_str);
+            input_buf.clearRetainingCapacity();
+            continue;
+        }
+        if (std.mem.eql(u8, debug_trimmed, ",help")) {
+            writeStdout(
+                \\Commands:
+                \\  ,time <expr>      Measure execution time
+                \\  ,env [prefix]     List global bindings
+                \\  ,break <name>     Set breakpoint on function
+                \\  ,breakpoints      List active breakpoints
+                \\  ,delete all       Clear all breakpoints
+                \\  ,step <expr>      Evaluate with single-stepping
+                \\  ,help             This message
+                \\
+            );
+            input_buf.clearRetainingCapacity();
+            continue;
+        }
+        if (std.mem.eql(u8, debug_trimmed, ",env") or std.mem.startsWith(u8, debug_trimmed, ",env ")) {
+            const prefix = if (debug_trimmed.len > 5) std.mem.trim(u8, debug_trimmed[5..], " ") else "";
+            var env_count: usize = 0;
+            var git2 = vm.globals.keyIterator();
+            while (git2.next()) |key| {
+                if (prefix.len == 0 or std.mem.startsWith(u8, key.*, prefix)) {
+                    writeStdout("  ");
+                    writeStdout(key.*);
+                    writeStdout("\n");
+                    env_count += 1;
+                }
+            }
+            var cbuf: [64]u8 = undefined;
+            const cs = std.fmt.bufPrint(&cbuf, "; {d} bindings\n", .{env_count}) catch "\n";
+            writeStdout(cs);
+            input_buf.clearRetainingCapacity();
+            continue;
+        }
 
         // Add to history with newlines replaced by spaces for clean display
         var hist_buf: std.ArrayList(u8) = .empty;

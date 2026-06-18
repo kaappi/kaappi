@@ -18,6 +18,13 @@ fn reg(vm: *vm_mod.VM, name: []const u8, func: types.NativeFnType, arity: Native
     return primitives.reg(vm, name, func, arity);
 }
 
+fn makeFixnumChecked(n: i64) PrimitiveError!Value {
+    if (n >= std.math.minInt(i63) and n <= std.math.maxInt(i63))
+        return types.makeFixnum(n);
+    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    return gc.allocBignumFromI64(n) catch return PrimitiveError.OutOfMemory;
+}
+
 /// Extended toF64 that also handles bignums and rationals.
 pub fn toF64Ext(v: Value) PrimitiveError!f64 {
     if (types.isFixnum(v)) return @floatFromInt(types.toFixnum(v));
@@ -285,7 +292,7 @@ fn add(args: []const Value) PrimitiveError!Value {
         if (r[1] != 0) return bignumAddAll(args);
         sum = r[0];
     }
-    return types.makeFixnum(sum);
+    return makeFixnumChecked(sum);
 }
 
 fn sub(args: []const Value) PrimitiveError!Value {
@@ -368,7 +375,7 @@ fn sub(args: []const Value) PrimitiveError!Value {
         // Negation overflow: -minInt(i64) overflows
         const r = @subWithOverflow(@as(i64, 0), n);
         if (r[1] != 0) return bignumSubAll(args);
-        return types.makeFixnum(r[0]);
+        return makeFixnumChecked(r[0]);
     }
     var result = types.toFixnum(args[0]);
     for (args[1..]) |a| {
@@ -377,7 +384,7 @@ fn sub(args: []const Value) PrimitiveError!Value {
         if (r[1] != 0) return bignumSubAll(args);
         result = r[0];
     }
-    return types.makeFixnum(result);
+    return makeFixnumChecked(result);
 }
 
 fn mul(args: []const Value) PrimitiveError!Value {
@@ -448,7 +455,7 @@ fn mul(args: []const Value) PrimitiveError!Value {
         if (r[1] != 0) return bignumMulAll(args);
         product = r[0];
     }
-    return types.makeFixnum(product);
+    return makeFixnumChecked(product);
 }
 
 fn divFn(args: []const Value) PrimitiveError!Value {
@@ -557,8 +564,8 @@ fn divFn(args: []const Value) PrimitiveError!Value {
             }
         }
         if (n == 0) return types.makeFixnum(0);
-        if (d == 1) return types.makeFixnum(n);
-        return gc.allocRational(types.makeFixnum(n), types.makeFixnum(d)) catch return PrimitiveError.OutOfMemory;
+        if (d == 1) return makeFixnumChecked(n);
+        return gc.allocRational(try makeFixnumChecked(n), try makeFixnumChecked(d)) catch return PrimitiveError.OutOfMemory;
     }
     // At least one flonum or bignum — convert to float
     var result = try toF64Ext(args[0]);
@@ -579,7 +586,7 @@ fn quotient(args: []const Value) PrimitiveError!Value {
     if (!types.isFixnum(args[0]) or !types.isFixnum(args[1])) return PrimitiveError.TypeError;
     const b = types.toFixnum(args[1]);
     if (b == 0) return raiseDivByZero();
-    return types.makeFixnum(@divTrunc(types.toFixnum(args[0]), b));
+    return makeFixnumChecked(@divTrunc(types.toFixnum(args[0]), b));
 }
 
 fn remainder(args: []const Value) PrimitiveError!Value {
@@ -825,7 +832,7 @@ fn absVal(args: []const Value) PrimitiveError!Value {
             const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
             return bignum_mod.absVal(gc, args[0]) catch return PrimitiveError.OutOfMemory;
         }
-        return types.makeFixnum(if (n < 0) -n else n);
+        return makeFixnumChecked(if (n < 0) -n else n);
     }
     if (types.isBignum(args[0])) {
         const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
