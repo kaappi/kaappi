@@ -128,12 +128,14 @@ Type `(exit)` or press Ctrl-D to quit.
 ### Numbers
 
 Kaappi supports fixnums (63-bit integers), bignums (arbitrary precision),
-flonums (IEEE 754 f64), and complex numbers.
+exact rationals, flonums (IEEE 754 f64), and complex numbers.
 
 ```scheme
 (+ 1 2 3)              ;=> 6
 (* 2.5 4)              ;=> 10.0
 (expt 2 100)           ;=> 1267650600228229401496703205376
+(/ 1 3)                ;=> 1/3
+(+ 1/3 1/6)            ;=> 1/2
 (sqrt -1)              ;=> 0+1i
 (make-rectangular 3 4) ;=> 3+4i
 ```
@@ -381,7 +383,7 @@ Multiple imports can be combined:
 | `(scheme case-lambda)` | `case-lambda` dispatch |
 | `(scheme char)` | Unicode character classification and case |
 | `(scheme complex)` | Complex number operations |
-| `(scheme cxr)` | 28 car/cdr compositions (caar through cddddr) |
+| `(scheme cxr)` | 24 car/cdr compositions (caaar through cddddr) |
 | `(scheme eval)` | `eval`, `environment` |
 | `(scheme file)` | File I/O operations |
 | `(scheme inexact)` | Transcendental math (sin, cos, exp, log, ...) |
@@ -403,6 +405,7 @@ Multiple imports can be combined:
 | `(srfi 39)` | Parameter objects (alias for R7RS make-parameter) |
 | `(srfi 69)` | Hash tables |
 | `(srfi 133)` | Vector library |
+| `(srfi 170)` | POSIX filesystem API (file-info, directory ops, ...) |
 
 ### Writing Your Own Library
 

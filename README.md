@@ -2,7 +2,7 @@
 
 A complete **R7RS-small** Scheme implementation written in **Zig**.
 
-Kaappi implements every identifier from [R7RS Appendix A](https://small.r7rs.org/) — 313 built-in procedures, 32 syntax forms, and all 14 standard libraries. The runtime uses a bytecode compiler with a register-based VM, mark-and-sweep garbage collection, and stack-copying first-class continuations.
+Kaappi implements every identifier from [R7RS Appendix A](https://small.r7rs.org/) — 419 built-in procedures, 32 syntax forms, and all 14 standard libraries — plus 38 SRFIs, a C FFI, and a stepping debugger. The runtime uses a bytecode compiler with a register-based VM, mark-and-sweep garbage collection, and stack-copying first-class continuations.
 
 ---
 
@@ -48,7 +48,7 @@ kaappi> (char-alphabetic? #\λ)
 
 ### Complete R7RS-small implementation
 
-315 built-in procedures, 32 syntax forms, all 14 standard libraries — every identifier from [Appendix A](https://small.r7rs.org/).
+419 built-in procedures, 32 syntax forms, all 14 standard libraries — every identifier from [Appendix A](https://small.r7rs.org/).
 
 <details>
 <summary>Standard libraries</summary>
@@ -85,7 +85,7 @@ kaappi> (char-alphabetic? #\λ)
 
 ### Data
 
-- **Numeric tower** — fixnum (63-bit), bignum (arbitrary precision), flonum (IEEE 754 f64), complex; automatic promotion on overflow
+- **Numeric tower** — fixnum (63-bit), bignum (arbitrary precision), exact rational, flonum (IEEE 754 f64), complex; automatic promotion on overflow
 - **Full Unicode** — UTF-8 strings indexed by codepoint, Unicode character classification (Latin, Greek, Cyrillic, Arabic, Hebrew, CJK, and more), case mapping
 - **Vectors and bytevectors** — `#(1 2 3)` and `#u8(10 20 30)` literals, `map`, `for-each`, `copy`, `append`
 - **Records** — `define-record-type` with constructors, predicates, field accessors and mutators
@@ -99,11 +99,18 @@ kaappi> (char-alphabetic? #\λ)
 - **Quasiquote** — `` ` ``, `,`, `,@` with proper splicing and nested quasiquote support
 - **REPL** — line editing, persistent history, tab completion, multi-line paren balancing (via [linenoise](https://github.com/antirez/linenoise))
 
+### Beyond R7RS
+
+- **C FFI** — call into shared libraries from Scheme via `(kaappi ffi)`: `ffi-open`, `ffi-fn`, `ffi-close` (supports `int`, `long`, `double`, `float`, `string`, `void`)
+- **Stepping debugger** — set breakpoints with `,break`, then step / next / continue and inspect locals and backtraces from the REPL
+- **Bytecode caching** — compiled bytecode is cached to `.sbc` files next to the source and reloaded when the source is unchanged, skipping the reader, expander, and compiler
+
 ### Data types
 
 | Type | Representation | Allocation |
 |------|---------------|------------|
 | Integer | 63-bit fixnum or arbitrary-precision bignum | Fixnum: none (tagged); bignum: heap |
+| Rational | Exact numerator/denominator pair | Heap |
 | Real | IEEE 754 f64 | Heap |
 | Complex | Pair of f64 | Heap |
 | Boolean | `#t` / `#f` | None (immediate) |
@@ -144,10 +151,10 @@ Source code
 |-----------|------|------|
 | **Reader** | `reader.zig` | Tokenizer + recursive descent parser. Handles full R7RS lexical syntax including Unicode identifiers, `#\λ` character literals, `#(...)` vectors, `#u8(...)` bytevectors. |
 | **Expander** | `expander.zig` | `syntax-rules` pattern matching with ellipsis, literal identifiers, underscore wildcards. Template instantiation with hygienic renaming. |
-| **Compiler** | `compiler.zig` + 4 sub-modules | Compiles S-expressions to register-based bytecode. Detects tail positions for proper tail call optimization. Handles 32 syntax forms across 5 files. |
-| **VM** | `vm.zig` + 3 sub-modules | Executes bytecode with a register file, call frame stack, exception handler stack, and dynamic-wind stack. Supports first-class continuations via stack copying. |
+| **Compiler** | `compiler.zig` + 5 sub-modules | Compiles S-expressions to register-based bytecode. Detects tail positions for proper tail call optimization. Handles 32 syntax forms across 6 files. |
+| **VM** | `vm.zig` + 5 sub-modules | Executes bytecode with a register file, call frame stack, exception handler stack, and dynamic-wind stack. Supports first-class continuations via stack copying, plus a stepping debugger. |
 | **GC** | `memory.zig` | Mark-and-sweep collector with intrusive linked list. Root tracking via `pushRoot`/`popRoot`. Triggered after N allocations. |
-| **Primitives** | 11 `primitives_*.zig` files | 313 built-in procedures organized by domain: arithmetic, strings, vectors, I/O, control flow, etc. |
+| **Primitives** | 18 `primitives_*.zig` files | 419 built-in procedures organized by domain: arithmetic, strings, vectors, I/O, control flow, etc. |
 
 ### Value representation
 
@@ -191,16 +198,21 @@ kaappi/
 ├── build.zig.zon                  Package manifest
 ├── CLAUDE.md                      AI assistant project guide
 ├── README.md
-├── STATUS.md                      R7RS implementation progress
+├── CONFORMANCE.md                 R7RS conformance notes
 │
 ├── src/
-│   ├── main.zig                   Entry point, REPL (linenoise integration)
+│   ├── main.zig                   Entry point, REPL, file execution, bytecode cache
 │   ├── types.zig                  Value type, heap objects, opcodes
 │   ├── memory.zig                 GC allocator (mark-and-sweep)
-│   ├── reader.zig                 Tokenizer + S-expression parser
+│   ├── bignum.zig                 Arbitrary-precision integer arithmetic
+│   ├── reader.zig                 S-expression parser (core)
+│   ├── reader_tokens.zig          Tokenizer / UTF-8 lexer
+│   ├── reader_datum.zig           Datum parsing, datum labels
 │   ├── expander.zig               Macro expansion (syntax-rules)
 │   ├── printer.zig                Value → string (write/display)
 │   ├── linenoise.zig              FFI wrapper for C linenoise library
+│   ├── ffi.zig                    FFI call dispatcher (type marshaling)
+│   ├── bytecode_file.zig          Bytecode serialization (.sbc format)
 │   ├── library.zig                Library registry + standard libs
 │   │
 │   ├── compiler.zig               Bytecode compiler (core)
@@ -208,26 +220,37 @@ kaappi/
 │   ├── compiler_conditionals.zig  and, or, cond, when, unless, cond-expand
 │   ├── compiler_bindings.zig      let, letrec, do, let-values
 │   ├── compiler_advanced.zig      case, case-lambda, guard, quasiquote
+│   ├── compiler_lambda.zig        lambda, define, set!, begin, delay
 │   │
 │   ├── vm.zig                     Register VM (core)
+│   ├── vm_eval.zig                eval, top-level form handling
 │   ├── vm_library.zig             import / define-library / .sld loading
 │   ├── vm_records.zig             define-record-type desugaring
 │   ├── vm_continuations.zig       call/cc, dynamic-wind
+│   ├── vm_debug.zig               Stepping debugger (breakpoints, step, locals)
 │   │
 │   ├── primitives.zig             Core primitives + registration hub
 │   ├── primitives_arithmetic.zig  Numeric procedures (+, -, *, /, trig, etc.)
+│   ├── primitives_numeric.zig     Rounding, exactness, exact/inexact conversion
 │   ├── primitives_string.zig      String ops (UTF-8 codepoint-indexed)
+│   ├── primitives_string_ext.zig  SRFI-13 string library (contains, trim, ...)
 │   ├── primitives_char.zig        Unicode char classification + case
 │   ├── primitives_vector.zig      Vector procedures
 │   ├── primitives_bytevector.zig  Bytevector + binary I/O
+│   ├── primitives_list.zig        List operations (list-ref, member, ...)
+│   ├── primitives_srfi1.zig       SRFI-1 list library (fold, filter, iota, ...)
+│   ├── primitives_hashtable.zig   SRFI-69 hash tables
+│   ├── primitives_random.zig      SRFI-27 random numbers
 │   ├── primitives_io.zig          Ports, file I/O, string ports
+│   ├── primitives_filesystem.zig  SRFI-170 POSIX filesystem API
 │   ├── primitives_control.zig     Exceptions, continuations, values
 │   ├── primitives_lazy.zig        delay / force / promises
 │   ├── primitives_cxr.zig         24 car/cdr compositions
+│   ├── primitives_ffi.zig         FFI procedures (ffi-open, ffi-fn, ffi-close)
 │   ├── primitives_r7rs.zig        time, process-context, eval, load
 │   │
 │   ├── testing_helpers.zig        Shared test utilities
-│   └── tests_*.zig             Unit tests by feature (core_eval, macros, io, etc.)
+│   └── tests_*.zig                Unit tests by feature (core_eval, macros, io, …)
 │
 ├── tests/scheme/                  Scheme-level test suites
 │   ├── phase1/                    Basic eval, arithmetic, lambda
@@ -237,11 +260,19 @@ kaappi/
 │   ├── phase5/                    Macros
 │   ├── phase6/                    Libraries
 │   ├── deferred/                  apply, case, case-lambda, complex, etc.
-│   └── compliance/                Vectors, strings, chars, Unicode, etc.
+│   ├── compliance/                Vectors, strings, chars, Unicode, etc.
+│   ├── r7rs/                      R7RS feature coverage
+│   ├── srfi/                      SRFI conformance suites
+│   └── ffi/                       FFI tests
 │
+├── lib/srfi/                      Portable SRFI .sld libraries
 ├── vendor/linenoise/              Vendored C library (BSD)
 ├── testlib/                       Test .sld library files
 └── docs/
+    ├── guide.md                   User guide
+    ├── procedures.md              Procedure reference
+    ├── libraries.md               Library authoring guide
+    ├── dev/                       Architecture, testing, adding-features
     └── errata-corrected-r7rs.pdf  R7RS specification
 ```
 
@@ -328,7 +359,7 @@ kaappi/
 | Document | Description |
 |----------|-------------|
 | [User Guide](docs/guide.md) | Installation, REPL, language tutorial, command-line reference |
-| [Procedure Reference](docs/procedures.md) | All 360+ built-in procedures with descriptions |
+| [Procedure Reference](docs/procedures.md) | Built-in procedures with arity and descriptions, organized by domain |
 | [Library Authoring Guide](docs/libraries.md) | Writing and using R7RS libraries |
 | [Contributing](CONTRIBUTING.md) | How to build, test, and contribute |
 | [Architecture](docs/dev/architecture.md) | Pipeline, value representation, GC, file organization |
@@ -346,9 +377,9 @@ See **[CONFORMANCE.md](CONFORMANCE.md)** for the full details: design rationale,
 
 ### SRFI support
 
-37 SRFIs supported (7 built-in, 30 as portable `.sld` files in `lib/srfi/`):
+38 SRFIs supported (8 built-in, 30 as portable `.sld` files in `lib/srfi/`):
 
-**Built-in:** 1, 9, 13, 27, 39, 69, 133
+**Built-in:** 1, 9, 13, 27, 39, 69, 133, 170
 
 **Portable:** 2, 8, 11, 14, 16, 26, 28, 31, 34, 41, 111, 117, 125, 128, 132, 141, 143, 145, 151, 152, 158, 174, 175, 189, 219, 222, 227, 232, 233, 235
 

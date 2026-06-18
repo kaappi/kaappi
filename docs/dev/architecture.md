@@ -28,10 +28,10 @@ Source code
 |-------|---------|------|
 | **Reader** | `reader.zig` | Tokenizer + recursive descent parser. Handles full R7RS lexical syntax including Unicode identifiers, `#\lambda` character literals, `#(...)` vectors, `#u8(...)` bytevectors, datum labels. |
 | **Expander** | `expander.zig` | `syntax-rules` pattern matching with ellipsis, literal identifiers, and underscore wildcards. Template instantiation with hygienic renaming (gensym-based). |
-| **Compiler** | `compiler.zig` + 4 sub-modules | Compiles S-expressions to register-based bytecode. Detects tail positions for proper tail call optimization. Dispatches 32 syntax forms across 5 files. |
-| **VM** | `vm.zig` + 3 sub-modules | Executes bytecode with a register file, call frame stack, exception handler stack, and dynamic-wind stack. First-class continuations via stack copying. |
+| **Compiler** | `compiler.zig` + 5 sub-modules | Compiles S-expressions to register-based bytecode. Detects tail positions for proper tail call optimization. Dispatches 32 syntax forms across 6 files. |
+| **VM** | `vm.zig` + 5 sub-modules | Executes bytecode with a register file, call frame stack, exception handler stack, and dynamic-wind stack. First-class continuations via stack copying, plus a stepping debugger. |
 | **GC** | `memory.zig` | Mark-and-sweep collector with intrusive linked list. Root tracking via `pushRoot`/`popRoot`. Triggered after N allocations. |
-| **Primitives** | 13 `primitives_*.zig` files | 360+ built-in procedures organized by domain. |
+| **Primitives** | 18 `primitives_*.zig` files | 419 built-in procedures organized by domain. |
 
 ---
 
@@ -43,48 +43,57 @@ Source code
 |------|--------|---------------|
 | `types.zig` | 650 | Value type, heap object structs, ObjectTag enum, opcodes |
 | `memory.zig` | 650 | GC allocator, alloc/mark/free for all heap types |
-| `reader.zig` | 700 | Tokenizer, S-expression parser, Unicode lexing |
+| `reader.zig` | 700 | S-expression parser, Unicode lexing (core) |
+| `reader_tokens.zig` | 550 | Tokenizer / lexer (numbers, strings, identifiers) |
+| `reader_datum.zig` | 220 | Datum parsing, datum labels |
 | `expander.zig` | 320 | Macro expansion engine (syntax-rules) |
 | `printer.zig` | 300 | Value-to-string (write mode and display mode) |
 
-### Compiler (5 files)
+### Compiler (6 files)
 
 | File | Responsibility |
 |------|---------------|
-| `compiler.zig` | Core: expression dispatch, primitive forms (quote, if, lambda, define, set!, begin, call), macro handling, scope/register management |
+| `compiler.zig` | Core: expression dispatch, primitive forms (quote, if, call), macro handling, scope/register management |
+| `compiler_lambda.zig` | lambda, define, set!, begin, delay, delay-force, body compilation |
 | `compiler_conditionals.zig` | and, or, when, unless, cond, cond-expand |
 | `compiler_bindings.zig` | let, let*, letrec, letrec*, named let, do, let-values, let*-values |
 | `compiler_advanced.zig` | case, case-lambda, guard, quasiquote |
 | `compiler_forms.zig` | Re-export hub (thin file that exposes all form compilers) |
 
-### VM (4 files)
+### VM (6 files)
 
 | File | Responsibility |
 |------|---------------|
-| `vm.zig` | Core: execute loop, runUntil, callValue, eval, handleTopLevelForm, debugger |
+| `vm.zig` | Core: execute loop, runUntil, callValue, instruction dispatch |
+| `vm_eval.zig` | eval, handleTopLevelForm dispatcher |
 | `vm_library.zig` | handleImport (with only/except/rename/prefix), handleDefineLibrary, .sld file loading |
 | `vm_records.zig` | handleDefineRecordType desugaring |
 | `vm_continuations.zig` | captureContinuation, restoreContinuation, performWindTransition, callWithCC |
+| `vm_debug.zig` | Stepping debugger: breakpoints, step/next/continue, locals, backtrace |
 
-### Primitives (13 files)
+### Primitives (18 files)
 
 | File | Domain |
 |------|--------|
 | `primitives.zig` | Registration hub, core list/pair ops, type predicates, equivalence, map, for-each, apply |
-| `primitives_arithmetic.zig` | +, -, *, /, comparisons, rounding, exactness, trig, exp/log, gcd/lcm, complex |
+| `primitives_arithmetic.zig` | +, -, *, /, comparisons, trig, exp/log, gcd/lcm, complex |
+| `primitives_numeric.zig` | Rounding, exactness predicates, exact/inexact conversion |
 | `primitives_string.zig` | String ops, basic char comparisons, number-string conversion, UTF-8 codepoint indexing |
+| `primitives_string_ext.zig` | SRFI-13 string library (contains, prefix?, trim, split, join) |
 | `primitives_char.zig` | Unicode classification, case conversion, case-insensitive comparisons |
 | `primitives_vector.zig` | Vector operations, vector-map, vector-for-each |
 | `primitives_bytevector.zig` | Bytevector ops, binary I/O, bytevector ports |
+| `primitives_list.zig` | list-ref, list-tail, list-set!, list-copy, make-list, member, assoc |
+| `primitives_srfi1.zig` | SRFI-1 list library (fold, filter, find, iota, etc.) |
+| `primitives_hashtable.zig` | SRFI-69 hash tables |
+| `primitives_random.zig` | SRFI-27 random numbers |
 | `primitives_io.zig` | Port ops, file I/O, string ports, read/write/display |
+| `primitives_filesystem.zig` | SRFI-170 POSIX filesystem API (file-info, directory ops, symlinks, user/group info) |
 | `primitives_control.zig` | raise, guard, with-exception-handler, call/cc, dynamic-wind, values |
 | `primitives_lazy.zig` | delay, force, make-promise, promise? |
 | `primitives_cxr.zig` | 24 car/cdr compositions (caaaar through cddddr) |
-| `primitives_r7rs.zig` | Time, process-context, eval, load, make-parameter |
-| `primitives_hashtable.zig` | SRFI-69 hash tables |
-| `primitives_random.zig` | SRFI-27 random numbers |
-| `primitives_srfi1.zig` | SRFI-1 list library (fold, filter, find, iota, etc.) |
 | `primitives_ffi.zig` | FFI procedure registration (ffi-open, ffi-fn, ffi-close) |
+| `primitives_r7rs.zig` | Time, process-context, eval, load, make-parameter |
 
 ### Other
 
@@ -141,7 +150,7 @@ pub const Object = struct {
 };
 ```
 
-### ObjectTag enum (23 types)
+### ObjectTag enum (28 types)
 
 | Tag | Value | Type |
 |-----|-------|------|
@@ -168,6 +177,11 @@ pub const Object = struct {
 | `ffi_function` | 20 | Bound C function |
 | `hash_table` | 21 | SRFI-69 hash table |
 | `bignum` | 22 | Arbitrary-precision integer |
+| `rational` | 23 | Exact rational (numerator/denominator) |
+| `file_info` | 24 | SRFI-170 file metadata (stat result) |
+| `user_info` | 25 | SRFI-170 user database entry |
+| `group_info` | 26 | SRFI-170 group database entry |
+| `directory_object` | 27 | SRFI-170 open directory stream |
 
 ---
 
@@ -204,7 +218,7 @@ be balanced and follow LIFO order.
 The compiler produces register-based bytecode. Each instruction is an `OpCode`
 enum value followed by operands.
 
-### Opcodes (24)
+### Opcodes (31)
 
 | Opcode | Operands | Description |
 |--------|----------|-------------|
@@ -216,6 +230,8 @@ enum value followed by operands.
 | `move` | dst:u8, src:u8 | Copy register |
 | `get_global` | dst:u8, sym_idx:u16 | Read global variable |
 | `set_global` | sym_idx:u16, src:u8 | Write global variable |
+| `define_global` | sym_idx:u16, src:u8 | Define global variable |
+| `tail_apply` | base:u8, nargs:u8 | Tail `apply` (spreads final list arg) |
 | `get_local` | dst:u8, slot:u8 | Read local variable |
 | `set_local` | slot:u8, src:u8 | Write local variable |
 | `get_upvalue` | dst:u8, idx:u8 | Read captured variable |
@@ -232,6 +248,11 @@ enum value followed by operands.
 | `push_handler` | handler_reg:u8 | Push exception handler |
 | `pop_handler` | -- | Pop exception handler |
 | `halt` | -- | Stop execution |
+| `call_global` | base:u8, sym_idx:u16, nargs:u8 | Call a global directly (fused get_global + call) |
+| `tail_call_global` | base:u8, sym_idx:u16, nargs:u8 | Tail-call a global directly |
+| `box_local` | reg:u8 | Wrap a register value in a box (pair) for shared mutation |
+| `get_box_local` | dst:u8, reg:u8 | Read the boxed value (car of box) |
+| `set_box_local` | reg:u8, src:u8 | Set the boxed value (car of box) |
 
 ### Function objects
 

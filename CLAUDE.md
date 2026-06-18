@@ -1,6 +1,6 @@
 # Kaappi — R7RS Scheme in Zig
 
-Complete R7RS-small Scheme implementation. Zig 0.16, ~15k lines, 313 built-in procedures.
+Complete R7RS-small Scheme implementation. Zig 0.16, ~15k lines, 419 built-in procedures.
 
 ## Build
 
@@ -31,10 +31,10 @@ Source → Reader → Expander → Compiler → Bytecode → VM
 
 | Stage | File | Role |
 |-------|------|------|
-| Reader | `reader.zig` | Tokenizer + recursive descent parser. Handles R7RS lexical syntax including Unicode identifiers and `#\λ` character literals. |
+| Reader | `reader.zig` (+ `reader_tokens.zig`, `reader_datum.zig`) | Tokenizer + recursive descent parser. Handles R7RS lexical syntax including Unicode identifiers and `#\λ` character literals. |
 | Expander | `expander.zig` | `syntax-rules` pattern matching and template instantiation. Called by the compiler when a macro keyword is encountered. |
 | Compiler | `compiler.zig` | S-expressions → register-based bytecode. Detects tail positions for TCO. Dispatches derived forms to sub-modules. |
-| VM | `vm.zig` | Executes bytecode. Register file + call frame stack. Handles continuations (stack-copying), exception handler stack, dynamic-wind stack. |
+| VM | `vm.zig` | Executes bytecode. Register file + call frame stack. Handles continuations (stack-copying), exception handler stack, dynamic-wind stack, stepping debugger. |
 | GC | `memory.zig` | Mark-and-sweep with intrusive linked list. Roots tracked via `gc.pushRoot`/`gc.popRoot`. Triggered after N allocations. |
 
 ### Value representation
@@ -44,7 +44,7 @@ Tagged u64 — no boxing for fixnums, booleans, characters, nil:
 - **Bits 0-2 = 000**: pointer to heap `Object` (8-byte aligned)
 - **Bits 0-1 = 10**: immediate (nil, true, false, void, eof, char with 21-bit codepoint)
 
-Heap objects share an `Object` header with `ObjectTag` (u5, 32 slots) and GC mark bit. Types: Pair, Symbol, SchemeString, Closure, Function, NativeFn, Vector, Bytevector, Port, Flonum, Complex, Transformer, ErrorObject, RecordType, RecordInstance, Continuation, MultipleValues, Promise, ParameterObject.
+Heap objects share an `Object` header with `ObjectTag` (u5, 32 slots) and GC mark bit. 28 types: Pair, Symbol, SchemeString, Closure, Function, NativeFn, Vector, Bytevector, Port, Flonum, Complex, Transformer, ErrorObject, RecordType, RecordInstance, Continuation, MultipleValues, Promise, ParameterObject, Rational, Bignum, FfiLibrary, FfiFunction, HashTable, FileInfo, UserInfo, GroupInfo, DirectoryObject.
 
 ### Strings
 
@@ -61,45 +61,58 @@ Stored as UTF-8 byte arrays. All string operations (string-length, string-ref, s
 | `expander.zig` | ~320 | Macro expansion engine (syntax-rules) |
 | `printer.zig` | ~300 | Value → string (write mode and display mode) |
 
-### Compiler (split into 4 files)
+### Compiler (split into 6 files)
 | File | Responsibility |
 |------|---------------|
-| `compiler.zig` | Core: compileExpr dispatch, primitive forms (quote, if, lambda, define, set!, begin, call), macro handling, scope/register management |
+| `compiler.zig` | Core: compileExpr dispatch, primitive forms (quote, if, call), macro handling, scope/register management |
+| `compiler_lambda.zig` | lambda, define, set!, begin, delay, delay-force, body compilation |
 | `compiler_conditionals.zig` | and, or, when, unless, cond, cond-expand |
 | `compiler_bindings.zig` | let, let*, letrec, letrec*, named let, do, let-values, let*-values |
 | `compiler_advanced.zig` | case, case-lambda, guard, quasiquote |
 | `compiler_forms.zig` | Re-export hub (thin file, don't edit directly) |
 
-### VM (split into 4 files)
+### VM (split into 6 files)
 | File | Responsibility |
 |------|---------------|
-| `vm.zig` | Core: execute, runUntil, callValue, eval, handleTopLevelForm dispatcher |
+| `vm.zig` | Core: execute, runUntil, callValue, instruction dispatch |
+| `vm_eval.zig` | eval, handleTopLevelForm dispatcher |
 | `vm_library.zig` | handleImport (with only/except/rename/prefix), handleDefineLibrary, .sld file loading |
 | `vm_records.zig` | handleDefineRecordType desugaring |
 | `vm_continuations.zig` | captureContinuation, restoreContinuation, performWindTransition, callWithCC |
+| `vm_debug.zig` | Stepping debugger: breakpoints, step/next/continue, locals, backtrace |
 
-### Primitives (split into 11 files)
+### Primitives (split into 18 files)
 | File | Procedures |
 |------|-----------|
 | `primitives.zig` | Registration hub, core list/pair ops, type predicates, equivalence, map, for-each, apply |
-| `primitives_arithmetic.zig` | +, -, *, /, comparisons, rounding, exactness, trig, exp/log, gcd/lcm |
+| `primitives_arithmetic.zig` | +, -, *, /, comparisons, trig, exp/log, gcd/lcm, complex |
+| `primitives_numeric.zig` | rounding, exactness predicates, exact/inexact conversion |
 | `primitives_string.zig` | string ops, char comparisons, number↔string, UTF-8 codepoint indexing |
+| `primitives_string_ext.zig` | SRFI-13 string library (contains, prefix?, trim, split, join) |
 | `primitives_char.zig` | (scheme char): Unicode classification, case conversion, CI comparisons |
 | `primitives_vector.zig` | vector ops, vector-map, vector-for-each |
 | `primitives_bytevector.zig` | bytevector ops, binary I/O, bytevector ports |
+| `primitives_list.zig` | list-ref, list-tail, list-set!, list-copy, make-list, member, assoc |
+| `primitives_srfi1.zig` | SRFI-1 list library (fold, filter, find, any, every, iota) |
+| `primitives_hashtable.zig` | SRFI-69 hash tables |
+| `primitives_random.zig` | SRFI-27 random numbers |
 | `primitives_io.zig` | Port ops, file I/O, string ports, read/write/display |
+| `primitives_filesystem.zig` | SRFI-170: file-info (full stat), directory ops, symlinks, process state, user/group info, env vars, terminal? |
 | `primitives_control.zig` | raise, guard, with-exception-handler, call/cc, dynamic-wind, values |
 | `primitives_lazy.zig` | delay, force, make-promise, promise? |
 | `primitives_cxr.zig` | 24 car/cdr compositions (caaaar–cddddr) |
+| `primitives_ffi.zig` | C FFI: ffi-open, ffi-fn, ffi-close |
 | `primitives_r7rs.zig` | time, process-context, eval, load, make-parameter |
-| `primitives_filesystem.zig` | SRFI-170: file-info (full stat), directory ops, symlinks, process state, user/group info, env vars, terminal? |
 
 ### Other
 | File | Responsibility |
 |------|---------------|
 | `library.zig` | Library registry, standard library registration ((scheme base), etc.) |
+| `bignum.zig` | Arbitrary-precision integer arithmetic |
+| `ffi.zig` | C FFI call dispatcher (type marshaling, arity routing) |
+| `bytecode_file.zig` | Bytecode serialization/deserialization (.sbc cache format) |
 | `linenoise.zig` | Zig FFI wrapper for vendored linenoise C library |
-| `main.zig` | Entry point, REPL loop with linenoise, file execution |
+| `main.zig` | Entry point, REPL loop with linenoise, file execution, CLI flags |
 | `testing_helpers.zig` | Shared `makeTestVM` helper for unit tests |
 | `tests_*.zig` | Unit tests by feature (core_eval, tail_calls, macros, io, etc.) |
 
