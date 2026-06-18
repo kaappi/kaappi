@@ -428,7 +428,9 @@ pub fn compileLetValues(self: *Compiler, args: Value, dst: u8, is_tail: bool) Co
     const body = types.cdr(args);
     if (body == types.NIL) return CompileError.InvalidSyntax;
 
-    const desugared = buildLetValues(self, bindings, body) catch return CompileError.OutOfMemory;
+    var desugared = buildLetValues(self, bindings, body) catch return CompileError.OutOfMemory;
+    self.gc.pushRoot(&desugared);
+    defer self.gc.popRoot();
     return self.compileExpr(desugared, dst, is_tail);
 }
 
@@ -444,13 +446,15 @@ pub fn compileLetStarValues(self: *Compiler, args: Value, dst: u8, is_tail: bool
 /// (call-with-values (lambda () e1) (lambda (a b) (call-with-values (lambda () e2) (lambda (c) body))))
 pub fn buildLetValues(self: *Compiler, bindings: Value, body: Value) !Value {
     const gc = self.gc;
+    gc.no_collect += 1;
     const lambda_sym = try gc.allocSymbol("lambda");
     const cwv_sym = try gc.allocSymbol("call-with-values");
 
     if (bindings == types.NIL) {
-        // No more bindings — build (begin body...)
         const begin_sym = try gc.allocSymbol("begin");
-        return gc.allocPair(begin_sym, body);
+        const result = try gc.allocPair(begin_sym, body);
+        gc.no_collect -= 1;
+        return result;
     }
 
     if (!types.isPair(bindings)) return error.InvalidSyntax;
@@ -475,5 +479,7 @@ pub fn buildLetValues(self: *Compiler, bindings: Value, body: Value) !Value {
     const consumer_lambda = try gc.allocPair(lambda_sym, try gc.allocPair(formals, consumer_body));
 
     // Build (call-with-values producer consumer)
-    return gc.allocPair(cwv_sym, try gc.allocPair(producer_lambda, try gc.allocPair(consumer_lambda, types.NIL)));
+    const result = try gc.allocPair(cwv_sym, try gc.allocPair(producer_lambda, try gc.allocPair(consumer_lambda, types.NIL)));
+    gc.no_collect -= 1;
+    return result;
 }

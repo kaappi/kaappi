@@ -121,6 +121,7 @@ pub fn handleDefineRecordType(vm: *VM, args: Value) VMError!Value {
     // But we need to handle field ordering: constructor args may be in a different order
     // than the field specs. The constructor always creates fields in the field_spec order.
     {
+        vm.gc.no_collect += 1;
         // Build the body: (%make-record <type> <fields-in-field-order>)
         // For each field in all_fields order, find it in the constructor args
         // Actually: %make-record takes type + field values in order.
@@ -171,6 +172,7 @@ pub fn handleDefineRecordType(vm: *VM, args: Value) VMError!Value {
             params,
         ) catch return VMError.OutOfMemory;
         var define_expr = vm.gc.makeList(&[_]Value{ define_sym, name_and_params, body_list }) catch return VMError.OutOfMemory;
+        vm.gc.no_collect -= 1;
         vm.gc.popRoot(); // body_list now reachable through define_expr
         vm.gc.pushRoot(&define_expr);
 
@@ -190,6 +192,7 @@ pub fn handleDefineRecordType(vm: *VM, args: Value) VMError!Value {
 
     // Generate predicate: (define (pred? v) (%record? v __record_type_point))
     {
+        vm.gc.no_collect += 1;
         const define_sym = vm.gc.allocSymbol("define") catch return VMError.OutOfMemory;
         const v_sym = vm.gc.allocSymbol("v") catch return VMError.OutOfMemory;
         const pred_sym = vm.gc.allocSymbol(pred_name) catch return VMError.OutOfMemory;
@@ -199,6 +202,7 @@ pub fn handleDefineRecordType(vm: *VM, args: Value) VMError!Value {
         const body = vm.gc.makeList(&[_]Value{ record_check_sym, v_sym, type_ref }) catch return VMError.OutOfMemory;
         const name_and_params = vm.gc.makeList(&[_]Value{ pred_sym, v_sym }) catch return VMError.OutOfMemory;
         var define_expr = vm.gc.makeList(&[_]Value{ define_sym, name_and_params, body }) catch return VMError.OutOfMemory;
+        vm.gc.no_collect -= 1;
         vm.gc.pushRoot(&define_expr);
 
         const func = if (vm.current_lib_env) |env|
@@ -219,6 +223,7 @@ pub fn handleDefineRecordType(vm: *VM, args: Value) VMError!Value {
     for (0..all_field_count) |fi| {
         // Accessor: (define (accessor p) (%record-ref p <index>))
         {
+            vm.gc.no_collect += 1;
             const define_sym = vm.gc.allocSymbol("define") catch return VMError.OutOfMemory;
             const p_sym = vm.gc.allocSymbol("p") catch return VMError.OutOfMemory;
             const acc_sym = vm.gc.allocSymbol(accessor_names[fi]) catch return VMError.OutOfMemory;
@@ -228,6 +233,7 @@ pub fn handleDefineRecordType(vm: *VM, args: Value) VMError!Value {
             const body = vm.gc.makeList(&[_]Value{ record_ref_sym, p_sym, idx_val }) catch return VMError.OutOfMemory;
             const name_and_params = vm.gc.makeList(&[_]Value{ acc_sym, p_sym }) catch return VMError.OutOfMemory;
             var define_expr = vm.gc.makeList(&[_]Value{ define_sym, name_and_params, body }) catch return VMError.OutOfMemory;
+            vm.gc.no_collect -= 1;
             vm.gc.pushRoot(&define_expr);
 
             const func = if (vm.current_lib_env) |env|
@@ -246,6 +252,7 @@ pub fn handleDefineRecordType(vm: *VM, args: Value) VMError!Value {
 
         // Mutator (if specified): (define (mutator p v) (%record-set! p <index> v))
         if (mutator_names[fi]) |mut_name| {
+            vm.gc.no_collect += 1;
             const define_sym = vm.gc.allocSymbol("define") catch return VMError.OutOfMemory;
             const p_sym = vm.gc.allocSymbol("p") catch return VMError.OutOfMemory;
             const v_sym = vm.gc.allocSymbol("v") catch return VMError.OutOfMemory;
@@ -256,6 +263,7 @@ pub fn handleDefineRecordType(vm: *VM, args: Value) VMError!Value {
             const body = vm.gc.makeList(&[_]Value{ record_set_sym, p_sym, idx_val, v_sym }) catch return VMError.OutOfMemory;
             const name_and_params = vm.gc.makeList(&[_]Value{ mut_sym, p_sym, v_sym }) catch return VMError.OutOfMemory;
             var define_expr = vm.gc.makeList(&[_]Value{ define_sym, name_and_params, body }) catch return VMError.OutOfMemory;
+            vm.gc.no_collect -= 1;
             vm.gc.pushRoot(&define_expr);
 
             const func = if (vm.current_lib_env) |env|

@@ -43,6 +43,7 @@ pub const GC = struct {
     roots: std.ArrayList(*Value),
     extra_roots: std.ArrayList(Value),
     enabled: bool = true,
+    no_collect: u32 = 0,
     bytes_allocated: usize = 0,
     // Optional callback to mark roots held outside the GC's own root lists —
     // notably the VM's live register file and call frames. Set by the VM so a
@@ -747,7 +748,7 @@ pub const GC = struct {
     // -- GC --
 
     fn maybeCollect(self: *GC) void {
-        if (self.enabled and self.object_count >= self.gc_threshold) {
+        if (self.enabled and self.no_collect == 0 and self.object_count >= self.gc_threshold) {
             self.collect();
         }
     }
