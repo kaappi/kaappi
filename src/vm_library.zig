@@ -748,7 +748,12 @@ fn processImportRename(vm: *VM, target: *std.StringHashMap(Value), args: Value) 
 pub fn handleDefineLibrary(vm: *VM, args: Value) VMError!Value {
     if (!types.isPair(args)) return VMError.CompileError;
     const name_list = types.car(args);
-    const decls = types.cdr(args);
+    var decls = types.cdr(args);
+
+    // Root the AST so it survives GC during nested library loading
+    // (e.g. when (import (srfi 35)) triggers loading a .sld file).
+    vm.gc.pushRoot(&decls);
+    defer vm.gc.popRoot();
 
     const lib_name = library_mod.libraryNameToString(vm.gc.allocator, name_list) catch return VMError.CompileError;
 
@@ -764,6 +769,17 @@ pub fn handleDefineLibrary(vm: *VM, args: Value) VMError!Value {
         vm.gc.allocator.destroy(lib_env);
         vm.gc.allocator.free(lib_name);
     };
+
+    // Root the library environment so GC can trace closures defined in
+    // begin blocks before the library is registered. Push/pop for
+    // nested library loading (e.g. SRFI 64 importing SRFI 35).
+    if (vm.pending_lib_env_count < vm.pending_lib_envs.len) {
+        vm.pending_lib_envs[vm.pending_lib_env_count] = lib_env;
+        vm.pending_lib_env_count += 1;
+    }
+    defer {
+        if (vm.pending_lib_env_count > 0) vm.pending_lib_env_count -= 1;
+    }
 
     var export_names: [128][]const u8 = undefined;
     var export_renames: [128]?[]const u8 = undefined;

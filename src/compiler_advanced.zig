@@ -193,28 +193,34 @@ pub fn compileCase(self: *Compiler, args: Value, dst: u8, is_tail: bool) Compile
             try self.emit(eqv_reg);
             try self.emitU16(eqv_idx);
 
-            // Set up call: eqv_reg(key_reg, datum_reg)
-            // We need contiguous regs: func, arg1, arg2
-            // Move eqv? to dst, key to dst+1, datum to dst+2
+            // Set up call: eqv?(key, datum) in fresh contiguous registers
+            // to avoid clobbering live variables near dst.
+            const call_base = try self.allocReg();
+            const arg1_pos = try self.allocReg();
+            const arg2_pos = try self.allocReg();
             try self.emitOp(.move);
-            try self.emit(dst);
+            try self.emit(call_base);
             try self.emit(eqv_reg);
-            const arg1_reg = try self.allocReg();
             try self.emitOp(.move);
-            try self.emit(arg1_reg);
+            try self.emit(arg1_pos);
             try self.emit(key_reg);
-            const arg2_reg = try self.allocReg();
             try self.emitOp(.move);
-            try self.emit(arg2_reg);
+            try self.emit(arg2_pos);
             try self.emit(datum_reg);
 
             try self.emitOp(.call);
-            try self.emit(dst);
+            try self.emit(call_base);
             try self.emit(2);
 
+            // Move result to dst
+            try self.emitOp(.move);
+            try self.emit(dst);
+            try self.emit(call_base);
+
             // Free temp regs
-            self.freeReg(); // arg2_reg
-            self.freeReg(); // arg1_reg
+            self.freeReg(); // arg2_pos
+            self.freeReg(); // arg1_pos
+            self.freeReg(); // call_base
             self.freeReg(); // eqv_reg
             self.freeReg(); // datum_reg
 

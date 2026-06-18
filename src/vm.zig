@@ -87,6 +87,14 @@ fn markVMRoots(gc: *memory.GC) void {
             while (eit2.next()) |v| gc.markValue(v.*);
         }
     }
+
+    // Mark library environments being built by handleDefineLibrary
+    for (vm.pending_lib_envs[0..vm.pending_lib_env_count]) |maybe_env| {
+        if (maybe_env) |env| {
+            var eit = env.valueIterator();
+            while (eit.next()) |v| gc.markValue(v.*);
+        }
+    }
 }
 
 const ExceptionHandler = struct {
@@ -145,6 +153,12 @@ pub const VM = struct {
     /// Directory of the .sld file currently being loaded, for resolving include paths.
     current_lib_dir: ?[]const u8 = null,
     current_lib_env: ?*std.StringHashMap(Value) = null,
+    /// Library environments being built by handleDefineLibrary. Traced by
+    /// markVMRoots so closures defined in begin blocks survive GC before
+    /// the library is registered. Supports nesting (e.g. SRFI 64 importing
+    /// SRFI 35 triggers a recursive handleDefineLibrary).
+    pending_lib_envs: [8]?*std.StringHashMap(Value) = .{null} ** 8,
+    pending_lib_env_count: u8 = 0,
     /// When non-null, handleDefineLibrary collects compiled functions here
     /// for .sbc cache writing. Set by tryLoadLibraryFromFile.
     lib_compile_collect: ?*std.ArrayList(*types.Function) = null,
