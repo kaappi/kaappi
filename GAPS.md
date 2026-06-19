@@ -69,12 +69,13 @@ Command-line arguments are passed through to `(command-line)`. Debug flags `--gc
 
 **SRFI-18 API:** `current-thread`, `thread?`, `make-thread`, `thread-name`, `thread-specific`, `thread-specific-set!`, `thread-start!`, `thread-yield!`, `thread-sleep!`, `thread-terminate!`, `thread-join!`, `mutex?`, `make-mutex`, `mutex-name`, `mutex-specific`, `mutex-specific-set!`, `mutex-state`, `mutex-lock!`, `mutex-unlock!`, `condition-variable?`, `make-condition-variable`, `condition-variable-name`, `condition-variable-specific`, `condition-variable-specific-set!`, `condition-variable-signal!`, `condition-variable-broadcast!`, `current-time`, `time?`, `time->seconds`, `seconds->time`, `join-timeout-exception?`, `abandoned-mutex-exception?`, `terminated-thread-exception?`, `uncaught-exception?`, `uncaught-exception-reason`
 
-**Design:** Single OS thread, cooperative scheduling via explicit `(yield)`. Each fiber has its own registers, call stack, handlers, and wind stack. Shared globals, macros, libraries, and GC. Channels use an unbounded pair-based queue (send never blocks). Both `(kaappi fibers)` and `(srfi 18)` operate on the same underlying Fiber objects — threads created by either library are interoperable.
+**Design:** Single OS thread, cooperative scheduling via explicit `(yield)`. Each fiber has its own registers, call stack, handlers, wind stack, and parameter bindings. Shared globals, macros, libraries, and GC. Channels use an unbounded pair-based queue (send never blocks). Both `(kaappi fibers)` and `(srfi 18)` operate on the same underlying Fiber objects — threads created by either library are interoperable.
+
+**Fiber-local parameters:** Each fiber has its own `parameterize` bindings via a per-fiber parameter override map. `make-parameter` values are isolated across fibers — `parameterize` in one fiber does not affect others. Child fibers inherit the parent's parameter bindings at spawn time.
 
 **Remaining work:**
 - OS-level threading with true parallelism (requires thread-safe GC)
 - Async I/O integration (not planned for near term)
-- Fiber-local storage
 
 ---
 
