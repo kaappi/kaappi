@@ -199,7 +199,7 @@ pub const Reader = struct {
     }
 
     pub fn nextToken(self: *Reader) ReadError!Token {
-        self.skipWhitespaceAndComments();
+        try self.skipWhitespaceAndCommentsChecked();
         if (self.pos >= self.source.len) return .eof;
 
         const c = self.source[self.pos];
