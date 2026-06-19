@@ -536,6 +536,7 @@ fn stringForEachFn(args: []const Value) PrimitiveError!Value {
 
     const str_count = args.len - 1;
     if (str_count == 0) return PrimitiveError.ArityMismatch;
+    if (str_count > 256) return PrimitiveError.ArityMismatch;
 
     // Find minimum codepoint length
     var min_cp_len: usize = std.math.maxInt(usize);
@@ -583,6 +584,7 @@ fn stringMapFn(args: []const Value) PrimitiveError!Value {
 
     const str_count = args.len - 1;
     if (str_count == 0) return PrimitiveError.ArityMismatch;
+    if (str_count > 256) return PrimitiveError.ArityMismatch;
 
     // Find minimum codepoint length
     var min_cp_len: usize = std.math.maxInt(usize);
