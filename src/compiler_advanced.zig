@@ -103,8 +103,8 @@ pub fn compileCase(self: *Compiler, args: Value, dst: u8, is_tail: bool) Compile
     const key_reg = try self.allocReg();
     try self.compileExpr(key_expr, key_reg, false);
 
-    var end_jumps: [32]usize = undefined;
-    var end_count: usize = 0;
+    var end_jumps: std.ArrayList(usize) = .empty;
+    defer end_jumps.deinit(self.gc.allocator);
     var current = clauses;
     var had_else = false;
 
@@ -156,8 +156,8 @@ pub fn compileCase(self: *Compiler, args: Value, dst: u8, is_tail: bool) Compile
         // If any matches, jump to clause body
         if (!types.isPair(datums)) return CompileError.InvalidSyntax;
 
-        var body_jumps: [32]usize = undefined;
-        var body_jump_count: usize = 0;
+        var body_jumps: std.ArrayList(usize) = .empty;
+        defer body_jumps.deinit(self.gc.allocator);
         var datum_list = datums;
 
         while (datum_list != types.NIL) {
@@ -218,10 +218,7 @@ pub fn compileCase(self: *Compiler, args: Value, dst: u8, is_tail: bool) Compile
             // jump_true to clause body
             try self.emitOp(.jump_true);
             try self.emit(dst);
-            if (body_jump_count < 32) {
-                body_jumps[body_jump_count] = self.currentOffset();
-                body_jump_count += 1;
-            }
+            body_jumps.append(self.gc.allocator, self.currentOffset()) catch return CompileError.TooManyLocals;
             try self.emitI16(0);
         }
 
@@ -231,7 +228,7 @@ pub fn compileCase(self: *Compiler, args: Value, dst: u8, is_tail: bool) Compile
         try self.emitI16(0);
 
         // Patch body jumps to here (start of clause body)
-        for (body_jumps[0..body_jump_count]) |j| {
+        for (body_jumps.items) |j| {
             self.patchJump(j);
         }
 
@@ -271,10 +268,7 @@ pub fn compileCase(self: *Compiler, args: Value, dst: u8, is_tail: bool) Compile
 
                 // Jump to end
                 try self.emitOp(.jump);
-                if (end_count < 32) {
-                    end_jumps[end_count] = self.currentOffset();
-                    end_count += 1;
-                }
+                end_jumps.append(self.gc.allocator, self.currentOffset()) catch return CompileError.TooManyLocals;
                 try self.emitI16(0);
 
                 // Patch next clause jump
@@ -288,10 +282,7 @@ pub fn compileCase(self: *Compiler, args: Value, dst: u8, is_tail: bool) Compile
 
         // Jump to end
         try self.emitOp(.jump);
-        if (end_count < 32) {
-            end_jumps[end_count] = self.currentOffset();
-            end_count += 1;
-        }
+        end_jumps.append(self.gc.allocator, self.currentOffset()) catch return CompileError.TooManyLocals;
         try self.emitI16(0);
 
         // Patch next clause jump
@@ -305,7 +296,7 @@ pub fn compileCase(self: *Compiler, args: Value, dst: u8, is_tail: bool) Compile
     }
 
     // Patch all end jumps
-    for (end_jumps[0..end_count]) |j| {
+    for (end_jumps.items) |j| {
         self.patchJump(j);
     }
 

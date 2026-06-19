@@ -765,14 +765,17 @@ pub const VM = struct {
                     const idx = self.readU8(frame);
                     const closure = frame.closure orelse return VMError.InvalidBytecode;
                     const uv = closure.upvalues[idx];
-                    self.registers[frame.base + dst] = if (types.isPair(uv)) types.car(uv) else uv;
+                    self.registers[frame.base + dst] = if (types.isPair(uv) and types.cdr(uv) == types.VOID)
+                        types.car(uv)
+                    else
+                        uv;
                 },
                 .set_upvalue => {
                     const idx = self.readU8(frame);
                     const src = self.readU8(frame);
                     const closure = frame.closure orelse return VMError.InvalidBytecode;
                     const uv = closure.upvalues[idx];
-                    if (types.isPair(uv)) {
+                    if (types.isPair(uv) and types.cdr(uv) == types.VOID) {
                         types.setCar(uv, self.registers[frame.base + src]);
                     } else {
                         closure.upvalues[idx] = self.registers[frame.base + src];
@@ -1083,7 +1086,13 @@ pub const VM = struct {
                         frame.ip += 1;
 
                         if (is_local) {
-                            cls.upvalues[i] = self.registers[frame.base + index];
+                            var val = self.registers[frame.base + index];
+                            if (!types.isPair(val) or types.cdr(val) != types.VOID) {
+                                const box = self.gc.allocPair(val, types.VOID) catch return VMError.OutOfMemory;
+                                self.registers[frame.base + index] = box;
+                                val = box;
+                            }
+                            cls.upvalues[i] = val;
                         } else {
                             const pc = parent_closure;
                             cls.upvalues[i] = pc.upvalues[index];
@@ -1289,18 +1298,31 @@ pub const VM = struct {
                 .box_local => {
                     const reg = self.readU8(frame);
                     const val = self.registers[frame.base + reg];
-                    const box = self.gc.allocPair(val, types.NIL) catch return VMError.OutOfMemory;
+                    const box = self.gc.allocPair(val, types.VOID) catch return VMError.OutOfMemory;
                     self.registers[frame.base + reg] = box;
                 },
                 .get_box_local => {
-                    const dst = self.readU8(frame);
+                    const dst_r = self.readU8(frame);
                     const reg = self.readU8(frame);
-                    self.registers[frame.base + dst] = types.car(self.registers[frame.base + reg]);
+                    const val = self.registers[frame.base + reg];
+                    if (types.isPair(val) and types.cdr(val) == types.VOID) {
+                        self.registers[frame.base + dst_r] = types.car(val);
+                    } else {
+                        const box = self.gc.allocPair(val, types.VOID) catch return VMError.OutOfMemory;
+                        self.registers[frame.base + reg] = box;
+                        self.registers[frame.base + dst_r] = val;
+                    }
                 },
                 .set_box_local => {
                     const reg = self.readU8(frame);
                     const src = self.readU8(frame);
-                    types.setCar(self.registers[frame.base + reg], self.registers[frame.base + src]);
+                    const val = self.registers[frame.base + reg];
+                    if (types.isPair(val) and types.cdr(val) == types.VOID) {
+                        types.setCar(val, self.registers[frame.base + src]);
+                    } else {
+                        const box = self.gc.allocPair(self.registers[frame.base + src], types.VOID) catch return VMError.OutOfMemory;
+                        self.registers[frame.base + reg] = box;
+                    }
                 },
                 .self_tail_call => {
                     const base_reg = self.readU8(frame);

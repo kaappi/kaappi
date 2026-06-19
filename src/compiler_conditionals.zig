@@ -14,8 +14,8 @@ pub fn compileAnd(self: *Compiler, args: Value, dst: u8, is_tail: bool) CompileE
         return;
     }
 
-    var end_jumps: [32]usize = undefined;
-    var jump_count: usize = 0;
+    var end_jumps: std.ArrayList(usize) = .empty;
+    defer end_jumps.deinit(self.gc.allocator);
     var current = args;
 
     while (current != types.NIL) {
@@ -24,21 +24,18 @@ pub fn compileAnd(self: *Compiler, args: Value, dst: u8, is_tail: bool) CompileE
         const rest = types.cdr(current);
 
         if (rest == types.NIL) {
-            // Last expression -- in tail position if and is
             try self.compileExpr(expr, dst, is_tail);
         } else {
             try self.compileExpr(expr, dst, false);
             try self.emitOp(.jump_false);
             try self.emit(dst);
-            end_jumps[jump_count] = self.currentOffset();
-            jump_count += 1;
-            try self.emitI16(0); // placeholder
+            end_jumps.append(self.gc.allocator, self.currentOffset()) catch return CompileError.TooManyLocals;
+            try self.emitI16(0);
         }
         current = rest;
     }
 
-    // Patch all early-exit jumps to here
-    for (end_jumps[0..jump_count]) |j| {
+    for (end_jumps.items) |j| {
         self.patchJump(j);
     }
 }
@@ -50,8 +47,8 @@ pub fn compileOr(self: *Compiler, args: Value, dst: u8, is_tail: bool) CompileEr
         return;
     }
 
-    var end_jumps: [32]usize = undefined;
-    var jump_count: usize = 0;
+    var end_jumps: std.ArrayList(usize) = .empty;
+    defer end_jumps.deinit(self.gc.allocator);
     var current = args;
 
     while (current != types.NIL) {
@@ -65,14 +62,13 @@ pub fn compileOr(self: *Compiler, args: Value, dst: u8, is_tail: bool) CompileEr
             try self.compileExpr(expr, dst, false);
             try self.emitOp(.jump_true);
             try self.emit(dst);
-            end_jumps[jump_count] = self.currentOffset();
-            jump_count += 1;
+            end_jumps.append(self.gc.allocator, self.currentOffset()) catch return CompileError.TooManyLocals;
             try self.emitI16(0);
         }
         current = rest;
     }
 
-    for (end_jumps[0..jump_count]) |j| {
+    for (end_jumps.items) |j| {
         self.patchJump(j);
     }
 }
@@ -146,8 +142,8 @@ pub fn compileCond(self: *Compiler, args: Value, dst: u8, is_tail: bool) Compile
         return;
     }
 
-    var end_jumps: [32]usize = undefined;
-    var end_count: usize = 0;
+    var end_jumps: std.ArrayList(usize) = .empty;
+    defer end_jumps.deinit(self.gc.allocator);
     var current = args;
     var had_else = false;
 
@@ -209,8 +205,7 @@ pub fn compileCond(self: *Compiler, args: Value, dst: u8, is_tail: bool) Compile
                 self.freeReg(); // proc_reg
 
                 try self.emitOp(.jump);
-                end_jumps[end_count] = self.currentOffset();
-                end_count += 1;
+                end_jumps.append(self.gc.allocator, self.currentOffset()) catch return CompileError.TooManyLocals;
                 try self.emitI16(0);
 
                 self.patchJump(next_clause);
@@ -231,8 +226,7 @@ pub fn compileCond(self: *Compiler, args: Value, dst: u8, is_tail: bool) Compile
         }
 
         try self.emitOp(.jump);
-        end_jumps[end_count] = self.currentOffset();
-        end_count += 1;
+        end_jumps.append(self.gc.allocator, self.currentOffset()) catch return CompileError.TooManyLocals;
         try self.emitI16(0);
 
         self.patchJump(next_clause);
@@ -244,7 +238,7 @@ pub fn compileCond(self: *Compiler, args: Value, dst: u8, is_tail: bool) Compile
         try self.emit(dst);
     }
 
-    for (end_jumps[0..end_count]) |j| {
+    for (end_jumps.items) |j| {
         self.patchJump(j);
     }
 }
