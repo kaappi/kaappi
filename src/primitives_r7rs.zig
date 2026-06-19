@@ -267,7 +267,11 @@ fn makeParameterFn(args: []const Value) PrimitiveError!Value {
 fn parameterSetDirectFn(args: []const Value) PrimitiveError!Value {
     if (!types.isParameter(args[0])) return PrimitiveError.TypeError;
     const param = types.toObject(args[0]).as(types.ParameterObject);
-    param.value = args[1];
+    if (vm_mod.vm_instance) |vm| {
+        vm.setParameterValue(param, args[1]);
+    } else {
+        param.value = args[1];
+    }
     return types.VOID;
 }
 

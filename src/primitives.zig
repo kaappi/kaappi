@@ -30,6 +30,7 @@ pub const PrimitiveError = error{
     ContinuationInvoked,
     IndexOutOfBounds,
     InvalidArgument,
+    Yielded,
 };
 
 fn registerCore(vm: *vm_mod.VM) !void {

@@ -697,6 +697,7 @@ pub const GC = struct {
             .deadline_ns = null,
             .timed_out = false,
             .terminated = false,
+            .param_overrides = std.AutoHashMap(usize, Value).init(self.allocator),
         };
         @memset(&fiber.registers, types.UNDEFINED);
         self.bytes_allocated += @sizeOf(fiber_mod.Fiber);
@@ -1419,7 +1420,9 @@ pub const GC = struct {
                 self.allocator.destroy(obj.as(RandomSource));
             },
             .fiber => {
-                self.allocator.destroy(obj.as(@import("fiber.zig").Fiber));
+                const fiber = obj.as(@import("fiber.zig").Fiber);
+                fiber.param_overrides.deinit();
+                self.allocator.destroy(fiber);
             },
             .channel => {
                 self.allocator.destroy(obj.as(types.Channel));

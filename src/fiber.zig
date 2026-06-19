@@ -43,6 +43,7 @@ pub const Fiber = struct {
     id: u32,
     name: Value = types.VOID,
     specific: Value = types.VOID,
+    param_overrides: std.AutoHashMap(usize, Value),
     deadline_ns: ?u64 = null,
     timed_out: bool = false,
     terminated: bool = false,
@@ -90,6 +91,13 @@ pub const FiberScheduler = struct {
         };
         fiber.frame_count = 1;
         fiber.status = .created;
+
+        // Inherit parent's parameter bindings
+        const source = if (self.vm.current_fiber) |f| &f.param_overrides else &self.vm.param_overrides;
+        var it = source.iterator();
+        while (it.next()) |entry| {
+            fiber.param_overrides.put(entry.key_ptr.*, entry.value_ptr.*) catch {};
+        }
 
         try self.addFiber(fiber);
         return fiber;
@@ -257,6 +265,9 @@ pub fn markFiberState(gc: *memory.GC, fiber: *Fiber) void {
         gc.markValue(wr.before);
         gc.markValue(wr.after);
     }
+
+    var pit = fiber.param_overrides.valueIterator();
+    while (pit.next()) |v| gc.markValue(v.*);
 
     if (fiber.current_exception) |exc| gc.markValue(exc);
     gc.markValue(fiber.continuation_value);

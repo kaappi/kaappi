@@ -81,6 +81,9 @@ fn markVMRoots(gc: *memory.GC) void {
     var mit = vm.macros.valueIterator();
     while (mit.next()) |v| gc.markValue(v.*);
 
+    var pit = vm.param_overrides.valueIterator();
+    while (pit.next()) |v| gc.markValue(v.*);
+
     // Mark library export values and per-library environments
     var lit = vm.libraries.libraries.valueIterator();
     while (lit.next()) |lib| {
@@ -201,6 +204,7 @@ pub const VM = struct {
     /// When non-null, record files read during library loading for bundling.
     compile_collect_files: ?*std.StringHashMap([]const u8) = null,
     jit_disabled: bool = false,
+    param_overrides: std.AutoHashMap(usize, Value) = undefined,
     scheduler: ?*@import("fiber.zig").FiberScheduler = null,
     current_fiber: ?*@import("fiber.zig").Fiber = null,
     yielded: bool = false,
@@ -213,6 +217,7 @@ pub const VM = struct {
             .output = .empty,
             .libraries = library_mod.LibraryRegistry.init(gc.allocator),
             .loading_libs = std.StringHashMap(void).init(gc.allocator),
+            .param_overrides = std.AutoHashMap(usize, Value).init(gc.allocator),
         };
         @memset(&vm.registers, types.UNDEFINED);
         // Teach the GC how to find roots held in the VM (registers, frames,
@@ -236,6 +241,26 @@ pub const VM = struct {
         self.output.deinit(self.gc.allocator);
         self.libraries.deinit();
         self.loading_libs.deinit();
+        self.param_overrides.deinit();
+    }
+
+    pub fn getParameterValue(self: *VM, param: *types.ParameterObject) Value {
+        const key = @intFromPtr(param);
+        if (self.current_fiber) |fiber| {
+            if (fiber.param_overrides.get(key)) |val| return val;
+        } else {
+            if (self.param_overrides.get(key)) |val| return val;
+        }
+        return param.value;
+    }
+
+    pub fn setParameterValue(self: *VM, param: *types.ParameterObject, val: Value) void {
+        const key = @intFromPtr(param);
+        if (self.current_fiber) |fiber| {
+            fiber.param_overrides.put(key, val) catch {};
+        } else {
+            self.param_overrides.put(key, val) catch {};
+        }
     }
 
     pub fn setErrorDetail(self: *VM, comptime fmt: []const u8, args: anytype) void {
@@ -552,13 +577,13 @@ pub const VM = struct {
         if (types.isParameter(proc)) {
             const param = types.toObject(proc).as(types.ParameterObject);
             if (args.len == 0) {
-                return param.value;
+                return self.getParameterValue(param);
             } else {
                 var new_val = args[0];
                 if (param.converter != types.NIL) {
                     new_val = try self.callWithArgs(param.converter, &[_]Value{new_val});
                 }
-                param.value = new_val;
+                self.setParameterValue(param, new_val);
                 return types.VOID;
             }
         }
@@ -1128,12 +1153,12 @@ pub const VM = struct {
                         self.registers[ret_idx] = result;
                     } else if (types.isParameter(callee)) {
                         const param = types.toObject(callee).as(types.ParameterObject);
-                        const result = if (nargs == 0) param.value else blk: {
+                        const result = if (nargs == 0) self.getParameterValue(param) else blk: {
                             var new_val = self.registers[abs_base + 1];
                             if (param.converter != types.NIL) {
                                 new_val = self.callWithArgs(param.converter, &[_]Value{new_val}) catch |err| return err;
                             }
-                            param.value = new_val;
+                            self.setParameterValue(param, new_val);
                             break :blk types.VOID;
                         };
                         const return_dst = frame.dst;
@@ -1842,15 +1867,13 @@ pub const VM = struct {
         if (types.isParameter(callee)) {
             const param = types.toObject(callee).as(types.ParameterObject);
             if (nargs == 0) {
-                // Get value
-                self.registers[base] = param.value;
+                self.registers[base] = self.getParameterValue(param);
             } else {
-                // Set value (apply converter if present)
                 var new_val = self.registers[base + 1];
                 if (param.converter != types.NIL) {
                     new_val = self.callWithArgs(param.converter, &[_]Value{new_val}) catch |err| return err;
                 }
-                param.value = new_val;
+                self.setParameterValue(param, new_val);
                 self.registers[base] = types.VOID;
             }
             return;
@@ -2027,6 +2050,7 @@ pub const VM = struct {
                     error.OutOfMemory => VMError.OutOfMemory,
                     error.ExceptionRaised => VMError.ExceptionRaised,
                     error.ContinuationInvoked => VMError.ContinuationInvoked,
+                    error.Yielded => VMError.Yielded,
                     else => VMError.InvalidBytecode,
                 };
             };
