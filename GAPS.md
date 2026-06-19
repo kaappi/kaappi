@@ -99,9 +99,31 @@ Reports top 20 functions sorted by self time, showing:
 
 ## JIT compilation
 
-**Status:** Not planned for near term
+**Status:** Baseline template JIT implemented (AArch64 only)
 
-The VM is purely interpreted bytecode. A tracing or method-based JIT would significantly improve performance on compute-heavy workloads but is a major undertaking.
+Hot functions (called 100+ times) are compiled to native AArch64 machine code. Each bytecode opcode maps to a pre-assembled native snippet that reads/writes the VM's register file directly. Complex operations (function calls, returns, GC-allocating ops) side-exit back to the interpreter. JIT is on by default; disable with `--no-jit`.
+
+**What gets JIT'd natively:**
+- `load_nil`, `load_true`, `load_false`, `load_void`, `load_const` — immediate/constant loads
+- `move`, `get_local`, `set_local` — register operations
+- `jump`, `jump_false`, `jump_true` — control flow
+
+**What side-exits to the interpreter:**
+- `call`, `tail_call`, `self_tail_call`, `call_global`, `tail_call_global` — function dispatch
+- `return` — frame management
+- `get_global`, `set_global`, `define_global` — global lookups
+- `cons`, `box_local`, `get_box_local`, `set_box_local` — allocation/mutation
+
+**Not JIT-eligible** (function stays fully interpreted):
+- Functions using `closure`, `push_handler`/`pop_handler`, `close_upvalue`, `tail_apply`, or `halt`
+
+**Design:** The JIT keeps the VM's register file, GC, and continuation machinery unchanged. Callee-saved AArch64 registers hold pointers to the VM struct and register window base. GC safety is maintained because JIT'd code never allocates — all allocating opcodes side-exit. Continuations work because `call/cc` runs entirely in the interpreter.
+
+**Remaining work:**
+- x86_64 backend
+- Native templates for `get_upvalue`/`set_upvalue`
+- Inline caching for `get_global`/`call_global`
+- Type-specialized arithmetic (unboxed fixnum add/sub/compare)
 
 ---
 
