@@ -116,12 +116,33 @@ fn resetProfileCounters(gc: *memory.GC) void {
             const func = o.as(types.Function);
             func.profile_instrs = 0;
             func.profile_calls = 0;
+            func.profile_time_ns = 0;
+            func.profile_inclusive_ns = 0;
+            func.profile_alloc_bytes = 0;
         } else if (o.tag == .native_fn) {
             const native = o.as(types.NativeFn);
             native.profile_calls = 0;
+            native.profile_time_ns = 0;
+            native.profile_alloc_bytes = 0;
         }
         obj = o.next;
     }
+}
+
+fn fmtMs(buf: []u8, ns: u64) []const u8 {
+    if (ns == 0) return "       -";
+    const ms_whole = ns / 1_000_000;
+    const ms_frac = (ns % 1_000_000) / 100_000;
+    return std.fmt.bufPrint(buf, "{d:>6}.{d}", .{ ms_whole, ms_frac }) catch "       ?";
+}
+
+fn fmtKb(buf: []u8, bytes: u64) []const u8 {
+    if (bytes == 0) return "      -";
+    const kb = bytes / 1024;
+    if (kb > 0) {
+        return std.fmt.bufPrint(buf, "{d:>6}", .{kb}) catch "      ?";
+    }
+    return std.fmt.bufPrint(buf, "   <1", .{}) catch "      ?";
 }
 
 fn printProfileReport(gc: *memory.GC) void {
@@ -131,6 +152,9 @@ fn printProfileReport(gc: *memory.GC) void {
         line: u32,
         instrs: u64,
         calls: u64,
+        self_ns: u64,
+        total_ns: u64,
+        alloc_bytes: u64,
     };
 
     var entries: [256]Entry = undefined;
@@ -152,6 +176,9 @@ fn printProfileReport(gc: *memory.GC) void {
                         .line = func.source_line,
                         .instrs = func.profile_instrs,
                         .calls = func.profile_calls,
+                        .self_ns = func.profile_time_ns,
+                        .total_ns = func.profile_inclusive_ns,
+                        .alloc_bytes = func.profile_alloc_bytes,
                     };
                     count += 1;
                 }
@@ -167,6 +194,9 @@ fn printProfileReport(gc: *memory.GC) void {
                         .line = 0,
                         .instrs = 0,
                         .calls = native.profile_calls,
+                        .self_ns = native.profile_time_ns,
+                        .total_ns = native.profile_time_ns,
+                        .alloc_bytes = native.profile_alloc_bytes,
                     };
                     count += 1;
                 }
@@ -179,6 +209,7 @@ fn printProfileReport(gc: *memory.GC) void {
 
     std.mem.sortUnstable(Entry, entries[0..count], {}, struct {
         fn lessThan(_: void, a: Entry, b: Entry) bool {
+            if (a.self_ns != b.self_ns) return a.self_ns > b.self_ns;
             if (a.instrs != b.instrs) return a.instrs > b.instrs;
             return a.calls > b.calls;
         }
@@ -187,18 +218,27 @@ fn printProfileReport(gc: *memory.GC) void {
     var buf: [256]u8 = undefined;
     const header = std.fmt.bufPrint(&buf, "\nProfile ({d} instructions, {d} calls):\n", .{ total_instrs, total_calls }) catch return;
     writeStderr(header);
-    writeStderr("  Instructions    Calls  Function\n");
+    writeStderr("  Self ms  Total ms    Calls  Alloc KB  Function\n");
 
     const limit = @min(count, 20);
     for (entries[0..limit]) |e| {
-        var line: [256]u8 = undefined;
+        var line: [512]u8 = undefined;
         var loc_buf: [128]u8 = undefined;
         const location: []const u8 = if (e.source) |src|
             std.fmt.bufPrint(&loc_buf, " ({s}:{d})", .{ src, e.line }) catch ""
         else
             " (built-in)";
 
-        const s = std.fmt.bufPrint(&line, "  {d:>12} {d:>8}  {s}{s}\n", .{ e.instrs, e.calls, e.name, location }) catch continue;
+        var self_buf: [16]u8 = undefined;
+        var total_buf: [16]u8 = undefined;
+        var alloc_buf: [16]u8 = undefined;
+        const self_ms = fmtMs(&self_buf, e.self_ns);
+        const total_ms = fmtMs(&total_buf, e.total_ns);
+        const alloc_kb = fmtKb(&alloc_buf, e.alloc_bytes);
+
+        const s = std.fmt.bufPrint(&line, "  {s}  {s} {d:>8}  {s}    {s}{s}\n", .{
+            self_ms, total_ms, e.calls, alloc_kb, e.name, location,
+        }) catch continue;
         writeStderr(s);
     }
 }
@@ -294,6 +334,8 @@ pub fn main(init: std.process.Init.Minimal) !void {
                 sa_gc_stats = true;
             } else if (std.mem.eql(u8, arg, "--profile")) {
                 sa_profile = true;
+            } else if (std.mem.eql(u8, arg, "--no-jit")) {
+                vm.jit_disabled = true;
             } else {
                 if (sa_count < 64) {
                     sa[sa_count] = arg;
@@ -430,6 +472,8 @@ pub fn main(init: std.process.Init.Minimal) !void {
             compile_output = args.next();
         } else if (std.mem.eql(u8, arg, "--disassemble")) {
             disassemble_mode = true;
+        } else if (std.mem.eql(u8, arg, "--no-jit")) {
+            vm.jit_disabled = true;
         } else if (std.mem.eql(u8, arg, "--no-cache")) {
             // future: disable caching
         } else {
@@ -1000,7 +1044,7 @@ fn repl(vm: *vm_mod.VM) !void {
             writeStdout(
                 \\Commands:
                 \\  ,time <expr>      Measure execution time
-                \\  ,profile <expr>   Profile instruction/call counts
+                \\  ,profile <expr>   Profile timing, calls, and allocations
                 \\  ,expand <expr>    Show macro expansion
                 \\  ,env [prefix]     List global bindings
                 \\  ,gc               Show GC statistics

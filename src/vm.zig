@@ -9,6 +9,7 @@ const OpCode = types.OpCode;
 pub const vm_library = @import("vm_library.zig");
 pub const vm_records = @import("vm_records.zig");
 pub const vm_continuations = @import("vm_continuations.zig");
+pub const jit = @import("jit.zig");
 
 pub const VMError = error{
     StackOverflow,
@@ -136,6 +137,11 @@ pub const CallFrame = struct {
 
 pub const StepMode = enum { none, step, next, continue_to_break };
 
+pub const ProfileTimeEntry = struct {
+    func: ?*types.Function,
+    entry_ns: u64,
+};
+
 pub const VM = struct {
     gc: *memory.GC,
     registers: [MAX_REGISTERS]Value = undefined,
@@ -185,12 +191,16 @@ pub const VM = struct {
     step_frame: usize = 0,
     global_version: u32 = 0,
     profile_mode: bool = false,
+    profile_last_ns: u64 = 0,
+    profile_time_stack: [256]ProfileTimeEntry = undefined,
+    profile_time_depth: usize = 0,
     sandbox_mode: bool = false,
     /// Virtual filesystem for standalone binary: maps file paths → source content.
     /// Populated from .sbc bundled files section; checked before disk reads.
     bundled_files: ?*std.StringHashMap([]const u8) = null,
     /// When non-null, record files read during library loading for bundling.
     compile_collect_files: ?*std.StringHashMap([]const u8) = null,
+    jit_disabled: bool = false,
     scheduler: ?*@import("fiber.zig").FiberScheduler = null,
     current_fiber: ?*@import("fiber.zig").Fiber = null,
     yielded: bool = false,
@@ -1019,11 +1029,16 @@ pub const VM = struct {
                             self.registers[dst_idx] = self.registers[src_idx];
                         }
 
+                        if (self.profile_mode) {
+                            func.profile_calls += 1;
+                            self.profileTailCall(func);
+                        }
                         frame.closure = closure;
                         frame.code = func.code.items;
                         frame.ip = 0;
                     } else if (types.isNativeFn(callee)) {
                         const native = types.toObject(callee).as(types.NativeFn);
+                        if (self.profile_mode) native.profile_calls += 1;
                         switch (native.arity) {
                             .exact => |expected| {
                                 if (nargs != expected) {
@@ -1038,9 +1053,20 @@ pub const VM = struct {
                                 }
                             },
                         }
+                        const saved_alloc_target = self.gc.profile_alloc_target;
+                        if (self.profile_mode) {
+                            self.profileCreditSelf();
+                            self.gc.profile_alloc_target = &native.profile_alloc_bytes;
+                        }
+                        const native_start = if (self.profile_mode) clockNs() else 0;
                         const nargs_slice = self.registers[abs_base + 1 .. abs_base + 1 + nargs];
                         self.last_error_detail_len = 0;
                         const result = native.func(nargs_slice) catch |err| {
+                            if (self.profile_mode) {
+                                native.profile_time_ns +%= clockNs() -% native_start;
+                                self.profile_last_ns = clockNs();
+                                self.gc.profile_alloc_target = saved_alloc_target;
+                            }
                             if (err == error.ContinuationInvoked) {
                                 if (target_frame_count == 0) {
                                     continue;
@@ -1060,8 +1086,14 @@ pub const VM = struct {
                                 else => VMError.InvalidBytecode,
                             };
                         };
+                        if (self.profile_mode) {
+                            native.profile_time_ns +%= clockNs() -% native_start;
+                            self.profile_last_ns = clockNs();
+                            self.gc.profile_alloc_target = saved_alloc_target;
+                        }
                         const return_dst = frame.dst;
                         self.frame_count -= 1;
+                        if (self.profile_mode) self.profilePopReturn();
                         if (self.frame_count <= target_frame_count) {
                             return result;
                         }
@@ -1230,6 +1262,7 @@ pub const VM = struct {
                     const return_dst = frame.dst;
                     const frame_wind = frame.saved_wind_count;
                     self.frame_count -= 1;
+                    if (self.profile_mode) self.profilePopReturn();
                     // Unwind dynamic-wind records established in this frame
                     while (self.wind_count > frame_wind) {
                         self.wind_count -= 1;
@@ -1477,14 +1510,30 @@ pub const VM = struct {
                             }
                             self.registers[dst_idx] = self.registers[src_idx];
                         }
+                        if (self.profile_mode) {
+                            tfunc.profile_calls += 1;
+                            self.profileTailCall(tfunc);
+                        }
                         frame.closure = tclosure;
                         frame.code = tfunc.code.items;
                         frame.ip = 0;
                     } else if (types.isNativeFn(callee)) {
                         const native = types.toObject(callee).as(types.NativeFn);
+                        if (self.profile_mode) native.profile_calls += 1;
+                        const saved_alloc_target = self.gc.profile_alloc_target;
+                        if (self.profile_mode) {
+                            self.profileCreditSelf();
+                            self.gc.profile_alloc_target = &native.profile_alloc_bytes;
+                        }
+                        const native_start = if (self.profile_mode) clockNs() else 0;
                         const args = self.registers[abs_base + 1 .. abs_base + 1 + nargs];
                         self.last_error_detail_len = 0;
                         const result = native.func(args) catch |err| {
+                            if (self.profile_mode) {
+                                native.profile_time_ns +%= clockNs() -% native_start;
+                                self.profile_last_ns = clockNs();
+                                self.gc.profile_alloc_target = saved_alloc_target;
+                            }
                             return switch (err) {
                                 error.TypeError => blk: {
                                     if (self.last_error_detail_len == 0)
@@ -1497,8 +1546,14 @@ pub const VM = struct {
                                 else => VMError.InvalidBytecode,
                             };
                         };
+                        if (self.profile_mode) {
+                            native.profile_time_ns +%= clockNs() -% native_start;
+                            self.profile_last_ns = clockNs();
+                            self.gc.profile_alloc_target = saved_alloc_target;
+                        }
                         const return_dst = frame.dst;
                         self.frame_count -= 1;
+                        if (self.profile_mode) self.profilePopReturn();
                         if (self.frame_count <= target_frame_count) return result;
                         const caller = &self.frames[self.frame_count - 1];
                         const ret_idx = try self.registerIndex(caller.base, return_dst);
@@ -1556,6 +1611,12 @@ pub const VM = struct {
                         }
                         self.registers[dst_idx] = self.registers[src_idx];
                     }
+                    if (self.profile_mode) {
+                        if (frame.closure) |cl| {
+                            cl.func.profile_calls += 1;
+                        }
+                        self.profileCreditSelf();
+                    }
                     frame.ip = 0;
                 },
                 else => return VMError.InvalidBytecode,
@@ -1572,6 +1633,81 @@ pub const VM = struct {
         self.current_exception = null;
         self.continuation_invoked = false;
         self.continuation_value = types.VOID;
+    }
+
+    fn clockNs() u64 {
+        var ts: std.c.timespec = undefined;
+        _ = std.c.clock_gettime(.MONOTONIC, &ts);
+        return @intCast(@as(i128, ts.sec) * 1_000_000_000 + ts.nsec);
+    }
+
+    fn profileCreditSelf(self: *VM) void {
+        const now = clockNs();
+        const elapsed = now -% self.profile_last_ns;
+        if (self.profile_time_depth > 0) {
+            if (self.profile_time_stack[self.profile_time_depth - 1].func) |f| {
+                f.profile_time_ns +%= elapsed;
+            }
+        }
+        self.profile_last_ns = now;
+    }
+
+    fn profilePushCall(self: *VM, func: *types.Function) void {
+        const now = clockNs();
+        const elapsed = now -% self.profile_last_ns;
+        if (self.profile_time_depth > 0) {
+            if (self.profile_time_stack[self.profile_time_depth - 1].func) |f| {
+                f.profile_time_ns +%= elapsed;
+            }
+        }
+        if (self.profile_time_depth < self.profile_time_stack.len) {
+            self.profile_time_stack[self.profile_time_depth] = .{
+                .func = func,
+                .entry_ns = now,
+            };
+            self.profile_time_depth += 1;
+        }
+        self.profile_last_ns = now;
+        self.gc.profile_alloc_target = &func.profile_alloc_bytes;
+    }
+
+    fn profilePopReturn(self: *VM) void {
+        const now = clockNs();
+        const elapsed = now -% self.profile_last_ns;
+        if (self.profile_time_depth > 0) {
+            const entry = &self.profile_time_stack[self.profile_time_depth - 1];
+            if (entry.func) |f| {
+                f.profile_time_ns +%= elapsed;
+                f.profile_inclusive_ns +%= now -% entry.entry_ns;
+            }
+            self.profile_time_depth -= 1;
+        }
+        self.profile_last_ns = now;
+        if (self.profile_time_depth > 0) {
+            if (self.profile_time_stack[self.profile_time_depth - 1].func) |f| {
+                self.gc.profile_alloc_target = &f.profile_alloc_bytes;
+            } else {
+                self.gc.profile_alloc_target = null;
+            }
+        } else {
+            self.gc.profile_alloc_target = null;
+        }
+    }
+
+    fn profileTailCall(self: *VM, new_func: *types.Function) void {
+        const now = clockNs();
+        const elapsed = now -% self.profile_last_ns;
+        if (self.profile_time_depth > 0) {
+            const entry = &self.profile_time_stack[self.profile_time_depth - 1];
+            if (entry.func) |f| {
+                f.profile_time_ns +%= elapsed;
+                f.profile_inclusive_ns +%= now -% entry.entry_ns;
+            }
+            entry.func = new_func;
+            entry.entry_ns = now;
+        }
+        self.profile_last_ns = now;
+        self.gc.profile_alloc_target = &new_func.profile_alloc_bytes;
     }
 
     pub fn execute(self: *VM, func: *types.Function) VMError!Value {
@@ -1593,11 +1729,27 @@ pub const VM = struct {
         };
         self.frame_count = 1;
 
+        if (self.profile_mode) {
+            self.profile_time_depth = 1;
+            self.profile_time_stack[0] = .{ .func = func, .entry_ns = clockNs() };
+            self.profile_last_ns = self.profile_time_stack[0].entry_ns;
+            self.gc.profile_alloc_target = &func.profile_alloc_bytes;
+        }
+
         const result = self.run() catch |err| {
             self.last_stack_trace_len = self.getStackTrace(&self.last_stack_trace);
+            if (self.profile_mode) {
+                self.profile_time_depth = 0;
+                self.gc.profile_alloc_target = null;
+            }
             self.resetExecutionState();
             return err;
         };
+        if (self.profile_mode) {
+            self.profileCreditSelf();
+            self.profile_time_depth = 0;
+            self.gc.profile_alloc_target = null;
+        }
         self.last_stack_trace_len = 0;
         self.resetExecutionState();
         return result;
@@ -1775,6 +1927,7 @@ pub const VM = struct {
 
             if (self.profile_mode) {
                 closure.func.profile_calls += 1;
+                self.profilePushCall(closure.func);
             }
 
             // Breakpoint check: pause if entering a function with a matching name
@@ -1786,6 +1939,22 @@ pub const VM = struct {
                             break;
                         }
                     }
+                }
+            }
+
+            // JIT: compile hot functions, execute via native code
+            if (!self.debug_mode and !self.jit_disabled) {
+                func.call_count +%= 1;
+                if (func.jit_code == null and func.call_count == jit.JIT_THRESHOLD) {
+                    jit.tryCompile(func, self);
+                }
+                if (func.jit_code) |jit_code| {
+                    const entry: jit.JitEntryFn = @ptrCast(@alignCast(jit_code.entry));
+                    const result = entry(self, new_base, func.constants.items.ptr);
+                    if (result > 0) {
+                        self.frames[self.frame_count - 1].ip = result - 1;
+                    }
+                    return;
                 }
             }
     }
@@ -1813,9 +1982,23 @@ pub const VM = struct {
                 },
             }
 
+            const saved_alloc_target = self.gc.profile_alloc_target;
+            if (self.profile_mode) {
+                self.profileCreditSelf();
+                self.gc.profile_alloc_target = &native.profile_alloc_bytes;
+            }
+
             const args = self.registers[base + 1 .. base + 1 + nargs];
             self.last_error_detail_len = 0;
+
+            const native_start = if (self.profile_mode) clockNs() else 0;
+
             const result = native.func(args) catch |err| {
+                if (self.profile_mode) {
+                    native.profile_time_ns +%= clockNs() -% native_start;
+                    self.profile_last_ns = clockNs();
+                    self.gc.profile_alloc_target = saved_alloc_target;
+                }
                 return switch (err) {
                     error.TypeError => blk: {
                         if (self.last_error_detail_len == 0) {
@@ -1847,6 +2030,12 @@ pub const VM = struct {
                     else => VMError.InvalidBytecode,
                 };
             };
+
+            if (self.profile_mode) {
+                native.profile_time_ns +%= clockNs() -% native_start;
+                self.profile_last_ns = clockNs();
+                self.gc.profile_alloc_target = saved_alloc_target;
+            }
 
             self.registers[base] = result;
     }

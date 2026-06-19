@@ -166,6 +166,8 @@ pub const NativeFn = struct {
     arity: Arity,
 
     profile_calls: u64 = 0,
+    profile_time_ns: u64 = 0,
+    profile_alloc_bytes: u64 = 0,
 
     pub const Arity = union(enum) {
         exact: u8,
@@ -202,6 +204,11 @@ pub const Function = struct {
     env: ?*std.StringHashMap(Value) = null,
     profile_instrs: u64 = 0,
     profile_calls: u64 = 0,
+    profile_time_ns: u64 = 0,
+    profile_inclusive_ns: u64 = 0,
+    profile_alloc_bytes: u64 = 0,
+    jit_code: ?*@import("jit.zig").JitCode = null,
+    call_count: u32 = 0,
 
     pub fn lineForOffset(self: *const Function, offset: usize) u32 {
         var best: u32 = self.source_line;
