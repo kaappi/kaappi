@@ -88,7 +88,8 @@ fn printGcStats(gc: *@import("memory.zig").GC) void {
         "complex",   "promise",   "parameter", "ffi_lib",
         "ffi_fn",    "hashtable", "bignum",    "rational",
         "file_info", "user_info", "grp_info",  "dir_obj",
-        "rng",       "ffi_cb",
+        "rng",       "ffi_cb",    "fiber",     "channel",
+        "mutex",     "condvar",   "time18",
     };
 
     writeStderr("  Allocations by type:\n");
@@ -281,17 +282,30 @@ pub fn main(init: std.process.Init.Minimal) !void {
 
     // Standalone mode: run embedded bytecode and exit
     if (embedded_bytecode.bytecode) |bytecode_data| {
+        // Parse flags before file arguments
         var sa: [64][]const u8 = undefined;
         var sa_count: usize = 0;
+        var sa_gc_stats = false;
+        var sa_profile = false;
         var sa_iter = init.args.iterate();
         _ = sa_iter.skip();
         while (sa_iter.next()) |arg| {
-            if (sa_count < 64) {
-                sa[sa_count] = arg;
-                sa_count += 1;
+            if (std.mem.eql(u8, arg, "--gc-stats")) {
+                sa_gc_stats = true;
+            } else if (std.mem.eql(u8, arg, "--profile")) {
+                sa_profile = true;
+            } else {
+                if (sa_count < 64) {
+                    sa[sa_count] = arg;
+                    sa_count += 1;
+                }
             }
         }
         vm.command_line_args = sa[0..sa_count];
+
+        defer if (sa_gc_stats) printGcStats(&gc);
+        if (sa_profile) vm.profile_mode = true;
+        defer if (sa_profile) printProfileReport(&gc);
 
         const loaded = bytecode_file.readFromBuffer(&gc, bytecode_data) catch {
             writeStderr("fatal: corrupted embedded bytecode\n");
@@ -301,6 +315,52 @@ pub fn main(init: std.process.Init.Minimal) !void {
             return;
         };
         defer allocator.free(loaded.funcs);
+
+        // Set up bundled files for library resolution
+        var bundled_files_map = loaded.bundled_files orelse std.StringHashMap([]const u8).init(allocator);
+        defer {
+            var bfit = bundled_files_map.iterator();
+            while (bfit.next()) |entry| {
+                allocator.free(entry.key_ptr.*);
+                allocator.free(entry.value_ptr.*);
+            }
+            bundled_files_map.deinit();
+        }
+        if (loaded.bundled_files != null) {
+            vm.bundled_files = &bundled_files_map;
+        }
+        defer vm.bundled_files = null;
+
+        // Replay preamble (import, include, define-library forms)
+        if (loaded.preamble) |preamble| {
+            defer {
+                for (preamble) |p| allocator.free(p);
+                allocator.free(preamble);
+            }
+            const reader_mod = @import("reader.zig");
+            for (preamble) |src| {
+                var pr = reader_mod.Reader.init(&gc, src);
+                defer pr.deinit();
+                while (pr.hasMore()) {
+                    const expr = pr.readDatum() catch break;
+                    if (vm.handleTopLevelForm(expr)) |top_result| {
+                        _ = top_result catch |err| {
+                            const detail = vm.getErrorDetail();
+                            if (detail.len > 0) {
+                                writeStderr("preamble error: ");
+                                writeStderr(detail);
+                                writeStderr("\n");
+                            } else {
+                                var errbuf: [256]u8 = undefined;
+                                const s = std.fmt.bufPrint(&errbuf, "preamble error: {}\n", .{err}) catch "preamble error\n";
+                                writeStderr(s);
+                            }
+                            vm.last_error_detail_len = 0;
+                        };
+                    }
+                }
+            }
+        }
 
         const top_count = @min(loaded.top_level_count, @as(u32, @intCast(loaded.funcs.len)));
         for (loaded.funcs[0..top_count]) |func| {
@@ -344,6 +404,7 @@ pub fn main(init: std.process.Init.Minimal) !void {
     var lib_path_count: usize = 0;
     var file_path: ?[]const u8 = null;
     var compile_mode = false;
+    var compile_output: ?[]const u8 = null;
     var disassemble_mode = false;
     var gc_stats_mode = false;
     var profile_mode = false;
@@ -365,6 +426,8 @@ pub fn main(init: std.process.Init.Minimal) !void {
             sandbox_mode = true;
         } else if (std.mem.eql(u8, arg, "--compile")) {
             compile_mode = true;
+        } else if (std.mem.eql(u8, arg, "-o")) {
+            compile_output = args.next();
         } else if (std.mem.eql(u8, arg, "--disassemble")) {
             disassemble_mode = true;
         } else if (std.mem.eql(u8, arg, "--no-cache")) {
@@ -404,9 +467,9 @@ pub fn main(init: std.process.Init.Minimal) !void {
         }
     } else if (compile_mode) {
         if (file_path) |fp| {
-            try compileFile(&vm, fp);
+            try compileFile(&vm, fp, compile_output);
         } else {
-            writeStdout("Usage: kaappi --compile <file.scm>\n");
+            writeStdout("Usage: kaappi --compile <file.scm> [-o output.sbc]\n");
         }
     } else if (file_path) |fp| {
         try runFile(&vm, fp);
@@ -633,7 +696,7 @@ fn disassembleFile(vm: *vm_mod.VM, path: []const u8) !void {
     }
 }
 
-fn compileFile(vm: *vm_mod.VM, path: []const u8) !void {
+fn compileFile(vm: *vm_mod.VM, path: []const u8, output_path: ?[]const u8) !void {
     const allocator = vm.gc.allocator;
     const source = readFileContents(allocator, path) catch {
         return;
@@ -641,6 +704,31 @@ fn compileFile(vm: *vm_mod.VM, path: []const u8) !void {
     defer allocator.free(source);
 
     const source_hash = bytecode_file.sourceHash(source);
+
+    // Resolve top-level `(include ...)` paths relative to the program's directory.
+    const saved_lib_dir = vm.current_lib_dir;
+    vm.current_lib_dir = if (std.mem.lastIndexOfScalar(u8, path, '/')) |pos| path[0 .. pos + 1] else "";
+    defer vm.current_lib_dir = saved_lib_dir;
+
+    // Collect library files for bundling
+    var collect_files = std.StringHashMap([]const u8).init(allocator);
+    defer {
+        var it = collect_files.iterator();
+        while (it.next()) |entry| {
+            allocator.free(entry.key_ptr.*);
+            allocator.free(entry.value_ptr.*);
+        }
+        collect_files.deinit();
+    }
+    vm.compile_collect_files = &collect_files;
+    defer vm.compile_collect_files = null;
+
+    // Collect preamble (top-level forms: import, include, define-library)
+    var preamble: std.ArrayList([]const u8) = .empty;
+    defer {
+        for (preamble.items) |p| allocator.free(p);
+        preamble.deinit(allocator);
+    }
 
     var compiled_funcs: std.ArrayList(*types.Function) = .empty;
     defer compiled_funcs.deinit(allocator);
@@ -658,8 +746,12 @@ fn compileFile(vm: *vm_mod.VM, path: []const u8) !void {
             return;
         };
 
-        // Skip special top-level forms for compilation — they need runtime
         if (vm.handleTopLevelForm(expr)) |_| {
+            // Capture the top-level form as source text for preamble
+            const form_src = printer.valueToString(allocator, expr, .write) catch continue;
+            preamble.append(allocator, form_src) catch {
+                allocator.free(form_src);
+            };
             continue;
         }
 
@@ -673,17 +765,38 @@ fn compileFile(vm: *vm_mod.VM, path: []const u8) !void {
         compiled_funcs.append(allocator, func) catch {};
     }
 
-    if (compiled_funcs.items.len > 0) {
-        const sbc_path = getSbcPath(allocator, path) catch {
-            std.debug.print("Error creating output path\n", .{});
-            return;
-        };
+    if (compiled_funcs.items.len > 0 or preamble.items.len > 0) {
+        const sbc_path = if (output_path) |op|
+            allocator.dupe(u8, op) catch {
+                writeStderr("Error creating output path\n");
+                return;
+            }
+        else
+            getSbcPath(allocator, path) catch {
+                writeStderr("Error creating output path\n");
+                return;
+            };
         defer allocator.free(sbc_path);
 
-        bytecode_file.writeFileWithTopLevel(allocator, compiled_funcs.items, source_hash, sbc_path) catch {
-            std.debug.print("Error writing bytecode file\n", .{});
-            return;
-        };
+        const has_bundle = collect_files.count() > 0 or preamble.items.len > 0;
+        if (has_bundle) {
+            bytecode_file.writeFileWithBundle(
+                allocator,
+                compiled_funcs.items,
+                source_hash,
+                &collect_files,
+                preamble.items,
+                sbc_path,
+            ) catch {
+                writeStderr("Error writing bytecode file\n");
+                return;
+            };
+        } else {
+            bytecode_file.writeFileWithTopLevel(allocator, compiled_funcs.items, source_hash, sbc_path) catch {
+                writeStderr("Error writing bytecode file\n");
+                return;
+            };
+        }
 
         writeStdout("Compiled ");
         writeStdout(path);

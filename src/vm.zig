@@ -186,6 +186,11 @@ pub const VM = struct {
     global_version: u32 = 0,
     profile_mode: bool = false,
     sandbox_mode: bool = false,
+    /// Virtual filesystem for standalone binary: maps file paths → source content.
+    /// Populated from .sbc bundled files section; checked before disk reads.
+    bundled_files: ?*std.StringHashMap([]const u8) = null,
+    /// When non-null, record files read during library loading for bundling.
+    compile_collect_files: ?*std.StringHashMap([]const u8) = null,
     scheduler: ?*@import("fiber.zig").FiberScheduler = null,
     current_fiber: ?*@import("fiber.zig").Fiber = null,
     yielded: bool = false,

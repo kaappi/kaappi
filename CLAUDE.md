@@ -5,11 +5,13 @@ Complete R7RS-small Scheme implementation. Zig 0.16, ~27k lines, 420 built-in pr
 ## Build
 
 ```
-zig build              # build executable (zig-out/bin/kaappi)
-zig build run          # launch REPL (linenoise: arrow keys, history, tab completion)
-zig build run -- f.scm # run a Scheme file
-zig build test         # run all unit tests
-zig build bench        # call/cc vs call/ec capture micro-benchmark
+zig build                          # build executable (zig-out/bin/kaappi)
+zig build run                      # launch REPL (linenoise: arrow keys, history, tab completion)
+zig build run -- f.scm             # run a Scheme file
+zig build test                     # run all unit tests
+zig build bench                    # call/cc vs call/ec capture micro-benchmark
+zig build -Dbundle-src=program.scm # standalone binary (compile + embed in one step)
+zig build -Dbundle=program.sbc     # standalone binary from pre-compiled .sbc
 ```
 
 Requires Zig 0.16+ and libc (for linenoise terminal handling).
@@ -44,7 +46,7 @@ Tagged u64 — no boxing for fixnums, booleans, characters, nil:
 - **Bits 0-2 = 000**: pointer to heap `Object` (8-byte aligned)
 - **Bits 0-1 = 10**: immediate (nil, true, false, void, eof, char with 21-bit codepoint)
 
-Heap objects share an `Object` header with `ObjectTag` (u5, 32 slots) and GC mark bit. 28 types: Pair, Symbol, SchemeString, Closure, Function, NativeFn, Vector, Bytevector, Port, Flonum, Complex, Transformer, ErrorObject, RecordType, RecordInstance, Continuation, MultipleValues, Promise, ParameterObject, Rational, Bignum, FfiLibrary, FfiFunction, HashTable, FileInfo, UserInfo, GroupInfo, DirectoryObject.
+Heap objects share an `Object` header with `ObjectTag` (u6, 64 slots) and GC mark bit. 35 types: Pair, Symbol, SchemeString, Closure, Function, NativeFn, Vector, Bytevector, Port, Flonum, Complex, Transformer, ErrorObject, RecordType, RecordInstance, Continuation, MultipleValues, Promise, ParameterObject, Rational, Bignum, FfiLibrary, FfiFunction, HashTable, FileInfo, UserInfo, GroupInfo, DirectoryObject, RandomSource, FfiCallback, Fiber, Channel, Mutex, ConditionVariable, Srfi18Time.
 
 ### Strings
 
@@ -103,6 +105,7 @@ Stored as UTF-8 byte arrays. All string operations (string-length, string-ref, s
 | `primitives_cxr.zig` | 24 car/cdr compositions (caaaar–cddddr) |
 | `primitives_ffi.zig` | C FFI: ffi-open, ffi-fn, ffi-close |
 | `primitives_r7rs.zig` | time, process-context, eval, load, make-parameter |
+| `primitives_srfi18.zig` | SRFI-18: threads, mutexes, condition variables, time objects |
 
 ### Other
 | File | Responsibility |
@@ -118,7 +121,7 @@ Stored as UTF-8 byte arrays. All string operations (string-length, string-ref, s
 | `tests_*.zig` | Unit tests by feature (core_eval, tail_calls, macros, io, etc.) |
 
 ### SRFI libraries (in `lib/srfi/`)
-51 SRFIs supported. 7 built-in (Zig primitives in `library.zig`): 1, 9, 13, 39, 69, 133, 170. 44 portable R7RS .sld files loaded on demand via `(import (srfi N))`: 2, 8, 11, 14, 16, 26, 27, 28, 31, 34, 35, 36, 41, 48, 64, 98, 111, 113, 115, 117, 125, 128, 132, 141, 143, 145, 146, 151, 152, 158, 166, 174, 175, 189, 195, 196, 210, 219, 222, 227, 232, 233, 235. Sub-libraries: (srfi 146 hash), (srfi 166 pretty), (srfi 166 columnar), (srfi 166 unicode), (srfi 166 color).
+52 SRFIs supported. 8 built-in (Zig primitives in `library.zig`): 1, 9, 13, 18, 39, 69, 133, 170. 44 portable R7RS .sld files loaded on demand via `(import (srfi N))`: 2, 8, 11, 14, 16, 26, 27, 28, 31, 34, 35, 36, 41, 48, 64, 98, 111, 113, 115, 117, 125, 128, 132, 141, 143, 145, 146, 151, 152, 158, 166, 174, 175, 189, 195, 196, 210, 219, 222, 227, 232, 233, 235. Sub-libraries: (srfi 146 hash), (srfi 166 pretty), (srfi 166 columnar), (srfi 166 unicode), (srfi 166 color).
 
 The library loader in `vm_library.zig` supports `cond-expand`, `include` (paths resolved relative to the .sld file), and `(export (rename ...))` in `define-library`. Macro transformers defined with `define-syntax` in library `begin` blocks are exported and imported correctly.
 

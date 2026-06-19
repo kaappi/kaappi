@@ -310,6 +310,61 @@ fn extractExportsAndImports(vm: *VM, source: []const u8) !LibraryMeta {
 /// Uses .sbc caching: on cache hit, executes cached bytecode and re-parses
 /// the .sld for export/import declarations. On cache miss, compiles normally
 /// and saves the .sbc file.
+/// Try to find a library's .sld source in bundled files, using the same
+/// search order as resolveLibraryPath.
+fn findBundledSource(bf: *std.StringHashMap([]const u8), rel_path: []const u8, lib_paths: []const []const u8) ?struct { path: []const u8, source: []const u8 } {
+    const prefixes = [_][]const u8{ "", "lib/" };
+    for (prefixes) |prefix| {
+        var buf: [600]u8 = undefined;
+        const full = std.fmt.bufPrint(&buf, "{s}{s}", .{ prefix, rel_path }) catch continue;
+        if (bf.get(full)) |src| {
+            const key = bf.getKey(full) orelse continue;
+            return .{ .path = key, .source = src };
+        }
+    }
+    for (lib_paths) |lp| {
+        var buf: [600]u8 = undefined;
+        const needs_sep: usize = if (lp.len > 0 and lp[lp.len - 1] != '/') 1 else 0;
+        const full = std.fmt.bufPrint(&buf, "{s}{s}{s}", .{
+            lp,
+            if (needs_sep == 1) "/" else "",
+            rel_path,
+        }) catch continue;
+        if (bf.get(full)) |src| {
+            const key = bf.getKey(full) orelse continue;
+            return .{ .path = key, .source = src };
+        }
+    }
+    return null;
+}
+
+/// Read file contents, checking bundled files first if available.
+fn readFileOrBundled(allocator: std.mem.Allocator, path: []const u8, bundled: ?*std.StringHashMap([]const u8)) ![]u8 {
+    if (bundled) |bf| {
+        if (bf.get(path)) |src| {
+            return allocator.dupe(u8, src) catch return error.OutOfMemory;
+        }
+    }
+    return readFileContents(allocator, path);
+}
+
+/// Record a file read for bundle collection during --compile.
+fn recordFileForBundle(vm: *VM, path: []const u8, content: []const u8) void {
+    if (vm.compile_collect_files) |collect| {
+        if (!collect.contains(path)) {
+            const key = vm.gc.allocator.dupe(u8, path) catch return;
+            const val = vm.gc.allocator.dupe(u8, content) catch {
+                vm.gc.allocator.free(key);
+                return;
+            };
+            collect.put(key, val) catch {
+                vm.gc.allocator.free(key);
+                vm.gc.allocator.free(val);
+            };
+        }
+    }
+}
+
 fn tryLoadLibraryFromFile(vm: *VM, name_list: Value) !void {
     if (vm.sandbox_mode) {
         vm.setErrorDetail("sandbox: cannot load library from file", .{});
@@ -320,6 +375,18 @@ fn tryLoadLibraryFromFile(vm: *VM, name_list: Value) !void {
 
     var path_buf: [512]u8 = undefined;
     const rel_path = buildLibRelPath(name_list, &path_buf) catch return error.InvalidSyntax;
+
+    // Check bundled files first (standalone binary support)
+    if (vm.bundled_files) |bf| {
+        if (findBundledSource(bf, rel_path, vm.lib_paths)) |found| {
+            const sld_dir = extractDir(found.path);
+            const saved_lib_dir = vm.current_lib_dir;
+            vm.current_lib_dir = sld_dir;
+            defer vm.current_lib_dir = saved_lib_dir;
+            loadLibrarySource(vm, found.source) catch return error.UndefinedVariable;
+            return;
+        }
+    }
 
     // Resolve the .sld file path
     const sld_path = resolveLibraryPath(allocator, rel_path, vm.lib_paths) orelse
@@ -335,6 +402,9 @@ fn tryLoadLibraryFromFile(vm: *VM, name_list: Value) !void {
     // Read the source file
     const source = readFileContents(allocator, sld_path) catch return error.UndefinedVariable;
     defer allocator.free(source);
+
+    // Record for bundling
+    recordFileForBundle(vm, sld_path, source);
 
     const source_hash = bytecode_file.sourceHash(source);
 
@@ -504,14 +574,21 @@ pub fn handleTopLevelInclude(vm: *VM, args: Value, ci: bool) VMError!Value {
         var used_path: []const u8 = file_path;
         const file_source = blk: {
             if (resolved_path) |rp| {
-                if (readFileContents(vm.gc.allocator, rp)) |src| {
+                if (readFileOrBundled(vm.gc.allocator, rp, vm.bundled_files)) |src| {
                     used_path = rp;
                     break :blk src;
                 } else |_| {}
             }
-            break :blk readFileContents(vm.gc.allocator, file_path) catch return VMError.CompileError;
+            break :blk readFileOrBundled(vm.gc.allocator, file_path, vm.bundled_files) catch return VMError.CompileError;
         };
         defer vm.gc.allocator.free(file_source);
+
+        // Record for bundling (both resolved and original paths, so lookups
+        // succeed regardless of current_lib_dir at runtime)
+        recordFileForBundle(vm, used_path, file_source);
+        if (!std.mem.eql(u8, used_path, file_path)) {
+            recordFileForBundle(vm, file_path, file_source);
+        }
 
         // Own a copy of the path: error reporting and current_lib_dir slice into
         // it across operations that may free `resolved_path` or GC `file_path`.
@@ -965,11 +1042,21 @@ fn compileLibInclude(vm: *VM, lib_env: *std.StringHashMap(Value), file_list_val:
 
         const file_source = blk: {
             if (resolved_path) |rp| {
-                if (readFileContents(vm.gc.allocator, rp)) |src| break :blk src else |_| {}
+                if (readFileOrBundled(vm.gc.allocator, rp, vm.bundled_files)) |src| break :blk src else |_| {}
             }
-            break :blk readFileContents(vm.gc.allocator, file_path) catch return VMError.CompileError;
+            break :blk readFileOrBundled(vm.gc.allocator, file_path, vm.bundled_files) catch return VMError.CompileError;
         };
         defer vm.gc.allocator.free(file_source);
+
+        // Record for bundling (both resolved and original paths)
+        if (resolved_path) |rp| {
+            recordFileForBundle(vm, rp, file_source);
+            if (!std.mem.eql(u8, rp, file_path)) {
+                recordFileForBundle(vm, file_path, file_source);
+            }
+        } else {
+            recordFileForBundle(vm, file_path, file_source);
+        }
 
         const reader_mod = @import("reader.zig");
         var file_reader = reader_mod.Reader.init(vm.gc, file_source);

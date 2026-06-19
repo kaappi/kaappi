@@ -9,6 +9,12 @@ const CallFrame = vm_mod.CallFrame;
 
 pub const MAX_FIBERS = 64;
 
+pub fn clockNs() u64 {
+    var ts: std.c.timespec = undefined;
+    _ = std.c.clock_gettime(.MONOTONIC, &ts);
+    return @as(u64, @intCast(ts.sec)) * 1_000_000_000 + @as(u64, @intCast(ts.nsec));
+}
+
 pub const FiberStatus = enum(u8) {
     created,
     running,
@@ -35,6 +41,11 @@ pub const Fiber = struct {
     result: Value,
     waiting_on: Value,
     id: u32,
+    name: Value = types.VOID,
+    specific: Value = types.VOID,
+    deadline_ns: ?u64 = null,
+    timed_out: bool = false,
+    terminated: bool = false,
 };
 
 pub const FiberScheduler = struct {
@@ -130,6 +141,20 @@ pub const FiberScheduler = struct {
 
     pub fn schedule(self: *FiberScheduler) ?usize {
         if (self.fiber_count == 0) return null;
+        const now = clockNs();
+        for (self.fibers[0..self.fiber_count]) |f| {
+            if (f) |fiber| {
+                if (fiber.status == .waiting) {
+                    if (fiber.deadline_ns) |deadline| {
+                        if (now >= deadline) {
+                            fiber.status = .suspended;
+                            fiber.timed_out = true;
+                            fiber.deadline_ns = null;
+                        }
+                    }
+                }
+            }
+        }
         var i: usize = 1;
         while (i <= self.fiber_count) : (i += 1) {
             const idx = (self.current_idx + i) % self.fiber_count;
@@ -145,6 +170,8 @@ pub const FiberScheduler = struct {
             if (f) |fiber| {
                 if (fiber.status == .created or fiber.status == .suspended or fiber.status == .running)
                     return true;
+                if (fiber.status == .waiting and fiber.deadline_ns != null)
+                    return true;
             }
         }
         return false;
@@ -157,6 +184,38 @@ pub const FiberScheduler = struct {
                 if (fiber.status == .waiting and fiber.waiting_on == completed_val) {
                     fiber.status = .suspended;
                     fiber.result = completed_fiber.result;
+                }
+            }
+        }
+    }
+
+    pub fn wakeMutexWaiters(self: *FiberScheduler, mutex_val: Value) void {
+        for (self.fibers[0..self.fiber_count]) |f| {
+            if (f) |fiber| {
+                if (fiber.status == .waiting and fiber.waiting_on == mutex_val) {
+                    fiber.status = .suspended;
+                    return;
+                }
+            }
+        }
+    }
+
+    pub fn wakeOneCondVarWaiter(self: *FiberScheduler, cv_val: Value) void {
+        for (self.fibers[0..self.fiber_count]) |f| {
+            if (f) |fiber| {
+                if (fiber.status == .waiting and fiber.waiting_on == cv_val) {
+                    fiber.status = .suspended;
+                    return;
+                }
+            }
+        }
+    }
+
+    pub fn wakeAllCondVarWaiters(self: *FiberScheduler, cv_val: Value) void {
+        for (self.fibers[0..self.fiber_count]) |f| {
+            if (f) |fiber| {
+                if (fiber.status == .waiting and fiber.waiting_on == cv_val) {
+                    fiber.status = .suspended;
                 }
             }
         }
@@ -177,6 +236,8 @@ pub fn markFiberState(gc: *memory.GC, fiber: *Fiber) void {
     gc.markValue(fiber.thunk);
     gc.markValue(fiber.result);
     gc.markValue(fiber.waiting_on);
+    gc.markValue(fiber.name);
+    gc.markValue(fiber.specific);
 
     for (fiber.frames[0..fiber.frame_count]) |f| {
         if (f.closure) |cls| gc.markValue(types.makePointer(@ptrCast(cls)));

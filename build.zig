@@ -16,12 +16,15 @@ pub fn build(b: *std.Build) void {
     // Standalone binary: embed compiled bytecode via -Dbundle=path/to/program.sbc
     const bundle = b.option([]const u8, "bundle",
         "Path to .sbc bytecode file to embed for standalone binary");
+    // Single-step: compile and embed in one build
+    const bundle_src = b.option([]const u8, "bundle-src",
+        "Path to .scm source file to compile and embed for standalone binary");
 
     const wf = b.addWriteFiles();
     const null_embed = wf.add("embedded_bytecode.zig",
         "pub const bytecode: ?[]const u8 = null;\n");
 
-    // Main module
+    // Helper: create a kaappi module with a given embedded_bytecode import
     const main_mod = b.createModule(.{
         .root_source_file = b.path("src/main.zig"),
         .target = target,
@@ -40,6 +43,53 @@ pub fn build(b: *std.Build) void {
         else
             b.path(bp);
         _ = wf.addCopyFile(bundle_path, "bundled.sbc");
+        const bundle_embed = wf.add("embedded_bytecode_bundle.zig",
+            "pub const bytecode: ?[]const u8 = @embedFile(\"bundled.sbc\");\n");
+        main_mod.addAnonymousImport("embedded_bytecode", .{
+            .root_source_file = bundle_embed,
+            .target = target,
+            .optimize = optimize,
+        });
+    } else if (bundle_src) |src_path| {
+        // Single-step build: compile .scm with a plain kaappi, then embed.
+        // Use a separate WriteFiles to avoid a dependency loop with the main wf.
+        const compiler_wf = b.addWriteFiles();
+        const compiler_null_embed = compiler_wf.add("embedded_bytecode.zig",
+            "pub const bytecode: ?[]const u8 = null;\n");
+
+        const compiler_mod = b.createModule(.{
+            .root_source_file = b.path("src/main.zig"),
+            .target = target,
+            .optimize = optimize,
+            .link_libc = true,
+        });
+        compiler_mod.addCSourceFile(.{
+            .file = b.path("vendor/linenoise/linenoise.c"),
+            .flags = &.{"-std=c99"},
+        });
+        compiler_mod.addIncludePath(b.path("vendor/linenoise"));
+        compiler_mod.addAnonymousImport("embedded_bytecode", .{
+            .root_source_file = compiler_null_embed,
+            .target = target,
+            .optimize = optimize,
+        });
+
+        const compiler_exe = b.addExecutable(.{
+            .name = "kaappi-compiler",
+            .root_module = compiler_mod,
+        });
+
+        const compile_run = b.addRunArtifact(compiler_exe);
+        compile_run.addArg("--compile");
+        compile_run.addArg("-o");
+        const sbc_output = compile_run.addOutputFileArg("program.sbc");
+        const src_lazy: std.Build.LazyPath = if (src_path.len > 0 and src_path[0] == '/')
+            .{ .cwd_relative = src_path }
+        else
+            b.path(src_path);
+        compile_run.addFileArg(src_lazy);
+
+        _ = wf.addCopyFile(sbc_output, "bundled.sbc");
         const bundle_embed = wf.add("embedded_bytecode_bundle.zig",
             "pub const bytecode: ?[]const u8 = @embedFile(\"bundled.sbc\");\n");
         main_mod.addAnonymousImport("embedded_bytecode", .{

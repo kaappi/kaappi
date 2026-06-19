@@ -91,7 +91,7 @@ pub fn isTruthy(v: Value) bool {
 // Heap object types
 // ---------------------------------------------------------------------------
 
-pub const ObjectTag = enum(u5) {
+pub const ObjectTag = enum(u6) {
     pair = 0,
     symbol = 1,
     string = 2,
@@ -124,6 +124,9 @@ pub const ObjectTag = enum(u5) {
     ffi_callback = 29,
     fiber = 30,
     channel = 31,
+    mutex = 32,
+    condition_variable = 33,
+    srfi18_time = 34,
 };
 
 pub const Object = struct {
@@ -236,12 +239,21 @@ pub const Transformer = struct {
 };
 
 pub const ErrorObject = struct {
-    pub const ErrorType = enum(u8) { general, file, read };
+    pub const ErrorType = enum(u8) {
+        general,
+        file,
+        read,
+        join_timeout,
+        abandoned_mutex,
+        terminated_thread,
+        uncaught_exception,
+    };
 
     header: Object,
     message: Value, // string
     irritants: Value, // list
     error_type: ErrorType = .general,
+    uncaught_reason: Value = VOID,
 };
 
 pub const RecordType = struct {
@@ -415,6 +427,30 @@ pub const Channel = struct {
     header: Object,
     head: Value,
     tail: Value,
+};
+
+// ---------------------------------------------------------------------------
+// SRFI-18 types (mutex, condition variable, time)
+// ---------------------------------------------------------------------------
+
+pub const Mutex = struct {
+    header: Object,
+    name: Value,
+    owner: Value,
+    locked: bool,
+    abandoned: bool,
+    specific: Value,
+};
+
+pub const ConditionVariable = struct {
+    header: Object,
+    name: Value,
+    specific: Value,
+};
+
+pub const Srfi18Time = struct {
+    header: Object,
+    seconds: f64,
 };
 
 // ---------------------------------------------------------------------------
@@ -623,6 +659,30 @@ pub fn isFiber(v: Value) bool {
 
 pub fn isChannel(v: Value) bool {
     return isPointer(v) and toObject(v).tag == .channel;
+}
+
+pub fn isMutex(v: Value) bool {
+    return isPointer(v) and toObject(v).tag == .mutex;
+}
+
+pub fn toMutex(v: Value) *Mutex {
+    return toObject(v).as(Mutex);
+}
+
+pub fn isConditionVariable(v: Value) bool {
+    return isPointer(v) and toObject(v).tag == .condition_variable;
+}
+
+pub fn toConditionVariable(v: Value) *ConditionVariable {
+    return toObject(v).as(ConditionVariable);
+}
+
+pub fn isSrfi18Time(v: Value) bool {
+    return isPointer(v) and toObject(v).tag == .srfi18_time;
+}
+
+pub fn toSrfi18Time(v: Value) *Srfi18Time {
+    return toObject(v).as(Srfi18Time);
 }
 
 pub fn isHashTable(v: Value) bool {

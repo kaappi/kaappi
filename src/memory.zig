@@ -44,7 +44,7 @@ pub const GcStats = struct {
     bytes_freed: usize = 0,
     peak_object_count: usize = 0,
     peak_bytes_allocated: usize = 0,
-    allocs_by_type: [32]usize = .{0} ** 32,
+    allocs_by_type: [64]usize = .{0} ** 64,
     no_collect_deferred: usize = 0,
 };
 
@@ -635,6 +635,11 @@ pub const GC = struct {
             .result = types.VOID,
             .waiting_on = types.VOID,
             .id = id,
+            .name = types.VOID,
+            .specific = types.VOID,
+            .deadline_ns = null,
+            .timed_out = false,
+            .terminated = false,
         };
         @memset(&fiber.registers, types.UNDEFINED);
         self.bytes_allocated += @sizeOf(fiber_mod.Fiber);
@@ -653,6 +658,47 @@ pub const GC = struct {
         self.bytes_allocated += @sizeOf(types.Channel);
         self.trackObject(&ch.header);
         return types.makePointer(@ptrCast(ch));
+    }
+
+    pub fn allocMutex(self: *GC, name: Value) !Value {
+        self.maybeCollect();
+        const m = try self.allocator.create(types.Mutex);
+        m.* = .{
+            .header = .{ .tag = .mutex },
+            .name = name,
+            .owner = types.VOID,
+            .locked = false,
+            .abandoned = false,
+            .specific = types.VOID,
+        };
+        self.bytes_allocated += @sizeOf(types.Mutex);
+        self.trackObject(&m.header);
+        return types.makePointer(@ptrCast(m));
+    }
+
+    pub fn allocConditionVariable(self: *GC, name: Value) !Value {
+        self.maybeCollect();
+        const cv = try self.allocator.create(types.ConditionVariable);
+        cv.* = .{
+            .header = .{ .tag = .condition_variable },
+            .name = name,
+            .specific = types.VOID,
+        };
+        self.bytes_allocated += @sizeOf(types.ConditionVariable);
+        self.trackObject(&cv.header);
+        return types.makePointer(@ptrCast(cv));
+    }
+
+    pub fn allocSrfi18Time(self: *GC, seconds: f64) !Value {
+        self.maybeCollect();
+        const t = try self.allocator.create(types.Srfi18Time);
+        t.* = .{
+            .header = .{ .tag = .srfi18_time },
+            .seconds = seconds,
+        };
+        self.bytes_allocated += @sizeOf(types.Srfi18Time);
+        self.trackObject(&t.header);
+        return types.makePointer(@ptrCast(t));
     }
 
     pub fn allocHashTable(self: *GC, initial_capacity: usize) !Value {
@@ -926,6 +972,7 @@ pub const GC = struct {
                 const err = obj.as(types.ErrorObject);
                 self.markValue(err.message);
                 self.markValue(err.irritants);
+                self.markValue(err.uncaught_reason);
             },
             .record_type => {},
             .record_instance => {
@@ -1007,7 +1054,18 @@ pub const GC = struct {
                 self.markValue(ch.head);
                 self.markValue(ch.tail);
             },
-            .symbol, .string, .native_fn, .flonum, .port, .complex, .bytevector, .bignum, .file_info, .user_info, .group_info, .directory_object, .random_source => {},
+            .mutex => {
+                const m = obj.as(types.Mutex);
+                self.markValue(m.name);
+                self.markValue(m.owner);
+                self.markValue(m.specific);
+            },
+            .condition_variable => {
+                const cv = obj.as(types.ConditionVariable);
+                self.markValue(cv.name);
+                self.markValue(cv.specific);
+            },
+            .symbol, .string, .native_fn, .flonum, .port, .complex, .bytevector, .bignum, .file_info, .user_info, .group_info, .directory_object, .random_source, .srfi18_time => {},
         }
     }
 
@@ -1083,6 +1141,9 @@ pub const GC = struct {
             .random_source => @sizeOf(RandomSource),
             .fiber => @sizeOf(@import("fiber.zig").Fiber),
             .channel => @sizeOf(types.Channel),
+            .mutex => @sizeOf(types.Mutex),
+            .condition_variable => @sizeOf(types.ConditionVariable),
+            .srfi18_time => @sizeOf(types.Srfi18Time),
         };
     }
 
@@ -1273,6 +1334,15 @@ pub const GC = struct {
             },
             .channel => {
                 self.allocator.destroy(obj.as(types.Channel));
+            },
+            .mutex => {
+                self.allocator.destroy(obj.as(types.Mutex));
+            },
+            .condition_variable => {
+                self.allocator.destroy(obj.as(types.ConditionVariable));
+            },
+            .srfi18_time => {
+                self.allocator.destroy(obj.as(types.Srfi18Time));
             },
         }
     }

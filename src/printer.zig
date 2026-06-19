@@ -620,6 +620,28 @@ pub fn printValue(writer: anytype, value: Value, mode: PrintMode) anyerror!void 
             .channel => {
                 try writer.writeAll("#<channel>");
             },
+            .mutex => {
+                const m = obj.as(types.Mutex);
+                try writer.writeAll("#<mutex");
+                if (m.name != types.VOID) {
+                    try writer.writeAll(" ");
+                    try printValue(writer, m.name, mode);
+                }
+                try writer.writeAll(">");
+            },
+            .condition_variable => {
+                const cv = obj.as(types.ConditionVariable);
+                try writer.writeAll("#<condition-variable");
+                if (cv.name != types.VOID) {
+                    try writer.writeAll(" ");
+                    try printValue(writer, cv.name, mode);
+                }
+                try writer.writeAll(">");
+            },
+            .srfi18_time => {
+                const t = obj.as(types.Srfi18Time);
+                try writer.print("#<time {d:.6}>", .{t.seconds});
+            },
             .bignum => {
                 const bignum_mod = @import("bignum.zig");
                 const allocator = std.heap.page_allocator;

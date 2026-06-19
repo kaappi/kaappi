@@ -6,35 +6,40 @@ Features that are feasible but require dedicated design and implementation effor
 
 ## Standalone binary compilation
 
-**Status:** Basic support implemented
+**Status:** Complete
 
 **What:** Bundle compiled bytecode (.sbc) into the Kaappi interpreter binary to produce a single standalone executable that runs a Scheme program without external files.
 
 **Usage:**
-1. Compile the program: `kaappi --compile program.scm`
-2. Rebuild with the bytecode embedded: `zig build -Dbundle=program.sbc`
-3. The resulting binary runs the embedded program on startup: `./zig-out/bin/kaappi`
 
-Command-line arguments are passed through to `(command-line)`.
+Single-step build (recommended):
+```
+zig build -Dbundle-src=program.scm
+./zig-out/bin/kaappi
+```
 
-**Current limitations:**
-- Only programs using built-in libraries (scheme base, scheme write, etc.) — programs importing non-built-in SRFIs that need `.sld` files from disk will fail at runtime
-- `include` and `load` cannot resolve paths in embedded context
-- Two-step build process (compile `.sbc` separately, then rebuild with `-Dbundle`)
-- Standalone mode skips `--gc-stats` and other debug flags
+Two-step build (for custom workflows):
+```
+kaappi --compile program.scm [-o output.sbc]
+zig build -Dbundle=program.sbc
+./zig-out/bin/kaappi
+```
 
-**Remaining work:**
-- Library bundling: resolve and compile all imports into a single `.sbc`
-- Single-step build: `zig build -Dbundle-src=program.scm` to compile and embed in one step
-- `include`/`load` path resolution relative to embedded context
+Command-line arguments are passed through to `(command-line)`. Debug flags `--gc-stats` and `--profile` are supported in standalone mode.
+
+**Features:**
+- Library bundling: all imported `.sld` libraries (SRFIs, user libraries) and their `include` dependencies are automatically bundled into the `.sbc` file
+- Programs using any combination of built-in and file-based libraries work as standalone binaries
+- `include` paths within bundled libraries resolve correctly at runtime via an embedded virtual filesystem
+- Single-step build via `-Dbundle-src` compiles and embeds in one `zig build` invocation
 
 ---
 
 ## Concurrency / threading
 
-**Status:** Green threads (cooperative scheduling) implemented
+**Status:** Green threads + SRFI-18 compatibility layer implemented
 
-**Usage:**
+**Green threads (`(kaappi fibers)`):**
 ```scheme
 (import (kaappi fibers))
 (define f (spawn (lambda () (+ 1 2))))
@@ -47,12 +52,28 @@ Command-line arguments are passed through to `(command-line)`.
 
 **API:** `spawn`, `yield`, `fiber-join`, `fiber?`, `make-channel`, `channel-send`, `channel-receive`, `channel?`
 
-**Design:** Single OS thread, cooperative scheduling via explicit `(yield)`. Each fiber has its own registers, call stack, handlers, and wind stack. Shared globals, macros, libraries, and GC. Channels use an unbounded pair-based queue (send never blocks).
+**SRFI-18 (`(srfi 18)`):**
+```scheme
+(import (srfi 18))
+(define t (make-thread (lambda () (* 6 7)) 'worker))
+(thread-start! t)
+(display (thread-join! t))        ; => 42
+
+(define m (make-mutex))
+(mutex-lock! m)
+(mutex-unlock! m)
+
+(define cv (make-condition-variable))
+(condition-variable-signal! cv)
+```
+
+**SRFI-18 API:** `current-thread`, `thread?`, `make-thread`, `thread-name`, `thread-specific`, `thread-specific-set!`, `thread-start!`, `thread-yield!`, `thread-sleep!`, `thread-terminate!`, `thread-join!`, `mutex?`, `make-mutex`, `mutex-name`, `mutex-specific`, `mutex-specific-set!`, `mutex-state`, `mutex-lock!`, `mutex-unlock!`, `condition-variable?`, `make-condition-variable`, `condition-variable-name`, `condition-variable-specific`, `condition-variable-specific-set!`, `condition-variable-signal!`, `condition-variable-broadcast!`, `current-time`, `time?`, `time->seconds`, `seconds->time`, `join-timeout-exception?`, `abandoned-mutex-exception?`, `terminated-thread-exception?`, `uncaught-exception?`, `uncaught-exception-reason`
+
+**Design:** Single OS thread, cooperative scheduling via explicit `(yield)`. Each fiber has its own registers, call stack, handlers, and wind stack. Shared globals, macros, libraries, and GC. Channels use an unbounded pair-based queue (send never blocks). Both `(kaappi fibers)` and `(srfi 18)` operate on the same underlying Fiber objects — threads created by either library are interoperable.
 
 **Remaining work:**
 - OS-level threading with true parallelism (requires thread-safe GC)
-- SRFI-18 compatibility layer
-- Async I/O integration
+- Async I/O integration (not planned for near term)
 - Fiber-local storage
 
 ---

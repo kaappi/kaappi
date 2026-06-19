@@ -402,6 +402,42 @@ pub fn registerStandardLibraries(registry: *LibraryRegistry, globals: *std.Strin
     }
     try registry.register(fiber_lib);
 
+    // SRFI-18: Multithreading support
+    const srfi18_names = [_][]const u8{
+        "current-thread",        "thread?",                  "make-thread",
+        "thread-name",           "thread-specific",          "thread-specific-set!",
+        "thread-start!",         "thread-yield!",            "thread-sleep!",
+        "thread-terminate!",     "thread-join!",
+        "mutex?",                "make-mutex",               "mutex-name",
+        "mutex-specific",        "mutex-specific-set!",      "mutex-state",
+        "mutex-lock!",           "mutex-unlock!",
+        "condition-variable?",   "make-condition-variable",  "condition-variable-name",
+        "condition-variable-specific",                       "condition-variable-specific-set!",
+        "condition-variable-signal!",                        "condition-variable-broadcast!",
+        "current-time",          "time?",                    "time->seconds",
+        "seconds->time",
+        "join-timeout-exception?",                           "abandoned-mutex-exception?",
+        "terminated-thread-exception?",                      "uncaught-exception?",
+        "uncaught-exception-reason",
+    };
+    var srfi18_lib = Library.init(allocator, "srfi.18");
+    for (srfi18_names) |name| {
+        if (globals.get(name)) |val| {
+            try srfi18_lib.addExport(name, val);
+        }
+    }
+    // Re-export exception handling from (scheme base)
+    const base_reexports = [_][]const u8{
+        "with-exception-handler",
+        "raise",
+    };
+    for (base_reexports) |name| {
+        if (globals.get(name)) |val| {
+            try srfi18_lib.addExport(name, val);
+        }
+    }
+    try registry.register(srfi18_lib);
+
     // SRFI-1: List Library
     const srfi1_names = [_][]const u8{
         "fold",         "fold-right",    "reduce",       "reduce-right",
@@ -894,6 +930,53 @@ pub fn registerSandboxedLibraries(registry: *LibraryRegistry, globals: *std.Stri
         }
     }
     try registry.register(srfi133_lib);
+
+    // SRFI-18: Multithreading support (safe for sandbox)
+    const srfi18_sb_names = [_][]const u8{
+        "current-thread",        "thread?",                  "make-thread",
+        "thread-name",           "thread-specific",          "thread-specific-set!",
+        "thread-start!",         "thread-yield!",            "thread-sleep!",
+        "thread-terminate!",     "thread-join!",
+        "mutex?",                "make-mutex",               "mutex-name",
+        "mutex-specific",        "mutex-specific-set!",      "mutex-state",
+        "mutex-lock!",           "mutex-unlock!",
+        "condition-variable?",   "make-condition-variable",  "condition-variable-name",
+        "condition-variable-specific",                       "condition-variable-specific-set!",
+        "condition-variable-signal!",                        "condition-variable-broadcast!",
+        "current-time",          "time?",                    "time->seconds",
+        "seconds->time",
+        "join-timeout-exception?",                           "abandoned-mutex-exception?",
+        "terminated-thread-exception?",                      "uncaught-exception?",
+        "uncaught-exception-reason",
+    };
+    var srfi18_lib = Library.init(allocator, "srfi.18");
+    for (srfi18_sb_names) |name| {
+        if (globals.get(name)) |val| {
+            try srfi18_lib.addExport(name, val);
+        }
+    }
+    const srfi18_reexports = [_][]const u8{
+        "current-exception-handler", "with-exception-handler", "raise",
+    };
+    for (srfi18_reexports) |name| {
+        if (globals.get(name)) |val| {
+            try srfi18_lib.addExport(name, val);
+        }
+    }
+    try registry.register(srfi18_lib);
+
+    // (kaappi fibers) — green threads (safe for sandbox)
+    const kaappi_sb_fiber_names = [_][]const u8{
+        "spawn",    "yield",    "fiber-join", "fiber?",
+        "make-channel", "channel-send", "channel-receive", "channel?",
+    };
+    var fiber_sb_lib = Library.init(allocator, "kaappi.fibers");
+    for (kaappi_sb_fiber_names) |name| {
+        if (globals.get(name)) |val| {
+            try fiber_sb_lib.addExport(name, val);
+        }
+    }
+    try registry.register(fiber_sb_lib);
 }
 
 /// Convert a library name from an S-expression list like (scheme base) to

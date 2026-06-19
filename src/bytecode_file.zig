@@ -8,7 +8,7 @@ const GC = memory.GC;
 
 // File format constants
 const MAGIC = [4]u8{ 'K', 'P', 'B', 'C' };
-const VERSION: u16 = 2;
+const VERSION: u16 = 3;
 const MAX_FUNCTIONS: u32 = 16_384;
 const MAX_TOP_LEVEL_FUNCTIONS: u32 = 4_096;
 const MAX_CODE_BYTES: u32 = 1_048_576;
@@ -555,31 +555,22 @@ fn readFileContents(allocator: std.mem.Allocator, path: []const u8) ![]u8 {
 // Enhanced writeFile that records the top-level function count
 // ---------------------------------------------------------------------------
 
-pub fn writeFileWithTopLevel(allocator: std.mem.Allocator, top_level_funcs: []*Function, source_hash: u64, path: []const u8) !void {
-    // Collect all functions depth-first
-    var all_funcs_list = try collectFunctions(allocator, top_level_funcs);
-    defer all_funcs_list.deinit(allocator);
+fn writeFunctionsToBuffer(w: *Writer, allocator: std.mem.Allocator, top_level_funcs: []*Function, source_hash: u64) !std.ArrayList(*Function) {
+    const all_funcs_list = try collectFunctions(allocator, top_level_funcs);
     const all_funcs = all_funcs_list.items;
 
-    var w = Writer.init();
-    defer w.deinit(allocator);
-
-    // Write header
     try w.writeBytes(allocator, &MAGIC);
     try w.writeU16(allocator, VERSION);
     try w.writeU64(allocator, source_hash);
     try w.writeU32(allocator, @intCast(all_funcs.len));
-    // Write top-level function count so reader knows which are top-level
     try w.writeU32(allocator, @intCast(top_level_funcs.len));
 
-    // Write each function
     for (all_funcs) |func| {
         try w.writeU8(allocator, func.arity);
         try w.writeU8(allocator, func.locals_count);
         try w.writeU8(allocator, func.upvalue_count);
         try w.writeU8(allocator, if (func.is_variadic) @as(u8, 1) else @as(u8, 0));
 
-        // Name
         if (func.name) |name| {
             try w.writeU16(allocator, @intCast(name.len));
             try w.writeBytes(allocator, name);
@@ -587,18 +578,19 @@ pub fn writeFileWithTopLevel(allocator: std.mem.Allocator, top_level_funcs: []*F
             try w.writeU16(allocator, 0);
         }
 
-        // Code
         try w.writeU32(allocator, @intCast(func.code.items.len));
         try w.writeBytes(allocator, func.code.items);
 
-        // Constants
         try w.writeU32(allocator, @intCast(func.constants.items.len));
         for (func.constants.items) |constant| {
-            try writeConstant(&w, allocator, constant, all_funcs, 0);
+            try writeConstant(w, allocator, constant, all_funcs, 0);
         }
     }
 
-    // Write buffer to file
+    return all_funcs_list;
+}
+
+fn writeBufferToFile(w: *Writer, path: []const u8) !void {
     const fd = std.posix.openat(std.posix.AT.FDCWD, path, .{
         .ACCMODE = .WRONLY,
         .CREAT = true,
@@ -615,7 +607,63 @@ pub fn writeFileWithTopLevel(allocator: std.mem.Allocator, top_level_funcs: []*F
     }
 }
 
-const DeserializeResult = struct { funcs: []*Function, top_level_count: u32 };
+pub fn writeFileWithTopLevel(allocator: std.mem.Allocator, top_level_funcs: []*Function, source_hash: u64, path: []const u8) !void {
+    var w = Writer.init();
+    defer w.deinit(allocator);
+
+    var all_funcs_list = try writeFunctionsToBuffer(&w, allocator, top_level_funcs, source_hash);
+    defer all_funcs_list.deinit(allocator);
+
+    // Empty bundled files and preamble sections (regular cache files)
+    try w.writeU32(allocator, 0);
+    try w.writeU32(allocator, 0);
+
+    try writeBufferToFile(&w, path);
+}
+
+/// Write a standalone .sbc with bundled library sources and preamble forms.
+pub fn writeFileWithBundle(
+    allocator: std.mem.Allocator,
+    top_level_funcs: []*Function,
+    source_hash: u64,
+    bundled_files: *const std.StringHashMap([]const u8),
+    preamble: []const []const u8,
+    path: []const u8,
+) !void {
+    var w = Writer.init();
+    defer w.deinit(allocator);
+
+    var all_funcs_list = try writeFunctionsToBuffer(&w, allocator, top_level_funcs, source_hash);
+    defer all_funcs_list.deinit(allocator);
+
+    // Bundled files section
+    try w.writeU32(allocator, @intCast(bundled_files.count()));
+    var it = bundled_files.iterator();
+    while (it.next()) |entry| {
+        const key = entry.key_ptr.*;
+        const val = entry.value_ptr.*;
+        try w.writeU16(allocator, @intCast(key.len));
+        try w.writeBytes(allocator, key);
+        try w.writeU32(allocator, @intCast(val.len));
+        try w.writeBytes(allocator, val);
+    }
+
+    // Preamble section (top-level forms to replay at runtime)
+    try w.writeU32(allocator, @intCast(preamble.len));
+    for (preamble) |src| {
+        try w.writeU32(allocator, @intCast(src.len));
+        try w.writeBytes(allocator, src);
+    }
+
+    try writeBufferToFile(&w, path);
+}
+
+pub const DeserializeResult = struct {
+    funcs: []*Function,
+    top_level_count: u32,
+    bundled_files: ?std.StringHashMap([]const u8) = null,
+    preamble: ?[][]const u8 = null,
+};
 
 fn deserializeFromBuffer(gc: *GC, data: []const u8, expected_hash: ?u64) !?DeserializeResult {
     const allocator = gc.allocator;
@@ -684,11 +732,101 @@ fn deserializeFromBuffer(gc: *GC, data: []const u8, expected_hash: ?u64) !?Deser
         validateFunctionBytecode(func) catch return null;
     }
 
-    if (r.pos != data.len) return null;
+    // Read bundled files section
+    const bf_count = r.readU32() catch return null;
+    var bundled_files: ?std.StringHashMap([]const u8) = null;
+    if (bf_count > 0) {
+        if (bf_count > 4096) return null;
+        var bf = std.StringHashMap([]const u8).init(allocator);
+        for (0..bf_count) |_| {
+            const path_len = r.readU16() catch {
+                bf.deinit();
+                return null;
+            };
+            const path_bytes = r.readBytes(path_len) catch {
+                bf.deinit();
+                return null;
+            };
+            const content_len = r.readU32() catch {
+                bf.deinit();
+                return null;
+            };
+            if (content_len > MAX_STRING_BYTES) {
+                bf.deinit();
+                return null;
+            }
+            const content = r.readBytes(content_len) catch {
+                bf.deinit();
+                return null;
+            };
+            const key = allocator.dupe(u8, path_bytes) catch {
+                bf.deinit();
+                return BytecodeError.OutOfMemory;
+            };
+            const val = allocator.dupe(u8, content) catch {
+                allocator.free(key);
+                bf.deinit();
+                return BytecodeError.OutOfMemory;
+            };
+            bf.put(key, val) catch {
+                allocator.free(key);
+                allocator.free(val);
+                bf.deinit();
+                return BytecodeError.OutOfMemory;
+            };
+        }
+        bundled_files = bf;
+    }
+
+    // Read preamble section
+    const preamble_count = r.readU32() catch {
+        if (bundled_files) |*bf| bf.deinit();
+        return null;
+    };
+    var preamble: ?[][]const u8 = null;
+    if (preamble_count > 0) {
+        if (preamble_count > 4096) {
+            if (bundled_files) |*bf| bf.deinit();
+            return null;
+        }
+        const entries = allocator.alloc([]const u8, preamble_count) catch {
+            if (bundled_files) |*bf| bf.deinit();
+            return BytecodeError.OutOfMemory;
+        };
+        for (0..preamble_count) |i| {
+            const src_len = r.readU32() catch {
+                allocator.free(entries);
+                if (bundled_files) |*bf| bf.deinit();
+                return null;
+            };
+            if (src_len > MAX_STRING_BYTES) {
+                allocator.free(entries);
+                if (bundled_files) |*bf| bf.deinit();
+                return null;
+            }
+            const src = r.readBytes(src_len) catch {
+                allocator.free(entries);
+                if (bundled_files) |*bf| bf.deinit();
+                return null;
+            };
+            entries[i] = allocator.dupe(u8, src) catch {
+                allocator.free(entries);
+                if (bundled_files) |*bf| bf.deinit();
+                return BytecodeError.OutOfMemory;
+            };
+        }
+        preamble = entries;
+    }
+
+    if (r.pos != data.len) {
+        if (bundled_files) |*bf| bf.deinit();
+        if (preamble) |p| allocator.free(p);
+        return null;
+    }
 
     const result = allocator.alloc(*Function, func_count) catch return BytecodeError.OutOfMemory;
     @memcpy(result, all_funcs);
-    return .{ .funcs = result, .top_level_count = top_level_count };
+    return .{ .funcs = result, .top_level_count = top_level_count, .bundled_files = bundled_files, .preamble = preamble };
 }
 
 pub fn readFromBuffer(gc: *GC, data: []const u8) !?DeserializeResult {
