@@ -30,6 +30,25 @@ fn marshalReturn(comptime T: type, result: T, rt: FfiType, gc: *memory.GC) !Valu
     return error.TypeError;
 }
 
+fn marshalToPointer(v: Value) ?*anyopaque {
+    if (types.isFfiCallback(v)) {
+        const cb = types.toObject(v).as(types.FfiCallback);
+        if (cb.active) return cb.fn_ptr;
+        return null;
+    }
+    if (types.isFixnum(v)) {
+        const n = types.toFixnum(v);
+        if (n == 0) return null;
+        return @ptrFromInt(@as(usize, @intCast(n)));
+    }
+    if (types.isBytevector(v)) {
+        const bv = types.toObject(v).as(types.Bytevector);
+        if (bv.data.len == 0) return null;
+        return @ptrCast(bv.data.ptr);
+    }
+    return null;
+}
+
 /// Main FFI call dispatcher. Routes to arity-specific handlers.
 pub fn callFfi(ffi_fn: *types.FfiFunction, args: []const Value, gc: *memory.GC) !Value {
     return switch (ffi_fn.param_count) {
@@ -37,6 +56,7 @@ pub fn callFfi(ffi_fn: *types.FfiFunction, args: []const Value, gc: *memory.GC) 
         1 => callFfi1(ffi_fn, args, gc),
         2 => callFfi2(ffi_fn, args, gc),
         3 => callFfi3(ffi_fn, args, gc),
+        4 => callFfi4(ffi_fn, args, gc),
         else => error.TypeError,
     };
 }
@@ -326,5 +346,56 @@ fn callFfi3(ffi_fn: *types.FfiFunction, args: []const Value, gc: *memory.GC) !Va
         return types.makeFixnum(@intCast(result));
     }
 
+    return error.TypeError;
+}
+
+// ---------------------------------------------------------------------------
+// 4-arg dispatcher
+// ---------------------------------------------------------------------------
+
+fn callFfi4(ffi_fn: *types.FfiFunction, args: []const Value, gc: *memory.GC) !Value {
+    const p0 = ffi_fn.param_types[0];
+    const p1 = ffi_fn.param_types[1];
+    const p2 = ffi_fn.param_types[2];
+    const p3 = ffi_fn.param_types[3];
+    const rt = ffi_fn.return_type;
+
+    // (pointer, long, long, pointer) -> void  — qsort
+    if (p0 == .pointer and p1 == .long and p2 == .long and p3 == .pointer and rt == .void_type) {
+        const f: *const fn (?*anyopaque, usize, usize, *const fn (?*anyopaque, ?*anyopaque) callconv(.c) c_int) callconv(.c) void =
+            @ptrCast(@alignCast(ffi_fn.symbol));
+        const ptr0 = marshalToPointer(args[0]) orelse return error.TypeError;
+        const n: usize = @intCast(types.toFixnum(args[1]));
+        const sz: usize = @intCast(types.toFixnum(args[2]));
+        const cmp_ptr = marshalToPointer(args[3]) orelse return error.TypeError;
+        const cmp: *const fn (?*anyopaque, ?*anyopaque) callconv(.c) c_int = @ptrCast(@alignCast(cmp_ptr));
+        f(ptr0, n, sz, cmp);
+        return types.VOID;
+    }
+
+    // (pointer, long, long, pointer) -> int
+    if (p0 == .pointer and p1 == .long and p2 == .long and p3 == .pointer and rt == .int) {
+        const f: *const fn (?*anyopaque, c_long, c_long, ?*anyopaque) callconv(.c) c_int =
+            @ptrCast(@alignCast(ffi_fn.symbol));
+        const ptr0 = marshalToPointer(args[0]) orelse return error.TypeError;
+        const ptr3 = marshalToPointer(args[3]) orelse return error.TypeError;
+        const result = f(ptr0, @intCast(types.toFixnum(args[1])), @intCast(types.toFixnum(args[2])), ptr3);
+        return types.makeFixnum(@intCast(result));
+    }
+
+    // (pointer, pointer, pointer, pointer) -> int
+    if (p0 == .pointer and p1 == .pointer and p2 == .pointer and p3 == .pointer and rt == .int) {
+        const f: *const fn (?*anyopaque, ?*anyopaque, ?*anyopaque, ?*anyopaque) callconv(.c) c_int =
+            @ptrCast(@alignCast(ffi_fn.symbol));
+        const result = f(
+            marshalToPointer(args[0]),
+            marshalToPointer(args[1]),
+            marshalToPointer(args[2]),
+            marshalToPointer(args[3]),
+        );
+        return types.makeFixnum(@intCast(result));
+    }
+
+    _ = gc;
     return error.TypeError;
 }

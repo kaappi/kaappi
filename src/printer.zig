@@ -596,6 +596,14 @@ pub fn printValue(writer: anytype, value: Value, mode: PrintMode) anyerror!void 
                 const ffi_fn = obj.as(types.FfiFunction);
                 try writer.print("#<ffi-function \"{s}\">", .{ffi_fn.name});
             },
+            .ffi_callback => {
+                const cb = obj.as(types.FfiCallback);
+                if (cb.active) {
+                    try writer.print("#<ffi-callback slot={d}>", .{cb.slot_index});
+                } else {
+                    try writer.writeAll("#<ffi-callback released>");
+                }
+            },
             .bignum => {
                 const bignum_mod = @import("bignum.zig");
                 const allocator = std.heap.page_allocator;

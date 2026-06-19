@@ -26,6 +26,7 @@ const WindRecord = types.WindRecord;
 
 const FfiLibrary = types.FfiLibrary;
 const FfiFunction = types.FfiFunction;
+const FfiCallback = types.FfiCallback;
 const FfiType = types.FfiType;
 const HashTable = types.HashTable;
 const HashEntry = types.HashEntry;
@@ -43,7 +44,7 @@ pub const GcStats = struct {
     bytes_freed: usize = 0,
     peak_object_count: usize = 0,
     peak_bytes_allocated: usize = 0,
-    allocs_by_type: [29]usize = .{0} ** 29,
+    allocs_by_type: [30]usize = .{0} ** 30,
     no_collect_deferred: usize = 0,
 };
 
@@ -587,6 +588,21 @@ pub const GC = struct {
         return types.makePointer(@ptrCast(ffi_fn));
     }
 
+    pub fn allocFfiCallback(self: *GC, closure: Value, slot_index: u8, fn_ptr: *anyopaque) !Value {
+        self.maybeCollect();
+        const cb = try self.allocator.create(FfiCallback);
+        cb.* = .{
+            .header = .{ .tag = .ffi_callback },
+            .closure = closure,
+            .slot_index = slot_index,
+            .fn_ptr = fn_ptr,
+            .active = true,
+        };
+        self.bytes_allocated += @sizeOf(FfiCallback);
+        self.trackObject(&cb.header);
+        return types.makePointer(@ptrCast(cb));
+    }
+
     pub fn allocRandomSource(self: *GC, seed: u64) !Value {
         self.maybeCollect();
         const rs = try self.allocator.create(RandomSource);
@@ -810,6 +826,9 @@ pub const GC = struct {
         for (self.extra_roots.items) |v| {
             self.markValue(v);
         }
+        // Mark active FFI callback closures
+        const ffi_cb = @import("ffi_callback.zig");
+        ffi_cb.markCallbackRoots(self);
         // Mark cached flonums
         for (self.flonum_cache) |entry| {
             if (entry) |v| self.markValue(v);
@@ -934,6 +953,10 @@ pub const GC = struct {
                 self.markValue(rat.denominator);
             },
             .ffi_library, .ffi_function => {},
+            .ffi_callback => {
+                const cb = obj.as(FfiCallback);
+                self.markValue(cb.closure);
+            },
             .symbol, .string, .native_fn, .flonum, .port, .complex, .bytevector, .bignum, .file_info, .user_info, .group_info, .directory_object, .random_source => {},
         }
     }
@@ -1000,6 +1023,7 @@ pub const GC = struct {
             .hash_table => @sizeOf(HashTable) + obj.as(HashTable).entries.len * @sizeOf(types.HashEntry),
             .ffi_library => @sizeOf(FfiLibrary),
             .ffi_function => @sizeOf(FfiFunction),
+            .ffi_callback => @sizeOf(FfiCallback),
             .bignum => @sizeOf(Bignum) + obj.as(Bignum).limbs.len * @sizeOf(u64),
             .rational => @sizeOf(Rational),
             .file_info => @sizeOf(types.FileInfo),
@@ -1146,6 +1170,14 @@ pub const GC = struct {
                 self.allocator.free(ffi_fn.name);
                 self.allocator.free(ffi_fn.param_types);
                 self.allocator.destroy(ffi_fn);
+            },
+            .ffi_callback => {
+                const cb = obj.as(FfiCallback);
+                if (cb.active) {
+                    const ffi_cb = @import("ffi_callback.zig");
+                    ffi_cb.releaseSlot(cb.slot_index);
+                }
+                self.allocator.destroy(cb);
             },
             .bignum => {
                 const bn = obj.as(Bignum);

@@ -164,6 +164,7 @@ pub const VM = struct {
     /// When non-null, handleDefineLibrary collects compiled functions here
     /// for .sbc cache writing. Set by tryLoadLibraryFromFile.
     lib_compile_collect: ?*std.ArrayList(*types.Function) = null,
+    last_callback_error: bool = false,
     last_error_detail: [256]u8 = [_]u8{0} ** 256,
     last_error_detail_len: usize = 0,
     last_error_line: u32 = 0,

@@ -26,6 +26,7 @@ pub const primitives_srfi1 = @import("primitives_srfi1.zig");
 pub const primitives_hashtable = @import("primitives_hashtable.zig");
 pub const primitives_random = @import("primitives_random.zig");
 pub const bytecode_file = @import("bytecode_file.zig");
+pub const ffi_callback = @import("ffi_callback.zig");
 
 var repl_vm: ?*vm_mod.VM = null;
 
@@ -84,6 +85,7 @@ fn printGcStats(gc: *@import("memory.zig").GC) void {
         "complex",   "promise",   "parameter", "ffi_lib",
         "ffi_fn",    "hashtable", "bignum",    "rational",
         "file_info", "user_info", "grp_info",  "dir_obj",
+        "rng",       "ffi_cb",
     };
 
     writeStderr("  Allocations by type:\n");

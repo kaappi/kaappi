@@ -57,11 +57,17 @@ The VM is purely interpreted bytecode. A tracing or method-based JIT would signi
 
 ---
 
-## FFI callbacks
+## FFI callbacks — additional signatures
 
-**Status:** Not implemented
+**Status:** Basic support implemented (`(pointer, pointer) -> int`)
 
-The C FFI supports calling C functions from Scheme (0-3 arguments), but cannot pass Scheme closures as C callbacks. This limits integration with callback-heavy C APIs (event loops, sort comparators, etc.).
+FFI callbacks now work for the qsort comparator pattern via `ffi-callback`. Extending to other callback signatures (e.g. `(pointer) -> void` for event handlers, `(int, pointer) -> int` for iterators) requires adding more comptime trampoline generators in `ffi_callback.zig`. The architecture supports this — each new signature is one `makeTrampoline` variant.
+
+**Current limitations:**
+- 16 simultaneous callbacks max
+- Only `(pointer, pointer) -> int` signature
+- Single-threaded only — callbacks must be called from the VM's thread
+- Exceptions in callbacks return 0 to C
 
 ---
 

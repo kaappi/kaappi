@@ -5,10 +5,16 @@ const vm_mod = @import("vm.zig");
 const Value = types.Value;
 const PrimitiveError = primitives.PrimitiveError;
 
+const ffi_callback = @import("ffi_callback.zig");
+
 pub fn registerFfi(vm: *vm_mod.VM) !void {
     try primitives.reg(vm, "ffi-open", &ffiOpen, .{ .exact = 1 });
     try primitives.reg(vm, "ffi-fn", &ffiFn, .{ .exact = 4 });
     try primitives.reg(vm, "ffi-close", &ffiClose, .{ .exact = 1 });
+    try primitives.reg(vm, "ffi-callback", &ffiCallbackFn, .{ .exact = 3 });
+    try primitives.reg(vm, "ffi-callback-release", &ffiCallbackRelease, .{ .exact = 1 });
+    try primitives.reg(vm, "ffi-callback?", &ffiCallbackPred, .{ .exact = 1 });
+    try primitives.reg(vm, "ffi-bytevector-ptr", &ffiBytevectorPtr, .{ .exact = 1 });
 }
 
 /// (ffi-open path-or-#f)
@@ -107,6 +113,74 @@ fn ffiClose(args: []const Value) PrimitiveError!Value {
         lib.handle = null;
     }
     return types.VOID;
+}
+
+/// (ffi-callback proc '(param-types) 'return-type)
+fn ffiCallbackFn(args: []const Value) PrimitiveError!Value {
+    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const proc = args[0];
+    if (!types.isClosure(proc) and !types.isNativeFn(proc))
+        return primitives.typeError("ffi-callback", "procedure", proc);
+
+    // Parse and validate callback signature
+    var param_count: u8 = 0;
+    var param_list = args[1];
+    while (param_list != types.NIL) {
+        if (!types.isPair(param_list)) return PrimitiveError.TypeError;
+        const pt = parseType(types.car(param_list)) orelse return PrimitiveError.TypeError;
+        if (pt != .pointer) {
+            const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError;
+            vm.setErrorDetail("ffi-callback: only '(pointer pointer) signature supported", .{});
+            return PrimitiveError.TypeError;
+        }
+        param_count += 1;
+        param_list = types.cdr(param_list);
+    }
+    if (param_count != 2) {
+        const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError;
+        vm.setErrorDetail("ffi-callback: expected 2 parameter types, got {d}", .{param_count});
+        return PrimitiveError.TypeError;
+    }
+    const ret_type = parseType(args[2]) orelse return PrimitiveError.TypeError;
+    if (ret_type != .int) {
+        const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError;
+        vm.setErrorDetail("ffi-callback: only 'int return type supported", .{});
+        return PrimitiveError.TypeError;
+    }
+
+    const slot = ffi_callback.allocSlot(proc) orelse {
+        const vm = vm_mod.vm_instance orelse return PrimitiveError.OutOfMemory;
+        vm.setErrorDetail("ffi-callback: no free callback slots (max 16)", .{});
+        return PrimitiveError.OutOfMemory;
+    };
+
+    return gc.allocFfiCallback(proc, slot.index, slot.fn_ptr) catch return PrimitiveError.OutOfMemory;
+}
+
+/// (ffi-callback-release cb)
+fn ffiCallbackRelease(args: []const Value) PrimitiveError!Value {
+    if (!types.isFfiCallback(args[0]))
+        return primitives.typeError("ffi-callback-release", "ffi-callback", args[0]);
+    const cb = types.toObject(args[0]).as(types.FfiCallback);
+    if (cb.active) {
+        ffi_callback.releaseSlot(cb.slot_index);
+        cb.active = false;
+    }
+    return types.VOID;
+}
+
+/// (ffi-callback? obj)
+fn ffiCallbackPred(args: []const Value) PrimitiveError!Value {
+    return if (types.isFfiCallback(args[0])) types.TRUE else types.FALSE;
+}
+
+/// (ffi-bytevector-ptr bv) — returns data pointer as fixnum
+fn ffiBytevectorPtr(args: []const Value) PrimitiveError!Value {
+    if (!types.isBytevector(args[0]))
+        return primitives.typeError("ffi-bytevector-ptr", "bytevector", args[0]);
+    const bv = types.toObject(args[0]).as(types.Bytevector);
+    if (bv.data.len == 0) return types.makeFixnum(0);
+    return types.makeFixnum(@intCast(@intFromPtr(bv.data.ptr)));
 }
 
 /// Parse a Scheme symbol into an FfiType.

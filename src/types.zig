@@ -121,6 +121,7 @@ pub const ObjectTag = enum(u5) {
     group_info = 26,
     directory_object = 27,
     random_source = 28,
+    ffi_callback = 29,
 };
 
 pub const Object = struct {
@@ -396,6 +397,14 @@ pub const FfiFunction = struct {
     param_count: u8,
 };
 
+pub const FfiCallback = struct {
+    header: Object,
+    closure: Value,
+    slot_index: u8,
+    fn_ptr: *anyopaque,
+    active: bool,
+};
+
 // ---------------------------------------------------------------------------
 // Hash table (SRFI-69)
 // ---------------------------------------------------------------------------
@@ -590,6 +599,10 @@ pub fn isFfiLibrary(v: Value) bool {
 
 pub fn isFfiFunction(v: Value) bool {
     return isPointer(v) and toObject(v).tag == .ffi_function;
+}
+
+pub fn isFfiCallback(v: Value) bool {
+    return isPointer(v) and toObject(v).tag == .ffi_callback;
 }
 
 pub fn isHashTable(v: Value) bool {
