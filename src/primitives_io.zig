@@ -282,10 +282,14 @@ fn openInputFile(args: []const Value) PrimitiveError!Value {
     const fd = std.posix.openat(std.posix.AT.FDCWD, path_z, .{}, 0) catch {
         return raiseFileError(gc, "cannot open input file", args[0]);
     };
+    errdefer _ = std.posix.system.close(fd);
 
     // Dup the name for the port
     const owned_name = gc.allocator.dupe(u8, path) catch return PrimitiveError.OutOfMemory;
-    return gc.allocPort(fd, true, false, owned_name, true) catch return PrimitiveError.OutOfMemory;
+    return gc.allocPort(fd, true, false, owned_name, true) catch {
+        gc.allocator.free(owned_name);
+        return PrimitiveError.OutOfMemory;
+    };
 }
 
 fn openOutputFile(args: []const Value) PrimitiveError!Value {
@@ -304,9 +308,13 @@ fn openOutputFile(args: []const Value) PrimitiveError!Value {
     }, 0o644) catch {
         return raiseFileError(gc, "cannot open output file", args[0]);
     };
+    errdefer _ = std.posix.system.close(fd);
 
     const owned_name = gc.allocator.dupe(u8, path) catch return PrimitiveError.OutOfMemory;
-    return gc.allocPort(fd, false, true, owned_name, true) catch return PrimitiveError.OutOfMemory;
+    return gc.allocPort(fd, false, true, owned_name, true) catch {
+        gc.allocator.free(owned_name);
+        return PrimitiveError.OutOfMemory;
+    };
 }
 
 fn closePort(args: []const Value) PrimitiveError!Value {

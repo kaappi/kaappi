@@ -795,7 +795,10 @@ fn openDirectoryFn(args: []const Value) PrimitiveError!Value {
         return raiseFileError(gc, "cannot open directory", args[0]);
     };
 
-    return gc.allocDirectoryObject(@ptrCast(dir), include_dotfiles) catch return PrimitiveError.OutOfMemory;
+    return gc.allocDirectoryObject(@ptrCast(dir), include_dotfiles) catch {
+        _ = std.c.closedir(dir);
+        return PrimitiveError.OutOfMemory;
+    };
 }
 
 fn readDirectoryFn(args: []const Value) PrimitiveError!Value {
