@@ -242,9 +242,43 @@ These areas have been tested and match R7RS behavior:
 
 ---
 
+## Fixed bugs
+
+These were compiler/VM bugs discovered during SRFI library development and fixed.
+
+### Conditional jump table overflow (fixed)
+
+**What was broken:** `cond`, `case`, `and`, and `or` forms stored jump offsets in a fixed `[32]usize` stack array. A `cond` with 15+ branches (common in dispatch-heavy library functions) overflowed the array, silently corrupting adjacent stack memory — including the `CallFrame.saved_wind_count` field. The corrupted wind count caused the VM to access invalid `wind_stack` entries on function return, producing `panic: incorrect alignment`.
+
+**Fix:** Replaced all fixed-size jump arrays with dynamically-sized `ArrayList(usize)` in `compiler_conditionals.zig` (`compileCond`, `compileAnd`, `compileOr`) and `compiler_advanced.zig` (`compileCase`).
+
+### Closure variable boxing across branches (fixed)
+
+**What was broken:** When a lambda captured a local variable (triggering `box_local` for shared mutation), the `box_local` instruction was emitted at the closure creation point — inside whatever `cond`/`if` branch contained the lambda. But the compiler marked the variable as boxed globally, so ALL branches used `get_box_local`/`set_box_local` to access it. If a different branch was entered first (without the closure), the variable was still unboxed, and `get_box_local` misinterpreted the raw value.
+
+Example that triggered the bug:
+
+```scheme
+(define (f sre gc)
+  (cond
+    ((eq? (car sre) 'seq)
+     ;; This branch creates a closure capturing gc → emits box_local
+     (map (lambda (s) (f s gc)) (cdr sre)))
+    ((eq? (car sre) 'grp)
+     ;; This branch uses get_box_local for gc — but gc was never boxed!
+     (set-car! gc (+ 1 (car gc)))
+     (f (cadr sre) gc))))
+```
+
+**Fix:** Two changes to `vm.zig`:
+1. Changed the box sentinel from `NIL` to `VOID` — boxes are now `(value . #void)` instead of `(value . ())`, so they're distinguishable from regular one-element lists.
+2. Made `get_box_local`, `set_box_local`, and the `closure` capture instruction auto-box on first access. If a register hasn't been boxed yet (because `box_local` was in an untaken branch), the instruction boxes it on the spot before proceeding.
+
+---
+
 ## SRFI conformance
 
-42 SRFIs supported. 8 built-in (native Zig), 34 portable (.sld files). Coverage details for the built-in SRFIs follow.
+46 SRFIs supported. 8 built-in (native Zig), 38 portable (.sld files). Coverage details for the built-in SRFIs follow.
 
 ### SRFI 1 — List Library
 
