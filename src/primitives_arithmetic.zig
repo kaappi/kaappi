@@ -88,7 +88,8 @@ pub fn makeRationalReduced(gc: *@import("memory.zig").GC, num_val: Value, den_va
         if (d == 1) return types.makeFixnum(n);
         return gc.allocRational(types.makeFixnum(n), types.makeFixnum(d)) catch return PrimitiveError.OutOfMemory;
     }
-    // Bignum-containing case: for now pass through without reduction
+    // Bignum-containing case: check for zero denominator
+    if (bignum_mod.isZero(den_val)) return raiseDivByZero();
     return gc.allocRational(num_val, den_val) catch return PrimitiveError.OutOfMemory;
 }
 
@@ -141,20 +142,30 @@ pub fn registerArithmetic(vm: *vm_mod.VM) !void {
 /// Public entry point for creating reduced rationals from the reader.
 /// Does not use raiseDivByZero (returns error instead).
 pub fn makeRationalFromReader(gc: *@import("memory.zig").GC, num: i64, den: i64) !Value {
-    if (den == 0) return error.OutOfMemory; // reader should check this
+    if (den == 0) return error.OutOfMemory;
     var n = num;
     var d = den;
     if (n == 0) return types.makeFixnum(0);
     // Ensure positive denominator
     if (d < 0) {
         if (n == std.math.minInt(i64) or d == std.math.minInt(i64)) {
-            // Extreme overflow case: just store as-is
-            return gc.allocRational(types.makeFixnum(n), types.makeFixnum(d));
+            // Overflow on negation — fall back to float
+            const fn_val: f64 = @floatFromInt(n);
+            const fd_val: f64 = @floatFromInt(d);
+            return makeFlonumVal(fn_val / fd_val);
         }
         n = -n;
         d = -d;
     }
-    const g = gcdTwo(if (n < 0) -n else n, d);
+    // Safe to negate n for GCD since we handled minInt above for d < 0,
+    // but n could still be minInt with positive d
+    if (n == std.math.minInt(i64)) {
+        const fn_val: f64 = @floatFromInt(n);
+        const fd_val: f64 = @floatFromInt(d);
+        return makeFlonumVal(fn_val / fd_val);
+    }
+    const abs_n = if (n < 0) -n else n;
+    const g = gcdTwo(abs_n, d);
     n = @divExact(n, g);
     d = @divExact(d, g);
     if (d == 1) return types.makeFixnum(n);
