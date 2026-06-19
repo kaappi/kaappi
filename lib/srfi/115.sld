@@ -1,6 +1,6 @@
 (define-library (srfi 115)
   (import (scheme base) (scheme char) (scheme case-lambda) (scheme cxr))
-  (export regexp regexp? regexp-matches? regexp-matches regexp-search
+  (export regexp rx regexp? regexp-matches? regexp-matches regexp-search
           regexp-match? regexp-match-count regexp-match-submatch
           regexp-match-submatch-start regexp-match-submatch-end regexp-match->list
           regexp->sre valid-sre?
@@ -26,6 +26,7 @@
     (define (%cm a b cf) (if cf (char=? (char-downcase a) (char-downcase b)) (char=? a b)))
 
     ;;; Compile SRE to data structure
+
     (define (%csre sre gc)
       (cond
         ((string? sre) (list 'lit sre))
@@ -35,51 +36,49 @@
         ((eq? sre 'nonl) (list 'nonl))
         ((symbol? sre) (list 'class sre))
         ((not (pair? sre)) (error "regexp: invalid SRE" sre))
-        (else (%csre-pair sre gc))))
-
-    (define (%csre-pair sre gc)
-      (let ((h (car sre)))
-        (cond
-          ((or (eq? h 'seq) (eq? h ':)) (cons 'seq (%map-csre (cdr sre) gc)))
-          ((eq? h 'or) (cons 'alt (%map-csre (cdr sre) gc)))
-          ((or (eq? h '?) (eq? h 'optional)) (list 'opt (%cbody (cdr sre) gc)))
-          ((or (eq? h '*) (eq? h 'zero-or-more)) (list 'star (%cbody (cdr sre) gc)))
-          ((or (eq? h '+) (eq? h 'one-or-more)) (list 'plus (%cbody (cdr sre) gc)))
-          (else (%csre-pair2 sre gc)))))
-
-    (define (%csre-pair2 sre gc)
-      (let ((h (car sre)))
-        (cond
-          ((or (eq? h '=) (eq? h 'exactly)) (list 'exactly (cadr sre) (%cbody (cddr sre) gc)))
-          ((or (eq? h '>=) (eq? h 'at-least)) (list 'at-least (cadr sre) (%cbody (cddr sre) gc)))
-          ((or (eq? h '**) (eq? h 'repeated)) (list 'repeat (cadr sre) (caddr sre) (%cbody (cdddr sre) gc)))
-          ((or (eq? h '$) (eq? h 'submatch))
-           (let ((gn (car gc))) (set-car! gc (+ gn 1)) (list 'group gn (%cbody (cdr sre) gc))))
-          ((or (eq? h %sym-arrow) (eq? h 'submatch-named))
-           (let ((gn (car gc))) (set-car! gc (+ gn 1)) (list 'group gn (%cbody (cddr sre) gc))))
-          (else (%csre-pair3 sre gc)))))
-
-    (define (%csre-pair3 sre gc)
-      (let ((h (car sre)))
-        (cond
-          ((eq? h 'w/nocase) (list 'nocase (%cbody (cdr sre) gc)))
-          ((eq? h 'w/case) (list 'case (%cbody (cdr sre) gc)))
-          ((or (eq? h '/) (eq? h 'char-range)) (list 'range (%build-ranges (cdr sre))))
-          ((eq? h 'char-set) (list 'chars (cadr sre)))
-          ((or (eq? h '~) (eq? h 'complement)) (list 'compl (%cbody (cdr sre) gc)))
-          ((eq? h 'look-ahead) (list 'look (%cbody (cdr sre) gc)))
-          ((eq? h 'neg-look-ahead) (list 'neglook (%cbody (cdr sre) gc)))
-          ((eq? h 'word) (list 'seq (list 'assert 'bow) (%cbody (cdr sre) gc) (list 'assert 'eow)))
-          ((or (eq? h 'w/nocapture) (eq? h 'w/ascii) (eq? h 'w/unicode)) (%cbody (cdr sre) gc))
-          (else (error "regexp: unknown SRE" h)))))
-
-    (define (%map-csre lst gc)
-      (if (null? lst) '()
-          (cons (%csre (car lst) gc) (%map-csre (cdr lst) gc))))
+        (else
+         (let ((h (car sre)))
+           (cond
+             ((or (eq? h 'seq) (eq? h ':))
+              (cons 'seq (map (lambda (s) (%csre s gc)) (cdr sre))))
+             ((eq? h 'or)
+              (cons 'alt (map (lambda (s) (%csre s gc)) (cdr sre))))
+             ((or (eq? h '?) (eq? h 'optional))
+              (list 'opt (%cbody (cdr sre) gc)))
+             ((or (eq? h '*) (eq? h 'zero-or-more))
+              (list 'star (%cbody (cdr sre) gc)))
+             ((or (eq? h '+) (eq? h 'one-or-more))
+              (list 'plus (%cbody (cdr sre) gc)))
+             ((or (eq? h '=) (eq? h 'exactly))
+              (list 'exactly (cadr sre) (%cbody (cddr sre) gc)))
+             ((or (eq? h '>=) (eq? h 'at-least))
+              (list 'at-least (cadr sre) (%cbody (cddr sre) gc)))
+             ((or (eq? h '**) (eq? h 'repeated))
+              (list 'repeat (cadr sre) (caddr sre) (%cbody (cdddr sre) gc)))
+             ((or (eq? h '$) (eq? h 'submatch))
+              (let ((gn (car gc))) (set-car! gc (+ gn 1))
+                (list 'group gn (%cbody (cdr sre) gc))))
+             ((or (eq? h %sym-arrow) (eq? h 'submatch-named))
+              (let ((gn (car gc))) (set-car! gc (+ gn 1))
+                (list 'group gn (%cbody (cddr sre) gc))))
+             ((eq? h 'w/nocase) (list 'nocase (%cbody (cdr sre) gc)))
+             ((eq? h 'w/case) (list 'case (%cbody (cdr sre) gc)))
+             ((or (eq? h '/) (eq? h 'char-range))
+              (list 'range (%build-ranges (cdr sre))))
+             ((eq? h 'char-set) (list 'chars (cadr sre)))
+             ((or (eq? h '~) (eq? h 'complement))
+              (list 'compl (%cbody (cdr sre) gc)))
+             ((eq? h 'look-ahead) (list 'look (%cbody (cdr sre) gc)))
+             ((eq? h 'neg-look-ahead) (list 'neglook (%cbody (cdr sre) gc)))
+             ((eq? h 'word)
+              (list 'seq (list 'assert 'bow) (%cbody (cdr sre) gc) (list 'assert 'eow)))
+             ((or (eq? h 'w/nocapture) (eq? h 'w/ascii) (eq? h 'w/unicode))
+              (%cbody (cdr sre) gc))
+             (else (error "regexp: unknown SRE" h)))))))
 
     (define (%cbody sres gc)
       (if (null? (cdr sres)) (%csre (car sres) gc)
-          (cons 'seq (%map-csre sres gc))))
+          (cons 'seq (map (lambda (s) (%csre s gc)) sres))))
 
     (define (%build-ranges specs)
       (let loop ((specs specs) (ranges '()))
@@ -93,15 +92,7 @@
                                            (char->integer (string-ref spec (+ i 1)))) r))))
                   (loop (cdr specs) ranges))))))
 
-    ;;; Match interpreter — split into small functions
-
-    (define (%run-lit s str pos end cf)
-      (let ((slen (string-length s)))
-        (if (> (+ pos slen) end) #f
-            (let loop ((i 0))
-              (if (= i slen) (+ pos slen)
-                  (if (%cm (string-ref str (+ pos i)) (string-ref s i) cf)
-                      (loop (+ i 1)) #f))))))
+    ;;; Match interpreter
 
     (define (%match-class c name)
       (cond
@@ -180,27 +171,16 @@
                (%run-repeat (+ i 1) lo hi inner str (car r) end (cdr r) cf)
                (cons pos groups))))))
 
-    (define (%run-range ranges ci)
-      (let loop ((rs ranges))
-        (cond
-          ((null? rs) #f)
-          ((and (>= ci (caar rs)) (<= ci (cdar rs))) #t)
-          (else (loop (cdr rs))))))
-
-    (define (%run-chars s c)
-      (let loop ((i 0))
-        (cond
-          ((= i (string-length s)) #f)
-          ((char=? c (string-ref s i)) #t)
-          (else (loop (+ i 1))))))
-
-    ;;; Main dispatcher — kept very small
     (define (%run compiled str pos end groups cf)
       (let ((tag (car compiled)))
         (cond
           ((eq? tag 'lit)
-           (let ((p (%run-lit (cadr compiled) str pos end cf)))
-             (if p (cons p groups) #f)))
+           (let* ((s (cadr compiled)) (slen (string-length s)))
+             (if (> (+ pos slen) end) #f
+                 (let loop ((i 0))
+                   (if (= i slen) (cons (+ pos slen) groups)
+                       (if (%cm (string-ref str (+ pos i)) (string-ref s i) cf)
+                           (loop (+ i 1)) #f))))))
           ((eq? tag 'chr)
            (if (and (< pos end) (%cm (string-ref str pos) (cadr compiled) cf))
                (cons (+ pos 1) groups) #f))
@@ -213,43 +193,55 @@
            (if (and (< pos end) (%match-class (string-ref str pos) (cadr compiled)))
                (cons (+ pos 1) groups) #f))
           ((eq? tag 'range)
-           (if (and (< pos end) (%run-range (cadr compiled)
-                     (char->integer (if cf (char-downcase (string-ref str pos)) (string-ref str pos)))))
-               (cons (+ pos 1) groups) #f))
+           (if (< pos end)
+               (let ((ci (char->integer (if cf (char-downcase (string-ref str pos))
+                                             (string-ref str pos)))))
+                 (let loop ((rs (cadr compiled)))
+                   (cond
+                     ((null? rs) #f)
+                     ((and (>= ci (caar rs)) (<= ci (cdar rs))) (cons (+ pos 1) groups))
+                     (else (loop (cdr rs))))))
+               #f))
           ((eq? tag 'chars)
-           (if (and (< pos end) (%run-chars (cadr compiled)
-                     (if cf (char-downcase (string-ref str pos)) (string-ref str pos))))
-               (cons (+ pos 1) groups) #f))
-          (else (%run2 tag compiled str pos end groups cf)))))
-
-    (define (%run2 tag compiled str pos end groups cf)
-      (cond
-        ((eq? tag 'assert)
-         (if (%run-assert (cadr compiled) str pos end) (cons pos groups) #f))
-        ((eq? tag 'seq) (%run-seq (cdr compiled) str pos end groups cf))
-        ((eq? tag 'alt) (%run-alt (cdr compiled) str pos end groups cf))
-        ((eq? tag 'opt)
-         (let ((r (%run (cadr compiled) str pos end groups cf)))
-           (if r r (cons pos groups))))
-        ((eq? tag 'star) (%run-star (cadr compiled) str pos end groups cf))
-        ((eq? tag 'plus) (%run-plus (cadr compiled) str pos end groups cf))
-        (else (%run3 tag compiled str pos end groups cf))))
-
-    (define (%run3 tag compiled str pos end groups cf)
-      (cond
-        ((eq? tag 'exactly) (%run-exactly (cadr compiled) (caddr compiled) str pos end groups cf))
-        ((eq? tag 'at-least) (%run-at-least (cadr compiled) (caddr compiled) str pos end groups cf))
-        ((eq? tag 'repeat) (%run-repeat 0 (cadr compiled) (caddr compiled) (cadddr compiled) str pos end groups cf))
-        ((eq? tag 'group)
-         (let ((r (%run (caddr compiled) str pos end groups cf)))
-           (if r (cons (car r) (append (cdr r) (list (list (cadr compiled) pos (car r))))) #f)))
-        ((eq? tag 'nocase) (%run (cadr compiled) str pos end groups #t))
-        ((eq? tag 'case) (%run (cadr compiled) str pos end groups #f))
-        ((eq? tag 'look) (if (%run (cadr compiled) str pos end groups cf) (cons pos groups) #f))
-        ((eq? tag 'neglook) (if (%run (cadr compiled) str pos end groups cf) #f (cons pos groups)))
-        ((eq? tag 'compl) (if (or (>= pos end) (%run (cadr compiled) str pos end groups cf)) #f
-                              (cons (+ pos 1) groups)))
-        (else (error "regexp: unknown tag" tag))))
+           (if (< pos end)
+               (let ((c (if cf (char-downcase (string-ref str pos)) (string-ref str pos)))
+                     (s (cadr compiled)))
+                 (let loop ((i 0))
+                   (cond
+                     ((= i (string-length s)) #f)
+                     ((char=? c (string-ref s i)) (cons (+ pos 1) groups))
+                     (else (loop (+ i 1))))))
+               #f))
+          ((eq? tag 'assert)
+           (if (%run-assert (cadr compiled) str pos end) (cons pos groups) #f))
+          ((eq? tag 'seq) (%run-seq (cdr compiled) str pos end groups cf))
+          ((eq? tag 'alt) (%run-alt (cdr compiled) str pos end groups cf))
+          ((eq? tag 'opt)
+           (let ((r (%run (cadr compiled) str pos end groups cf)))
+             (if r r (cons pos groups))))
+          ((eq? tag 'star) (%run-star (cadr compiled) str pos end groups cf))
+          ((eq? tag 'plus) (%run-plus (cadr compiled) str pos end groups cf))
+          ((eq? tag 'exactly)
+           (%run-exactly (cadr compiled) (caddr compiled) str pos end groups cf))
+          ((eq? tag 'at-least)
+           (%run-at-least (cadr compiled) (caddr compiled) str pos end groups cf))
+          ((eq? tag 'repeat)
+           (%run-repeat 0 (cadr compiled) (caddr compiled) (cadddr compiled)
+                        str pos end groups cf))
+          ((eq? tag 'group)
+           (let ((r (%run (caddr compiled) str pos end groups cf)))
+             (if r (cons (car r) (append (cdr r) (list (list (cadr compiled) pos (car r)))))
+                 #f)))
+          ((eq? tag 'nocase) (%run (cadr compiled) str pos end groups #t))
+          ((eq? tag 'case) (%run (cadr compiled) str pos end groups #f))
+          ((eq? tag 'look)
+           (if (%run (cadr compiled) str pos end groups cf) (cons pos groups) #f))
+          ((eq? tag 'neglook)
+           (if (%run (cadr compiled) str pos end groups cf) #f (cons pos groups)))
+          ((eq? tag 'compl)
+           (if (or (>= pos end) (%run (cadr compiled) str pos end groups cf)) #f
+               (cons (+ pos 1) groups)))
+          (else (error "regexp: unknown tag" tag)))))
 
     ;;; Public API
 
