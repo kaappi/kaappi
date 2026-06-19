@@ -31,7 +31,7 @@ const Result = struct { ns_per: f64, heap_mb: usize };
 fn measure(allocator: std.mem.Allocator, prim: []const u8, depth: u32, iters: u32) !Result {
     var gc = memory.GC.init(allocator);
     defer gc.deinit();
-    var vm = vm_mod.VM.init(&gc);
+    var vm = try vm_mod.VM.init(&gc);
     defer vm.deinit();
     try primitives.registerAll(&vm);
     primitives.setGCInstance(&gc);

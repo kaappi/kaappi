@@ -43,6 +43,7 @@ pub fn captureContinuation(vm: *VM, dst_reg: u8, dst_base: u16) VMError!Value {
             .ip = f.ip,
             .base = f.base,
             .dst = f.dst,
+            .saved_wind_count = f.saved_wind_count,
         };
     }
 
@@ -124,7 +125,7 @@ pub fn invokeEscape(vm: *VM, cont: *types.Continuation, value: Value) VMError!vo
     var i = vm.wind_count;
     while (i > cont.target_wind_count) {
         i -= 1;
-        _ = vm.callThunk(vm.wind_stack[i].after) catch {};
+        _ = try vm.callThunk(vm.wind_stack[i].after);
     }
     vm.wind_count = cont.target_wind_count;
 
@@ -144,7 +145,7 @@ pub fn invokeEscape(vm: *VM, cont: *types.Continuation, value: Value) VMError!vo
 
 /// Perform dynamic-wind transition from current wind stack to target wind stack.
 /// Calls after thunks for unwinding and before thunks for rewinding.
-pub fn performWindTransition(vm: *VM, target_winds: []const types.WindRecord, target_count: usize) !void {
+pub fn performWindTransition(vm: *VM, target_winds: []const types.WindRecord, target_count: usize) VMError!void {
     // Find the common prefix length
     const min_len = @min(vm.wind_count, target_count);
     var common: usize = 0;
@@ -163,7 +164,7 @@ pub fn performWindTransition(vm: *VM, target_winds: []const types.WindRecord, ta
     while (i > common) {
         i -= 1;
         const after = vm.wind_stack[i].after;
-        _ = vm.callThunk(after) catch {};
+        _ = try vm.callThunk(after);
     }
     vm.wind_count = common;
 
@@ -171,27 +172,31 @@ pub fn performWindTransition(vm: *VM, target_winds: []const types.WindRecord, ta
     var j = common;
     while (j < target_count) {
         const before = target_winds[j].before;
-        _ = vm.callThunk(before) catch {};
-        if (vm.wind_count < MAX_WINDS) {
-            vm.wind_stack[vm.wind_count] = target_winds[j];
-            vm.wind_count += 1;
-        }
+        _ = try vm.callThunk(before);
+        if (vm.wind_count >= MAX_WINDS) return VMError.StackOverflow;
+        vm.wind_stack[vm.wind_count] = target_winds[j];
+        vm.wind_count += 1;
         j += 1;
     }
 }
 
 /// Restore a captured continuation, replacing the VM state and placing
 /// the given value at the continuation's destination register.
-pub fn restoreContinuation(vm: *VM, cont: *types.Continuation, value: Value) void {
-    // Validate captured counts fit within VM limits
-    const reg_len = @min(cont.registers.len, MAX_REGISTERS);
-    const fc = @min(cont.frame_count, MAX_FRAMES);
-    const hc = @min(cont.handler_count, MAX_HANDLERS);
-    const wc = @min(cont.wind_count, MAX_WINDS);
+pub fn restoreContinuation(vm: *VM, cont: *types.Continuation, value: Value) VMError!void {
+    // Validate captured counts fit within VM limits; fail closed instead of
+    // truncating continuation state silently.
+    if (cont.registers.len > MAX_REGISTERS) return VMError.StackOverflow;
+    if (cont.frame_count > MAX_FRAMES) return VMError.StackOverflow;
+    if (cont.handler_count > MAX_HANDLERS) return VMError.StackOverflow;
+    if (cont.wind_count > MAX_WINDS) return VMError.StackOverflow;
+    if (cont.frames.len < cont.frame_count) return VMError.InvalidBytecode;
+    if (cont.handlers.len < cont.handler_count) return VMError.InvalidBytecode;
+    if (cont.wind_records.len < cont.wind_count) return VMError.InvalidBytecode;
+    if (cont.is_escape) return VMError.InvalidArgument;
 
     // Restore saved VM state
-    @memcpy(vm.registers[0..reg_len], cont.registers[0..reg_len]);
-    for (cont.frames[0..fc], 0..) |saved_frame, i| {
+    @memcpy(vm.registers[0..cont.registers.len], cont.registers[0..cont.registers.len]);
+    for (cont.frames[0..cont.frame_count], 0..) |saved_frame, i| {
         vm.frames[i] = .{
             .closure = saved_frame.closure,
             .native = saved_frame.native,
@@ -199,32 +204,33 @@ pub fn restoreContinuation(vm: *VM, cont: *types.Continuation, value: Value) voi
             .ip = saved_frame.ip,
             .base = saved_frame.base,
             .dst = saved_frame.dst,
+            .saved_wind_count = saved_frame.saved_wind_count,
         };
     }
-    vm.frame_count = fc;
+    vm.frame_count = cont.frame_count;
 
     // Restore handler stack
-    for (cont.handlers[0..hc], 0..) |saved_handler, i| {
+    for (cont.handlers[0..cont.handler_count], 0..) |saved_handler, i| {
         vm.handler_stack[i] = .{
             .handler = saved_handler.handler,
             .frame_count = saved_handler.frame_count,
         };
     }
-    vm.handler_count = hc;
+    vm.handler_count = cont.handler_count;
 
     // Restore wind stack
-    for (cont.wind_records[0..wc], 0..) |wr, i| {
+    for (cont.wind_records[0..cont.wind_count], 0..) |wr, i| {
         vm.wind_stack[i] = wr;
     }
-    vm.wind_count = wc;
+    vm.wind_count = cont.wind_count;
 
     // Clear any pending exception from before the continuation was invoked
     vm.current_exception = null;
 
     // Place the result value where call/cc was waiting for it
     const dst_idx = @as(usize, cont.dst_base) + @as(usize, cont.dst_reg);
-    if (dst_idx < MAX_REGISTERS) {
-        vm.registers[dst_idx] = value;
-    }
+    if (dst_idx >= MAX_REGISTERS) return VMError.StackOverflow;
+    vm.registers[dst_idx] = value;
     vm.continuation_value = value;
+    vm.continuation_invoked = true;
 }

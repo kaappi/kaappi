@@ -54,11 +54,46 @@ fn printHeader(func: *types.Function, allocator: std.mem.Allocator) void {
 fn disassembleInstruction(func: *types.Function, code: []const u8, offset: usize, allocator: std.mem.Allocator) usize {
     var buf: [256]u8 = undefined;
     var ip = offset;
-    const op: OpCode = @enumFromInt(code[ip]);
+    if (ip >= code.len) return code.len;
+    const raw_op = code[ip];
     ip += 1;
 
     const off_str = std.fmt.bufPrint(&buf, "  {d:0>4}  ", .{offset}) catch "  ????  ";
     writeStderr(off_str);
+
+    if (raw_op > @intFromEnum(OpCode.self_tail_call)) {
+        const s = std.fmt.bufPrint(&buf, "<invalid opcode 0x{x:0>2}>\n", .{raw_op}) catch "<invalid opcode>\n";
+        writeStderr(s);
+        return ip;
+    }
+    const op: OpCode = @enumFromInt(raw_op);
+
+    const fixed_operand_bytes: usize = switch (op) {
+        .load_const => 3,
+        .load_nil, .load_true, .load_false, .load_void => 1,
+        .move => 2,
+        .get_global => 3,
+        .set_global, .define_global => 3,
+        .tail_apply => 2,
+        .get_local, .set_local, .get_upvalue, .set_upvalue => 2,
+        .call, .tail_call => 2,
+        .@"return" => 1,
+        .jump => 2,
+        .jump_false, .jump_true => 3,
+        .closure => 3,
+        .close_upvalue => 1,
+        .cons => 3,
+        .push_handler => 1,
+        .pop_handler, .halt => 0,
+        .call_global, .tail_call_global => 4,
+        .box_local => 1,
+        .get_box_local, .set_box_local => 2,
+        .self_tail_call => 2,
+    };
+    if (ip + fixed_operand_bytes > code.len) {
+        writeStderr("<truncated instruction>\n");
+        return code.len;
+    }
 
     switch (op) {
         .load_const => {
@@ -186,24 +221,33 @@ fn disassembleInstruction(func: *types.Function, code: []const u8, offset: usize
         },
         .jump => {
             const off = readI16(code, &ip);
-            const target: usize = @intCast(@as(i32, @intCast(ip)) + off);
-            const s = std.fmt.bufPrint(&buf, "jump            -> {d:0>4}\n", .{target}) catch "jump\n";
+            const target = @as(i64, @intCast(ip)) + @as(i64, off);
+            const s = if (target < 0 or target > code.len)
+                std.fmt.bufPrint(&buf, "jump            -> <invalid {d}>\n", .{target}) catch "jump\n"
+            else
+                std.fmt.bufPrint(&buf, "jump            -> {d:0>4}\n", .{@as(usize, @intCast(target))}) catch "jump\n";
             writeStderr(s);
         },
         .jump_false => {
             const test_reg = code[ip];
             ip += 1;
             const off = readI16(code, &ip);
-            const target: usize = @intCast(@as(i32, @intCast(ip)) + off);
-            const s = std.fmt.bufPrint(&buf, "jump_false      r{d}, -> {d:0>4}\n", .{ test_reg, target }) catch "jump_false\n";
+            const target = @as(i64, @intCast(ip)) + @as(i64, off);
+            const s = if (target < 0 or target > code.len)
+                std.fmt.bufPrint(&buf, "jump_false      r{d}, -> <invalid {d}>\n", .{ test_reg, target }) catch "jump_false\n"
+            else
+                std.fmt.bufPrint(&buf, "jump_false      r{d}, -> {d:0>4}\n", .{ test_reg, @as(usize, @intCast(target)) }) catch "jump_false\n";
             writeStderr(s);
         },
         .jump_true => {
             const test_reg = code[ip];
             ip += 1;
             const off = readI16(code, &ip);
-            const target: usize = @intCast(@as(i32, @intCast(ip)) + off);
-            const s = std.fmt.bufPrint(&buf, "jump_true       r{d}, -> {d:0>4}\n", .{ test_reg, target }) catch "jump_true\n";
+            const target = @as(i64, @intCast(ip)) + @as(i64, off);
+            const s = if (target < 0 or target > code.len)
+                std.fmt.bufPrint(&buf, "jump_true       r{d}, -> <invalid {d}>\n", .{ test_reg, target }) catch "jump_true\n"
+            else
+                std.fmt.bufPrint(&buf, "jump_true       r{d}, -> {d:0>4}\n", .{ test_reg, @as(usize, @intCast(target)) }) catch "jump_true\n";
             writeStderr(s);
         },
         .closure => {
@@ -223,6 +267,10 @@ fn disassembleInstruction(func: *types.Function, code: []const u8, offset: usize
                         const inner = obj.as(types.Function);
                         var ui: usize = 0;
                         while (ui < inner.upvalue_count) : (ui += 1) {
+                            if (ip + 2 > code.len) {
+                                writeStderr("          <truncated capture descriptors>\n");
+                                return code.len;
+                            }
                             const is_local = code[ip];
                             ip += 1;
                             const uv_idx = code[ip];

@@ -156,7 +156,7 @@ pub fn main(init: std.process.Init.Minimal) !void {
     var gc = memory.GC.init(allocator);
     defer gc.deinit();
 
-    var vm = vm_mod.VM.init(&gc);
+    var vm = try vm_mod.VM.init(&gc);
     defer vm.deinit();
     vm_mod.setVMInstance(&vm);
     try primitives.registerAll(&vm);
@@ -262,7 +262,7 @@ fn runFile(vm: *vm_mod.VM, path: []const u8) !void {
             const top_count = @min(loaded.top_level_count, @as(u32, @intCast(loaded.funcs.len)));
             for (loaded.funcs[0..top_count]) |func| {
                 var func_val = types.makePointer(@ptrCast(func));
-                vm.gc.pushRoot(&func_val);
+                vm.gc.pushRoot(&func_val) catch return error.OutOfMemory;
                 const result = vm.execute(func) catch |err| {
                     vm.gc.popRoot();
                     const detail = vm.getErrorDetail();
@@ -356,12 +356,12 @@ fn runFile(vm: *vm_mod.VM, path: []const u8) !void {
         // of the run: the .sbc cache writer walks compiled_funcs at the end, so
         // these pointers must survive GC triggered while executing later forms.
         // (A plain ArrayList of *Function is not a GC root.)
-        compiled_funcs.append(allocator, func) catch {};
-        vm.gc.extra_roots.append(allocator, types.makePointer(@ptrCast(func))) catch {};
+        compiled_funcs.append(allocator, func) catch return error.OutOfMemory;
+        vm.gc.extra_roots.append(allocator, types.makePointer(@ptrCast(func))) catch return error.OutOfMemory;
 
         // Root the function to prevent GC from collecting it before execute wraps it in a closure
         var func_val = types.makePointer(@ptrCast(func));
-        vm.gc.pushRoot(&func_val);
+        vm.gc.pushRoot(&func_val) catch return error.OutOfMemory;
 
         const result = vm.execute(func) catch |err| {
             vm.gc.popRoot();
@@ -831,7 +831,10 @@ fn evalInput(vm: *vm_mod.VM, allocator: std.mem.Allocator, input: []const u8) vo
         };
 
         var func_val = types.makePointer(@ptrCast(func));
-        vm.gc.pushRoot(&func_val);
+        vm.gc.pushRoot(&func_val) catch {
+            writeStderr("error: out of memory while rooting function\n");
+            break;
+        };
 
         const result = vm.execute(func) catch |err| {
             vm.gc.popRoot();

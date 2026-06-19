@@ -36,7 +36,7 @@ pub fn compileAnd(self: *Compiler, args: Value, dst: u8, is_tail: bool) CompileE
     }
 
     for (end_jumps.items) |j| {
-        self.patchJump(j);
+        try self.patchJump(j);
     }
 }
 
@@ -69,7 +69,7 @@ pub fn compileOr(self: *Compiler, args: Value, dst: u8, is_tail: bool) CompileEr
     }
 
     for (end_jumps.items) |j| {
-        self.patchJump(j);
+        try self.patchJump(j);
     }
 }
 
@@ -97,11 +97,11 @@ pub fn compileWhen(self: *Compiler, args: Value, dst: u8, is_tail: bool) Compile
     const end_jump = self.currentOffset();
     try self.emitI16(0);
 
-    self.patchJump(false_jump);
+    try self.patchJump(false_jump);
     try self.emitOp(.load_void);
     try self.emit(dst);
 
-    self.patchJump(end_jump);
+    try self.patchJump(end_jump);
 }
 
 pub fn compileUnless(self: *Compiler, args: Value, dst: u8, is_tail: bool) CompileError!void {
@@ -128,11 +128,11 @@ pub fn compileUnless(self: *Compiler, args: Value, dst: u8, is_tail: bool) Compi
     const end_jump = self.currentOffset();
     try self.emitI16(0);
 
-    self.patchJump(true_jump);
+    try self.patchJump(true_jump);
     try self.emitOp(.load_void);
     try self.emit(dst);
 
-    self.patchJump(end_jump);
+    try self.patchJump(end_jump);
 }
 
 pub fn compileCond(self: *Compiler, args: Value, dst: u8, is_tail: bool) CompileError!void {
@@ -208,7 +208,7 @@ pub fn compileCond(self: *Compiler, args: Value, dst: u8, is_tail: bool) Compile
                 end_jumps.append(self.gc.allocator, self.currentOffset()) catch return CompileError.TooManyLocals;
                 try self.emitI16(0);
 
-                self.patchJump(next_clause);
+                try self.patchJump(next_clause);
                 continue;
             }
         }
@@ -229,7 +229,7 @@ pub fn compileCond(self: *Compiler, args: Value, dst: u8, is_tail: bool) Compile
         end_jumps.append(self.gc.allocator, self.currentOffset()) catch return CompileError.TooManyLocals;
         try self.emitI16(0);
 
-        self.patchJump(next_clause);
+        try self.patchJump(next_clause);
     }
 
     // If no else clause, result is void when nothing matched
@@ -239,7 +239,7 @@ pub fn compileCond(self: *Compiler, args: Value, dst: u8, is_tail: bool) Compile
     }
 
     for (end_jumps.items) |j| {
-        self.patchJump(j);
+        try self.patchJump(j);
     }
 }
 

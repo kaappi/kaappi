@@ -13,6 +13,9 @@ pub const CompileError = error{
     UndefinedVariable,
     TooManyConstants,
     TooManyLocals,
+    InternalLimit,
+    MacroExpansionLimit,
+    JumpOutOfRange,
     NotImplemented,
 };
 
@@ -28,6 +31,9 @@ const Upvalue = struct {
     is_local: bool,
 };
 
+const MAX_MACRO_EXPANSION_DEPTH: u16 = 256;
+const MAX_MACRO_EXPANSION_STEPS: u32 = 10_000;
+
 pub const Compiler = struct {
     gc: *memory.GC,
     func: *types.Function,
@@ -41,10 +47,12 @@ pub const Compiler = struct {
     parent: ?*Compiler = null,
     in_body_scope: bool = false,
     current_line: u32 = 0,
+    macro_expansion_depth: u16 = 0,
+    macro_expansion_steps: u32 = 0,
 
     pub fn init(gc: *memory.GC) CompileError!Compiler {
         const func = gc.allocFunction() catch return CompileError.OutOfMemory;
-        gc.extra_roots.append(gc.allocator, types.makePointer(@ptrCast(func))) catch {};
+        gc.extra_roots.append(gc.allocator, types.makePointer(@ptrCast(func))) catch return CompileError.OutOfMemory;
         return .{
             .gc = gc,
             .func = func,
@@ -75,7 +83,7 @@ pub const Compiler = struct {
         func.env = parent.lib_env;
         func.source_line = parent.func.source_line;
         func.source_name = parent.func.source_name;
-        parent.gc.extra_roots.append(parent.gc.allocator, types.makePointer(@ptrCast(func))) catch {};
+        parent.gc.extra_roots.append(parent.gc.allocator, types.makePointer(@ptrCast(func))) catch return CompileError.OutOfMemory;
         return .{
             .gc = parent.gc,
             .func = func,
@@ -132,8 +140,12 @@ pub const Compiler = struct {
         return self.func.code.items.len;
     }
 
-    pub fn patchJump(self: *Compiler, offset: usize) void {
-        const jump_dist: i16 = @intCast(@as(isize, @intCast(self.currentOffset())) - @as(isize, @intCast(offset)) - 2);
+    pub fn patchJump(self: *Compiler, offset: usize) CompileError!void {
+        const dist = @as(isize, @intCast(self.currentOffset())) - @as(isize, @intCast(offset)) - 2;
+        if (dist < std.math.minInt(i16) or dist > std.math.maxInt(i16)) {
+            return CompileError.JumpOutOfRange;
+        }
+        const jump_dist: i16 = @intCast(dist);
         const unsigned: u16 = @bitCast(jump_dist);
         self.func.code.items[offset] = @truncate(unsigned >> 8);
         self.func.code.items[offset + 1] = @truncate(unsigned & 0xFF);
@@ -247,7 +259,7 @@ pub const Compiler = struct {
         // this, not-yet-compiled tails of the form (e.g. string literals) can
         // be swept mid-compilation and end up as dangling constant-pool entries.
         var expr_root = expr;
-        self.gc.pushRoot(&expr_root);
+        try self.gc.pushRoot(&expr_root);
         defer self.gc.popRoot();
 
         const dst = try self.allocReg();
@@ -271,7 +283,7 @@ pub const Compiler = struct {
         // Keep all source data rooted across compilation (see compile()).
         const roots_base = self.gc.extra_roots.items.len;
         defer self.gc.extra_roots.shrinkRetainingCapacity(roots_base);
-        for (exprs) |e| self.gc.extra_roots.append(self.gc.allocator, e) catch {};
+        for (exprs) |e| self.gc.extra_roots.append(self.gc.allocator, e) catch return CompileError.OutOfMemory;
 
         if (exprs.len == 0) {
             const dst = try self.allocReg();
@@ -495,6 +507,14 @@ pub const Compiler = struct {
 
             // Check if head is a macro keyword
             if (self.lookupMacro(name)) |transformer| {
+                if (self.macro_expansion_depth >= MAX_MACRO_EXPANSION_DEPTH or
+                    self.macro_expansion_steps >= MAX_MACRO_EXPANSION_STEPS)
+                {
+                    return CompileError.MacroExpansionLimit;
+                }
+                self.macro_expansion_depth += 1;
+                self.macro_expansion_steps += 1;
+                defer self.macro_expansion_depth -= 1;
                 // Build merged macro view including parent scopes
                 var merged_macros = std.StringHashMap(Value).init(self.gc.allocator);
                 defer merged_macros.deinit();
@@ -542,10 +562,12 @@ pub const Compiler = struct {
                         var pv_names: [64][]const u8 = undefined;
                         var pv_count: usize = 0;
                         for (tx.patterns[0..tx.num_rules]) |pat| {
-                            collectSymbols(pat, &pv_names, &pv_count);
+                            if (!collectSymbols(pat, &pv_names, &pv_count)) return CompileError.InternalLimit;
                         }
                         for (tx.templates[0..tx.num_rules]) |tmpl| {
-                            collectFreeRefs(tmpl, pv_names[0..pv_count], tx.literals, &cand_names, &cand_count);
+                            if (!collectFreeRefs(tmpl, pv_names[0..pv_count], tx.literals, &cand_names, &cand_count)) {
+                                return CompileError.InternalLimit;
+                            }
                         }
                         for (cand_names[0..cand_count]) |cname| {
                             const in_g = g.get(cname);
@@ -563,9 +585,7 @@ pub const Compiler = struct {
                         }
                     }
                 }
-                const expanded = expander.expandMacro(self.gc, expr, transformer, self.globals, &merged_macros) catch return CompileError.InvalidSyntax;
-                // Restore globals
-                if (self.globals) |g| {
+                defer if (self.globals) |g| {
                     for (temp_globals[0..temp_global_count]) |tg| {
                         if (tg.was_present) {
                             g.put(tg.name, tg.old_val.?) catch {};
@@ -573,9 +593,15 @@ pub const Compiler = struct {
                             _ = g.remove(tg.name);
                         }
                     }
-                }
+                };
+                const expanded = expander.expandMacro(self.gc, expr, transformer, self.globals, &merged_macros) catch |err| switch (err) {
+                    error.OutOfMemory => return CompileError.OutOfMemory,
+                    error.ScopeTableFull => return CompileError.InternalLimit,
+                    error.PatternTooComplex => return CompileError.InternalLimit,
+                    error.NoMatchingPattern => return CompileError.InvalidSyntax,
+                };
                 var expanded_root = expanded;
-                self.gc.pushRoot(&expanded_root);
+                try self.gc.pushRoot(&expanded_root);
                 defer self.gc.popRoot();
                 // Inject captured locals from the macro definition site
                 const saved_locals_len = self.locals.items.len;
@@ -638,25 +664,25 @@ pub const Compiler = struct {
             try self.emitI16(0); // placeholder
 
             // Patch else jump
-            self.patchJump(else_jump);
+            try self.patchJump(else_jump);
 
             // Compile alternate (in tail position if the if is)
             const alternate = types.car(rest2);
             try self.compileExpr(alternate, dst, is_tail);
 
             // Patch end jump
-            self.patchJump(end_jump);
+            try self.patchJump(end_jump);
         } else {
             // No else: result is void when test is false
             try self.emitOp(.jump);
             const end_jump = self.currentOffset();
             try self.emitI16(0);
 
-            self.patchJump(else_jump);
+            try self.patchJump(else_jump);
             try self.emitOp(.load_void);
             try self.emit(dst);
 
-            self.patchJump(end_jump);
+            try self.patchJump(end_jump);
         }
     }
 
@@ -1074,11 +1100,6 @@ pub fn compileExpressionWithMacrosAt(gc: *memory.GC, expr: Value, vm_macros: *st
     c.func.source_name = source_name;
     var ok = false;
     defer {
-        var it = c.macros.iterator();
-        while (it.next()) |entry| {
-            vm_macros.put(entry.key_ptr.*, entry.value_ptr.*) catch {};
-            gc.extra_roots.append(gc.allocator, entry.value_ptr.*) catch {};
-        }
         if (!ok) Compiler.unrootFunction(gc, c.func);
         c.deinit();
     }
@@ -1087,6 +1108,11 @@ pub fn compileExpressionWithMacrosAt(gc: *memory.GC, expr: Value, vm_macros: *st
         c.macros.put(entry.key_ptr.*, entry.value_ptr.*) catch return CompileError.OutOfMemory;
     }
     try c.compile(expr);
+    var out_it = c.macros.iterator();
+    while (out_it.next()) |entry| {
+        vm_macros.put(entry.key_ptr.*, entry.value_ptr.*) catch return CompileError.OutOfMemory;
+        gc.extra_roots.append(gc.allocator, entry.value_ptr.*) catch return CompileError.OutOfMemory;
+    }
     ok = true;
     return c.func;
 }
@@ -1097,11 +1123,6 @@ pub fn compileExpressionInEnv(gc: *memory.GC, expr: Value, vm_macros: *std.Strin
     c.lib_env = env;
     var ok = false;
     defer {
-        var it = c.macros.iterator();
-        while (it.next()) |entry| {
-            vm_macros.put(entry.key_ptr.*, entry.value_ptr.*) catch {};
-            gc.extra_roots.append(gc.allocator, entry.value_ptr.*) catch {};
-        }
         if (!ok) Compiler.unrootFunction(gc, c.func);
         c.deinit();
     }
@@ -1111,6 +1132,11 @@ pub fn compileExpressionInEnv(gc: *memory.GC, expr: Value, vm_macros: *std.Strin
     }
     try c.compile(expr);
     c.func.env = env;
+    var out_it = c.macros.iterator();
+    while (out_it.next()) |entry| {
+        vm_macros.put(entry.key_ptr.*, entry.value_ptr.*) catch return CompileError.OutOfMemory;
+        gc.extra_roots.append(gc.allocator, entry.value_ptr.*) catch return CompileError.OutOfMemory;
+    }
     ok = true;
     return c.func;
 }
@@ -1131,51 +1157,50 @@ pub fn compileProgram(gc: *memory.GC, exprs: []const Value) CompileError!*types.
 // Free-reference collection for macro hygiene
 // ---------------------------------------------------------------------------
 
-fn collectSymbols(expr: Value, out: *[64][]const u8, count: *usize) void {
+fn collectSymbols(expr: Value, out: *[64][]const u8, count: *usize) bool {
     if (types.isSymbol(expr)) {
         const n = types.symbolName(expr);
         for (out[0..count.*]) |e| {
-            if (std.mem.eql(u8, e, n)) return;
+            if (std.mem.eql(u8, e, n)) return true;
         }
-        if (count.* < 64) {
-            out[count.*] = n;
-            count.* += 1;
-        }
-        return;
+        if (count.* >= 64) return false;
+        out[count.*] = n;
+        count.* += 1;
+        return true;
     }
     if (types.isPair(expr)) {
-        collectSymbols(types.car(expr), out, count);
-        collectSymbols(types.cdr(expr), out, count);
+        if (!collectSymbols(types.car(expr), out, count)) return false;
+        return collectSymbols(types.cdr(expr), out, count);
     }
+    return true;
 }
 
-fn collectFreeRefs(template: Value, pat_vars: []const []const u8, literals: []const Value, out: *[64][]const u8, count: *usize) void {
-    collectFreeRefsWithLocals(template, pat_vars, literals, &.{}, out, count);
+fn collectFreeRefs(template: Value, pat_vars: []const []const u8, literals: []const Value, out: *[64][]const u8, count: *usize) bool {
+    return collectFreeRefsWithLocals(template, pat_vars, literals, &.{}, out, count);
 }
 
-fn collectFreeRefsWithLocals(template: Value, pat_vars: []const []const u8, literals: []const Value, local_binds: []const []const u8, out: *[64][]const u8, count: *usize) void {
+fn collectFreeRefsWithLocals(template: Value, pat_vars: []const []const u8, literals: []const Value, local_binds: []const []const u8, out: *[64][]const u8, count: *usize) bool {
     if (types.isSymbol(template)) {
         const name = types.symbolName(template);
         for (pat_vars) |pv| {
-            if (std.mem.eql(u8, pv, name)) return;
+            if (std.mem.eql(u8, pv, name)) return true;
         }
         for (local_binds) |lb| {
-            if (std.mem.eql(u8, lb, name)) return;
+            if (std.mem.eql(u8, lb, name)) return true;
         }
         for (literals) |lit| {
-            if (types.isSymbol(lit) and std.mem.eql(u8, types.symbolName(lit), name)) return;
+            if (types.isSymbol(lit) and std.mem.eql(u8, types.symbolName(lit), name)) return true;
         }
-        if (expander.isWellKnown(name)) return;
+        if (expander.isWellKnown(name)) return true;
         for (out[0..count.*]) |e| {
-            if (std.mem.eql(u8, e, name)) return;
+            if (std.mem.eql(u8, e, name)) return true;
         }
-        if (count.* < 64) {
-            out[count.*] = name;
-            count.* += 1;
-        }
-        return;
+        if (count.* >= 64) return false;
+        out[count.*] = name;
+        count.* += 1;
+        return true;
     }
-    if (!types.isPair(template)) return;
+    if (!types.isPair(template)) return true;
     const head = types.car(template);
     const rest = types.cdr(template);
     if (types.isSymbol(head)) {
@@ -1205,14 +1230,14 @@ fn collectFreeRefsWithLocals(template: Value, pat_vars: []const []const u8, lite
                             }
                             const init_rest2 = types.cdr(b);
                             if (init_rest2 != types.NIL and types.isPair(init_rest2))
-                                collectFreeRefsWithLocals(types.car(init_rest2), pat_vars, literals, local_binds, out, count);
+                                if (!collectFreeRefsWithLocals(types.car(init_rest2), pat_vars, literals, local_binds, out, count)) return false;
                         }
                         binds = types.cdr(binds);
                     }
-                    collectFreeRefsWithLocals(types.cdr(bab), pat_vars, literals, let_names[0..let_count], out, count);
+                    if (!collectFreeRefsWithLocals(types.cdr(bab), pat_vars, literals, let_names[0..let_count], out, count)) return false;
                 }
             }
-            return;
+            return true;
         }
         if (std.mem.eql(u8, hname, "lambda")) {
             if (rest != types.NIL and types.isPair(rest)) {
@@ -1234,14 +1259,14 @@ fn collectFreeRefsWithLocals(template: Value, pat_vars: []const []const u8, lite
                     lam_names[lam_count] = types.symbolName(params);
                     lam_count += 1;
                 }
-                collectFreeRefsWithLocals(types.cdr(rest), pat_vars, literals, lam_names[0..lam_count], out, count);
+                if (!collectFreeRefsWithLocals(types.cdr(rest), pat_vars, literals, lam_names[0..lam_count], out, count)) return false;
             }
-            return;
+            return true;
         }
         if (std.mem.eql(u8, hname, "define")) {
             if (rest != types.NIL and types.isPair(rest))
-                collectFreeRefsWithLocals(types.cdr(rest), pat_vars, literals, local_binds, out, count);
-            return;
+                if (!collectFreeRefsWithLocals(types.cdr(rest), pat_vars, literals, local_binds, out, count)) return false;
+            return true;
         }
         if (std.mem.eql(u8, hname, "syntax-rules")) {
             // Inner syntax-rules: collect pattern variables and exclude them
@@ -1255,17 +1280,17 @@ fn collectFreeRefsWithLocals(template: Value, pat_vars: []const []const u8, lite
                 while (types.isPair(rules)) {
                     const rule = types.car(rules);
                     if (types.isPair(rule)) {
-                        collectSymbols(types.car(rule), @ptrCast(&sr_names), &sr_count);
+                        if (!collectSymbols(types.car(rule), @ptrCast(&sr_names), &sr_count)) return false;
                     }
                     rules = types.cdr(rules);
                 }
-                collectFreeRefsWithLocals(rest, pat_vars, literals, sr_names[0..sr_count], out, count);
+                if (!collectFreeRefsWithLocals(rest, pat_vars, literals, sr_names[0..sr_count], out, count)) return false;
             }
-            return;
+            return true;
         }
     }
-    collectFreeRefsWithLocals(head, pat_vars, literals, local_binds, out, count);
-    collectFreeRefsWithLocals(rest, pat_vars, literals, local_binds, out, count);
+    if (!collectFreeRefsWithLocals(head, pat_vars, literals, local_binds, out, count)) return false;
+    return collectFreeRefsWithLocals(rest, pat_vars, literals, local_binds, out, count);
 }
 
 fn isLetForm(name: []const u8) bool {

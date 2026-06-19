@@ -72,6 +72,7 @@ pub fn readNumber(self: *Reader) ReadError!Token {
         }
     }
     const num_str = self.source[start..self.pos];
+    if (num_str.len > Reader.MAX_TOKEN_BYTES) return ReadError.TokenTooLong;
 
     // Check for complex literal: real+imagi or real-imagi
     if (self.pos < self.source.len and (self.source[self.pos] == '+' or self.source[self.pos] == '-')) {
@@ -220,9 +221,11 @@ pub fn readNumber(self: *Reader) ReadError!Token {
 /// and check for special float literals on the folded text.
 /// Returns the (possibly folded) symbol token.
 pub fn foldAndReturnSymbol(self: *Reader, sym_text: []const u8) ReadError!Token {
+    if (sym_text.len > Reader.MAX_TOKEN_BYTES) return ReadError.TokenTooLong;
     const text = if (self.fold_case) blk: {
         self.token_buf.clearRetainingCapacity();
         for (sym_text) |ch| {
+            if (self.token_buf.items.len >= Reader.MAX_TOKEN_BYTES) return ReadError.TokenTooLong;
             self.token_buf.append(self.gc.allocator, std.ascii.toLower(ch)) catch return ReadError.OutOfMemory;
         }
         break :blk self.token_buf.items;
@@ -477,6 +480,7 @@ pub fn readIntegerWithRadix(self: *Reader, radix: u8) ReadError!Token {
         self.pos += 1;
     }
     const num_str = self.source[start..self.pos];
+    if (num_str.len > Reader.MAX_TOKEN_BYTES) return ReadError.TokenTooLong;
     if (num_str.len == 0 or (num_str.len == 1 and (num_str[0] == '+' or num_str[0] == '-'))) return ReadError.InvalidNumber;
     const n = std.fmt.parseInt(i64, num_str, radix) catch |err| {
         if (err == error.Overflow and radix == 10) {

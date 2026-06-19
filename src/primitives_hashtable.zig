@@ -184,23 +184,19 @@ fn hashTableToAlistFn(args: []const Value) PrimitiveError!Value {
     const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
     const ht = try getHashTable(args[0]);
     var result: Value = types.NIL;
-    gc.pushRoot(&result);
+    gc.pushRoot(&result) catch return PrimitiveError.OutOfMemory;
+    defer gc.popRoot();
     var i = ht.count;
     while (i > 0) {
         i -= 1;
-        var pair = gc.allocPair(ht.entries[i].key, ht.entries[i].value) catch {
-            gc.popRoot();
-            return PrimitiveError.OutOfMemory;
-        };
-        gc.pushRoot(&pair);
+        var pair = gc.allocPair(ht.entries[i].key, ht.entries[i].value) catch return PrimitiveError.OutOfMemory;
+        gc.pushRoot(&pair) catch return PrimitiveError.OutOfMemory;
         result = gc.allocPair(pair, result) catch {
-            gc.popRoot();
             gc.popRoot();
             return PrimitiveError.OutOfMemory;
         };
         gc.popRoot();
     }
-    gc.popRoot();
     return result;
 }
 

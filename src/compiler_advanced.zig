@@ -73,7 +73,7 @@ pub fn compileGuard(self: *Compiler, args: Value, dst: u8, is_tail: bool) Compil
     var form = gc.allocPair(ec_sym, gc.allocPair(outer, types.NIL) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory;
 
     gc.no_collect -= 1;
-    gc.pushRoot(&form);
+    try gc.pushRoot(&form);
     defer gc.popRoot();
     return self.compileExpr(form, dst, is_tail);
 }
@@ -229,7 +229,7 @@ pub fn compileCase(self: *Compiler, args: Value, dst: u8, is_tail: bool) Compile
 
         // Patch body jumps to here (start of clause body)
         for (body_jumps.items) |j| {
-            self.patchJump(j);
+            try self.patchJump(j);
         }
 
         // Check for => form: ((datum ...) => proc)
@@ -272,7 +272,7 @@ pub fn compileCase(self: *Compiler, args: Value, dst: u8, is_tail: bool) Compile
                 try self.emitI16(0);
 
                 // Patch next clause jump
-                self.patchJump(next_clause_jump);
+                try self.patchJump(next_clause_jump);
                 continue;
             }
         }
@@ -286,7 +286,7 @@ pub fn compileCase(self: *Compiler, args: Value, dst: u8, is_tail: bool) Compile
         try self.emitI16(0);
 
         // Patch next clause jump
-        self.patchJump(next_clause_jump);
+        try self.patchJump(next_clause_jump);
     }
 
     // If no else clause, result is void
@@ -297,7 +297,7 @@ pub fn compileCase(self: *Compiler, args: Value, dst: u8, is_tail: bool) Compile
 
     // Patch all end jumps
     for (end_jumps.items) |j| {
-        self.patchJump(j);
+        try self.patchJump(j);
     }
 
     // Free the key register
@@ -398,6 +398,7 @@ fn compileQQ(self: *Compiler, tmpl: Value, dst: u8, depth: u8) CompileError!void
     if (types.isSymbol(head) and std.mem.eql(u8, types.symbolName(head), "quasiquote")) {
         const rest = types.cdr(tmpl);
         if (rest == types.NIL) return CompileError.InvalidSyntax;
+        if (depth == std.math.maxInt(u8)) return CompileError.InvalidSyntax;
         // Rebuild (quasiquote <compiled-inner>) with incremented depth
         const qq_sym_idx = try self.addConstant(head);
         const sym_reg = try self.allocReg();
@@ -565,7 +566,7 @@ fn compileQQSplicing(self: *Compiler, tmpl: Value, dst: u8, depth: u8) CompileEr
     if (seg_count == 1) {
         var seg0 = segments_buf[0];
         gc.no_collect -= 1;
-        gc.pushRoot(&seg0);
+        try gc.pushRoot(&seg0);
         defer gc.popRoot();
         return self.compileExpr(seg0, dst, false);
     }
@@ -579,7 +580,7 @@ fn compileQQSplicing(self: *Compiler, tmpl: Value, dst: u8, depth: u8) CompileEr
     }
     var append_call = gc.allocPair(append_sym, args_list) catch return CompileError.OutOfMemory;
     gc.no_collect -= 1;
-    gc.pushRoot(&append_call);
+    try gc.pushRoot(&append_call);
     defer gc.popRoot();
     return self.compileExpr(append_call, dst, false);
 }
@@ -708,7 +709,7 @@ pub fn compileParameterize(self: *Compiler, args: Value, dst: u8, is_tail: bool)
     var outer_let = gc.allocPair(let_sym, gc.allocPair(let_bindings, outer_body) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory;
 
     gc.no_collect -= 1;
-    gc.pushRoot(&outer_let);
+    try gc.pushRoot(&outer_let);
     defer gc.popRoot();
     return self.compileExpr(outer_let, dst, is_tail);
 }
@@ -810,7 +811,7 @@ pub fn compileCaseLambda(self: *Compiler, args: Value, dst: u8) CompileError!voi
     var outer_lambda = try gc.allocPair(lambda_sym, try gc.allocPair(args_sym, try gc.allocPair(let_form, types.NIL)));
 
     gc.no_collect -= 1;
-    gc.pushRoot(&outer_lambda);
+    try gc.pushRoot(&outer_lambda);
     defer gc.popRoot();
     return self.compileExpr(outer_lambda, dst, false);
 }

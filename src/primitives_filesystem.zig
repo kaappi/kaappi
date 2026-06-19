@@ -99,20 +99,13 @@ pub fn registerFilesystem(vm: *vm_mod.VM) !void {
 fn raiseFileError(gc: *GC, msg_text: []const u8, irritant: Value) PrimitiveError!Value {
     const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError;
     var msg = gc.allocString(msg_text) catch return PrimitiveError.OutOfMemory;
-    gc.pushRoot(&msg);
-    const irritants = gc.allocPair(irritant, types.NIL) catch {
-        gc.popRoot();
-        return PrimitiveError.OutOfMemory;
-    };
+    gc.pushRoot(&msg) catch return PrimitiveError.OutOfMemory;
+    defer gc.popRoot();
+    const irritants = gc.allocPair(irritant, types.NIL) catch return PrimitiveError.OutOfMemory;
     var irritants_root = irritants;
-    gc.pushRoot(&irritants_root);
-    const err_obj = gc.allocErrorObject(msg, irritants_root) catch {
-        gc.popRoot();
-        gc.popRoot();
-        return PrimitiveError.OutOfMemory;
-    };
-    gc.popRoot();
-    gc.popRoot();
+    gc.pushRoot(&irritants_root) catch return PrimitiveError.OutOfMemory;
+    defer gc.popRoot();
+    const err_obj = gc.allocErrorObject(msg, irritants_root) catch return PrimitiveError.OutOfMemory;
     types.toObject(err_obj).as(types.ErrorObject).error_type = .file;
     vm.current_exception = err_obj;
     return PrimitiveError.ExceptionRaised;
@@ -142,7 +135,7 @@ fn directoryFiles(args: []const Value) PrimitiveError!Value {
     defer _ = std.c.closedir(dir);
 
     var result: Value = types.NIL;
-    gc.pushRoot(&result);
+    gc.pushRoot(&result) catch return PrimitiveError.OutOfMemory;
     defer gc.popRoot();
 
     while (std.c.readdir(dir)) |entry| {
@@ -620,7 +613,7 @@ fn userSupplementaryGidsFn(args: []const Value) PrimitiveError!Value {
     if (n < 0) return PrimitiveError.TypeError;
 
     var result: Value = types.NIL;
-    gc.pushRoot(&result);
+    gc.pushRoot(&result) catch return PrimitiveError.OutOfMemory;
     defer gc.popRoot();
 
     var i: usize = @intCast(n);

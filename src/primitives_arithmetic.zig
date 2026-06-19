@@ -99,12 +99,9 @@ pub fn raiseDivByZero() PrimitiveError!Value {
     const vm = vm_mod.vm_instance orelse return PrimitiveError.DivisionByZero;
     const gc = primitives.gc_instance orelse return PrimitiveError.DivisionByZero;
     var msg = gc.allocString("division by zero") catch return PrimitiveError.DivisionByZero;
-    gc.pushRoot(&msg);
-    const err_obj = gc.allocErrorObject(msg, types.NIL) catch {
-        gc.popRoot();
-        return PrimitiveError.DivisionByZero;
-    };
-    gc.popRoot();
+    gc.pushRoot(&msg) catch return PrimitiveError.DivisionByZero;
+    defer gc.popRoot();
+    const err_obj = gc.allocErrorObject(msg, types.NIL) catch return PrimitiveError.DivisionByZero;
     vm.current_exception = err_obj;
     return PrimitiveError.ExceptionRaised;
 }

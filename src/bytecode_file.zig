@@ -3,11 +3,22 @@ const types = @import("types.zig");
 const memory = @import("memory.zig");
 const Value = types.Value;
 const Function = types.Function;
+const OpCode = types.OpCode;
 const GC = memory.GC;
 
 // File format constants
 const MAGIC = [4]u8{ 'K', 'P', 'B', 'C' };
 const VERSION: u16 = 2;
+const MAX_FUNCTIONS: u32 = 16_384;
+const MAX_TOP_LEVEL_FUNCTIONS: u32 = 4_096;
+const MAX_CODE_BYTES: u32 = 1_048_576;
+const MAX_CONSTANTS_PER_FUNCTION: u32 = 65_535;
+const MAX_SYMBOL_BYTES: u16 = 4_096;
+const MAX_STRING_BYTES: u32 = 1_048_576;
+const MAX_VECTOR_LEN: u32 = 262_144;
+const MAX_BYTEVECTOR_LEN: u32 = 1_048_576;
+const MAX_BIGNUM_LIMBS: u32 = 262_144;
+const MAX_CONSTANT_DEPTH: u32 = 256;
 
 // Constant type tags
 const TAG_FIXNUM: u8 = 0;
@@ -321,7 +332,8 @@ fn writeConstant(w: *Writer, allocator: std.mem.Allocator, val: Value, all_funcs
 // Read constant
 // ---------------------------------------------------------------------------
 
-fn readConstant(r: *Reader, gc: *GC, all_funcs: []*Function) !Value {
+fn readConstant(r: *Reader, gc: *GC, all_funcs: []*Function, depth: u32) !Value {
+    if (depth > MAX_CONSTANT_DEPTH) return BytecodeError.CorruptedFile;
     const tag = try r.readU8();
     switch (tag) {
         TAG_FIXNUM => {
@@ -334,22 +346,27 @@ fn readConstant(r: *Reader, gc: *GC, all_funcs: []*Function) !Value {
         },
         TAG_SYMBOL => {
             const name_len = try r.readU16();
+            if (name_len > MAX_SYMBOL_BYTES) return BytecodeError.CorruptedFile;
             const name = try r.readBytes(name_len);
             return gc.allocSymbol(name) catch return BytecodeError.OutOfMemory;
         },
         TAG_STRING => {
             const data_len = try r.readU32();
+            if (data_len > MAX_STRING_BYTES) return BytecodeError.CorruptedFile;
             const data = try r.readBytes(data_len);
             return gc.allocString(data) catch return BytecodeError.OutOfMemory;
         },
         TAG_BOOLEAN => {
             const v = try r.readU8();
+            if (v > 1) return BytecodeError.CorruptedFile;
             return if (v != 0) types.TRUE else types.FALSE;
         },
         TAG_NIL => return types.NIL,
         TAG_VOID => return types.VOID,
         TAG_CHAR => {
             const cp = try r.readU32();
+            if (cp > 0x10FFFF) return BytecodeError.CorruptedFile;
+            if (cp >= 0xD800 and cp <= 0xDFFF) return BytecodeError.CorruptedFile;
             return types.makeChar(@intCast(cp));
         },
         TAG_FUNCTION => {
@@ -358,32 +375,35 @@ fn readConstant(r: *Reader, gc: *GC, all_funcs: []*Function) !Value {
             return types.makePointer(@ptrCast(all_funcs[idx]));
         },
         TAG_PAIR => {
-            const car_val = try readConstant(r, gc, all_funcs);
+            const car_val = try readConstant(r, gc, all_funcs, depth + 1);
             // Root car to protect from GC during cdr read
             var car_root = car_val;
-            gc.pushRoot(&car_root);
-            const cdr_val = try readConstant(r, gc, all_funcs);
-            gc.popRoot();
+            try gc.pushRoot(&car_root);
+            defer gc.popRoot();
+            const cdr_val = try readConstant(r, gc, all_funcs, depth + 1);
             return gc.allocPair(car_root, cdr_val) catch return BytecodeError.OutOfMemory;
         },
         TAG_VECTOR => {
             const len = try r.readU32();
+            if (len > MAX_VECTOR_LEN) return BytecodeError.CorruptedFile;
             const allocator = gc.allocator;
             const elems = allocator.alloc(Value, len) catch return BytecodeError.OutOfMemory;
             defer allocator.free(elems);
             for (0..len) |i| {
-                elems[i] = try readConstant(r, gc, all_funcs);
+                elems[i] = try readConstant(r, gc, all_funcs, depth + 1);
             }
             return gc.allocVector(elems) catch return BytecodeError.OutOfMemory;
         },
         TAG_BYTEVECTOR => {
             const len = try r.readU32();
+            if (len > MAX_BYTEVECTOR_LEN) return BytecodeError.CorruptedFile;
             const data = try r.readBytes(len);
             return gc.allocBytevector(data) catch return BytecodeError.OutOfMemory;
         },
         TAG_BIGNUM => {
             const positive = (try r.readU8()) != 0;
             const len = try r.readU32();
+            if (len > MAX_BIGNUM_LIMBS) return BytecodeError.CorruptedFile;
             const allocator = gc.allocator;
             const limbs = allocator.alloc(u64, len) catch return BytecodeError.OutOfMemory;
             defer allocator.free(limbs);
@@ -393,11 +413,11 @@ fn readConstant(r: *Reader, gc: *GC, all_funcs: []*Function) !Value {
             return gc.allocBignumFromLimbs(limbs, len, positive) catch return BytecodeError.OutOfMemory;
         },
         TAG_RATIONAL => {
-            const num = try readConstant(r, gc, all_funcs);
+            const num = try readConstant(r, gc, all_funcs, depth + 1);
             var num_root = num;
-            gc.pushRoot(&num_root);
-            const den = try readConstant(r, gc, all_funcs);
-            gc.popRoot();
+            try gc.pushRoot(&num_root);
+            defer gc.popRoot();
+            const den = try readConstant(r, gc, all_funcs, depth + 1);
             return gc.allocRational(num_root, den) catch return BytecodeError.OutOfMemory;
         },
         TAG_COMPLEX => {
@@ -408,6 +428,101 @@ fn readConstant(r: *Reader, gc: *GC, all_funcs: []*Function) !Value {
             return gc.allocComplexEx(real, imag, exact_real, exact_imag) catch return BytecodeError.OutOfMemory;
         },
         else => return BytecodeError.InvalidConstantTag,
+    }
+}
+
+fn readU16FromCode(code: []const u8, ip: *usize) BytecodeError!u16 {
+    if (ip.* + 2 > code.len) return BytecodeError.CorruptedFile;
+    const hi: u16 = code[ip.*];
+    const lo: u16 = code[ip.* + 1];
+    ip.* += 2;
+    return (hi << 8) | lo;
+}
+
+fn readI16FromCode(code: []const u8, ip: *usize) BytecodeError!i16 {
+    return @bitCast(try readU16FromCode(code, ip));
+}
+
+fn validateSymbolConstant(func: *Function, idx: u16) BytecodeError!void {
+    if (idx >= func.constants.items.len) return BytecodeError.CorruptedFile;
+    if (!types.isSymbol(func.constants.items[idx])) return BytecodeError.CorruptedFile;
+}
+
+fn validateFunctionBytecode(func: *Function) BytecodeError!void {
+    const code = func.code.items;
+    var ip: usize = 0;
+    while (ip < code.len) {
+        const raw = code[ip];
+        if (raw > @intFromEnum(OpCode.self_tail_call)) return BytecodeError.CorruptedFile;
+        const op: OpCode = @enumFromInt(raw);
+        ip += 1;
+
+        switch (op) {
+            .load_const => {
+                if (ip + 3 > code.len) return BytecodeError.CorruptedFile;
+                ip += 1; // dst
+                const idx = try readU16FromCode(code, &ip);
+                if (idx >= func.constants.items.len) return BytecodeError.CorruptedFile;
+            },
+            .load_nil, .load_true, .load_false, .load_void, .@"return", .close_upvalue, .push_handler, .box_local => {
+                if (ip + 1 > code.len) return BytecodeError.CorruptedFile;
+                ip += 1;
+            },
+            .move, .get_upvalue, .set_upvalue, .call, .tail_call, .tail_apply, .get_box_local, .set_box_local, .self_tail_call => {
+                if (ip + 2 > code.len) return BytecodeError.CorruptedFile;
+                ip += 2;
+            },
+            .get_local, .set_local => return BytecodeError.CorruptedFile,
+            .get_global => {
+                if (ip + 3 > code.len) return BytecodeError.CorruptedFile;
+                ip += 1; // dst
+                const idx = try readU16FromCode(code, &ip);
+                try validateSymbolConstant(func, idx);
+            },
+            .set_global, .define_global => {
+                if (ip + 3 > code.len) return BytecodeError.CorruptedFile;
+                const idx = try readU16FromCode(code, &ip);
+                try validateSymbolConstant(func, idx);
+                ip += 1; // src
+            },
+            .jump => {
+                if (ip + 2 > code.len) return BytecodeError.CorruptedFile;
+                const off = try readI16FromCode(code, &ip);
+                const target = @as(i64, @intCast(ip)) + @as(i64, off);
+                if (target < 0 or target > code.len) return BytecodeError.CorruptedFile;
+            },
+            .jump_false, .jump_true => {
+                if (ip + 3 > code.len) return BytecodeError.CorruptedFile;
+                ip += 1; // test register
+                const off = try readI16FromCode(code, &ip);
+                const target = @as(i64, @intCast(ip)) + @as(i64, off);
+                if (target < 0 or target > code.len) return BytecodeError.CorruptedFile;
+            },
+            .closure => {
+                if (ip + 3 > code.len) return BytecodeError.CorruptedFile;
+                ip += 1; // dst
+                const idx = try readU16FromCode(code, &ip);
+                if (idx >= func.constants.items.len) return BytecodeError.CorruptedFile;
+                const func_val = func.constants.items[idx];
+                if (!types.isFunction(func_val)) return BytecodeError.CorruptedFile;
+                const inner = types.toObject(func_val).as(Function);
+                const capture_bytes = @as(usize, inner.upvalue_count) * 2;
+                if (ip + capture_bytes > code.len) return BytecodeError.CorruptedFile;
+                ip += capture_bytes;
+            },
+            .cons => {
+                if (ip + 3 > code.len) return BytecodeError.CorruptedFile;
+                ip += 3;
+            },
+            .pop_handler, .halt => {},
+            .call_global, .tail_call_global => {
+                if (ip + 4 > code.len) return BytecodeError.CorruptedFile;
+                ip += 1; // base register
+                const idx = try readU16FromCode(code, &ip);
+                try validateSymbolConstant(func, idx);
+                ip += 1; // nargs
+            },
+        }
     }
 }
 
@@ -525,10 +640,11 @@ pub fn readFileWithTopLevel(gc: *GC, source_hash: u64, path: []const u8) !?struc
 
     // Read function count
     const func_count = r.readU32() catch return null;
-    if (func_count == 0) return null;
+    if (func_count == 0 or func_count > MAX_FUNCTIONS) return null;
 
     // Read top-level count
     const top_level_count = r.readU32() catch return null;
+    if (top_level_count > func_count or top_level_count > MAX_TOP_LEVEL_FUNCTIONS) return null;
 
     // Allocate all function objects first (so constants can reference by index)
     const all_funcs = allocator.alloc(*Function, func_count) catch return BytecodeError.OutOfMemory;
@@ -537,7 +653,7 @@ pub fn readFileWithTopLevel(gc: *GC, source_hash: u64, path: []const u8) !?struc
     for (0..func_count) |i| {
         all_funcs[i] = gc.allocFunction() catch return BytecodeError.OutOfMemory;
         // Root to protect from GC
-        gc.extra_roots.append(allocator, types.makePointer(@ptrCast(all_funcs[i]))) catch {};
+        gc.extra_roots.append(allocator, types.makePointer(@ptrCast(all_funcs[i]))) catch return BytecodeError.OutOfMemory;
     }
 
     // Now read each function's data
@@ -547,11 +663,13 @@ pub fn readFileWithTopLevel(gc: *GC, source_hash: u64, path: []const u8) !?struc
         func.arity = r.readU8() catch return null;
         func.locals_count = r.readU8() catch return null;
         func.upvalue_count = r.readU8() catch return null;
+        if (func.locals_count > 250) return null;
         const variadic_byte = r.readU8() catch return null;
         func.is_variadic = variadic_byte != 0;
 
         // Name
         const name_len = r.readU16() catch return null;
+        if (name_len > MAX_SYMBOL_BYTES) return null;
         if (name_len > 0) {
             const name_bytes = r.readBytes(name_len) catch return null;
             func.name = allocator.dupe(u8, name_bytes) catch return BytecodeError.OutOfMemory;
@@ -560,16 +678,24 @@ pub fn readFileWithTopLevel(gc: *GC, source_hash: u64, path: []const u8) !?struc
 
         // Code
         const code_len = r.readU32() catch return null;
+        if (code_len > MAX_CODE_BYTES) return null;
         const code_bytes = r.readBytes(code_len) catch return null;
         func.code.appendSlice(allocator, code_bytes) catch return BytecodeError.OutOfMemory;
 
         // Constants
         const const_count = r.readU32() catch return null;
+        if (const_count > MAX_CONSTANTS_PER_FUNCTION) return null;
         for (0..const_count) |_| {
-            const val = readConstant(&r, gc, all_funcs) catch return null;
+            const val = readConstant(&r, gc, all_funcs, 0) catch return null;
             func.constants.append(allocator, val) catch return BytecodeError.OutOfMemory;
         }
     }
+
+    for (all_funcs) |func| {
+        validateFunctionBytecode(func) catch return null;
+    }
+
+    if (r.pos != data.len) return null;
 
     const result = allocator.alloc(*Function, func_count) catch return BytecodeError.OutOfMemory;
     @memcpy(result, all_funcs);
@@ -812,4 +938,86 @@ test "source hash computation" {
 
     try std.testing.expectEqual(h1, h2);
     try std.testing.expect(h1 != h3);
+}
+
+test "bytecode validation rejects oversized function count header" {
+    const allocator = std.testing.allocator;
+    var gc = GC.init(allocator);
+    defer gc.deinit();
+
+    var w = Writer{ .buf = .empty };
+    defer w.buf.deinit(allocator);
+
+    const hash: u64 = 0xA11CE;
+    try w.writeBytes(allocator, &MAGIC);
+    try w.writeU16(allocator, VERSION);
+    try w.writeU64(allocator, hash);
+    try w.writeU32(allocator, @as(u32, @intCast(MAX_FUNCTIONS + 1)));
+    try w.writeU32(allocator, 1);
+
+    const path = "/tmp/kaappi_test_bad_func_count.sbc";
+    const fd = std.posix.openat(std.posix.AT.FDCWD, path, .{
+        .ACCMODE = .WRONLY,
+        .CREAT = true,
+        .TRUNC = true,
+    }, 0o644) catch unreachable;
+    defer _ = std.posix.system.close(fd);
+    defer _ = std.posix.system.unlink(@ptrCast(path));
+
+    var total: usize = 0;
+    while (total < w.buf.items.len) {
+        const wrote = std.posix.system.write(fd, w.buf.items.ptr + total, w.buf.items.len - total);
+        if (wrote <= 0) break;
+        total += @as(usize, @intCast(wrote));
+    }
+
+    const loaded = try readFileWithTopLevel(&gc, hash, path);
+    try std.testing.expect(loaded == null);
+}
+
+test "bytecode validation rejects invalid opcode" {
+    const allocator = std.testing.allocator;
+    var gc = GC.init(allocator);
+    defer gc.deinit();
+
+    var w = Writer{ .buf = .empty };
+    defer w.buf.deinit(allocator);
+
+    const hash: u64 = 0xBADC0DE;
+    try w.writeBytes(allocator, &MAGIC);
+    try w.writeU16(allocator, VERSION);
+    try w.writeU64(allocator, hash);
+    try w.writeU32(allocator, 1); // function count
+    try w.writeU32(allocator, 1); // top-level count
+
+    // Function header
+    try w.writeU8(allocator, 0); // arity
+    try w.writeU8(allocator, 1); // locals_count
+    try w.writeU8(allocator, 0); // upvalue_count
+    try w.writeU8(allocator, 0); // is_variadic
+    try w.writeU16(allocator, 0); // name_len
+
+    // Body: one invalid opcode byte
+    try w.writeU32(allocator, 1); // code_len
+    try w.writeU8(allocator, 0xFF);
+    try w.writeU32(allocator, 0); // const_count
+
+    const path = "/tmp/kaappi_test_invalid_opcode.sbc";
+    const fd = std.posix.openat(std.posix.AT.FDCWD, path, .{
+        .ACCMODE = .WRONLY,
+        .CREAT = true,
+        .TRUNC = true,
+    }, 0o644) catch unreachable;
+    defer _ = std.posix.system.close(fd);
+    defer _ = std.posix.system.unlink(@ptrCast(path));
+
+    var total: usize = 0;
+    while (total < w.buf.items.len) {
+        const wrote = std.posix.system.write(fd, w.buf.items.ptr + total, w.buf.items.len - total);
+        if (wrote <= 0) break;
+        total += @as(usize, @intCast(wrote));
+    }
+
+    const loaded = try readFileWithTopLevel(&gc, hash, path);
+    try std.testing.expect(loaded == null);
 }

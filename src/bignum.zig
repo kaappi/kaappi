@@ -462,7 +462,7 @@ pub fn expt(gc: *memory.GC, base_val: Value, exp_val: Value) !Value {
     var e: u64 = @intCast(exp);
 
     // Root the intermediate values
-    gc.extra_roots.append(gc.allocator, result) catch {};
+    gc.extra_roots.append(gc.allocator, result) catch return error.OutOfMemory;
     defer {
         if (gc.extra_roots.items.len > 0) _ = gc.extra_roots.pop();
     }

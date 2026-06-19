@@ -297,6 +297,7 @@ pub const SavedFrame = struct {
     ip: usize,
     base: u16,
     dst: u8,
+    saved_wind_count: u16,
 };
 
 /// Saved exception handler for continuation capture.

@@ -101,11 +101,11 @@ fn withExceptionHandlerFn(args: []const Value) PrimitiveError!Value {
             vm.popHandler();
             var handler_root = handler;
             const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
-            gc.pushRoot(&handler_root);
+            gc.pushRoot(&handler_root) catch return PrimitiveError.OutOfMemory;
+            defer gc.popRoot();
             const exc = vm.current_exception orelse types.FALSE;
             vm.current_exception = null;
             _ = vm.callHandler(handler_root, exc, 0) catch |herr| {
-                gc.popRoot();
                 return switch (herr) {
                     vm_mod.VMError.ContinuationInvoked => PrimitiveError.ContinuationInvoked,
                     vm_mod.VMError.ExceptionRaised => PrimitiveError.ExceptionRaised,
@@ -113,15 +113,11 @@ fn withExceptionHandlerFn(args: []const Value) PrimitiveError!Value {
                     else => PrimitiveError.TypeError,
                 };
             };
-            gc.popRoot();
             // Handler returned from non-continuable raise — re-raise per R7RS
             var reraise_msg = gc.allocString("handler returned") catch return PrimitiveError.OutOfMemory;
-            gc.pushRoot(&reraise_msg);
-            const reraise_err = gc.allocErrorObject(reraise_msg, types.NIL) catch {
-                gc.popRoot();
-                return PrimitiveError.OutOfMemory;
-            };
-            gc.popRoot();
+            gc.pushRoot(&reraise_msg) catch return PrimitiveError.OutOfMemory;
+            defer gc.popRoot();
+            const reraise_err = gc.allocErrorObject(reraise_msg, types.NIL) catch return PrimitiveError.OutOfMemory;
             vm.current_exception = reraise_err;
             return PrimitiveError.ExceptionRaised;
         }
@@ -133,19 +129,16 @@ fn withExceptionHandlerFn(args: []const Value) PrimitiveError!Value {
             gc.allocString(detail) catch return PrimitiveError.OutOfMemory
         else
             gc.allocString("error") catch return PrimitiveError.OutOfMemory;
-        gc.pushRoot(&msg_str);
-        const err_obj = gc.allocErrorObject(msg_str, types.NIL) catch {
-            gc.popRoot();
-            return PrimitiveError.OutOfMemory;
-        };
-        gc.popRoot();
+        gc.pushRoot(&msg_str) catch return PrimitiveError.OutOfMemory;
+        defer gc.popRoot();
+        const err_obj = gc.allocErrorObject(msg_str, types.NIL) catch return PrimitiveError.OutOfMemory;
         var handler_root = handler;
-        gc.pushRoot(&handler_root);
+        gc.pushRoot(&handler_root) catch return PrimitiveError.OutOfMemory;
+        defer gc.popRoot();
         var err_root = err_obj;
-        gc.pushRoot(&err_root);
+        gc.pushRoot(&err_root) catch return PrimitiveError.OutOfMemory;
+        defer gc.popRoot();
         const handler_result = vm.callHandler(handler_root, err_root, 0) catch |herr| {
-            gc.popRoot();
-            gc.popRoot();
             return switch (herr) {
                 vm_mod.VMError.ContinuationInvoked => PrimitiveError.ContinuationInvoked,
                 vm_mod.VMError.ExceptionRaised => PrimitiveError.ExceptionRaised,
@@ -153,8 +146,6 @@ fn withExceptionHandlerFn(args: []const Value) PrimitiveError!Value {
                 else => PrimitiveError.TypeError,
             };
         };
-        gc.popRoot();
-        gc.popRoot();
         return handler_result;
     };
 
@@ -199,24 +190,18 @@ fn errorFn(args: []const Value) PrimitiveError!Value {
 
     // Build irritants list from remaining args
     var irritants: Value = types.NIL;
-    gc.pushRoot(&irritants);
+    gc.pushRoot(&irritants) catch return PrimitiveError.OutOfMemory;
+    defer gc.popRoot();
     if (args.len > 1) {
         var i = args.len;
         while (i > 1) {
             i -= 1;
-            irritants = gc.allocPair(args[i], irritants) catch {
-                gc.popRoot();
-                return PrimitiveError.OutOfMemory;
-            };
+            irritants = gc.allocPair(args[i], irritants) catch return PrimitiveError.OutOfMemory;
         }
     }
 
     // Create the error object
-    const err_obj = gc.allocErrorObject(message, irritants) catch {
-        gc.popRoot();
-        return PrimitiveError.OutOfMemory;
-    };
-    gc.popRoot();
+    const err_obj = gc.allocErrorObject(message, irritants) catch return PrimitiveError.OutOfMemory;
 
     // Raise it through the exception system
     const raise_args = [1]Value{err_obj};
@@ -245,11 +230,11 @@ fn callWithCurrentContinuation(args: []const Value) PrimitiveError!Value {
 
     // Root the continuation so it survives GC during the proc call
     var cont_val = cont;
-    vm.gc.pushRoot(&cont_val);
+    vm.gc.pushRoot(&cont_val) catch return PrimitiveError.OutOfMemory;
+    defer vm.gc.popRoot();
 
     // Call proc(continuation)
     const result = vm.callHandler(proc, cont_val, base_reg) catch |err| {
-        vm.gc.popRoot();
         return switch (err) {
             vm_mod.VMError.ContinuationInvoked => PrimitiveError.ContinuationInvoked,
             vm_mod.VMError.ExceptionRaised => PrimitiveError.ExceptionRaised,
@@ -258,8 +243,6 @@ fn callWithCurrentContinuation(args: []const Value) PrimitiveError!Value {
             else => PrimitiveError.TypeError,
         };
     };
-
-    vm.gc.popRoot();
 
     // If proc returned normally (without invoking the continuation),
     // store the result where call/cc's result goes.
@@ -287,13 +270,13 @@ fn callWithEscapeContinuation(args: []const Value) PrimitiveError!Value {
 
     // Root the continuation so it survives GC during the proc call.
     var cont_val = cont;
-    vm.gc.pushRoot(&cont_val);
+    vm.gc.pushRoot(&cont_val) catch return PrimitiveError.OutOfMemory;
+    defer vm.gc.popRoot();
     const cont_obj = types.toObject(cont_val).as(types.Continuation);
 
     const result = vm.callHandler(proc, cont_val, base_reg) catch |err| {
         // The extent has ended (escape unwound through here, or proc errored).
         cont_obj.valid = false;
-        vm.gc.popRoot();
         return switch (err) {
             vm_mod.VMError.ContinuationInvoked => PrimitiveError.ContinuationInvoked,
             vm_mod.VMError.ExceptionRaised => PrimitiveError.ExceptionRaised,
@@ -305,7 +288,6 @@ fn callWithEscapeContinuation(args: []const Value) PrimitiveError!Value {
 
     // proc returned normally without escaping; the extent is over.
     cont_obj.valid = false;
-    vm.gc.popRoot();
     return result;
 }
 

@@ -176,7 +176,7 @@ pub const VM = struct {
     step_frame: usize = 0,
     global_version: u32 = 0,
 
-    pub fn init(gc: *memory.GC) VM {
+    pub fn init(gc: *memory.GC) !VM {
         var vm = VM{
             .gc = gc,
             .globals = std.StringHashMap(Value).init(gc.allocator),
@@ -195,9 +195,9 @@ pub const VM = struct {
         vm.stdout_port = gc.allocPort(1, false, true, "stdout", false) catch types.VOID;
         vm.stderr_port = gc.allocPort(2, false, true, "stderr", false) catch types.VOID;
         // Root the standard ports so GC never collects them
-        gc.extra_roots.append(gc.allocator, vm.stdin_port) catch {};
-        gc.extra_roots.append(gc.allocator, vm.stdout_port) catch {};
-        gc.extra_roots.append(gc.allocator, vm.stderr_port) catch {};
+        if (vm.stdin_port != types.VOID) try gc.extra_roots.append(gc.allocator, vm.stdin_port);
+        if (vm.stdout_port != types.VOID) try gc.extra_roots.append(gc.allocator, vm.stdout_port);
+        if (vm.stderr_port != types.VOID) try gc.extra_roots.append(gc.allocator, vm.stderr_port);
         return vm;
     }
 
@@ -322,8 +322,8 @@ pub const VM = struct {
                 try vm_continuations.invokeEscape(self, cont, arg);
                 return VMError.ContinuationInvoked;
             }
-            vm_continuations.performWindTransition(self, cont.wind_records[0..cont.wind_count], cont.wind_count) catch return VMError.OutOfMemory;
-            vm_continuations.restoreContinuation(self, cont, arg);
+            try vm_continuations.performWindTransition(self, cont.wind_records[0..cont.wind_count], cont.wind_count);
+            try vm_continuations.restoreContinuation(self, cont, arg);
             return VMError.ContinuationInvoked;
         }
         if (types.isClosure(handler_val)) {
@@ -356,6 +356,8 @@ pub const VM = struct {
             if (self.frame_count >= MAX_FRAMES) return VMError.StackOverflow;
 
             const saved_frame_count = self.frame_count;
+            const saved_handler_count = self.handler_count;
+            const saved_wind_count = self.wind_count;
             self.frames[self.frame_count] = .{
                 .closure = closure,
                 .code = func.code.items,
@@ -372,6 +374,8 @@ pub const VM = struct {
                     return err;
                 }
                 self.frame_count = saved_frame_count;
+                self.handler_count = saved_handler_count;
+                self.wind_count = saved_wind_count;
                 return err;
             };
             return result;
@@ -438,6 +442,8 @@ pub const VM = struct {
             if (self.frame_count >= MAX_FRAMES) return VMError.StackOverflow;
 
             const saved_frame_count = self.frame_count;
+            const saved_handler_count = self.handler_count;
+            const saved_wind_count = self.wind_count;
             self.frames[self.frame_count] = .{
                 .closure = closure,
                 .code = func.code.items,
@@ -459,6 +465,8 @@ pub const VM = struct {
                 }
                 // On error, unwind any frames that were pushed during the thunk
                 self.frame_count = saved_frame_count;
+                self.handler_count = saved_handler_count;
+                self.wind_count = saved_wind_count;
                 return err;
             };
             return result;
@@ -513,8 +521,12 @@ pub const VM = struct {
         if (types.isContinuation(proc)) {
             const cont = types.toObject(proc).as(types.Continuation);
             const value = if (args.len == 0) types.VOID else args[0];
-            vm_continuations.performWindTransition(self, cont.wind_records[0..cont.wind_count], cont.wind_count) catch return VMError.OutOfMemory;
-            vm_continuations.restoreContinuation(self, cont, value);
+            if (cont.is_escape) {
+                try vm_continuations.invokeEscape(self, cont, value);
+                return VMError.ContinuationInvoked;
+            }
+            try vm_continuations.performWindTransition(self, cont.wind_records[0..cont.wind_count], cont.wind_count);
+            try vm_continuations.restoreContinuation(self, cont, value);
             return VMError.ContinuationInvoked;
         }
         if (types.isClosure(proc)) {
@@ -562,6 +574,8 @@ pub const VM = struct {
             if (self.frame_count >= MAX_FRAMES) return VMError.StackOverflow;
 
             const saved_frame_count = self.frame_count;
+            const saved_handler_count = self.handler_count;
+            const saved_wind_count = self.wind_count;
             self.frames[self.frame_count] = .{
                 .closure = closure,
                 .code = func.code.items,
@@ -578,6 +592,8 @@ pub const VM = struct {
                     return err;
                 }
                 self.frame_count = saved_frame_count;
+                self.handler_count = saved_handler_count;
+                self.wind_count = saved_wind_count;
                 return err;
             };
             return result;
@@ -653,7 +669,7 @@ pub const VM = struct {
     }
 
     /// Perform dynamic-wind transition (delegates to vm_continuations).
-    pub fn performWindTransition(self: *VM, target_winds: []const types.WindRecord, target_count: usize) !void {
+    pub fn performWindTransition(self: *VM, target_winds: []const types.WindRecord, target_count: usize) VMError!void {
         return vm_continuations.performWindTransition(self, target_winds, target_count);
     }
 
@@ -665,8 +681,36 @@ pub const VM = struct {
             const frame = &self.frames[self.frame_count - 1];
             if (frame.ip >= frame.code.len) return VMError.InvalidBytecode;
 
-            const op: OpCode = @enumFromInt(frame.code[frame.ip]);
+            const raw_op = frame.code[frame.ip];
+            if (raw_op > @intFromEnum(OpCode.self_tail_call)) return VMError.InvalidBytecode;
+            const op: OpCode = @enumFromInt(raw_op);
             frame.ip += 1;
+
+            const fixed_operand_bytes: usize = switch (op) {
+                .load_const => 3,
+                .load_nil, .load_true, .load_false, .load_void => 1,
+                .move => 2,
+                .get_global => 3,
+                .set_global => 3,
+                .define_global => 3,
+                .tail_apply => 2,
+                .get_local, .set_local => 2,
+                .get_upvalue, .set_upvalue => 2,
+                .call, .tail_call => 2,
+                .@"return" => 1,
+                .jump => 2,
+                .jump_false, .jump_true => 3,
+                .closure => 3,
+                .close_upvalue => 1,
+                .cons => 3,
+                .push_handler => 1,
+                .pop_handler, .halt => 0,
+                .call_global, .tail_call_global => 4,
+                .box_local => 1,
+                .get_box_local, .set_box_local => 2,
+                .self_tail_call => 2,
+            };
+            try self.ensureOperands(frame, fixed_operand_bytes);
 
             // Debug hook -- check if we should pause
             if (self.debug_mode) {
@@ -680,41 +724,49 @@ pub const VM = struct {
                     const dst = self.readU8(frame);
                     const idx = self.readU16(frame);
                     const closure = frame.closure orelse return VMError.InvalidBytecode;
-                    self.registers[frame.base + dst] = closure.func.constants.items[idx];
+                    const dst_idx = try self.registerIndex(frame.base, dst);
+                    self.registers[dst_idx] = try self.constantAt(closure.func, idx);
                 },
                 .load_nil => {
                     const dst = self.readU8(frame);
-                    self.registers[frame.base + dst] = types.NIL;
+                    const dst_idx = try self.registerIndex(frame.base, dst);
+                    self.registers[dst_idx] = types.NIL;
                 },
                 .load_true => {
                     const dst = self.readU8(frame);
-                    self.registers[frame.base + dst] = types.TRUE;
+                    const dst_idx = try self.registerIndex(frame.base, dst);
+                    self.registers[dst_idx] = types.TRUE;
                 },
                 .load_false => {
                     const dst = self.readU8(frame);
-                    self.registers[frame.base + dst] = types.FALSE;
+                    const dst_idx = try self.registerIndex(frame.base, dst);
+                    self.registers[dst_idx] = types.FALSE;
                 },
                 .load_void => {
                     const dst = self.readU8(frame);
-                    self.registers[frame.base + dst] = types.VOID;
+                    const dst_idx = try self.registerIndex(frame.base, dst);
+                    self.registers[dst_idx] = types.VOID;
                 },
                 .move => {
                     const dst = self.readU8(frame);
                     const src = self.readU8(frame);
-                    self.registers[frame.base + dst] = self.registers[frame.base + src];
+                    const dst_idx = try self.registerIndex(frame.base, dst);
+                    const src_idx = try self.registerIndex(frame.base, src);
+                    self.registers[dst_idx] = self.registers[src_idx];
                 },
                 .get_global => {
                     const dst = self.readU8(frame);
                     const sym_idx = self.readU16(frame);
                     const closure = frame.closure orelse return VMError.InvalidBytecode;
                     const func = closure.func;
+                    const dst_idx = try self.registerIndex(frame.base, dst);
                     const env: *std.StringHashMap(Value) = func.env orelse &self.globals;
                     if (func.env == null) {
                         if (func.global_cache) |cache| {
                             if (func.cache_version == self.global_version and
                                 sym_idx < cache.len and cache[sym_idx] != types.VOID)
                             {
-                                self.registers[frame.base + dst] = cache[sym_idx];
+                                self.registers[dst_idx] = cache[sym_idx];
                                 continue;
                             }
                             if (func.cache_version != self.global_version) {
@@ -723,7 +775,8 @@ pub const VM = struct {
                             }
                         }
                     }
-                    const sym = func.constants.items[sym_idx];
+                    const sym = try self.constantAt(func, sym_idx);
+                    if (!types.isSymbol(sym)) return VMError.InvalidBytecode;
                     const name = types.symbolName(sym);
                     const val = env.get(name) orelse blk: {
                         if (func.env != null) {
@@ -732,7 +785,7 @@ pub const VM = struct {
                         self.setErrorDetail("undefined variable '{s}'", .{name});
                         return VMError.UndefinedVariable;
                     };
-                    self.registers[frame.base + dst] = val;
+                    self.registers[dst_idx] = val;
                     if (func.env == null and (types.isClosure(val) or types.isNativeFn(val))) {
                         if (func.global_cache) |cache| {
                             if (sym_idx < cache.len) cache[sym_idx] = val;
@@ -750,11 +803,13 @@ pub const VM = struct {
                     const src = self.readU8(frame);
                     const closure = frame.closure orelse return VMError.InvalidBytecode;
                     const func = closure.func;
+                    const src_idx = try self.registerIndex(frame.base, src);
                     const env: *std.StringHashMap(Value) = func.env orelse &self.globals;
-                    const sym = func.constants.items[sym_idx];
+                    const sym = try self.constantAt(func, sym_idx);
+                    if (!types.isSymbol(sym)) return VMError.InvalidBytecode;
                     const name = types.symbolName(sym);
                     if (env.getPtr(name)) |ptr| {
-                        const val = self.registers[frame.base + src];
+                        const val = self.registers[src_idx];
                         ptr.* = val;
                         if (func.env == null) {
                             self.global_version +%= 1;
@@ -773,10 +828,12 @@ pub const VM = struct {
                     const src = self.readU8(frame);
                     const closure = frame.closure orelse return VMError.InvalidBytecode;
                     const func = closure.func;
+                    const src_idx = try self.registerIndex(frame.base, src);
                     const env: *std.StringHashMap(Value) = func.env orelse &self.globals;
-                    const sym = func.constants.items[sym_idx];
+                    const sym = try self.constantAt(func, sym_idx);
+                    if (!types.isSymbol(sym)) return VMError.InvalidBytecode;
                     const name = types.symbolName(sym);
-                    const val = self.registers[frame.base + src];
+                    const val = self.registers[src_idx];
                     env.put(name, val) catch return VMError.OutOfMemory;
                     if (func.env == null) {
                         self.global_version +%= 1;
@@ -790,8 +847,10 @@ pub const VM = struct {
                     const dst = self.readU8(frame);
                     const idx = self.readU8(frame);
                     const closure = frame.closure orelse return VMError.InvalidBytecode;
+                    if (idx >= closure.upvalues.len) return VMError.InvalidBytecode;
                     const uv = closure.upvalues[idx];
-                    self.registers[frame.base + dst] = if (types.isPair(uv) and types.cdr(uv) == types.VOID)
+                    const dst_idx = try self.registerIndex(frame.base, dst);
+                    self.registers[dst_idx] = if (types.isPair(uv) and types.cdr(uv) == types.VOID)
                         types.car(uv)
                     else
                         uv;
@@ -800,38 +859,52 @@ pub const VM = struct {
                     const idx = self.readU8(frame);
                     const src = self.readU8(frame);
                     const closure = frame.closure orelse return VMError.InvalidBytecode;
+                    if (idx >= closure.upvalues.len) return VMError.InvalidBytecode;
+                    const src_idx = try self.registerIndex(frame.base, src);
                     const uv = closure.upvalues[idx];
                     if (types.isPair(uv) and types.cdr(uv) == types.VOID) {
-                        types.setCar(uv, self.registers[frame.base + src]);
+                        types.setCar(uv, self.registers[src_idx]);
                     } else {
-                        closure.upvalues[idx] = self.registers[frame.base + src];
+                        closure.upvalues[idx] = self.registers[src_idx];
                     }
                 },
                 .jump => {
                     const offset = self.readI16(frame);
                     const new_ip = @as(isize, @intCast(frame.ip)) + offset;
-                    frame.ip = @intCast(new_ip);
+                    if (new_ip < 0) return VMError.InvalidBytecode;
+                    const target: usize = @intCast(new_ip);
+                    if (target > frame.code.len) return VMError.InvalidBytecode;
+                    frame.ip = target;
                 },
                 .jump_false => {
                     const test_reg = self.readU8(frame);
                     const offset = self.readI16(frame);
-                    if (!types.isTruthy(self.registers[frame.base + test_reg])) {
+                    const test_idx = try self.registerIndex(frame.base, test_reg);
+                    if (!types.isTruthy(self.registers[test_idx])) {
                         const new_ip = @as(isize, @intCast(frame.ip)) + offset;
-                        frame.ip = @intCast(new_ip);
+                        if (new_ip < 0) return VMError.InvalidBytecode;
+                        const target: usize = @intCast(new_ip);
+                        if (target > frame.code.len) return VMError.InvalidBytecode;
+                        frame.ip = target;
                     }
                 },
                 .jump_true => {
                     const test_reg = self.readU8(frame);
                     const offset = self.readI16(frame);
-                    if (types.isTruthy(self.registers[frame.base + test_reg])) {
+                    const test_idx = try self.registerIndex(frame.base, test_reg);
+                    if (types.isTruthy(self.registers[test_idx])) {
                         const new_ip = @as(isize, @intCast(frame.ip)) + offset;
-                        frame.ip = @intCast(new_ip);
+                        if (new_ip < 0) return VMError.InvalidBytecode;
+                        const target: usize = @intCast(new_ip);
+                        if (target > frame.code.len) return VMError.InvalidBytecode;
+                        frame.ip = target;
                     }
                 },
                 .call => {
                     const base_reg = self.readU8(frame);
                     const nargs = self.readU8(frame);
                     const base = frame.base + base_reg;
+                    try self.ensureCallWindow(base, nargs);
                     const callee = self.registers[base];
                     if (types.isClosure(callee)) {
                         self.callClosure(types.toObject(callee).as(types.Closure), base, nargs) catch |err| return err;
@@ -851,6 +924,7 @@ pub const VM = struct {
                     const base_reg = self.readU8(frame);
                     const nargs = self.readU8(frame);
                     const abs_base = frame.base + base_reg;
+                    try self.ensureCallWindow(abs_base, nargs);
                     const callee = self.registers[abs_base];
 
                     if (types.isClosure(callee)) {
@@ -868,6 +942,9 @@ pub const VM = struct {
                                 return VMError.ArityMismatch;
                             }
                             const rest_start = func.arity;
+                            if (@as(usize, abs_base) + @as(usize, rest_start) + 1 >= MAX_REGISTERS) {
+                                return VMError.InvalidBytecode;
+                            }
                             var rest_list: Value = types.NIL;
                             var ri: u8 = nargs;
                             while (ri > rest_start) {
@@ -882,7 +959,12 @@ pub const VM = struct {
 
                         const arg_count = if (func.is_variadic) func.arity + 1 else nargs;
                         for (0..arg_count) |i| {
-                            self.registers[frame.base + i] = self.registers[abs_base + 1 + i];
+                            const dst_idx = @as(usize, frame.base) + i;
+                            const src_idx = @as(usize, abs_base) + 1 + i;
+                            if (dst_idx >= MAX_REGISTERS or src_idx >= MAX_REGISTERS) {
+                                return VMError.InvalidBytecode;
+                            }
+                            self.registers[dst_idx] = self.registers[src_idx];
                         }
 
                         frame.closure = closure;
@@ -930,15 +1012,16 @@ pub const VM = struct {
                             return result;
                         }
                         const caller = &self.frames[self.frame_count - 1];
-                        self.registers[caller.base + return_dst] = result;
+                        const ret_idx = try self.registerIndex(caller.base, return_dst);
+                        self.registers[ret_idx] = result;
                     } else if (types.isContinuation(callee)) {
                         const cont = types.toObject(callee).as(types.Continuation);
                         const value = if (nargs == 0) types.VOID else self.registers[abs_base + 1];
                         if (cont.is_escape) {
                             try self.invokeEscape(cont, value);
                         } else {
-                            self.performWindTransition(cont.wind_records[0..cont.wind_count], cont.wind_count) catch return VMError.OutOfMemory;
-                            self.restoreContinuation(cont, value);
+                            try self.performWindTransition(cont.wind_records[0..cont.wind_count], cont.wind_count);
+                            try self.restoreContinuation(cont, value);
                         }
                         if (target_frame_count == 0) {
                             continue;
@@ -955,7 +1038,8 @@ pub const VM = struct {
                             return result;
                         }
                         const caller = &self.frames[self.frame_count - 1];
-                        self.registers[caller.base + return_dst] = result;
+                        const ret_idx = try self.registerIndex(caller.base, return_dst);
+                        self.registers[ret_idx] = result;
                     } else if (types.isParameter(callee)) {
                         const param = types.toObject(callee).as(types.ParameterObject);
                         const result = if (nargs == 0) param.value else blk: {
@@ -972,7 +1056,8 @@ pub const VM = struct {
                             return result;
                         }
                         const caller = &self.frames[self.frame_count - 1];
-                        self.registers[caller.base + return_dst] = result;
+                        const ret_idx = try self.registerIndex(caller.base, return_dst);
+                        self.registers[ret_idx] = result;
                     } else {
                         self.setErrorDetail("not a procedure", .{});
                         return VMError.NotAProcedure;
@@ -981,7 +1066,9 @@ pub const VM = struct {
                 .tail_apply => {
                     const base_reg = self.readU8(frame);
                     const nargs = self.readU8(frame);
+                    if (nargs == 0) return VMError.InvalidBytecode;
                     const abs_base = frame.base + @as(u16, base_reg);
+                    try self.ensureCallWindow(abs_base, nargs);
                     const proc = self.registers[abs_base];
 
                     var flat_args: [256]Value = undefined;
@@ -991,7 +1078,7 @@ pub const VM = struct {
                     if (nargs > 1) {
                         var fi: u8 = 0;
                         while (fi < nargs - 1) : (fi += 1) {
-                            if (count >= 256) return VMError.StackOverflow;
+                            if (count >= 255) return VMError.StackOverflow;
                             flat_args[count] = self.registers[abs_base + 1 + fi];
                             count += 1;
                         }
@@ -1004,7 +1091,7 @@ pub const VM = struct {
                             self.setErrorDetail("apply: last argument must be a list", .{});
                             return VMError.TypeError;
                         }
-                        if (count >= 256) return VMError.StackOverflow;
+                        if (count >= 255) return VMError.StackOverflow;
                         flat_args[count] = types.car(rest);
                         count += 1;
                         rest = types.cdr(rest);
@@ -1013,6 +1100,7 @@ pub const VM = struct {
                     if (types.isClosure(proc)) {
                         const closure = types.toObject(proc).as(types.Closure);
                         const func = closure.func;
+                        if (count > std.math.maxInt(u8)) return VMError.StackOverflow;
                         const total_nargs: u8 = @intCast(count);
 
                         if (!func.is_variadic) {
@@ -1037,7 +1125,9 @@ pub const VM = struct {
 
                         const arg_count: u8 = if (func.is_variadic) func.arity + 1 else total_nargs;
                         for (0..arg_count) |i| {
-                            self.registers[frame.base + i] = flat_args[i];
+                            const dst_idx = @as(usize, frame.base) + i;
+                            if (dst_idx >= MAX_REGISTERS) return VMError.InvalidBytecode;
+                            self.registers[dst_idx] = flat_args[i];
                         }
 
                         frame.closure = closure;
@@ -1061,15 +1151,16 @@ pub const VM = struct {
                         self.frame_count -= 1;
                         if (self.frame_count <= target_frame_count) return result;
                         const caller = &self.frames[self.frame_count - 1];
-                        self.registers[caller.base + return_dst] = result;
+                        const ret_idx = try self.registerIndex(caller.base, return_dst);
+                        self.registers[ret_idx] = result;
                     } else if (types.isContinuation(proc)) {
                         const cont = types.toObject(proc).as(types.Continuation);
                         const value = if (count == 0) types.VOID else flat_args[0];
                         if (cont.is_escape) {
                             try self.invokeEscape(cont, value);
                         } else {
-                            self.performWindTransition(cont.wind_records[0..cont.wind_count], cont.wind_count) catch return VMError.OutOfMemory;
-                            self.restoreContinuation(cont, value);
+                            try self.performWindTransition(cont.wind_records[0..cont.wind_count], cont.wind_count);
+                            try self.restoreContinuation(cont, value);
                         }
                         if (target_frame_count == 0) continue;
                         return VMError.ContinuationInvoked;
@@ -1080,7 +1171,8 @@ pub const VM = struct {
                 },
                 .@"return" => {
                     const src = self.readU8(frame);
-                    const result = self.registers[frame.base + src];
+                    const src_idx = try self.registerIndex(frame.base, src);
+                    const result = self.registers[src_idx];
                     const return_dst = frame.dst;
                     const frame_wind = frame.saved_wind_count;
                     self.frame_count -= 1;
@@ -1093,39 +1185,45 @@ pub const VM = struct {
                         return result;
                     }
                     const caller = &self.frames[self.frame_count - 1];
-                    self.registers[caller.base + return_dst] = result;
+                    const ret_idx = try self.registerIndex(caller.base, return_dst);
+                    self.registers[ret_idx] = result;
                 },
                 .closure => {
                     const dst = self.readU8(frame);
                     const idx = self.readU16(frame);
                     const parent_closure = frame.closure orelse return VMError.InvalidBytecode;
-                    const func_val = parent_closure.func.constants.items[idx];
+                    const func_val = try self.constantAt(parent_closure.func, idx);
+                    if (!types.isFunction(func_val)) return VMError.InvalidBytecode;
                     const func = types.toObject(func_val).as(types.Function);
 
                     const cls_val = self.gc.allocClosure(func) catch return VMError.OutOfMemory;
                     const cls = types.toObject(cls_val).as(types.Closure);
 
                     for (cls.upvalues, 0..) |_, i| {
+                        try self.ensureOperands(frame, 2);
                         const is_local = frame.code[frame.ip] == 1;
                         frame.ip += 1;
                         const index = frame.code[frame.ip];
                         frame.ip += 1;
 
                         if (is_local) {
-                            var val = self.registers[frame.base + index];
+                            const local_idx = try self.registerIndex(frame.base, index);
+                            var val = self.registers[local_idx];
                             if (!types.isPair(val) or types.cdr(val) != types.VOID) {
                                 const box = self.gc.allocPair(val, types.VOID) catch return VMError.OutOfMemory;
-                                self.registers[frame.base + index] = box;
+                                self.registers[local_idx] = box;
                                 val = box;
                             }
                             cls.upvalues[i] = val;
                         } else {
                             const pc = parent_closure;
+                            if (index >= pc.upvalues.len) return VMError.InvalidBytecode;
                             cls.upvalues[i] = pc.upvalues[index];
                         }
                     }
 
-                    self.registers[frame.base + dst] = cls_val;
+                    const dst_idx = try self.registerIndex(frame.base, dst);
+                    self.registers[dst_idx] = cls_val;
                 },
                 .close_upvalue => {
                     _ = self.readU8(frame);
@@ -1134,15 +1232,19 @@ pub const VM = struct {
                     const dst = self.readU8(frame);
                     const car_reg = self.readU8(frame);
                     const cdr_reg = self.readU8(frame);
+                    const dst_idx = try self.registerIndex(frame.base, dst);
+                    const car_idx = try self.registerIndex(frame.base, car_reg);
+                    const cdr_idx = try self.registerIndex(frame.base, cdr_reg);
                     const pair = self.gc.allocPair(
-                        self.registers[frame.base + car_reg],
-                        self.registers[frame.base + cdr_reg],
+                        self.registers[car_idx],
+                        self.registers[cdr_idx],
                     ) catch return VMError.OutOfMemory;
-                    self.registers[frame.base + dst] = pair;
+                    self.registers[dst_idx] = pair;
                 },
                 .push_handler => {
                     const handler_reg = self.readU8(frame);
-                    const handler_val = self.registers[frame.base + handler_reg];
+                    const handler_idx = try self.registerIndex(frame.base, handler_reg);
+                    const handler_val = self.registers[handler_idx];
                     try self.pushHandler(handler_val);
                 },
                 .pop_handler => {
@@ -1159,6 +1261,7 @@ pub const VM = struct {
                     const the_func = the_closure.func;
                     const env: *std.StringHashMap(Value) = the_func.env orelse &self.globals;
                     const base = frame.base + base_reg;
+                    try self.ensureCallWindow(base, nargs);
 
                     if (the_func.env == null) {
                         if (the_func.global_cache) |cache| {
@@ -1167,7 +1270,8 @@ pub const VM = struct {
                             {
                                 self.registers[base] = cache[sym_idx];
                             } else {
-                                const sym = the_func.constants.items[sym_idx];
+                                const sym = try self.constantAt(the_func, sym_idx);
+                                if (!types.isSymbol(sym)) return VMError.InvalidBytecode;
                                 const name = types.symbolName(sym);
                                 const val = env.get(name) orelse {
                                     self.setErrorDetail("undefined variable '{s}'", .{name});
@@ -1179,7 +1283,8 @@ pub const VM = struct {
                                 }
                             }
                         } else {
-                            const sym = the_func.constants.items[sym_idx];
+                            const sym = try self.constantAt(the_func, sym_idx);
+                            if (!types.isSymbol(sym)) return VMError.InvalidBytecode;
                             const name = types.symbolName(sym);
                             const val = env.get(name) orelse {
                                 self.setErrorDetail("undefined variable '{s}'", .{name});
@@ -1203,7 +1308,8 @@ pub const VM = struct {
                             }
                         }
                     } else {
-                        const sym = the_func.constants.items[sym_idx];
+                        const sym = try self.constantAt(the_func, sym_idx);
+                        if (!types.isSymbol(sym)) return VMError.InvalidBytecode;
                         const name = types.symbolName(sym);
                         const val = env.get(name) orelse {
                             self.setErrorDetail("undefined variable '{s}'", .{name});
@@ -1233,6 +1339,7 @@ pub const VM = struct {
                     const func = closure.func;
                     const env: *std.StringHashMap(Value) = func.env orelse &self.globals;
                     const abs_base = frame.base + base_reg;
+                    try self.ensureCallWindow(abs_base, nargs);
 
                     var callee: Value = types.VOID;
                     if (func.env == null) {
@@ -1245,7 +1352,8 @@ pub const VM = struct {
                         }
                     }
                     if (callee == types.VOID) {
-                        const sym = func.constants.items[sym_idx];
+                        const sym = try self.constantAt(func, sym_idx);
+                        if (!types.isSymbol(sym)) return VMError.InvalidBytecode;
                         const name = types.symbolName(sym);
                         callee = env.get(name) orelse {
                             self.setErrorDetail("undefined variable '{s}'", .{name});
@@ -1279,6 +1387,9 @@ pub const VM = struct {
                         } else {
                             if (nargs < tfunc.arity) return VMError.ArityMismatch;
                             const rest_start = tfunc.arity;
+                            if (@as(usize, abs_base) + @as(usize, rest_start) + 1 >= MAX_REGISTERS) {
+                                return VMError.InvalidBytecode;
+                            }
                             var rest_list: Value = types.NIL;
                             var ri: u8 = nargs;
                             while (ri > rest_start) {
@@ -1291,7 +1402,12 @@ pub const VM = struct {
                         }
                         const arg_count = if (tfunc.is_variadic) tfunc.arity + 1 else nargs;
                         for (0..arg_count) |ai| {
-                            self.registers[frame.base + ai] = self.registers[abs_base + 1 + ai];
+                            const dst_idx = @as(usize, frame.base) + ai;
+                            const src_idx = @as(usize, abs_base) + 1 + ai;
+                            if (dst_idx >= MAX_REGISTERS or src_idx >= MAX_REGISTERS) {
+                                return VMError.InvalidBytecode;
+                            }
+                            self.registers[dst_idx] = self.registers[src_idx];
                         }
                         frame.closure = tclosure;
                         frame.code = tfunc.code.items;
@@ -1315,7 +1431,8 @@ pub const VM = struct {
                         self.frame_count -= 1;
                         if (self.frame_count <= target_frame_count) return result;
                         const caller = &self.frames[self.frame_count - 1];
-                        self.registers[caller.base + return_dst] = result;
+                        const ret_idx = try self.registerIndex(caller.base, return_dst);
+                        self.registers[ret_idx] = result;
                     } else {
                         self.setErrorDetail("not a procedure", .{});
                         return VMError.NotAProcedure;
@@ -1323,40 +1440,51 @@ pub const VM = struct {
                 },
                 .box_local => {
                     const reg = self.readU8(frame);
-                    const val = self.registers[frame.base + reg];
+                    const reg_idx = try self.registerIndex(frame.base, reg);
+                    const val = self.registers[reg_idx];
                     const box = self.gc.allocPair(val, types.VOID) catch return VMError.OutOfMemory;
-                    self.registers[frame.base + reg] = box;
+                    self.registers[reg_idx] = box;
                 },
                 .get_box_local => {
                     const dst_r = self.readU8(frame);
                     const reg = self.readU8(frame);
-                    const val = self.registers[frame.base + reg];
+                    const dst_idx = try self.registerIndex(frame.base, dst_r);
+                    const reg_idx = try self.registerIndex(frame.base, reg);
+                    const val = self.registers[reg_idx];
                     if (types.isPair(val) and types.cdr(val) == types.VOID) {
-                        self.registers[frame.base + dst_r] = types.car(val);
+                        self.registers[dst_idx] = types.car(val);
                     } else {
                         const box = self.gc.allocPair(val, types.VOID) catch return VMError.OutOfMemory;
-                        self.registers[frame.base + reg] = box;
-                        self.registers[frame.base + dst_r] = val;
+                        self.registers[reg_idx] = box;
+                        self.registers[dst_idx] = val;
                     }
                 },
                 .set_box_local => {
                     const reg = self.readU8(frame);
                     const src = self.readU8(frame);
-                    const val = self.registers[frame.base + reg];
+                    const reg_idx = try self.registerIndex(frame.base, reg);
+                    const src_idx = try self.registerIndex(frame.base, src);
+                    const val = self.registers[reg_idx];
                     if (types.isPair(val) and types.cdr(val) == types.VOID) {
-                        types.setCar(val, self.registers[frame.base + src]);
+                        types.setCar(val, self.registers[src_idx]);
                     } else {
-                        const box = self.gc.allocPair(self.registers[frame.base + src], types.VOID) catch return VMError.OutOfMemory;
-                        self.registers[frame.base + reg] = box;
+                        const box = self.gc.allocPair(self.registers[src_idx], types.VOID) catch return VMError.OutOfMemory;
+                        self.registers[reg_idx] = box;
                     }
                 },
                 .self_tail_call => {
                     const base_reg = self.readU8(frame);
                     const nargs = self.readU8(frame);
                     const abs_base = frame.base + base_reg;
+                    try self.ensureCallWindow(abs_base, nargs);
                     // Copy args to frame base (no callee register to skip)
                     for (0..nargs) |i| {
-                        self.registers[frame.base + i] = self.registers[abs_base + 1 + i];
+                        const dst_idx = @as(usize, frame.base) + i;
+                        const src_idx = @as(usize, abs_base) + 1 + i;
+                        if (dst_idx >= MAX_REGISTERS or src_idx >= MAX_REGISTERS) {
+                            return VMError.InvalidBytecode;
+                        }
+                        self.registers[dst_idx] = self.registers[src_idx];
                     }
                     frame.ip = 0;
                 },
@@ -1367,8 +1495,18 @@ pub const VM = struct {
     }
 
 
+    pub fn resetExecutionState(self: *VM) void {
+        self.frame_count = 0;
+        self.handler_count = 0;
+        self.wind_count = 0;
+        self.current_exception = null;
+        self.continuation_invoked = false;
+        self.continuation_value = types.VOID;
+    }
+
     pub fn execute(self: *VM, func: *types.Function) VMError!Value {
         vm_instance = self;
+        self.resetExecutionState();
 
         // Create a top-level closure
         const closure_val = self.gc.allocClosure(func) catch return VMError.OutOfMemory;
@@ -1381,10 +1519,16 @@ pub const VM = struct {
             .ip = 0,
             .base = 0,
             .dst = 0,
+            .saved_wind_count = 0,
         };
         self.frame_count = 1;
 
-        return self.run();
+        const result = self.run() catch |err| {
+            self.resetExecutionState();
+            return err;
+        };
+        self.resetExecutionState();
+        return result;
     }
 
     pub fn run(self: *VM) VMError!Value {
@@ -1392,8 +1536,8 @@ pub const VM = struct {
     }
 
     /// Restore a captured continuation (delegates to vm_continuations).
-    pub fn restoreContinuation(self: *VM, cont: *types.Continuation, value: Value) void {
-        vm_continuations.restoreContinuation(self, cont, value);
+    pub fn restoreContinuation(self: *VM, cont: *types.Continuation, value: Value) VMError!void {
+        try vm_continuations.restoreContinuation(self, cont, value);
     }
 
     fn callValue(self: *VM, callee: Value, base: u16, nargs: u8) VMError!void {
@@ -1440,10 +1584,10 @@ pub const VM = struct {
             }
 
             // Handle dynamic-wind: unwind current, rewind to saved
-            self.performWindTransition(cont.wind_records[0..cont.wind_count], cont.wind_count) catch return VMError.OutOfMemory;
+            try self.performWindTransition(cont.wind_records[0..cont.wind_count], cont.wind_count);
 
             // Restore state and place result
-            self.restoreContinuation(cont, value);
+            try self.restoreContinuation(cont, value);
 
             // Signal to ALL callers that state was replaced
             return VMError.ContinuationInvoked;
@@ -1571,6 +1715,30 @@ pub const VM = struct {
 
     fn debugPause(self: *VM, frame: *CallFrame) !void {
         return vm_debug.debugPause(self, frame);
+    }
+
+    fn ensureOperands(self: *VM, frame: *CallFrame, operand_bytes: usize) VMError!void {
+        _ = self;
+        if (frame.ip + operand_bytes > frame.code.len) return VMError.InvalidBytecode;
+    }
+
+    fn registerIndex(self: *VM, base: u16, reg: u8) VMError!usize {
+        _ = self;
+        const idx = @as(usize, base) + @as(usize, reg);
+        if (idx >= MAX_REGISTERS) return VMError.InvalidBytecode;
+        return idx;
+    }
+
+    fn ensureCallWindow(self: *VM, base: u16, nargs: u8) VMError!void {
+        _ = self;
+        const hi = @as(usize, base) + @as(usize, nargs) + 1;
+        if (hi > MAX_REGISTERS) return VMError.InvalidBytecode;
+    }
+
+    fn constantAt(self: *VM, func: *types.Function, idx: u16) VMError!Value {
+        _ = self;
+        if (idx >= func.constants.items.len) return VMError.InvalidBytecode;
+        return func.constants.items[idx];
     }
 
     fn readU8(self: *VM, frame: *CallFrame) u8 {

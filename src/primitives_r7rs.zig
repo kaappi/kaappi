@@ -88,7 +88,7 @@ fn commandLine(args: []const Value) PrimitiveError!Value {
     const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError;
 
     var result: Value = types.NIL;
-    gc.pushRoot(&result);
+    gc.pushRoot(&result) catch return PrimitiveError.OutOfMemory;
     defer gc.popRoot();
 
     // Build list in reverse: script args then program name at the front.
@@ -151,7 +151,7 @@ fn evalFn(args: []const Value) PrimitiveError!Value {
     const func = compiler_mod.compileExpressionWithMacros(gc, expr, &vm.macros, &vm.globals) catch return PrimitiveError.TypeError;
     var closure_val = gc.allocClosure(func) catch return PrimitiveError.OutOfMemory;
     compiler_mod.Compiler.unrootFunction(gc, func);
-    gc.pushRoot(&closure_val);
+    gc.pushRoot(&closure_val) catch return PrimitiveError.OutOfMemory;
     defer gc.popRoot();
 
     // Use callWithArgs to properly nest within the current execution
@@ -212,20 +212,21 @@ fn loadFn(args: []const Value) PrimitiveError!Value {
         const expr = reader.readDatum() catch return PrimitiveError.TypeError;
 
         const func = compiler_mod.compileExpressionWithMacros(gc, expr, &vm.macros, &vm.globals) catch return PrimitiveError.TypeError;
-        var func_val = types.makePointer(@ptrCast(func));
-        gc.pushRoot(&func_val);
-        compiler_mod.Compiler.unrootFunction(gc, func);
+        {
+            var func_val = types.makePointer(@ptrCast(func));
+            gc.pushRoot(&func_val) catch return PrimitiveError.OutOfMemory;
+            defer gc.popRoot();
+            compiler_mod.Compiler.unrootFunction(gc, func);
 
-        last_result = vm.execute(func) catch |err| {
-            gc.popRoot();
-            return switch (err) {
-                vm_mod.VMError.ContinuationInvoked => PrimitiveError.ContinuationInvoked,
-                vm_mod.VMError.ExceptionRaised => PrimitiveError.ExceptionRaised,
-                vm_mod.VMError.OutOfMemory => PrimitiveError.OutOfMemory,
-                else => PrimitiveError.TypeError,
+            last_result = vm.execute(func) catch |err| {
+                return switch (err) {
+                    vm_mod.VMError.ContinuationInvoked => PrimitiveError.ContinuationInvoked,
+                    vm_mod.VMError.ExceptionRaised => PrimitiveError.ExceptionRaised,
+                    vm_mod.VMError.OutOfMemory => PrimitiveError.OutOfMemory,
+                    else => PrimitiveError.TypeError,
+                };
             };
-        };
-        gc.popRoot();
+        }
     }
 
     return last_result;

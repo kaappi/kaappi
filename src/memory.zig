@@ -1186,8 +1186,8 @@ pub const GC = struct {
         }
     }
 
-    pub fn pushRoot(self: *GC, root: *Value) void {
-        self.roots.append(self.allocator, root) catch {};
+    pub fn pushRoot(self: *GC, root: *Value) !void {
+        try self.roots.append(self.allocator, root);
     }
 
     pub fn popRoot(self: *GC) void {
@@ -1258,7 +1258,7 @@ test "gc preserves rooted objects" {
 
     var rooted = try gc.allocPair(types.makeFixnum(42), types.NIL);
     _ = try gc.allocPair(types.makeFixnum(99), types.NIL);
-    gc.pushRoot(&rooted);
+    try gc.pushRoot(&rooted);
 
     gc.collect();
     try std.testing.expectEqual(@as(usize, 1), gc.object_count);

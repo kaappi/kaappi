@@ -391,7 +391,7 @@ pub fn compileDo(self: *Compiler, args: Value, dst: u8, is_tail: bool) CompileEr
     try self.emitI16(back_offset);
 
     // Exit: compile result expressions
-    self.patchJump(exit_jump);
+    try self.patchJump(exit_jump);
     if (result_exprs == types.NIL) {
         try self.emitOp(.load_void);
         try self.emit(dst);
@@ -429,7 +429,7 @@ pub fn compileLetValues(self: *Compiler, args: Value, dst: u8, is_tail: bool) Co
     if (body == types.NIL) return CompileError.InvalidSyntax;
 
     var desugared = buildLetValues(self, bindings, body) catch return CompileError.OutOfMemory;
-    self.gc.pushRoot(&desugared);
+    try self.gc.pushRoot(&desugared);
     defer self.gc.popRoot();
     return self.compileExpr(desugared, dst, is_tail);
 }

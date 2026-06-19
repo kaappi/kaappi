@@ -1,90 +1,89 @@
-;; Tests for Phase 1 foundation SRFIs
+;; Tests for foundational SRFIs with assertion-based checks.
+(import (scheme base) (scheme write))
+
+(define pass 0)
+(define fail 0)
+
+(define (check name got expected)
+  (if (equal? got expected)
+      (set! pass (+ pass 1))
+      (begin
+        (set! fail (+ fail 1))
+        (display "FAIL: ") (display name)
+        (display " expected ") (write expected)
+        (display " got ") (write got)
+        (newline))))
+
+(define (check-true name val)
+  (if val
+      (set! pass (+ pass 1))
+      (begin
+        (set! fail (+ fail 1))
+        (display "FAIL: ") (display name) (newline))))
 
 ;; SRFI-8: receive
 (import (srfi 8))
-(receive (a b c) (values 1 2 3)
-  (display (+ a b c)))
-(newline)
-;; expect: 6
+(check "srfi-8 receive" (receive (a b c) (values 1 2 3) (+ a b c)) 6)
 
 ;; SRFI-2: and-let*
 (import (srfi 2))
-(display (and-let* ((x 10) (y (* x 2))) (+ x y)))
-(newline)
-;; expect: 30
-
-(display (and-let* ((x #f)) x))
-(newline)
-;; expect: #f
+(check "srfi-2 and-let* truthy" (and-let* ((x 10) (y (* x 2))) (+ x y)) 30)
+(check "srfi-2 and-let* false" (and-let* ((x #f)) x) #f)
 
 ;; SRFI-11: let-values (re-export of R7RS built-in)
 (import (srfi 11))
-(let-values (((a b) (values 1 2)))
-  (display (+ a b)))
-(newline)
-;; expect: 3
+(check "srfi-11 let-values" (let-values (((a b) (values 1 2))) (+ a b)) 3)
 
-;; SRFI-16: case-lambda (re-export)
+;; SRFI-16: case-lambda
 (import (srfi 16))
-(define f (case-lambda
-            ((x) x)
-            ((x y) (+ x y))))
-(display (f 5))
-(display " ")
-(display (f 3 4))
-(newline)
-;; expect: 5 7
+(define f
+  (case-lambda
+    ((x) x)
+    ((x y) (+ x y))))
+(check "srfi-16 case-lambda arities" (list (f 5) (f 3 4)) '(5 7))
 
 ;; SRFI-28: format
 (import (srfi 28))
-(display (format "Hello ~a, you are ~a!" "world" 42))
-(newline)
-;; expect: Hello world, you are 42!
-
-(display (format "~s is ~a" "test" "good"))
-(newline)
-;; expect: "test" is good
+(check "srfi-28 format ~a"
+       (format "Hello ~a, you are ~a!" "world" 42)
+       "Hello world, you are 42!")
+(check "srfi-28 format ~s"
+       (format "~s is ~a" "test" "good")
+       "\"test\" is good")
 
 ;; SRFI-31: rec
 (import (srfi 31))
-(display ((rec (f n) (if (= n 0) 1 (* n (f (- n 1))))) 5))
-(newline)
-;; expect: 120
+(check "srfi-31 rec factorial"
+       ((rec (fact n) (if (= n 0) 1 (* n (fact (- n 1))))) 5)
+       120)
 
-;; SRFI-34: exception handling (alias)
+;; SRFI-34: exception handling
 (import (srfi 34))
-(display (guard (exn (#t "caught"))
-  (raise "oops")))
-(newline)
-;; expect: caught
+(check "srfi-34 guard catches raise"
+       (guard (exn (#t "caught")) (raise "oops"))
+       "caught")
 
 ;; SRFI-111: boxes
 (import (srfi 111))
-(let ((b (box 42)))
-  (display (unbox b))
-  (set-box! b 99)
-  (display " ")
-  (display (unbox b)))
-(newline)
-;; expect: 42 99
+(check "srfi-111 box/unbox/set-box!"
+       (let ((b (box 42)))
+         (let ((before (unbox b)))
+           (set-box! b 99)
+           (list before (unbox b))))
+       '(42 99))
 
 ;; SRFI-145: assume
 (import (srfi 145))
-(assume #t "should pass")
-(display "assume ok")
-(newline)
-;; expect: assume ok
+(define _assume-ok (assume #t "should pass"))
+(check-true "srfi-145 assume reached" #t)
 
 ;; SRFI-222: compound objects
 (import (srfi 222))
-(let ((c (make-compound 'a 'b 'c)))
-  (display (compound? c))
-  (display " ")
-  (display (compound-length c))
-  (display " ")
-  (display (compound-ref c 1)))
-(newline)
-;; expect: #t 3 b
+(check "srfi-222 compound basics"
+       (let ((c (make-compound 'a 'b 'c)))
+         (list (compound? c) (compound-length c) (compound-ref c 1)))
+       '(#t 3 b))
 
-(display "All foundation SRFI tests passed!")
+(display pass) (display " passed, ") (display fail) (display " failed")
 (newline)
+(if (> fail 0) (error "Foundation SRFI tests failed" fail))

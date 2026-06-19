@@ -14,6 +14,7 @@ pub const ReadError = error{
     DotNotInList,
     OutOfMemory,
     NestingTooDeep,
+    TokenTooLong,
 };
 
 pub const Token = union(enum) {
@@ -51,6 +52,8 @@ pub const Reader = struct {
     depth: u32 = 0,
 
     pub const MAX_NESTING_DEPTH = 1024;
+    pub const MAX_BLOCK_COMMENT_DEPTH = 256;
+    pub const MAX_TOKEN_BYTES = 64 * 1024;
 
     pub fn init(gc: *memory.GC, source: []const u8) Reader {
         return .{
@@ -99,6 +102,22 @@ pub const Reader = struct {
         return c;
     }
 
+    fn ensureTokenSpace(self: *Reader, extra: usize) ReadError!void {
+        if (self.token_buf.items.len + extra > MAX_TOKEN_BYTES) {
+            return ReadError.TokenTooLong;
+        }
+    }
+
+    fn appendTokenByte(self: *Reader, byte: u8) ReadError!void {
+        try self.ensureTokenSpace(1);
+        self.token_buf.append(self.gc.allocator, byte) catch return ReadError.OutOfMemory;
+    }
+
+    fn appendTokenSlice(self: *Reader, slice: []const u8) ReadError!void {
+        try self.ensureTokenSpace(slice.len);
+        self.token_buf.appendSlice(self.gc.allocator, slice) catch return ReadError.OutOfMemory;
+    }
+
     pub fn skipWhitespaceAndComments(self: *Reader) void {
         self.skipWhitespaceAndCommentsChecked() catch {};
     }
@@ -128,6 +147,7 @@ pub const Reader = struct {
         var depth: usize = 1;
         while (depth > 0 and self.pos + 1 < self.source.len) {
             if (self.source[self.pos] == '#' and self.source[self.pos + 1] == '|') {
+                if (depth >= MAX_BLOCK_COMMENT_DEPTH) return ReadError.NestingTooDeep;
                 depth += 1;
                 self.pos += 2;
             } else if (self.source[self.pos] == '|' and self.source[self.pos + 1] == '#') {
@@ -377,13 +397,14 @@ pub const Reader = struct {
                 }
             }
         }
-        return .{ .symbol = self.source[start..self.pos] };
+        const sym_text = self.source[start..self.pos];
+        if (sym_text.len > MAX_TOKEN_BYTES) return ReadError.TokenTooLong;
+        return self.foldAndReturnSymbol(sym_text);
     }
 
     fn readQuotedSymbol(self: *Reader) ReadError!Token {
         self.pos += 1; // skip |
         self.token_buf.clearRetainingCapacity();
-        const alloc = self.gc.allocator;
         while (self.pos < self.source.len) {
             const c = self.source[self.pos];
             if (c == '|') {
@@ -394,8 +415,8 @@ pub const Reader = struct {
                 self.pos += 1;
                 const escaped = self.source[self.pos];
                 switch (escaped) {
-                    '|' => self.token_buf.append(alloc, '|') catch return ReadError.OutOfMemory,
-                    '\\' => self.token_buf.append(alloc, '\\') catch return ReadError.OutOfMemory,
+                    '|' => try self.appendTokenByte('|'),
+                    '\\' => try self.appendTokenByte('\\'),
                     'x' => {
                         // \xNN; hex scalar value escape
                         self.pos += 1;
@@ -408,21 +429,21 @@ pub const Reader = struct {
                         const cp = std.fmt.parseInt(u21, hex_str, 16) catch return ReadError.InvalidEscape;
                         var buf: [4]u8 = undefined;
                         const len = std.unicode.utf8Encode(cp, &buf) catch return ReadError.InvalidEscape;
-                        self.token_buf.appendSlice(alloc, buf[0..len]) catch return ReadError.OutOfMemory;
+                        try self.appendTokenSlice(buf[0..len]);
                         // pos now points at ';', will be advanced by the outer loop
                     },
-                    'a' => self.token_buf.append(alloc, 0x07) catch return ReadError.OutOfMemory,
-                    'b' => self.token_buf.append(alloc, 0x08) catch return ReadError.OutOfMemory,
-                    'n' => self.token_buf.append(alloc, '\n') catch return ReadError.OutOfMemory,
-                    'r' => self.token_buf.append(alloc, '\r') catch return ReadError.OutOfMemory,
-                    't' => self.token_buf.append(alloc, '\t') catch return ReadError.OutOfMemory,
-                    '"' => self.token_buf.append(alloc, '"') catch return ReadError.OutOfMemory,
+                    'a' => try self.appendTokenByte(0x07),
+                    'b' => try self.appendTokenByte(0x08),
+                    'n' => try self.appendTokenByte('\n'),
+                    'r' => try self.appendTokenByte('\r'),
+                    't' => try self.appendTokenByte('\t'),
+                    '"' => try self.appendTokenByte('"'),
                     else => {
-                        self.token_buf.append(alloc, escaped) catch return ReadError.OutOfMemory;
+                        try self.appendTokenByte(escaped);
                     },
                 }
             } else {
-                self.token_buf.append(alloc, c) catch return ReadError.OutOfMemory;
+                try self.appendTokenByte(c);
             }
             self.pos += 1;
         }
@@ -432,7 +453,6 @@ pub const Reader = struct {
     fn readString(self: *Reader) ReadError!Token {
         self.pos += 1; // skip opening "
         self.token_buf.clearRetainingCapacity();
-        const alloc = self.gc.allocator;
         while (self.pos < self.source.len) {
             const c = self.source[self.pos];
             if (c == '"') {
@@ -444,14 +464,14 @@ pub const Reader = struct {
                 if (self.pos >= self.source.len) return ReadError.UnterminatedString;
                 const esc = self.source[self.pos];
                 switch (esc) {
-                    'n' => self.token_buf.append(alloc, '\n') catch return ReadError.OutOfMemory,
-                    'r' => self.token_buf.append(alloc, '\r') catch return ReadError.OutOfMemory,
-                    't' => self.token_buf.append(alloc, '\t') catch return ReadError.OutOfMemory,
-                    'a' => self.token_buf.append(alloc, 0x07) catch return ReadError.OutOfMemory,
-                    'b' => self.token_buf.append(alloc, 0x08) catch return ReadError.OutOfMemory,
-                    '"' => self.token_buf.append(alloc, '"') catch return ReadError.OutOfMemory,
-                    '\\' => self.token_buf.append(alloc, '\\') catch return ReadError.OutOfMemory,
-                    '|' => self.token_buf.append(alloc, '|') catch return ReadError.OutOfMemory,
+                    'n' => try self.appendTokenByte('\n'),
+                    'r' => try self.appendTokenByte('\r'),
+                    't' => try self.appendTokenByte('\t'),
+                    'a' => try self.appendTokenByte(0x07),
+                    'b' => try self.appendTokenByte(0x08),
+                    '"' => try self.appendTokenByte('"'),
+                    '\\' => try self.appendTokenByte('\\'),
+                    '|' => try self.appendTokenByte('|'),
                     'x' => {
                         self.pos += 1;
                         const hex_start = self.pos;
@@ -463,7 +483,7 @@ pub const Reader = struct {
                         const cp = std.fmt.parseInt(u21, hex_str, 16) catch return ReadError.InvalidEscape;
                         var buf: [4]u8 = undefined;
                         const len = std.unicode.utf8Encode(cp, &buf) catch return ReadError.InvalidEscape;
-                        self.token_buf.appendSlice(alloc, buf[0..len]) catch return ReadError.OutOfMemory;
+                        try self.appendTokenSlice(buf[0..len]);
                         // pos now points at ';', will be advanced below
                     },
                     '\n' => {
@@ -501,7 +521,7 @@ pub const Reader = struct {
                     else => return ReadError.InvalidEscape,
                 }
             } else {
-                self.token_buf.append(alloc, c) catch return ReadError.OutOfMemory;
+                try self.appendTokenByte(c);
             }
             self.pos += 1;
         }

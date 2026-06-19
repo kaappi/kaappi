@@ -9,7 +9,7 @@ pub const VMError = vm_mod.VMError;
 pub const Value = types.Value;
 
 pub fn makeTestVM(gc: *memory.GC) !VM {
-    var vm = VM.init(gc);
+    var vm = try VM.init(gc);
     primitives_mod.setGCInstance(gc);
     try primitives_mod.registerAll(&vm);
     try library_mod.registerStandardLibraries(&vm.libraries, &vm.globals);

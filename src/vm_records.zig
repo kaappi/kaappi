@@ -89,7 +89,7 @@ pub fn handleDefineRecordType(vm: *VM, args: Value) VMError!Value {
 
     // Create the RecordType value
     var rt_val = vm.gc.allocRecordType(type_name, num_fields) catch return VMError.OutOfMemory;
-    vm.gc.pushRoot(&rt_val);
+    vm.gc.pushRoot(&rt_val) catch return VMError.OutOfMemory;
     defer vm.gc.popRoot();
 
     // Store in a global with an internal name
@@ -122,6 +122,7 @@ pub fn handleDefineRecordType(vm: *VM, args: Value) VMError!Value {
     // than the field specs. The constructor always creates fields in the field_spec order.
     {
         vm.gc.no_collect += 1;
+        errdefer vm.gc.no_collect -= 1;
         // Build the body: (%make-record <type> <fields-in-field-order>)
         // For each field in all_fields order, find it in the constructor args
         // Actually: %make-record takes type + field values in order.
@@ -156,7 +157,7 @@ pub fn handleDefineRecordType(vm: *VM, args: Value) VMError!Value {
         }
 
         var body_list = vm.gc.makeList(body_args[0 .. 2 + all_field_count]) catch return VMError.OutOfMemory;
-        vm.gc.pushRoot(&body_list);
+        vm.gc.pushRoot(&body_list) catch return VMError.OutOfMemory;
 
         // Build parameter list
         var param_syms: [32]Value = undefined;
@@ -174,7 +175,7 @@ pub fn handleDefineRecordType(vm: *VM, args: Value) VMError!Value {
         var define_expr = vm.gc.makeList(&[_]Value{ define_sym, name_and_params, body_list }) catch return VMError.OutOfMemory;
         vm.gc.no_collect -= 1;
         vm.gc.popRoot(); // body_list now reachable through define_expr
-        vm.gc.pushRoot(&define_expr);
+        vm.gc.pushRoot(&define_expr) catch return VMError.OutOfMemory;
 
         const func = if (vm.current_lib_env) |env|
                 compiler_mod.compileExpressionInEnv(vm.gc, define_expr, &vm.macros, env) catch return VMError.CompileError
@@ -182,7 +183,7 @@ pub fn handleDefineRecordType(vm: *VM, args: Value) VMError!Value {
                 compiler_mod.compileExpressionWithMacros(vm.gc, define_expr, &vm.macros, &vm.globals) catch return VMError.CompileError;
         vm.gc.popRoot();
         var func_val = types.makePointer(@ptrCast(func));
-        vm.gc.pushRoot(&func_val);
+        vm.gc.pushRoot(&func_val) catch return VMError.OutOfMemory;
         compiler_mod.Compiler.unrootFunction(vm.gc, func);
         _ = vm.execute(func) catch |err| {
             vm.gc.popRoot();
@@ -194,6 +195,7 @@ pub fn handleDefineRecordType(vm: *VM, args: Value) VMError!Value {
     // Generate predicate: (define (pred? v) (%record? v __record_type_point))
     {
         vm.gc.no_collect += 1;
+        errdefer vm.gc.no_collect -= 1;
         const define_sym = vm.gc.allocSymbol("define") catch return VMError.OutOfMemory;
         const v_sym = vm.gc.allocSymbol("v") catch return VMError.OutOfMemory;
         const pred_sym = vm.gc.allocSymbol(pred_name) catch return VMError.OutOfMemory;
@@ -204,7 +206,7 @@ pub fn handleDefineRecordType(vm: *VM, args: Value) VMError!Value {
         const name_and_params = vm.gc.makeList(&[_]Value{ pred_sym, v_sym }) catch return VMError.OutOfMemory;
         var define_expr = vm.gc.makeList(&[_]Value{ define_sym, name_and_params, body }) catch return VMError.OutOfMemory;
         vm.gc.no_collect -= 1;
-        vm.gc.pushRoot(&define_expr);
+        vm.gc.pushRoot(&define_expr) catch return VMError.OutOfMemory;
 
         const func = if (vm.current_lib_env) |env|
                 compiler_mod.compileExpressionInEnv(vm.gc, define_expr, &vm.macros, env) catch return VMError.CompileError
@@ -212,7 +214,7 @@ pub fn handleDefineRecordType(vm: *VM, args: Value) VMError!Value {
                 compiler_mod.compileExpressionWithMacros(vm.gc, define_expr, &vm.macros, &vm.globals) catch return VMError.CompileError;
         vm.gc.popRoot();
         var func_val = types.makePointer(@ptrCast(func));
-        vm.gc.pushRoot(&func_val);
+        vm.gc.pushRoot(&func_val) catch return VMError.OutOfMemory;
         compiler_mod.Compiler.unrootFunction(vm.gc, func);
         _ = vm.execute(func) catch |err| {
             vm.gc.popRoot();
@@ -226,6 +228,7 @@ pub fn handleDefineRecordType(vm: *VM, args: Value) VMError!Value {
         // Accessor: (define (accessor p) (%record-ref p <index>))
         {
             vm.gc.no_collect += 1;
+            errdefer vm.gc.no_collect -= 1;
             const define_sym = vm.gc.allocSymbol("define") catch return VMError.OutOfMemory;
             const p_sym = vm.gc.allocSymbol("p") catch return VMError.OutOfMemory;
             const acc_sym = vm.gc.allocSymbol(accessor_names[fi]) catch return VMError.OutOfMemory;
@@ -236,7 +239,7 @@ pub fn handleDefineRecordType(vm: *VM, args: Value) VMError!Value {
             const name_and_params = vm.gc.makeList(&[_]Value{ acc_sym, p_sym }) catch return VMError.OutOfMemory;
             var define_expr = vm.gc.makeList(&[_]Value{ define_sym, name_and_params, body }) catch return VMError.OutOfMemory;
             vm.gc.no_collect -= 1;
-            vm.gc.pushRoot(&define_expr);
+            vm.gc.pushRoot(&define_expr) catch return VMError.OutOfMemory;
 
             const func = if (vm.current_lib_env) |env|
                 compiler_mod.compileExpressionInEnv(vm.gc, define_expr, &vm.macros, env) catch return VMError.CompileError
@@ -244,7 +247,7 @@ pub fn handleDefineRecordType(vm: *VM, args: Value) VMError!Value {
                 compiler_mod.compileExpressionWithMacros(vm.gc, define_expr, &vm.macros, &vm.globals) catch return VMError.CompileError;
             vm.gc.popRoot();
             var func_val = types.makePointer(@ptrCast(func));
-            vm.gc.pushRoot(&func_val);
+            vm.gc.pushRoot(&func_val) catch return VMError.OutOfMemory;
             _ = vm.execute(func) catch |err| {
                 vm.gc.popRoot();
                 return err;
@@ -255,6 +258,7 @@ pub fn handleDefineRecordType(vm: *VM, args: Value) VMError!Value {
         // Mutator (if specified): (define (mutator p v) (%record-set! p <index> v))
         if (mutator_names[fi]) |mut_name| {
             vm.gc.no_collect += 1;
+            errdefer vm.gc.no_collect -= 1;
             const define_sym = vm.gc.allocSymbol("define") catch return VMError.OutOfMemory;
             const p_sym = vm.gc.allocSymbol("p") catch return VMError.OutOfMemory;
             const v_sym = vm.gc.allocSymbol("v") catch return VMError.OutOfMemory;
@@ -266,7 +270,7 @@ pub fn handleDefineRecordType(vm: *VM, args: Value) VMError!Value {
             const name_and_params = vm.gc.makeList(&[_]Value{ mut_sym, p_sym, v_sym }) catch return VMError.OutOfMemory;
             var define_expr = vm.gc.makeList(&[_]Value{ define_sym, name_and_params, body }) catch return VMError.OutOfMemory;
             vm.gc.no_collect -= 1;
-            vm.gc.pushRoot(&define_expr);
+            vm.gc.pushRoot(&define_expr) catch return VMError.OutOfMemory;
 
             const func = if (vm.current_lib_env) |env|
                 compiler_mod.compileExpressionInEnv(vm.gc, define_expr, &vm.macros, env) catch return VMError.CompileError
@@ -274,7 +278,7 @@ pub fn handleDefineRecordType(vm: *VM, args: Value) VMError!Value {
                 compiler_mod.compileExpressionWithMacros(vm.gc, define_expr, &vm.macros, &vm.globals) catch return VMError.CompileError;
             vm.gc.popRoot();
             var func_val = types.makePointer(@ptrCast(func));
-            vm.gc.pushRoot(&func_val);
+            vm.gc.pushRoot(&func_val) catch return VMError.OutOfMemory;
             _ = vm.execute(func) catch |err| {
                 vm.gc.popRoot();
                 return err;

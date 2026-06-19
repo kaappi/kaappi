@@ -37,7 +37,7 @@ test "import except" {
     defer gc.deinit();
 
     // Create a fresh VM without pre-loaded globals to verify except works
-    var vm = vm_mod.VM.init(&gc);
+    var vm = try vm_mod.VM.init(&gc);
     defer vm.deinit();
     primitives_mod.setGCInstance(&gc);
     try primitives_mod.registerAll(&vm);

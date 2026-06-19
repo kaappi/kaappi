@@ -163,13 +163,10 @@ fn loadLibrarySource(vm: *VM, source: []const u8) !void {
         } else {
             const func = compiler_mod.compileExpressionWithMacros(vm.gc, expr, &vm.macros, &vm.globals) catch return error.InvalidSyntax;
             var func_val = types.makePointer(@ptrCast(func));
-            vm.gc.pushRoot(&func_val);
+            try vm.gc.pushRoot(&func_val);
+            defer vm.gc.popRoot();
             compiler_mod.Compiler.unrootFunction(vm.gc, func);
-            _ = vm.execute(func) catch |err| {
-                vm.gc.popRoot();
-                return err;
-            };
-            vm.gc.popRoot();
+            _ = try vm.execute(func);
         }
     }
 }
@@ -361,7 +358,7 @@ fn tryLoadLibraryFromFile(vm: *VM, name_list: Value) !void {
             const top_count = @min(loaded.top_level_count, @as(u32, @intCast(loaded.funcs.len)));
             for (loaded.funcs[0..top_count]) |func| {
                 var func_val = types.makePointer(@ptrCast(func));
-                vm.gc.pushRoot(&func_val);
+                vm.gc.pushRoot(&func_val) catch return error.OutOfMemory;
                 _ = vm.execute(func) catch {
                     vm.gc.popRoot();
                     continue;
@@ -480,7 +477,7 @@ pub fn handleTopLevelInclude(vm: *VM, args: Value, ci: bool) VMError!Value {
     // trigger GC, which would otherwise reclaim the pair list and filename
     // strings we are still walking.
     var file_list = args;
-    vm.gc.pushRoot(&file_list);
+    vm.gc.pushRoot(&file_list) catch return VMError.OutOfMemory;
     defer vm.gc.popRoot();
 
     while (file_list != types.NIL) {
@@ -555,15 +552,17 @@ fn evalIncludedForm(vm: *VM, expr: Value, path: []const u8, line: u32) void {
         collect.append(vm.gc.allocator, func) catch {};
     }
     var func_val = types.makePointer(@ptrCast(func));
-    vm.gc.pushRoot(&func_val);
+    vm.gc.pushRoot(&func_val) catch {
+        reportIncludeError(vm, path, line, null, error.OutOfMemory);
+        return;
+    };
+    defer vm.gc.popRoot();
     compiler_mod.Compiler.unrootFunction(vm.gc, func);
     _ = vm.execute(func) catch |err| {
-        vm.gc.popRoot();
         reportIncludeError(vm, path, line, vm.getErrorDetail(), err);
         vm.last_error_detail_len = 0;
         return;
     };
-    vm.gc.popRoot();
 }
 
 fn reportIncludeError(vm: *VM, path: []const u8, line: u32, detail: ?[]const u8, err: anyerror) void {
@@ -590,6 +589,7 @@ fn readFileContents(allocator: std.mem.Allocator, path: []const u8) ![]u8 {
     const fd = std.posix.openat(std.posix.AT.FDCWD, path, .{}, 0) catch return error.InvalidSyntax;
     defer _ = std.posix.system.close(fd);
 
+    const max_size: usize = 1024 * 1024;
     var result: std.ArrayList(u8) = .empty;
     defer result.deinit(allocator);
 
@@ -597,6 +597,7 @@ fn readFileContents(allocator: std.mem.Allocator, path: []const u8) ![]u8 {
     while (true) {
         const bytes_read = std.posix.read(fd, &tmp) catch return error.InvalidSyntax;
         if (bytes_read == 0) break;
+        if (result.items.len + bytes_read > max_size) return error.InvalidSyntax;
         result.appendSlice(allocator, tmp[0..bytes_read]) catch return error.OutOfMemory;
     }
 
@@ -753,7 +754,7 @@ pub fn handleDefineLibrary(vm: *VM, args: Value) VMError!Value {
 
     // Root the AST so it survives GC during nested library loading
     // (e.g. when (import (srfi 35)) triggers loading a .sld file).
-    vm.gc.pushRoot(&decls);
+    vm.gc.pushRoot(&decls) catch return VMError.OutOfMemory;
     defer vm.gc.popRoot();
 
     const lib_name = library_mod.libraryNameToString(vm.gc.allocator, name_list) catch return VMError.CompileError;
@@ -933,7 +934,7 @@ fn compileLibExpr(vm: *VM, lib_env: *std.StringHashMap(Value), expr: Value) VMEr
         collect.append(vm.gc.allocator, func) catch {};
     }
     var func_val = types.makePointer(@ptrCast(func));
-    vm.gc.pushRoot(&func_val);
+    vm.gc.pushRoot(&func_val) catch return VMError.OutOfMemory;
     compiler_mod.Compiler.unrootFunction(vm.gc, func);
     defer vm.gc.popRoot();
     _ = try vm.execute(func);

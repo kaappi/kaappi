@@ -22,26 +22,5 @@ jobs:
       - name: Unit tests
         run: zig build test
 
-      - name: Scheme tests (phases)
-        run: |
-          for f in tests/scheme/phase*/*.scm; do
-            echo "--- $f ---"
-            zig build run -- "$f"
-          done
-
-      - name: Scheme tests (compliance)
-        run: |
-          for f in tests/scheme/compliance/*.scm tests/scheme/deferred/*.scm; do
-            echo "--- $f ---"
-            zig build run -- "$f"
-          done
-
-      - name: SRFI tests
-        run: |
-          for f in tests/scheme/srfi/*.scm; do
-            echo "--- $f ---"
-            zig build run -- "$f"
-          done
-
-      - name: FFI test
-        run: zig build run -- tests/scheme/ffi/basic.scm
+      - name: Scheme suites
+        run: bash tests/scheme/run-all.sh

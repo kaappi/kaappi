@@ -344,3 +344,48 @@ test "inf arithmetic: inf - inf is nan" {
     try std.testing.expect(types.isFlonum(result));
     try std.testing.expect(std.math.isNan(types.toFlonum(result)));
 }
+
+test "root stack symmetry after compile errors" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    const roots_before = gc.roots.items.len;
+    for (0..25) |_| {
+        const result = vm.eval("(if 1)");
+        try std.testing.expectError(th.VMError.CompileError, result);
+        try std.testing.expectEqual(roots_before, gc.roots.items.len);
+    }
+}
+
+test "root stack symmetry after raised exceptions" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    const roots_before = gc.roots.items.len;
+    for (0..25) |_| {
+        const result = vm.eval("(raise 42)");
+        try std.testing.expectError(th.VMError.ExceptionRaised, result);
+        try std.testing.expectEqual(roots_before, gc.roots.items.len);
+    }
+}
+
+test "macro expansion limit returns compile error deterministically" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    const roots_before = gc.roots.items.len;
+    const result = vm.eval(
+        \\(define-syntax loop
+        \\  (syntax-rules ()
+        \\    ((_ ) (loop))))
+        \\(loop)
+    );
+    try std.testing.expectError(th.VMError.CompileError, result);
+    try std.testing.expectEqual(roots_before, gc.roots.items.len);
+}
