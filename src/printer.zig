@@ -622,6 +622,9 @@ pub fn printValue(writer: anytype, value: Value, mode: PrintMode) anyerror!void 
             .directory_object => {
                 try writer.writeAll("#<directory-object>");
             },
+            .random_source => {
+                try writer.writeAll("#<random-source>");
+            },
         }
     } else {
         try writer.writeAll("#<unknown>");

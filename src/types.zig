@@ -120,6 +120,7 @@ pub const ObjectTag = enum(u5) {
     user_info = 25,
     group_info = 26,
     directory_object = 27,
+    random_source = 28,
 };
 
 pub const Object = struct {
@@ -473,6 +474,11 @@ pub const DirectoryObject = struct {
     include_dotfiles: bool,
 };
 
+pub const RandomSource = struct {
+    header: Object,
+    prng: std.Random.DefaultPrng,
+};
+
 // ---------------------------------------------------------------------------
 // Type predicates on Value
 // ---------------------------------------------------------------------------
@@ -644,6 +650,10 @@ pub fn isDirectoryObject(v: Value) bool {
 
 pub fn toDirectoryObject(v: Value) *DirectoryObject {
     return toObject(v).as(DirectoryObject);
+}
+
+pub fn isRandomSource(v: Value) bool {
+    return isPointer(v) and toObject(v).tag == .random_source;
 }
 
 pub fn isNumber(v: Value) bool {

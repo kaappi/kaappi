@@ -450,17 +450,7 @@ pub fn registerStandardLibraries(registry: *LibraryRegistry, globals: *std.Strin
     }
     try registry.register(srfi13_lib);
 
-    // SRFI-27: Random Numbers
-    const srfi27_names = [_][]const u8{
-        "random-integer", "random-real",
-    };
-    var srfi27_lib = Library.init(allocator, "srfi.27");
-    for (srfi27_names) |name| {
-        if (globals.get(name)) |val| {
-            try srfi27_lib.addExport(name, val);
-        }
-    }
-    try registry.register(srfi27_lib);
+    // SRFI-27: Random Numbers — now a portable .sld wrapping native globals
 
     // SRFI-39: Parameter objects (alias for existing make-parameter/parameterize)
     var srfi39_lib = Library.init(allocator, "srfi.39");

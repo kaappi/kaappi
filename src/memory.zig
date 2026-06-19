@@ -31,6 +31,7 @@ const HashTable = types.HashTable;
 const HashEntry = types.HashEntry;
 const Bignum = types.Bignum;
 const Rational = types.Rational;
+const RandomSource = types.RandomSource;
 
 const GC_THRESHOLD: usize = 1024;
 
@@ -42,7 +43,7 @@ pub const GcStats = struct {
     bytes_freed: usize = 0,
     peak_object_count: usize = 0,
     peak_bytes_allocated: usize = 0,
-    allocs_by_type: [28]usize = .{0} ** 28,
+    allocs_by_type: [29]usize = .{0} ** 29,
     no_collect_deferred: usize = 0,
 };
 
@@ -586,6 +587,18 @@ pub const GC = struct {
         return types.makePointer(@ptrCast(ffi_fn));
     }
 
+    pub fn allocRandomSource(self: *GC, seed: u64) !Value {
+        self.maybeCollect();
+        const rs = try self.allocator.create(RandomSource);
+        rs.* = .{
+            .header = .{ .tag = .random_source },
+            .prng = std.Random.DefaultPrng.init(seed),
+        };
+        self.bytes_allocated += @sizeOf(RandomSource);
+        self.trackObject(&rs.header);
+        return types.makePointer(@ptrCast(rs));
+    }
+
     pub fn allocHashTable(self: *GC, initial_capacity: usize) !Value {
         self.maybeCollect();
         const entries = try self.allocator.alloc(HashEntry, initial_capacity);
@@ -921,7 +934,7 @@ pub const GC = struct {
                 self.markValue(rat.denominator);
             },
             .ffi_library, .ffi_function => {},
-            .symbol, .string, .native_fn, .flonum, .port, .complex, .bytevector, .bignum, .file_info, .user_info, .group_info, .directory_object => {},
+            .symbol, .string, .native_fn, .flonum, .port, .complex, .bytevector, .bignum, .file_info, .user_info, .group_info, .directory_object, .random_source => {},
         }
     }
 
@@ -993,6 +1006,7 @@ pub const GC = struct {
             .user_info => @sizeOf(types.UserInfo),
             .group_info => @sizeOf(types.GroupInfo),
             .directory_object => @sizeOf(types.DirectoryObject),
+            .random_source => @sizeOf(RandomSource),
         };
     }
 
@@ -1165,6 +1179,9 @@ pub const GC = struct {
                     d.dir = null;
                 }
                 self.allocator.destroy(d);
+            },
+            .random_source => {
+                self.allocator.destroy(obj.as(RandomSource));
             },
         }
     }

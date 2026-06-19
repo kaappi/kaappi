@@ -278,7 +278,7 @@ Example that triggered the bug:
 
 ## SRFI conformance
 
-46 SRFIs supported. 8 built-in (native Zig), 38 portable (.sld files). Coverage details for the built-in SRFIs follow.
+46 SRFIs supported. 7 built-in (native Zig), 39 portable (.sld files). Coverage details for the built-in SRFIs follow.
 
 ### SRFI 1 — List Library
 
@@ -315,11 +315,9 @@ Implemented: `string-contains`, `string-prefix?`, `string-suffix?`, `string-trim
 
 ### SRFI 27 — Random Numbers
 
-**Coverage: ~20%** (2 of ~10 spec procedures)
+**Coverage: 100%** (12 of 12 spec procedures)
 
-Implemented: `random-integer`, `random-real`.
-
-**Not implemented:** `default-random-source`, `random-source?`, `random-source-make-integers`, `random-source-make-reals`, `random-source-randomize!`, `random-source-pseudo-randomize!`, `random-source-state-ref`, `random-source-state-set!`. These require a random source heap object type. The basic interface (`random-integer`, `random-real`) covers the most common use cases.
+Implemented: `random-integer`, `random-real`, `default-random-source`, `random-source?`, `make-random-source`, `random-source-make-integers`, `random-source-make-reals`, `random-source-randomize!`, `random-source-pseudo-randomize!`, `random-source-state-ref`, `random-source-state-set!`. Random source objects are a dedicated heap type (`RandomSource`) backed by Zig's `DefaultPrng` (xoshiro256). The `random-source-make-integers` and `random-source-make-reals` procedures return proper closures over the random source.
 
 ### SRFI 39 — Parameter Objects
 
