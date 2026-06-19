@@ -378,10 +378,9 @@ fn runFile(vm: *vm_mod.VM, path: []const u8) !void {
                 writeStderr(s);
             }
             // Print stack trace for file execution
-            var trace_buf: [8]vm_mod.VM.StackFrame = undefined;
-            const trace_len = vm.getStackTrace(&trace_buf);
-            if (trace_len > 1) {
-                for (trace_buf[1..trace_len]) |frame| {
+            const trace = vm.getLastStackTrace();
+            if (trace.len > 1) {
+                for (trace[1..]) |frame| {
                     var tbuf: [256]u8 = undefined;
                     if (frame.name) |name| {
                         const ts = std.fmt.bufPrint(&tbuf, "  in {s} ({s}:{d})\n", .{ name, frame.source orelse "?", frame.line }) catch continue;
@@ -847,6 +846,19 @@ fn evalInput(vm: *vm_mod.VM, allocator: std.mem.Allocator, input: []const u8) vo
                 var errbuf: [256]u8 = undefined;
                 const s = std.fmt.bufPrint(&errbuf, "runtime error: {}\n", .{err}) catch "runtime error\n";
                 writeStderr(s);
+            }
+            const trace = vm.getLastStackTrace();
+            if (trace.len > 1) {
+                for (trace[1..]) |sf| {
+                    var tbuf: [256]u8 = undefined;
+                    if (sf.name) |name| {
+                        const ts = std.fmt.bufPrint(&tbuf, "  in {s} ({s}:{d})\n", .{ name, sf.source orelse "?", sf.line }) catch continue;
+                        writeStderr(ts);
+                    } else if (sf.line > 0) {
+                        const ts = std.fmt.bufPrint(&tbuf, "  called from {s}:{d}\n", .{ sf.source orelse "?", sf.line }) catch continue;
+                        writeStderr(ts);
+                    }
+                }
             }
             vm.last_error_detail_len = 0;
             break;

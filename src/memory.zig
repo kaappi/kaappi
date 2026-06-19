@@ -1065,6 +1065,7 @@ pub const GC = struct {
                 self.allocator.free(tx.literals);
                 self.allocator.free(tx.patterns);
                 self.allocator.free(tx.templates);
+                if (tx.captured_locals.len > 0) self.allocator.free(tx.captured_locals);
                 self.allocator.destroy(tx);
             },
             .error_object => {

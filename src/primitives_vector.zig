@@ -80,7 +80,7 @@ fn vectorP(args: []const Value) PrimitiveError!Value {
 // ---------------------------------------------------------------------------
 
 fn vectorLengthFn(args: []const Value) PrimitiveError!Value {
-    if (!types.isVector(args[0])) return PrimitiveError.TypeError;
+    if (!types.isVector(args[0])) return primitives.typeError("vector-length", "vector", args[0]);
     const vec = types.toVector(args[0]);
     return types.makeFixnum(@intCast(vec.data.len));
 }
@@ -90,8 +90,8 @@ fn vectorLengthFn(args: []const Value) PrimitiveError!Value {
 // ---------------------------------------------------------------------------
 
 fn vectorRefFn(args: []const Value) PrimitiveError!Value {
-    if (!types.isVector(args[0])) return PrimitiveError.TypeError;
-    if (!types.isFixnum(args[1])) return PrimitiveError.TypeError;
+    if (!types.isVector(args[0])) return primitives.typeError("vector-ref", "vector", args[0]);
+    if (!types.isFixnum(args[1])) return primitives.typeError("vector-ref", "exact integer", args[1]);
     const vec = types.toVector(args[0]);
     const k = types.toFixnum(args[1]);
     if (k < 0 or @as(usize, @intCast(k)) >= vec.data.len) return PrimitiveError.IndexOutOfBounds;
@@ -103,8 +103,8 @@ fn vectorRefFn(args: []const Value) PrimitiveError!Value {
 // ---------------------------------------------------------------------------
 
 fn vectorSetFn(args: []const Value) PrimitiveError!Value {
-    if (!types.isVector(args[0])) return PrimitiveError.TypeError;
-    if (!types.isFixnum(args[1])) return PrimitiveError.TypeError;
+    if (!types.isVector(args[0])) return primitives.typeError("vector-set!", "vector", args[0]);
+    if (!types.isFixnum(args[1])) return primitives.typeError("vector-set!", "exact integer", args[1]);
     const vec = types.toVector(args[0]);
     const k = types.toFixnum(args[1]);
     if (k < 0 or @as(usize, @intCast(k)) >= vec.data.len) return PrimitiveError.IndexOutOfBounds;

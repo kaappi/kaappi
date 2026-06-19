@@ -172,7 +172,7 @@ fn makeStringFn(args: []const Value) PrimitiveError!Value {
 
 fn stringRefFn(args: []const Value) PrimitiveError!Value {
     const data = try getStringSlice(args[0]);
-    if (!types.isFixnum(args[1])) return PrimitiveError.TypeError;
+    if (!types.isFixnum(args[1])) return primitives.typeError("string-ref", "exact integer", args[1]);
     const k = types.toFixnum(args[1]);
     if (k < 0) return PrimitiveError.IndexOutOfBounds;
     const byte_off = utf8IndexToByteOffset(data, @intCast(k)) orelse return PrimitiveError.IndexOutOfBounds;
@@ -185,9 +185,9 @@ fn stringRefFn(args: []const Value) PrimitiveError!Value {
 // ---------------------------------------------------------------------------
 
 fn stringSetFn(args: []const Value) PrimitiveError!Value {
-    if (!types.isString(args[0])) return PrimitiveError.TypeError;
-    if (!types.isFixnum(args[1])) return PrimitiveError.TypeError;
-    if (!types.isChar(args[2])) return PrimitiveError.TypeError;
+    if (!types.isString(args[0])) return primitives.typeError("string-set!", "string", args[0]);
+    if (!types.isFixnum(args[1])) return primitives.typeError("string-set!", "exact integer", args[1]);
+    if (!types.isChar(args[2])) return primitives.typeError("string-set!", "character", args[2]);
     const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
     const str = types.toObject(args[0]).as(types.SchemeString);
     if (str.immutable) return PrimitiveError.TypeError;

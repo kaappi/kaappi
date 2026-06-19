@@ -168,6 +168,8 @@ pub const VM = struct {
     last_error_detail_len: usize = 0,
     last_error_line: u32 = 0,
     last_error_source: ?[]const u8 = null,
+    last_stack_trace: [16]StackFrame = undefined,
+    last_stack_trace_len: usize = 0,
     // Debugger state
     debug_mode: bool = false,
     breakpoints: [16][]const u8 = undefined,
@@ -265,23 +267,34 @@ pub const VM = struct {
             i -= 1;
             if (self.frames[i].closure) |cls| {
                 const func = cls.func;
-                if (func.source_line > 0 or func.name != null) {
+                // Use instruction-level line number when available
+                var line = func.source_line;
+                if (func.line_table.items.len > 0) {
+                    const ip = if (self.frames[i].ip > 0) self.frames[i].ip - 1 else 0;
+                    const precise = func.lineForOffset(ip);
+                    if (precise > 0) line = precise;
+                }
+                if (line > 0 or func.name != null) {
                     if (count > 0) {
                         const prev = buf[count - 1];
-                        if (prev.line == func.source_line and
+                        if (prev.line == line and
                             std.mem.eql(u8, prev.source orelse "", func.source_name orelse ""))
                             continue;
                     }
                     buf[count] = .{
                         .name = func.name,
                         .source = func.source_name,
-                        .line = func.source_line,
+                        .line = line,
                     };
                     count += 1;
                 }
             }
         }
         return count;
+    }
+
+    pub fn getLastStackTrace(self: *VM) []const StackFrame {
+        return self.last_stack_trace[0..self.last_stack_trace_len];
     }
 
     pub fn defineGlobal(self: *VM, name: []const u8, value: Value) !void {
@@ -368,7 +381,7 @@ pub const VM = struct {
             };
             self.frame_count += 1;
 
-            const result = self.runUntil(saved_frame_count) catch |err| {
+            const result = self.runUntil(saved_frame_count, saved_wind_count) catch |err| {
                 if (err == VMError.ContinuationInvoked) {
                     if (self.frame_count >= saved_frame_count) return self.continuation_value;
                     return err;
@@ -382,22 +395,26 @@ pub const VM = struct {
         } else if (types.isNativeFn(handler_val)) {
             const native = types.toObject(handler_val).as(types.NativeFn);
             const args = [1]Value{arg};
+            self.last_error_detail_len = 0;
             const result = native.func(&args) catch |err| {
                 return switch (err) {
                     error.TypeError => blk: {
-                        if (args.len > 0) {
-                            const p = @import("printer.zig");
-                            const s = p.valueToString(self.gc.allocator, args[0], .write) catch "";
-                            defer if (s.len > 0) self.gc.allocator.free(s);
-                            self.setErrorDetail("type error in '{s}': got {s}", .{ native.name, s });
-                        } else {
-                            self.setErrorDetail("type error in '{s}'", .{native.name});
+                        if (self.last_error_detail_len == 0) {
+                            if (args.len > 0) {
+                                const p = @import("printer.zig");
+                                const s = p.valueToString(self.gc.allocator, args[0], .write) catch "";
+                                defer if (s.len > 0) self.gc.allocator.free(s);
+                                self.setErrorDetail("type error in '{s}': got {s}", .{ native.name, s });
+                            } else {
+                                self.setErrorDetail("type error in '{s}'", .{native.name});
+                            }
                         }
                         break :blk VMError.TypeError;
                     },
                     error.DivisionByZero => VMError.DivisionByZero,
                     error.IndexOutOfBounds => blk_iob: {
-                        self.setErrorDetail("index out of bounds in '{s}'", .{native.name});
+                        if (self.last_error_detail_len == 0)
+                            self.setErrorDetail("index out of bounds in '{s}'", .{native.name});
                         break :blk_iob VMError.IndexOutOfBounds;
                     },
                     error.InvalidArgument => blk_ia: {
@@ -454,7 +471,7 @@ pub const VM = struct {
             };
             self.frame_count += 1;
 
-            const result = self.runUntil(saved_frame_count) catch |err| {
+            const result = self.runUntil(saved_frame_count, saved_wind_count) catch |err| {
                 if (err == VMError.ContinuationInvoked) {
                     // If the escape continuation targeted a frame within our
                     // scope, the value has been delivered — return it.
@@ -586,7 +603,7 @@ pub const VM = struct {
             };
             self.frame_count += 1;
 
-            const result = self.runUntil(saved_frame_count) catch |err| {
+            const result = self.runUntil(saved_frame_count, saved_wind_count) catch |err| {
                 if (err == VMError.ContinuationInvoked) {
                     if (self.frame_count >= saved_frame_count) return self.continuation_value;
                     return err;
@@ -613,22 +630,26 @@ pub const VM = struct {
                     }
                 },
             }
+            self.last_error_detail_len = 0;
             const result = native.func(args) catch |err| {
                 return switch (err) {
                     error.TypeError => blk: {
-                        if (args.len > 0) {
-                            const p = @import("printer.zig");
-                            const s = p.valueToString(self.gc.allocator, args[0], .write) catch "";
-                            defer if (s.len > 0) self.gc.allocator.free(s);
-                            self.setErrorDetail("type error in '{s}': got {s}", .{ native.name, s });
-                        } else {
-                            self.setErrorDetail("type error in '{s}'", .{native.name});
+                        if (self.last_error_detail_len == 0) {
+                            if (args.len > 0) {
+                                const p = @import("printer.zig");
+                                const s = p.valueToString(self.gc.allocator, args[0], .write) catch "";
+                                defer if (s.len > 0) self.gc.allocator.free(s);
+                                self.setErrorDetail("type error in '{s}': got {s}", .{ native.name, s });
+                            } else {
+                                self.setErrorDetail("type error in '{s}'", .{native.name});
+                            }
                         }
                         break :blk VMError.TypeError;
                     },
                     error.DivisionByZero => VMError.DivisionByZero,
                     error.IndexOutOfBounds => blk_iob: {
-                        self.setErrorDetail("index out of bounds in '{s}'", .{native.name});
+                        if (self.last_error_detail_len == 0)
+                            self.setErrorDetail("index out of bounds in '{s}'", .{native.name});
                         break :blk_iob VMError.IndexOutOfBounds;
                     },
                     error.InvalidArgument => blk_ia: {
@@ -675,8 +696,11 @@ pub const VM = struct {
 
     /// Run the VM until frame_count drops to target_frame_count.
     /// This is used by callThunk/callHandler to avoid executing past
-    /// the caller's frame.
-    fn runUntil(self: *VM, target_frame_count: usize) VMError!Value {
+    /// the caller's frame. target_wind_count specifies the wind level
+    /// to unwind to on exit (ensures dynamic-wind after-thunks run
+    /// even when the native function that pushed them is no longer on
+    /// the Zig call stack after a continuation restore).
+    fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) VMError!Value {
         while (self.frame_count > target_frame_count) {
             const frame = &self.frames[self.frame_count - 1];
             if (frame.ip >= frame.code.len) return VMError.InvalidBytecode;
@@ -987,6 +1011,7 @@ pub const VM = struct {
                             },
                         }
                         const nargs_slice = self.registers[abs_base + 1 .. abs_base + 1 + nargs];
+                        self.last_error_detail_len = 0;
                         const result = native.func(nargs_slice) catch |err| {
                             if (err == error.ContinuationInvoked) {
                                 if (target_frame_count == 0) {
@@ -996,7 +1021,8 @@ pub const VM = struct {
                             }
                             return switch (err) {
                                 error.TypeError => blk: {
-                                    self.setErrorDetail("type error in '{s}'", .{native.name});
+                                    if (self.last_error_detail_len == 0)
+                                        self.setErrorDetail("type error in '{s}'", .{native.name});
                                     break :blk VMError.TypeError;
                                 },
                                 error.DivisionByZero => VMError.DivisionByZero,
@@ -1182,9 +1208,23 @@ pub const VM = struct {
                         _ = self.callThunk(self.wind_stack[self.wind_count].after) catch {};
                     }
                     if (self.frame_count <= target_frame_count) {
+                        while (self.wind_count > target_wind_count) {
+                            self.wind_count -= 1;
+                            _ = self.callThunk(self.wind_stack[self.wind_count].after) catch {};
+                        }
                         return result;
                     }
+                    // Also unwind any winds that were pushed by native
+                    // functions (e.g. dynamic-wind) between this frame
+                    // and the caller. After a continuation restore the
+                    // native function isn't on the Zig stack, so its
+                    // cleanup won't run. The caller's saved_wind_count
+                    // tells us the correct wind level to unwind to.
                     const caller = &self.frames[self.frame_count - 1];
+                    while (self.wind_count > caller.saved_wind_count) {
+                        self.wind_count -= 1;
+                        _ = self.callThunk(self.wind_stack[self.wind_count].after) catch {};
+                    }
                     const ret_idx = try self.registerIndex(caller.base, return_dst);
                     self.registers[ret_idx] = result;
                 },
@@ -1415,10 +1455,12 @@ pub const VM = struct {
                     } else if (types.isNativeFn(callee)) {
                         const native = types.toObject(callee).as(types.NativeFn);
                         const args = self.registers[abs_base + 1 .. abs_base + 1 + nargs];
+                        self.last_error_detail_len = 0;
                         const result = native.func(args) catch |err| {
                             return switch (err) {
                                 error.TypeError => blk: {
-                                    self.setErrorDetail("type error in '{s}'", .{native.name});
+                                    if (self.last_error_detail_len == 0)
+                                        self.setErrorDetail("type error in '{s}'", .{native.name});
                                     break :blk VMError.TypeError;
                                 },
                                 error.OutOfMemory => VMError.OutOfMemory,
@@ -1524,15 +1566,17 @@ pub const VM = struct {
         self.frame_count = 1;
 
         const result = self.run() catch |err| {
+            self.last_stack_trace_len = self.getStackTrace(&self.last_stack_trace);
             self.resetExecutionState();
             return err;
         };
+        self.last_stack_trace_len = 0;
         self.resetExecutionState();
         return result;
     }
 
     pub fn run(self: *VM) VMError!Value {
-        return self.runUntil(0);
+        return self.runUntil(0, 0);
     }
 
     /// Restore a captured continuation (delegates to vm_continuations).
@@ -1675,26 +1719,31 @@ pub const VM = struct {
             }
 
             const args = self.registers[base + 1 .. base + 1 + nargs];
+            self.last_error_detail_len = 0;
             const result = native.func(args) catch |err| {
                 return switch (err) {
                     error.TypeError => blk: {
-                        if (args.len > 0) {
-                            const p = @import("printer.zig");
-                            const s = p.valueToString(self.gc.allocator, args[0], .write) catch "";
-                            defer if (s.len > 0) self.gc.allocator.free(s);
-                            self.setErrorDetail("type error in '{s}': got {s}", .{ native.name, s });
-                        } else {
-                            self.setErrorDetail("type error in '{s}'", .{native.name});
+                        if (self.last_error_detail_len == 0) {
+                            if (args.len > 0) {
+                                const p = @import("printer.zig");
+                                const s = p.valueToString(self.gc.allocator, args[0], .write) catch "";
+                                defer if (s.len > 0) self.gc.allocator.free(s);
+                                self.setErrorDetail("type error in '{s}': got {s}", .{ native.name, s });
+                            } else {
+                                self.setErrorDetail("type error in '{s}'", .{native.name});
+                            }
                         }
                         break :blk VMError.TypeError;
                     },
                     error.DivisionByZero => VMError.DivisionByZero,
                     error.IndexOutOfBounds => blk_iob: {
-                        self.setErrorDetail("index out of bounds in '{s}'", .{native.name});
+                        if (self.last_error_detail_len == 0)
+                            self.setErrorDetail("index out of bounds in '{s}'", .{native.name});
                         break :blk_iob VMError.IndexOutOfBounds;
                     },
                     error.InvalidArgument => blk_ia: {
-                        self.setErrorDetail("invalid argument in '{s}'", .{native.name});
+                        if (self.last_error_detail_len == 0)
+                            self.setErrorDetail("invalid argument in '{s}'", .{native.name});
                         break :blk_ia VMError.InvalidArgument;
                     },
                     error.OutOfMemory => VMError.OutOfMemory,

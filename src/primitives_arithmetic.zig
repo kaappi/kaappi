@@ -36,6 +36,15 @@ pub fn toF64Ext(v: Value) PrimitiveError!f64 {
         const d = try toF64Ext(r.denominator);
         return n / d;
     }
+    return numberTypeError(v);
+}
+
+fn numberTypeError(v: Value) PrimitiveError {
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError;
+    const p = @import("printer.zig");
+    const s = p.valueToString(vm.gc.allocator, v, .write) catch "";
+    defer if (s.len > 0) vm.gc.allocator.free(s);
+    vm.setErrorDetail("expected number, got {s}", .{s});
     return PrimitiveError.TypeError;
 }
 
@@ -300,7 +309,7 @@ fn add(args: []const Value) PrimitiveError!Value {
     // Fixnum path with overflow detection
     var sum: i64 = 0;
     for (args) |a| {
-        if (!types.isFixnum(a)) return PrimitiveError.TypeError;
+        if (!types.isFixnum(a)) return numberTypeError(a);
         const r = @addWithOverflow(sum, types.toFixnum(a));
         if (r[1] != 0) return bignumAddAll(args);
         sum = r[0];
@@ -381,8 +390,8 @@ fn sub(args: []const Value) PrimitiveError!Value {
         return gc.allocRational(types.makeFixnum(n), types.makeFixnum(d)) catch return PrimitiveError.OutOfMemory;
     }
     if (anyBignum(args)) return bignumSubAll(args);
-    if (!types.isFixnum(args[0]) and !types.isRationalObj(args[0])) return PrimitiveError.TypeError;
-    if (!types.isFixnum(args[0])) return PrimitiveError.TypeError;
+    if (!types.isFixnum(args[0]) and !types.isRationalObj(args[0])) return numberTypeError(args[0]);
+    if (!types.isFixnum(args[0])) return numberTypeError(args[0]);
     if (args.len == 1) {
         const n = types.toFixnum(args[0]);
         // Negation overflow: -minInt(i64) overflows
@@ -392,7 +401,7 @@ fn sub(args: []const Value) PrimitiveError!Value {
     }
     var result = types.toFixnum(args[0]);
     for (args[1..]) |a| {
-        if (!types.isFixnum(a)) return PrimitiveError.TypeError;
+        if (!types.isFixnum(a)) return numberTypeError(a);
         const r = @subWithOverflow(result, types.toFixnum(a));
         if (r[1] != 0) return bignumSubAll(args);
         result = r[0];
@@ -463,7 +472,7 @@ fn mul(args: []const Value) PrimitiveError!Value {
     if (anyBignum(args)) return bignumMulAll(args);
     var product: i64 = 1;
     for (args) |a| {
-        if (!types.isFixnum(a)) return PrimitiveError.TypeError;
+        if (!types.isFixnum(a)) return numberTypeError(a);
         const r = @mulWithOverflow(product, types.toFixnum(a));
         if (r[1] != 0) return bignumMulAll(args);
         product = r[0];

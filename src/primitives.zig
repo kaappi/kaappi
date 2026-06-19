@@ -162,6 +162,15 @@ pub fn setGCInstance(gc: *@import("memory.zig").GC) void {
     gc_instance = gc;
 }
 
+pub fn typeError(proc: []const u8, expected: []const u8, got: Value) PrimitiveError {
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError;
+    const p = @import("printer.zig");
+    const s = p.valueToString(vm.gc.allocator, got, .write) catch "";
+    defer if (s.len > 0) vm.gc.allocator.free(s);
+    vm.setErrorDetail("type error in '{s}': expected {s}, got {s}", .{ proc, expected, s });
+    return PrimitiveError.TypeError;
+}
+
 // ---------------------------------------------------------------------------
 // Pairs and lists
 // ---------------------------------------------------------------------------
@@ -172,23 +181,23 @@ fn cons(args: []const Value) PrimitiveError!Value {
 }
 
 fn car(args: []const Value) PrimitiveError!Value {
-    if (!types.isPair(args[0])) return PrimitiveError.TypeError;
+    if (!types.isPair(args[0])) return typeError("car", "pair", args[0]);
     return types.car(args[0]);
 }
 
 fn cdr(args: []const Value) PrimitiveError!Value {
-    if (!types.isPair(args[0])) return PrimitiveError.TypeError;
+    if (!types.isPair(args[0])) return typeError("cdr", "pair", args[0]);
     return types.cdr(args[0]);
 }
 
 fn setCar(args: []const Value) PrimitiveError!Value {
-    if (!types.isPair(args[0])) return PrimitiveError.TypeError;
+    if (!types.isPair(args[0])) return typeError("set-car!", "pair", args[0]);
     types.setCar(args[0], args[1]);
     return types.VOID;
 }
 
 fn setCdr(args: []const Value) PrimitiveError!Value {
-    if (!types.isPair(args[0])) return PrimitiveError.TypeError;
+    if (!types.isPair(args[0])) return typeError("set-cdr!", "pair", args[0]);
     types.setCdr(args[0], args[1]);
     return types.VOID;
 }
