@@ -117,14 +117,14 @@ pub const Reader = struct {
                 _ = try self.readDatum();
             } else if (c == '#' and self.pos + 1 < self.source.len and self.source[self.pos + 1] == '|') {
                 self.pos += 2;
-                self.skipBlockComment();
+                try self.skipBlockComment();
             } else {
                 break;
             }
         }
     }
 
-    fn skipBlockComment(self: *Reader) void {
+    fn skipBlockComment(self: *Reader) ReadError!void {
         var depth: usize = 1;
         while (depth > 0 and self.pos + 1 < self.source.len) {
             if (self.source[self.pos] == '#' and self.source[self.pos + 1] == '|') {
@@ -137,6 +137,7 @@ pub const Reader = struct {
                 self.pos += 1;
             }
         }
+        if (depth > 0) return ReadError.UnexpectedEof;
     }
 
     // Unicode letter classification for identifier support

@@ -559,13 +559,11 @@ pub fn readCharacter(self: *Reader) ReadError!Token {
     // Multi-byte UTF-8 character (e.g., #\λ)
     if (first_byte >= 0x80) {
         const seq_len = std.unicode.utf8ByteSequenceLength(first_byte) catch {
-            self.pos += 1;
-            return .{ .character = first_byte };
+            return ReadError.InvalidCharacterName;
         };
         if (self.pos + seq_len > self.source.len) return ReadError.UnexpectedEof;
         const cp = std.unicode.utf8Decode(self.source[self.pos .. self.pos + seq_len]) catch {
-            self.pos += 1;
-            return .{ .character = first_byte };
+            return ReadError.InvalidCharacterName;
         };
         self.pos += seq_len;
         return .{ .character = cp };
