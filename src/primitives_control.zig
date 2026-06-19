@@ -77,7 +77,7 @@ fn raiseContinuableFn(args: []const Value) PrimitiveError!Value {
             else => PrimitiveError.TypeError,
         };
     };
-    vm.pushHandler(handler) catch {};
+    vm.pushHandler(handler) catch return PrimitiveError.OutOfMemory;
     return result;
 }
 
@@ -328,7 +328,7 @@ fn dynamicWindFn(args: []const Value) PrimitiveError!Value {
     };
 
     // Push wind record
-    if (vm.wind_count >= 64) return PrimitiveError.OutOfMemory;
+    if (vm.wind_count >= vm_mod.MAX_WINDS) return PrimitiveError.OutOfMemory;
     vm.wind_stack[vm.wind_count] = .{ .before = before, .after = after };
     vm.wind_count += 1;
 
@@ -340,7 +340,10 @@ fn dynamicWindFn(args: []const Value) PrimitiveError!Value {
 
         // On other errors, pop wind record and call after
         vm.wind_count -= 1;
-        _ = vm.callThunk(after) catch {};
+        _ = vm.callThunk(after) catch |after_err| {
+            if (after_err == vm_mod.VMError.ContinuationInvoked)
+                return PrimitiveError.ContinuationInvoked;
+        };
         return switch (err) {
             vm_mod.VMError.ExceptionRaised => PrimitiveError.ExceptionRaised,
             vm_mod.VMError.OutOfMemory => PrimitiveError.OutOfMemory,
