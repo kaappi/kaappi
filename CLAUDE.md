@@ -118,7 +118,7 @@ Stored as UTF-8 byte arrays. All string operations (string-length, string-ref, s
 | `tests_*.zig` | Unit tests by feature (core_eval, tail_calls, macros, io, etc.) |
 
 ### SRFI libraries (in `lib/srfi/`)
-45 SRFIs supported. 8 built-in (Zig primitives in `library.zig`): 1, 9, 13, 27, 39, 69, 133, 170. 37 portable R7RS .sld files loaded on demand via `(import (srfi N))`: 2, 8, 11, 14, 16, 26, 28, 31, 34, 35, 36, 41, 48, 64, 98, 111, 113, 117, 125, 128, 132, 141, 143, 145, 146, 151, 152, 158, 174, 175, 189, 219, 222, 227, 232, 233, 235.
+46 SRFIs supported. 8 built-in (Zig primitives in `library.zig`): 1, 9, 13, 27, 39, 69, 133, 170. 38 portable R7RS .sld files loaded on demand via `(import (srfi N))`: 2, 8, 11, 14, 16, 26, 28, 31, 34, 35, 36, 41, 48, 64, 98, 111, 113, 115, 117, 125, 128, 132, 141, 143, 145, 146, 151, 152, 158, 174, 175, 189, 219, 222, 227, 232, 233, 235.
 
 The library loader in `vm_library.zig` supports `cond-expand`, `include` (paths resolved relative to the .sld file), and `(export (rename ...))` in `define-library`. Macro transformers defined with `define-syntax` in library `begin` blocks are exported and imported correctly.
 
