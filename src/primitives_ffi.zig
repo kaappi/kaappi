@@ -185,6 +185,12 @@ fn matchCallbackSig(params: []const types.FfiType, ret: types.FfiType) ?ffi_call
         return .v_void;
     if (params.len == 1 and params[0] == .pointer and ret == .int)
         return .p_int;
+    if (params.len == 2 and params[0] == .int and params[1] == .pointer and ret == .int)
+        return .ip_int;
+    if (params.len == 1 and params[0] == .int and ret == .void_type)
+        return .i_void;
+    if (params.len == 2 and params[0] == .pointer and params[1] == .pointer and ret == .void_type)
+        return .pp_void;
     return null;
 }
 

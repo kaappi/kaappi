@@ -80,20 +80,20 @@ Command-line arguments are passed through to `(command-line)`. Debug flags `--gc
 
 ## Profiler
 
-**Status:** Basic instruction-counting profiler implemented
+**Status:** Complete
 
-Tracks per-function bytecode instruction counts and call counts. In a bytecode interpreter, instruction count is a direct proxy for CPU time.
+Tracks per-function wall-clock timing (exclusive/inclusive), instruction counts, call counts, and allocation bytes. Handles tail-call accounting correctly — tail-called functions receive proper call counts and timing attribution.
 
 **Usage:**
 - `kaappi --profile program.scm` — profile entire file execution
 - `,profile <expr>` — profile a single expression in the REPL
 
-Reports top 20 functions sorted by instruction count, showing both Scheme functions (with source location) and built-in procedures (by call count).
-
-**Remaining work:**
-- Wall-clock timing per function (requires tail-call accounting)
-- Exclusive vs inclusive time attribution
-- Allocation profiling (bytes allocated per function)
+Reports top 20 functions sorted by self time, showing:
+- **Self ms** — exclusive wall-clock time (time in this function, excluding callees)
+- **Total ms** — inclusive wall-clock time (time including all callees)
+- **Calls** — number of invocations (including tail calls)
+- **Alloc KB** — heap bytes allocated while this function is active
+- **Function** — name and source location (file:line) or "(built-in)"
 
 ---
 
@@ -105,27 +105,27 @@ The VM is purely interpreted bytecode. A tracing or method-based JIT would signi
 
 ---
 
-## FFI callbacks — additional signatures
+## FFI callbacks
 
-**Status:** 4 signatures supported
+**Status:** 7 signatures supported
 
 Supported callback signatures via `ffi-callback`:
 - `(pointer, pointer) -> int` — qsort comparator pattern
 - `(pointer) -> void` — event handlers, cleanup callbacks
 - `(pointer) -> int` — predicates, filters
 - `() -> void` — atexit, simple signal handlers
-
-Each signature is a comptime trampoline generator sharing a 16-slot pool. Adding more signatures requires one new `makeTrampoline` variant in `ffi_callback.zig` and a `matchCallbackSig` entry in `primitives_ffi.zig`.
-
-**Current limitations:**
-- 16 simultaneous callbacks max (shared across all signatures)
-- Single-threaded only — callbacks must be called from the VM's thread
-- Exceptions in callbacks return 0 to C (void signatures silently discard errors)
-
-**Remaining signatures worth adding:**
 - `(int, pointer) -> int` — iterators with context
 - `(int) -> void` — signal handlers with signal number
 - `(pointer, pointer) -> void` — dual-context event handlers
+
+Each signature is a comptime trampoline generator sharing a 32-slot pool. Adding more signatures requires one new `makeTrampoline` variant in `ffi_callback.zig` and a `matchCallbackSig` entry in `primitives_ffi.zig`.
+
+**FFI call dispatcher** supports `pointer` and `string` parameter/return types across all arities (0–4 args), enabling C functions that take or return raw pointers and C strings.
+
+**Current limitations:**
+- 32 simultaneous callbacks max (shared across all signatures)
+- Single-threaded only — callbacks must be called from the VM's thread
+- Exceptions in callbacks return 0 to C (void signatures silently discard errors)
 
 ---
 

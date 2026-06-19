@@ -4,7 +4,7 @@ const vm_mod = @import("vm.zig");
 const memory = @import("memory.zig");
 const Value = types.Value;
 
-const NUM_SLOTS = 16;
+const NUM_SLOTS = 32;
 
 const CallbackSlot = struct {
     closure: Value,
@@ -18,6 +18,9 @@ pub const CallbackSig = enum {
     p_void, // (pointer) -> void
     v_void, // () -> void
     p_int, // (pointer) -> int
+    ip_int, // (int, pointer) -> int
+    i_void, // (int) -> void
+    pp_void, // (pointer, pointer) -> void
 };
 
 // ---------------------------------------------------------------------------
@@ -101,6 +104,66 @@ fn makeTrampolinePI(comptime idx: usize) *const fn (?*anyopaque) callconv(.c) c_
     return &S.trampoline;
 }
 
+fn makeTrampolineIPI(comptime idx: usize) *const fn (c_int, ?*anyopaque) callconv(.c) c_int {
+    const S = struct {
+        fn trampoline(a: c_int, b: ?*anyopaque) callconv(.c) c_int {
+            const slot = &callback_slots[idx];
+            if (!slot.active) return 0;
+            const vm = vm_mod.vm_instance orelse return 0;
+            const arg0 = types.makeFixnum(@intCast(a));
+            const b_addr: usize = if (b) |p| @intFromPtr(p) else 0;
+            const arg1 = types.makeFixnum(@intCast(b_addr));
+            const args = [2]Value{ arg0, arg1 };
+            const result = vm.callWithArgs(slot.closure, &args) catch {
+                vm.last_callback_error = true;
+                return 0;
+            };
+            if (types.isFixnum(result)) {
+                const v = types.toFixnum(result);
+                if (v >= std.math.minInt(c_int) and v <= std.math.maxInt(c_int))
+                    return @intCast(v);
+            }
+            return 0;
+        }
+    };
+    return &S.trampoline;
+}
+
+fn makeTrampolineIV(comptime idx: usize) *const fn (c_int) callconv(.c) void {
+    const S = struct {
+        fn trampoline(a: c_int) callconv(.c) void {
+            const slot = &callback_slots[idx];
+            if (!slot.active) return;
+            const vm = vm_mod.vm_instance orelse return;
+            const arg0 = types.makeFixnum(@intCast(a));
+            const args = [1]Value{arg0};
+            _ = vm.callWithArgs(slot.closure, &args) catch {
+                vm.last_callback_error = true;
+            };
+        }
+    };
+    return &S.trampoline;
+}
+
+fn makeTrampolinePPV(comptime idx: usize) *const fn (?*anyopaque, ?*anyopaque) callconv(.c) void {
+    const S = struct {
+        fn trampoline(a: ?*anyopaque, b: ?*anyopaque) callconv(.c) void {
+            const slot = &callback_slots[idx];
+            if (!slot.active) return;
+            const vm = vm_mod.vm_instance orelse return;
+            const a_addr: usize = if (a) |p| @intFromPtr(p) else 0;
+            const b_addr: usize = if (b) |p| @intFromPtr(p) else 0;
+            const arg0 = types.makeFixnum(@intCast(a_addr));
+            const arg1 = types.makeFixnum(@intCast(b_addr));
+            const args = [2]Value{ arg0, arg1 };
+            _ = vm.callWithArgs(slot.closure, &args) catch {
+                vm.last_callback_error = true;
+            };
+        }
+    };
+    return &S.trampoline;
+}
+
 // ---------------------------------------------------------------------------
 // Trampoline arrays — one per signature, NUM_SLOTS entries each
 // ---------------------------------------------------------------------------
@@ -129,6 +192,18 @@ const trampolines_p_int = generateTrampolines(
     *const fn (?*anyopaque) callconv(.c) c_int,
     makeTrampolinePI,
 );
+const trampolines_ip_int = generateTrampolines(
+    *const fn (c_int, ?*anyopaque) callconv(.c) c_int,
+    makeTrampolineIPI,
+);
+const trampolines_i_void = generateTrampolines(
+    *const fn (c_int) callconv(.c) void,
+    makeTrampolineIV,
+);
+const trampolines_pp_void = generateTrampolines(
+    *const fn (?*anyopaque, ?*anyopaque) callconv(.c) void,
+    makeTrampolinePPV,
+);
 
 // ---------------------------------------------------------------------------
 // Slot management
@@ -149,6 +224,9 @@ pub fn allocSlot(closure: Value, sig: CallbackSig) ?SlotInfo {
                 .p_void => @ptrCast(@constCast(trampolines_p_void[i])),
                 .v_void => @ptrCast(@constCast(trampolines_v_void[i])),
                 .p_int => @ptrCast(@constCast(trampolines_p_int[i])),
+                .ip_int => @ptrCast(@constCast(trampolines_ip_int[i])),
+                .i_void => @ptrCast(@constCast(trampolines_i_void[i])),
+                .pp_void => @ptrCast(@constCast(trampolines_pp_void[i])),
             };
             return .{ .index = @intCast(i), .fn_ptr = fn_ptr };
         }
