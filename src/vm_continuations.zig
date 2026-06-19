@@ -135,7 +135,10 @@ pub fn invokeEscape(vm: *VM, cont: *types.Continuation, value: Value) VMError!vo
 
     // Truncate the live stack back to the call/ec point and deliver the value.
     vm.frame_count = cont.target_frame_count;
-    vm.registers[cont.dst_base + cont.dst_reg] = value;
+    const dst_idx = @as(usize, cont.dst_base) + @as(usize, cont.dst_reg);
+    if (dst_idx < MAX_REGISTERS) {
+        vm.registers[dst_idx] = value;
+    }
     vm.continuation_value = value;
 }
 
@@ -180,9 +183,15 @@ pub fn performWindTransition(vm: *VM, target_winds: []const types.WindRecord, ta
 /// Restore a captured continuation, replacing the VM state and placing
 /// the given value at the continuation's destination register.
 pub fn restoreContinuation(vm: *VM, cont: *types.Continuation, value: Value) void {
+    // Validate captured counts fit within VM limits
+    const reg_len = @min(cont.registers.len, MAX_REGISTERS);
+    const fc = @min(cont.frame_count, MAX_FRAMES);
+    const hc = @min(cont.handler_count, MAX_HANDLERS);
+    const wc = @min(cont.wind_count, MAX_WINDS);
+
     // Restore saved VM state
-    @memcpy(vm.registers[0..cont.registers.len], cont.registers);
-    for (cont.frames[0..cont.frame_count], 0..) |saved_frame, i| {
+    @memcpy(vm.registers[0..reg_len], cont.registers[0..reg_len]);
+    for (cont.frames[0..fc], 0..) |saved_frame, i| {
         vm.frames[i] = .{
             .closure = saved_frame.closure,
             .native = saved_frame.native,
@@ -192,24 +201,30 @@ pub fn restoreContinuation(vm: *VM, cont: *types.Continuation, value: Value) voi
             .dst = saved_frame.dst,
         };
     }
-    vm.frame_count = cont.frame_count;
+    vm.frame_count = fc;
 
     // Restore handler stack
-    for (cont.handlers[0..cont.handler_count], 0..) |saved_handler, i| {
+    for (cont.handlers[0..hc], 0..) |saved_handler, i| {
         vm.handler_stack[i] = .{
             .handler = saved_handler.handler,
             .frame_count = saved_handler.frame_count,
         };
     }
-    vm.handler_count = cont.handler_count;
+    vm.handler_count = hc;
 
     // Restore wind stack
-    for (cont.wind_records[0..cont.wind_count], 0..) |wr, i| {
+    for (cont.wind_records[0..wc], 0..) |wr, i| {
         vm.wind_stack[i] = wr;
     }
-    vm.wind_count = cont.wind_count;
+    vm.wind_count = wc;
+
+    // Clear any pending exception from before the continuation was invoked
+    vm.current_exception = null;
 
     // Place the result value where call/cc was waiting for it
-    vm.registers[cont.dst_base + cont.dst_reg] = value;
+    const dst_idx = @as(usize, cont.dst_base) + @as(usize, cont.dst_reg);
+    if (dst_idx < MAX_REGISTERS) {
+        vm.registers[dst_idx] = value;
+    }
     vm.continuation_value = value;
 }

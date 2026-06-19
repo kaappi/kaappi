@@ -234,6 +234,7 @@ fn callWithCurrentContinuation(args: []const Value) PrimitiveError!Value {
 
     const caller = &vm.frames[vm.frame_count - 1];
     const call_ip = caller.ip;
+    if (call_ip < 2) return PrimitiveError.TypeError;
     // The call opcode is: [opcode:1][base_reg:1][nargs:1]
     // So caller.ip points past nargs, and base_reg is at caller.ip - 2
     const base_reg = caller.code[call_ip - 2];
@@ -277,6 +278,7 @@ fn callWithEscapeContinuation(args: []const Value) PrimitiveError!Value {
 
     const caller = &vm.frames[vm.frame_count - 1];
     const call_ip = caller.ip;
+    if (call_ip < 2) return PrimitiveError.TypeError;
     // The call opcode is [opcode:1][base_reg:1][nargs:1]; caller.ip points past
     // nargs, so base_reg is at caller.ip - 2.
     const base_reg = caller.code[call_ip - 2];
