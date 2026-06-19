@@ -107,23 +107,26 @@ Hot functions (called 100+ times) are compiled to native AArch64 machine code. E
 - `load_nil`, `load_true`, `load_false`, `load_void`, `load_const` — immediate/constant loads
 - `move`, `get_local`, `set_local` — register operations
 - `jump`, `jump_false`, `jump_true` — control flow
+- `get_upvalue`, `set_upvalue` — non-boxed upvalue access (boxed/mutable upvalues side-exit)
+- `get_global` — inline global cache check (version match + bounds + VOID check; cache miss side-exits)
+- `call_global` to `+`, `-`, `<`, `>`, `<=`, `>=`, `=` with 2 fixnum args — inline arithmetic with overflow check (non-fixnum or overflow side-exits)
 
 **What side-exits to the interpreter:**
-- `call`, `tail_call`, `self_tail_call`, `call_global`, `tail_call_global` — function dispatch
+- `call`, `tail_call`, `self_tail_call`, `tail_call_global` — function dispatch
+- `call_global` for non-arithmetic or non-binary calls
 - `return` — frame management
-- `get_global`, `set_global`, `define_global` — global lookups
+- `set_global`, `define_global` — global mutation (increments cache version)
 - `cons`, `box_local`, `get_box_local`, `set_box_local` — allocation/mutation
 
 **Not JIT-eligible** (function stays fully interpreted):
 - Functions using `closure`, `push_handler`/`pop_handler`, `close_upvalue`, `tail_apply`, or `halt`
 
-**Design:** The JIT keeps the VM's register file, GC, and continuation machinery unchanged. Callee-saved AArch64 registers hold pointers to the VM struct and register window base. GC safety is maintained because JIT'd code never allocates — all allocating opcodes side-exit. Continuations work because `call/cc` runs entirely in the interpreter.
+**Design:** The JIT keeps the VM's register file, GC, and continuation machinery unchanged. Callee-saved AArch64 registers hold pointers to the VM struct, register window base, and closure. GC safety is maintained because JIT'd code never allocates — all allocating opcodes side-exit. Continuations work because `call/cc` runs entirely in the interpreter.
 
 **Remaining work:**
 - x86_64 backend
-- Native templates for `get_upvalue`/`set_upvalue`
-- Inline caching for `get_global`/`call_global`
-- Type-specialized arithmetic (unboxed fixnum add/sub/compare)
+- Native `call`/`return` for simple cases
+- Inline caching for `call_global` (callee devirtualization beyond arithmetic)
 
 ---
 
