@@ -94,7 +94,7 @@ fn vectorRefFn(args: []const Value) PrimitiveError!Value {
     if (!types.isFixnum(args[1])) return PrimitiveError.TypeError;
     const vec = types.toVector(args[0]);
     const k = types.toFixnum(args[1]);
-    if (k < 0 or @as(usize, @intCast(k)) >= vec.data.len) return PrimitiveError.TypeError;
+    if (k < 0 or @as(usize, @intCast(k)) >= vec.data.len) return PrimitiveError.IndexOutOfBounds;
     return vec.data[@intCast(k)];
 }
 
@@ -107,7 +107,7 @@ fn vectorSetFn(args: []const Value) PrimitiveError!Value {
     if (!types.isFixnum(args[1])) return PrimitiveError.TypeError;
     const vec = types.toVector(args[0]);
     const k = types.toFixnum(args[1]);
-    if (k < 0 or @as(usize, @intCast(k)) >= vec.data.len) return PrimitiveError.TypeError;
+    if (k < 0 or @as(usize, @intCast(k)) >= vec.data.len) return PrimitiveError.IndexOutOfBounds;
     vec.data[@intCast(k)] = args[2];
     return types.VOID;
 }

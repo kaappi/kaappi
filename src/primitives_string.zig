@@ -174,8 +174,8 @@ fn stringRefFn(args: []const Value) PrimitiveError!Value {
     const data = try getStringSlice(args[0]);
     if (!types.isFixnum(args[1])) return PrimitiveError.TypeError;
     const k = types.toFixnum(args[1]);
-    if (k < 0) return PrimitiveError.TypeError;
-    const byte_off = utf8IndexToByteOffset(data, @intCast(k)) orelse return PrimitiveError.TypeError;
+    if (k < 0) return PrimitiveError.IndexOutOfBounds;
+    const byte_off = utf8IndexToByteOffset(data, @intCast(k)) orelse return PrimitiveError.IndexOutOfBounds;
     const cp = utf8DecodeAt(data, byte_off) orelse return PrimitiveError.TypeError;
     return types.makeChar(cp);
 }
@@ -193,9 +193,9 @@ fn stringSetFn(args: []const Value) PrimitiveError!Value {
     if (str.immutable) return PrimitiveError.TypeError;
     const data = str.data[0..str.len];
     const k = types.toFixnum(args[1]);
-    if (k < 0) return PrimitiveError.TypeError;
+    if (k < 0) return PrimitiveError.IndexOutOfBounds;
     const char_idx: usize = @intCast(k);
-    const byte_start = utf8IndexToByteOffset(data, char_idx) orelse return PrimitiveError.TypeError;
+    const byte_start = utf8IndexToByteOffset(data, char_idx) orelse return PrimitiveError.IndexOutOfBounds;
     const old_cp_len = utf8ByteLenAt(data, byte_start);
     if (byte_start + old_cp_len > data.len) return PrimitiveError.TypeError;
 
@@ -230,12 +230,12 @@ fn substringFn(args: []const Value) PrimitiveError!Value {
     if (!types.isFixnum(args[1]) or !types.isFixnum(args[2])) return PrimitiveError.TypeError;
     const start_i = types.toFixnum(args[1]);
     const end_i = types.toFixnum(args[2]);
-    if (start_i < 0 or end_i < 0) return PrimitiveError.TypeError;
+    if (start_i < 0 or end_i < 0) return PrimitiveError.IndexOutOfBounds;
     const start_cp: usize = @intCast(start_i);
     const end_cp: usize = @intCast(end_i);
-    if (start_cp > end_cp) return PrimitiveError.TypeError;
-    const byte_start = utf8IndexToByteOffset(data, start_cp) orelse return PrimitiveError.TypeError;
-    const byte_end = utf8IndexToByteOffset(data, end_cp) orelse return PrimitiveError.TypeError;
+    if (start_cp > end_cp) return PrimitiveError.IndexOutOfBounds;
+    const byte_start = utf8IndexToByteOffset(data, start_cp) orelse return PrimitiveError.IndexOutOfBounds;
+    const byte_end = utf8IndexToByteOffset(data, end_cp) orelse return PrimitiveError.IndexOutOfBounds;
     return gc.allocString(data[byte_start..byte_end]) catch return PrimitiveError.OutOfMemory;
 }
 

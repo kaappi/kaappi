@@ -22,6 +22,8 @@ pub const VMError = error{
     CompileError,
     ExceptionRaised,
     ContinuationInvoked,
+    IndexOutOfBounds,
+    InvalidArgument,
 };
 
 pub const MAX_FRAMES = 256;
@@ -390,6 +392,14 @@ pub const VM = struct {
                         break :blk VMError.TypeError;
                     },
                     error.DivisionByZero => VMError.DivisionByZero,
+                    error.IndexOutOfBounds => blk_iob: {
+                        self.setErrorDetail("index out of bounds in '{s}'", .{native.name});
+                        break :blk_iob VMError.IndexOutOfBounds;
+                    },
+                    error.InvalidArgument => blk_ia: {
+                        self.setErrorDetail("invalid argument in '{s}'", .{native.name});
+                        break :blk_ia VMError.InvalidArgument;
+                    },
                     error.OutOfMemory => VMError.OutOfMemory,
                     error.ExceptionRaised => VMError.ExceptionRaised,
                     error.ContinuationInvoked => VMError.ContinuationInvoked,
@@ -459,6 +469,14 @@ pub const VM = struct {
                 return switch (err) {
                     error.TypeError => VMError.TypeError,
                     error.DivisionByZero => VMError.DivisionByZero,
+                    error.IndexOutOfBounds => blk_iob: {
+                        self.setErrorDetail("index out of bounds in '{s}'", .{native.name});
+                        break :blk_iob VMError.IndexOutOfBounds;
+                    },
+                    error.InvalidArgument => blk_ia: {
+                        self.setErrorDetail("invalid argument in '{s}'", .{native.name});
+                        break :blk_ia VMError.InvalidArgument;
+                    },
                     error.OutOfMemory => VMError.OutOfMemory,
                     error.ExceptionRaised => VMError.ExceptionRaised,
                     error.ContinuationInvoked => VMError.ContinuationInvoked,
@@ -593,6 +611,14 @@ pub const VM = struct {
                         break :blk VMError.TypeError;
                     },
                     error.DivisionByZero => VMError.DivisionByZero,
+                    error.IndexOutOfBounds => blk_iob: {
+                        self.setErrorDetail("index out of bounds in '{s}'", .{native.name});
+                        break :blk_iob VMError.IndexOutOfBounds;
+                    },
+                    error.InvalidArgument => blk_ia: {
+                        self.setErrorDetail("invalid argument in '{s}'", .{native.name});
+                        break :blk_ia VMError.InvalidArgument;
+                    },
                     error.OutOfMemory => VMError.OutOfMemory,
                     error.ExceptionRaised => VMError.ExceptionRaised,
                     error.ContinuationInvoked => VMError.ContinuationInvoked,
@@ -1519,6 +1545,14 @@ pub const VM = struct {
                         break :blk VMError.TypeError;
                     },
                     error.DivisionByZero => VMError.DivisionByZero,
+                    error.IndexOutOfBounds => blk_iob: {
+                        self.setErrorDetail("index out of bounds in '{s}'", .{native.name});
+                        break :blk_iob VMError.IndexOutOfBounds;
+                    },
+                    error.InvalidArgument => blk_ia: {
+                        self.setErrorDetail("invalid argument in '{s}'", .{native.name});
+                        break :blk_ia VMError.InvalidArgument;
+                    },
                     error.OutOfMemory => VMError.OutOfMemory,
                     error.ExceptionRaised => VMError.ExceptionRaised,
                     error.ContinuationInvoked => VMError.ContinuationInvoked,

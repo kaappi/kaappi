@@ -39,7 +39,7 @@ pub fn registerList(vm: *vm_mod.VM) !void {
 fn listRefFn(args: []const Value) PrimitiveError!Value {
     if (!types.isFixnum(args[1])) return PrimitiveError.TypeError;
     const k = types.toFixnum(args[1]);
-    if (k < 0) return PrimitiveError.TypeError;
+    if (k < 0) return PrimitiveError.IndexOutOfBounds;
     var idx: i64 = 0;
     var current = args[0];
     while (current != types.NIL) {
@@ -48,13 +48,13 @@ fn listRefFn(args: []const Value) PrimitiveError!Value {
         idx += 1;
         current = types.cdr(current);
     }
-    return PrimitiveError.TypeError; // index out of bounds
+    return PrimitiveError.IndexOutOfBounds;
 }
 
 fn listTailFn(args: []const Value) PrimitiveError!Value {
     if (!types.isFixnum(args[1])) return PrimitiveError.TypeError;
     const k = types.toFixnum(args[1]);
-    if (k < 0) return PrimitiveError.TypeError;
+    if (k < 0) return PrimitiveError.IndexOutOfBounds;
     var idx: i64 = 0;
     var current = args[0];
     while (idx < k) {
@@ -68,7 +68,7 @@ fn listTailFn(args: []const Value) PrimitiveError!Value {
 fn listSetFn(args: []const Value) PrimitiveError!Value {
     if (!types.isFixnum(args[1])) return PrimitiveError.TypeError;
     const k = types.toFixnum(args[1]);
-    if (k < 0) return PrimitiveError.TypeError;
+    if (k < 0) return PrimitiveError.IndexOutOfBounds;
     var idx: i64 = 0;
     var current = args[0];
     while (current != types.NIL) {
@@ -80,7 +80,7 @@ fn listSetFn(args: []const Value) PrimitiveError!Value {
         idx += 1;
         current = types.cdr(current);
     }
-    return PrimitiveError.TypeError; // index out of bounds
+    return PrimitiveError.IndexOutOfBounds;
 }
 
 fn listCopyFn(args: []const Value) PrimitiveError!Value {

@@ -28,6 +28,8 @@ pub const PrimitiveError = error{
     OutOfMemory,
     ExceptionRaised,
     ContinuationInvoked,
+    IndexOutOfBounds,
+    InvalidArgument,
 };
 
 pub fn registerAll(vm: *vm_mod.VM) !void {
