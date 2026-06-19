@@ -32,14 +32,28 @@ Command-line arguments are passed through to `(command-line)`.
 
 ## Concurrency / threading
 
-**Status:** Not implemented
+**Status:** Green threads (cooperative scheduling) implemented
 
-Single-threaded only. No threading API, no async I/O, no thread-safe GC. Adding threading would require:
-- Thread-safe GC (stop-the-world with thread coordination, or concurrent marking)
-- Shared-nothing or synchronized access to mutable state
-- A threading API (SRFI-18 or similar)
+**Usage:**
+```scheme
+(import (kaappi fibers))
+(define f (spawn (lambda () (+ 1 2))))
+(display (fiber-join f))          ; => 3
 
-**Estimated scope:** Large
+(define ch (make-channel))
+(spawn (lambda () (channel-send ch 42)))
+(display (channel-receive ch))    ; => 42
+```
+
+**API:** `spawn`, `yield`, `fiber-join`, `fiber?`, `make-channel`, `channel-send`, `channel-receive`, `channel?`
+
+**Design:** Single OS thread, cooperative scheduling via explicit `(yield)`. Each fiber has its own registers, call stack, handlers, and wind stack. Shared globals, macros, libraries, and GC. Channels use an unbounded pair-based queue (send never blocks).
+
+**Remaining work:**
+- OS-level threading with true parallelism (requires thread-safe GC)
+- SRFI-18 compatibility layer
+- Async I/O integration
+- Fiber-local storage
 
 ---
 

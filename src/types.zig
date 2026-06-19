@@ -122,6 +122,8 @@ pub const ObjectTag = enum(u5) {
     directory_object = 27,
     random_source = 28,
     ffi_callback = 29,
+    fiber = 30,
+    channel = 31,
 };
 
 pub const Object = struct {
@@ -409,6 +411,12 @@ pub const FfiCallback = struct {
     active: bool,
 };
 
+pub const Channel = struct {
+    header: Object,
+    head: Value,
+    tail: Value,
+};
+
 // ---------------------------------------------------------------------------
 // Hash table (SRFI-69)
 // ---------------------------------------------------------------------------
@@ -607,6 +615,14 @@ pub fn isFfiFunction(v: Value) bool {
 
 pub fn isFfiCallback(v: Value) bool {
     return isPointer(v) and toObject(v).tag == .ffi_callback;
+}
+
+pub fn isFiber(v: Value) bool {
+    return isPointer(v) and toObject(v).tag == .fiber;
+}
+
+pub fn isChannel(v: Value) bool {
+    return isPointer(v) and toObject(v).tag == .channel;
 }
 
 pub fn isHashTable(v: Value) bool {

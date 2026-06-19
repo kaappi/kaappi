@@ -109,6 +109,7 @@ pub fn registerAll(vm: *vm_mod.VM) !void {
     try primitives_hashtable.registerHashTable(vm);
     try primitives_random.registerRandom(vm);
     try primitives_filesystem.registerFilesystem(vm);
+    try @import("primitives_fiber.zig").registerFiber(vm);
     try registerCore(vm);
 }
 

@@ -28,6 +28,8 @@ pub const primitives_random = @import("primitives_random.zig");
 pub const bytecode_file = @import("bytecode_file.zig");
 pub const ffi_callback = @import("ffi_callback.zig");
 pub const embedded_bytecode = @import("embedded_bytecode");
+pub const fiber_mod = @import("fiber.zig");
+pub const primitives_fiber = @import("primitives_fiber.zig");
 
 var repl_vm: ?*vm_mod.VM = null;
 
@@ -1095,4 +1097,6 @@ test {
     _ = primitives_random;
     _ = bytecode_file;
     _ = embedded_bytecode;
+    _ = fiber_mod;
+    _ = primitives_fiber;
 }

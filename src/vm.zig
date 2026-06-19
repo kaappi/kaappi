@@ -24,6 +24,7 @@ pub const VMError = error{
     ContinuationInvoked,
     IndexOutOfBounds,
     InvalidArgument,
+    Yielded,
 };
 
 pub const MAX_FRAMES = 256;
@@ -97,9 +98,14 @@ fn markVMRoots(gc: *memory.GC) void {
             while (eit.next()) |v| gc.markValue(v.*);
         }
     }
+
+    // Mark fiber scheduler state (suspended fibers' execution state)
+    if (vm.scheduler) |sched| {
+        sched.markRoots(gc);
+    }
 }
 
-const ExceptionHandler = struct {
+pub const ExceptionHandler = struct {
     handler: Value, // the handler procedure
     frame_count: usize, // saved call stack depth for unwinding
 };
@@ -180,6 +186,9 @@ pub const VM = struct {
     global_version: u32 = 0,
     profile_mode: bool = false,
     sandbox_mode: bool = false,
+    scheduler: ?*@import("fiber.zig").FiberScheduler = null,
+    current_fiber: ?*@import("fiber.zig").Fiber = null,
+    yielded: bool = false,
 
     pub fn init(gc: *memory.GC) !VM {
         var vm = VM{
@@ -703,8 +712,13 @@ pub const VM = struct {
     /// to unwind to on exit (ensures dynamic-wind after-thunks run
     /// even when the native function that pushed them is no longer on
     /// the Zig call stack after a continuation restore).
-    fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) VMError!Value {
+    pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) VMError!Value {
         while (self.frame_count > target_frame_count) {
+            if (self.yielded) {
+                self.yielded = false;
+                return VMError.Yielded;
+            }
+
             const frame = &self.frames[self.frame_count - 1];
             if (frame.ip >= frame.code.len) return VMError.InvalidBytecode;
 
@@ -1585,7 +1599,66 @@ pub const VM = struct {
     }
 
     pub fn run(self: *VM) VMError!Value {
+        if (self.scheduler) |sched| {
+            return self.runWithScheduler(sched);
+        }
         return self.runUntil(0, 0);
+    }
+
+    fn runWithScheduler(self: *VM, sched: *@import("fiber.zig").FiberScheduler) VMError!Value {
+        while (true) {
+            const result = self.runUntil(0, 0) catch |err| {
+                if (err == VMError.Yielded) {
+                    const current = sched.fibers[sched.current_idx] orelse return VMError.InvalidBytecode;
+                    sched.saveCurrentFiber();
+
+                    if (current.status == .running) current.status = .suspended;
+
+                    if (current.status == .completed or current.status == .errored) {
+                        sched.wakeWaiters(current);
+                    }
+
+                    if (sched.schedule()) |next_idx| {
+                        sched.switchTo(next_idx);
+                        continue;
+                    }
+                    if (sched.fibers[0]) |main_fiber| {
+                        if (main_fiber.status == .completed) return main_fiber.result;
+                        if (main_fiber.status == .waiting) {
+                            const target_val = main_fiber.waiting_on;
+                            if (types.isFiber(target_val)) {
+                                const target = types.toObject(target_val).as(@import("fiber.zig").Fiber);
+                                if (target.status == .completed) {
+                                    main_fiber.result = target.result;
+                                    main_fiber.status = .suspended;
+                                    sched.restoreFiber(0);
+                                    sched.current_idx = 0;
+                                    self.current_fiber = main_fiber;
+                                    main_fiber.status = .running;
+                                    continue;
+                                }
+                            }
+                        }
+                    }
+                    return types.VOID;
+                }
+                return err;
+            };
+
+            const current = sched.fibers[sched.current_idx] orelse return result;
+            current.status = .completed;
+            current.result = result;
+            sched.saveCurrentFiber();
+            sched.wakeWaiters(current);
+
+            if (sched.current_idx == 0) return result;
+
+            if (sched.schedule()) |next_idx| {
+                sched.switchTo(next_idx);
+                continue;
+            }
+            return result;
+        }
     }
 
     /// Restore a captured continuation (delegates to vm_continuations).

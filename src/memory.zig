@@ -44,7 +44,7 @@ pub const GcStats = struct {
     bytes_freed: usize = 0,
     peak_object_count: usize = 0,
     peak_bytes_allocated: usize = 0,
-    allocs_by_type: [30]usize = .{0} ** 30,
+    allocs_by_type: [32]usize = .{0} ** 32,
     no_collect_deferred: usize = 0,
 };
 
@@ -615,6 +615,46 @@ pub const GC = struct {
         return types.makePointer(@ptrCast(rs));
     }
 
+    pub fn allocFiber(self: *GC, thunk: Value, id: u32) !*@import("fiber.zig").Fiber {
+        const fiber_mod = @import("fiber.zig");
+        const fiber = try self.allocator.create(fiber_mod.Fiber);
+        fiber.* = .{
+            .header = .{ .tag = .fiber },
+            .registers = undefined,
+            .frames = undefined,
+            .frame_count = 0,
+            .handler_stack = undefined,
+            .handler_count = 0,
+            .wind_stack = undefined,
+            .wind_count = 0,
+            .current_exception = null,
+            .continuation_invoked = false,
+            .continuation_value = types.VOID,
+            .status = .created,
+            .thunk = thunk,
+            .result = types.VOID,
+            .waiting_on = types.VOID,
+            .id = id,
+        };
+        @memset(&fiber.registers, types.UNDEFINED);
+        self.bytes_allocated += @sizeOf(fiber_mod.Fiber);
+        self.trackObject(&fiber.header);
+        return fiber;
+    }
+
+    pub fn allocChannel(self: *GC) !Value {
+        self.maybeCollect();
+        const ch = try self.allocator.create(types.Channel);
+        ch.* = .{
+            .header = .{ .tag = .channel },
+            .head = types.NIL,
+            .tail = types.NIL,
+        };
+        self.bytes_allocated += @sizeOf(types.Channel);
+        self.trackObject(&ch.header);
+        return types.makePointer(@ptrCast(ch));
+    }
+
     pub fn allocHashTable(self: *GC, initial_capacity: usize) !Value {
         self.maybeCollect();
         const entries = try self.allocator.alloc(HashEntry, initial_capacity);
@@ -957,6 +997,16 @@ pub const GC = struct {
                 const cb = obj.as(FfiCallback);
                 self.markValue(cb.closure);
             },
+            .fiber => {
+                const fiber_mod = @import("fiber.zig");
+                const fiber = obj.as(fiber_mod.Fiber);
+                fiber_mod.markFiberState(self, fiber);
+            },
+            .channel => {
+                const ch = obj.as(types.Channel);
+                self.markValue(ch.head);
+                self.markValue(ch.tail);
+            },
             .symbol, .string, .native_fn, .flonum, .port, .complex, .bytevector, .bignum, .file_info, .user_info, .group_info, .directory_object, .random_source => {},
         }
     }
@@ -1031,6 +1081,8 @@ pub const GC = struct {
             .group_info => @sizeOf(types.GroupInfo),
             .directory_object => @sizeOf(types.DirectoryObject),
             .random_source => @sizeOf(RandomSource),
+            .fiber => @sizeOf(@import("fiber.zig").Fiber),
+            .channel => @sizeOf(types.Channel),
         };
     }
 
@@ -1215,6 +1267,12 @@ pub const GC = struct {
             },
             .random_source => {
                 self.allocator.destroy(obj.as(RandomSource));
+            },
+            .fiber => {
+                self.allocator.destroy(obj.as(@import("fiber.zig").Fiber));
+            },
+            .channel => {
+                self.allocator.destroy(obj.as(types.Channel));
             },
         }
     }

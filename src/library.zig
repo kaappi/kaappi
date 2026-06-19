@@ -389,6 +389,19 @@ pub fn registerStandardLibraries(registry: *LibraryRegistry, globals: *std.Strin
     }
     try registry.register(ffi_lib);
 
+    // (kaappi fibers) — green threads
+    const kaappi_fiber_names = [_][]const u8{
+        "spawn",    "yield",    "fiber-join", "fiber?",
+        "make-channel", "channel-send", "channel-receive", "channel?",
+    };
+    var fiber_lib = Library.init(allocator, "kaappi.fibers");
+    for (kaappi_fiber_names) |name| {
+        if (globals.get(name)) |val| {
+            try fiber_lib.addExport(name, val);
+        }
+    }
+    try registry.register(fiber_lib);
+
     // SRFI-1: List Library
     const srfi1_names = [_][]const u8{
         "fold",         "fold-right",    "reduce",       "reduce-right",

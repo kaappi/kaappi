@@ -604,6 +604,22 @@ pub fn printValue(writer: anytype, value: Value, mode: PrintMode) anyerror!void 
                     try writer.writeAll("#<ffi-callback released>");
                 }
             },
+            .fiber => {
+                const fiber_mod = @import("fiber.zig");
+                const fiber = obj.as(fiber_mod.Fiber);
+                const status_str: []const u8 = switch (fiber.status) {
+                    .created => "created",
+                    .running => "running",
+                    .suspended => "suspended",
+                    .completed => "completed",
+                    .errored => "errored",
+                    .waiting => "waiting",
+                };
+                try writer.print("#<fiber {d} {s}>", .{ fiber.id, status_str });
+            },
+            .channel => {
+                try writer.writeAll("#<channel>");
+            },
             .bignum => {
                 const bignum_mod = @import("bignum.zig");
                 const allocator = std.heap.page_allocator;
