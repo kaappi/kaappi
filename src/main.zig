@@ -106,6 +106,100 @@ fn printGcStats(gc: *@import("memory.zig").GC) void {
     if (col > 0) writeStderr("\n");
 }
 
+fn resetProfileCounters(gc: *memory.GC) void {
+    var obj = gc.objects;
+    while (obj) |o| {
+        if (o.tag == .function) {
+            const func = o.as(types.Function);
+            func.profile_instrs = 0;
+            func.profile_calls = 0;
+        } else if (o.tag == .native_fn) {
+            const native = o.as(types.NativeFn);
+            native.profile_calls = 0;
+        }
+        obj = o.next;
+    }
+}
+
+fn printProfileReport(gc: *memory.GC) void {
+    const Entry = struct {
+        name: []const u8,
+        source: ?[]const u8,
+        line: u32,
+        instrs: u64,
+        calls: u64,
+    };
+
+    var entries: [256]Entry = undefined;
+    var count: usize = 0;
+    var total_instrs: u64 = 0;
+    var total_calls: u64 = 0;
+
+    var obj = gc.objects;
+    while (obj) |o| {
+        if (o.tag == .function) {
+            const func = o.as(types.Function);
+            if (func.profile_instrs > 0 or func.profile_calls > 0) {
+                total_instrs += func.profile_instrs;
+                total_calls += func.profile_calls;
+                if (count < 256) {
+                    entries[count] = .{
+                        .name = func.name orelse "(lambda)",
+                        .source = func.source_name,
+                        .line = func.source_line,
+                        .instrs = func.profile_instrs,
+                        .calls = func.profile_calls,
+                    };
+                    count += 1;
+                }
+            }
+        } else if (o.tag == .native_fn) {
+            const native = o.as(types.NativeFn);
+            if (native.profile_calls > 0) {
+                total_calls += native.profile_calls;
+                if (count < 256) {
+                    entries[count] = .{
+                        .name = native.name,
+                        .source = null,
+                        .line = 0,
+                        .instrs = 0,
+                        .calls = native.profile_calls,
+                    };
+                    count += 1;
+                }
+            }
+        }
+        obj = o.next;
+    }
+
+    if (count == 0) return;
+
+    std.mem.sortUnstable(Entry, entries[0..count], {}, struct {
+        fn lessThan(_: void, a: Entry, b: Entry) bool {
+            if (a.instrs != b.instrs) return a.instrs > b.instrs;
+            return a.calls > b.calls;
+        }
+    }.lessThan);
+
+    var buf: [256]u8 = undefined;
+    const header = std.fmt.bufPrint(&buf, "\nProfile ({d} instructions, {d} calls):\n", .{ total_instrs, total_calls }) catch return;
+    writeStderr(header);
+    writeStderr("  Instructions    Calls  Function\n");
+
+    const limit = @min(count, 20);
+    for (entries[0..limit]) |e| {
+        var line: [256]u8 = undefined;
+        var loc_buf: [128]u8 = undefined;
+        const location: []const u8 = if (e.source) |src|
+            std.fmt.bufPrint(&loc_buf, " ({s}:{d})", .{ src, e.line }) catch ""
+        else
+            " (built-in)";
+
+        const s = std.fmt.bufPrint(&line, "  {d:>12} {d:>8}  {s}{s}\n", .{ e.instrs, e.calls, e.name, location }) catch continue;
+        writeStderr(s);
+    }
+}
+
 fn readLine(buf: []u8) ?[]const u8 {
     const fd: std.posix.fd_t = 0;
     var i: usize = 0;
@@ -162,9 +256,26 @@ pub fn main(init: std.process.Init.Minimal) !void {
     var vm = try vm_mod.VM.init(&gc);
     defer vm.deinit();
     vm_mod.setVMInstance(&vm);
-    try primitives.registerAll(&vm);
-    primitives.setGCInstance(&gc);
-    try library.registerStandardLibraries(&vm.libraries, &vm.globals);
+
+    // Pre-scan args for --sandbox (must happen before primitive registration)
+    const is_sandboxed = blk: {
+        var pre_args = init.args.iterate();
+        while (pre_args.next()) |arg| {
+            if (std.mem.eql(u8, arg, "--sandbox")) break :blk true;
+        }
+        break :blk false;
+    };
+
+    if (is_sandboxed) {
+        try primitives.registerSandboxed(&vm);
+        primitives.setGCInstance(&gc);
+        try library.registerSandboxedLibraries(&vm.libraries, &vm.globals);
+        vm.sandbox_mode = true;
+    } else {
+        try primitives.registerAll(&vm);
+        primitives.setGCInstance(&gc);
+        try library.registerStandardLibraries(&vm.libraries, &vm.globals);
+    }
 
     // Standalone mode: run embedded bytecode and exit
     if (embedded_bytecode.bytecode) |bytecode_data| {
@@ -233,6 +344,8 @@ pub fn main(init: std.process.Init.Minimal) !void {
     var compile_mode = false;
     var disassemble_mode = false;
     var gc_stats_mode = false;
+    var profile_mode = false;
+    var sandbox_mode = false;
 
     while (args.next()) |arg| {
         if (std.mem.eql(u8, arg, "--gc-stats")) {
@@ -244,6 +357,10 @@ pub fn main(init: std.process.Init.Minimal) !void {
                     lib_path_count += 1;
                 }
             }
+        } else if (std.mem.eql(u8, arg, "--profile")) {
+            profile_mode = true;
+        } else if (std.mem.eql(u8, arg, "--sandbox")) {
+            sandbox_mode = true;
         } else if (std.mem.eql(u8, arg, "--compile")) {
             compile_mode = true;
         } else if (std.mem.eql(u8, arg, "--disassemble")) {
@@ -274,6 +391,8 @@ pub fn main(init: std.process.Init.Minimal) !void {
     vm.lib_paths = lib_paths[0..lib_path_count];
 
     defer if (gc_stats_mode) printGcStats(&gc);
+    if (profile_mode) vm.profile_mode = true;
+    defer if (profile_mode) printProfileReport(&gc);
 
     if (disassemble_mode) {
         if (file_path) |fp| {
@@ -747,6 +866,16 @@ fn repl(vm: *vm_mod.VM) !void {
             input_buf.clearRetainingCapacity();
             continue;
         }
+        if (std.mem.startsWith(u8, debug_trimmed, ",profile ")) {
+            const profile_expr = debug_trimmed[9..];
+            resetProfileCounters(vm.gc);
+            vm.profile_mode = true;
+            evalInput(vm, allocator, profile_expr);
+            vm.profile_mode = false;
+            printProfileReport(vm.gc);
+            input_buf.clearRetainingCapacity();
+            continue;
+        }
         if (std.mem.eql(u8, debug_trimmed, ",gc")) {
             printGcStats(vm.gc);
             input_buf.clearRetainingCapacity();
@@ -756,6 +885,7 @@ fn repl(vm: *vm_mod.VM) !void {
             writeStdout(
                 \\Commands:
                 \\  ,time <expr>      Measure execution time
+                \\  ,profile <expr>   Profile instruction/call counts
                 \\  ,expand <expr>    Show macro expansion
                 \\  ,env [prefix]     List global bindings
                 \\  ,gc               Show GC statistics

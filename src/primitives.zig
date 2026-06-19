@@ -32,24 +32,7 @@ pub const PrimitiveError = error{
     InvalidArgument,
 };
 
-pub fn registerAll(vm: *vm_mod.VM) !void {
-    // Delegate to extracted modules
-    try primitives_arithmetic.registerArithmetic(vm);
-    try primitives_io.registerIO(vm);
-    try primitives_control.registerControl(vm);
-    try primitives_vector.registerVector(vm);
-    try primitives_string.registerString(vm);
-    try primitives_char.registerChar(vm);
-    try primitives_cxr.registerCxr(vm);
-    try primitives_bytevector.registerBytevector(vm);
-    try primitives_lazy.registerLazy(vm);
-    try primitives_r7rs.registerR7RS(vm);
-    try primitives_ffi.registerFfi(vm);
-    try primitives_srfi1.registerSrfi1(vm);
-    try primitives_hashtable.registerHashTable(vm);
-    try primitives_random.registerRandom(vm);
-    try primitives_filesystem.registerFilesystem(vm);
-
+fn registerCore(vm: *vm_mod.VM) !void {
     // Pairs and lists
     try reg(vm, "cons", &cons, .{ .exact = 2 });
     try reg(vm, "car", &car, .{ .exact = 1 });
@@ -108,7 +91,42 @@ pub fn registerAll(vm: *vm_mod.VM) !void {
 
     // Misc
     try reg(vm, "apply", &applyFn, .{ .variadic = 2 });
-    // features, string->symbol registered in primitives_list.zig
+}
+
+pub fn registerAll(vm: *vm_mod.VM) !void {
+    try primitives_arithmetic.registerArithmetic(vm);
+    try primitives_io.registerIO(vm);
+    try primitives_control.registerControl(vm);
+    try primitives_vector.registerVector(vm);
+    try primitives_string.registerString(vm);
+    try primitives_char.registerChar(vm);
+    try primitives_cxr.registerCxr(vm);
+    try primitives_bytevector.registerBytevector(vm);
+    try primitives_lazy.registerLazy(vm);
+    try primitives_r7rs.registerR7RS(vm);
+    try primitives_ffi.registerFfi(vm);
+    try primitives_srfi1.registerSrfi1(vm);
+    try primitives_hashtable.registerHashTable(vm);
+    try primitives_random.registerRandom(vm);
+    try primitives_filesystem.registerFilesystem(vm);
+    try registerCore(vm);
+}
+
+pub fn registerSandboxed(vm: *vm_mod.VM) !void {
+    try primitives_arithmetic.registerArithmetic(vm);
+    try primitives_io.registerIOSandboxed(vm);
+    try primitives_control.registerControl(vm);
+    try primitives_vector.registerVector(vm);
+    try primitives_string.registerString(vm);
+    try primitives_char.registerChar(vm);
+    try primitives_cxr.registerCxr(vm);
+    try primitives_bytevector.registerBytevector(vm);
+    try primitives_lazy.registerLazy(vm);
+    try primitives_r7rs.registerR7RSSandboxed(vm);
+    try primitives_srfi1.registerSrfi1(vm);
+    try primitives_hashtable.registerHashTable(vm);
+    try primitives_random.registerRandom(vm);
+    try registerCore(vm);
 }
 
 pub fn reg(vm: *vm_mod.VM, name: []const u8, func: types.NativeFnType, arity: NativeFn.Arity) !void {

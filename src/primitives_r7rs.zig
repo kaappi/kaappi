@@ -42,6 +42,14 @@ pub fn registerR7RS(vm: *vm_mod.VM) !void {
     try reg(vm, "disassemble", &disassembleFn, .{ .exact = 1 });
 }
 
+pub fn registerR7RSSandboxed(vm: *vm_mod.VM) !void {
+    try reg(vm, "current-second", &currentSecond, .{ .exact = 0 });
+    try reg(vm, "current-jiffy", &currentJiffy, .{ .exact = 0 });
+    try reg(vm, "jiffies-per-second", &jiffiesPerSecond, .{ .exact = 0 });
+    try reg(vm, "make-parameter", &makeParameterFn, .{ .variadic = 1 });
+    try reg(vm, "%parameter-set!", &parameterSetDirectFn, .{ .exact = 2 });
+}
+
 fn disassembleFn(args: []const Value) PrimitiveError!Value {
     if (!types.isClosure(args[0])) return PrimitiveError.TypeError;
     const closure = types.toObject(args[0]).as(types.Closure);

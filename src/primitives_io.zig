@@ -74,6 +74,48 @@ pub fn registerIO(vm: *vm_mod.VM) !void {
     try reg(vm, "write-bytevector", &writeBytevectorFn, .{ .variadic = 1 });
 }
 
+pub fn registerIOSandboxed(vm: *vm_mod.VM) !void {
+    try reg(vm, "display", &display, .{ .variadic = 1 });
+    try reg(vm, "write", &write, .{ .variadic = 1 });
+    try reg(vm, "newline", &newline, .{ .variadic = 0 });
+    try reg(vm, "current-input-port", &currentInputPort, .{ .exact = 0 });
+    try reg(vm, "current-output-port", &currentOutputPort, .{ .exact = 0 });
+    try reg(vm, "current-error-port", &currentErrorPort, .{ .exact = 0 });
+    try reg(vm, "port?", &portP, .{ .exact = 1 });
+    try reg(vm, "input-port?", &inputPortP, .{ .exact = 1 });
+    try reg(vm, "output-port?", &outputPortP, .{ .exact = 1 });
+    try reg(vm, "textual-port?", &textualPortP, .{ .exact = 1 });
+    try reg(vm, "binary-port?", &binaryPortP, .{ .exact = 1 });
+    try reg(vm, "input-port-open?", &inputPortOpenP, .{ .exact = 1 });
+    try reg(vm, "output-port-open?", &outputPortOpenP, .{ .exact = 1 });
+    try reg(vm, "close-port", &closePort, .{ .exact = 1 });
+    try reg(vm, "close-input-port", &closePort, .{ .exact = 1 });
+    try reg(vm, "close-output-port", &closePort, .{ .exact = 1 });
+    try reg(vm, "read-char", &readCharFn, .{ .variadic = 0 });
+    try reg(vm, "peek-char", &peekCharFn, .{ .variadic = 0 });
+    try reg(vm, "read-line", &readLineFn, .{ .variadic = 0 });
+    try reg(vm, "char-ready?", &charReadyP, .{ .variadic = 0 });
+    try reg(vm, "write-char", &writeCharFn, .{ .variadic = 1 });
+    try reg(vm, "write-string", &writeStringFn, .{ .variadic = 1 });
+    try reg(vm, "read", &readDatumFn, .{ .variadic = 0 });
+    try reg(vm, "eof-object?", &eofObjectP, .{ .exact = 1 });
+    try reg(vm, "eof-object", &eofObjectFn, .{ .exact = 0 });
+    try reg(vm, "open-input-string", &openInputString, .{ .exact = 1 });
+    try reg(vm, "open-output-string", &openOutputString, .{ .exact = 0 });
+    try reg(vm, "get-output-string", &getOutputString, .{ .exact = 1 });
+    try reg(vm, "read-string", &readStringFn, .{ .variadic = 1 });
+    try reg(vm, "flush-output-port", &flushOutputPort, .{ .variadic = 0 });
+    try reg(vm, "write-shared", &writeShared, .{ .variadic = 1 });
+    try reg(vm, "write-simple", &write, .{ .variadic = 1 });
+    try reg(vm, "call-with-port", &callWithPort, .{ .exact = 2 });
+    try reg(vm, "read-u8", &readU8Fn, .{ .variadic = 0 });
+    try reg(vm, "peek-u8", &peekU8Fn, .{ .variadic = 0 });
+    try reg(vm, "u8-ready?", &charReadyP, .{ .variadic = 0 });
+    try reg(vm, "write-u8", &writeU8Fn, .{ .variadic = 1 });
+    try reg(vm, "read-bytevector", &readBytevectorFn, .{ .variadic = 1 });
+    try reg(vm, "write-bytevector", &writeBytevectorFn, .{ .variadic = 1 });
+}
+
 // ---------------------------------------------------------------------------
 // Port helpers
 // ---------------------------------------------------------------------------

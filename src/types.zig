@@ -160,6 +160,8 @@ pub const NativeFn = struct {
     name: []const u8,
     arity: Arity,
 
+    profile_calls: u64 = 0,
+
     pub const Arity = union(enum) {
         exact: u8,
         variadic: u8, // minimum args
@@ -193,6 +195,8 @@ pub const Function = struct {
     global_cache: ?[]Value = null,
     cache_version: u32 = 0,
     env: ?*std.StringHashMap(Value) = null,
+    profile_instrs: u64 = 0,
+    profile_calls: u64 = 0,
 
     pub fn lineForOffset(self: *const Function, offset: usize) u32 {
         var best: u32 = self.source_line;

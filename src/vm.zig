@@ -178,6 +178,8 @@ pub const VM = struct {
     step_mode: StepMode = .none,
     step_frame: usize = 0,
     global_version: u32 = 0,
+    profile_mode: bool = false,
+    sandbox_mode: bool = false,
 
     pub fn init(gc: *memory.GC) !VM {
         var vm = VM{
@@ -741,6 +743,12 @@ pub const VM = struct {
             if (self.debug_mode) {
                 if (self.shouldDebugPause(frame)) {
                     self.debugPause(frame) catch {};
+                }
+            }
+
+            if (self.profile_mode) {
+                if (frame.closure) |cl| {
+                    cl.func.profile_instrs += 1;
                 }
             }
 
@@ -1687,6 +1695,10 @@ pub const VM = struct {
             };
             self.frame_count += 1;
 
+            if (self.profile_mode) {
+                closure.func.profile_calls += 1;
+            }
+
             // Breakpoint check: pause if entering a function with a matching name
             if (self.debug_mode and self.breakpoint_count > 0) {
                 if (func.name) |fname| {
@@ -1701,6 +1713,10 @@ pub const VM = struct {
     }
 
     fn callNative(self: *VM, native: *types.NativeFn, base: u16, nargs: u8) VMError!void {
+            if (self.profile_mode) {
+                native.profile_calls += 1;
+            }
+
             if (base + @as(u16, nargs) + 1 >= MAX_REGISTERS)
                 return VMError.StackOverflow;
 

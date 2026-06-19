@@ -311,6 +311,11 @@ fn extractExportsAndImports(vm: *VM, source: []const u8) !LibraryMeta {
 /// the .sld for export/import declarations. On cache miss, compiles normally
 /// and saves the .sbc file.
 fn tryLoadLibraryFromFile(vm: *VM, name_list: Value) !void {
+    if (vm.sandbox_mode) {
+        vm.setErrorDetail("sandbox: cannot load library from file", .{});
+        return error.UndefinedVariable;
+    }
+
     const allocator = vm.gc.allocator;
 
     var path_buf: [512]u8 = undefined;

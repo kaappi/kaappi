@@ -45,9 +45,20 @@ Single-threaded only. No threading API, no async I/O, no thread-safe GC. Adding 
 
 ## Profiler
 
-**Status:** Not implemented
+**Status:** Basic instruction-counting profiler implemented
 
-No built-in profiler for identifying hotspots. Would require bytecode-level instrumentation or sampling-based profiling of the `runUntil` loop.
+Tracks per-function bytecode instruction counts and call counts. In a bytecode interpreter, instruction count is a direct proxy for CPU time.
+
+**Usage:**
+- `kaappi --profile program.scm` — profile entire file execution
+- `,profile <expr>` — profile a single expression in the REPL
+
+Reports top 20 functions sorted by instruction count, showing both Scheme functions (with source location) and built-in procedures (by call count).
+
+**Remaining work:**
+- Wall-clock timing per function (requires tail-call accounting)
+- Exclusive vs inclusive time attribution
+- Allocation profiling (bytes allocated per function)
 
 ---
 
@@ -85,6 +96,13 @@ Each signature is a comptime trampoline generator sharing a 16-slot pool. Adding
 
 ## Sandbox mode
 
-**Status:** Not implemented
+**Status:** Implemented
 
-No mechanism to restrict filesystem access, FFI, or `eval` for untrusted code execution. Would require capability-based restrictions on the VM's primitive set.
+**Usage:** `kaappi --sandbox program.scm`
+
+Blocks: FFI, file I/O, filesystem operations, `eval`, `load`, `exit`, environment variables, process info, and `.sld` library file loading. Allows: pure computation, string ports, standard I/O (stdin/stdout/stderr), built-in libraries (`scheme base/write/read/char/inexact/lazy/time/cxr/complex/case-lambda`, built-in SRFIs 1/9/13/39/69/133).
+
+**Remaining work:**
+- Resource limits (max execution time, max memory)
+- Per-path filesystem allow-lists for controlled file access
+- Network restrictions (when networking is added)

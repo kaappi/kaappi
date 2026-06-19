@@ -548,6 +548,341 @@ pub fn registerStandardLibraries(registry: *LibraryRegistry, globals: *std.Strin
     try registry.register(srfi170_lib);
 }
 
+const sandbox_blocked_names = [_][]const u8{
+    "open-binary-input-file",
+    "open-binary-output-file",
+    "file-exists?",
+    "delete-file",
+    "open-input-file",
+    "open-output-file",
+    "call-with-input-file",
+    "call-with-output-file",
+    "with-input-from-file",
+    "with-output-to-file",
+};
+
+fn isSandboxBlocked(name: []const u8) bool {
+    for (&sandbox_blocked_names) |blocked| {
+        if (std.mem.eql(u8, name, blocked)) return true;
+    }
+    return false;
+}
+
+pub fn registerSandboxedLibraries(registry: *LibraryRegistry, globals: *std.StringHashMap(Value)) !void {
+    const allocator = registry.allocator;
+
+    // (scheme base) — filter out file I/O procedures
+    const scheme_base_names = [_][]const u8{
+        "+",       "-",         "*",         "/",
+        "quotient", "remainder", "modulo",
+        "=",       "<",         ">",         "<=",        ">=",
+        "zero?",   "positive?", "negative?", "abs",
+        "min",     "max",       "even?",     "odd?",
+        "gcd",     "lcm",
+        "floor",   "ceiling",   "truncate",  "round",
+        "exact?",  "inexact?",  "exact-integer?", "exact", "inexact",
+        "expt",    "square",    "sqrt",
+        "cons",    "car",       "cdr",       "set-car!",  "set-cdr!",
+        "list",    "length",    "append",    "reverse",
+        "caar",    "cadr",      "cdar",      "cddr",
+        "list-ref", "list-tail", "list-set!", "list-copy", "make-list",
+        "member",  "memq",      "memv",
+        "assoc",   "assq",      "assv",
+        "map",     "for-each",
+        "pair?",   "null?",     "number?",   "integer?",  "real?",
+        "complex?", "rational?", "symbol?",  "string?",   "boolean?",
+        "char?",   "procedure?", "list?",
+        "eq?",     "eqv?",      "equal?",
+        "not",     "boolean=?", "symbol=?",
+        "number->string", "string->number", "string-length",
+        "string-append",  "symbol->string", "string->symbol",
+        "string",  "make-string", "string-ref", "string-set!",
+        "substring", "string-copy", "string-copy!", "string-fill!",
+        "string->list", "list->string",
+        "string-for-each", "string-map",
+        "string<?", "string<=?", "string=?", "string>=?", "string>?",
+        "char->integer", "integer->char",
+        "char<?", "char<=?", "char=?", "char>=?", "char>?",
+        "display", "write",     "newline",
+        "apply",   "error",
+        "raise",   "raise-continuable",  "with-exception-handler",
+        "error-object?",   "error-object-message",  "error-object-irritants",
+        "file-error?",     "read-error?",
+        "%make-record-type", "%make-record", "%record?", "%record-ref", "%record-set!",
+        "current-input-port", "current-output-port", "current-error-port",
+        "port?", "input-port?", "output-port?", "textual-port?", "binary-port?",
+        "input-port-open?", "output-port-open?",
+        "close-port", "close-input-port", "close-output-port",
+        "read-char", "peek-char", "read-line", "char-ready?",
+        "write-char", "write-string",
+        "eof-object?", "eof-object",
+        "call-with-current-continuation", "call/cc",
+        "call-with-escape-continuation", "call/ec",
+        "dynamic-wind",
+        "values", "call-with-values",
+        "make-rectangular", "make-polar", "real-part", "imag-part",
+        "magnitude", "angle",
+        "vector", "make-vector", "vector?", "vector-length",
+        "vector-ref", "vector-set!", "vector->list", "list->vector",
+        "vector-fill!", "vector-copy", "vector-copy!", "vector-append",
+        "vector-for-each", "vector-map", "vector->string",
+        "bytevector?", "make-bytevector", "bytevector", "bytevector-length",
+        "bytevector-u8-ref", "bytevector-u8-set!",
+        "bytevector-copy", "bytevector-copy!", "bytevector-append",
+        "utf8->string", "string->utf8",
+        "open-input-string", "open-output-string", "get-output-string",
+        "read-string", "flush-output-port",
+        "floor-quotient", "floor-remainder", "floor/",
+        "truncate-quotient", "truncate-remainder", "truncate/",
+        "numerator", "denominator", "rationalize",
+        "exact->inexact", "inexact->exact",
+        "features", "string->symbol",
+        "make-promise", "promise?",
+        "make-parameter",
+        "call-with-port",
+        "read-u8", "peek-u8", "u8-ready?", "write-u8",
+        "read-bytevector", "write-bytevector",
+        "open-input-bytevector", "open-output-bytevector",
+        "get-output-bytevector", "read-bytevector!",
+        "string->vector",
+    };
+
+    var base = Library.init(allocator, "scheme.base");
+    for (scheme_base_names) |name| {
+        if (!isSandboxBlocked(name)) {
+            if (globals.get(name)) |val| {
+                try base.addExport(name, val);
+            }
+        }
+    }
+    try registry.register(base);
+
+    // (scheme write)
+    const scheme_write_names = [_][]const u8{
+        "display", "write", "write-shared", "write-simple",
+    };
+    var write_lib = Library.init(allocator, "scheme.write");
+    for (scheme_write_names) |name| {
+        if (globals.get(name)) |val| {
+            try write_lib.addExport(name, val);
+        }
+    }
+    try registry.register(write_lib);
+
+    // (scheme read)
+    const scheme_read_names = [_][]const u8{"read"};
+    var read_lib = Library.init(allocator, "scheme.read");
+    for (scheme_read_names) |name| {
+        if (globals.get(name)) |val| {
+            try read_lib.addExport(name, val);
+        }
+    }
+    try registry.register(read_lib);
+
+    // (scheme char)
+    const scheme_char_names = [_][]const u8{
+        "char-alphabetic?", "char-numeric?", "char-whitespace?",
+        "char-upper-case?", "char-lower-case?",
+        "char-upcase", "char-downcase", "char-foldcase",
+        "digit-value",
+        "char-ci<?", "char-ci<=?", "char-ci=?", "char-ci>=?", "char-ci>?",
+        "string-ci<?", "string-ci<=?", "string-ci=?", "string-ci>=?", "string-ci>?",
+        "string-upcase", "string-downcase", "string-foldcase",
+    };
+    var char_lib = Library.init(allocator, "scheme.char");
+    for (scheme_char_names) |name| {
+        if (globals.get(name)) |val| {
+            try char_lib.addExport(name, val);
+        }
+    }
+    try registry.register(char_lib);
+
+    // (scheme inexact)
+    const scheme_inexact_names = [_][]const u8{
+        "sin", "cos", "tan", "asin", "acos", "atan",
+        "exp", "log", "sqrt",
+        "finite?", "infinite?", "nan?",
+    };
+    var inexact_lib = Library.init(allocator, "scheme.inexact");
+    for (scheme_inexact_names) |name| {
+        if (globals.get(name)) |val| {
+            try inexact_lib.addExport(name, val);
+        }
+    }
+    try registry.register(inexact_lib);
+
+    // (scheme lazy)
+    const scheme_lazy_names = [_][]const u8{
+        "delay", "delay-force", "force", "make-promise", "promise?",
+    };
+    var lazy_lib = Library.init(allocator, "scheme.lazy");
+    for (scheme_lazy_names) |name| {
+        if (globals.get(name)) |val| {
+            try lazy_lib.addExport(name, val);
+        }
+    }
+    try registry.register(lazy_lib);
+
+    // (scheme time)
+    const scheme_time_names = [_][]const u8{
+        "current-second", "current-jiffy", "jiffies-per-second",
+    };
+    var time_lib = Library.init(allocator, "scheme.time");
+    for (scheme_time_names) |name| {
+        if (globals.get(name)) |val| {
+            try time_lib.addExport(name, val);
+        }
+    }
+    try registry.register(time_lib);
+
+    // (scheme cxr)
+    const scheme_cxr_names = [_][]const u8{
+        "caar", "cadr", "cdar", "cddr",
+        "caaar", "caadr", "cadar", "caddr",
+        "cdaar", "cdadr", "cddar", "cdddr",
+        "caaaar", "caaadr", "caadar", "caaddr",
+        "cadaar", "cadadr", "caddar", "cadddr",
+        "cdaaar", "cdaadr", "cdadar", "cdaddr",
+        "cddaar", "cddadr", "cdddar", "cddddr",
+    };
+    var cxr_lib = Library.init(allocator, "scheme.cxr");
+    for (scheme_cxr_names) |name| {
+        if (globals.get(name)) |val| {
+            try cxr_lib.addExport(name, val);
+        }
+    }
+    try registry.register(cxr_lib);
+
+    // (scheme complex)
+    const scheme_complex_names = [_][]const u8{
+        "make-rectangular", "make-polar",
+        "real-part",        "imag-part",
+        "magnitude",        "angle",
+    };
+    var complex_lib = Library.init(allocator, "scheme.complex");
+    for (scheme_complex_names) |name| {
+        if (globals.get(name)) |val| {
+            try complex_lib.addExport(name, val);
+        }
+    }
+    try registry.register(complex_lib);
+
+    // (scheme case-lambda)
+    const case_lambda_lib = Library.init(allocator, "scheme.case-lambda");
+    try registry.register(case_lambda_lib);
+
+    // SKIP: scheme.file, scheme.load, scheme.eval, scheme.process-context, kaappi.ffi, srfi.170
+
+    // Safe built-in SRFIs
+    // SRFI-1
+    const srfi1_names = [_][]const u8{
+        "fold",         "fold-right",    "reduce",       "reduce-right",
+        "filter",       "remove",        "partition",
+        "find",         "find-tail",     "any",          "every",     "count",
+        "iota",         "zip",           "concatenate",
+        "take",         "drop",          "take-while",   "drop-while",
+        "filter-map",   "append-map",
+        "last",         "last-pair",
+        "proper-list?", "dotted-list?",  "circular-list?",
+        "lset-intersection", "lset-difference", "lset=",
+        "lset-adjoin",  "lset-union",    "lset-xor",
+        "xcons",        "cons*",         "list-tabulate", "circular-list",
+        "not-pair?",    "null-list?",    "list=",
+        "first",        "second",        "third",        "fourth",    "fifth",
+        "car+cdr",      "take-right",    "drop-right",   "split-at",
+        "list-index",   "span",          "break",
+        "delete",       "delete-duplicates",
+        "alist-cons",   "alist-copy",    "alist-delete",
+        "unfold",       "unfold-right",
+        "append-reverse", "length+",     "unzip1",       "unzip2",
+        "pair-for-each", "pair-fold",
+    };
+    var srfi1_lib = Library.init(allocator, "srfi.1");
+    for (srfi1_names) |name| {
+        if (globals.get(name)) |val| {
+            try srfi1_lib.addExport(name, val);
+        }
+    }
+    try registry.register(srfi1_lib);
+
+    // SRFI-9
+    const srfi9_lib = Library.init(allocator, "srfi.9");
+    try registry.register(srfi9_lib);
+
+    // SRFI-13
+    const srfi13_names = [_][]const u8{
+        "string-contains",    "string-prefix?",   "string-suffix?",
+        "string-trim",        "string-trim-right", "string-trim-both",
+        "string-index",       "string-count",
+        "string-split",       "string-join",       "string-concatenate",
+        "string-length",      "string-append",     "substring",
+        "string-copy",        "string-ref",        "string-set!",
+        "string<?",           "string<=?",         "string=?",
+        "string>=?",          "string>?",
+        "string-upcase",      "string-downcase",   "string-foldcase",
+        "string-take",        "string-drop",       "string-take-right", "string-drop-right",
+        "string-pad",         "string-pad-right",  "string-reverse",
+        "string-filter",      "string-delete",     "string-replace",
+        "string-titlecase",   "string-every",      "string-any",
+        "string-tabulate",
+    };
+    var srfi13_lib = Library.init(allocator, "srfi.13");
+    for (srfi13_names) |name| {
+        if (globals.get(name)) |val| {
+            try srfi13_lib.addExport(name, val);
+        }
+    }
+    try registry.register(srfi13_lib);
+
+    // SRFI-39
+    var srfi39_lib = Library.init(allocator, "srfi.39");
+    if (globals.get("make-parameter")) |v| try srfi39_lib.addExport("make-parameter", v);
+    try registry.register(srfi39_lib);
+
+    // SRFI-69
+    const srfi69_names = [_][]const u8{
+        "make-hash-table",             "hash-table?",
+        "hash-table-ref",              "hash-table-set!",
+        "hash-table-delete!",          "hash-table-exists?",
+        "hash-table-size",             "hash-table-keys",
+        "hash-table-values",           "hash-table-walk",
+        "hash-table->alist",           "alist->hash-table",
+        "hash-table-copy",             "hash-table-update!/default",
+        "hash",                        "string-hash",
+        "string-ci-hash",             "hash-by-identity",
+        "hash-table-ref/default",      "hash-table-fold",
+        "hash-table-merge!",
+    };
+    var srfi69_lib = Library.init(allocator, "srfi.69");
+    for (srfi69_names) |name| {
+        if (globals.get(name)) |val| {
+            try srfi69_lib.addExport(name, val);
+        }
+    }
+    try registry.register(srfi69_lib);
+
+    // SRFI-133
+    const srfi133_names = [_][]const u8{
+        "vector",       "make-vector",   "vector?",      "vector-length",
+        "vector-ref",   "vector-set!",   "vector->list",  "list->vector",
+        "vector-fill!", "vector-copy",   "vector-copy!",  "vector-append",
+        "vector-for-each", "vector-map",
+        "vector-empty?",    "vector-count",     "vector-any",
+        "vector-every",     "vector-index",     "vector-index-right",
+        "vector-skip",      "vector-skip-right",
+        "vector-swap!",     "vector-reverse!",  "vector-reverse-copy",
+        "vector-unfold",    "vector-concatenate",
+        "vector-cumulate",  "vector-partition",
+    };
+    var srfi133_lib = Library.init(allocator, "srfi.133");
+    for (srfi133_names) |name| {
+        if (globals.get(name)) |val| {
+            try srfi133_lib.addExport(name, val);
+        }
+    }
+    try registry.register(srfi133_lib);
+}
+
 /// Convert a library name from an S-expression list like (scheme base) to
 /// a canonical dot-separated string like "scheme.base".
 ///
