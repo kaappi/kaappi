@@ -13,6 +13,14 @@ pub fn build(b: *std.Build) void {
         "Prioritize performance, safety, or binary size (default: ReleaseSafe)",
     ) orelse .ReleaseSafe;
 
+    // Standalone binary: embed compiled bytecode via -Dbundle=path/to/program.sbc
+    const bundle = b.option([]const u8, "bundle",
+        "Path to .sbc bytecode file to embed for standalone binary");
+
+    const wf = b.addWriteFiles();
+    const null_embed = wf.add("embedded_bytecode.zig",
+        "pub const bytecode: ?[]const u8 = null;\n");
+
     // Main module
     const main_mod = b.createModule(.{
         .root_source_file = b.path("src/main.zig"),
@@ -25,6 +33,27 @@ pub fn build(b: *std.Build) void {
         .flags = &.{"-std=c99"},
     });
     main_mod.addIncludePath(b.path("vendor/linenoise"));
+
+    if (bundle) |bp| {
+        const bundle_path: std.Build.LazyPath = if (bp.len > 0 and bp[0] == '/')
+            .{ .cwd_relative = bp }
+        else
+            b.path(bp);
+        _ = wf.addCopyFile(bundle_path, "bundled.sbc");
+        const bundle_embed = wf.add("embedded_bytecode_bundle.zig",
+            "pub const bytecode: ?[]const u8 = @embedFile(\"bundled.sbc\");\n");
+        main_mod.addAnonymousImport("embedded_bytecode", .{
+            .root_source_file = bundle_embed,
+            .target = target,
+            .optimize = optimize,
+        });
+    } else {
+        main_mod.addAnonymousImport("embedded_bytecode", .{
+            .root_source_file = null_embed,
+            .target = target,
+            .optimize = optimize,
+        });
+    }
 
     // Main executable
     const exe = b.addExecutable(.{
@@ -62,6 +91,12 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    test_mod.addAnonymousImport("embedded_bytecode", .{
+        .root_source_file = null_embed,
+        .target = target,
+        .optimize = optimize,
+    });
+
     const unit_tests = b.addTest(.{
         .name = "unit-tests",
         .root_module = test_mod,

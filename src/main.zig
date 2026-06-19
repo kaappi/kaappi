@@ -27,6 +27,7 @@ pub const primitives_hashtable = @import("primitives_hashtable.zig");
 pub const primitives_random = @import("primitives_random.zig");
 pub const bytecode_file = @import("bytecode_file.zig");
 pub const ffi_callback = @import("ffi_callback.zig");
+pub const embedded_bytecode = @import("embedded_bytecode");
 
 var repl_vm: ?*vm_mod.VM = null;
 
@@ -164,6 +165,64 @@ pub fn main(init: std.process.Init.Minimal) !void {
     try primitives.registerAll(&vm);
     primitives.setGCInstance(&gc);
     try library.registerStandardLibraries(&vm.libraries, &vm.globals);
+
+    // Standalone mode: run embedded bytecode and exit
+    if (embedded_bytecode.bytecode) |bytecode_data| {
+        var sa: [64][]const u8 = undefined;
+        var sa_count: usize = 0;
+        var sa_iter = init.args.iterate();
+        _ = sa_iter.skip();
+        while (sa_iter.next()) |arg| {
+            if (sa_count < 64) {
+                sa[sa_count] = arg;
+                sa_count += 1;
+            }
+        }
+        vm.command_line_args = sa[0..sa_count];
+
+        const loaded = bytecode_file.readFromBuffer(&gc, bytecode_data) catch {
+            writeStderr("fatal: corrupted embedded bytecode\n");
+            return;
+        } orelse {
+            writeStderr("fatal: invalid embedded bytecode (wrong version or format)\n");
+            return;
+        };
+        defer allocator.free(loaded.funcs);
+
+        const top_count = @min(loaded.top_level_count, @as(u32, @intCast(loaded.funcs.len)));
+        for (loaded.funcs[0..top_count]) |func| {
+            var func_val = types.makePointer(@ptrCast(func));
+            vm.gc.pushRoot(&func_val) catch return error.OutOfMemory;
+            const result = vm.execute(func) catch |err| {
+                vm.gc.popRoot();
+                const detail = vm.getErrorDetail();
+                if (detail.len > 0) {
+                    writeStderr(detail);
+                    writeStderr("\n");
+                } else {
+                    var errbuf: [256]u8 = undefined;
+                    const s = std.fmt.bufPrint(&errbuf, "runtime error: {}\n", .{err}) catch "runtime error\n";
+                    writeStderr(s);
+                }
+                vm.last_error_detail_len = 0;
+                continue;
+            };
+            vm.gc.popRoot();
+
+            var display_result = result;
+            if (types.isMultipleValues(display_result)) {
+                const mv = types.toObject(display_result).as(types.MultipleValues);
+                display_result = if (mv.values.len > 0) mv.values[0] else types.VOID;
+            }
+            if (display_result != types.VOID) {
+                const s = printer.valueToString(allocator, display_result, .write) catch continue;
+                defer allocator.free(s);
+                writeStdout(s);
+                writeStdout("\n");
+            }
+        }
+        return;
+    }
 
     var args = init.args.iterate();
     _ = args.skip(); // skip program name
@@ -905,4 +964,5 @@ test {
     _ = primitives_hashtable;
     _ = primitives_random;
     _ = bytecode_file;
+    _ = embedded_bytecode;
 }

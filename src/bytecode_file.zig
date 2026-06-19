@@ -615,48 +615,40 @@ pub fn writeFileWithTopLevel(allocator: std.mem.Allocator, top_level_funcs: []*F
     }
 }
 
-pub fn readFileWithTopLevel(gc: *GC, source_hash: u64, path: []const u8) !?struct { funcs: []*Function, top_level_count: u32 } {
+const DeserializeResult = struct { funcs: []*Function, top_level_count: u32 };
+
+fn deserializeFromBuffer(gc: *GC, data: []const u8, expected_hash: ?u64) !?DeserializeResult {
     const allocator = gc.allocator;
 
-    // Read file contents
-    const data = readFileContents(allocator, path) catch return null;
-    defer allocator.free(data);
-
-    if (data.len < 22) return null; // minimum header size with top_level_count
+    if (data.len < 22) return null;
 
     var r = Reader{ .data = data, .pos = 0 };
 
-    // Verify magic
     const magic = r.readBytes(4) catch return null;
     if (!std.mem.eql(u8, magic, &MAGIC)) return null;
 
-    // Verify version
     const version = r.readU16() catch return null;
     if (version != VERSION) return null;
 
-    // Verify source hash
     const file_hash = r.readU64() catch return null;
-    if (file_hash != source_hash) return null;
+    if (expected_hash) |eh| {
+        if (file_hash != eh) return null;
+    }
 
-    // Read function count
     const func_count = r.readU32() catch return null;
     if (func_count == 0 or func_count > MAX_FUNCTIONS) return null;
 
-    // Read top-level count
     const top_level_count = r.readU32() catch return null;
     if (top_level_count > func_count or top_level_count > MAX_TOP_LEVEL_FUNCTIONS) return null;
 
-    // Allocate all function objects first (so constants can reference by index)
     const all_funcs = allocator.alloc(*Function, func_count) catch return BytecodeError.OutOfMemory;
     defer allocator.free(all_funcs);
 
     for (0..func_count) |i| {
         all_funcs[i] = gc.allocFunction() catch return BytecodeError.OutOfMemory;
-        // Root to protect from GC
         gc.extra_roots.append(allocator, types.makePointer(@ptrCast(all_funcs[i]))) catch return BytecodeError.OutOfMemory;
     }
 
-    // Now read each function's data
     for (0..func_count) |i| {
         const func = all_funcs[i];
 
@@ -667,7 +659,6 @@ pub fn readFileWithTopLevel(gc: *GC, source_hash: u64, path: []const u8) !?struc
         const variadic_byte = r.readU8() catch return null;
         func.is_variadic = variadic_byte != 0;
 
-        // Name
         const name_len = r.readU16() catch return null;
         if (name_len > MAX_SYMBOL_BYTES) return null;
         if (name_len > 0) {
@@ -676,13 +667,11 @@ pub fn readFileWithTopLevel(gc: *GC, source_hash: u64, path: []const u8) !?struc
             func.owns_name = true;
         }
 
-        // Code
         const code_len = r.readU32() catch return null;
         if (code_len > MAX_CODE_BYTES) return null;
         const code_bytes = r.readBytes(code_len) catch return null;
         func.code.appendSlice(allocator, code_bytes) catch return BytecodeError.OutOfMemory;
 
-        // Constants
         const const_count = r.readU32() catch return null;
         if (const_count > MAX_CONSTANTS_PER_FUNCTION) return null;
         for (0..const_count) |_| {
@@ -700,6 +689,17 @@ pub fn readFileWithTopLevel(gc: *GC, source_hash: u64, path: []const u8) !?struc
     const result = allocator.alloc(*Function, func_count) catch return BytecodeError.OutOfMemory;
     @memcpy(result, all_funcs);
     return .{ .funcs = result, .top_level_count = top_level_count };
+}
+
+pub fn readFromBuffer(gc: *GC, data: []const u8) !?DeserializeResult {
+    return deserializeFromBuffer(gc, data, null);
+}
+
+pub fn readFileWithTopLevel(gc: *GC, source_hash: u64, path: []const u8) !?DeserializeResult {
+    const allocator = gc.allocator;
+    const data = readFileContents(allocator, path) catch return null;
+    defer allocator.free(data);
+    return deserializeFromBuffer(gc, data, source_hash);
 }
 
 // ---------------------------------------------------------------------------

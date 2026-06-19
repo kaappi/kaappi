@@ -6,25 +6,27 @@ Features that are feasible but require dedicated design and implementation effor
 
 ## Standalone binary compilation
 
-**Status:** Not yet implemented
+**Status:** Basic support implemented
 
 **What:** Bundle compiled bytecode (.sbc) into the Kaappi interpreter binary to produce a single standalone executable that runs a Scheme program without external files.
 
-**Why it matters:** Currently, distributing a Kaappi program requires shipping the `kaappi` binary plus `.scm` or `.sbc` source files plus any library `.sld` files. A standalone binary would simplify deployment.
-
-**Approach:** Use Zig's `@embedFile` to include a `.sbc` file at build time.
-
+**Usage:**
 1. Compile the program: `kaappi --compile program.scm`
 2. Rebuild with the bytecode embedded: `zig build -Dbundle=program.sbc`
-3. The resulting binary detects embedded bytecode and runs it on startup
+3. The resulting binary runs the embedded program on startup: `./zig-out/bin/kaappi`
 
-**Challenges:**
-- Library dependencies: if the program uses `(import (srfi N))`, the `.sld` files must also be embedded or pre-compiled into the bytecode
-- Two-step build process requires build system coordination
-- The `.sbc` format would need versioning to detect stale embedded bytecode
-- `include` and `load` paths need resolution relative to the embedded context
+Command-line arguments are passed through to `(command-line)`.
 
-**Estimated scope:** Medium (build.zig changes + main.zig entry point mode + bytecode_file.zig memory reader)
+**Current limitations:**
+- Only programs using built-in libraries (scheme base, scheme write, etc.) — programs importing non-built-in SRFIs that need `.sld` files from disk will fail at runtime
+- `include` and `load` cannot resolve paths in embedded context
+- Two-step build process (compile `.sbc` separately, then rebuild with `-Dbundle`)
+- Standalone mode skips `--gc-stats` and other debug flags
+
+**Remaining work:**
+- Library bundling: resolve and compile all imports into a single `.sbc`
+- Single-step build: `zig build -Dbundle-src=program.scm` to compile and embed in one step
+- `include`/`load` path resolution relative to embedded context
 
 ---
 
