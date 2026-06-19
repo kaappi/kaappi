@@ -1950,7 +1950,7 @@ pub const VM = struct {
                 }
                 if (func.jit_code) |jit_code| {
                     const entry: jit.JitEntryFn = @ptrCast(@alignCast(jit_code.entry));
-                    const result = entry(self, new_base, func.constants.items.ptr);
+                    const result = entry(self, new_base, func.constants.items.ptr, closure);
                     if (result > 0) {
                         self.frames[self.frame_count - 1].ip = result - 1;
                     }

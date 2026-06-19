@@ -308,6 +308,149 @@ pub const Assembler = struct {
     pub fn nop() u32 {
         return 0xD503201F;
     }
+
+    // TBZ Xt, #bit, <offset> (test bit and branch if zero, offset in instructions)
+    pub fn tbz(rt: Reg, bit: u6, offset: i14) u32 {
+        const b5: u1 = @truncate(bit >> 5);
+        const b40: u5 = @truncate(bit);
+        const imm14: u14 = @bitCast(offset);
+        return (@as(u32, b5) << 31) |
+            (0b0110110 << 24) |
+            (@as(u32, b40) << 19) |
+            (@as(u32, imm14) << 5) |
+            @intFromEnum(rt);
+    }
+
+    // TBNZ Xt, #bit, <offset> (test bit and branch if non-zero)
+    pub fn tbnz(rt: Reg, bit: u6, offset: i14) u32 {
+        const b5: u1 = @truncate(bit >> 5);
+        const b40: u5 = @truncate(bit);
+        const imm14: u14 = @bitCast(offset);
+        return (@as(u32, b5) << 31) |
+            (0b0110111 << 24) |
+            (@as(u32, b40) << 19) |
+            (@as(u32, imm14) << 5) |
+            @intFromEnum(rt);
+    }
+
+    // ADDS Xd, Xn, Xm (add setting flags)
+    pub fn addsReg(rd: Reg, rn: Reg, rm: Reg) u32 {
+        return @as(u32, 0xAB000000) |
+            (@as(u32, @intFromEnum(rm)) << 16) |
+            (@as(u32, @intFromEnum(rn)) << 5) |
+            @intFromEnum(rd);
+    }
+
+    // SUBS Xd, Xn, Xm (subtract setting flags)
+    pub fn subsReg(rd: Reg, rn: Reg, rm: Reg) u32 {
+        return @as(u32, 0xEB000000) |
+            (@as(u32, @intFromEnum(rm)) << 16) |
+            (@as(u32, @intFromEnum(rn)) << 5) |
+            @intFromEnum(rd);
+    }
+
+    // CMP Xn, Xm (alias for SUBS XZR, Xn, Xm)
+    pub fn cmpReg(rn: Reg, rm: Reg) u32 {
+        return subsReg(.xzr, rn, rm);
+    }
+
+    // ASR Xd, Xn, #shift (arithmetic shift right, alias for SBFM Xd, Xn, #shift, #63)
+    pub fn asrImm(rd: Reg, rn: Reg, shift: u6) u32 {
+        return @as(u32, 0x93400000) |
+            (@as(u32, shift) << 16) |
+            (@as(u32, 63) << 10) |
+            (@as(u32, @intFromEnum(rn)) << 5) |
+            @intFromEnum(rd);
+    }
+
+    // CSEL Xd, Xn, Xm, cond (conditional select)
+    pub fn csel(rd: Reg, rn: Reg, rm: Reg, cond: Cond) u32 {
+        return @as(u32, 0x9A800000) |
+            (@as(u32, @intFromEnum(rm)) << 16) |
+            (@as(u32, @intFromEnum(cond)) << 12) |
+            (@as(u32, @intFromEnum(rn)) << 5) |
+            @intFromEnum(rd);
+    }
+
+    // ORR Xd, Xn, Xm (logical OR, register)
+    pub fn orrReg(rd: Reg, rn: Reg, rm: Reg) u32 {
+        return @as(u32, 0xAA000000) |
+            (@as(u32, @intFromEnum(rm)) << 16) |
+            (@as(u32, @intFromEnum(rn)) << 5) |
+            @intFromEnum(rd);
+    }
+
+    // AND Xd, Xn, Xm (logical AND, register)
+    pub fn andReg(rd: Reg, rn: Reg, rm: Reg) u32 {
+        return @as(u32, 0x8A000000) |
+            (@as(u32, @intFromEnum(rm)) << 16) |
+            (@as(u32, @intFromEnum(rn)) << 5) |
+            @intFromEnum(rd);
+    }
+
+    // LDR Wt, [Xn, #offset] (32-bit load, unsigned offset scaled by 4)
+    pub fn ldrWImm(rt: Reg, rn: Reg, byte_offset: u16) u32 {
+        std.debug.assert(byte_offset <= 16380 and byte_offset % 4 == 0);
+        const scaled = @as(u32, byte_offset >> 2);
+        return @as(u32, 0xB9400000) |
+            (scaled << 10) |
+            (@as(u32, @intFromEnum(rn)) << 5) |
+            @intFromEnum(rt);
+    }
+
+    // LDRB Wt, [Xn, #offset] (byte load, unsigned offset 0..4095)
+    pub fn ldrbImm(rt: Reg, rn: Reg, byte_offset: u12) u32 {
+        return @as(u32, 0x39400000) |
+            (@as(u32, byte_offset) << 10) |
+            (@as(u32, @intFromEnum(rn)) << 5) |
+            @intFromEnum(rt);
+    }
+
+    // --- Emit helpers for new instructions ---
+
+    pub fn emitTbz(self: *Assembler, rt: Reg, bit: u6, offset: i14) !void {
+        try self.emit(tbz(rt, bit, offset));
+    }
+
+    pub fn emitTbnz(self: *Assembler, rt: Reg, bit: u6, offset: i14) !void {
+        try self.emit(tbnz(rt, bit, offset));
+    }
+
+    pub fn emitAddsReg(self: *Assembler, rd: Reg, rn: Reg, rm: Reg) !void {
+        try self.emit(addsReg(rd, rn, rm));
+    }
+
+    pub fn emitSubsReg(self: *Assembler, rd: Reg, rn: Reg, rm: Reg) !void {
+        try self.emit(subsReg(rd, rn, rm));
+    }
+
+    pub fn emitAsrImm(self: *Assembler, rd: Reg, rn: Reg, shift: u6) !void {
+        try self.emit(asrImm(rd, rn, shift));
+    }
+
+    pub fn emitCsel(self: *Assembler, rd: Reg, rn: Reg, rm: Reg, cond: Cond) !void {
+        try self.emit(csel(rd, rn, rm, cond));
+    }
+
+    pub fn emitOrrReg(self: *Assembler, rd: Reg, rn: Reg, rm: Reg) !void {
+        try self.emit(orrReg(rd, rn, rm));
+    }
+
+    pub fn emitAndReg(self: *Assembler, rd: Reg, rn: Reg, rm: Reg) !void {
+        try self.emit(andReg(rd, rn, rm));
+    }
+
+    pub fn emitCmpReg(self: *Assembler, rn: Reg, rm: Reg) !void {
+        try self.emit(cmpReg(rn, rm));
+    }
+
+    pub fn emitLdrWImm(self: *Assembler, rt: Reg, rn: Reg, byte_offset: u16) !void {
+        try self.emit(ldrWImm(rt, rn, byte_offset));
+    }
+
+    pub fn emitLdrbImm(self: *Assembler, rt: Reg, rn: Reg, byte_offset: u12) !void {
+        try self.emit(ldrbImm(rt, rn, byte_offset));
+    }
 };
 
 // ---------------------------------------------------------------------------
@@ -465,4 +608,63 @@ test "assembler + jit_mem integration" {
 
     const func = buf.getEntryPoint();
     try std.testing.expectEqual(@as(u64, 99), func());
+}
+
+test "tbz encoding" {
+    // TBZ W0, #0, +0 => 0x36000000
+    try std.testing.expectEqual(@as(u32, 0x36000000), Assembler.tbz(.x0, 0, 0));
+}
+
+test "tbnz encoding" {
+    // TBNZ W0, #0, -1 => 0x3707FFE0
+    try std.testing.expectEqual(@as(u32, 0x3707FFE0), Assembler.tbnz(.x0, 0, -1));
+}
+
+test "adds register encoding" {
+    // ADDS X5, X3, X4 => 0xAB040065
+    try std.testing.expectEqual(@as(u32, 0xAB040065), Assembler.addsReg(.x5, .x3, .x4));
+}
+
+test "subs register encoding" {
+    // SUBS X5, X3, X4 => 0xEB040065
+    try std.testing.expectEqual(@as(u32, 0xEB040065), Assembler.subsReg(.x5, .x3, .x4));
+}
+
+test "cmp register encoding" {
+    // CMP X0, X1 => SUBS XZR, X0, X1 => 0xEB01001F
+    try std.testing.expectEqual(@as(u32, 0xEB01001F), Assembler.cmpReg(.x0, .x1));
+}
+
+test "asr immediate encoding" {
+    // ASR X3, X0, #1 => SBFM X3, X0, #1, #63 => 0x9341FC03
+    try std.testing.expectEqual(@as(u32, 0x9341FC03), Assembler.asrImm(.x3, .x0, 1));
+}
+
+test "csel encoding" {
+    // CSEL X6, X5, X4, LT => 0x9A84B0A6
+    try std.testing.expectEqual(@as(u32, 0x9A84B0A6), Assembler.csel(.x6, .x5, .x4, .lt));
+}
+
+test "orr register encoding" {
+    // ORR X2, X0, X1 => 0xAA010002
+    try std.testing.expectEqual(@as(u32, 0xAA010002), Assembler.orrReg(.x2, .x0, .x1));
+}
+
+test "and register encoding" {
+    // AND X2, X0, X1 => 0x8A010002
+    try std.testing.expectEqual(@as(u32, 0x8A010002), Assembler.andReg(.x2, .x0, .x1));
+}
+
+test "ldr w immediate encoding" {
+    // LDR W2, [X0] => 0xB9400002
+    try std.testing.expectEqual(@as(u32, 0xB9400002), Assembler.ldrWImm(.x2, .x0, 0));
+    // LDR W2, [X0, #4] => 0xB9400402
+    try std.testing.expectEqual(@as(u32, 0xB9400402), Assembler.ldrWImm(.x2, .x0, 4));
+}
+
+test "ldrb immediate encoding" {
+    // LDRB W4, [X0] => 0x39400004
+    try std.testing.expectEqual(@as(u32, 0x39400004), Assembler.ldrbImm(.x4, .x0, 0));
+    // LDRB W4, [X0, #3] => 0x39400C04
+    try std.testing.expectEqual(@as(u32, 0x39400C04), Assembler.ldrbImm(.x4, .x0, 3));
 }

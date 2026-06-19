@@ -11,7 +11,7 @@ pub const JitCode = struct {
     buf: jit_mem.CodeBuffer,
 };
 
-pub const JitEntryFn = *const fn (*vm_mod.VM, u16, [*]const types.Value) callconv(.c) u64;
+pub const JitEntryFn = *const fn (*vm_mod.VM, u16, [*]const types.Value, *types.Closure) callconv(.c) u64;
 
 const RESULT_SIDE_EXIT: u64 = 0;
 
@@ -39,6 +39,13 @@ const REG_BASE = Reg.x19; // &vm.registers[0]
 const BASE_OFF = Reg.x20; // frame.base * 8
 const FRAME_PTR = Reg.x23; // REG_BASE + BASE_OFF = &registers[frame.base]
 const CONST_PTR = Reg.x22; // func.constants.items.ptr
+const CLOSURE_PTR = Reg.x24; // *Closure (4th arg, x3)
+
+const OFF_CLOSURE_UPVALUES = @offsetOf(types.Closure, "upvalues");
+const OFF_CLOSURE_FUNC = @offsetOf(types.Closure, "func");
+const OFF_FUNC_GLOBAL_CACHE = @offsetOf(types.Function, "global_cache");
+const OFF_FUNC_CACHE_VERSION = @offsetOf(types.Function, "cache_version");
+const OFF_VM_GLOBAL_VERSION = @offsetOf(vm_mod.VM, "global_version");
 
 const PendingBranch = struct {
     native_idx: u32,
@@ -49,6 +56,7 @@ const PendingBranch = struct {
 const PendingSideExit = struct {
     native_idx: u32,
     bc_ip: usize,
+    cond: ?Cond = null, // null = unconditional B, non-null = B.cond
 };
 
 pub fn isEligible(func: *const types.Function) bool {
@@ -88,11 +96,10 @@ pub fn isEligible(func: *const types.Function) bool {
     if (func.constants.items.len * 8 > 32760) return false;
     if (func.locals_count > 255) return false;
     if (func.is_variadic) return false;
-    if (func.upvalue_count > 0) return false;
     return true;
 }
 
-pub fn compile(func: *types.Function, allocator: std.mem.Allocator) !*JitCode {
+pub fn compile(func: *types.Function, vm: *VM, allocator: std.mem.Allocator) !*JitCode {
     var asm_ctx = a64.Assembler.init(allocator);
     defer asm_ctx.deinit();
 
@@ -113,12 +120,13 @@ pub fn compile(func: *types.Function, allocator: std.mem.Allocator) !*JitCode {
     try asm_ctx.emit(stpOffsetSp(.x19, .x20, 6)); // stp x19, x20, [sp, #48]
     try asm_ctx.emit(addRegSp(.x29, .xzr, 0)); // mov x29, sp
 
-    // x0 = VM*, x1 = base (u16), x2 = constants_ptr
+    // x0 = VM*, x1 = base (u16), x2 = constants_ptr, x3 = closure*
     try asm_ctx.emitMovReg(VM_PTR, .x0); // x21 = VM*
     try emitAddLargeOffset(&asm_ctx, REG_BASE, VM_PTR, OFF_REGISTERS); // x19 = &vm.registers[0]
     try asm_ctx.emitLslImm(BASE_OFF, .x1, 3); // x20 = base * 8
     try asm_ctx.emitAddReg(FRAME_PTR, REG_BASE, BASE_OFF); // x23 = x19 + x20
     try asm_ctx.emitMovReg(CONST_PTR, .x2); // x22 = constants ptr
+    try asm_ctx.emitMovReg(CLOSURE_PTR, .x3); // x24 = closure*
 
     // --- Bytecode walk ---
     const code = func.code.items;
@@ -220,6 +228,39 @@ pub fn compile(func: *types.Function, allocator: std.mem.Allocator) !*JitCode {
                     .cond = .ne,
                 });
             },
+            .get_upvalue => {
+                const dst = code[ip];
+                const idx = code[ip + 1];
+                ip += 2;
+                try emitGetUpvalue(&asm_ctx, dst, idx, &pending_exits, allocator, ip - 3);
+            },
+            .set_upvalue => {
+                const idx = code[ip];
+                const src = code[ip + 1];
+                ip += 2;
+                try emitSetUpvalue(&asm_ctx, src, idx, &pending_exits, allocator, ip - 3);
+            },
+            .get_global => {
+                const dst = code[ip];
+                const sym_idx = readU16(code, ip + 1);
+                ip += 3;
+                try emitGetGlobal(&asm_ctx, dst, sym_idx, &pending_exits, allocator, ip - 4);
+            },
+            .call_global => {
+                const base_reg = code[ip];
+                const sym_idx = readU16(code, ip + 1);
+                const nargs = code[ip + 3];
+                ip += 4;
+                const spec = recognizeArithPrimitive(func, sym_idx, vm);
+                if (spec != .none and nargs == 2) {
+                    try emitSpecializedArith(&asm_ctx, base_reg, spec, &pending_exits, allocator, ip - 5);
+                } else {
+                    const side_exit_ip = ip - 5;
+                    const patch_idx = asm_ctx.pos();
+                    try asm_ctx.emit(0);
+                    try pending_exits.append(allocator, .{ .native_idx = patch_idx, .bc_ip = side_exit_ip });
+                }
+            },
             // All other opcodes: side-exit to interpreter
             else => {
                 const operand_bytes: usize = switch (op) {
@@ -295,7 +336,11 @@ pub fn compile(func: *types.Function, allocator: std.mem.Allocator) !*JitCode {
 
         // Patch the original placeholder to jump to this stub
         const stub_offset: i32 = @as(i32, @intCast(stub_pos)) - @as(i32, @intCast(pe.native_idx));
-        asm_ctx.patchAt(pe.native_idx, a64.Assembler.b(@intCast(stub_offset)));
+        if (pe.cond) |cond| {
+            asm_ctx.patchAt(pe.native_idx, a64.Assembler.bCond(cond, @intCast(stub_offset)));
+        } else {
+            asm_ctx.patchAt(pe.native_idx, a64.Assembler.b(@intCast(stub_offset)));
+        }
     }
 
     // --- Finalize into executable memory ---
@@ -313,7 +358,7 @@ pub fn compile(func: *types.Function, allocator: std.mem.Allocator) !*JitCode {
 
 pub fn tryCompile(func: *types.Function, vm: *VM) void {
     if (!isEligible(func)) return;
-    const jit_code = compile(func, vm.gc.allocator) catch return;
+    const jit_code = compile(func, vm, vm.gc.allocator) catch return;
     func.jit_code = jit_code;
 }
 
@@ -348,6 +393,218 @@ fn emitLoadConst(asm_ctx: *a64.Assembler, dst: u8, idx: u16) !void {
         try asm_ctx.emit(a64.Assembler.ldrImm(.x0, .x0, 0));
     }
     try asm_ctx.emitStrImm(.x0, FRAME_PTR, @as(u16, dst) * 8);
+}
+
+fn emitGetUpvalue(asm_ctx: *a64.Assembler, dst: u8, idx: u8, pending_exits: *std.ArrayList(PendingSideExit), allocator: std.mem.Allocator, bc_ip: usize) !void {
+    // Load upvalue slice pointer from closure
+    try emitLoadFromField(asm_ctx, .x0, CLOSURE_PTR, OFF_CLOSURE_UPVALUES);
+    // Load upvalue value: upvalues[idx]
+    const uv_offset: u32 = @as(u32, idx) * 8;
+    if (uv_offset <= 32760) {
+        try asm_ctx.emitLdrImm(.x0, .x0, @intCast(uv_offset));
+    } else {
+        try asm_ctx.emitLoadImm64(.x4, uv_offset);
+        try asm_ctx.emit(a64.Assembler.addReg(.x0, .x0, .x4));
+        try asm_ctx.emit(a64.Assembler.ldrImm(.x0, .x0, 0));
+    }
+    // Fast path: non-pointer values (fixnum bit 0=1, immediate bit 1=1)
+    // Skip over the side-exit branch
+    const store_pos = asm_ctx.pos() + 3; // tbnz, tbnz, b(side-exit) = 3 instructions ahead
+    try asm_ctx.emit(a64.Assembler.tbnz(.x0, 0, 3)); // fixnum → skip to store
+    try asm_ctx.emit(a64.Assembler.tbnz(.x0, 1, 2)); // immediate → skip to store
+    // Pointer → side-exit
+    const exit_idx = asm_ctx.pos();
+    try asm_ctx.emit(0); // placeholder B to side-exit stub
+    try pending_exits.append(allocator, .{ .native_idx = exit_idx, .bc_ip = bc_ip });
+    // .store:
+    std.debug.assert(asm_ctx.pos() == store_pos);
+    try asm_ctx.emitStrImm(.x0, FRAME_PTR, @as(u16, dst) * 8);
+}
+
+fn emitSetUpvalue(asm_ctx: *a64.Assembler, src: u8, idx: u8, pending_exits: *std.ArrayList(PendingSideExit), allocator: std.mem.Allocator, bc_ip: usize) !void {
+    // Load upvalue slice pointer
+    try emitLoadFromField(asm_ctx, .x0, CLOSURE_PTR, OFF_CLOSURE_UPVALUES);
+    // Check current upvalue value for pointer (boxed)
+    const uv_offset: u32 = @as(u32, idx) * 8;
+    if (uv_offset <= 32760) {
+        try asm_ctx.emitLdrImm(.x4, .x0, @intCast(uv_offset));
+    } else {
+        try asm_ctx.emitLoadImm64(.x4, uv_offset);
+        try asm_ctx.emit(a64.Assembler.addReg(.x4, .x0, .x4));
+        try asm_ctx.emit(a64.Assembler.ldrImm(.x4, .x4, 0));
+    }
+    // Non-pointer → direct store; pointer → side-exit
+    const store_pos = asm_ctx.pos() + 3;
+    try asm_ctx.emit(a64.Assembler.tbnz(.x4, 0, 3)); // fixnum → direct
+    try asm_ctx.emit(a64.Assembler.tbnz(.x4, 1, 2)); // immediate → direct
+    const exit_idx = asm_ctx.pos();
+    try asm_ctx.emit(0); // placeholder B to side-exit
+    try pending_exits.append(allocator, .{ .native_idx = exit_idx, .bc_ip = bc_ip });
+    // .direct_store:
+    std.debug.assert(asm_ctx.pos() == store_pos);
+    try asm_ctx.emitLdrImm(.x1, FRAME_PTR, @as(u16, src) * 8);
+    // Write to upvalue slot (need the base pointer again)
+    try emitLoadFromField(asm_ctx, .x0, CLOSURE_PTR, OFF_CLOSURE_UPVALUES);
+    if (uv_offset <= 32760) {
+        try asm_ctx.emitStrImm(.x1, .x0, @intCast(uv_offset));
+    } else {
+        try asm_ctx.emitLoadImm64(.x4, uv_offset);
+        try asm_ctx.emit(a64.Assembler.addReg(.x0, .x0, .x4));
+        try asm_ctx.emit(a64.Assembler.strImm(.x1, .x0, 0));
+    }
+}
+
+fn emitGetGlobal(asm_ctx: *a64.Assembler, dst: u8, sym_idx: u16, pending_exits: *std.ArrayList(PendingSideExit), allocator: std.mem.Allocator, bc_ip: usize) !void {
+    // Load func from closure: closure.func
+    try emitLoadFromField(asm_ctx, .x0, CLOSURE_PTR, OFF_CLOSURE_FUNC);
+    // Load global_cache.ptr (first word of ?[]Value)
+    try emitLoadFromField(asm_ctx, .x1, .x0, OFF_FUNC_GLOBAL_CACHE);
+    // If null → side-exit
+    try asm_ctx.emitCmpImm(.x1, 0);
+    var exit_count: usize = 0;
+    const exit1 = asm_ctx.pos();
+    try asm_ctx.emit(0); // b.eq side-exit
+    exit_count += 1;
+    // Check cache_version == global_version (both u32)
+    try emitLoadWFromField(asm_ctx, .x2, .x0, OFF_FUNC_CACHE_VERSION);
+    try emitLoadWFromField(asm_ctx, .x3, VM_PTR, OFF_VM_GLOBAL_VERSION);
+    try asm_ctx.emitCmpReg(.x2, .x3);
+    const exit2 = asm_ctx.pos();
+    try asm_ctx.emit(0); // b.ne side-exit
+    exit_count += 1;
+    // Bounds check: cache.len > sym_idx
+    try emitLoadFromField(asm_ctx, .x4, .x0, OFF_FUNC_GLOBAL_CACHE + 8); // cache.len
+    try asm_ctx.emitLoadImm64(.x5, sym_idx);
+    try asm_ctx.emitCmpReg(.x4, .x5);
+    const exit3 = asm_ctx.pos();
+    try asm_ctx.emit(0); // b.ls side-exit
+    exit_count += 1;
+    // Load cached value
+    const cache_offset: u32 = @as(u32, sym_idx) * 8;
+    if (cache_offset <= 32760) {
+        try asm_ctx.emitLdrImm(.x4, .x1, @intCast(cache_offset));
+    } else {
+        try asm_ctx.emitLoadImm64(.x4, cache_offset);
+        try asm_ctx.emit(a64.Assembler.addReg(.x4, .x1, .x4));
+        try asm_ctx.emit(a64.Assembler.ldrImm(.x4, .x4, 0));
+    }
+    // Check != VOID
+    try asm_ctx.emitCmpImm(.x4, @intCast(types.VOID));
+    const exit4 = asm_ctx.pos();
+    try asm_ctx.emit(0); // b.eq side-exit
+    exit_count += 1;
+    // Cache hit — store to dst
+    try asm_ctx.emitStrImm(.x4, FRAME_PTR, @as(u16, dst) * 8);
+    // All exits go to the same side-exit stub
+    try pending_exits.append(allocator, .{ .native_idx = exit1, .bc_ip = bc_ip, .cond = .eq }); // cbz → b.eq
+    try pending_exits.append(allocator, .{ .native_idx = exit2, .bc_ip = bc_ip, .cond = .ne }); // version mismatch
+    try pending_exits.append(allocator, .{ .native_idx = exit3, .bc_ip = bc_ip, .cond = .ls }); // out of bounds
+    try pending_exits.append(allocator, .{ .native_idx = exit4, .bc_ip = bc_ip, .cond = .eq }); // == VOID
+}
+
+const SpecializedOp = enum { add, sub, lt, gt, le, ge, eq, none };
+
+fn recognizeArithPrimitive(func: *const types.Function, sym_idx: u16, vm: *const VM) SpecializedOp {
+    if (sym_idx >= func.constants.items.len) return .none;
+    const sym_val = func.constants.items[sym_idx];
+    if (!types.isSymbol(sym_val)) return .none;
+    const name = types.symbolName(sym_val);
+    // Verify the global currently resolves to a NativeFn
+    const global_val = vm.globals.get(name) orelse return .none;
+    if (!types.isNativeFn(global_val)) return .none;
+    if (std.mem.eql(u8, name, "+")) return .add;
+    if (std.mem.eql(u8, name, "-")) return .sub;
+    if (std.mem.eql(u8, name, "<")) return .lt;
+    if (std.mem.eql(u8, name, ">")) return .gt;
+    if (std.mem.eql(u8, name, "<=")) return .le;
+    if (std.mem.eql(u8, name, ">=")) return .ge;
+    if (std.mem.eql(u8, name, "=")) return .eq;
+    return .none;
+}
+
+fn emitSpecializedArith(asm_ctx: *a64.Assembler, base_reg: u8, spec: SpecializedOp, pending_exits: *std.ArrayList(PendingSideExit), allocator: std.mem.Allocator, bc_ip: usize) !void {
+    const arg1_off: u16 = (@as(u16, base_reg) + 1) * 8;
+    const arg2_off: u16 = (@as(u16, base_reg) + 2) * 8;
+    const dst_off: u16 = @as(u16, base_reg) * 8;
+
+    // Load both arguments
+    try asm_ctx.emitLdrImm(.x0, FRAME_PTR, arg1_off);
+    try asm_ctx.emitLdrImm(.x1, FRAME_PTR, arg2_off);
+
+    // Type guard: both must be fixnums (bit 0 = 1)
+    // AND x2, x0, x1 — if both have bit 0 set, result bit 0 is set
+    try asm_ctx.emitAndReg(.x2, .x0, .x1);
+    try asm_ctx.emit(a64.Assembler.tbnz(.x2, 0, 2)); // bit 0 set → skip exit
+    const type_exit = asm_ctx.pos();
+    try asm_ctx.emit(0); // B side-exit (unconditional, patched later)
+    try pending_exits.append(allocator, .{ .native_idx = type_exit, .bc_ip = bc_ip });
+
+    switch (spec) {
+        .add => {
+            try asm_ctx.emitAsrImm(.x3, .x0, 1); // untag a
+            try asm_ctx.emitAsrImm(.x4, .x1, 1); // untag b
+            try asm_ctx.emitAddsReg(.x5, .x3, .x4); // a + b with overflow
+            const ov_exit = asm_ctx.pos();
+            try asm_ctx.emit(0); // b.vs side-exit (placeholder)
+            try pending_exits.append(allocator, .{ .native_idx = ov_exit, .bc_ip = bc_ip, .cond = .vs });
+            try asm_ctx.emitLslImm(.x5, .x5, 1); // retag: result << 1
+        },
+        .sub => {
+            try asm_ctx.emitAsrImm(.x3, .x0, 1);
+            try asm_ctx.emitAsrImm(.x4, .x1, 1);
+            try asm_ctx.emitSubsReg(.x5, .x3, .x4); // a - b
+            const ov_exit = asm_ctx.pos();
+            try asm_ctx.emit(0);
+            try pending_exits.append(allocator, .{ .native_idx = ov_exit, .bc_ip = bc_ip, .cond = .vs });
+            try asm_ctx.emitLslImm(.x5, .x5, 1);
+        },
+        else => {}, // comparisons handled below
+    }
+
+    switch (spec) {
+        .add, .sub => {
+            // Retag: (result << 1) | 1 — use ADD to set bit 0
+            try asm_ctx.emitAddImm(.x5, .x5, 1);
+            try asm_ctx.emitStrImm(.x5, FRAME_PTR, dst_off);
+        },
+        .lt, .gt, .le, .ge, .eq => {
+            // Tagged fixnum comparison preserves ordering — compare directly
+            try asm_ctx.emitCmpReg(.x0, .x1);
+            try asm_ctx.emitMovz(.x4, @intCast(types.FALSE), 0);
+            try asm_ctx.emitLoadImm64(.x5, types.TRUE);
+            const cond: Cond = switch (spec) {
+                .lt => .lt,
+                .gt => .gt,
+                .le => .le,
+                .ge => .ge,
+                .eq => .eq,
+                else => unreachable,
+            };
+            try asm_ctx.emitCsel(.x6, .x5, .x4, cond);
+            try asm_ctx.emitStrImm(.x6, FRAME_PTR, dst_off);
+        },
+        .none => unreachable,
+    }
+}
+
+fn emitLoadFromField(asm_ctx: *a64.Assembler, rd: Reg, base: Reg, offset: usize) !void {
+    if (offset <= 32760 and offset % 8 == 0) {
+        try asm_ctx.emitLdrImm(rd, base, @intCast(offset));
+    } else {
+        try asm_ctx.emitLoadImm64(rd, offset);
+        try asm_ctx.emitAddReg(rd, base, rd);
+        try asm_ctx.emit(a64.Assembler.ldrImm(rd, rd, 0));
+    }
+}
+
+fn emitLoadWFromField(asm_ctx: *a64.Assembler, rd: Reg, base: Reg, offset: usize) !void {
+    if (offset <= 16380 and offset % 4 == 0) {
+        try asm_ctx.emitLdrWImm(rd, base, @intCast(offset));
+    } else {
+        try asm_ctx.emitLoadImm64(rd, offset);
+        try asm_ctx.emitAddReg(rd, base, rd);
+        try asm_ctx.emit(a64.Assembler.ldrWImm(rd, rd, 0));
+    }
 }
 
 // SP-aware instructions: in AArch64, register 31 is SP in LDR/STR/ADD/SUB
@@ -503,17 +760,19 @@ test "isEligible accepts simple bytecode" {
 
 test "compile trivial function" {
     const memory = @import("memory.zig");
+    const th = @import("testing_helpers.zig");
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
 
     const f = try gc.allocFunction();
-    // load_nil r0; return r0 (return side-exits)
     try f.code.append(gc.allocator, @intFromEnum(types.OpCode.load_nil));
     try f.code.append(gc.allocator, 0);
     try f.code.append(gc.allocator, @intFromEnum(types.OpCode.@"return"));
     try f.code.append(gc.allocator, 0);
 
-    const jit_code = try compile(f, std.testing.allocator);
+    const jit_code = try compile(f, &vm, std.testing.allocator);
     defer freeJitCode(jit_code, std.testing.allocator);
 
     try std.testing.expect(@intFromPtr(jit_code.entry) != 0);
@@ -593,12 +852,13 @@ test "compile and execute load_nil" {
     try f.code.append(gc.allocator, 0);
     f.locals_count = 1;
 
-    const jit_code = try compile(f, std.testing.allocator);
+    const jit_code = try compile(f, &vm, std.testing.allocator);
     defer freeJitCode(jit_code, std.testing.allocator);
 
-    // Set up a fake frame so the exit trampoline can write frame.ip
+    const cls_val = try gc.allocClosure(f);
+    const cls = types.toObject(cls_val).as(types.Closure);
     vm.frames[0] = .{
-        .closure = null,
+        .closure = cls,
         .code = f.code.items,
         .ip = 0,
         .base = 0,
@@ -607,10 +867,9 @@ test "compile and execute load_nil" {
     vm.frame_count = 1;
 
     const entry: JitEntryFn = @ptrCast(@alignCast(jit_code.entry));
-    const result = entry(&vm, 0, &[_]types.Value{});
+    const result = entry(&vm, 0, &[_]types.Value{}, cls);
     _ = result;
 
-    // After JIT execution, register 0 should contain NIL
     try std.testing.expectEqual(types.NIL, vm.registers[0]);
 }
 
@@ -636,20 +895,16 @@ test "compile and execute load_const" {
     try f.code.append(gc.allocator, 0);
     f.locals_count = 1;
 
-    const jit_code = try compile(f, std.testing.allocator);
+    const jit_code = try compile(f, &vm, std.testing.allocator);
     defer freeJitCode(jit_code, std.testing.allocator);
 
-    vm.frames[0] = .{
-        .closure = null,
-        .code = f.code.items,
-        .ip = 0,
-        .base = 0,
-        .dst = 0,
-    };
+    const cls_val2 = try gc.allocClosure(f);
+    const cls2 = types.toObject(cls_val2).as(types.Closure);
+    vm.frames[0] = .{ .closure = cls2, .code = f.code.items, .ip = 0, .base = 0, .dst = 0 };
     vm.frame_count = 1;
 
     const entry: JitEntryFn = @ptrCast(@alignCast(jit_code.entry));
-    _ = entry(&vm, 0, f.constants.items.ptr);
+    _ = entry(&vm, 0, f.constants.items.ptr, cls2);
 
     try std.testing.expectEqual(@as(i64, 42), types.toFixnum(vm.registers[0]));
 }
@@ -663,31 +918,25 @@ test "compile and execute move" {
     defer vm.deinit();
 
     const f = try gc.allocFunction();
-
-    // load_true r0; move r1, r0; return r1
     try f.code.append(gc.allocator, @intFromEnum(types.OpCode.load_true));
     try f.code.append(gc.allocator, 0);
     try f.code.append(gc.allocator, @intFromEnum(types.OpCode.move));
-    try f.code.append(gc.allocator, 1); // dst
-    try f.code.append(gc.allocator, 0); // src
+    try f.code.append(gc.allocator, 1);
+    try f.code.append(gc.allocator, 0);
     try f.code.append(gc.allocator, @intFromEnum(types.OpCode.@"return"));
     try f.code.append(gc.allocator, 1);
     f.locals_count = 2;
 
-    const jit_code = try compile(f, std.testing.allocator);
+    const jit_code = try compile(f, &vm, std.testing.allocator);
     defer freeJitCode(jit_code, std.testing.allocator);
 
-    vm.frames[0] = .{
-        .closure = null,
-        .code = f.code.items,
-        .ip = 0,
-        .base = 0,
-        .dst = 0,
-    };
+    const cls_val = try gc.allocClosure(f);
+    const cls = types.toObject(cls_val).as(types.Closure);
+    vm.frames[0] = .{ .closure = cls, .code = f.code.items, .ip = 0, .base = 0, .dst = 0 };
     vm.frame_count = 1;
 
     const entry: JitEntryFn = @ptrCast(@alignCast(jit_code.entry));
-    _ = entry(&vm, 0, &[_]types.Value{});
+    _ = entry(&vm, 0, &[_]types.Value{}, cls);
 
     try std.testing.expectEqual(types.TRUE, vm.registers[1]);
 }
@@ -701,33 +950,11 @@ test "compile and execute jump_false" {
     defer vm.deinit();
 
     const f = try gc.allocFunction();
-
-    // load_false r0       ; ip=0
-    // jump_false r0, +3   ; ip=2, skip next load_true, jump to load_nil
-    // load_true r1        ; ip=7 (skipped)
-    // load_nil r1         ; ip=9 (target: ip=7+3=10... wait, offset from AFTER the instruction)
-    //
-    // Let me lay this out byte by byte:
-    // [0] load_false
-    // [1]   dst=0
-    // [2] jump_false
-    // [3]   test=0
-    // [4]   offset_lo
-    // [5]   offset_hi
-    // [6] load_true    <-- skipped if r0 is false
-    // [7]   dst=1
-    // [8] return       <-- end path 1
-    // [9]   src=1
-    // [10] load_nil    <-- target of jump_false (offset = 10 - 6 = 4)
-    // [11]   dst=1
-    // [12] return
-    // [13]   src=1
-
     try f.code.append(gc.allocator, @intFromEnum(types.OpCode.load_false));
     try f.code.append(gc.allocator, 0);
     try f.code.append(gc.allocator, @intFromEnum(types.OpCode.jump_false));
-    try f.code.append(gc.allocator, 0); // test reg
-    const offset: i16 = 4; // jump forward 4 bytes past the jump_false operands
+    try f.code.append(gc.allocator, 0);
+    const offset: i16 = 4;
     const offset_bytes: [2]u8 = @bitCast(offset);
     try f.code.append(gc.allocator, offset_bytes[0]);
     try f.code.append(gc.allocator, offset_bytes[1]);
@@ -741,21 +968,16 @@ test "compile and execute jump_false" {
     try f.code.append(gc.allocator, 1);
     f.locals_count = 2;
 
-    const jit_code = try compile(f, std.testing.allocator);
+    const jit_code = try compile(f, &vm, std.testing.allocator);
     defer freeJitCode(jit_code, std.testing.allocator);
 
-    vm.frames[0] = .{
-        .closure = null,
-        .code = f.code.items,
-        .ip = 0,
-        .base = 0,
-        .dst = 0,
-    };
+    const cls_val = try gc.allocClosure(f);
+    const cls = types.toObject(cls_val).as(types.Closure);
+    vm.frames[0] = .{ .closure = cls, .code = f.code.items, .ip = 0, .base = 0, .dst = 0 };
     vm.frame_count = 1;
 
     const entry: JitEntryFn = @ptrCast(@alignCast(jit_code.entry));
-    _ = entry(&vm, 0, &[_]types.Value{});
+    _ = entry(&vm, 0, &[_]types.Value{}, cls);
 
-    // r0 is FALSE, so jump_false should have taken the branch to load_nil
     try std.testing.expectEqual(types.NIL, vm.registers[1]);
 }
