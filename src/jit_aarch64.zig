@@ -406,7 +406,69 @@ pub const Assembler = struct {
             @intFromEnum(rt);
     }
 
+    // STRB Wt, [Xn, #offset] (byte store, unsigned offset 0..4095)
+    pub fn strbImm(rt: Reg, rn: Reg, byte_offset: u12) u32 {
+        return @as(u32, 0x39000000) |
+            (@as(u32, byte_offset) << 10) |
+            (@as(u32, @intFromEnum(rn)) << 5) |
+            @intFromEnum(rt);
+    }
+
+    // STRH Wt, [Xn, #offset] (halfword store, unsigned offset 0..8190, scaled by 2)
+    pub fn strhImm(rt: Reg, rn: Reg, byte_offset: u16) u32 {
+        std.debug.assert(byte_offset <= 8190 and byte_offset % 2 == 0);
+        const scaled = @as(u32, byte_offset >> 1);
+        return @as(u32, 0x79000000) |
+            (scaled << 10) |
+            (@as(u32, @intFromEnum(rn)) << 5) |
+            @intFromEnum(rt);
+    }
+
+    // LDRH Wt, [Xn, #offset] (halfword load, unsigned offset 0..8190, scaled by 2)
+    pub fn ldrhImm(rt: Reg, rn: Reg, byte_offset: u16) u32 {
+        std.debug.assert(byte_offset <= 8190 and byte_offset % 2 == 0);
+        const scaled = @as(u32, byte_offset >> 1);
+        return @as(u32, 0x79400000) |
+            (scaled << 10) |
+            (@as(u32, @intFromEnum(rn)) << 5) |
+            @intFromEnum(rt);
+    }
+
+    // STR Wt, [Xn, #offset] (32-bit store, unsigned offset 0..16380, scaled by 4)
+    pub fn strWImm(rt: Reg, rn: Reg, byte_offset: u16) u32 {
+        std.debug.assert(byte_offset <= 16380 and byte_offset % 4 == 0);
+        const scaled = @as(u32, byte_offset >> 2);
+        return @as(u32, 0xB9000000) |
+            (scaled << 10) |
+            (@as(u32, @intFromEnum(rn)) << 5) |
+            @intFromEnum(rt);
+    }
+
+    // SUB Xd, Xn, Xm (64-bit subtract, no flags)
+    pub fn subReg(rd: Reg, rn: Reg, rm: Reg) u32 {
+        return @as(u32, 0xCB000000) |
+            (@as(u32, @intFromEnum(rm)) << 16) |
+            (@as(u32, @intFromEnum(rn)) << 5) |
+            @intFromEnum(rd);
+    }
+
     // --- Emit helpers for new instructions ---
+
+    pub fn emitStrbImm(self: *Assembler, rt: Reg, rn: Reg, byte_offset: u12) !void {
+        try self.emit(strbImm(rt, rn, byte_offset));
+    }
+
+    pub fn emitStrhImm(self: *Assembler, rt: Reg, rn: Reg, byte_offset: u16) !void {
+        try self.emit(strhImm(rt, rn, byte_offset));
+    }
+
+    pub fn emitLdrhImm(self: *Assembler, rt: Reg, rn: Reg, byte_offset: u16) !void {
+        try self.emit(ldrhImm(rt, rn, byte_offset));
+    }
+
+    pub fn emitSubReg(self: *Assembler, rd: Reg, rn: Reg, rm: Reg) !void {
+        try self.emit(subReg(rd, rn, rm));
+    }
 
     pub fn emitTbz(self: *Assembler, rt: Reg, bit: u6, offset: i14) !void {
         try self.emit(tbz(rt, bit, offset));
@@ -667,4 +729,30 @@ test "ldrb immediate encoding" {
     try std.testing.expectEqual(@as(u32, 0x39400004), Assembler.ldrbImm(.x4, .x0, 0));
     // LDRB W4, [X0, #3] => 0x39400C04
     try std.testing.expectEqual(@as(u32, 0x39400C04), Assembler.ldrbImm(.x4, .x0, 3));
+}
+
+test "strb immediate encoding" {
+    // STRB W4, [X0] => 0x39000004
+    try std.testing.expectEqual(@as(u32, 0x39000004), Assembler.strbImm(.x4, .x0, 0));
+    // STRB W4, [X0, #3] => 0x39000C04
+    try std.testing.expectEqual(@as(u32, 0x39000C04), Assembler.strbImm(.x4, .x0, 3));
+}
+
+test "strh immediate encoding" {
+    // STRH W0, [X1] => 0x79000020
+    try std.testing.expectEqual(@as(u32, 0x79000020), Assembler.strhImm(.x0, .x1, 0));
+    // STRH W0, [X1, #2] => 0x79000420
+    try std.testing.expectEqual(@as(u32, 0x79000420), Assembler.strhImm(.x0, .x1, 2));
+}
+
+test "ldrh immediate encoding" {
+    // LDRH W0, [X1] => 0x79400020
+    try std.testing.expectEqual(@as(u32, 0x79400020), Assembler.ldrhImm(.x0, .x1, 0));
+    // LDRH W0, [X1, #4] => 0x79400820
+    try std.testing.expectEqual(@as(u32, 0x79400820), Assembler.ldrhImm(.x0, .x1, 4));
+}
+
+test "sub register encoding" {
+    // SUB X5, X3, X4 => 0xCB040065
+    try std.testing.expectEqual(@as(u32, 0xCB040065), Assembler.subReg(.x5, .x3, .x4));
 }

@@ -13,14 +13,6 @@ pub const JitCode = struct {
 
 pub const JitEntryFn = *const fn (*vm_mod.VM, u16, [*]const types.Value, *types.Closure) callconv(.c) u64;
 
-const RESULT_SIDE_EXIT: u64 = 0;
-
-fn jitSideExit(vm_ptr: *vm_mod.VM, bc_ip: u64) callconv(.c) void {
-    if (vm_ptr.frame_count > 0) {
-        vm_ptr.frames[vm_ptr.frame_count - 1].ip = @intCast(bc_ip);
-    }
-}
-
 // Struct offsets computed at comptime
 const VM = vm_mod.VM;
 const CallFrame = vm_mod.CallFrame;
@@ -46,6 +38,27 @@ const OFF_CLOSURE_FUNC = @offsetOf(types.Closure, "func");
 const OFF_FUNC_GLOBAL_CACHE = @offsetOf(types.Function, "global_cache");
 const OFF_FUNC_CACHE_VERSION = @offsetOf(types.Function, "cache_version");
 const OFF_VM_GLOBAL_VERSION = @offsetOf(vm_mod.VM, "global_version");
+const OFF_WIND_COUNT = @offsetOf(VM, "wind_count");
+const OFF_VM_JIT_ERROR = @offsetOf(VM, "jit_error");
+
+// CallFrame field offsets
+const OFF_FRAME_CLOSURE = @offsetOf(CallFrame, "closure");
+const OFF_FRAME_NATIVE = @offsetOf(CallFrame, "native");
+const OFF_FRAME_CODE = @offsetOf(CallFrame, "code");
+const OFF_FRAME_BASE = @offsetOf(CallFrame, "base");
+const OFF_FRAME_DST = @offsetOf(CallFrame, "dst");
+const OFF_FRAME_SAVED_WIND = @offsetOf(CallFrame, "saved_wind_count");
+
+// Function field offsets for call type checks
+const OFF_FUNC_ARITY = @offsetOf(types.Function, "arity");
+const OFF_FUNC_IS_VARIADIC = @offsetOf(types.Function, "is_variadic");
+const OFF_FUNC_JIT_CODE = @offsetOf(types.Function, "jit_code");
+const OFF_FUNC_CODE = @offsetOf(types.Function, "code");
+const OFF_FUNC_CALL_COUNT = @offsetOf(types.Function, "call_count");
+const OFF_FUNC_CONSTANTS = @offsetOf(types.Function, "constants");
+const OFF_JIT_CODE_ENTRY = @offsetOf(JitCode, "entry");
+const OFF_OBJECT_TAG = @offsetOf(types.Object, "tag");
+const MAX_FRAMES = vm_mod.MAX_FRAMES;
 
 const PendingBranch = struct {
     native_idx: u32,
@@ -111,6 +124,12 @@ pub fn compile(func: *types.Function, vm: *VM, allocator: std.mem.Allocator) !*J
 
     var pending_exits: std.ArrayList(PendingSideExit) = .empty;
     defer pending_exits.deinit(allocator);
+
+    var pending_returns: std.ArrayList(u32) = .empty;
+    defer pending_returns.deinit(allocator);
+
+    var pending_quick_exits: std.ArrayList(u32) = .empty;
+    defer pending_quick_exits.deinit(allocator);
 
     // --- Entry trampoline ---
     // Save callee-saved registers (use STP pre-index to decrement SP)
@@ -246,19 +265,28 @@ pub fn compile(func: *types.Function, vm: *VM, allocator: std.mem.Allocator) !*J
                 ip += 3;
                 try emitGetGlobal(&asm_ctx, dst, sym_idx, &pending_exits, allocator, ip - 4);
             },
+            .@"return" => {
+                const src = code[ip];
+                ip += 1;
+                try emitReturn(&asm_ctx, src, &pending_exits, &pending_returns, allocator, ip - 2);
+            },
+            .call => {
+                const base_reg = code[ip];
+                const nargs = code[ip + 1];
+                ip += 2;
+                try emitCall(&asm_ctx, base_reg, nargs, &pending_exits, &pending_returns, &pending_quick_exits, allocator, ip - 3, ip, func);
+            },
             .call_global => {
                 const base_reg = code[ip];
                 const sym_idx = readU16(code, ip + 1);
                 const nargs = code[ip + 3];
                 ip += 4;
+                const bc_ip_cg = ip - 5;
                 const spec = recognizeArithPrimitive(func, sym_idx, vm);
                 if (spec != .none and nargs == 2) {
-                    try emitSpecializedArith(&asm_ctx, base_reg, spec, &pending_exits, allocator, ip - 5);
+                    try emitSpecializedArith(&asm_ctx, base_reg, spec, &pending_exits, allocator, bc_ip_cg);
                 } else {
-                    const side_exit_ip = ip - 5;
-                    const patch_idx = asm_ctx.pos();
-                    try asm_ctx.emit(0);
-                    try pending_exits.append(allocator, .{ .native_idx = patch_idx, .bc_ip = side_exit_ip });
+                    try emitCallGlobal(&asm_ctx, base_reg, sym_idx, nargs, &pending_exits, &pending_returns, &pending_quick_exits, allocator, bc_ip_cg, ip, func);
                 }
             },
             // All other opcodes: side-exit to interpreter
@@ -297,19 +325,41 @@ pub fn compile(func: *types.Function, vm: *VM, allocator: std.mem.Allocator) !*J
     // Record end-of-bytecode position for forward jumps that land at the end
     try bc_to_native.put(ip, asm_ctx.pos());
 
-    // --- Exit trampoline (shared) ---
+    // --- Return trampoline: normal function completion ---
+    const return_trampoline = asm_ctx.pos();
+    try asm_ctx.emitMovz(.x8, 0, 0); // return 0
+
+    // B to epilogue (skip quick_exit + exit trampoline)
+    const ret_to_epi = asm_ctx.pos();
+    try asm_ctx.emit(0); // placeholder
+
+    // --- Quick exit: return non-zero without encoding bc_ip ---
+    const quick_exit = asm_ctx.pos();
+    try asm_ctx.emitLoadImm64(.x8, 0xFFFFFFFF); // sentinel
+    const qe_to_epi = asm_ctx.pos();
+    try asm_ctx.emit(0); // placeholder
+
+    // --- Exit trampoline: encode bc_ip+1 as return value ---
     const exit_start = asm_ctx.pos();
     // x0 = bytecode IP (set by side-exit stubs)
-    // Encode as bc_ip + 1 to distinguish from "fell off end" (0)
     try asm_ctx.emitAddImm(.x8, .x0, 1);
 
-    // Restore callee-saved registers (reverse order of save)
+    // --- Shared epilogue ---
+    const epilogue = asm_ctx.pos();
     try asm_ctx.emit(ldpOffsetSp(.x19, .x20, 6));
     try asm_ctx.emit(ldpOffsetSp(VM_PTR, CONST_PTR, 4));
     try asm_ctx.emit(ldpOffsetSp(FRAME_PTR, .x24, 2));
     try asm_ctx.emit(ldpPostSp(.x29, .x30, 8));
     try asm_ctx.emitMovReg(.x0, .x8);
     try asm_ctx.emitRet();
+
+    // Patch return/quick-exit branches to epilogue
+    {
+        const off1: i32 = @as(i32, @intCast(epilogue)) - @as(i32, @intCast(ret_to_epi));
+        asm_ctx.patchAt(ret_to_epi, a64.Assembler.b(@intCast(off1)));
+        const off2: i32 = @as(i32, @intCast(epilogue)) - @as(i32, @intCast(qe_to_epi));
+        asm_ctx.patchAt(qe_to_epi, a64.Assembler.b(@intCast(off2)));
+    }
 
     // --- Patch branches ---
     for (pending_branches.items) |pb| {
@@ -324,17 +374,25 @@ pub fn compile(func: *types.Function, vm: *VM, allocator: std.mem.Allocator) !*J
         }
     }
 
+    // --- Patch return branches ---
+    for (pending_returns.items) |pr| {
+        const offset: i32 = @as(i32, @intCast(return_trampoline)) - @as(i32, @intCast(pr));
+        asm_ctx.patchAt(pr, a64.Assembler.b(@intCast(offset)));
+    }
+
+    // --- Patch quick-exit branches ---
+    for (pending_quick_exits.items) |pq| {
+        const offset: i32 = @as(i32, @intCast(quick_exit)) - @as(i32, @intCast(pq));
+        asm_ctx.patchAt(pq, a64.Assembler.b(@intCast(offset)));
+    }
+
     // --- Patch side-exits ---
     for (pending_exits.items) |pe| {
-        // Each side-exit needs: mov x0, #bc_ip; b exit_trampoline
-        // But we only reserved 1 instruction slot. We need to jump to a stub.
-        // Emit the stub at the end of the code.
         const stub_pos = asm_ctx.pos();
         try asm_ctx.emitLoadImm64(.x0, pe.bc_ip);
         const exit_offset: i32 = @as(i32, @intCast(exit_start)) - @as(i32, @intCast(asm_ctx.pos()));
         try asm_ctx.emit(a64.Assembler.b(@intCast(exit_offset)));
 
-        // Patch the original placeholder to jump to this stub
         const stub_offset: i32 = @as(i32, @intCast(stub_pos)) - @as(i32, @intCast(pe.native_idx));
         if (pe.cond) |cond| {
             asm_ctx.patchAt(pe.native_idx, a64.Assembler.bCond(cond, @intCast(stub_offset)));
@@ -360,6 +418,16 @@ pub fn tryCompile(func: *types.Function, vm: *VM) void {
     if (!isEligible(func)) return;
     const jit_code = compile(func, vm, vm.gc.allocator) catch return;
     func.jit_code = jit_code;
+}
+
+pub fn jitFinishCallee(vm_ptr: *VM, _: u64, dst_abs_idx: u64) callconv(.c) u64 {
+    const target_fc = vm_ptr.frame_count - 1;
+    const result = vm_ptr.runUntil(target_fc, vm_ptr.wind_count) catch |err| {
+        vm_ptr.jit_error = err;
+        return 0;
+    };
+    vm_ptr.registers[@intCast(dst_abs_idx)] = result;
+    return 1;
 }
 
 pub fn freeJitCode(jit_code: *JitCode, allocator: std.mem.Allocator) void {
@@ -584,6 +652,252 @@ fn emitSpecializedArith(asm_ctx: *a64.Assembler, base_reg: u8, spec: Specialized
             try asm_ctx.emitStrImm(.x6, FRAME_PTR, dst_off);
         },
         .none => unreachable,
+    }
+}
+
+fn emitReturn(asm_ctx: *a64.Assembler, src: u8, pending_exits: *std.ArrayList(PendingSideExit), pending_returns: *std.ArrayList(u32), allocator: std.mem.Allocator, bc_ip: usize) !void {
+    // Load return value from source register
+    try asm_ctx.emitLdrImm(.x0, FRAME_PTR, @as(u16, src) * 8);
+
+    // Guard: side-exit if wind_count > 0 (dynamic-wind needs interpreter)
+    try emitLoadFromVmField(asm_ctx, .x1, OFF_WIND_COUNT);
+    try asm_ctx.emitCmpImm(.x1, 0);
+    const wind_exit = asm_ctx.pos();
+    try asm_ctx.emit(0); // b.ne side-exit
+    try pending_exits.append(allocator, .{ .native_idx = wind_exit, .bc_ip = bc_ip, .cond = .ne });
+
+    // Store return value at registers[frame.base - 1] = FRAME_PTR[-8]
+    try asm_ctx.emitSubImm(.x1, FRAME_PTR, 8);
+    try asm_ctx.emitStrImm(.x0, .x1, 0);
+
+    // Decrement frame_count
+    try emitLoadFromVmField(asm_ctx, .x1, OFF_FRAME_COUNT);
+    try asm_ctx.emitSubImm(.x1, .x1, 1);
+    try emitStoreAtOffset(asm_ctx, .x1, VM_PTR, OFF_FRAME_COUNT);
+
+    // Branch to return trampoline (patched later)
+    const ret_br = asm_ctx.pos();
+    try asm_ctx.emit(0);
+    try pending_returns.append(allocator, ret_br);
+}
+
+fn emitCall(asm_ctx: *a64.Assembler, base_reg: u8, nargs: u8, pending_exits: *std.ArrayList(PendingSideExit), pending_returns: *std.ArrayList(u32), pending_quick_exits: *std.ArrayList(u32), allocator: std.mem.Allocator, bc_ip: usize, ip_after: usize, caller_func: *const types.Function) !void {
+    _ = caller_func;
+    // Load callee value from frame register
+    try asm_ctx.emitLdrImm(.x0, FRAME_PTR, @as(u16, base_reg) * 8);
+    // Emit the shared call sequence
+    try emitCallSequence(asm_ctx, base_reg, nargs, .x0, pending_exits, pending_returns, pending_quick_exits, allocator, bc_ip, ip_after);
+}
+
+fn emitCallGlobal(asm_ctx: *a64.Assembler, base_reg: u8, sym_idx: u16, nargs: u8, pending_exits: *std.ArrayList(PendingSideExit), pending_returns: *std.ArrayList(u32), pending_quick_exits: *std.ArrayList(u32), allocator: std.mem.Allocator, bc_ip: usize, ip_after: usize, caller_func: *const types.Function) !void {
+    _ = caller_func;
+    // Resolve global from cache into frame[base_reg], then load it
+    try emitGetGlobal(asm_ctx, base_reg, sym_idx, pending_exits, allocator, bc_ip);
+    try asm_ctx.emitLdrImm(.x0, FRAME_PTR, @as(u16, base_reg) * 8);
+    // Emit the shared call sequence
+    try emitCallSequence(asm_ctx, base_reg, nargs, .x0, pending_exits, pending_returns, pending_quick_exits, allocator, bc_ip, ip_after);
+}
+
+fn emitCallSequence(asm_ctx: *a64.Assembler, base_reg: u8, nargs: u8, callee_reg: Reg, pending_exits: *std.ArrayList(PendingSideExit), pending_returns: *std.ArrayList(u32), pending_quick_exits: *std.ArrayList(u32), allocator: std.mem.Allocator, bc_ip: usize, ip_after: usize) !void {
+    _ = callee_reg; // always .x0
+    _ = pending_quick_exits;
+
+    // --- Pointer check: bits 0-1 must be 0 and value must be non-zero ---
+    // Layout: [0]tbnz, [1]tbnz, [2]cmp, [3]b.eq, [4]b(skip), [5]side_exit_B, [6]...
+    try asm_ctx.emit(a64.Assembler.tbnz(.x0, 0, 5)); // fixnum → side-exit at [5]
+    try asm_ctx.emit(a64.Assembler.tbnz(.x0, 1, 4)); // immediate → side-exit at [5]
+    try asm_ctx.emitCmpImm(.x0, 0);
+    try asm_ctx.emit(a64.Assembler.bCond(.eq, 2)); // null → side-exit at [5]
+    try asm_ctx.emit(a64.Assembler.b(2)); // success → skip to [6]
+    const se_b = asm_ctx.pos();
+    try asm_ctx.emit(0);
+    try pending_exits.append(allocator, .{ .native_idx = se_b, .bc_ip = bc_ip });
+
+    // --- Tag check: object tag must be closure (3) ---
+    // x0 is a valid pointer to a heap Object
+    try asm_ctx.emitLdrbImm(.x1, .x0, @intCast(OFF_OBJECT_TAG));
+    // Mask to 6 bits (ObjectTag is u6, might share byte with marked bit)
+    try asm_ctx.emitMovz(.x2, 0x3F, 0);
+    try asm_ctx.emitAndReg(.x1, .x1, .x2);
+    try asm_ctx.emitCmpImm(.x1, @intFromEnum(types.ObjectTag.closure));
+    const tag_exit = asm_ctx.pos();
+    try asm_ctx.emit(0); // b.ne side-exit
+    try pending_exits.append(allocator, .{ .native_idx = tag_exit, .bc_ip = bc_ip, .cond = .ne });
+
+    // --- Load closure.func, check arity, variadic, frame_count, jit_code ---
+    // x0 = Closure*, load func pointer
+    try emitLoadFromField(asm_ctx, .x5, .x0, OFF_CLOSURE_FUNC); // x5 = func*
+
+    // Check arity == nargs
+    try asm_ctx.emitLdrbImm(.x1, .x5, @intCast(OFF_FUNC_ARITY));
+    try asm_ctx.emitCmpImm(.x1, nargs);
+    const arity_exit = asm_ctx.pos();
+    try asm_ctx.emit(0); // b.ne side-exit
+    try pending_exits.append(allocator, .{ .native_idx = arity_exit, .bc_ip = bc_ip, .cond = .ne });
+
+    // Check !is_variadic
+    try asm_ctx.emitLdrbImm(.x1, .x5, @intCast(OFF_FUNC_IS_VARIADIC));
+    try asm_ctx.emitCmpImm(.x1, 0);
+    const var_exit = asm_ctx.pos();
+    try asm_ctx.emit(0); // b.ne side-exit
+    try pending_exits.append(allocator, .{ .native_idx = var_exit, .bc_ip = bc_ip, .cond = .ne });
+
+    // Check frame_count < MAX_FRAMES
+    try emitLoadFromVmField(asm_ctx, .x1, OFF_FRAME_COUNT);
+    try asm_ctx.emitLoadImm64(.x2, MAX_FRAMES);
+    try asm_ctx.emitCmpReg(.x1, .x2);
+    const fc_exit = asm_ctx.pos();
+    try asm_ctx.emit(0); // b.hs side-exit (unsigned >=)
+    try pending_exits.append(allocator, .{ .native_idx = fc_exit, .bc_ip = bc_ip, .cond = .hs });
+
+    // Check func.jit_code != null
+    try emitLoadFromField(asm_ctx, .x6, .x5, OFF_FUNC_JIT_CODE); // x6 = jit_code*
+    try asm_ctx.emitCmpImm(.x6, 0);
+    const jit_exit = asm_ctx.pos();
+    try asm_ctx.emit(0); // b.eq side-exit
+    try pending_exits.append(allocator, .{ .native_idx = jit_exit, .bc_ip = bc_ip, .cond = .eq });
+
+    // --- Save caller's frame IP (pointing past the call instruction) ---
+    // Compute caller's frame address: &frames[frame_count - 1]
+    // x1 still has frame_count from the check above
+    try asm_ctx.emitSubImm(.x1, .x1, 1); // x1 = frame_count - 1
+    try emitMulConst(asm_ctx, .x2, .x1, SIZEOF_CALLFRAME);
+    try emitAddLargeOffset(asm_ctx, .x3, VM_PTR, OFF_FRAMES);
+    try asm_ctx.emitAddReg(.x3, .x3, .x2); // x3 = &frames[frame_count-1] (caller frame)
+    try asm_ctx.emitLoadImm64(.x4, ip_after);
+    try emitStoreAtOffset(asm_ctx, .x4, .x3, OFF_FRAME_IP);
+
+    // --- Push new frame ---
+    // New frame address = x3 + SIZEOF_CALLFRAME = &frames[frame_count]
+    try asm_ctx.emitLoadImm64(.x4, SIZEOF_CALLFRAME);
+    try asm_ctx.emitAddReg(.x3, .x3, .x4); // x3 = &frames[frame_count] (new frame)
+
+    // new_base = frame.base + base_reg + 1
+    // frame.base = BASE_OFF / 8
+    try asm_ctx.emit(a64.Assembler.asrImm(.x7, BASE_OFF, 3)); // x7 = frame.base (not really ASR, it's LSR since BASE_OFF is unsigned)
+    // Actually BASE_OFF = frame.base * 8 and is always positive, so LSR is correct.
+    // But asrImm is arithmetic shift. For unsigned values this works fine (no sign extension needed for small values).
+    // Use the raw LSR encoding via lslImm? No, LSR is a different alias.
+    // Let me just divide: x7 = BASE_OFF >> 3
+    try asm_ctx.emitLoadImm64(.x4, @as(u16, base_reg) + 1);
+    try asm_ctx.emitAddReg(.x7, .x7, .x4); // x7 = frame.base + base_reg + 1 = new_base
+
+    // Store frame fields:
+    // closure (x0) at OFF_FRAME_CLOSURE
+    try emitStoreAtOffset(asm_ctx, .x0, .x3, OFF_FRAME_CLOSURE);
+
+    // native = null (0)
+    try asm_ctx.emitMovz(.x4, 0, 0);
+    try emitStoreAtOffset(asm_ctx, .x4, .x3, OFF_FRAME_NATIVE);
+
+    // code = func.code.items (ptr at OFF_FUNC_CODE, len at OFF_FUNC_CODE+8)
+    try emitLoadFromField(asm_ctx, .x4, .x5, OFF_FUNC_CODE); // items.ptr
+    try emitStoreAtOffset(asm_ctx, .x4, .x3, OFF_FRAME_CODE);
+    try emitLoadFromField(asm_ctx, .x4, .x5, OFF_FUNC_CODE + 8); // items.len
+    try emitStoreAtOffset(asm_ctx, .x4, .x3, OFF_FRAME_CODE + 8);
+
+    // ip = 0
+    try asm_ctx.emitMovz(.x4, 0, 0);
+    try emitStoreAtOffset(asm_ctx, .x4, .x3, OFF_FRAME_IP);
+
+    // base = new_base (u16)
+    try emitStoreHalfAtOffset(asm_ctx, .x7, .x3, OFF_FRAME_BASE);
+
+    // dst = base_reg (u8)
+    try emitStoreByteAtOffset(asm_ctx, base_reg, .x3, OFF_FRAME_DST, .x4);
+
+    // saved_wind_count = vm.wind_count (u16, but wind_count is usize)
+    try emitLoadFromVmField(asm_ctx, .x4, OFF_WIND_COUNT);
+    try emitStoreHalfAtOffset(asm_ctx, .x4, .x3, OFF_FRAME_SAVED_WIND);
+
+    // Increment frame_count
+    try emitLoadFromVmField(asm_ctx, .x1, OFF_FRAME_COUNT);
+    try asm_ctx.emitAddImm(.x1, .x1, 1);
+    try emitStoreAtOffset(asm_ctx, .x1, VM_PTR, OFF_FRAME_COUNT);
+
+    // Increment call_count (wrapping)
+    try emitLoadWFromField(asm_ctx, .x1, .x5, OFF_FUNC_CALL_COUNT);
+    try asm_ctx.emitAddImm(.x1, .x1, 1);
+    try emitStoreWAtOffset(asm_ctx, .x1, .x5, OFF_FUNC_CALL_COUNT);
+
+    // --- Call callee's JIT entry ---
+    // Load entry point: jit_code.entry
+    try emitLoadFromField(asm_ctx, .x8, .x6, OFF_JIT_CODE_ENTRY); // x8 = entry fn ptr
+
+    // Set up arguments:
+    // x0 = VM* (from VM_PTR = x21)
+    // x1 = new_base (from x7)
+    // x2 = callee func.constants.items.ptr
+    // x3 = callee closure* (from x0, but x0 will be overwritten)
+
+    // Save closure pointer before setting up args
+    try asm_ctx.emitMovReg(.x9, .x0); // x9 = callee closure*
+    // Load callee constants
+    try emitLoadFromField(asm_ctx, .x2, .x5, OFF_FUNC_CONSTANTS); // x2 = constants.items.ptr
+    try asm_ctx.emitMovReg(.x3, .x9); // x3 = callee closure*
+    try asm_ctx.emitMovReg(.x1, .x7); // x1 = new_base
+    try asm_ctx.emitMovReg(.x0, VM_PTR); // x0 = VM*
+
+    try asm_ctx.emitBlr(.x8);
+
+    // --- Handle result ---
+    // x0 = callee's JIT result (0 = normal completion, >0 = exit IP + 1)
+    // Our callee-saved registers (FRAME_PTR, CONST_PTR, etc.) are restored by C ABI.
+
+    try asm_ctx.emitCmpImm(.x0, 0);
+    const callee_ok = asm_ctx.pos();
+    try asm_ctx.emit(0); // b.eq → callee completed, skip fixup
+
+    // Callee side-exited: frame IP already set by callee's exit trampoline.
+    // Call jitFinishCallee(VM*, 0, dst_abs_idx) to run callee to completion.
+    try asm_ctx.emit(a64.Assembler.asrImm(.x2, BASE_OFF, 3)); // x2 = frame.base
+    try asm_ctx.emitAddImm(.x2, .x2, base_reg); // x2 = dst_abs_idx
+    try asm_ctx.emitMovz(.x1, 0, 0); // unused arg
+    try asm_ctx.emitMovReg(.x0, VM_PTR);
+    try asm_ctx.emitLoadImm64(.x8, @intFromPtr(&jitFinishCallee));
+    try asm_ctx.emitBlr(.x8);
+
+    // Helper result: 1 = success, 0 = error (jit_error set)
+    try asm_ctx.emitCmpImm(.x0, 0);
+    try asm_ctx.emit(a64.Assembler.bCond(.ne, 2)); // success → skip error branch
+    const err_br = asm_ctx.pos();
+    try asm_ctx.emit(0); // placeholder B to return_trampoline
+    try pending_returns.append(allocator, err_br);
+
+    // Patch callee_ok to point to here (success continuation)
+    const final_ok = asm_ctx.pos();
+    const final_ok_off: i32 = @as(i32, @intCast(final_ok)) - @as(i32, @intCast(callee_ok));
+    asm_ctx.patchAt(callee_ok, a64.Assembler.bCond(.eq, @intCast(final_ok_off)));
+}
+
+fn emitStoreHalfAtOffset(asm_ctx: *a64.Assembler, rt: Reg, rn: Reg, offset: usize) !void {
+    if (offset <= 8190 and offset % 2 == 0) {
+        try asm_ctx.emitStrhImm(rt, rn, @intCast(offset));
+    } else {
+        try asm_ctx.emitLoadImm64(.x4, offset);
+        try asm_ctx.emitAddReg(.x4, rn, .x4);
+        try asm_ctx.emit(a64.Assembler.strhImm(.x4, .x4, 0));
+    }
+}
+
+fn emitStoreByteAtOffset(asm_ctx: *a64.Assembler, value: u8, rn: Reg, offset: usize, tmp: Reg) !void {
+    try asm_ctx.emitMovz(tmp, value, 0);
+    if (offset <= 4095) {
+        try asm_ctx.emitStrbImm(tmp, rn, @intCast(offset));
+    } else {
+        try asm_ctx.emitLoadImm64(.x4, offset);
+        try asm_ctx.emitAddReg(.x4, rn, .x4);
+        try asm_ctx.emit(a64.Assembler.strbImm(tmp, .x4, 0));
+    }
+}
+
+fn emitStoreWAtOffset(asm_ctx: *a64.Assembler, rt: Reg, rn: Reg, offset: usize) !void {
+    if (offset <= 16380 and offset % 4 == 0) {
+        try asm_ctx.emit(a64.Assembler.strWImm(rt, rn, @intCast(offset)));
+    } else {
+        try asm_ctx.emitLoadImm64(.x4, offset);
+        try asm_ctx.emitAddReg(.x4, rn, .x4);
+        try asm_ctx.emit(a64.Assembler.strWImm(rt, .x4, 0));
     }
 }
 
@@ -980,4 +1294,55 @@ test "compile and execute jump_false" {
     _ = entry(&vm, 0, &[_]types.Value{}, cls);
 
     try std.testing.expectEqual(types.NIL, vm.registers[1]);
+}
+
+test "native return stores result and pops frame" {
+    const memory = @import("memory.zig");
+    const th = @import("testing_helpers.zig");
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    const f = try gc.allocFunction();
+    // load_const r0, 0; return r0
+    try f.constants.append(gc.allocator, types.makeFixnum(99));
+    try f.code.append(gc.allocator, @intFromEnum(types.OpCode.load_const));
+    try f.code.append(gc.allocator, 0); // dst r0
+    try f.code.append(gc.allocator, 0); // idx lo
+    try f.code.append(gc.allocator, 0); // idx hi
+    try f.code.append(gc.allocator, @intFromEnum(types.OpCode.@"return"));
+    try f.code.append(gc.allocator, 0); // src r0
+    f.locals_count = 1;
+
+    const jit_code = try compile(f, &vm, std.testing.allocator);
+    defer freeJitCode(jit_code, std.testing.allocator);
+
+    const cls_val = try gc.allocClosure(f);
+    const cls = types.toObject(cls_val).as(types.Closure);
+
+    // Set up as if called from base=4, so new_base=5, return dst = registers[4]
+    const caller_base: u16 = 2;
+    const call_base: u16 = 4; // callee register
+    const new_base: u16 = call_base + 1;
+
+    // Simulate the caller frame
+    vm.frames[0] = .{ .closure = cls, .code = &.{}, .ip = 0, .base = caller_base, .dst = 0 };
+    // Callee frame (the JIT-compiled function)
+    vm.frames[1] = .{
+        .closure = cls,
+        .code = f.code.items,
+        .ip = 0,
+        .base = new_base,
+        .dst = @intCast(call_base - caller_base),
+    };
+    vm.frame_count = 2;
+
+    const entry: JitEntryFn = @ptrCast(@alignCast(jit_code.entry));
+    const result = entry(&vm, new_base, f.constants.items.ptr, cls);
+
+    // JIT return should: store result at registers[new_base-1]=registers[4], pop frame
+    try std.testing.expectEqual(@as(u64, 0), result); // normal completion
+    try std.testing.expectEqual(@as(usize, 1), vm.frame_count); // frame popped
+    try std.testing.expectEqual(@as(i64, 99), types.toFixnum(vm.registers[call_base])); // result stored
 }

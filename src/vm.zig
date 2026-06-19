@@ -204,6 +204,7 @@ pub const VM = struct {
     /// When non-null, record files read during library loading for bundling.
     compile_collect_files: ?*std.StringHashMap([]const u8) = null,
     jit_disabled: bool = false,
+    jit_error: ?VMError = null,
     param_overrides: std.AutoHashMap(usize, Value) = undefined,
     scheduler: ?*@import("fiber.zig").FiberScheduler = null,
     current_fiber: ?*@import("fiber.zig").Fiber = null,
@@ -1974,7 +1975,11 @@ pub const VM = struct {
                 if (func.jit_code) |jit_code| {
                     const entry: jit.JitEntryFn = @ptrCast(@alignCast(jit_code.entry));
                     const result = entry(self, new_base, func.constants.items.ptr, closure);
-                    if (result > 0) {
+                    if (self.jit_error) |err| {
+                        self.jit_error = null;
+                        return err;
+                    }
+                    if (result > 0 and result != 0xFFFFFFFF) {
                         self.frames[self.frame_count - 1].ip = result - 1;
                     }
                     return;
