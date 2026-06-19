@@ -7,6 +7,9 @@ const ReadError = reader_mod.ReadError;
 const Token = reader_mod.Token;
 
 pub fn readDatum(self: *Reader) ReadError!Value {
+    if (self.depth >= Reader.MAX_NESTING_DEPTH) return ReadError.NestingTooDeep;
+    self.depth += 1;
+    defer self.depth -= 1;
     const tok = try self.nextToken();
     return tokenToValue(self, tok);
 }

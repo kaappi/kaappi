@@ -13,6 +13,7 @@ pub const PrintMode = enum {
 // ---------------------------------------------------------------------------
 
 const MAX_SHARED = 1024;
+const MAX_PRINT_DEPTH: u32 = 1024;
 
 const SharedState = struct {
     seen: [MAX_SHARED]Value = undefined,
@@ -21,6 +22,7 @@ const SharedState = struct {
     shared_count: usize = 0,
     labels: [MAX_SHARED]i32 = undefined, // -1 = not yet labeled, >= 0 = label number
     next_label: i32 = 0,
+    depth: u32 = 0,
 
     fn isShared(self: *SharedState, val: Value) bool {
         for (self.shared[0..self.shared_count]) |sh| {
@@ -58,6 +60,9 @@ const SharedState = struct {
 /// We only recurse on first encounter to avoid infinite loops on cycles.
 fn markShared(value: Value, state: *SharedState) void {
     if (!types.isPointer(value)) return;
+    if (state.depth >= MAX_PRINT_DEPTH) return;
+    state.depth += 1;
+    defer state.depth -= 1;
     const obj = types.toObject(value);
     switch (obj.tag) {
         .pair, .vector => {
@@ -99,6 +104,12 @@ fn markShared(value: Value, state: *SharedState) void {
 /// `atom_mode` selects write vs display rendering for leaf atoms (strings,
 /// chars); list/vector structure renders identically in both.
 fn printValueShared(writer: anytype, value: Value, state: *SharedState, atom_mode: PrintMode) anyerror!void {
+    if (state.depth >= MAX_PRINT_DEPTH) {
+        try writer.writeAll("#<deep>");
+        return;
+    }
+    state.depth += 1;
+    defer state.depth -= 1;
     // Check if this value has a label assigned (shared/cyclic reference)
     if (types.isPointer(value) and state.isShared(value)) {
         if (state.getLabel(value)) |label| {

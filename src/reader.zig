@@ -13,6 +13,7 @@ pub const ReadError = error{
     InvalidEscape,
     DotNotInList,
     OutOfMemory,
+    NestingTooDeep,
 };
 
 pub const Token = union(enum) {
@@ -47,6 +48,9 @@ pub const Reader = struct {
     fold_case: bool = false,
     labels: [32]?Value = .{null} ** 32,
     source_name: []const u8 = "<input>",
+    depth: u32 = 0,
+
+    pub const MAX_NESTING_DEPTH = 1024;
 
     pub fn init(gc: *memory.GC, source: []const u8) Reader {
         return .{
