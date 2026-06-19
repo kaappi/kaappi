@@ -249,10 +249,21 @@ fn outputPortOpenP(args: []const Value) PrimitiveError!Value {
 
 fn raiseFileError(gc: *@import("memory.zig").GC, msg_text: []const u8, irritant: Value) PrimitiveError!Value {
     const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError;
-    const msg = gc.allocString(msg_text) catch return PrimitiveError.OutOfMemory;
-    const irritants = gc.allocPair(irritant, types.NIL) catch return PrimitiveError.OutOfMemory;
-    const err_obj = gc.allocErrorObject(msg, irritants) catch return PrimitiveError.OutOfMemory;
-    // Mark as file error
+    var msg = gc.allocString(msg_text) catch return PrimitiveError.OutOfMemory;
+    gc.pushRoot(&msg);
+    const irritants = gc.allocPair(irritant, types.NIL) catch {
+        gc.popRoot();
+        return PrimitiveError.OutOfMemory;
+    };
+    var irritants_root = irritants;
+    gc.pushRoot(&irritants_root);
+    const err_obj = gc.allocErrorObject(msg, irritants_root) catch {
+        gc.popRoot();
+        gc.popRoot();
+        return PrimitiveError.OutOfMemory;
+    };
+    gc.popRoot();
+    gc.popRoot();
     types.toObject(err_obj).as(types.ErrorObject).error_type = .file;
     vm.current_exception = err_obj;
     return PrimitiveError.ExceptionRaised;
@@ -484,8 +495,13 @@ fn readDatumFn(args: []const Value) PrimitiveError!Value {
         defer reader.deinit();
         const datum = reader.readDatum() catch |err| {
             if (err == reader_mod.ReadError.UnexpectedEof or err == reader_mod.ReadError.OutOfMemory) return types.EOF;
-            const msg = gc.allocString("read error") catch return PrimitiveError.OutOfMemory;
-            const err_obj = gc.allocErrorObject(msg, types.NIL) catch return PrimitiveError.OutOfMemory;
+            var msg = gc.allocString("read error") catch return PrimitiveError.OutOfMemory;
+            gc.pushRoot(&msg);
+            const err_obj = gc.allocErrorObject(msg, types.NIL) catch {
+                gc.popRoot();
+                return PrimitiveError.OutOfMemory;
+            };
+            gc.popRoot();
             const errObj = types.toObject(err_obj).as(types.ErrorObject);
             errObj.error_type = .read;
             const raise_args = [1]Value{err_obj};
@@ -630,10 +646,28 @@ fn deleteFile(args: []const Value) PrimitiveError!Value {
 
     const result = std.posix.system.unlink(path_z);
     if (result < 0) {
-        const msg = gc.allocString("cannot delete file") catch return PrimitiveError.OutOfMemory;
-        const irritant = gc.allocString(path) catch return PrimitiveError.OutOfMemory;
-        const irr_list = gc.allocPair(irritant, types.NIL) catch return PrimitiveError.OutOfMemory;
-        const err_obj = gc.allocErrorObject(msg, irr_list) catch return PrimitiveError.OutOfMemory;
+        var msg = gc.allocString("cannot delete file") catch return PrimitiveError.OutOfMemory;
+        gc.pushRoot(&msg);
+        var irritant = gc.allocString(path) catch {
+            gc.popRoot();
+            return PrimitiveError.OutOfMemory;
+        };
+        gc.pushRoot(&irritant);
+        var irr_list = gc.allocPair(irritant, types.NIL) catch {
+            gc.popRoot();
+            gc.popRoot();
+            return PrimitiveError.OutOfMemory;
+        };
+        gc.pushRoot(&irr_list);
+        const err_obj = gc.allocErrorObject(msg, irr_list) catch {
+            gc.popRoot();
+            gc.popRoot();
+            gc.popRoot();
+            return PrimitiveError.OutOfMemory;
+        };
+        gc.popRoot();
+        gc.popRoot();
+        gc.popRoot();
         types.toObject(err_obj).as(types.ErrorObject).error_type = .file;
         const raise_args = [1]Value{err_obj};
         return primitives_control.raiseFn(&raise_args);

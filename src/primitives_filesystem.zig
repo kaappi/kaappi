@@ -98,9 +98,21 @@ pub fn registerFilesystem(vm: *vm_mod.VM) !void {
 
 fn raiseFileError(gc: *GC, msg_text: []const u8, irritant: Value) PrimitiveError!Value {
     const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError;
-    const msg = gc.allocString(msg_text) catch return PrimitiveError.OutOfMemory;
-    const irritants = gc.allocPair(irritant, types.NIL) catch return PrimitiveError.OutOfMemory;
-    const err_obj = gc.allocErrorObject(msg, irritants) catch return PrimitiveError.OutOfMemory;
+    var msg = gc.allocString(msg_text) catch return PrimitiveError.OutOfMemory;
+    gc.pushRoot(&msg);
+    const irritants = gc.allocPair(irritant, types.NIL) catch {
+        gc.popRoot();
+        return PrimitiveError.OutOfMemory;
+    };
+    var irritants_root = irritants;
+    gc.pushRoot(&irritants_root);
+    const err_obj = gc.allocErrorObject(msg, irritants_root) catch {
+        gc.popRoot();
+        gc.popRoot();
+        return PrimitiveError.OutOfMemory;
+    };
+    gc.popRoot();
+    gc.popRoot();
     types.toObject(err_obj).as(types.ErrorObject).error_type = .file;
     vm.current_exception = err_obj;
     return PrimitiveError.ExceptionRaised;

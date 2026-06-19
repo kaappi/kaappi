@@ -95,10 +95,15 @@ pub fn makeRationalReduced(gc: *@import("memory.zig").GC, num_val: Value, den_va
 /// Raise a division-by-zero error through the exception system so that
 /// (guard ...) can catch it.
 pub fn raiseDivByZero() PrimitiveError!Value {
-    const vm = vm_mod.vm_instance orelse return raiseDivByZero();
-    const gc = primitives.gc_instance orelse return raiseDivByZero();
-    const msg = gc.allocString("division by zero") catch return raiseDivByZero();
-    const err_obj = gc.allocErrorObject(msg, types.NIL) catch return raiseDivByZero();
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.DivisionByZero;
+    const gc = primitives.gc_instance orelse return PrimitiveError.DivisionByZero;
+    var msg = gc.allocString("division by zero") catch return PrimitiveError.DivisionByZero;
+    gc.pushRoot(&msg);
+    const err_obj = gc.allocErrorObject(msg, types.NIL) catch {
+        gc.popRoot();
+        return PrimitiveError.DivisionByZero;
+    };
+    gc.popRoot();
     vm.current_exception = err_obj;
     return PrimitiveError.ExceptionRaised;
 }

@@ -115,8 +115,13 @@ fn withExceptionHandlerFn(args: []const Value) PrimitiveError!Value {
             };
             gc.popRoot();
             // Handler returned from non-continuable raise — re-raise per R7RS
-            const reraise_msg = gc.allocString("handler returned") catch return PrimitiveError.OutOfMemory;
-            const reraise_err = gc.allocErrorObject(reraise_msg, types.NIL) catch return PrimitiveError.OutOfMemory;
+            var reraise_msg = gc.allocString("handler returned") catch return PrimitiveError.OutOfMemory;
+            gc.pushRoot(&reraise_msg);
+            const reraise_err = gc.allocErrorObject(reraise_msg, types.NIL) catch {
+                gc.popRoot();
+                return PrimitiveError.OutOfMemory;
+            };
+            gc.popRoot();
             vm.current_exception = reraise_err;
             return PrimitiveError.ExceptionRaised;
         }
@@ -124,11 +129,16 @@ fn withExceptionHandlerFn(args: []const Value) PrimitiveError!Value {
         // Convert VM-level errors into Scheme exceptions so guard can catch them
         const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
         const detail = vm.getErrorDetail();
-        const msg_str = if (detail.len > 0)
+        var msg_str = if (detail.len > 0)
             gc.allocString(detail) catch return PrimitiveError.OutOfMemory
         else
             gc.allocString("error") catch return PrimitiveError.OutOfMemory;
-        const err_obj = gc.allocErrorObject(msg_str, types.NIL) catch return PrimitiveError.OutOfMemory;
+        gc.pushRoot(&msg_str);
+        const err_obj = gc.allocErrorObject(msg_str, types.NIL) catch {
+            gc.popRoot();
+            return PrimitiveError.OutOfMemory;
+        };
+        gc.popRoot();
         var handler_root = handler;
         gc.pushRoot(&handler_root);
         var err_root = err_obj;
@@ -189,16 +199,24 @@ fn errorFn(args: []const Value) PrimitiveError!Value {
 
     // Build irritants list from remaining args
     var irritants: Value = types.NIL;
+    gc.pushRoot(&irritants);
     if (args.len > 1) {
         var i = args.len;
         while (i > 1) {
             i -= 1;
-            irritants = gc.allocPair(args[i], irritants) catch return PrimitiveError.OutOfMemory;
+            irritants = gc.allocPair(args[i], irritants) catch {
+                gc.popRoot();
+                return PrimitiveError.OutOfMemory;
+            };
         }
     }
 
     // Create the error object
-    const err_obj = gc.allocErrorObject(message, irritants) catch return PrimitiveError.OutOfMemory;
+    const err_obj = gc.allocErrorObject(message, irritants) catch {
+        gc.popRoot();
+        return PrimitiveError.OutOfMemory;
+    };
+    gc.popRoot();
 
     // Raise it through the exception system
     const raise_args = [1]Value{err_obj};
