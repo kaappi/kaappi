@@ -123,32 +123,25 @@ fn ffiCallbackFn(args: []const Value) PrimitiveError!Value {
         return primitives.typeError("ffi-callback", "procedure", proc);
 
     // Parse and validate callback signature
+    var param_types: [8]types.FfiType = undefined;
     var param_count: u8 = 0;
     var param_list = args[1];
     while (param_list != types.NIL) {
         if (!types.isPair(param_list)) return PrimitiveError.TypeError;
-        const pt = parseType(types.car(param_list)) orelse return PrimitiveError.TypeError;
-        if (pt != .pointer) {
-            const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError;
-            vm.setErrorDetail("ffi-callback: only '(pointer pointer) signature supported", .{});
-            return PrimitiveError.TypeError;
-        }
+        if (param_count >= 8) return PrimitiveError.TypeError;
+        param_types[param_count] = parseType(types.car(param_list)) orelse return PrimitiveError.TypeError;
         param_count += 1;
         param_list = types.cdr(param_list);
     }
-    if (param_count != 2) {
-        const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError;
-        vm.setErrorDetail("ffi-callback: expected 2 parameter types, got {d}", .{param_count});
-        return PrimitiveError.TypeError;
-    }
     const ret_type = parseType(args[2]) orelse return PrimitiveError.TypeError;
-    if (ret_type != .int) {
-        const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError;
-        vm.setErrorDetail("ffi-callback: only 'int return type supported", .{});
-        return PrimitiveError.TypeError;
-    }
 
-    const slot = ffi_callback.allocSlot(proc) orelse {
+    const sig = matchCallbackSig(param_types[0..param_count], ret_type) orelse {
+        const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError;
+        vm.setErrorDetail("ffi-callback: unsupported callback signature", .{});
+        return PrimitiveError.TypeError;
+    };
+
+    const slot = ffi_callback.allocSlot(proc, sig) orelse {
         const vm = vm_mod.vm_instance orelse return PrimitiveError.OutOfMemory;
         vm.setErrorDetail("ffi-callback: no free callback slots (max 16)", .{});
         return PrimitiveError.OutOfMemory;
@@ -183,7 +176,18 @@ fn ffiBytevectorPtr(args: []const Value) PrimitiveError!Value {
     return types.makeFixnum(@intCast(@intFromPtr(bv.data.ptr)));
 }
 
-/// Parse a Scheme symbol into an FfiType.
+fn matchCallbackSig(params: []const types.FfiType, ret: types.FfiType) ?ffi_callback.CallbackSig {
+    if (params.len == 2 and params[0] == .pointer and params[1] == .pointer and ret == .int)
+        return .pp_int;
+    if (params.len == 1 and params[0] == .pointer and ret == .void_type)
+        return .p_void;
+    if (params.len == 0 and ret == .void_type)
+        return .v_void;
+    if (params.len == 1 and params[0] == .pointer and ret == .int)
+        return .p_int;
+    return null;
+}
+
 fn parseType(v: Value) ?types.FfiType {
     if (!types.isSymbol(v)) return null;
     const name = types.symbolName(v);

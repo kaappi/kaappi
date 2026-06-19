@@ -61,15 +61,25 @@ The VM is purely interpreted bytecode. A tracing or method-based JIT would signi
 
 ## FFI callbacks — additional signatures
 
-**Status:** Basic support implemented (`(pointer, pointer) -> int`)
+**Status:** 4 signatures supported
 
-FFI callbacks now work for the qsort comparator pattern via `ffi-callback`. Extending to other callback signatures (e.g. `(pointer) -> void` for event handlers, `(int, pointer) -> int` for iterators) requires adding more comptime trampoline generators in `ffi_callback.zig`. The architecture supports this — each new signature is one `makeTrampoline` variant.
+Supported callback signatures via `ffi-callback`:
+- `(pointer, pointer) -> int` — qsort comparator pattern
+- `(pointer) -> void` — event handlers, cleanup callbacks
+- `(pointer) -> int` — predicates, filters
+- `() -> void` — atexit, simple signal handlers
+
+Each signature is a comptime trampoline generator sharing a 16-slot pool. Adding more signatures requires one new `makeTrampoline` variant in `ffi_callback.zig` and a `matchCallbackSig` entry in `primitives_ffi.zig`.
 
 **Current limitations:**
-- 16 simultaneous callbacks max
-- Only `(pointer, pointer) -> int` signature
+- 16 simultaneous callbacks max (shared across all signatures)
 - Single-threaded only — callbacks must be called from the VM's thread
-- Exceptions in callbacks return 0 to C
+- Exceptions in callbacks return 0 to C (void signatures silently discard errors)
+
+**Remaining signatures worth adding:**
+- `(int, pointer) -> int` — iterators with context
+- `(int) -> void` — signal handlers with signal number
+- `(pointer, pointer) -> void` — dual-context event handlers
 
 ---
 
