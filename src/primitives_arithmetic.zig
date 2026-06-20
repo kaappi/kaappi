@@ -605,6 +605,12 @@ fn quotient(args: []const Value) PrimitiveError!Value {
         if (bignum_mod.isZero(args[1])) return raiseDivByZero();
         return bignum_mod.quotient(gc, args[0], args[1]) catch return PrimitiveError.OutOfMemory;
     }
+    if (types.isFlonum(args[0]) or types.isFlonum(args[1])) {
+        const a = try toF64Ext(args[0]);
+        const b = try toF64Ext(args[1]);
+        if (b == 0) return raiseDivByZero();
+        return makeFlonumVal(@trunc(a / b));
+    }
     if (!types.isFixnum(args[0]) or !types.isFixnum(args[1])) return PrimitiveError.TypeError;
     const b = types.toFixnum(args[1]);
     if (b == 0) return raiseDivByZero();
@@ -631,16 +637,22 @@ fn remainder(args: []const Value) PrimitiveError!Value {
 
 fn modulo(args: []const Value) PrimitiveError!Value {
     if (types.isBignum(args[0]) or types.isBignum(args[1])) {
-        // For bignum modulo, compute remainder and adjust sign
         const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
         if (bignum_mod.isZero(args[1])) return raiseDivByZero();
         const rem = bignum_mod.remainder(gc, args[0], args[1]) catch return PrimitiveError.OutOfMemory;
         if (bignum_mod.isZero(rem)) return types.makeFixnum(0);
-        // If rem and b have different signs, add b
         if (bignum_mod.isNegative(rem) != bignum_mod.isNegative(args[1])) {
             return bignum_mod.add(gc, rem, args[1]) catch return PrimitiveError.OutOfMemory;
         }
         return rem;
+    }
+    if (types.isFlonum(args[0]) or types.isFlonum(args[1])) {
+        const a = try toF64Ext(args[0]);
+        const b = try toF64Ext(args[1]);
+        if (b == 0) return raiseDivByZero();
+        var r = @rem(a, b);
+        if (r != 0 and (r < 0) != (b < 0)) r += b;
+        return makeFlonumVal(r);
     }
     if (!types.isFixnum(args[0]) or !types.isFixnum(args[1])) return PrimitiveError.TypeError;
     const b = types.toFixnum(args[1]);
@@ -886,6 +898,13 @@ fn minVal(args: []const Value) PrimitiveError!Value {
         }
         return makeFlonumVal(result);
     }
+    if (anyRational(args)) {
+        var result_idx: usize = 0;
+        for (args[1..], 1..) |_, i| {
+            if ((try cmpPair(args[i], args[result_idx])) < 0) result_idx = i;
+        }
+        return args[result_idx];
+    }
     if (anyBignum(args)) {
         var result = args[0];
         for (args[1..]) |a| {
@@ -911,6 +930,13 @@ fn maxVal(args: []const Value) PrimitiveError!Value {
             if (n > result) result = n;
         }
         return makeFlonumVal(result);
+    }
+    if (anyRational(args)) {
+        var result_idx: usize = 0;
+        for (args[1..], 1..) |_, i| {
+            if ((try cmpPair(args[i], args[result_idx])) > 0) result_idx = i;
+        }
+        return args[result_idx];
     }
     if (anyBignum(args)) {
         var result = args[0];
@@ -995,6 +1021,14 @@ fn gcdFn(args: []const Value) PrimitiveError!Value {
             }
         }
         return result;
+    }
+    if (anyFlonum(args)) {
+        var result: i64 = @intFromFloat(@abs(try toF64Ext(args[0])));
+        for (args[1..]) |a| {
+            const n: i64 = @intFromFloat(@abs(try toF64Ext(a)));
+            result = gcdTwo(result, n);
+        }
+        return makeFlonumVal(@floatFromInt(result));
     }
     if (!types.isFixnum(args[0])) return PrimitiveError.TypeError;
     var result = types.toFixnum(args[0]);
