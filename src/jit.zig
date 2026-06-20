@@ -1480,7 +1480,7 @@ test "compile call_global with multiply" {
     try std.testing.expect(isEligible(f));
     const jit_code = try compile(f, &vm, std.testing.allocator);
     defer freeJitCode(jit_code, std.testing.allocator);
-    try std.testing.expect(jit_code.code_size > 0);
+    try std.testing.expect(jit_code.buf.len > 0);
 }
 
 test "compile call_global with zero? predicate" {
@@ -1507,7 +1507,7 @@ test "compile call_global with zero? predicate" {
     try std.testing.expect(isEligible(f));
     const jit_code = try compile(f, &vm, std.testing.allocator);
     defer freeJitCode(jit_code, std.testing.allocator);
-    try std.testing.expect(jit_code.code_size > 0);
+    try std.testing.expect(jit_code.buf.len > 0);
 }
 
 test "compile tail_call_global with add" {
@@ -1534,5 +1534,5 @@ test "compile tail_call_global with add" {
     try std.testing.expect(isEligible(f));
     const jit_code = try compile(f, &vm, std.testing.allocator);
     defer freeJitCode(jit_code, std.testing.allocator);
-    try std.testing.expect(jit_code.code_size > 0);
+    try std.testing.expect(jit_code.buf.len > 0);
 }

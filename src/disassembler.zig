@@ -470,8 +470,10 @@ test "disassemble all opcodes" {
     // self_tail_call r0, 1
     emit.op(func, allocator, .self_tail_call); emit.byte(func, allocator, 0); emit.byte(func, allocator, 1);
 
+    // Verify all opcodes are present in the bytecode
+    try std.testing.expect(func.code.items.len > 90);
+    // Call disassemble to exercise all formatting branches
     disassemble(func, allocator);
-    try std.testing.expect(func.code.items.len > 0);
 }
 
 fn writeStderr(bytes: []const u8) void {
