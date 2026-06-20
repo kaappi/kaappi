@@ -100,33 +100,32 @@ Reports top 20 functions sorted by self time, showing:
 
 ## JIT compilation
 
-**Status:** Baseline template JIT implemented (AArch64 only)
+**Status:** Template JIT implemented (AArch64 only)
 
-Hot functions (called 100+ times) are compiled to native AArch64 machine code. Each bytecode opcode maps to a pre-assembled native snippet that reads/writes the VM's register file directly. Complex operations (function calls, returns, GC-allocating ops) side-exit back to the interpreter. JIT is on by default; disable with `--no-jit`.
+Hot functions (called 100+ times) are compiled to native AArch64 machine code. Each bytecode opcode maps to a pre-assembled native snippet that reads/writes the VM's register file directly. Complex operations (closures, exception handlers) side-exit back to the interpreter. JIT is on by default; disable with `--no-jit`.
 
 **What gets JIT'd natively:**
 - `load_nil`, `load_true`, `load_false`, `load_void`, `load_const` — immediate/constant loads
 - `move`, `get_local`, `set_local` — register operations
 - `jump`, `jump_false`, `jump_true` — control flow
 - `get_upvalue`, `set_upvalue` — non-boxed upvalue access (boxed/mutable upvalues side-exit)
-- `get_global` — inline global cache check (version match + bounds + VOID check; cache miss side-exits)
-- `call_global` to `+`, `-`, `<`, `>`, `<=`, `>=`, `=` with 2 fixnum args — inline arithmetic with overflow check (non-fixnum or overflow side-exits)
-
-**What side-exits to the interpreter:**
-- `call`, `tail_call`, `self_tail_call`, `tail_call_global` — function dispatch
-- `call_global` for non-arithmetic or non-binary calls
-- `return` — frame management
-- `set_global`, `define_global` — global mutation (increments cache version)
-- `cons`, `box_local`, `get_box_local`, `set_box_local` — allocation/mutation
+- `get_global`, `set_global`, `define_global` — global access with inline cache
+- `cons` — pair allocation via helper call (GC-safe)
+- `box_local`, `get_box_local`, `set_box_local` — register boxing
+- `call`, `call_global` — full call sequence with JIT-to-JIT chaining for closures
+- `return` — frame management with dynamic-wind guard
+- `call_global`/`tail_call_global` to `+`, `-`, `*` with 2 fixnum args — inline arithmetic with overflow check
+- `call_global`/`tail_call_global` to `<`, `>`, `<=`, `>=`, `=` with 2 fixnum args — inline comparison
+- `call_global`/`tail_call_global` to `zero?`, `null?`, `pair?`, `not` — inline predicates
+- `call_global`/`tail_call_global` to `car`, `cdr` — inline pair field access with type guard
 
 **Not JIT-eligible** (function stays fully interpreted):
 - Functions using `closure`, `push_handler`/`pop_handler`, `close_upvalue`, `tail_apply`, or `halt`
 
-**Design:** The JIT keeps the VM's register file, GC, and continuation machinery unchanged. Callee-saved AArch64 registers hold pointers to the VM struct, register window base, and closure. GC safety is maintained because JIT'd code never allocates — all allocating opcodes side-exit. Continuations work because `call/cc` runs entirely in the interpreter.
+**Design:** The JIT keeps the VM's register file, GC, and continuation machinery unchanged. Callee-saved AArch64 registers hold pointers to the VM struct, register window base, and closure. GC safety is maintained because allocating opcodes (`cons`) call helper functions that go through the GC. Continuations work because `call/cc` runs entirely in the interpreter.
 
 **Remaining work:**
 - x86_64 backend
-- Native `call`/`return` for simple cases
 - Inline caching for `call_global` (callee devirtualization beyond arithmetic)
 
 ---
@@ -161,7 +160,7 @@ Each signature is a comptime trampoline generator sharing a 32-slot pool. Adding
 
 **Usage:** `kaappi --sandbox program.scm`
 
-Blocks: FFI, file I/O, filesystem operations, `eval`, `load`, `exit`, environment variables, process info, and `.sld` library file loading. Allows: pure computation, string ports, standard I/O (stdin/stdout/stderr), built-in libraries (`scheme base/write/read/char/inexact/lazy/time/cxr/complex/case-lambda`, built-in SRFIs 1/9/13/39/69/133).
+Blocks: FFI, file I/O, filesystem operations, `eval`, `load`, `exit`, environment variables, process info, and `.sld` library file loading. Allows: pure computation, string ports, standard I/O (stdin/stdout/stderr), built-in libraries (`scheme base/write/read/char/inexact/lazy/time/cxr/complex/case-lambda`, built-in SRFIs 1/9/13/18/39/69/133/170).
 
 **Remaining work:**
 - Resource limits (max execution time, max memory)
