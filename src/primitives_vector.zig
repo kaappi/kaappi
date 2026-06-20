@@ -622,8 +622,11 @@ fn vectorSwapFn(args: []const Value) PrimitiveError!Value {
     if (!types.isVector(args[0])) return PrimitiveError.TypeError;
     if (!types.isFixnum(args[1]) or !types.isFixnum(args[2])) return PrimitiveError.TypeError;
     const vec = types.toVector(args[0]);
-    const i: usize = @intCast(types.toFixnum(args[1]));
-    const j: usize = @intCast(types.toFixnum(args[2]));
+    const i_raw = types.toFixnum(args[1]);
+    const j_raw = types.toFixnum(args[2]);
+    if (i_raw < 0 or j_raw < 0) return PrimitiveError.TypeError;
+    const i: usize = @intCast(i_raw);
+    const j: usize = @intCast(j_raw);
     if (i >= vec.data.len or j >= vec.data.len) return PrimitiveError.TypeError;
     const tmp = vec.data[i];
     vec.data[i] = vec.data[j];
@@ -676,6 +679,7 @@ fn vectorReverseCopyFn(args: []const Value) PrimitiveError!Value {
     if (start > end or end > vec.data.len) return PrimitiveError.TypeError;
     const len = end - start;
     const new_data = gc.allocator.alloc(Value, len) catch return PrimitiveError.OutOfMemory;
+    defer gc.allocator.free(new_data);
     for (0..len) |i| {
         new_data[i] = vec.data[end - 1 - i];
     }
@@ -696,6 +700,7 @@ fn vectorUnfoldFn(args: []const Value) PrimitiveError!Value {
     }
 
     const new_data = gc.allocator.alloc(Value, length) catch return PrimitiveError.OutOfMemory;
+    defer gc.allocator.free(new_data);
 
     for (0..length) |i| {
         var call_args_buf: [257]Value = undefined;
@@ -735,6 +740,7 @@ fn vectorConcatenateFn(args: []const Value) PrimitiveError!Value {
         tmp = types.cdr(tmp);
     }
     const new_data = gc.allocator.alloc(Value, total_len) catch return PrimitiveError.OutOfMemory;
+    defer gc.allocator.free(new_data);
     var pos: usize = 0;
     while (current != types.NIL) {
         const v = types.toVector(types.car(current));
@@ -753,6 +759,7 @@ fn vectorCumulateFn(args: []const Value) PrimitiveError!Value {
     if (!types.isVector(args[2])) return PrimitiveError.TypeError;
     const vec = types.toVector(args[2]);
     const new_data = gc.allocator.alloc(Value, vec.data.len) catch return PrimitiveError.OutOfMemory;
+    defer gc.allocator.free(new_data);
     for (0..vec.data.len) |i| {
         const call_args_buf = [2]Value{ acc, vec.data[i] };
         acc = try callVM(f, &call_args_buf);
@@ -788,6 +795,7 @@ fn vectorPartitionFn(args: []const Value) PrimitiveError!Value {
 
     // Build combined vector: yes elements then no elements
     const combined = gc.allocator.alloc(Value, vec.data.len) catch return PrimitiveError.OutOfMemory;
+    defer gc.allocator.free(combined);
     @memcpy(combined[0..yes.items.len], yes.items);
     @memcpy(combined[yes.items.len..], no.items);
     _ = gc.allocVector(combined) catch return PrimitiveError.OutOfMemory;

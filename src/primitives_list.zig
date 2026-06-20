@@ -102,6 +102,8 @@ fn listCopyFn(args: []const Value) PrimitiveError!Value {
     }
     // Build the copy from the end
     var result: Value = current; // NIL for proper, last cdr for improper
+    gc.pushRoot(&result) catch return PrimitiveError.OutOfMemory;
+    defer gc.popRoot();
     var i = elems.items.len;
     while (i > 0) {
         i -= 1;
@@ -117,6 +119,8 @@ fn makeListFn(args: []const Value) PrimitiveError!Value {
     if (k < 0) return PrimitiveError.TypeError;
     const fill: Value = if (args.len > 1) args[1] else types.UNDEFINED;
     var result: Value = types.NIL;
+    gc.pushRoot(&result) catch return PrimitiveError.OutOfMemory;
+    defer gc.popRoot();
     var i: i64 = 0;
     while (i < k) : (i += 1) {
         result = gc.allocPair(fill, result) catch return PrimitiveError.OutOfMemory;
@@ -319,6 +323,8 @@ fn mapFn(args: []const Value) PrimitiveError!Value {
 
     // Build result list from collected values
     var result_list: Value = types.NIL;
+    gc.pushRoot(&result_list) catch return PrimitiveError.OutOfMemory;
+    defer gc.popRoot();
     var i = results.items.len;
     while (i > 0) {
         i -= 1;
