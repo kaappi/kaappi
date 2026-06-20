@@ -203,6 +203,21 @@ fn exactFn(args: []const Value) PrimitiveError!Value {
         if (d == 1) return types.makeFixnum(n);
         return gc.allocRational(types.makeFixnum(n), types.makeFixnum(d)) catch return PrimitiveError.OutOfMemory;
     }
+    if (types.isComplex(args[0])) {
+        const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+        const c = types.toComplex(args[0]);
+        // Convert each part to exact using flonum→exact conversion
+        const real_flo = gc.allocFlonum(c.real) catch return PrimitiveError.OutOfMemory;
+        const real_exact = try exactFn(&[1]Value{real_flo});
+        const imag_flo = gc.allocFlonum(c.imag) catch return PrimitiveError.OutOfMemory;
+        const imag_exact = try exactFn(&[1]Value{imag_flo});
+        // If imaginary part is 0, return just the real part
+        if (types.isFixnum(imag_exact) and types.toFixnum(imag_exact) == 0) return real_exact;
+        // Build exact complex: store as complex with exact flags
+        const real_f = try toF64Ext(real_exact);
+        const imag_f = try toF64Ext(imag_exact);
+        return gc.allocComplexEx(real_f, imag_f, true, true) catch return PrimitiveError.OutOfMemory;
+    }
     return PrimitiveError.TypeError;
 }
 
@@ -235,10 +250,70 @@ fn exptFn(args: []const Value) PrimitiveError!Value {
         if (exp >= 0) {
             return bignum_mod.expt(gc, args[0], args[1]) catch return PrimitiveError.OutOfMemory;
         }
-        // Negative exponent with exact base: return rational 1 / base^(-exp)
         const pos_exp = types.makeFixnum(-exp);
         const denom = bignum_mod.expt(gc, args[0], pos_exp) catch return PrimitiveError.OutOfMemory;
         return arith.makeRationalReduced(gc, types.makeFixnum(1), denom);
+    }
+    // Complex exponentiation: z^w = e^(w * ln(z))
+    if (types.isComplex(args[0]) or types.isComplex(args[1])) {
+        const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+        var zr: f64 = undefined;
+        var zi: f64 = undefined;
+        var wr: f64 = undefined;
+        var wi: f64 = undefined;
+        if (types.isComplex(args[0])) {
+            const c = types.toComplex(args[0]);
+            zr = c.real;
+            zi = c.imag;
+        } else {
+            zr = toF64Ext(args[0]) catch return PrimitiveError.TypeError;
+            zi = 0.0;
+        }
+        if (types.isComplex(args[1])) {
+            const c = types.toComplex(args[1]);
+            wr = c.real;
+            wi = c.imag;
+        } else {
+            wr = toF64Ext(args[1]) catch return PrimitiveError.TypeError;
+            wi = 0.0;
+        }
+        // Special case: integer exponent with complex base — use repeated multiplication
+        if (wi == 0.0 and wr == @trunc(wr) and @abs(wr) < 100) {
+            const n: i64 = @intFromFloat(wr);
+            if (n == 0) return gc.allocComplex(1.0, 0.0) catch return PrimitiveError.OutOfMemory;
+            var rr: f64 = 1.0;
+            var ri: f64 = 0.0;
+            var count = if (n < 0) -n else n;
+            while (count > 0) : (count -= 1) {
+                const new_r = rr * zr - ri * zi;
+                const new_i = rr * zi + ri * zr;
+                rr = new_r;
+                ri = new_i;
+            }
+            if (n < 0) {
+                const mag_sq = rr * rr + ri * ri;
+                rr = rr / mag_sq;
+                ri = -ri / mag_sq;
+            }
+            if (@abs(ri) < 1e-15) ri = 0.0;
+            if (@abs(rr) < 1e-15) rr = 0.0;
+            if (ri == 0.0) return gc.allocFlonum(rr) catch return PrimitiveError.OutOfMemory;
+            return gc.allocComplex(rr, ri) catch return PrimitiveError.OutOfMemory;
+        }
+        // General: z^w = e^(w * ln(z))
+        // ln(z) = ln|z| + i*arg(z)
+        const mag = @sqrt(zr * zr + zi * zi);
+        const arg = std.math.atan2(zi, zr);
+        const ln_r = @log(mag);
+        const ln_i = arg;
+        // w * ln(z)
+        const prod_r = wr * ln_r - wi * ln_i;
+        const prod_i = wr * ln_i + wi * ln_r;
+        // e^(prod_r + i*prod_i)
+        const exp_r = @exp(prod_r);
+        const result_r = exp_r * @cos(prod_i);
+        const result_i = exp_r * @sin(prod_i);
+        return gc.allocComplex(result_r, result_i) catch return PrimitiveError.OutOfMemory;
     }
     const base_f = try toF64Ext(args[0]);
     const exp_f = try toF64Ext(args[1]);
