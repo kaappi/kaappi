@@ -1,0 +1,311 @@
+{% extends "main.html" %}
+
+{% block tabs %}{{ super() }}{% endblock %}
+
+{% block content %}
+<style>
+  .md-content__inner > h1 { display: none; }
+
+  :root {
+    --home-terminal: #0F172A;
+    --home-terminal-surface: #1E293B;
+  }
+
+  .home-hero {
+    text-align: center;
+    padding: 4rem 1rem 2rem;
+    max-width: 800px;
+    margin: 0 auto;
+  }
+
+  .home-hero h1 {
+    font-size: clamp(2rem, 5vw, 3.25rem);
+    font-weight: 700;
+    letter-spacing: -0.03em;
+    margin-bottom: 0.5rem;
+    line-height: 1.15;
+  }
+
+  .home-stats {
+    font-size: 0.9rem;
+    color: var(--md-default-fg-color--light);
+    margin-bottom: 1.75rem;
+  }
+
+  .home-stats span { padding: 0 0.4em; }
+  .home-stats span::after { content: '\00B7'; margin-left: 0.75em; opacity: 0.4; }
+  .home-stats span:last-child::after { content: ''; }
+
+  .home-ctas {
+    display: flex;
+    gap: 0.75rem;
+    justify-content: center;
+    margin-bottom: 2.5rem;
+    flex-wrap: wrap;
+  }
+
+  .home-terminal {
+    background: var(--home-terminal);
+    border-radius: 8px;
+    overflow: hidden;
+    text-align: left;
+    max-width: 620px;
+    margin: 0 auto 3rem;
+    box-shadow: 0 4px 24px rgba(0,0,0,0.1);
+  }
+
+  .home-terminal-bar {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 10px 14px;
+    background: var(--home-terminal-surface);
+  }
+
+  .home-dot { width: 10px; height: 10px; border-radius: 50%; }
+  .home-dot:nth-child(1) { background: #EF4444; }
+  .home-dot:nth-child(2) { background: #EAB308; }
+  .home-dot:nth-child(3) { background: #22C55E; }
+
+  .home-terminal-title {
+    font-family: var(--md-code-font-family);
+    font-size: 0.7rem;
+    color: #64748B;
+    margin-left: 8px;
+  }
+
+  .home-terminal-body {
+    padding: 1.25rem 1.5rem;
+    font-family: var(--md-code-font-family);
+    font-size: 0.78rem;
+    line-height: 1.75;
+    color: #CBD5E1;
+    overflow-x: auto;
+  }
+
+  .pr { color: #2DD4BF; font-weight: 600; }
+  .ct { color: #475569; }
+  .ou { color: #FDE68A; }
+  .cm { color: #64748B; }
+  .kw { color: #7DD3FC; }
+  .st { color: #86EFAC; }
+  .nu { color: #FDE68A; }
+  .fn { color: #C4B5FD; }
+
+  .home-cursor {
+    display: inline-block;
+    width: 0.55em;
+    height: 1.1em;
+    background: #2DD4BF;
+    vertical-align: text-bottom;
+    animation: blink 1s step-end infinite;
+  }
+
+  @keyframes blink { 50% { opacity: 0; } }
+
+  .home-section {
+    max-width: 900px;
+    margin: 0 auto;
+    padding: 2rem 1rem 3rem;
+  }
+
+  .home-section h2 {
+    text-align: center;
+    font-size: 1.4rem;
+    margin-bottom: 1.75rem;
+  }
+
+  .home-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 1rem;
+  }
+
+  .home-card {
+    padding: 1.25rem;
+    border: 1px solid var(--md-default-fg-color--lightest);
+    border-radius: 8px;
+    background: var(--md-default-bg-color);
+  }
+
+  .home-card h3 { font-size: 0.95rem; margin: 0 0 0.3rem; }
+  .home-card p { font-size: 0.82rem; color: var(--md-default-fg-color--light); margin: 0; line-height: 1.5; }
+
+  .home-example {
+    background: var(--home-terminal);
+    border-radius: 8px;
+    overflow: hidden;
+  }
+
+  .home-example-label {
+    font-family: var(--md-code-font-family);
+    font-size: 0.68rem;
+    color: #64748B;
+    padding: 0.5rem 0.85rem;
+    background: var(--home-terminal-surface);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+
+  .home-example pre {
+    padding: 0.85rem;
+    font-family: var(--md-code-font-family);
+    font-size: 0.75rem;
+    line-height: 1.65;
+    color: #CBD5E1;
+    margin: 0;
+    overflow-x: auto;
+    white-space: pre;
+    background: transparent;
+  }
+
+  .home-doc-card {
+    display: block;
+    padding: 1.5rem;
+    border: 1px solid var(--md-default-fg-color--lightest);
+    border-radius: 8px;
+    text-decoration: none !important;
+    color: inherit !important;
+    transition: border-color 0.15s, box-shadow 0.15s;
+  }
+
+  .home-doc-card:hover {
+    border-color: var(--md-primary-fg-color);
+    box-shadow: 0 2px 12px rgba(0,0,0,0.06);
+  }
+
+  .home-doc-card h3 { font-size: 0.95rem; margin: 0 0 0.25rem; }
+  .home-doc-card p { font-size: 0.82rem; color: var(--md-default-fg-color--light); margin: 0; }
+
+  @media (max-width: 768px) {
+    .home-grid { grid-template-columns: 1fr; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .home-cursor { animation: none; }
+  }
+</style>
+
+<section class="home-hero">
+  <h1>R7RS Scheme, written in Zig.</h1>
+  <div class="home-stats">
+    <span>554 procedures</span>
+    <span>51 SRFIs</span>
+    <span>JIT compiled</span>
+  </div>
+  <div class="home-ctas">
+    <a href="guide/" class="md-button md-button--primary">Get Started</a>
+    <a href="https://github.com/kaappi/kaappi" class="md-button" target="_blank" rel="noopener">View Source &rarr;</a>
+  </div>
+
+  <div class="home-terminal">
+    <div class="home-terminal-bar">
+      <div class="home-dot"></div>
+      <div class="home-dot"></div>
+      <div class="home-dot"></div>
+      <span class="home-terminal-title">kaappi</span>
+    </div>
+    <div class="home-terminal-body">
+<span class="cm">Kaappi Scheme v0.1.0</span>
+
+<span class="pr">kaappi&gt;</span> (<span class="kw">define</span> (<span class="fn">fib</span> n)
+<span class="ct">  ...   </span>  (<span class="kw">if</span> (&lt; n 2) n
+<span class="ct">  ...   </span>      (+ (<span class="fn">fib</span> (- n 1)) (<span class="fn">fib</span> (- n 2)))))
+<span class="pr">kaappi&gt;</span> (<span class="fn">fib</span> <span class="nu">20</span>)
+<span class="ou">6765</span>
+
+<span class="pr">kaappi&gt;</span> (<span class="fn">map</span> (<span class="kw">lambda</span> (x) (* x x)) '(<span class="nu">1 2 3 4 5</span>))
+<span class="ou">(1 4 9 16 25)</span>
+
+<span class="pr">kaappi&gt;</span> (<span class="fn">string-upcase</span> <span class="st">"héllo"</span>)
+<span class="ou">"HÉLLO"</span>
+
+<span class="pr">kaappi&gt;</span> <span class="home-cursor"></span></div>
+  </div>
+</section>
+
+<section class="home-section">
+  <h2>What you get</h2>
+  <div class="home-grid">
+    <div class="home-card">
+      <h3>Complete R7RS</h3>
+      <p>Every identifier from Appendix A. 554 built-in procedures, 32 syntax forms, all 14 standard libraries.</p>
+    </div>
+    <div class="home-card">
+      <h3>First-class continuations</h3>
+      <p>Multi-shot <code>call/cc</code> via stack copying. <code>dynamic-wind</code>, <code>call/ec</code> for escape continuations.</p>
+    </div>
+    <div class="home-card">
+      <h3>JIT compiler</h3>
+      <p>Hot functions compile to native AArch64. Inline arithmetic, comparisons, <code>car</code>/<code>cdr</code>, <code>cons</code>.</p>
+    </div>
+    <div class="home-card">
+      <h3>51 SRFIs</h3>
+      <p>8 built-in, 43 portable. Lists, strings, hash tables, vectors, threads, formatting, char-sets, and more.</p>
+    </div>
+    <div class="home-card">
+      <h3>C FFI</h3>
+      <p>Call shared libraries from Scheme. Supports callbacks — pass Scheme procedures to C functions expecting function pointers.</p>
+    </div>
+    <div class="home-card">
+      <h3>Green threads</h3>
+      <p>Fiber-based concurrency with channels. Full SRFI-18 compatibility: threads, mutexes, condition variables.</p>
+    </div>
+  </div>
+</section>
+
+<section class="home-section">
+  <h2>Code examples</h2>
+  <div class="home-grid">
+    <div class="home-example">
+      <div class="home-example-label">Fibonacci</div>
+      <pre>(<span class="kw">define</span> (<span class="fn">fib</span> n)
+  (<span class="kw">if</span> (&lt; n <span class="nu">2</span>) n
+      (+ (<span class="fn">fib</span> (- n <span class="nu">1</span>))
+         (<span class="fn">fib</span> (- n <span class="nu">2</span>)))))
+
+(<span class="fn">fib</span> <span class="nu">30</span>) <span class="cm">;=&gt; 832040</span></pre>
+    </div>
+    <div class="home-example">
+      <div class="home-example-label">Macros</div>
+      <pre>(<span class="kw">define-syntax</span> <span class="fn">my-when</span>
+  (<span class="kw">syntax-rules</span> ()
+    ((<span class="fn">my-when</span> test body ...)
+     (<span class="kw">if</span> test
+         (<span class="kw">begin</span> body ...)))))
+
+(<span class="fn">my-when</span> #t
+  (<span class="fn">display</span> <span class="st">"hello"</span>))</pre>
+    </div>
+    <div class="home-example">
+      <div class="home-example-label">Libraries</div>
+      <pre>(<span class="kw">define-library</span> (mylib math)
+  (<span class="kw">export</span> square cube)
+  (<span class="kw">import</span> (scheme base))
+  (<span class="kw">begin</span>
+    (<span class="kw">define</span> (<span class="fn">square</span> x)
+      (* x x))
+    (<span class="kw">define</span> (<span class="fn">cube</span> x)
+      (* x x x))))</pre>
+    </div>
+  </div>
+</section>
+
+<section class="home-section">
+  <h2>Documentation</h2>
+  <div class="home-grid">
+    <a href="guide/" class="home-doc-card">
+      <h3>User Guide</h3>
+      <p>Installation, REPL features, language tutorial, command-line reference.</p>
+    </a>
+    <a href="procedures/" class="home-doc-card">
+      <h3>Procedure Reference</h3>
+      <p>All 554 built-in procedures with arity and descriptions, organized by domain.</p>
+    </a>
+    <a href="libraries/" class="home-doc-card">
+      <h3>Library Reference</h3>
+      <p>51 SRFIs, standard libraries, and how to write your own.</p>
+    </a>
+  </div>
+</section>
+{% endblock %}

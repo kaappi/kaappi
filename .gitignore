@@ -8,3 +8,4 @@ test_*.o
 /coverage/
 tools/.cache/
 __pycache__/
+/site/
