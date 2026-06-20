@@ -87,11 +87,8 @@ fn isWhitespace(c: u8) bool {
     return c == ' ' or c == '\t' or c == '\n' or c == '\r';
 }
 
-fn shouldTrimChar(byte: u8, args: []const Value) PrimitiveError!bool {
-    if (args.len <= 1) return isWhitespace(byte);
-    const pred = args[1];
+fn callTrimPred(pred: Value, cp: u21) PrimitiveError!bool {
     const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError;
-    const cp: u21 = byte;
     const char_val = types.makeChar(cp);
     const result = vm.callWithArgs(pred, &[_]Value{char_val}) catch |err| {
         return switch (err) {
@@ -104,14 +101,39 @@ fn shouldTrimChar(byte: u8, args: []const Value) PrimitiveError!bool {
     return types.isTruthy(result);
 }
 
+fn decodeForward(data: []const u8, pos: usize) struct { cp: u21, len: usize } {
+    if (pos >= data.len) return .{ .cp = 0, .len = 0 };
+    const seq_len = std.unicode.utf8ByteSequenceLength(data[pos]) catch return .{ .cp = data[pos], .len = 1 };
+    if (pos + seq_len > data.len) return .{ .cp = data[pos], .len = 1 };
+    const cp = std.unicode.utf8Decode(data[pos .. pos + seq_len]) catch return .{ .cp = data[pos], .len = 1 };
+    return .{ .cp = cp, .len = seq_len };
+}
+
+fn findPrevCpStart(data: []const u8, pos: usize) usize {
+    var p = pos;
+    while (p > 0) {
+        p -= 1;
+        if (data[p] & 0xC0 != 0x80) return p;
+    }
+    return 0;
+}
+
 // (string-trim s [pred]) — remove chars from start
 fn stringTrimFn(args: []const Value) PrimitiveError!Value {
     const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
     const data = try getStringSlice(args[0]);
+    if (args.len <= 1) {
+        var start: usize = 0;
+        while (start < data.len and isWhitespace(data[start])) start += 1;
+        return gc.allocString(data[start..]) catch return PrimitiveError.OutOfMemory;
+    }
+    const pred = args[1];
     var start: usize = 0;
     while (start < data.len) {
-        if (!try shouldTrimChar(data[start], args)) break;
-        start += 1;
+        const d = decodeForward(data, start);
+        if (d.len == 0) break;
+        if (!try callTrimPred(pred, d.cp)) break;
+        start += d.len;
     }
     return gc.allocString(data[start..]) catch return PrimitiveError.OutOfMemory;
 }
@@ -120,10 +142,19 @@ fn stringTrimFn(args: []const Value) PrimitiveError!Value {
 fn stringTrimRightFn(args: []const Value) PrimitiveError!Value {
     const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
     const data = try getStringSlice(args[0]);
+    if (args.len <= 1) {
+        var end: usize = data.len;
+        while (end > 0 and isWhitespace(data[end - 1])) end -= 1;
+        return gc.allocString(data[0..end]) catch return PrimitiveError.OutOfMemory;
+    }
+    const pred = args[1];
     var end: usize = data.len;
     while (end > 0) {
-        if (!try shouldTrimChar(data[end - 1], args)) break;
-        end -= 1;
+        const cp_start = findPrevCpStart(data, end);
+        const d = decodeForward(data, cp_start);
+        if (d.len == 0) break;
+        if (!try callTrimPred(pred, d.cp)) break;
+        end = cp_start;
     }
     return gc.allocString(data[0..end]) catch return PrimitiveError.OutOfMemory;
 }
@@ -132,15 +163,28 @@ fn stringTrimRightFn(args: []const Value) PrimitiveError!Value {
 fn stringTrimBothFn(args: []const Value) PrimitiveError!Value {
     const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
     const data = try getStringSlice(args[0]);
+    if (args.len <= 1) {
+        var start: usize = 0;
+        while (start < data.len and isWhitespace(data[start])) start += 1;
+        var end: usize = data.len;
+        while (end > start and isWhitespace(data[end - 1])) end -= 1;
+        return gc.allocString(data[start..end]) catch return PrimitiveError.OutOfMemory;
+    }
+    const pred = args[1];
     var start: usize = 0;
     while (start < data.len) {
-        if (!try shouldTrimChar(data[start], args)) break;
-        start += 1;
+        const d = decodeForward(data, start);
+        if (d.len == 0) break;
+        if (!try callTrimPred(pred, d.cp)) break;
+        start += d.len;
     }
     var end: usize = data.len;
     while (end > start) {
-        if (!try shouldTrimChar(data[end - 1], args)) break;
-        end -= 1;
+        const cp_start = findPrevCpStart(data, end);
+        const d = decodeForward(data, cp_start);
+        if (d.len == 0) break;
+        if (!try callTrimPred(pred, d.cp)) break;
+        end = cp_start;
     }
     return gc.allocString(data[start..end]) catch return PrimitiveError.OutOfMemory;
 }

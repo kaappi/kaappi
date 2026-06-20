@@ -197,6 +197,7 @@ fn loadFn(args: []const Value) PrimitiveError!Value {
 
     // Open and read the file
     const fd = std.posix.openat(std.posix.AT.FDCWD, path_z, .{}, 0) catch {
+        vm.setErrorDetail("load: cannot open '{s}'", .{path});
         return PrimitiveError.TypeError;
     };
     defer _ = std.posix.system.close(fd);
