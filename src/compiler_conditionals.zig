@@ -166,10 +166,11 @@ pub fn compileCond(self: *Compiler, args: Value, dst: u8, is_tail: bool) Compile
         // Compile test
         try self.compileExpr(test_expr, dst, false);
 
-        // Check for => form
+        // Check for => form (only if => is not rebound as a local variable)
         if (clause_body != types.NIL and types.isPair(clause_body)) {
             const maybe_arrow = types.car(clause_body);
-            if (types.isSymbol(maybe_arrow) and std.mem.eql(u8, types.symbolName(maybe_arrow), "=>")) {
+            if (types.isSymbol(maybe_arrow) and std.mem.eql(u8, types.symbolName(maybe_arrow), "=>") and
+                self.resolveLocal("=>") == null) {
                 // (test => proc) -- call proc with test value
                 try self.emitOp(.jump_false);
                 try self.emit(dst);
