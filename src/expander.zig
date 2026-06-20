@@ -31,15 +31,21 @@ fn isEllipsis(name: []const u8) bool {
 /// Identifiers that must NEVER be renamed. Special forms that CAN be
 /// rebound as variables (if, let, begin, etc.) are NOT in this list --
 /// they get hygiene-renamed, and the compiler recognizes them via the
-/// __hyg_ prefix extraction. Forms that are never rebound stay here.
+/// `if` and `let` are omitted — the R7RS test rebinds them as
+/// variables. The compiler recognizes hygienic renames via
+/// effective_name stripping.
 const well_known_forms = [_][]const u8{
-    // Special forms that are never meaningfully rebound
+    // Special forms
+    "begin",        "define",     "set!",       "lambda",
+    "let*",         "letrec",     "letrec*",
     "quote",        "quasiquote",  "unquote",    "unquote-splicing",
     "define-syntax", "let-syntax", "letrec-syntax", "syntax-rules",
     "define-record-type",
     "define-values", "let-values", "let*-values",
     "case-lambda",  "cond-expand",
-    "delay",        "delay-force",
+    "cond",         "case",       "and",        "or",
+    "when",         "unless",     "do",
+    "guard",        "delay",      "delay-force",
     "parameterize", "syntax-error",
     "include",      "include-ci",
     "define-library", "import",   "export",

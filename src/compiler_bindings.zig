@@ -410,7 +410,11 @@ pub fn compileDo(self: *Compiler, args: Value, dst: u8, is_tail: bool) CompileEr
 }
 
 pub fn compileLetBody(self: *Compiler, body: Value, dst: u8, is_tail: bool) CompileError!void {
-    // Pre-scan: register define names so macro expansion can see sibling defs
+    // Pre-scan: register define names so macro expansion can see sibling
+    // defs. Track which names we add so we can remove them after compilation
+    // to avoid polluting the globals map for subsequent expressions.
+    var prescan_names: [64][]const u8 = undefined;
+    var prescan_count: usize = 0;
     if (self.globals) |globals| {
         var scan = body;
         while (scan != types.NIL and types.isPair(scan)) {
@@ -423,15 +427,19 @@ pub fn compileLetBody(self: *Compiler, body: Value, dst: u8, is_tail: bool) Comp
                         const form_args = types.cdr(form);
                         if (form_args != types.NIL and types.isPair(form_args)) {
                             const target = types.car(form_args);
+                            var def_name: ?[]const u8 = null;
                             if (types.isSymbol(target)) {
-                                if (!globals.contains(types.symbolName(target))) {
-                                    globals.put(types.symbolName(target), types.VOID) catch {};
-                                }
+                                def_name = types.symbolName(target);
                             } else if (types.isPair(target)) {
                                 const fn_name = types.car(target);
-                                if (types.isSymbol(fn_name)) {
-                                    if (!globals.contains(types.symbolName(fn_name))) {
-                                        globals.put(types.symbolName(fn_name), types.VOID) catch {};
+                                if (types.isSymbol(fn_name)) def_name = types.symbolName(fn_name);
+                            }
+                            if (def_name) |dn| {
+                                if (!globals.contains(dn)) {
+                                    globals.put(dn, types.VOID) catch {};
+                                    if (prescan_count < 64) {
+                                        prescan_names[prescan_count] = dn;
+                                        prescan_count += 1;
                                     }
                                 }
                             }
@@ -440,6 +448,18 @@ pub fn compileLetBody(self: *Compiler, body: Value, dst: u8, is_tail: bool) Comp
                 }
             }
             scan = types.cdr(scan);
+        }
+    }
+    defer {
+        // Clean up pre-scanned names that are still VOID (not actually defined)
+        if (self.globals) |globals| {
+            for (prescan_names[0..prescan_count]) |pn| {
+                if (globals.get(pn)) |val| {
+                    if (val == types.VOID) {
+                        _ = globals.remove(pn);
+                    }
+                }
+            }
         }
     }
 
