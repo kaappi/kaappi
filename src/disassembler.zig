@@ -472,6 +472,8 @@ test "disassemble all opcodes" {
 
     // Verify all opcodes are present in the bytecode (96 bytes for all opcodes)
     try std.testing.expect(func.code.items.len > 90);
+    // Exercise all formatting branches by calling disassemble
+    disassemble(func, allocator);
 }
 
 fn writeStderr(bytes: []const u8) void {
