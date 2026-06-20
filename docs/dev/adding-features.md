@@ -153,13 +153,13 @@ When you need a new kind of object that lives on the GC heap.
 In `src/types.zig`, add a new variant to `ObjectTag`:
 
 ```zig
-pub const ObjectTag = enum(u5) {
-    // ... existing tags ...
-    my_type = 23,  // Use the next available slot
+pub const ObjectTag = enum(u6) {
+    // ... existing tags (0-34 used) ...
+    my_type = 35,  // Use the next available slot
 };
 ```
 
-Slots 23-31 are available.
+Slots 35-63 are available.
 
 ### 2. Define the struct
 

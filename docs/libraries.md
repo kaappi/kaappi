@@ -224,23 +224,75 @@ needed if you want to pre-warm the cache.
 | `(scheme time)` | 3 | `current-second`, jiffies |
 | `(scheme write)` | 7 | `write`, `display`, `write-shared` |
 
-### SRFI Libraries (7)
+### SRFI Libraries (51)
 
-| Library | Exports | Description |
-|---------|---------|-------------|
-| `(srfi 1)` | 25 | List library (fold, filter, find, any, every, iota, ...) |
-| `(srfi 9)` | -- | Records (alias for R7RS `define-record-type`) |
-| `(srfi 13)` | 24 | String library (contains, split, join, trim, ...) |
-| `(srfi 27)` | 2 | Random numbers |
-| `(srfi 39)` | 1 | Parameter objects (alias for `make-parameter`) |
-| `(srfi 69)` | 14 | Hash tables |
-| `(srfi 133)` | 14 | Vector library |
+8 built-in SRFIs (implemented in Zig):
+
+| Library | Description |
+|---------|-------------|
+| `(srfi 1)` | List library (fold, filter, find, any, every, iota, ...) |
+| `(srfi 9)` | Records (alias for R7RS `define-record-type`) |
+| `(srfi 13)` | String library (contains, split, join, trim, ...) |
+| `(srfi 18)` | Threads, mutexes, condition variables |
+| `(srfi 39)` | Parameter objects (alias for `make-parameter`) |
+| `(srfi 69)` | Hash tables |
+| `(srfi 133)` | Vector library |
+| `(srfi 170)` | POSIX filesystem API (file-info, directory ops, ...) |
+
+43 portable SRFIs (loaded on demand from `.sld` files in `lib/srfi/`):
+
+| Library | Description |
+|---------|-------------|
+| `(srfi 2)` | `and-let*` |
+| `(srfi 8)` | `receive` |
+| `(srfi 11)` | `let-values` |
+| `(srfi 14)` | Character sets |
+| `(srfi 16)` | `case-lambda` |
+| `(srfi 26)` | `cut` / `cute` (partial application) |
+| `(srfi 27)` | Random numbers |
+| `(srfi 28)` | `format` (basic) |
+| `(srfi 31)` | `rec` (recursive expressions) |
+| `(srfi 34)` | Exception handling |
+| `(srfi 35)` | Conditions |
+| `(srfi 36)` | I/O conditions |
+| `(srfi 41)` | Streams (lazy lists) |
+| `(srfi 48)` | `format` (intermediate) |
+| `(srfi 64)` | Test suite framework |
+| `(srfi 98)` | Environment variables |
+| `(srfi 111)` | Boxes |
+| `(srfi 113)` | Sets and bags |
+| `(srfi 115)` | Regular expressions |
+| `(srfi 117)` | Mutable queues |
+| `(srfi 125)` | Hash tables (R7RS-style) |
+| `(srfi 128)` | Comparators |
+| `(srfi 132)` | Sort libraries |
+| `(srfi 141)` | Integer division |
+| `(srfi 143)` | Fixnums |
+| `(srfi 145)` | `assume` |
+| `(srfi 146)` | Mappings (+ `(srfi 146 hash)`) |
+| `(srfi 151)` | Bitwise operations |
+| `(srfi 152)` | String library (R7RS-style) |
+| `(srfi 158)` | Generators and accumulators |
+| `(srfi 166)` | Formatting (+ pretty, columnar, unicode, color) |
+| `(srfi 174)` | POSIX timespecs |
+| `(srfi 175)` | ASCII character library |
+| `(srfi 189)` | Maybe and Either |
+| `(srfi 195)` | Multiple values as objects |
+| `(srfi 196)` | Range objects |
+| `(srfi 210)` | Procedures and syntax for multiple values |
+| `(srfi 219)` | `define` with curried arguments |
+| `(srfi 222)` | Compound objects |
+| `(srfi 227)` | Optional arguments |
+| `(srfi 232)` | Flexible curried procedures |
+| `(srfi 233)` | `let` with multiple values |
+| `(srfi 235)` | Combinators |
 
 ### Kaappi Extension Libraries
 
-| Library | Exports | Description |
-|---------|---------|-------------|
-| `(kaappi ffi)` | 3 | Foreign function interface |
+| Library | Description |
+|---------|-------------|
+| `(kaappi ffi)` | Foreign function interface (ffi-open, ffi-fn, ffi-callback, ffi-close) |
+| `(kaappi fibers)` | Green threads (spawn, yield, fiber-join, channels) |
 
 ---
 

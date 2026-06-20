@@ -401,11 +401,14 @@ Multiple imports can be combined:
 | `(srfi 1)` | List library (fold, filter, find, any, every, iota, ...) |
 | `(srfi 9)` | Records (alias for R7RS define-record-type) |
 | `(srfi 13)` | String library (contains, prefix?, split, join, trim, ...) |
+| `(srfi 18)` | Threads, mutexes, condition variables |
 | `(srfi 27)` | Random numbers (random-integer, random-real) |
 | `(srfi 39)` | Parameter objects (alias for R7RS make-parameter) |
 | `(srfi 69)` | Hash tables |
 | `(srfi 133)` | Vector library |
 | `(srfi 170)` | POSIX filesystem API (file-info, directory ops, ...) |
+
+43 additional SRFIs are available as portable `.sld` files: 2, 8, 11, 14, 16, 26, 28, 31, 34, 35, 36, 41, 48, 64, 98, 111, 113, 115, 117, 125, 128, 132, 141, 143, 145, 146, 151, 152, 158, 166, 174, 175, 189, 195, 196, 210, 219, 222, 227, 232, 233, 235.
 
 ### Writing Your Own Library
 
@@ -474,7 +477,15 @@ Call C library functions directly from Scheme:
 (ffi-close libm)
 ```
 
-Supported C types: `int`, `long`, `double`, `float`, `string`, `void`.
+Supported C types: `int`, `long`, `double`, `float`, `string`, `pointer`, `void`.
+
+**FFI callbacks** — pass Scheme procedures to C functions that expect function pointers:
+
+```scheme
+(define cb (ffi-callback (lambda (a b) (- a b)) '(pointer pointer) 'int))
+;; Pass cb to a C function like qsort
+(ffi-callback-release cb)  ;; free when done
+```
 
 ### Bytecode Caching
 
@@ -546,7 +557,18 @@ zig build run -- [OPTIONS] [FILE]
 | `FILE` | Run a Scheme source file |
 | `--compile FILE` | Compile to bytecode (.sbc) without running |
 | `--lib-path DIR` | Add a directory to the library search path (repeatable) |
-| `--no-cache` | Disable bytecode caching (reserved for future use) |
+| `--profile` | Profile execution (per-function timing, call counts, allocations) |
+| `--sandbox` | Sandbox mode — blocks FFI, file I/O, `eval`, `load`, env access |
+| `--no-jit` | Disable JIT compilation |
+| `--no-cache` | Disable bytecode caching |
+| `--gc-stats` | Print GC statistics on exit |
+
+**Standalone binaries:**
+
+```bash
+zig build -Dbundle-src=program.scm    # compile + embed in one step
+zig build -Dbundle=program.sbc        # embed pre-compiled bytecode
+```
 
 ### Examples
 

@@ -20,8 +20,7 @@ Both must pass before any change is considered complete.
 
 ### Location
 
-Unit tests live in `src/tests_core_eval.zig` through `src/tests_core_eval1.zig`,
-split by implementation phase:
+Unit tests live in `src/tests_*.zig`, organized by feature:
 
 | File | Coverage |
 |------|----------|
@@ -34,12 +33,10 @@ split by implementation phase:
 | `tests_exceptions.zig` | Exceptions (guard, raise, error) |
 | `tests_records.zig` | Records (define-record-type) |
 | `tests_io.zig` | Ports and I/O |
-| `tests_core_eval0.zig` | Continuations (call/cc, dynamic-wind) |
-| `tests_core_eval1.zig` | Remaining R7RS coverage |
-
-Additional test files:
-- `vm_tests.zig` -- VM-specific tests
-- Individual modules also contain inline tests (e.g., `library.zig`, `types.zig`)
+| `tests_continuations.zig` | Continuations (call/cc, dynamic-wind) |
+| `tests_advanced.zig` | Advanced R7RS features |
+| `tests_filesystem.zig` | SRFI-170 filesystem operations |
+| `tests_robustness.zig` | Edge cases and stress tests |
 
 ### Helper: makeTestVM
 

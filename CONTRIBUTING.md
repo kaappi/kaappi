@@ -18,7 +18,7 @@ the essentials: building, testing, making changes, and submitting them.
 git clone <repo-url> kaappi
 cd kaappi
 zig build          # Build the executable
-zig build test     # Run all unit tests (~150 tests)
+zig build test     # Run all unit tests
 ```
 
 Verify the REPL works:
@@ -37,9 +37,9 @@ src/
   memory.zig             Mark-and-sweep GC
   reader.zig             Tokenizer + S-expression parser
   expander.zig           Macro expansion (syntax-rules)
-  compiler*.zig          S-expression to bytecode compiler (5 files)
-  vm*.zig                Register-based VM (4 files)
-  primitives*.zig        Built-in procedures (13 files)
+  compiler*.zig          S-expression to bytecode compiler (6 files)
+  vm*.zig                Register-based VM (6 files)
+  primitives*.zig        Built-in procedures (21 files)
   library.zig            Library registry and standard libs
   printer.zig            Value to string conversion
   main.zig               Entry point and REPL

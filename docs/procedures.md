@@ -103,10 +103,10 @@ short description.
 | `list-set!` | 3 | Set element at index k |
 | `list-copy` | 1 | Shallow copy of a list |
 | `make-list` | 1+ | Create list of k elements (optional fill value) |
-| `member` | 2 | Search by `equal?` |
+| `member` | 2+ | Search by `equal?` (optional comparator) |
 | `memq` | 2 | Search by `eq?` |
 | `memv` | 2 | Search by `eqv?` |
-| `assoc` | 2 | Association list lookup by `equal?` |
+| `assoc` | 2+ | Association list lookup by `equal?` (optional comparator) |
 | `assq` | 2 | Association list lookup by `eq?` |
 | `assv` | 2 | Association list lookup by `eqv?` |
 | `map` | 2+ | Apply procedure to corresponding elements of lists |
@@ -143,6 +143,51 @@ short description.
 | `proper-list?` | 1 | True if argument is a proper list |
 | `dotted-list?` | 1 | True if argument is a dotted (improper) list |
 | `circular-list?` | 1 | True if argument is a circular list |
+| `not-pair?` | 1 | True if argument is not a pair |
+| `null-list?` | 1 | True if argument is the empty list (error on non-list) |
+| `list=` | 2+ | Compare lists element-wise with a given equality predicate |
+| `cons*` | 1+ | Like `list` but last arg is the tail |
+| `xcons` | 2 | `(cons cdr car)` — reversed cons |
+| `list-tabulate` | 2 | Build list of k elements from init procedure |
+| `circular-list` | 1+ | Build a circular list from arguments |
+| `first` | 1 | First element (same as `car`) |
+| `second` | 1 | Second element |
+| `third` | 1 | Third element |
+| `fourth` | 1 | Fourth element |
+| `fifth` | 1 | Fifth element |
+| `sixth` | 1 | Sixth element |
+| `seventh` | 1 | Seventh element |
+| `eighth` | 1 | Eighth element |
+| `ninth` | 1 | Ninth element |
+| `tenth` | 1 | Tenth element |
+| `car+cdr` | 1 | Return car and cdr as multiple values |
+| `take-right` | 2 | Last k elements |
+| `drop-right` | 2 | All but last k elements |
+| `split-at` | 2 | Split list at index k into two values |
+| `span` | 2 | Split list at first element not satisfying predicate |
+| `break` | 2 | Split list at first element satisfying predicate |
+| `unfold` | 4+ | Unfold a list from a seed value |
+| `unfold-right` | 4+ | Unfold a list in reverse from a seed value |
+| `pair-fold` | 3+ | Fold over pairs (not elements) |
+| `pair-fold-right` | 3+ | Right fold over pairs |
+| `pair-for-each` | 2+ | For-each over pairs |
+| `map-in-order` | 2+ | Map with guaranteed left-to-right evaluation |
+| `list-index` | 2+ | Index of first element satisfying predicate |
+| `delete` | 2+ | Remove all occurrences equal to element |
+| `delete-duplicates` | 1+ | Remove duplicate elements |
+| `alist-cons` | 3 | `(cons (cons key value) alist)` |
+| `alist-copy` | 1 | Shallow copy of an association list |
+| `alist-delete` | 2+ | Remove entries with matching key |
+| `lset=` | 2+ | Set equality |
+| `lset-adjoin` | 2+ | Add elements to a set |
+| `lset-union` | 2+ | Set union |
+| `lset-intersection` | 2+ | Set intersection |
+| `lset-difference` | 2+ | Set difference |
+| `lset-xor` | 2+ | Set symmetric difference |
+| `append-reverse` | 2 | `(append (reverse list1) list2)` |
+| `length+` | 1 | Length or `#f` for circular lists |
+| `unzip1` | 1 | Unzip list of lists (first elements) |
+| `unzip2` | 1 | Unzip list of lists (first two elements as values) |
 
 ## CXR Compositions (3- and 4-level)
 
@@ -188,7 +233,7 @@ All 24 compositions of `car` and `cdr` up to four deep. Each takes exactly 1 arg
 | `string-append` | 0+ | Concatenate strings |
 | `string-copy` | 1+ | Copy string (optional start and end) |
 | `string-copy!` | 3+ | Copy into mutable string at offset |
-| `string-fill!` | 2 | Fill string with a character |
+| `string-fill!` | 2+ | Fill string with a character (optional start/end) |
 | `string->list` | 1+ | Convert string to list of characters |
 | `list->string` | 1 | Convert list of characters to string |
 | `string->symbol` | 1 | Intern string as a symbol |
@@ -555,3 +600,177 @@ here for completeness.
 | `delay-force` | Create an iterative promise |
 | `parameterize` | Dynamically bind parameters |
 | `cond-expand` | Feature-based conditional expansion |
+
+## SRFI-13 String Library
+
+| Procedure | Arity | Description |
+|-----------|-------|-------------|
+| `string-contains` | 2+ | Index of substring in string, or `#f` (optional start/end) |
+| `string-prefix?` | 2+ | True if first string is a prefix of second (optional start/end) |
+| `string-suffix?` | 2+ | True if first string is a suffix of second (optional start/end) |
+| `string-index` | 2+ | Index of first char satisfying predicate/char-set (optional start/end) |
+| `string-index-right` | 2+ | Index of last char satisfying predicate/char-set (optional start/end) |
+| `string-skip` | 2+ | Index of first char NOT satisfying predicate/char-set (optional start/end) |
+| `string-skip-right` | 2+ | Index of last char NOT satisfying predicate/char-set (optional start/end) |
+| `string-count` | 2+ | Count chars satisfying predicate/char-set (optional start/end) |
+| `string-trim` | 1+ | Remove leading chars matching predicate/char-set (optional start/end) |
+| `string-trim-right` | 1+ | Remove trailing chars matching predicate/char-set (optional start/end) |
+| `string-trim-both` | 1+ | Remove leading and trailing chars (optional start/end) |
+| `string-split` | 2 | Split string by delimiter into list of strings |
+| `string-join` | 1+ | Join list of strings with delimiter |
+| `string-concatenate` | 1 | Concatenate a list of strings |
+| `string-take` | 2 | First k characters |
+| `string-drop` | 2 | All but first k characters |
+| `string-take-right` | 2 | Last k characters |
+| `string-drop-right` | 2 | All but last k characters |
+| `string-pad` | 2+ | Pad string on the left to given length |
+| `string-pad-right` | 2+ | Pad string on the right to given length |
+| `string-reverse` | 1+ | Reverse a string (optional start/end) |
+| `string-filter` | 2+ | Keep chars satisfying predicate/char-set (optional start/end) |
+| `string-delete` | 2+ | Remove chars satisfying predicate/char-set (optional start/end) |
+| `string-replace` | 4 | Replace substring by codepoint indices |
+| `string-titlecase` | 1+ | Titlecase a string (optional start/end) |
+| `string-every` | 2+ | True if predicate/char-set matches every char (optional start/end) |
+| `string-any` | 2+ | True if predicate/char-set matches any char (optional start/end) |
+| `string-tabulate` | 2 | Build string from index→char procedure |
+| `string-unfold` | 4+ | Unfold a string from a seed |
+| `string-unfold-right` | 4+ | Unfold a string in reverse from a seed |
+
+## SRFI-133 Vector Library
+
+| Procedure | Arity | Description |
+|-----------|-------|-------------|
+| `vector-unfold` | 2+ | Build vector from seed function |
+| `vector-unfold-right` | 2+ | Build vector in reverse from seed function |
+| `vector-concatenate` | 1 | Concatenate a list of vectors |
+| `vector-any` | 2+ | True if predicate holds for any element |
+| `vector-every` | 2+ | True if predicate holds for every element |
+| `vector-index` | 2+ | Index of first element satisfying predicate |
+| `vector-index-right` | 2+ | Index of last element satisfying predicate |
+| `vector-skip` | 2+ | Index of first element NOT satisfying predicate |
+| `vector-skip-right` | 2+ | Index of last element NOT satisfying predicate |
+| `vector-binary-search` | 3 | Binary search with comparator |
+| `vector-swap!` | 3 | Swap two elements by index |
+| `vector-reverse!` | 1+ | Reverse vector in place (optional start/end) |
+| `vector-reverse-copy` | 1+ | Reversed copy (optional start/end) |
+| `vector-cumulate` | 3 | Cumulative fold into new vector |
+| `vector-partition` | 2 | Partition by predicate into two vectors |
+| `vector-count` | 2+ | Count elements satisfying predicate |
+| `vector-fold` | 3+ | Left fold over vector |
+| `vector-fold-right` | 3+ | Right fold over vector |
+| `vector-map!` | 2+ | In-place map |
+| `vector-empty?` | 1 | True if vector has zero length |
+| `vector=` | 3 | Element-wise equality with comparator |
+
+## SRFI-18 Threads
+
+| Procedure | Arity | Description |
+|-----------|-------|-------------|
+| `current-thread` | 0 | Current thread object |
+| `thread?` | 1 | True if argument is a thread |
+| `make-thread` | 1+ | Create a new thread (thunk, optional name) |
+| `thread-name` | 1 | Thread's name |
+| `thread-specific` | 1 | Thread's specific value |
+| `thread-specific-set!` | 2 | Set thread's specific value |
+| `thread-start!` | 1 | Start a thread |
+| `thread-yield!` | 0 | Yield to the scheduler |
+| `thread-sleep!` | 1 | Sleep for a duration |
+| `thread-terminate!` | 1 | Terminate a thread |
+| `thread-join!` | 1+ | Wait for thread completion (optional timeout) |
+| `mutex?` | 1 | True if argument is a mutex |
+| `make-mutex` | 0+ | Create a mutex (optional name) |
+| `mutex-name` | 1 | Mutex name |
+| `mutex-specific` | 1 | Mutex specific value |
+| `mutex-specific-set!` | 2 | Set mutex specific value |
+| `mutex-state` | 1 | Mutex state (locked/unlocked/owner) |
+| `mutex-lock!` | 1+ | Lock a mutex (optional timeout/thread) |
+| `mutex-unlock!` | 1+ | Unlock a mutex (optional condition variable/timeout) |
+| `condition-variable?` | 1 | True if argument is a condition variable |
+| `make-condition-variable` | 0+ | Create a condition variable (optional name) |
+| `condition-variable-name` | 1 | Condition variable name |
+| `condition-variable-specific` | 1 | Condition variable specific value |
+| `condition-variable-specific-set!` | 2 | Set condition variable specific value |
+| `condition-variable-signal!` | 1 | Wake one waiting thread |
+| `condition-variable-broadcast!` | 1 | Wake all waiting threads |
+| `current-time` | 0 | Current time as time object |
+| `time?` | 1 | True if argument is a time object |
+| `time->seconds` | 1 | Convert time to seconds |
+| `seconds->time` | 1 | Convert seconds to time |
+| `join-timeout-exception?` | 1 | True if exception is a join timeout |
+| `abandoned-mutex-exception?` | 1 | True if exception is an abandoned mutex |
+| `terminated-thread-exception?` | 1 | True if exception is a terminated thread |
+| `uncaught-exception?` | 1 | True if exception is an uncaught exception |
+| `uncaught-exception-reason` | 1 | Get the reason from an uncaught exception |
+
+## Green Threads (Fibers)
+
+| Procedure | Arity | Description |
+|-----------|-------|-------------|
+| `spawn` | 1 | Create and start a fiber running a thunk |
+| `yield` | 0 | Yield to the fiber scheduler |
+| `fiber?` | 1 | True if argument is a fiber |
+| `fiber-join` | 1 | Wait for fiber completion, return its result |
+| `make-channel` | 0 | Create a new channel |
+| `channel-send` | 2 | Send a value on a channel |
+| `channel-receive` | 1 | Receive a value from a channel |
+| `channel?` | 1 | True if argument is a channel |
+
+## SRFI-170 Filesystem
+
+| Procedure | Arity | Description |
+|-----------|-------|-------------|
+| `file-info` | 1+ | Get file metadata (optional follow-symlinks?) |
+| `file-info?` | 1 | True if argument is a file-info object |
+| `file-info-type` | 1 | File type as symbol (regular, directory, symlink, ...) |
+| `file-info:size` | 1 | File size in bytes |
+| `file-info:mtime` | 1 | Modification time |
+| `file-info:atime` | 1 | Access time |
+| `file-info:ctime` | 1 | Status change time |
+| `file-info:mode` | 1 | File permission mode |
+| `file-info:nlinks` | 1 | Number of hard links |
+| `file-info:uid` | 1 | Owner user ID |
+| `file-info:gid` | 1 | Owner group ID |
+| `file-info:inode` | 1 | Inode number |
+| `file-info:device` | 1 | Device ID |
+| `file-info:blksize` | 1 | Block size |
+| `file-info:blocks` | 1 | Number of blocks |
+| `file-info-directory?` | 1 | True if file is a directory |
+| `file-info-regular?` | 1 | True if file is a regular file |
+| `file-info-symlink?` | 1 | True if file is a symlink |
+| `file-info-fifo?` | 1 | True if file is a FIFO |
+| `file-info-socket?` | 1 | True if file is a socket |
+| `file-info-device?` | 1 | True if file is a device |
+| `create-directory` | 1+ | Create a directory (optional mode) |
+| `delete-directory` | 1 | Delete a directory |
+| `rename-file` | 2 | Rename a file |
+| `create-symlink` | 2 | Create a symbolic link |
+| `read-symlink` | 1 | Read the target of a symbolic link |
+| `create-hard-link` | 2 | Create a hard link |
+| `real-path` | 1 | Resolve to canonical absolute path |
+| `set-file-mode` | 2 | Set file permissions |
+| `truncate-file` | 2 | Truncate file to given length |
+| `create-fifo` | 1+ | Create a named pipe (optional mode) |
+| `set-file-owner` | 3 | Set file owner (uid, gid) |
+| `set-file-times` | 3 | Set access and modification times |
+| `directory-files` | 1+ | List files in a directory |
+| `open-directory` | 1 | Open a directory stream |
+| `read-directory` | 1 | Read next entry from directory stream |
+| `close-directory` | 1 | Close a directory stream |
+| `pid` | 0 | Current process ID |
+| `umask` | 0 | Current umask |
+| `set-umask!` | 1 | Set umask |
+| `current-directory` | 0 | Current working directory |
+| `set-current-directory!` | 1 | Change working directory |
+| `user-uid` | 0 | Current user ID |
+| `user-gid` | 0 | Current group ID |
+| `user-effective-uid` | 0 | Effective user ID |
+| `user-effective-gid` | 0 | Effective group ID |
+| `user-supplementary-gids` | 0 | Supplementary group IDs |
+| `nice` | 1 | Adjust process priority |
+| `set-environment-variable!` | 2 | Set an environment variable |
+| `delete-environment-variable!` | 1 | Delete an environment variable |
+| `terminal?` | 1 | True if port is connected to a terminal |
+| `posix-time` | 0 | Current time as seconds since epoch |
+| `monotonic-time` | 0 | Monotonic clock time |
+| `temp-file-prefix` | 0 | Default temporary file prefix |
+| `create-temp-file` | 0+ | Create a temporary file (optional prefix) |
