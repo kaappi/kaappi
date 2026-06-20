@@ -467,6 +467,7 @@ pub const Compiler = struct {
             if (std.mem.eql(u8, name, "if")) return self.compileIf(args, dst, is_tail);
             if (std.mem.eql(u8, name, "lambda")) return self.compileLambda(args, dst, null);
             if (std.mem.eql(u8, name, "define")) return self.compileDefine(args, dst);
+            if (std.mem.eql(u8, name, "define-values")) return self.compileDefineValues(args, dst);
             if (std.mem.eql(u8, name, "set!")) return self.compileSet(args, dst);
             if (std.mem.eql(u8, name, "begin")) return self.compileBegin(args, dst, is_tail);
 
@@ -699,6 +700,10 @@ pub const Compiler = struct {
 
     fn compileDefine(self: *Compiler, args: Value, dst: u8) CompileError!void {
         return compiler_lambda.compileDefine(self, args, dst);
+    }
+
+    fn compileDefineValues(self: *Compiler, args: Value, dst: u8) CompileError!void {
+        return compiler_lambda.compileDefineValues(self, args, dst);
     }
 
     fn compileSet(self: *Compiler, args: Value, dst: u8) CompileError!void {
