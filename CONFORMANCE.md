@@ -53,7 +53,13 @@ Only `syntax-rules` is supported for macro definitions. R7RS-small deliberately 
 
 ## Remaining gaps
 
-4 edge cases remain — all with low practical impact and workarounds.
+2 edge cases remain — all with low practical impact and workarounds.
+
+Note: The following issues were **fixed** and are no longer limitations:
+- Special forms in macro templates (e.g., `let`, `if`) are now hygiene-renamed and correctly recognized by the compiler even when the use-site rebinds them as variables
+- Forward references through macros in `let`/`lambda` bodies now work (sibling `define` names are pre-registered before macro expansion)
+- Custom ellipsis identifiers in `syntax-rules` are fully supported
+- `...` as literal with priority over ellipsis works correctly
 
 ### Local-variable referential transparency in macros
 
