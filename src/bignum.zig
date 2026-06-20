@@ -852,6 +852,91 @@ test "bignum negate" {
     try std.testing.expectEqualStrings("-99999999999999999999999999999999", s);
 }
 
+test "bignum add with carry propagation" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    const max_limb = try gc.allocBignumFromLimbs(&[_]u64{std.math.maxInt(u64)}, 1, true);
+    const one = types.makeFixnum(1);
+    const result = try add(&gc, max_limb, one);
+    try std.testing.expect(types.isBignum(result));
+    const bn = types.toBignum(result);
+    try std.testing.expectEqual(@as(usize, 2), bn.len);
+}
+
+test "bignum add different signs (positive + negative)" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    const pos = try gc.allocBignumFromLimbs(&[_]u64{ 100, 1 }, 2, true);
+    const neg = try gc.allocBignumFromLimbs(&[_]u64{50}, 1, false);
+    const result = try add(&gc, pos, neg);
+    try std.testing.expect(!isValueZero(result));
+}
+
+test "bignum add different signs cancellation" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    const pos = try gc.allocBignumFromLimbs(&[_]u64{42}, 1, true);
+    const neg = try gc.allocBignumFromLimbs(&[_]u64{42}, 1, false);
+    const result = try add(&gc, pos, neg);
+    try std.testing.expect(isValueZero(result));
+}
+
+test "bignum add negative larger magnitude" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    const small_pos = try gc.allocBignumFromLimbs(&[_]u64{10}, 1, true);
+    const large_neg = try gc.allocBignumFromLimbs(&[_]u64{100}, 1, false);
+    const result = try add(&gc, small_pos, large_neg);
+    try std.testing.expect(isNegative(result));
+}
+
+test "bignum multiply by zero" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    const big = try gc.allocBignumFromLimbs(&[_]u64{ 1, 2, 3 }, 3, true);
+    const zero = types.makeFixnum(0);
+    const result = try mul(&gc, big, zero);
+    try std.testing.expect(isValueZero(result));
+}
+
+test "bignum isPositive and isNegative" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    const pos = try gc.allocBignumFromLimbs(&[_]u64{42}, 1, true);
+    const neg = try gc.allocBignumFromLimbs(&[_]u64{42}, 1, false);
+    try std.testing.expect(isPositive(pos));
+    try std.testing.expect(!isNegative(pos));
+    try std.testing.expect(isNegative(neg));
+    try std.testing.expect(!isPositive(neg));
+    try std.testing.expect(isPositive(types.makeFixnum(1)));
+    try std.testing.expect(isNegative(types.makeFixnum(-1)));
+    try std.testing.expect(!isPositive(types.makeFixnum(0)));
+    try std.testing.expect(!isNegative(types.makeFixnum(0)));
+}
+
+test "bignum isEven" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    const even_bn = try gc.allocBignumFromLimbs(&[_]u64{42}, 1, true);
+    const odd_bn = try gc.allocBignumFromLimbs(&[_]u64{43}, 1, true);
+    try std.testing.expect(isEven(even_bn));
+    try std.testing.expect(!isEven(odd_bn));
+}
+
+test "bignum absVal" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    const neg = try gc.allocBignumFromLimbs(&[_]u64{42}, 1, false);
+    const result = try absVal(&gc, neg);
+    try std.testing.expect(isPositive(result));
+    const pos = try gc.allocBignumFromLimbs(&[_]u64{42}, 1, true);
+    const result2 = try absVal(&gc, pos);
+    try std.testing.expect(isPositive(result2));
+    const fix_neg = types.makeFixnum(-5);
+    const result3 = try absVal(&gc, fix_neg);
+    try std.testing.expectEqual(@as(i64, 5), types.toFixnum(result3));
+}
+
 test "bignum demote" {
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
