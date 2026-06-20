@@ -5,3 +5,4 @@ zig-out/
 *.log
 test_*.o
 .claude/worktrees/
+coverage/

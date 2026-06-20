@@ -154,4 +154,65 @@ pub fn build(b: *std.Build) void {
     const run_unit_tests = b.addRunArtifact(unit_tests);
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&run_unit_tests.step);
+
+    // Code coverage via kcov (always Debug for DWARF line info)
+    const cov_mod = b.createModule(.{
+        .root_source_file = b.path("src/main.zig"),
+        .target = target,
+        .optimize = .Debug,
+    });
+    cov_mod.addAnonymousImport("embedded_bytecode", .{
+        .root_source_file = null_embed,
+        .target = target,
+        .optimize = .Debug,
+    });
+
+    const cov_tests = b.addTest(.{
+        .name = "coverage-tests",
+        .root_module = cov_mod,
+    });
+
+    const root = b.build_root.path orelse ".";
+    const run_kcov = b.addSystemCommand(&.{"kcov"});
+    run_kcov.addArg("--clean");
+    run_kcov.addArg(b.fmt("--include-path={s}/src", .{root}));
+    run_kcov.addArg(b.fmt("{s}/coverage", .{root}));
+    run_kcov.addArtifactArg(cov_tests);
+
+    const cov_step = b.step("coverage", "Run unit tests with kcov code coverage");
+    cov_step.dependOn(&run_kcov.step);
+
+    // Scheme file coverage via kcov (run .scm files under kcov)
+    const cov_main_mod = b.createModule(.{
+        .root_source_file = b.path("src/main.zig"),
+        .target = target,
+        .optimize = .Debug,
+        .link_libc = true,
+    });
+    cov_main_mod.addCSourceFile(.{
+        .file = b.path("vendor/linenoise/linenoise.c"),
+        .flags = &.{"-std=c99"},
+    });
+    cov_main_mod.addIncludePath(b.path("vendor/linenoise"));
+    cov_main_mod.addAnonymousImport("embedded_bytecode", .{
+        .root_source_file = null_embed,
+        .target = target,
+        .optimize = .Debug,
+    });
+
+    const cov_exe = b.addExecutable(.{
+        .name = "kaappi-cov",
+        .root_module = cov_main_mod,
+    });
+
+    const run_kcov_scheme = b.addSystemCommand(&.{"kcov"});
+    run_kcov_scheme.addArg(b.fmt("--include-path={s}/src", .{root}));
+    run_kcov_scheme.addArg(b.fmt("{s}/coverage", .{root}));
+    run_kcov_scheme.addArtifactArg(cov_exe);
+    if (b.args) |args| {
+        run_kcov_scheme.addArgs(args);
+    }
+
+    const cov_scheme_step = b.step("coverage-scheme", "Run a Scheme file with kcov code coverage");
+    cov_scheme_step.dependOn(&run_kcov_scheme.step);
 }

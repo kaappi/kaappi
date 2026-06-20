@@ -194,6 +194,46 @@ zig build bench
 
 ---
 
+## Code Coverage
+
+Code coverage is measured with [kcov](https://simonkagstrom.github.io/kcov/),
+which uses DWARF debug info to track which Zig source lines execute. Install
+with `brew install kcov`.
+
+### Running
+
+```bash
+# Unit test coverage
+zig build coverage
+
+# Scheme file coverage (e.g. R7RS test suite)
+zig build coverage-scheme -- tests/scheme/r7rs/r7rs-tests.scm
+
+# View the HTML report
+open coverage/index.html
+```
+
+Both steps always build in Debug mode (regardless of `-Doptimize`) since kcov
+requires DWARF line info. Only files under `src/` are included — standard
+library and vendored code are excluded.
+
+### Merging results
+
+Coverage accumulates across runs. The `coverage` step cleans previous unit test
+data each time, but `coverage-scheme` accumulates so you can run multiple `.scm`
+files against the same report:
+
+```bash
+zig build coverage                                          # unit tests
+zig build coverage-scheme -- tests/scheme/r7rs/r7rs-tests.scm   # R7RS suite
+zig build coverage-scheme -- tests/scheme/compliance/strings.scm # more tests
+open coverage/index.html                                    # merged view
+```
+
+Delete `coverage/` to start fresh.
+
+---
+
 ## CI
 
 GitHub Actions runs on every push and pull request. The CI matrix covers:

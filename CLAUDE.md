@@ -10,6 +10,8 @@ zig build run                      # launch REPL (linenoise: arrow keys, history
 zig build run -- f.scm             # run a Scheme file
 zig build test                     # run all unit tests
 zig build bench                    # call/cc vs call/ec capture micro-benchmark
+zig build coverage                 # unit test code coverage (requires kcov)
+zig build coverage-scheme -- f.scm # Scheme file code coverage (requires kcov)
 zig build -Dbundle-src=program.scm # standalone binary (compile + embed in one step)
 zig build -Dbundle=program.sbc     # standalone binary from pre-compiled .sbc
 ```
@@ -222,6 +224,20 @@ Always root `Function*` pointers before calling `vm.execute()` — it allocates 
   - `srfi/` — SRFI conformance tests
   - `ffi/` — C FFI integration tests
 - **Run all**: `bash tests/scheme/run-all.sh`
+
+## Code coverage
+
+Uses [kcov](https://simonkagstrom.github.io/kcov/) to track which Zig source lines execute during tests. Install with `brew install kcov`. Both steps build in Debug mode (regardless of `-Doptimize`) since kcov needs DWARF line info.
+
+```
+zig build coverage                                        # unit tests only
+zig build coverage-scheme -- tests/scheme/r7rs/r7rs-tests.scm  # R7RS test suite
+open coverage/index.html                                  # view HTML report
+```
+
+Coverage accumulates across runs — kcov merges results from the unit test binary (`coverage-tests`) and the Scheme runner (`kaappi-cov`) into a single report. The `coverage` step cleans previous unit test data on each run; `coverage-scheme` accumulates so you can run multiple `.scm` files. Delete `coverage/` to start fresh.
+
+Only files under `src/` are included in the report (standard library and vendored code are excluded).
 
 ## Dependencies
 
