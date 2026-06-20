@@ -1,6 +1,6 @@
 # R7RS Conformance
 
-Kaappi implements every identifier from [R7RS Appendix A](https://small.r7rs.org/) — 430+ built-in procedures, 32 syntax forms, and all 14 standard libraries. R7RS test suite: 1,394 pass, 0 fail.
+Kaappi implements every identifier from [R7RS Appendix A](https://small.r7rs.org/) — 554 built-in procedures, 32 syntax forms, and all 14 standard libraries. R7RS test suite: 1,394 pass, 0 fail.
 
 This document covers design choices, remaining gaps, and verified conformant behaviors.
 
@@ -124,11 +124,11 @@ These areas have been tested and match R7RS behavior:
 
 ## SRFI conformance
 
-52 SRFIs supported. 8 built-in (native Zig), 44 portable (.sld files). Coverage details for the built-in SRFIs follow.
+51 SRFIs supported. 8 built-in (native Zig), 43 portable (.sld files). Coverage details for the built-in SRFIs follow.
 
 ### SRFI 1 — List Library
 
-**Coverage: ~95%** (62 of ~65 spec procedures)
+**Coverage: ~98%** (71 of ~72 spec procedures)
 
 Implemented: `cons*`, `xcons`, `list-tabulate`, `circular-list`, `iota`, `proper-list?`, `dotted-list?`, `circular-list?`, `not-pair?`, `null-list?`, `list=`, `first`–`tenth`, `car+cdr`, `take`, `drop`, `take-right`, `drop-right`, `take-while`, `drop-while`, `split-at`, `last`, `last-pair`, `zip`, `unzip1`, `unzip2`, `count`, `fold`, `fold-right`, `pair-fold`, `pair-fold-right`, `reduce`, `reduce-right`, `unfold`, `unfold-right`, `map-in-order`, `append-map`, `filter-map`, `pair-for-each`, `filter`, `partition`, `remove`, `find`, `find-tail`, `any`, `every`, `list-index`, `span`, `break`, `delete`, `delete-duplicates`, `alist-cons`, `alist-copy`, `alist-delete`, `lset=`, `lset-adjoin`, `lset-union`, `lset-intersection`, `lset-difference`, `lset-xor`, `append-reverse`, `length+`, `concatenate`.
 
@@ -143,12 +143,13 @@ Implemented: `cons*`, `xcons`, `list-tabulate`, `circular-list`, `iota`, `proper
 
 ### SRFI 13 — String Library
 
-**Coverage: ~85%** (43 of ~50 spec procedures)
+**Coverage: ~90%** (30 of ~33 core spec procedures)
 
-Implemented: `string-contains`, `string-prefix?`, `string-suffix?`, `string-trim`, `string-trim-right`, `string-trim-both` (with predicate argument, UTF-8 safe), `string-index`, `string-index-right`, `string-skip`, `string-skip-right`, `string-count`, `string-split`, `string-join`, `string-concatenate`, `string-take`, `string-drop`, `string-take-right`, `string-drop-right`, `string-pad`, `string-pad-right`, `string-reverse`, `string-filter`, `string-delete`, `string-replace`, `string-titlecase`, `string-every`, `string-any`, `string-tabulate`, `string-unfold`, `string-unfold-right`.
+Implemented: `string-contains`, `string-prefix?`, `string-suffix?`, `string-trim`, `string-trim-right`, `string-trim-both` (with predicate or SRFI-14 char-set argument, UTF-8 safe), `string-index`, `string-index-right`, `string-skip`, `string-skip-right`, `string-count`, `string-split`, `string-join`, `string-concatenate`, `string-take`, `string-drop`, `string-take-right`, `string-drop-right`, `string-pad`, `string-pad-right`, `string-reverse`, `string-filter`, `string-delete`, `string-replace`, `string-titlecase`, `string-every`, `string-any`, `string-tabulate`, `string-unfold`, `string-unfold-right`.
+
+All predicate-accepting procedures (`string-trim`, `string-index`, `string-filter`, `string-count`, etc.) accept SRFI-14 char-set objects directly in addition to predicate procedures.
 
 **Not implemented:**
-- SRFI 14 char-set overloads — use `(lambda (c) (char-set-contains? cs c))` as workaround
 - `string-xcopy!` — mutation variant
 - `string-map`, `string-for-each` with start/end indices — base versions available
 
@@ -178,7 +179,7 @@ Implemented: All SRFI-133 procedures including `vector-unfold`, `vector-unfold-r
 
 ### SRFI 170 — POSIX API
 
-**Coverage: ~65%** (53 of ~80+ spec procedures)
+**Coverage: ~85%** (68 of ~80+ spec procedures)
 
 Implemented: File info (`file-info`, `file-info?`, `file-info-type`, all `file-info:*` accessors, type predicates), file operations (`create-directory`, `delete-directory`, `rename-file`, `create-symlink`, `read-symlink`, `create-hard-link`, `real-path`, `set-file-mode`, `truncate-file`, `create-fifo`, `set-file-owner`, `set-file-times`), process state (`pid`, `umask`, `set-umask!`, `current-directory`, `set-current-directory!`, `user-uid`, `user-gid`, `user-effective-uid`, `user-effective-gid`, `user-supplementary-gids`, `nice`), environment (`set-environment-variable!`, `delete-environment-variable!`), terminal (`terminal?`), user/group database, directory traversal (`open-directory`, `read-directory`, `close-directory`, `directory-files`), time (`posix-time`, `monotonic-time`), temp files (`temp-file-prefix`, `create-temp-file`).
 
@@ -186,3 +187,7 @@ Implemented: File info (`file-info`, `file-info?`, `file-info-type`, all `file-i
 - Process management (`fork`, `exec*`, `waitpid`, `_exit`) — unsafe in GC'd bytecode VM
 - Signal handling — requires async-safe VM interrupt mechanism
 - Pipes, I/O multiplexing — not exposed
+
+### SRFI 18 — Multithreading
+
+**Coverage: 100%** (35 of 35 spec procedures). Fiber-based concurrency: `make-thread`, `thread-start!`, `thread-yield!`, `thread-sleep!`, `thread-join!`, `thread-terminate!`, `mutex-lock!`, `mutex-unlock!`, `condition-variable-signal!`, `condition-variable-broadcast!`, time objects.

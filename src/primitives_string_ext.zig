@@ -92,18 +92,40 @@ fn isWhitespace(c: u8) bool {
     return c == ' ' or c == '\t' or c == '\n' or c == '\r';
 }
 
-fn callTrimPred(pred: Value, cp: u21) PrimitiveError!bool {
+/// Call a predicate or char-set-contains? with a character.
+/// Handles both procedure arguments and SRFI-14 char-set record arguments.
+fn callPredOrCharset(pred: Value, cp: u21) PrimitiveError!bool {
     const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError;
     const char_val = types.makeChar(cp);
-    const result = vm.callWithArgs(pred, &[_]Value{char_val}) catch |err| {
-        return switch (err) {
-            vm_mod.VMError.ContinuationInvoked => PrimitiveError.ContinuationInvoked,
-            vm_mod.VMError.ExceptionRaised => PrimitiveError.ExceptionRaised,
-            vm_mod.VMError.OutOfMemory => PrimitiveError.OutOfMemory,
-            else => PrimitiveError.TypeError,
+
+    // If pred is a procedure, call it directly
+    if (types.isProcedure(pred)) {
+        const result = vm.callWithArgs(pred, &[_]Value{char_val}) catch |err| {
+            return switch (err) {
+                vm_mod.VMError.ContinuationInvoked => PrimitiveError.ContinuationInvoked,
+                vm_mod.VMError.ExceptionRaised => PrimitiveError.ExceptionRaised,
+                vm_mod.VMError.OutOfMemory => PrimitiveError.OutOfMemory,
+                else => PrimitiveError.TypeError,
+            };
         };
-    };
-    return types.isTruthy(result);
+        return types.isTruthy(result);
+    }
+
+    // If pred is a record instance, try char-set-contains?
+    if (types.isRecordInstance(pred)) {
+        const cs_contains = vm.globals.get("char-set-contains?") orelse return PrimitiveError.TypeError;
+        const result = vm.callWithArgs(cs_contains, &[_]Value{ pred, char_val }) catch |err| {
+            return switch (err) {
+                vm_mod.VMError.ContinuationInvoked => PrimitiveError.ContinuationInvoked,
+                vm_mod.VMError.ExceptionRaised => PrimitiveError.ExceptionRaised,
+                vm_mod.VMError.OutOfMemory => PrimitiveError.OutOfMemory,
+                else => PrimitiveError.TypeError,
+            };
+        };
+        return types.isTruthy(result);
+    }
+
+    return PrimitiveError.TypeError;
 }
 
 fn decodeForward(data: []const u8, pos: usize) struct { cp: u21, len: usize } {
@@ -137,7 +159,7 @@ fn stringTrimFn(args: []const Value) PrimitiveError!Value {
     while (start < data.len) {
         const d = decodeForward(data, start);
         if (d.len == 0) break;
-        if (!try callTrimPred(pred, d.cp)) break;
+        if (!try callPredOrCharset(pred, d.cp)) break;
         start += d.len;
     }
     return gc.allocString(data[start..]) catch return PrimitiveError.OutOfMemory;
@@ -158,7 +180,7 @@ fn stringTrimRightFn(args: []const Value) PrimitiveError!Value {
         const cp_start = findPrevCpStart(data, end);
         const d = decodeForward(data, cp_start);
         if (d.len == 0) break;
-        if (!try callTrimPred(pred, d.cp)) break;
+        if (!try callPredOrCharset(pred, d.cp)) break;
         end = cp_start;
     }
     return gc.allocString(data[0..end]) catch return PrimitiveError.OutOfMemory;
@@ -180,7 +202,7 @@ fn stringTrimBothFn(args: []const Value) PrimitiveError!Value {
     while (start < data.len) {
         const d = decodeForward(data, start);
         if (d.len == 0) break;
-        if (!try callTrimPred(pred, d.cp)) break;
+        if (!try callPredOrCharset(pred, d.cp)) break;
         start += d.len;
     }
     var end: usize = data.len;
@@ -188,15 +210,14 @@ fn stringTrimBothFn(args: []const Value) PrimitiveError!Value {
         const cp_start = findPrevCpStart(data, end);
         const d = decodeForward(data, cp_start);
         if (d.len == 0) break;
-        if (!try callTrimPred(pred, d.cp)) break;
+        if (!try callPredOrCharset(pred, d.cp)) break;
         end = cp_start;
     }
     return gc.allocString(data[start..end]) catch return PrimitiveError.OutOfMemory;
 }
 
-// (string-index s pred) — index of first char satisfying pred (needs VM)
+// (string-index s pred) — index of first char satisfying pred
 fn stringIndexFn(args: []const Value) PrimitiveError!Value {
-    const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError;
     const data = try getStringSlice(args[0]);
     const pred = args[1];
 
@@ -204,26 +225,15 @@ fn stringIndexFn(args: []const Value) PrimitiveError!Value {
     var cp_idx: usize = 0;
     while (byte_i < data.len) {
         const cp = utf8DecodeAt(data, byte_i) orelse return PrimitiveError.TypeError;
-        const char_val = types.makeChar(cp);
-        const call_args = [1]Value{char_val};
-        const result = vm.callWithArgs(pred, &call_args) catch |err| {
-            return switch (err) {
-                vm_mod.VMError.ContinuationInvoked => PrimitiveError.ContinuationInvoked,
-                vm_mod.VMError.ExceptionRaised => PrimitiveError.ExceptionRaised,
-                vm_mod.VMError.OutOfMemory => PrimitiveError.OutOfMemory,
-                else => PrimitiveError.TypeError,
-            };
-        };
-        if (types.isTruthy(result)) return types.makeFixnum(@intCast(cp_idx));
+        if (try callPredOrCharset(pred, cp)) return types.makeFixnum(@intCast(cp_idx));
         byte_i += utf8ByteLenAt(data, byte_i);
         cp_idx += 1;
     }
     return types.FALSE;
 }
 
-// (string-count s pred) — count chars satisfying pred (needs VM)
+// (string-count s pred) — count chars satisfying pred
 fn stringCountFn(args: []const Value) PrimitiveError!Value {
-    const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError;
     const data = try getStringSlice(args[0]);
     const pred = args[1];
 
@@ -231,17 +241,7 @@ fn stringCountFn(args: []const Value) PrimitiveError!Value {
     var count: i64 = 0;
     while (byte_i < data.len) {
         const cp = utf8DecodeAt(data, byte_i) orelse return PrimitiveError.TypeError;
-        const char_val = types.makeChar(cp);
-        const call_args = [1]Value{char_val};
-        const result = vm.callWithArgs(pred, &call_args) catch |err| {
-            return switch (err) {
-                vm_mod.VMError.ContinuationInvoked => PrimitiveError.ContinuationInvoked,
-                vm_mod.VMError.ExceptionRaised => PrimitiveError.ExceptionRaised,
-                vm_mod.VMError.OutOfMemory => PrimitiveError.OutOfMemory,
-                else => PrimitiveError.TypeError,
-            };
-        };
-        if (types.isTruthy(result)) count += 1;
+        if (try callPredOrCharset(pred, cp)) count += 1;
         byte_i += utf8ByteLenAt(data, byte_i);
     }
     return types.makeFixnum(count);
@@ -496,8 +496,8 @@ fn stringFilterFn(args: []const Value) PrimitiveError!Value {
     while (i < data.len) {
         const len = std.unicode.utf8ByteSequenceLength(data[i]) catch 1;
         const cp = std.unicode.utf8Decode(data[i .. i + len]) catch { i += len; continue; };
-        const r = try callVM(pred, &[1]Value{types.makeChar(cp)});
-        if (types.isTruthy(r)) result.appendSlice(gc.allocator, data[i .. i + len]) catch return PrimitiveError.OutOfMemory;
+        const r_cs = try callPredOrCharset(pred, cp);
+        if (r_cs) result.appendSlice(gc.allocator, data[i .. i + len]) catch return PrimitiveError.OutOfMemory;
         i += len;
     }
     return gc.allocString(result.items) catch return PrimitiveError.OutOfMemory;
@@ -513,8 +513,8 @@ fn stringDeleteFn(args: []const Value) PrimitiveError!Value {
     while (i < data.len) {
         const len = std.unicode.utf8ByteSequenceLength(data[i]) catch 1;
         const cp = std.unicode.utf8Decode(data[i .. i + len]) catch { i += len; continue; };
-        const r = try callVM(pred, &[1]Value{types.makeChar(cp)});
-        if (!types.isTruthy(r)) result.appendSlice(gc.allocator, data[i .. i + len]) catch return PrimitiveError.OutOfMemory;
+        const r_cs = try callPredOrCharset(pred, cp);
+        if (!r_cs) result.appendSlice(gc.allocator, data[i .. i + len]) catch return PrimitiveError.OutOfMemory;
         i += len;
     }
     return gc.allocString(result.items) catch return PrimitiveError.OutOfMemory;
@@ -567,9 +567,13 @@ fn stringEveryFn(args: []const Value) PrimitiveError!Value {
     while (i < data.len) {
         const len = std.unicode.utf8ByteSequenceLength(data[i]) catch 1;
         const cp = std.unicode.utf8Decode(data[i .. i + len]) catch { i += len; continue; };
-        const r = try callVM(pred, &[1]Value{types.makeChar(cp)});
-        if (!types.isTruthy(r)) return types.FALSE;
-        last = r;
+        if (types.isRecordInstance(pred)) {
+            if (!try callPredOrCharset(pred, cp)) return types.FALSE;
+        } else {
+            const r = try callVM(pred, &[1]Value{types.makeChar(cp)});
+            if (!types.isTruthy(r)) return types.FALSE;
+            last = r;
+        }
         i += len;
     }
     return last;
@@ -582,8 +586,12 @@ fn stringAnyFn(args: []const Value) PrimitiveError!Value {
     while (i < data.len) {
         const len = std.unicode.utf8ByteSequenceLength(data[i]) catch 1;
         const cp = std.unicode.utf8Decode(data[i .. i + len]) catch { i += len; continue; };
-        const r = try callVM(pred, &[1]Value{types.makeChar(cp)});
-        if (types.isTruthy(r)) return r;
+        if (types.isRecordInstance(pred)) {
+            if (try callPredOrCharset(pred, cp)) return types.TRUE;
+        } else {
+            const r = try callVM(pred, &[1]Value{types.makeChar(cp)});
+            if (types.isTruthy(r)) return r;
+        }
         i += len;
     }
     return types.FALSE;
@@ -709,8 +717,8 @@ fn stringIndexRightFn(args: []const Value) PrimitiveError!Value {
             cp_idx += 1;
             continue;
         };
-        const r = try callVM(pred, &[1]Value{types.makeChar(cp)});
-        if (types.isTruthy(r)) last_match = cp_idx;
+        const r_cs = try callPredOrCharset(pred, cp);
+        if (r_cs) last_match = cp_idx;
         byte_i += seq_len;
         cp_idx += 1;
     }
@@ -731,8 +739,8 @@ fn stringSkipFn(args: []const Value) PrimitiveError!Value {
             cp_idx += 1;
             continue;
         };
-        const r = try callVM(pred, &[1]Value{types.makeChar(cp)});
-        if (!types.isTruthy(r)) return types.makeFixnum(@intCast(cp_idx));
+        const r_cs = try callPredOrCharset(pred, cp);
+        if (!r_cs) return types.makeFixnum(@intCast(cp_idx));
         byte_i += seq_len;
         cp_idx += 1;
     }
@@ -754,8 +762,8 @@ fn stringSkipRightFn(args: []const Value) PrimitiveError!Value {
             cp_idx += 1;
             continue;
         };
-        const r = try callVM(pred, &[1]Value{types.makeChar(cp)});
-        if (!types.isTruthy(r)) last_match = cp_idx;
+        const r_cs = try callPredOrCharset(pred, cp);
+        if (!r_cs) last_match = cp_idx;
         byte_i += seq_len;
         cp_idx += 1;
     }

@@ -6,3 +6,4 @@ zig-out/
 test_*.o
 .claude/worktrees/
 /coverage/
+tools/.cache/

@@ -4,7 +4,7 @@
 
 A complete **R7RS-small** Scheme implementation written in **Zig**.
 
-Kaappi implements every identifier from [R7RS Appendix A](https://small.r7rs.org/) — 420 built-in procedures, 32 syntax forms, and all 14 standard libraries — plus 41 SRFIs, a C FFI, and a stepping debugger. The runtime uses a bytecode compiler with a register-based VM, mark-and-sweep garbage collection, and stack-copying first-class continuations.
+Kaappi implements every identifier from [R7RS Appendix A](https://small.r7rs.org/) — 554 built-in procedures, 32 syntax forms, and all 14 standard libraries — plus 51 SRFIs, a C FFI, and a stepping debugger. The runtime uses a bytecode compiler with a register-based VM, mark-and-sweep garbage collection, and stack-copying first-class continuations.
 
 ---
 
@@ -50,7 +50,7 @@ kaappi> (char-alphabetic? #\λ)
 
 ### Complete R7RS-small implementation
 
-420 built-in procedures, 32 syntax forms, all 14 standard libraries — every identifier from [Appendix A](https://small.r7rs.org/).
+554 built-in procedures, 32 syntax forms, all 14 standard libraries — every identifier from [Appendix A](https://small.r7rs.org/).
 
 <details>
 <summary>Standard libraries</summary>
@@ -59,7 +59,7 @@ kaappi> (char-alphabetic? #\λ)
 |---------|---------|
 | `(scheme base)` | 230+ procedures and syntax |
 | `(scheme case-lambda)` | `case-lambda` |
-| `(scheme char)` | 21 Unicode character procedures |
+| `(scheme char)` | 22 Unicode character procedures |
 | `(scheme complex)` | 6 complex number procedures |
 | `(scheme cxr)` | 24 car/cdr compositions |
 | `(scheme eval)` | `eval`, `environment` |
@@ -156,7 +156,7 @@ Source code
 | **Compiler** | `compiler.zig` + 5 sub-modules | Compiles S-expressions to register-based bytecode. Detects tail positions for proper tail call optimization. Handles 32 syntax forms across 6 files. |
 | **VM** | `vm.zig` + 5 sub-modules | Executes bytecode with a register file, call frame stack, exception handler stack, and dynamic-wind stack. Supports first-class continuations via stack copying, plus a stepping debugger. |
 | **GC** | `memory.zig` | Mark-and-sweep collector with intrusive linked list. Root tracking via `pushRoot`/`popRoot`. Triggered after N allocations. |
-| **Primitives** | 18 `primitives_*.zig` files | 420 built-in procedures organized by domain: arithmetic, strings, vectors, I/O, control flow, etc. |
+| **Primitives** | 21 `primitives_*.zig` files | 554 built-in procedures organized by domain: arithmetic, strings, vectors, I/O, control flow, etc. |
 
 ### Value representation
 
@@ -241,8 +241,10 @@ kaappi/
 │   ├── primitives_bytevector.zig  Bytevector + binary I/O
 │   ├── primitives_list.zig        List operations (list-ref, member, ...)
 │   ├── primitives_srfi1.zig       SRFI-1 list library (fold, filter, iota, ...)
-│   ├── primitives_hashtable.zig   SRFI-69 hash tables
+│   ├── primitives_srfi18.zig      SRFI-18 threads, mutexes, conditions
+│   ├── primitives_hashtable.zig   SRFI-69 hash tables (open-addressing)
 │   ├── primitives_random.zig      SRFI-27 random numbers
+│   ├── primitives_fiber.zig       Fiber-based concurrency
 │   ├── primitives_io.zig          Ports, file I/O, string ports
 │   ├── primitives_filesystem.zig  SRFI-170 POSIX filesystem API
 │   ├── primitives_control.zig     Exceptions, continuations, values
@@ -250,6 +252,10 @@ kaappi/
 │   ├── primitives_cxr.zig         24 car/cdr compositions
 │   ├── primitives_ffi.zig         FFI procedures (ffi-open, ffi-fn, ffi-close)
 │   ├── primitives_r7rs.zig        time, process-context, eval, load
+│   ├── unicode_tables.zig         Unicode 15.1 case mapping tables (auto-generated)
+│   ├── jit.zig                    JIT compiler (AArch64)
+│   ├── jit_aarch64.zig            AArch64 instruction encoding
+│   ├── disassembler.zig           Bytecode disassembler
 │   │
 │   ├── testing_helpers.zig        Shared test utilities
 │   └── tests_*.zig                Unit tests by feature (core_eval, macros, io, …)
@@ -376,11 +382,11 @@ See **[CONFORMANCE.md](CONFORMANCE.md)** for the full details: design rationale,
 
 ### SRFI support
 
-41 SRFIs supported (8 built-in, 33 as portable `.sld` files in `lib/srfi/`):
+51 SRFIs supported (8 built-in, 43 as portable `.sld` files in `lib/srfi/`):
 
-**Built-in:** 1, 9, 13, 27, 39, 69, 133, 170
+**Built-in:** 1, 9, 13, 18, 39, 69, 133, 170
 
-**Portable:** 2, 8, 11, 14, 16, 26, 28, 31, 34, 35, 41, 64, 111, 117, 125, 128, 132, 141, 143, 145, 151, 152, 158, 174, 175, 189, 219, 222, 227, 232, 233, 235
+**Portable:** 2, 8, 11, 14, 16, 26, 27, 28, 31, 34, 35, 36, 41, 48, 64, 98, 111, 113, 115, 117, 125, 128, 132, 141, 143, 145, 146, 151, 152, 158, 166, 174, 175, 189, 195, 196, 210, 219, 222, 227, 232, 233, 235
 
 ---
 
