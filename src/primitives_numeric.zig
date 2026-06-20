@@ -153,11 +153,21 @@ fn roundFn(args: []const Value) PrimitiveError!Value {
 // ---------------------------------------------------------------------------
 
 fn exactP(args: []const Value) PrimitiveError!Value {
-    return if (types.isFixnum(args[0]) or types.isBignum(args[0]) or types.isRationalObj(args[0])) types.TRUE else types.FALSE;
+    if (types.isFixnum(args[0]) or types.isBignum(args[0]) or types.isRationalObj(args[0])) return types.TRUE;
+    if (types.isComplex(args[0])) {
+        const c = types.toComplex(args[0]);
+        return if (c.exact_real and c.exact_imag) types.TRUE else types.FALSE;
+    }
+    return types.FALSE;
 }
 
 fn inexactP(args: []const Value) PrimitiveError!Value {
-    return if (types.isFlonum(args[0])) types.TRUE else types.FALSE;
+    if (types.isFlonum(args[0])) return types.TRUE;
+    if (types.isComplex(args[0])) {
+        const c = types.toComplex(args[0]);
+        return if (!c.exact_real or !c.exact_imag) types.TRUE else types.FALSE;
+    }
+    return types.FALSE;
 }
 
 fn exactIntegerP(args: []const Value) PrimitiveError!Value {
@@ -205,6 +215,11 @@ fn inexactFn(args: []const Value) PrimitiveError!Value {
         const n = try toF64Ext(r.numerator);
         const d = try toF64Ext(r.denominator);
         return makeFlonumVal(n / d);
+    }
+    if (types.isComplex(args[0])) {
+        const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+        const c = types.toComplex(args[0]);
+        return gc.allocComplex(c.real, c.imag) catch return PrimitiveError.OutOfMemory;
     }
     return PrimitiveError.TypeError;
 }
@@ -259,6 +274,15 @@ fn squareFn(args: []const Value) PrimitiveError!Value {
 }
 
 fn sqrtFn(args: []const Value) PrimitiveError!Value {
+    if (types.isComplex(args[0])) {
+        const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+        const c = types.toComplex(args[0]);
+        const mag = @sqrt(c.real * c.real + c.imag * c.imag);
+        const r = @sqrt((mag + c.real) / 2.0);
+        const i_sign: f64 = if (c.imag < 0.0) -1.0 else 1.0;
+        const i = i_sign * @sqrt((mag - c.real) / 2.0);
+        return gc.allocComplex(r, i) catch return PrimitiveError.OutOfMemory;
+    }
     const f = try toF64(args[0]);
     if (f < 0.0) {
         const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;

@@ -34,6 +34,8 @@ pub fn registerR7RS(vm: *vm_mod.VM) !void {
     try reg(vm, "eval", &evalFn, .{ .variadic = 1 });
     try reg(vm, "environment", &environmentFn, .{ .variadic = 0 });
     try reg(vm, "interaction-environment", &interactionEnvironmentFn, .{ .exact = 0 });
+    try reg(vm, "null-environment", &nullEnvironmentFn, .{ .exact = 1 });
+    try reg(vm, "scheme-report-environment", &schemeReportEnvironmentFn, .{ .exact = 1 });
 
     // (scheme load)
     try reg(vm, "load", &loadFn, .{ .exact = 1 });
@@ -282,5 +284,19 @@ fn parameterSetDirectFn(args: []const Value) PrimitiveError!Value {
 
 fn interactionEnvironmentFn(args: []const Value) PrimitiveError!Value {
     _ = args;
-    return types.TRUE; // We always eval in the global environment
+    return types.TRUE;
+}
+
+fn nullEnvironmentFn(args: []const Value) PrimitiveError!Value {
+    if (!types.isFixnum(args[0])) return PrimitiveError.TypeError;
+    const version = types.toFixnum(args[0]);
+    if (version != 5 and version != 7) return PrimitiveError.TypeError;
+    return types.TRUE;
+}
+
+fn schemeReportEnvironmentFn(args: []const Value) PrimitiveError!Value {
+    if (!types.isFixnum(args[0])) return PrimitiveError.TypeError;
+    const version = types.toFixnum(args[0]);
+    if (version != 5 and version != 7) return PrimitiveError.TypeError;
+    return types.TRUE;
 }

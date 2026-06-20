@@ -320,6 +320,19 @@ pub fn registerStandardLibraries(registry: *LibraryRegistry, globals: *std.Strin
     }
     try registry.register(load_lib);
 
+    // (scheme r5rs) — R5RS compatibility
+    const scheme_r5rs_names = [_][]const u8{
+        "null-environment", "scheme-report-environment",
+        "eval", "interaction-environment",
+    };
+    var r5rs_lib = Library.init(allocator, "scheme.r5rs");
+    for (scheme_r5rs_names) |name| {
+        if (globals.get(name)) |val| {
+            try r5rs_lib.addExport(name, val);
+        }
+    }
+    try registry.register(r5rs_lib);
+
     // (scheme file) — file I/O procedures
     const scheme_file_names = [_][]const u8{
         "open-input-file", "open-output-file",
