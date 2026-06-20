@@ -368,9 +368,9 @@ kaappi/
 
 | Document | Description |
 |----------|-------------|
-| [User Guide](docs/guide.md) | Installation, REPL, language tutorial, command-line reference |
-| [Procedure Reference](docs/procedures.md) | Built-in procedures with arity and descriptions, organized by domain |
-| [Library Authoring Guide](docs/libraries.md) | Writing and using R7RS libraries |
+| [User Guide](https://kaappi.github.io/guide/) | Installation, REPL, language tutorial, command-line reference |
+| [Procedure Reference](https://kaappi.github.io/procedures/) | Built-in procedures with arity and descriptions, organized by domain |
+| [Library Reference](https://kaappi.github.io/libraries/) | 51 SRFIs, standard libraries, and how to write your own |
 | [Contributing](CONTRIBUTING.md) | How to build, test, and contribute |
 | [Architecture](docs/dev/architecture.md) | Pipeline, value representation, GC, file organization |
 | [Adding Features](docs/dev/adding-features.md) | Step-by-step guides for extending the implementation |
