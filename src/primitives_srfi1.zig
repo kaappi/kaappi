@@ -76,6 +76,11 @@ pub fn registerSrfi1(vm: *vm_mod.VM) !void {
     try reg(vm, "third", &thirdFn, .{ .exact = 1 });
     try reg(vm, "fourth", &fourthFn, .{ .exact = 1 });
     try reg(vm, "fifth", &fifthFn, .{ .exact = 1 });
+    try reg(vm, "sixth", &sixthFn, .{ .exact = 1 });
+    try reg(vm, "seventh", &seventhFn, .{ .exact = 1 });
+    try reg(vm, "eighth", &eighthFn, .{ .exact = 1 });
+    try reg(vm, "ninth", &ninthFn, .{ .exact = 1 });
+    try reg(vm, "tenth", &tenthFn, .{ .exact = 1 });
     try reg(vm, "car+cdr", &carCdrFn, .{ .exact = 1 });
     try reg(vm, "take-right", &takeRightFn, .{ .exact = 2 });
     try reg(vm, "drop-right", &dropRightFn, .{ .exact = 2 });
@@ -106,6 +111,8 @@ pub fn registerSrfi1(vm: *vm_mod.VM) !void {
     try reg(vm, "unzip2", &unzip2Fn, .{ .exact = 1 });
     try reg(vm, "pair-for-each", &pairForEachFn, .{ .variadic = 2 });
     try reg(vm, "pair-fold", &pairFoldFn, .{ .variadic = 3 });
+    try reg(vm, "pair-fold-right", &pairFoldRightFn, .{ .variadic = 3 });
+    try reg(vm, "map-in-order", &mapInOrderFn, .{ .variadic = 2 });
 }
 
 // ---------------------------------------------------------------------------
@@ -1275,6 +1282,23 @@ fn fifthFn(args: []const Value) PrimitiveError!Value {
     return types.car(p);
 }
 
+fn nthFn(args: []const Value, comptime n: u8) PrimitiveError!Value {
+    var p = args[0];
+    comptime var i = 0;
+    inline while (i < n) : (i += 1) {
+        if (!types.isPair(p)) return PrimitiveError.TypeError;
+        p = types.cdr(p);
+    }
+    if (!types.isPair(p)) return PrimitiveError.TypeError;
+    return types.car(p);
+}
+
+fn sixthFn(args: []const Value) PrimitiveError!Value { return nthFn(args, 5); }
+fn seventhFn(args: []const Value) PrimitiveError!Value { return nthFn(args, 6); }
+fn eighthFn(args: []const Value) PrimitiveError!Value { return nthFn(args, 7); }
+fn ninthFn(args: []const Value) PrimitiveError!Value { return nthFn(args, 8); }
+fn tenthFn(args: []const Value) PrimitiveError!Value { return nthFn(args, 9); }
+
 // (car+cdr pair) — returns (values (car pair) (cdr pair))
 fn carCdrFn(args: []const Value) PrimitiveError!Value {
     const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
@@ -1971,4 +1995,76 @@ fn pairFoldFn(args: []const Value) PrimitiveError!Value {
         }
     }
     return acc;
+}
+
+// (pair-fold-right kons knil list1 ...) — like fold-right but passes pairs
+fn pairFoldRightFn(args: []const Value) PrimitiveError!Value {
+    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const proc = args[0];
+    const init = args[1];
+    const list_count = args.len - 2;
+    if (list_count == 0) return PrimitiveError.ArityMismatch;
+
+    var all_pairs: [256]std.ArrayList(Value) = undefined;
+    for (0..list_count) |i| all_pairs[i] = .empty;
+    defer for (0..list_count) |i| all_pairs[i].deinit(gc.allocator);
+
+    var min_len: usize = std.math.maxInt(usize);
+    for (0..list_count) |i| {
+        var current = args[2 + i];
+        var count: usize = 0;
+        while (current != types.NIL) {
+            if (!types.isPair(current)) return PrimitiveError.TypeError;
+            all_pairs[i].append(gc.allocator, current) catch return PrimitiveError.OutOfMemory;
+            current = types.cdr(current);
+            count += 1;
+        }
+        if (count < min_len) min_len = count;
+    }
+
+    var acc = init;
+    var call_args_buf: [257]Value = undefined;
+    var idx = min_len;
+    while (idx > 0) {
+        idx -= 1;
+        for (0..list_count) |i| call_args_buf[i] = all_pairs[i].items[idx];
+        call_args_buf[list_count] = acc;
+        acc = try callVM(proc, call_args_buf[0 .. list_count + 1]);
+    }
+    return acc;
+}
+
+// (map-in-order proc list1 ...) — same as map, guarantees left-to-right
+fn mapInOrderFn(args: []const Value) PrimitiveError!Value {
+    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const proc = args[0];
+    const list_count = args.len - 1;
+    if (list_count == 0) return PrimitiveError.ArityMismatch;
+
+    var currents: [256]Value = undefined;
+    for (0..list_count) |i| currents[i] = args[1 + i];
+
+    var results: std.ArrayList(Value) = .empty;
+    defer results.deinit(gc.allocator);
+    var call_args_buf: [256]Value = undefined;
+
+    while (true) {
+        var all_pairs = true;
+        for (0..list_count) |i| {
+            if (currents[i] == types.NIL) { all_pairs = false; break; }
+            if (!types.isPair(currents[i])) return PrimitiveError.TypeError;
+        }
+        if (!all_pairs) break;
+        for (0..list_count) |i| call_args_buf[i] = types.car(currents[i]);
+        const result = try callVM(proc, call_args_buf[0..list_count]);
+        results.append(gc.allocator, result) catch return PrimitiveError.OutOfMemory;
+        for (0..list_count) |i| currents[i] = types.cdr(currents[i]);
+    }
+
+    var result_list: Value = types.NIL;
+    gc.pushRoot(&result_list) catch return PrimitiveError.OutOfMemory;
+    defer gc.popRoot();
+    var i = results.items.len;
+    while (i > 0) { i -= 1; result_list = gc.allocPair(results.items[i], result_list) catch return PrimitiveError.OutOfMemory; }
+    return result_list;
 }

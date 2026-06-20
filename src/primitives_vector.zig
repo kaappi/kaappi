@@ -39,6 +39,8 @@ pub fn registerVector(vm: *vm_mod.VM) !void {
     try reg(vm, "vector-reverse!", &vectorReverseBangFn, .{ .variadic = 1 });
     try reg(vm, "vector-reverse-copy", &vectorReverseCopyFn, .{ .variadic = 1 });
     try reg(vm, "vector-unfold", &vectorUnfoldFn, .{ .variadic = 2 });
+    try reg(vm, "vector-unfold-right", &vectorUnfoldRightFn, .{ .variadic = 2 });
+    try reg(vm, "vector-binary-search", &vectorBinarySearchFn, .{ .exact = 3 });
     try reg(vm, "vector-concatenate", &vectorConcatenateFn, .{ .exact = 1 });
     try reg(vm, "vector-cumulate", &vectorCumulateFn, .{ .exact = 3 });
     try reg(vm, "vector-partition", &vectorPartitionFn, .{ .exact = 2 });
@@ -723,6 +725,72 @@ fn vectorUnfoldFn(args: []const Value) PrimitiveError!Value {
         }
     }
     return gc.allocVector(new_data) catch return PrimitiveError.OutOfMemory;
+}
+
+// (vector-unfold-right f length [seeds ...])
+fn vectorUnfoldRightFn(args: []const Value) PrimitiveError!Value {
+    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const f = args[0];
+    if (!types.isFixnum(args[1])) return PrimitiveError.TypeError;
+    const len_val = types.toFixnum(args[1]);
+    if (len_val < 0) return PrimitiveError.TypeError;
+    const length: usize = @intCast(len_val);
+
+    var seeds: std.ArrayList(Value) = .empty;
+    defer seeds.deinit(gc.allocator);
+    for (args[2..]) |s| {
+        seeds.append(gc.allocator, s) catch return PrimitiveError.OutOfMemory;
+    }
+
+    const new_data = gc.allocator.alloc(Value, length) catch return PrimitiveError.OutOfMemory;
+    defer gc.allocator.free(new_data);
+
+    // Fill from right to left (index length-1 down to 0)
+    var i = length;
+    while (i > 0) {
+        i -= 1;
+        var call_args_buf: [257]Value = undefined;
+        call_args_buf[0] = types.makeFixnum(@intCast(i));
+        for (seeds.items, 0..) |s, j| {
+            call_args_buf[1 + j] = s;
+        }
+        const result = try callVM(f, call_args_buf[0 .. 1 + seeds.items.len]);
+        if (types.isMultipleValues(result)) {
+            const mv = types.toObject(result).as(types.MultipleValues);
+            if (mv.values.len > 0) new_data[i] = mv.values[0];
+            for (mv.values[1..], 0..) |v, si| {
+                if (si < seeds.items.len) seeds.items[si] = v;
+            }
+        } else {
+            new_data[i] = result;
+        }
+    }
+    return gc.allocVector(new_data) catch return PrimitiveError.OutOfMemory;
+}
+
+// (vector-binary-search vec value cmp) — binary search, returns index or #f
+fn vectorBinarySearchFn(args: []const Value) PrimitiveError!Value {
+    if (!types.isVector(args[0])) return PrimitiveError.TypeError;
+    const vec = types.toVector(args[0]);
+    const value = args[1];
+    const cmp = args[2];
+
+    var lo: usize = 0;
+    var hi: usize = vec.data.len;
+
+    while (lo < hi) {
+        const mid = lo + (hi - lo) / 2;
+        const result = try callVM(cmp, &[2]Value{ vec.data[mid], value });
+        if (!types.isFixnum(result)) return PrimitiveError.TypeError;
+        const c = types.toFixnum(result);
+        if (c == 0) return types.makeFixnum(@intCast(mid));
+        if (c < 0) {
+            lo = mid + 1;
+        } else {
+            hi = mid;
+        }
+    }
+    return types.FALSE;
 }
 
 // (vector-concatenate list-of-vectors)
