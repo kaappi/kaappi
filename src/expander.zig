@@ -5,11 +5,17 @@ const Value = types.Value;
 const GC = memory.GC;
 
 var active_custom_ellipsis: ?[]const u8 = null;
+var active_literals: []const Value = &.{};
 
 fn isEllipsis(name: []const u8) bool {
-    if (std.mem.eql(u8, name, "...")) return true;
-    if (active_custom_ellipsis) |ce| return std.mem.eql(u8, name, ce);
-    return false;
+    // If the name is listed as a literal, it's not the ellipsis
+    for (active_literals) |lit| {
+        if (types.isSymbol(lit) and std.mem.eql(u8, types.symbolName(lit), name)) return false;
+    }
+    if (active_custom_ellipsis) |ce| {
+        return std.mem.eql(u8, name, ce);
+    }
+    return std.mem.eql(u8, name, "...");
 }
 
 // ---------------------------------------------------------------------------
@@ -143,6 +149,9 @@ pub fn expandMacro(gc: *GC, expr: Value, transformer_val: Value, globals: ?*std.
     const saved_ellipsis = active_custom_ellipsis;
     active_custom_ellipsis = transformer.custom_ellipsis;
     defer active_custom_ellipsis = saved_ellipsis;
+    const saved_literals = active_literals;
+    active_literals = transformer.literals;
+    defer active_literals = saved_literals;
     const input = types.cdr(expr); // skip the keyword
 
     // Extract the macro keyword name from the first pattern (car of the
