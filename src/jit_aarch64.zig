@@ -452,6 +452,22 @@ pub const Assembler = struct {
             @intFromEnum(rd);
     }
 
+    // MUL Xd, Xn, Xm (= MADD Xd, Xn, Xm, XZR)
+    pub fn mul(rd: Reg, rn: Reg, rm: Reg) u32 {
+        return @as(u32, 0x9B007C00) |
+            (@as(u32, @intFromEnum(rm)) << 16) |
+            (@as(u32, @intFromEnum(rn)) << 5) |
+            @intFromEnum(rd);
+    }
+
+    // SMULH Xd, Xn, Xm — signed high multiply
+    pub fn smulh(rd: Reg, rn: Reg, rm: Reg) u32 {
+        return @as(u32, 0x9B407C00) |
+            (@as(u32, @intFromEnum(rm)) << 16) |
+            (@as(u32, @intFromEnum(rn)) << 5) |
+            @intFromEnum(rd);
+    }
+
     // --- Emit helpers for new instructions ---
 
     pub fn emitStrbImm(self: *Assembler, rt: Reg, rn: Reg, byte_offset: u12) !void {

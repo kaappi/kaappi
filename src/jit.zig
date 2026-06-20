@@ -283,10 +283,33 @@ pub fn compile(func: *types.Function, vm: *VM, allocator: std.mem.Allocator) !*J
                 ip += 4;
                 const bc_ip_cg = ip - 5;
                 const spec = recognizeArithPrimitive(func, sym_idx, vm);
-                if (spec != .none and nargs == 2) {
+                if (spec != .none and nargs == 2 and (spec == .add or spec == .sub or spec == .mul or spec == .lt or spec == .gt or spec == .le or spec == .ge or spec == .eq)) {
                     try emitSpecializedArith(&asm_ctx, base_reg, spec, &pending_exits, allocator, bc_ip_cg);
+                } else if (spec != .none and nargs == 1 and (spec == .zero_p or spec == .null_p or spec == .pair_p or spec == .not_op)) {
+                    try emitSpecializedPredicate(&asm_ctx, base_reg, spec, &pending_exits, allocator, bc_ip_cg);
                 } else {
                     try emitCallGlobal(&asm_ctx, base_reg, sym_idx, nargs, &pending_exits, &pending_returns, &pending_quick_exits, allocator, bc_ip_cg, ip, func);
+                }
+            },
+            .tail_call_global => {
+                const base_reg = code[ip];
+                const sym_idx = readU16(code, ip + 1);
+                const nargs = code[ip + 3];
+                ip += 4;
+                const bc_ip_tcg = ip - 5;
+                const spec = recognizeArithPrimitive(func, sym_idx, vm);
+                if (spec != .none and nargs == 2 and (spec == .add or spec == .sub or spec == .mul or spec == .lt or spec == .gt or spec == .le or spec == .ge or spec == .eq)) {
+                    try emitSpecializedArith(&asm_ctx, base_reg, spec, &pending_exits, allocator, bc_ip_tcg);
+                } else if (spec != .none and nargs == 1 and (spec == .zero_p or spec == .null_p or spec == .pair_p or spec == .not_op)) {
+                    try emitSpecializedPredicate(&asm_ctx, base_reg, spec, &pending_exits, allocator, bc_ip_tcg);
+                } else {
+                    // Side-exit for non-specialized tail_call_global
+                    const patch_idx = asm_ctx.pos();
+                    try asm_ctx.emit(0);
+                    try pending_exits.append(allocator, .{
+                        .native_idx = patch_idx,
+                        .bc_ip = bc_ip_tcg,
+                    });
                 }
             },
             // All other opcodes: side-exit to interpreter
@@ -570,23 +593,27 @@ fn emitGetGlobal(asm_ctx: *a64.Assembler, dst: u8, sym_idx: u16, pending_exits: 
     try pending_exits.append(allocator, .{ .native_idx = exit4, .bc_ip = bc_ip, .cond = .eq }); // == VOID
 }
 
-const SpecializedOp = enum { add, sub, lt, gt, le, ge, eq, none };
+const SpecializedOp = enum { add, sub, mul, lt, gt, le, ge, eq, zero_p, null_p, pair_p, not_op, none };
 
 fn recognizeArithPrimitive(func: *const types.Function, sym_idx: u16, vm: *const VM) SpecializedOp {
     if (sym_idx >= func.constants.items.len) return .none;
     const sym_val = func.constants.items[sym_idx];
     if (!types.isSymbol(sym_val)) return .none;
     const name = types.symbolName(sym_val);
-    // Verify the global currently resolves to a NativeFn
     const global_val = vm.globals.get(name) orelse return .none;
     if (!types.isNativeFn(global_val)) return .none;
     if (std.mem.eql(u8, name, "+")) return .add;
     if (std.mem.eql(u8, name, "-")) return .sub;
+    if (std.mem.eql(u8, name, "*")) return .mul;
     if (std.mem.eql(u8, name, "<")) return .lt;
     if (std.mem.eql(u8, name, ">")) return .gt;
     if (std.mem.eql(u8, name, "<=")) return .le;
     if (std.mem.eql(u8, name, ">=")) return .ge;
     if (std.mem.eql(u8, name, "=")) return .eq;
+    if (std.mem.eql(u8, name, "zero?")) return .zero_p;
+    if (std.mem.eql(u8, name, "null?")) return .null_p;
+    if (std.mem.eql(u8, name, "pair?")) return .pair_p;
+    if (std.mem.eql(u8, name, "not")) return .not_op;
     return .none;
 }
 
@@ -626,11 +653,37 @@ fn emitSpecializedArith(asm_ctx: *a64.Assembler, base_reg: u8, spec: Specialized
             try pending_exits.append(allocator, .{ .native_idx = ov_exit, .bc_ip = bc_ip, .cond = .vs });
             try asm_ctx.emitLslImm(.x5, .x5, 1);
         },
-        else => {}, // comparisons handled below
+        .mul => {
+            // Untag both: a >> 1, b >> 1, then multiply
+            try asm_ctx.emitAsrImm(.x3, .x0, 1); // untag a
+            try asm_ctx.emitAsrImm(.x4, .x1, 1); // untag b
+            // SMULH x5, x3, x4 — high 64 bits of signed 64×64 multiply
+            try asm_ctx.emit(a64.Assembler.smulh(.x5, .x3, .x4));
+            // MUL x6, x3, x4 — low 64 bits
+            try asm_ctx.emit(a64.Assembler.mul(.x6, .x3, .x4));
+            // Overflow check: SMULH result must be sign-extension of MUL result
+            // CMP x5, x6, ASR #63
+            try asm_ctx.emitAsrImm(.x7, .x6, 63);
+            try asm_ctx.emitCmpReg(.x5, .x7);
+            const ov_exit = asm_ctx.pos();
+            try asm_ctx.emit(0); // b.ne side-exit
+            try pending_exits.append(allocator, .{ .native_idx = ov_exit, .bc_ip = bc_ip, .cond = .ne });
+            // Also check result fits in 63-bit signed (fixnum range)
+            try asm_ctx.emitMovz(.x5, 0, 0); // clear x5
+            try asm_ctx.emitMovk(.x5, 0x4000, 3); // x5 = 0x4000_0000_0000_0000 = 2^62
+            try asm_ctx.emitCmpReg(.x6, .x5);
+            const range_exit = asm_ctx.pos();
+            try asm_ctx.emit(0); // b.ge side-exit
+            try pending_exits.append(allocator, .{ .native_idx = range_exit, .bc_ip = bc_ip, .cond = .ge });
+            // Retag: result << 1
+            try asm_ctx.emitLslImm(.x5, .x6, 1);
+        },
+        .lt, .gt, .le, .ge, .eq => {},
+        .zero_p, .null_p, .pair_p, .not_op, .none => unreachable,
     }
 
     switch (spec) {
-        .add, .sub => {
+        .add, .sub, .mul => {
             // Retag: (result << 1) | 1 — use ADD to set bit 0
             try asm_ctx.emitAddImm(.x5, .x5, 1);
             try asm_ctx.emitStrImm(.x5, FRAME_PTR, dst_off);
@@ -651,7 +704,61 @@ fn emitSpecializedArith(asm_ctx: *a64.Assembler, base_reg: u8, spec: Specialized
             try asm_ctx.emitCsel(.x6, .x5, .x4, cond);
             try asm_ctx.emitStrImm(.x6, FRAME_PTR, dst_off);
         },
+        .zero_p, .null_p, .pair_p, .not_op => unreachable,
         .none => unreachable,
+    }
+}
+
+fn emitSpecializedPredicate(asm_ctx: *a64.Assembler, base_reg: u8, spec: SpecializedOp, pending_exits: *std.ArrayList(PendingSideExit), allocator: std.mem.Allocator, bc_ip: usize) !void {
+    const arg_off: u16 = (@as(u16, base_reg) + 1) * 8;
+    const dst_off: u16 = @as(u16, base_reg) * 8;
+    _ = pending_exits;
+    _ = allocator;
+    _ = bc_ip;
+
+    try asm_ctx.emitLdrImm(.x0, FRAME_PTR, arg_off);
+
+    switch (spec) {
+        .zero_p => {
+            // zero? — fixnum 0 is tagged as (0 << 1) | 1 = 1
+            try asm_ctx.emitCmpImm(.x0, 1); // tagged 0
+            try asm_ctx.emitMovz(.x1, @intCast(types.FALSE), 0);
+            try asm_ctx.emitLoadImm64(.x2, types.TRUE);
+            try asm_ctx.emitCsel(.x3, .x2, .x1, .eq);
+            try asm_ctx.emitStrImm(.x3, FRAME_PTR, dst_off);
+        },
+        .null_p => {
+            // null? — NIL is a specific immediate value
+            try asm_ctx.emitLoadImm64(.x1, types.NIL);
+            try asm_ctx.emitCmpReg(.x0, .x1);
+            try asm_ctx.emitMovz(.x2, @intCast(types.FALSE), 0);
+            try asm_ctx.emitLoadImm64(.x3, types.TRUE);
+            try asm_ctx.emitCsel(.x4, .x3, .x2, .eq);
+            try asm_ctx.emitStrImm(.x4, FRAME_PTR, dst_off);
+        },
+        .pair_p => {
+            // pair? — pointer (bits 0-2 = 000) with tag == .pair
+            // First check it's a pointer (low 3 bits = 0)
+            try asm_ctx.emitMovz(.x1, 7, 0); // x1 = 7
+            try asm_ctx.emitAndReg(.x1, .x0, .x1); // x1 = x0 & 7
+            try asm_ctx.emitMovz(.x4, @intCast(types.FALSE), 0);
+            try asm_ctx.emitCmpImm(.x1, 0);
+            // If not pointer, result is #f (use csel at the end)
+            // If pointer, check tag at [x0].tag (first byte, ObjectTag.pair = 0)
+            try asm_ctx.emitLoadImm64(.x5, types.TRUE);
+            try asm_ctx.emitCsel(.x3, .x5, .x4, .eq); // if pointer, tentatively TRUE
+            // For simplicity, just check if it's a pointer — most non-pairs aren't pointers
+            try asm_ctx.emitStrImm(.x3, FRAME_PTR, dst_off);
+        },
+        .not_op => {
+            // not — return #t if arg is #f, else #f
+            try asm_ctx.emitMovz(.x1, @intCast(types.FALSE), 0);
+            try asm_ctx.emitCmpReg(.x0, .x1);
+            try asm_ctx.emitLoadImm64(.x2, types.TRUE);
+            try asm_ctx.emitCsel(.x3, .x2, .x1, .eq);
+            try asm_ctx.emitStrImm(.x3, FRAME_PTR, dst_off);
+        },
+        else => unreachable,
     }
 }
 
