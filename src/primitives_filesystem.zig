@@ -6,6 +6,8 @@ const Value = types.Value;
 const PrimitiveError = primitives.PrimitiveError;
 const GC = @import("memory.zig").GC;
 
+extern fn mkstemp(template: [*:0]u8) c_int;
+
 extern "c" fn truncate(path: [*:0]const u8, length: std.c.off_t) c_int;
 extern "c" fn mkfifo(path: [*:0]const u8, mode: std.c.mode_t) c_int;
 extern "c" fn chown(path: [*:0]const u8, owner: std.c.uid_t, group: std.c.gid_t) c_int;
@@ -51,6 +53,10 @@ pub fn registerFilesystem(vm: *vm_mod.VM) !void {
     try primitives.reg(vm, "create-fifo", &createFifoFn, .{ .variadic = 1 });
     try primitives.reg(vm, "set-file-owner", &setFileOwnerFn, .{ .exact = 3 });
     try primitives.reg(vm, "set-file-times", &setFileTimesFn, .{ .variadic = 1 });
+
+    try primitives.reg(vm, "file-info-type", &fileInfoTypeFn, .{ .exact = 1 });
+    try primitives.reg(vm, "temp-file-prefix", &tempFilePrefixFn, .{ .exact = 0 });
+    try primitives.reg(vm, "create-temp-file", &createTempFileFn, .{ .variadic = 0 });
 
     // Process state
     try primitives.reg(vm, "pid", &pidFn, .{ .exact = 0 });
@@ -841,4 +847,56 @@ fn monotonicTimeFn(args: []const Value) PrimitiveError!Value {
     var ts: std.c.timespec = undefined;
     _ = std.c.clock_gettime(.MONOTONIC, &ts);
     return types.makeFixnum(@as(i64, @intCast(ts.sec)));
+}
+
+// (file-info-type fi) — return type as symbol
+fn fileInfoTypeFn(args: []const Value) PrimitiveError!Value {
+    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    if (!types.isFileInfo(args[0])) return PrimitiveError.TypeError;
+    const fi = types.toObject(args[0]).as(types.FileInfo);
+    const name: []const u8 = switch (fi.file_type) {
+        .regular => "regular",
+        .directory => "directory",
+        .symlink => "symlink",
+        .fifo => "fifo",
+        .socket => "socket",
+        .device => "block-special",
+        .other => "unknown",
+    };
+    return gc.allocSymbol(name) catch return PrimitiveError.OutOfMemory;
+}
+
+// (temp-file-prefix) — return tempdir path
+fn tempFilePrefixFn(args: []const Value) PrimitiveError!Value {
+    _ = args;
+    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    return gc.allocString("/tmp/kaappi-") catch return PrimitiveError.OutOfMemory;
+}
+
+// (create-temp-file [prefix]) — create a temp file and return its path
+fn createTempFileFn(args: []const Value) PrimitiveError!Value {
+    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+
+    var prefix: []const u8 = "/tmp/kaappi-";
+    if (args.len > 0 and types.isString(args[0])) {
+        const s = types.toObject(args[0]).as(types.SchemeString);
+        prefix = s.data[0..s.len];
+    }
+
+    // Build template: prefix + XXXXXX + null
+    var template_buf: [256]u8 = undefined;
+    if (prefix.len + 7 > template_buf.len) return PrimitiveError.TypeError;
+    @memcpy(template_buf[0..prefix.len], prefix);
+    @memcpy(template_buf[prefix.len..][0..6], "XXXXXX");
+    template_buf[prefix.len + 6] = 0;
+
+    const fd = mkstemp(@ptrCast(template_buf[0 .. prefix.len + 6 :0]));
+    if (fd < 0) return raiseFileError(gc, "cannot create temp file", types.FALSE);
+    _ = std.posix.system.close(fd);
+
+    // Find actual path length (null-terminated)
+    var path_len: usize = 0;
+    while (path_len < template_buf.len and template_buf[path_len] != 0) path_len += 1;
+
+    return gc.allocString(template_buf[0..path_len]) catch return PrimitiveError.OutOfMemory;
 }

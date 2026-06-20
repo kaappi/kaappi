@@ -42,6 +42,11 @@ pub fn registerStringExt(vm: *vm_mod.VM) !void {
     try reg(vm, "string-every", &stringEveryFn, .{ .exact = 2 });
     try reg(vm, "string-any", &stringAnyFn, .{ .exact = 2 });
     try reg(vm, "string-tabulate", &stringTabulateFn, .{ .exact = 2 });
+    try reg(vm, "string-unfold", &stringUnfoldFn, .{ .variadic = 4 });
+    try reg(vm, "string-unfold-right", &stringUnfoldRightFn, .{ .variadic = 4 });
+    try reg(vm, "string-index-right", &stringIndexRightFn, .{ .exact = 2 });
+    try reg(vm, "string-skip", &stringSkipFn, .{ .exact = 2 });
+    try reg(vm, "string-skip-right", &stringSkipRightFn, .{ .exact = 2 });
 }
 // ---------------------------------------------------------------------------
 // SRFI-13 String Library
@@ -595,4 +600,160 @@ fn stringTabulateFn(args: []const Value) PrimitiveError!Value {
         result.appendSlice(gc.allocator, tmp[0..n]) catch return PrimitiveError.OutOfMemory;
     }
     return gc.allocString(result.items) catch return PrimitiveError.OutOfMemory;
+}
+
+// ---------------------------------------------------------------------------
+// Additional SRFI-13 procedures
+// ---------------------------------------------------------------------------
+
+// (string-unfold p f g seed [base [make-final]])
+fn stringUnfoldFn(args: []const Value) PrimitiveError!Value {
+    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const p = args[0];
+    const f = args[1];
+    const g = args[2];
+    var seed = args[3];
+
+    var result: std.ArrayList(u8) = .empty;
+    defer result.deinit(gc.allocator);
+
+    if (args.len > 4 and types.isString(args[4])) {
+        const base = types.toObject(args[4]).as(types.SchemeString);
+        result.appendSlice(gc.allocator, base.data[0..base.len]) catch return PrimitiveError.OutOfMemory;
+    }
+
+    while (true) {
+        const stop = try callVM(p, &[1]Value{seed});
+        if (types.isTruthy(stop)) break;
+        const ch = try callVM(f, &[1]Value{seed});
+        if (!types.isChar(ch)) return PrimitiveError.TypeError;
+        var tmp: [4]u8 = undefined;
+        const n = std.unicode.utf8Encode(types.toChar(ch), &tmp) catch return PrimitiveError.TypeError;
+        result.appendSlice(gc.allocator, tmp[0..n]) catch return PrimitiveError.OutOfMemory;
+        seed = try callVM(g, &[1]Value{seed});
+    }
+
+    if (args.len > 5) {
+        const final_val = try callVM(args[5], &[1]Value{seed});
+        if (types.isString(final_val)) {
+            const fs = types.toObject(final_val).as(types.SchemeString);
+            result.appendSlice(gc.allocator, fs.data[0..fs.len]) catch return PrimitiveError.OutOfMemory;
+        }
+    }
+    return gc.allocString(result.items) catch return PrimitiveError.OutOfMemory;
+}
+
+// (string-unfold-right p f g seed [base [make-final]])
+fn stringUnfoldRightFn(args: []const Value) PrimitiveError!Value {
+    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const p = args[0];
+    const f = args[1];
+    const g = args[2];
+    var seed = args[3];
+
+    var chars: std.ArrayList(u21) = .empty;
+    defer chars.deinit(gc.allocator);
+
+    while (true) {
+        const stop = try callVM(p, &[1]Value{seed});
+        if (types.isTruthy(stop)) break;
+        const ch = try callVM(f, &[1]Value{seed});
+        if (!types.isChar(ch)) return PrimitiveError.TypeError;
+        chars.append(gc.allocator, types.toChar(ch)) catch return PrimitiveError.OutOfMemory;
+        seed = try callVM(g, &[1]Value{seed});
+    }
+
+    var result: std.ArrayList(u8) = .empty;
+    defer result.deinit(gc.allocator);
+
+    if (args.len > 5) {
+        const final_val = try callVM(args[5], &[1]Value{seed});
+        if (types.isString(final_val)) {
+            const fs = types.toObject(final_val).as(types.SchemeString);
+            result.appendSlice(gc.allocator, fs.data[0..fs.len]) catch return PrimitiveError.OutOfMemory;
+        }
+    }
+
+    var i = chars.items.len;
+    while (i > 0) {
+        i -= 1;
+        var tmp: [4]u8 = undefined;
+        const n = std.unicode.utf8Encode(chars.items[i], &tmp) catch continue;
+        result.appendSlice(gc.allocator, tmp[0..n]) catch return PrimitiveError.OutOfMemory;
+    }
+
+    if (args.len > 4 and types.isString(args[4])) {
+        const base = types.toObject(args[4]).as(types.SchemeString);
+        result.appendSlice(gc.allocator, base.data[0..base.len]) catch return PrimitiveError.OutOfMemory;
+    }
+
+    return gc.allocString(result.items) catch return PrimitiveError.OutOfMemory;
+}
+
+// (string-index-right s pred)
+fn stringIndexRightFn(args: []const Value) PrimitiveError!Value {
+    const data = try getStringSlice(args[0]);
+    const pred = args[1];
+    var last_match: ?usize = null;
+    var byte_i: usize = 0;
+    var cp_idx: usize = 0;
+    while (byte_i < data.len) {
+        const seq_len = std.unicode.utf8ByteSequenceLength(data[byte_i]) catch 1;
+        const end = @min(byte_i + seq_len, data.len);
+        const cp = std.unicode.utf8Decode(data[byte_i..end]) catch {
+            byte_i += 1;
+            cp_idx += 1;
+            continue;
+        };
+        const r = try callVM(pred, &[1]Value{types.makeChar(cp)});
+        if (types.isTruthy(r)) last_match = cp_idx;
+        byte_i += seq_len;
+        cp_idx += 1;
+    }
+    return if (last_match) |idx| types.makeFixnum(@intCast(idx)) else types.FALSE;
+}
+
+// (string-skip s pred) — index of first char NOT satisfying pred
+fn stringSkipFn(args: []const Value) PrimitiveError!Value {
+    const data = try getStringSlice(args[0]);
+    const pred = args[1];
+    var byte_i: usize = 0;
+    var cp_idx: usize = 0;
+    while (byte_i < data.len) {
+        const seq_len = std.unicode.utf8ByteSequenceLength(data[byte_i]) catch 1;
+        const end = @min(byte_i + seq_len, data.len);
+        const cp = std.unicode.utf8Decode(data[byte_i..end]) catch {
+            byte_i += 1;
+            cp_idx += 1;
+            continue;
+        };
+        const r = try callVM(pred, &[1]Value{types.makeChar(cp)});
+        if (!types.isTruthy(r)) return types.makeFixnum(@intCast(cp_idx));
+        byte_i += seq_len;
+        cp_idx += 1;
+    }
+    return types.FALSE;
+}
+
+// (string-skip-right s pred) — index of last char NOT satisfying pred
+fn stringSkipRightFn(args: []const Value) PrimitiveError!Value {
+    const data = try getStringSlice(args[0]);
+    const pred = args[1];
+    var last_match: ?usize = null;
+    var byte_i: usize = 0;
+    var cp_idx: usize = 0;
+    while (byte_i < data.len) {
+        const seq_len = std.unicode.utf8ByteSequenceLength(data[byte_i]) catch 1;
+        const end = @min(byte_i + seq_len, data.len);
+        const cp = std.unicode.utf8Decode(data[byte_i..end]) catch {
+            byte_i += 1;
+            cp_idx += 1;
+            continue;
+        };
+        const r = try callVM(pred, &[1]Value{types.makeChar(cp)});
+        if (!types.isTruthy(r)) last_match = cp_idx;
+        byte_i += seq_len;
+        cp_idx += 1;
+    }
+    return if (last_match) |idx| types.makeFixnum(@intCast(idx)) else types.FALSE;
 }

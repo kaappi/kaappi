@@ -502,7 +502,8 @@ pub fn registerStandardLibraries(registry: *LibraryRegistry, globals: *std.Strin
         "string-pad",         "string-pad-right",  "string-reverse",
         "string-filter",      "string-delete",     "string-replace",
         "string-titlecase",   "string-every",      "string-any",
-        "string-tabulate",
+        "string-tabulate",    "string-unfold",     "string-unfold-right",
+        "string-index-right", "string-skip",       "string-skip-right",
     };
     var srfi13_lib = Library.init(allocator, "srfi.13");
     for (srfi13_names) |name| {
@@ -600,6 +601,8 @@ pub fn registerStandardLibraries(registry: *LibraryRegistry, globals: *std.Strin
         "open-directory",         "read-directory",      "close-directory",
         // POSIX time
         "posix-time",             "monotonic-time",
+        // File type and temp files
+        "file-info-type",         "temp-file-prefix",    "create-temp-file",
     };
     var srfi170_lib = Library.init(allocator, "srfi.170");
     for (srfi170_names) |name| {
@@ -886,7 +889,8 @@ pub fn registerSandboxedLibraries(registry: *LibraryRegistry, globals: *std.Stri
         "string-pad",         "string-pad-right",  "string-reverse",
         "string-filter",      "string-delete",     "string-replace",
         "string-titlecase",   "string-every",      "string-any",
-        "string-tabulate",
+        "string-tabulate",    "string-unfold",     "string-unfold-right",
+        "string-index-right", "string-skip",       "string-skip-right",
     };
     var srfi13_lib = Library.init(allocator, "srfi.13");
     for (srfi13_names) |name| {
