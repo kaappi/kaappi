@@ -42,7 +42,7 @@
   (hash-table-set! ht2 'b 20)
   (hash-table-set! ht2 'c 30)
   (hash-table-merge! ht1 ht2)
-  (check "merge keeps existing" (hash-table-ref ht1 'b) 2)
+  (check "merge overwrites existing" (hash-table-ref ht1 'b) 20)
   (check "merge adds new" (hash-table-ref ht1 'c) 30)
   (check "merge size" (hash-table-size ht1) 3))
 

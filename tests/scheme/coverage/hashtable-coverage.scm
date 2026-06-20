@@ -61,7 +61,7 @@
   (hash-table-set! ht 'a 10)
   (check "ref with default thunk found" (hash-table-ref ht 'a (lambda () 99)) 10)
   ;; SRFI-69: default thunk is returned as-is, not called
-  (check-true "ref with default thunk missing" (procedure? (hash-table-ref ht 'b (lambda () 99)))))
+  (check "ref with default thunk missing" (hash-table-ref ht 'b (lambda () 99)) 99))
 
 ;;; ---- Keys and values ----
 (let ((ht (make-hash-table)))

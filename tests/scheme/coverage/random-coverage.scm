@@ -45,7 +45,7 @@
 
   ;; random-source-state-ref / random-source-state-set!
   (let ((state (random-source-state-ref rs)))
-    (check-true "state-ref is number" (number? state))
+    (check-true "state-ref is list" (list? state))
     (random-source-state-set! rs state)
     (check-true "state-set!" #t))
 
