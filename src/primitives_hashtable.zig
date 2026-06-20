@@ -358,12 +358,26 @@ fn stringHashFn(args: []const Value) PrimitiveError!Value {
 // (string-ci-hash s [bound])
 fn stringCiHashFn(args: []const Value) PrimitiveError!Value {
     if (!types.isString(args[0])) return PrimitiveError.TypeError;
+    const char_mod = @import("primitives_char.zig");
     const str_obj = types.toObject(args[0]).as(types.SchemeString);
     const str = str_obj.data[0..str_obj.len];
     var h: u64 = 0;
-    for (str) |c| {
-        const lower: u8 = if (c >= 'A' and c <= 'Z') c + 32 else c;
-        h = h *% 31 +% lower;
+    var pos: usize = 0;
+    while (pos < str.len) {
+        const seq_len = std.unicode.utf8ByteSequenceLength(str[pos]) catch {
+            h = h *% 31 +% str[pos];
+            pos += 1;
+            continue;
+        };
+        if (pos + seq_len > str.len) break;
+        const cp = std.unicode.utf8Decode(str[pos .. pos + seq_len]) catch {
+            h = h *% 31 +% str[pos];
+            pos += 1;
+            continue;
+        };
+        const folded = char_mod.charFoldcase(cp);
+        h = h *% 31 +% folded;
+        pos += seq_len;
     }
     if (args.len > 1) {
         if (!types.isFixnum(args[1])) return PrimitiveError.TypeError;

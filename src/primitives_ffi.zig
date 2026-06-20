@@ -53,6 +53,13 @@ fn ffiOpen(args: []const Value) PrimitiveError!Value {
         }
     }
 
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError;
+    if (std.c.dlerror()) |err_msg| {
+        const msg = std.mem.span(err_msg);
+        vm.setErrorDetail("ffi-open: {s}", .{msg});
+    } else {
+        vm.setErrorDetail("ffi-open: cannot open '{s}'", .{str.data[0..str.len]});
+    }
     return PrimitiveError.TypeError;
 }
 
@@ -77,7 +84,16 @@ fn ffiFn(args: []const Value) PrimitiveError!Value {
     name_buf[name_str.len] = 0;
     const cname: [*:0]const u8 = @ptrCast(name_buf[0..name_str.len :0]);
 
-    const symbol = std.c.dlsym(handle, cname) orelse return PrimitiveError.TypeError;
+    const symbol = std.c.dlsym(handle, cname) orelse {
+        const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError;
+        if (std.c.dlerror()) |err_msg| {
+            const msg = std.mem.span(err_msg);
+            vm.setErrorDetail("ffi-fn: {s}", .{msg});
+        } else {
+            vm.setErrorDetail("ffi-fn: symbol '{s}' not found", .{name_str.data[0..name_str.len]});
+        }
+        return PrimitiveError.TypeError;
+    };
 
     // arg2: parameter type list (a Scheme list of symbols)
     var param_types_buf: [16]types.FfiType = undefined;

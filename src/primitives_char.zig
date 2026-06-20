@@ -304,6 +304,13 @@ fn charFoldcaseFn(args: []const Value) PrimitiveError!Value {
     });
 }
 
+pub fn charFoldcase(cp: u21) u21 {
+    return switch (cp) {
+        0x017F => 's',
+        else => unicodeDowncase(cp),
+    };
+}
+
 // ---------------------------------------------------------------------------
 // digit-value
 // ---------------------------------------------------------------------------

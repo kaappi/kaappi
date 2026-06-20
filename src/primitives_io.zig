@@ -63,8 +63,8 @@ pub fn registerIO(vm: *vm_mod.VM) !void {
     try reg(vm, "with-input-from-file", &withInputFromFile, .{ .exact = 2 });
     try reg(vm, "with-output-to-file", &withOutputToFile, .{ .exact = 2 });
     // Binary port aliases (we don't distinguish text/binary)
-    try reg(vm, "open-binary-input-file", &openInputFile, .{ .exact = 1 });
-    try reg(vm, "open-binary-output-file", &openOutputFile, .{ .exact = 1 });
+    try reg(vm, "open-binary-input-file", &openBinaryInputFile, .{ .exact = 1 });
+    try reg(vm, "open-binary-output-file", &openBinaryOutputFile, .{ .exact = 1 });
     // Binary I/O
     try reg(vm, "read-u8", &readU8Fn, .{ .variadic = 0 });
     try reg(vm, "peek-u8", &peekU8Fn, .{ .variadic = 0 });
@@ -267,8 +267,9 @@ fn outputPortP(args: []const Value) PrimitiveError!Value {
 }
 
 fn textualPortP(args: []const Value) PrimitiveError!Value {
-    // All our ports are textual
-    return if (types.isPort(args[0])) types.TRUE else types.FALSE;
+    if (!types.isPort(args[0])) return types.FALSE;
+    const port = types.toObject(args[0]).as(types.Port);
+    return if (!port.is_binary) types.TRUE else types.FALSE;
 }
 
 fn binaryPortP(args: []const Value) PrimitiveError!Value {
@@ -350,6 +351,18 @@ fn openOutputFile(args: []const Value) PrimitiveError!Value {
         gc.allocator.free(owned_name);
         return PrimitiveError.OutOfMemory;
     };
+}
+
+fn openBinaryInputFile(args: []const Value) PrimitiveError!Value {
+    const result = try openInputFile(args);
+    types.toObject(result).as(types.Port).is_binary = true;
+    return result;
+}
+
+fn openBinaryOutputFile(args: []const Value) PrimitiveError!Value {
+    const result = try openOutputFile(args);
+    types.toObject(result).as(types.Port).is_binary = true;
+    return result;
 }
 
 fn closePort(args: []const Value) PrimitiveError!Value {
@@ -860,6 +873,21 @@ fn writeBytevectorFn(args: []const Value) PrimitiveError!Value {
     if (!types.isBytevector(args[0])) return PrimitiveError.TypeError;
     const port = try getOutputPort(args, 1);
     const bv = types.toBytevector(args[0]);
-    writeToPort(port, bv.data);
+    var start: usize = 0;
+    var end: usize = bv.data.len;
+    if (args.len > 2) {
+        if (!types.isFixnum(args[2])) return PrimitiveError.TypeError;
+        const s = types.toFixnum(args[2]);
+        if (s < 0) return PrimitiveError.TypeError;
+        start = @intCast(s);
+    }
+    if (args.len > 3) {
+        if (!types.isFixnum(args[3])) return PrimitiveError.TypeError;
+        const e = types.toFixnum(args[3]);
+        if (e < 0) return PrimitiveError.TypeError;
+        end = @intCast(e);
+    }
+    if (start > end or end > bv.data.len) return PrimitiveError.TypeError;
+    writeToPort(port, bv.data[start..end]);
     return types.VOID;
 }

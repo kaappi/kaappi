@@ -199,8 +199,18 @@ fn loadFn(args: []const Value) PrimitiveError!Value {
 
     // Open and read the file
     const fd = std.posix.openat(std.posix.AT.FDCWD, path_z, .{}, 0) catch {
-        vm.setErrorDetail("load: cannot open '{s}'", .{path});
-        return PrimitiveError.TypeError;
+        var msg = gc.allocString("cannot open file") catch return PrimitiveError.OutOfMemory;
+        gc.pushRoot(&msg) catch return PrimitiveError.OutOfMemory;
+        defer gc.popRoot();
+        const irritant = args[0];
+        const irritants = gc.allocPair(irritant, types.NIL) catch return PrimitiveError.OutOfMemory;
+        var irritants_root = irritants;
+        gc.pushRoot(&irritants_root) catch return PrimitiveError.OutOfMemory;
+        defer gc.popRoot();
+        const err_obj = gc.allocErrorObject(msg, irritants_root) catch return PrimitiveError.OutOfMemory;
+        types.toObject(err_obj).as(types.ErrorObject).error_type = .file;
+        vm.current_exception = err_obj;
+        return PrimitiveError.ExceptionRaised;
     };
     defer _ = std.posix.system.close(fd);
 
@@ -284,19 +294,19 @@ fn parameterSetDirectFn(args: []const Value) PrimitiveError!Value {
 
 fn interactionEnvironmentFn(args: []const Value) PrimitiveError!Value {
     _ = args;
-    return types.TRUE;
+    return types.VOID;
 }
 
 fn nullEnvironmentFn(args: []const Value) PrimitiveError!Value {
     if (!types.isFixnum(args[0])) return PrimitiveError.TypeError;
     const version = types.toFixnum(args[0]);
     if (version != 5 and version != 7) return PrimitiveError.TypeError;
-    return types.TRUE;
+    return types.VOID;
 }
 
 fn schemeReportEnvironmentFn(args: []const Value) PrimitiveError!Value {
     if (!types.isFixnum(args[0])) return PrimitiveError.TypeError;
     const version = types.toFixnum(args[0]);
     if (version != 5 and version != 7) return PrimitiveError.TypeError;
-    return types.TRUE;
+    return types.VOID;
 }

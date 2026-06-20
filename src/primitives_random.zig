@@ -90,16 +90,31 @@ fn randomSourcePseudoRandomizeFn(args: []const Value) PrimitiveError!Value {
 }
 
 fn randomSourceStateRefFn(args: []const Value) PrimitiveError!Value {
+    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
     const rs = try getRS(args[0]);
-    const state: i64 = @bitCast(rs.prng.s[0]);
-    return types.makeFixnum(state);
+    var result: Value = types.NIL;
+    gc.pushRoot(&result) catch return PrimitiveError.OutOfMemory;
+    defer gc.popRoot();
+    var i: usize = 4;
+    while (i > 0) {
+        i -= 1;
+        const word: i64 = @bitCast(rs.prng.s[i]);
+        result = gc.allocPair(types.makeFixnum(word), result) catch return PrimitiveError.OutOfMemory;
+    }
+    return result;
 }
 
 fn randomSourceStateSetFn(args: []const Value) PrimitiveError!Value {
     const rs = try getRS(args[0]);
-    if (!types.isFixnum(args[1])) return PrimitiveError.TypeError;
-    const state: u64 = @bitCast(types.toFixnum(args[1]));
-    rs.prng.s[0] = state;
+    var state_list = args[1];
+    var i: usize = 0;
+    while (i < 4) : (i += 1) {
+        if (!types.isPair(state_list)) return PrimitiveError.TypeError;
+        const word = types.car(state_list);
+        if (!types.isFixnum(word)) return PrimitiveError.TypeError;
+        rs.prng.s[i] = @bitCast(types.toFixnum(word));
+        state_list = types.cdr(state_list);
+    }
     return types.VOID;
 }
 
