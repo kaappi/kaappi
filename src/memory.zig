@@ -673,6 +673,7 @@ pub const GC = struct {
     }
 
     pub fn allocFiber(self: *GC, thunk: Value, id: u32) !*@import("fiber.zig").Fiber {
+        self.maybeCollect();
         const fiber_mod = @import("fiber.zig");
         const fiber = try self.allocator.create(fiber_mod.Fiber);
         fiber.* = .{

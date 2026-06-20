@@ -204,6 +204,7 @@ fn threadYieldFn(_: []const Value) PrimitiveError!Value {
 }
 
 fn threadSleepFn(args: []const Value) PrimitiveError!Value {
+    if (args[0] == types.FALSE) return PrimitiveError.TypeError;
     const deadline = try timeoutToDeadlineNs(args[0]);
     const dn = deadline orelse return types.VOID;
     if (dn == 0) return types.VOID;
