@@ -474,7 +474,7 @@ pub const Compiler = struct {
 
             // If the effective name is a local variable but NOT a hygienic
             // rename, it's a function call, not a special form.
-            const is_shadowed = self.resolveLocal(effective_name) != null and
+            const is_shadowed = self.resolveLocal(name) != null and
                 std.mem.eql(u8, effective_name, name);
 
             // Primitive forms — only if not shadowed by local binding
