@@ -1113,6 +1113,76 @@ test "bytecode validation rejects oversized function count header" {
     try std.testing.expect(loaded == null);
 }
 
+test "bytecode round-trip: vector pair bignum rational complex constants" {
+    const allocator = std.testing.allocator;
+    var gc = GC.init(allocator);
+    defer gc.deinit();
+
+    const func = try gc.allocFunction();
+    func.code.append(allocator, @intFromEnum(types.OpCode.load_void)) catch unreachable;
+    func.code.append(allocator, 0) catch unreachable;
+    func.code.append(allocator, @intFromEnum(types.OpCode.@"return")) catch unreachable;
+    func.code.append(allocator, 0) catch unreachable;
+
+    const vec_data = [_]Value{ types.makeFixnum(10), types.makeFixnum(20), types.makeFixnum(30) };
+    const vec = try gc.allocVector(&vec_data);
+    func.constants.append(allocator, vec) catch unreachable;
+
+    const pair = try gc.allocPair(types.makeFixnum(1), types.makeFixnum(2));
+    func.constants.append(allocator, pair) catch unreachable;
+
+    const limbs = [_]u64{ 0xDEADBEEF, 0xCAFEBABE };
+    const bn = try gc.allocBignumFromLimbs(&limbs, 2, true);
+    func.constants.append(allocator, bn) catch unreachable;
+
+    const rat_num = types.makeFixnum(22);
+    const rat_den = types.makeFixnum(7);
+    const rat = try gc.allocRational(rat_num, rat_den);
+    func.constants.append(allocator, rat) catch unreachable;
+
+    const cx = try gc.allocComplexEx(3.0, 4.0, false, false);
+    func.constants.append(allocator, cx) catch unreachable;
+
+    func.arity = 0;
+    func.locals_count = 1;
+
+    var funcs_arr = [_]*Function{func};
+    const hash: u64 = 88888;
+    const path = "/tmp/kaappi_test_advanced_consts.sbc";
+
+    try writeFileWithTopLevel(allocator, &funcs_arr, hash, path);
+    defer {
+        _ = std.posix.system.unlink(@ptrCast(path));
+    }
+
+    const result = try readFileWithTopLevel(&gc, hash, path);
+    try std.testing.expect(result != null);
+
+    const loaded = result.?;
+    defer allocator.free(loaded.funcs);
+
+    const consts = loaded.funcs[0].constants.items;
+    try std.testing.expectEqual(@as(usize, 5), consts.len);
+
+    try std.testing.expect(types.isVector(consts[0]));
+    const loaded_vec = types.toObject(consts[0]).as(types.Vector);
+    try std.testing.expectEqual(@as(usize, 3), loaded_vec.data.len);
+    try std.testing.expectEqual(@as(i64, 10), types.toFixnum(loaded_vec.data[0]));
+
+    try std.testing.expect(types.isPair(consts[1]));
+    try std.testing.expectEqual(@as(i64, 1), types.toFixnum(types.car(consts[1])));
+    try std.testing.expectEqual(@as(i64, 2), types.toFixnum(types.cdr(consts[1])));
+
+    try std.testing.expect(types.isBignum(consts[2]));
+
+    try std.testing.expect(types.isRational(consts[3]));
+
+    try std.testing.expect(types.isComplex(consts[4]));
+    const loaded_cx = types.toObject(consts[4]).as(types.Complex);
+    try std.testing.expectEqual(@as(f64, 3.0), loaded_cx.real);
+    try std.testing.expectEqual(@as(f64, 4.0), loaded_cx.imag);
+}
+
 test "bytecode validation rejects invalid opcode" {
     const allocator = std.testing.allocator;
     var gc = GC.init(allocator);
