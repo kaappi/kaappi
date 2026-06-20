@@ -16,14 +16,14 @@ fn reg(vm: *vm_mod.VM, name: []const u8, func: types.NativeFnType, arity: Native
 }
 
 pub fn registerStringExt(vm: *vm_mod.VM) !void {
-    try reg(vm, "string-contains", &stringContainsFn, .{ .exact = 2 });
-    try reg(vm, "string-prefix?", &stringPrefixPFn, .{ .exact = 2 });
-    try reg(vm, "string-suffix?", &stringSuffixPFn, .{ .exact = 2 });
+    try reg(vm, "string-contains", &stringContainsFn, .{ .variadic = 2 });
+    try reg(vm, "string-prefix?", &stringPrefixPFn, .{ .variadic = 2 });
+    try reg(vm, "string-suffix?", &stringSuffixPFn, .{ .variadic = 2 });
     try reg(vm, "string-trim", &stringTrimFn, .{ .variadic = 1 });
     try reg(vm, "string-trim-right", &stringTrimRightFn, .{ .variadic = 1 });
     try reg(vm, "string-trim-both", &stringTrimBothFn, .{ .variadic = 1 });
-    try reg(vm, "string-index", &stringIndexFn, .{ .exact = 2 });
-    try reg(vm, "string-count", &stringCountFn, .{ .exact = 2 });
+    try reg(vm, "string-index", &stringIndexFn, .{ .variadic = 2 });
+    try reg(vm, "string-count", &stringCountFn, .{ .variadic = 2 });
     try reg(vm, "string-split", &stringSplitFn, .{ .exact = 2 });
     try reg(vm, "string-join", &stringJoinFn, .{ .variadic = 1 });
     try reg(vm, "string-concatenate", &stringConcatenateFn, .{ .exact = 1 });
@@ -34,35 +34,35 @@ pub fn registerStringExt(vm: *vm_mod.VM) !void {
     try reg(vm, "string-drop-right", &stringDropRightFn, .{ .exact = 2 });
     try reg(vm, "string-pad", &stringPadFn, .{ .variadic = 2 });
     try reg(vm, "string-pad-right", &stringPadRightFn, .{ .variadic = 2 });
-    try reg(vm, "string-reverse", &stringReverseFn, .{ .exact = 1 });
-    try reg(vm, "string-filter", &stringFilterFn, .{ .exact = 2 });
-    try reg(vm, "string-delete", &stringDeleteFn, .{ .exact = 2 });
+    try reg(vm, "string-reverse", &stringReverseFn, .{ .variadic = 1 });
+    try reg(vm, "string-filter", &stringFilterFn, .{ .variadic = 2 });
+    try reg(vm, "string-delete", &stringDeleteFn, .{ .variadic = 2 });
     try reg(vm, "string-replace", &stringReplaceFn, .{ .exact = 4 });
-    try reg(vm, "string-titlecase", &stringTitlecaseFn, .{ .exact = 1 });
-    try reg(vm, "string-every", &stringEveryFn, .{ .exact = 2 });
-    try reg(vm, "string-any", &stringAnyFn, .{ .exact = 2 });
+    try reg(vm, "string-titlecase", &stringTitlecaseFn, .{ .variadic = 1 });
+    try reg(vm, "string-every", &stringEveryFn, .{ .variadic = 2 });
+    try reg(vm, "string-any", &stringAnyFn, .{ .variadic = 2 });
     try reg(vm, "string-tabulate", &stringTabulateFn, .{ .exact = 2 });
     try reg(vm, "string-unfold", &stringUnfoldFn, .{ .variadic = 4 });
     try reg(vm, "string-unfold-right", &stringUnfoldRightFn, .{ .variadic = 4 });
-    try reg(vm, "string-index-right", &stringIndexRightFn, .{ .exact = 2 });
-    try reg(vm, "string-skip", &stringSkipFn, .{ .exact = 2 });
-    try reg(vm, "string-skip-right", &stringSkipRightFn, .{ .exact = 2 });
+    try reg(vm, "string-index-right", &stringIndexRightFn, .{ .variadic = 2 });
+    try reg(vm, "string-skip", &stringSkipFn, .{ .variadic = 2 });
+    try reg(vm, "string-skip-right", &stringSkipRightFn, .{ .variadic = 2 });
 }
 // ---------------------------------------------------------------------------
 // SRFI-13 String Library
 // ---------------------------------------------------------------------------
 
-// (string-contains s1 s2) — index of s2 in s1, or #f
+// (string-contains s1 s2 [start1 end1])
 fn stringContainsFn(args: []const Value) PrimitiveError!Value {
-    const s1 = try getStringSlice(args[0]);
+    const full_s1 = try getStringSlice(args[0]);
     const s2 = try getStringSlice(args[1]);
-    if (s2.len == 0) return types.makeFixnum(0);
+    const range = try parseStartEnd(full_s1, args, 2);
+    const s1 = range.data;
+    if (s2.len == 0) return types.makeFixnum(@intCast(range.cp_offset));
     if (s2.len > s1.len) return types.FALSE;
 
-    // Find byte position, then convert to codepoint index
     if (std.mem.indexOf(u8, s1, s2)) |byte_pos| {
-        // Count codepoints up to byte_pos
-        var cp_idx: usize = 0;
+        var cp_idx: usize = range.cp_offset;
         var i: usize = 0;
         while (i < byte_pos) {
             const len = std.unicode.utf8ByteSequenceLength(s1[i]) catch 1;
@@ -74,18 +74,20 @@ fn stringContainsFn(args: []const Value) PrimitiveError!Value {
     return types.FALSE;
 }
 
-// (string-prefix? prefix s) — boolean
+// (string-prefix? prefix s [start end])
 fn stringPrefixPFn(args: []const Value) PrimitiveError!Value {
     const prefix = try getStringSlice(args[0]);
-    const s = try getStringSlice(args[1]);
-    return if (std.mem.startsWith(u8, s, prefix)) types.TRUE else types.FALSE;
+    const full_s = try getStringSlice(args[1]);
+    const range = try parseStartEnd(full_s, args, 2);
+    return if (std.mem.startsWith(u8, range.data, prefix)) types.TRUE else types.FALSE;
 }
 
-// (string-suffix? suffix s) — boolean
+// (string-suffix? suffix s [start end])
 fn stringSuffixPFn(args: []const Value) PrimitiveError!Value {
     const suffix = try getStringSlice(args[0]);
-    const s = try getStringSlice(args[1]);
-    return if (std.mem.endsWith(u8, s, suffix)) types.TRUE else types.FALSE;
+    const full_s = try getStringSlice(args[1]);
+    const range = try parseStartEnd(full_s, args, 2);
+    return if (std.mem.endsWith(u8, range.data, suffix)) types.TRUE else types.FALSE;
 }
 
 fn isWhitespace(c: u8) bool {
@@ -128,6 +130,33 @@ fn callPredOrCharset(pred: Value, cp: u21) PrimitiveError!bool {
     return PrimitiveError.TypeError;
 }
 
+const Range = struct {
+    data: []const u8,
+    byte_start: usize,
+    byte_end: usize,
+    cp_offset: usize,
+};
+
+fn parseStartEnd(data: []const u8, args: []const Value, start_arg_idx: usize) PrimitiveError!Range {
+    var byte_start: usize = 0;
+    var byte_end: usize = data.len;
+    var cp_offset: usize = 0;
+
+    if (args.len > start_arg_idx) {
+        if (!types.isFixnum(args[start_arg_idx])) return PrimitiveError.TypeError;
+        const start_cp: usize = @intCast(types.toFixnum(args[start_arg_idx]));
+        byte_start = pstr.utf8IndexToByteOffset(data, start_cp) orelse data.len;
+        cp_offset = start_cp;
+    }
+    if (args.len > start_arg_idx + 1) {
+        if (!types.isFixnum(args[start_arg_idx + 1])) return PrimitiveError.TypeError;
+        const end_cp: usize = @intCast(types.toFixnum(args[start_arg_idx + 1]));
+        byte_end = pstr.utf8IndexToByteOffset(data, end_cp) orelse data.len;
+    }
+    if (byte_start > byte_end) return PrimitiveError.TypeError;
+    return .{ .data = data[byte_start..byte_end], .byte_start = byte_start, .byte_end = byte_end, .cp_offset = cp_offset };
+}
+
 fn decodeForward(data: []const u8, pos: usize) struct { cp: u21, len: usize } {
     if (pos >= data.len) return .{ .cp = 0, .len = 0 };
     const seq_len = std.unicode.utf8ByteSequenceLength(data[pos]) catch return .{ .cp = data[pos], .len = 1 };
@@ -145,16 +174,18 @@ fn findPrevCpStart(data: []const u8, pos: usize) usize {
     return 0;
 }
 
-// (string-trim s [pred]) — remove chars from start
+// (string-trim s [pred [start end]])
 fn stringTrimFn(args: []const Value) PrimitiveError!Value {
     const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
-    const data = try getStringSlice(args[0]);
+    const full_data = try getStringSlice(args[0]);
     if (args.len <= 1) {
         var start: usize = 0;
-        while (start < data.len and isWhitespace(data[start])) start += 1;
-        return gc.allocString(data[start..]) catch return PrimitiveError.OutOfMemory;
+        while (start < full_data.len and isWhitespace(full_data[start])) start += 1;
+        return gc.allocString(full_data[start..]) catch return PrimitiveError.OutOfMemory;
     }
     const pred = args[1];
+    const range = try parseStartEnd(full_data, args, 2);
+    const data = range.data;
     var start: usize = 0;
     while (start < data.len) {
         const d = decodeForward(data, start);
@@ -165,16 +196,18 @@ fn stringTrimFn(args: []const Value) PrimitiveError!Value {
     return gc.allocString(data[start..]) catch return PrimitiveError.OutOfMemory;
 }
 
-// (string-trim-right s [pred]) — remove chars from end
+// (string-trim-right s [pred [start end]])
 fn stringTrimRightFn(args: []const Value) PrimitiveError!Value {
     const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
-    const data = try getStringSlice(args[0]);
+    const full_data = try getStringSlice(args[0]);
     if (args.len <= 1) {
-        var end: usize = data.len;
-        while (end > 0 and isWhitespace(data[end - 1])) end -= 1;
-        return gc.allocString(data[0..end]) catch return PrimitiveError.OutOfMemory;
+        var end: usize = full_data.len;
+        while (end > 0 and isWhitespace(full_data[end - 1])) end -= 1;
+        return gc.allocString(full_data[0..end]) catch return PrimitiveError.OutOfMemory;
     }
     const pred = args[1];
+    const range = try parseStartEnd(full_data, args, 2);
+    const data = range.data;
     var end: usize = data.len;
     while (end > 0) {
         const cp_start = findPrevCpStart(data, end);
@@ -186,18 +219,20 @@ fn stringTrimRightFn(args: []const Value) PrimitiveError!Value {
     return gc.allocString(data[0..end]) catch return PrimitiveError.OutOfMemory;
 }
 
-// (string-trim-both s [pred]) — both sides
+// (string-trim-both s [pred [start end]])
 fn stringTrimBothFn(args: []const Value) PrimitiveError!Value {
     const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
-    const data = try getStringSlice(args[0]);
+    const full_data = try getStringSlice(args[0]);
     if (args.len <= 1) {
         var start: usize = 0;
-        while (start < data.len and isWhitespace(data[start])) start += 1;
-        var end: usize = data.len;
-        while (end > start and isWhitespace(data[end - 1])) end -= 1;
-        return gc.allocString(data[start..end]) catch return PrimitiveError.OutOfMemory;
+        while (start < full_data.len and isWhitespace(full_data[start])) start += 1;
+        var end: usize = full_data.len;
+        while (end > start and isWhitespace(full_data[end - 1])) end -= 1;
+        return gc.allocString(full_data[start..end]) catch return PrimitiveError.OutOfMemory;
     }
     const pred = args[1];
+    const range = try parseStartEnd(full_data, args, 2);
+    const data = range.data;
     var start: usize = 0;
     while (start < data.len) {
         const d = decodeForward(data, start);
@@ -216,33 +251,35 @@ fn stringTrimBothFn(args: []const Value) PrimitiveError!Value {
     return gc.allocString(data[start..end]) catch return PrimitiveError.OutOfMemory;
 }
 
-// (string-index s pred) — index of first char satisfying pred
+// (string-index s pred [start end])
 fn stringIndexFn(args: []const Value) PrimitiveError!Value {
-    const data = try getStringSlice(args[0]);
+    const full_data = try getStringSlice(args[0]);
     const pred = args[1];
+    const range = try parseStartEnd(full_data, args, 2);
 
     var byte_i: usize = 0;
-    var cp_idx: usize = 0;
-    while (byte_i < data.len) {
-        const cp = utf8DecodeAt(data, byte_i) orelse return PrimitiveError.TypeError;
+    var cp_idx: usize = range.cp_offset;
+    while (byte_i < range.data.len) {
+        const cp = utf8DecodeAt(range.data, byte_i) orelse return PrimitiveError.TypeError;
         if (try callPredOrCharset(pred, cp)) return types.makeFixnum(@intCast(cp_idx));
-        byte_i += utf8ByteLenAt(data, byte_i);
+        byte_i += utf8ByteLenAt(range.data, byte_i);
         cp_idx += 1;
     }
     return types.FALSE;
 }
 
-// (string-count s pred) — count chars satisfying pred
+// (string-count s pred [start end])
 fn stringCountFn(args: []const Value) PrimitiveError!Value {
-    const data = try getStringSlice(args[0]);
+    const full_data = try getStringSlice(args[0]);
     const pred = args[1];
+    const range = try parseStartEnd(full_data, args, 2);
 
     var byte_i: usize = 0;
     var count: i64 = 0;
-    while (byte_i < data.len) {
-        const cp = utf8DecodeAt(data, byte_i) orelse return PrimitiveError.TypeError;
+    while (byte_i < range.data.len) {
+        const cp = utf8DecodeAt(range.data, byte_i) orelse return PrimitiveError.TypeError;
         if (try callPredOrCharset(pred, cp)) count += 1;
-        byte_i += utf8ByteLenAt(data, byte_i);
+        byte_i += utf8ByteLenAt(range.data, byte_i);
     }
     return types.makeFixnum(count);
 }
@@ -460,9 +497,12 @@ fn stringPadRightFn(args: []const Value) PrimitiveError!Value {
     return gc.allocString(alloc_buf) catch return PrimitiveError.OutOfMemory;
 }
 
+// (string-reverse s [start end])
 fn stringReverseFn(args: []const Value) PrimitiveError!Value {
     const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
-    const data = try getStringSlice(args[0]);
+    const full_data = try getStringSlice(args[0]);
+    const r = try parseStartEnd(full_data, args, 1);
+    const data = r.data;
     if (data.len == 0) return gc.allocString("") catch return PrimitiveError.OutOfMemory;
     var offsets: std.ArrayList([2]usize) = .empty;
     defer offsets.deinit(gc.allocator);
@@ -478,43 +518,47 @@ fn stringReverseFn(args: []const Value) PrimitiveError!Value {
     var j = offsets.items.len;
     while (j > 0) {
         j -= 1;
-        const range = offsets.items[j];
-        const cp_len = range[1] - range[0];
-        @memcpy(alloc_buf[pos .. pos + cp_len], data[range[0]..range[1]]);
+        const rng = offsets.items[j];
+        const cp_len = rng[1] - rng[0];
+        @memcpy(alloc_buf[pos .. pos + cp_len], data[rng[0]..rng[1]]);
         pos += cp_len;
     }
     return gc.allocString(alloc_buf) catch return PrimitiveError.OutOfMemory;
 }
 
+// (string-filter pred s [start end])
 fn stringFilterFn(args: []const Value) PrimitiveError!Value {
     const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
     const pred = args[0];
-    const data = try getStringSlice(args[1]);
+    const full_data = try getStringSlice(args[1]);
+    const range = try parseStartEnd(full_data, args, 2);
     var result: std.ArrayList(u8) = .empty;
     defer result.deinit(gc.allocator);
     var i: usize = 0;
-    while (i < data.len) {
-        const len = std.unicode.utf8ByteSequenceLength(data[i]) catch 1;
-        const cp = std.unicode.utf8Decode(data[i .. i + len]) catch { i += len; continue; };
+    while (i < range.data.len) {
+        const len = std.unicode.utf8ByteSequenceLength(range.data[i]) catch 1;
+        const cp = std.unicode.utf8Decode(range.data[i .. i + len]) catch { i += len; continue; };
         const r_cs = try callPredOrCharset(pred, cp);
-        if (r_cs) result.appendSlice(gc.allocator, data[i .. i + len]) catch return PrimitiveError.OutOfMemory;
+        if (r_cs) result.appendSlice(gc.allocator, range.data[i .. i + len]) catch return PrimitiveError.OutOfMemory;
         i += len;
     }
     return gc.allocString(result.items) catch return PrimitiveError.OutOfMemory;
 }
 
+// (string-delete pred s [start end])
 fn stringDeleteFn(args: []const Value) PrimitiveError!Value {
     const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
     const pred = args[0];
-    const data = try getStringSlice(args[1]);
+    const full_data = try getStringSlice(args[1]);
+    const range = try parseStartEnd(full_data, args, 2);
     var result: std.ArrayList(u8) = .empty;
     defer result.deinit(gc.allocator);
     var i: usize = 0;
-    while (i < data.len) {
-        const len = std.unicode.utf8ByteSequenceLength(data[i]) catch 1;
-        const cp = std.unicode.utf8Decode(data[i .. i + len]) catch { i += len; continue; };
+    while (i < range.data.len) {
+        const len = std.unicode.utf8ByteSequenceLength(range.data[i]) catch 1;
+        const cp = std.unicode.utf8Decode(range.data[i .. i + len]) catch { i += len; continue; };
         const r_cs = try callPredOrCharset(pred, cp);
-        if (!r_cs) result.appendSlice(gc.allocator, data[i .. i + len]) catch return PrimitiveError.OutOfMemory;
+        if (!r_cs) result.appendSlice(gc.allocator, range.data[i .. i + len]) catch return PrimitiveError.OutOfMemory;
         i += len;
     }
     return gc.allocString(result.items) catch return PrimitiveError.OutOfMemory;
@@ -538,9 +582,12 @@ fn stringReplaceFn(args: []const Value) PrimitiveError!Value {
     return gc.allocString(alloc_buf) catch return PrimitiveError.OutOfMemory;
 }
 
+// (string-titlecase s [start end])
 fn stringTitlecaseFn(args: []const Value) PrimitiveError!Value {
     const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
-    const data = try getStringSlice(args[0]);
+    const full_data = try getStringSlice(args[0]);
+    const range = try parseStartEnd(full_data, args, 1);
+    const data = range.data;
     if (data.len == 0) return gc.allocString("") catch return PrimitiveError.OutOfMemory;
     const alloc_buf = gc.allocator.alloc(u8, data.len) catch return PrimitiveError.OutOfMemory;
     defer gc.allocator.free(alloc_buf);
@@ -559,14 +606,16 @@ fn stringTitlecaseFn(args: []const Value) PrimitiveError!Value {
     return gc.allocString(alloc_buf) catch return PrimitiveError.OutOfMemory;
 }
 
+// (string-every pred s [start end])
 fn stringEveryFn(args: []const Value) PrimitiveError!Value {
     const pred = args[0];
-    const data = try getStringSlice(args[1]);
+    const full_data = try getStringSlice(args[1]);
+    const range = try parseStartEnd(full_data, args, 2);
     var last: Value = types.TRUE;
     var i: usize = 0;
-    while (i < data.len) {
-        const len = std.unicode.utf8ByteSequenceLength(data[i]) catch 1;
-        const cp = std.unicode.utf8Decode(data[i .. i + len]) catch { i += len; continue; };
+    while (i < range.data.len) {
+        const len = std.unicode.utf8ByteSequenceLength(range.data[i]) catch 1;
+        const cp = std.unicode.utf8Decode(range.data[i .. i + len]) catch { i += len; continue; };
         if (types.isRecordInstance(pred)) {
             if (!try callPredOrCharset(pred, cp)) return types.FALSE;
         } else {
@@ -579,13 +628,15 @@ fn stringEveryFn(args: []const Value) PrimitiveError!Value {
     return last;
 }
 
+// (string-any pred s [start end])
 fn stringAnyFn(args: []const Value) PrimitiveError!Value {
     const pred = args[0];
-    const data = try getStringSlice(args[1]);
+    const full_data = try getStringSlice(args[1]);
+    const range = try parseStartEnd(full_data, args, 2);
     var i: usize = 0;
-    while (i < data.len) {
-        const len = std.unicode.utf8ByteSequenceLength(data[i]) catch 1;
-        const cp = std.unicode.utf8Decode(data[i .. i + len]) catch { i += len; continue; };
+    while (i < range.data.len) {
+        const len = std.unicode.utf8ByteSequenceLength(range.data[i]) catch 1;
+        const cp = std.unicode.utf8Decode(range.data[i .. i + len]) catch { i += len; continue; };
         if (types.isRecordInstance(pred)) {
             if (try callPredOrCharset(pred, cp)) return types.TRUE;
         } else {
@@ -702,17 +753,18 @@ fn stringUnfoldRightFn(args: []const Value) PrimitiveError!Value {
     return gc.allocString(result.items) catch return PrimitiveError.OutOfMemory;
 }
 
-// (string-index-right s pred)
+// (string-index-right s pred [start end])
 fn stringIndexRightFn(args: []const Value) PrimitiveError!Value {
-    const data = try getStringSlice(args[0]);
+    const full_data = try getStringSlice(args[0]);
     const pred = args[1];
+    const range = try parseStartEnd(full_data, args, 2);
     var last_match: ?usize = null;
     var byte_i: usize = 0;
-    var cp_idx: usize = 0;
-    while (byte_i < data.len) {
-        const seq_len = std.unicode.utf8ByteSequenceLength(data[byte_i]) catch 1;
-        const end = @min(byte_i + seq_len, data.len);
-        const cp = std.unicode.utf8Decode(data[byte_i..end]) catch {
+    var cp_idx: usize = range.cp_offset;
+    while (byte_i < range.data.len) {
+        const seq_len = std.unicode.utf8ByteSequenceLength(range.data[byte_i]) catch 1;
+        const end = @min(byte_i + seq_len, range.data.len);
+        const cp = std.unicode.utf8Decode(range.data[byte_i..end]) catch {
             byte_i += 1;
             cp_idx += 1;
             continue;
@@ -725,16 +777,17 @@ fn stringIndexRightFn(args: []const Value) PrimitiveError!Value {
     return if (last_match) |idx| types.makeFixnum(@intCast(idx)) else types.FALSE;
 }
 
-// (string-skip s pred) — index of first char NOT satisfying pred
+// (string-skip s pred [start end])
 fn stringSkipFn(args: []const Value) PrimitiveError!Value {
-    const data = try getStringSlice(args[0]);
+    const full_data = try getStringSlice(args[0]);
     const pred = args[1];
+    const range = try parseStartEnd(full_data, args, 2);
     var byte_i: usize = 0;
-    var cp_idx: usize = 0;
-    while (byte_i < data.len) {
-        const seq_len = std.unicode.utf8ByteSequenceLength(data[byte_i]) catch 1;
-        const end = @min(byte_i + seq_len, data.len);
-        const cp = std.unicode.utf8Decode(data[byte_i..end]) catch {
+    var cp_idx: usize = range.cp_offset;
+    while (byte_i < range.data.len) {
+        const seq_len = std.unicode.utf8ByteSequenceLength(range.data[byte_i]) catch 1;
+        const end = @min(byte_i + seq_len, range.data.len);
+        const cp = std.unicode.utf8Decode(range.data[byte_i..end]) catch {
             byte_i += 1;
             cp_idx += 1;
             continue;
@@ -747,17 +800,18 @@ fn stringSkipFn(args: []const Value) PrimitiveError!Value {
     return types.FALSE;
 }
 
-// (string-skip-right s pred) — index of last char NOT satisfying pred
+// (string-skip-right s pred [start end])
 fn stringSkipRightFn(args: []const Value) PrimitiveError!Value {
-    const data = try getStringSlice(args[0]);
+    const full_data = try getStringSlice(args[0]);
     const pred = args[1];
+    const range = try parseStartEnd(full_data, args, 2);
     var last_match: ?usize = null;
     var byte_i: usize = 0;
-    var cp_idx: usize = 0;
-    while (byte_i < data.len) {
-        const seq_len = std.unicode.utf8ByteSequenceLength(data[byte_i]) catch 1;
-        const end = @min(byte_i + seq_len, data.len);
-        const cp = std.unicode.utf8Decode(data[byte_i..end]) catch {
+    var cp_idx: usize = range.cp_offset;
+    while (byte_i < range.data.len) {
+        const seq_len = std.unicode.utf8ByteSequenceLength(range.data[byte_i]) catch 1;
+        const end = @min(byte_i + seq_len, range.data.len);
+        const cp = std.unicode.utf8Decode(range.data[byte_i..end]) catch {
             byte_i += 1;
             cp_idx += 1;
             continue;

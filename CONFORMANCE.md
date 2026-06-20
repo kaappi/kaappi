@@ -32,32 +32,11 @@ Only `syntax-rules` is supported for macro definitions. R7RS-small deliberately 
 
 ## Remaining gaps
 
-2 edge cases remain — both with low practical impact and workarounds.
+No functional gaps remain. The two edge cases previously listed here have been resolved:
 
-### Local-variable referential transparency in `let-syntax`
+- **Local-variable referential transparency in `let-syntax`** — Fixed. Macros defined with `let-syntax` correctly reference local variables from the definition site, not the use site. `(let ((x 1)) (let-syntax ((m (syntax-rules () ((m) x)))) (let ((x 2)) (m))))` returns `1` as required.
 
-**What the spec requires:** R7RS §4.3 says macros defined with `syntax-rules` are hygienic and referentially transparent — free identifiers in a template refer to bindings where the macro was *defined*, not where it is *used*.
-
-**What works:** Global references, rebound special forms (`let`, `if` as variables), forward references through macros, and custom ellipsis identifiers all work correctly. The only remaining gap is local-variable transparency in `let-syntax`:
-
-```scheme
-(let ((x 1))
-  (let-syntax ((m (syntax-rules () ((m) x))))
-    (let ((x 2))
-      (m))))
-;=> Expected: 1  (macro should see x=1 from definition site)
-;=> Actual: UndefinedVariable
-```
-
-**Why:** The hygiene system renames `x` in the template to a gensym to prevent capture. But `x` is a local variable (compiled to a register slot), not a global — so the gensym doesn't resolve. Fixing this requires the macro to capture its lexical environment at definition time, which needs syntax objects or explicit renaming with full environment threading.
-
-**Practical impact:** Low. Requires all of: a macro defined with `let-syntax` (not `define-syntax`), the template references a local (not a global), and the same name is rebound between definition and use.
-
-### `letrec` init restriction
-
-**What the spec requires:** R7RS §4.2.2 says it is an error to evaluate a `letrec` init expression that references another binding being defined.
-
-**What Kaappi does:** Detects bare variable references but not indirect references. R7RS "is an error" (§1.3.2) means implementations are not required to detect it. Chibi, Chicken, and Gauche all allow this.
+- **`letrec` init restriction** — Improved. Bare forward references (`(letrec ((a b) (b 1)) ...)`) and self-references (`(letrec ((a a)) ...)`) are now detected at compile time. `letrec*` correctly allows back-references to already-initialized bindings. Indirect references through lambda (the standard mutual-recursion pattern) remain valid. R7RS "is an error" (§1.3.2) means implementations are not required to detect all cases; Kaappi detects the common ones.
 
 ---
 
@@ -80,7 +59,8 @@ These areas have been tested and match R7RS behavior:
 - Radix prefixes: `#b1010` → `10`, `#o17` → `15`, `#xff` → `255`
 - Exactness prefixes: `#e1.5` → `3/2`, `#e0.25` → `1/4`, `#i3` → `3.0`
 - Complex numbers: `number->string`/`string->number` for `"1+2i"` format; `exact`/`inexact`/`exact?`/`inexact?` on complex; `sqrt` on complex; `expt` with complex base/exponent (including Euler's identity)
-- `letrec` bare forward references detected at compile time
+- `letrec` bare forward and self-references detected at compile time; `letrec*` allows valid back-references
+- `let-syntax`/`letrec-syntax` local-variable referential transparency: templates see bindings from the definition site
 - `#!fold-case` / `#!no-fold-case` directives
 - Datum labels: `#0=(a b . #0#)` reads circular structures
 - `write-shared` detects shared/circular structure with two-pass labeling

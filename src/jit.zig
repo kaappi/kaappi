@@ -58,6 +58,8 @@ const OFF_FUNC_CALL_COUNT = @offsetOf(types.Function, "call_count");
 const OFF_FUNC_CONSTANTS = @offsetOf(types.Function, "constants");
 const OFF_JIT_CODE_ENTRY = @offsetOf(JitCode, "entry");
 const OFF_OBJECT_TAG = @offsetOf(types.Object, "tag");
+const OFF_PAIR_CAR = @offsetOf(types.Pair, "car");
+const OFF_PAIR_CDR = @offsetOf(types.Pair, "cdr");
 const MAX_FRAMES = vm_mod.MAX_FRAMES;
 
 const PendingBranch = struct {
@@ -285,7 +287,7 @@ pub fn compile(func: *types.Function, vm: *VM, allocator: std.mem.Allocator) !*J
                 const spec = recognizeArithPrimitive(func, sym_idx, vm);
                 if (spec != .none and nargs == 2 and (spec == .add or spec == .sub or spec == .mul or spec == .lt or spec == .gt or spec == .le or spec == .ge or spec == .eq)) {
                     try emitSpecializedArith(&asm_ctx, base_reg, spec, &pending_exits, allocator, bc_ip_cg);
-                } else if (spec != .none and nargs == 1 and (spec == .zero_p or spec == .null_p or spec == .pair_p or spec == .not_op)) {
+                } else if (spec != .none and nargs == 1 and (spec == .zero_p or spec == .null_p or spec == .pair_p or spec == .not_op or spec == .car or spec == .cdr)) {
                     try emitSpecializedPredicate(&asm_ctx, base_reg, spec, &pending_exits, allocator, bc_ip_cg);
                 } else {
                     try emitCallGlobal(&asm_ctx, base_reg, sym_idx, nargs, &pending_exits, &pending_returns, &pending_quick_exits, allocator, bc_ip_cg, ip, func);
@@ -300,7 +302,7 @@ pub fn compile(func: *types.Function, vm: *VM, allocator: std.mem.Allocator) !*J
                 const spec = recognizeArithPrimitive(func, sym_idx, vm);
                 if (spec != .none and nargs == 2 and (spec == .add or spec == .sub or spec == .mul or spec == .lt or spec == .gt or spec == .le or spec == .ge or spec == .eq)) {
                     try emitSpecializedArith(&asm_ctx, base_reg, spec, &pending_exits, allocator, bc_ip_tcg);
-                } else if (spec != .none and nargs == 1 and (spec == .zero_p or spec == .null_p or spec == .pair_p or spec == .not_op)) {
+                } else if (spec != .none and nargs == 1 and (spec == .zero_p or spec == .null_p or spec == .pair_p or spec == .not_op or spec == .car or spec == .cdr)) {
                     try emitSpecializedPredicate(&asm_ctx, base_reg, spec, &pending_exits, allocator, bc_ip_tcg);
                 } else {
                     // Side-exit for non-specialized tail_call_global
@@ -311,6 +313,44 @@ pub fn compile(func: *types.Function, vm: *VM, allocator: std.mem.Allocator) !*J
                         .bc_ip = bc_ip_tcg,
                     });
                 }
+            },
+            .cons => {
+                const dst = code[ip];
+                const car_reg = code[ip + 1];
+                const cdr_reg = code[ip + 2];
+                ip += 3;
+                try emitCons(&asm_ctx, dst, car_reg, cdr_reg, &pending_exits, allocator, ip - 4);
+            },
+            .set_global => {
+                const sym_idx = readU16(code, ip);
+                const src = code[ip + 2];
+                ip += 3;
+                try emitSetGlobal(&asm_ctx, src, sym_idx, &pending_exits, allocator, ip - 4);
+            },
+            .define_global => {
+                const sym_idx = readU16(code, ip);
+                const src = code[ip + 2];
+                ip += 3;
+                try emitSetGlobal(&asm_ctx, src, sym_idx, &pending_exits, allocator, ip - 4);
+            },
+            .box_local => {
+                const reg = code[ip];
+                ip += 1;
+                // box_local is a no-op in our register VM — values are already in registers
+                // The box concept exists for closure capture; here just skip
+                _ = reg;
+            },
+            .get_box_local => {
+                const dst = code[ip];
+                const src = code[ip + 1];
+                ip += 2;
+                try emitRegCopy(&asm_ctx, dst, src);
+            },
+            .set_box_local => {
+                const dst = code[ip];
+                const src = code[ip + 1];
+                ip += 2;
+                try emitRegCopy(&asm_ctx, dst, src);
             },
             // All other opcodes: side-exit to interpreter
             else => {
@@ -450,6 +490,24 @@ pub fn jitFinishCallee(vm_ptr: *VM, _: u64, dst_abs_idx: u64) callconv(.c) u64 {
         return 0;
     };
     vm_ptr.registers[@intCast(dst_abs_idx)] = result;
+    return 1;
+}
+
+pub fn jitAllocPair(vm_ptr: *VM, car: u64, cdr: u64) callconv(.c) u64 {
+    const car_val: types.Value = @bitCast(car);
+    const cdr_val: types.Value = @bitCast(cdr);
+    const pair_val = vm_ptr.gc.allocPair(car_val, cdr_val) catch return 0;
+    return @bitCast(pair_val);
+}
+
+pub fn jitSetGlobal(vm_ptr: *VM, sym_val: u64, val: u64) callconv(.c) u64 {
+    const sym: types.Value = @bitCast(sym_val);
+    const value: types.Value = @bitCast(val);
+    if (types.isSymbol(sym)) {
+        const name = types.symbolName(sym);
+        vm_ptr.globals.put(name, value) catch return 0;
+        vm_ptr.global_version +%= 1;
+    }
     return 1;
 }
 
@@ -593,7 +651,7 @@ fn emitGetGlobal(asm_ctx: *a64.Assembler, dst: u8, sym_idx: u16, pending_exits: 
     try pending_exits.append(allocator, .{ .native_idx = exit4, .bc_ip = bc_ip, .cond = .eq }); // == VOID
 }
 
-const SpecializedOp = enum { add, sub, mul, lt, gt, le, ge, eq, zero_p, null_p, pair_p, not_op, none };
+const SpecializedOp = enum { add, sub, mul, lt, gt, le, ge, eq, zero_p, null_p, pair_p, not_op, car, cdr, none };
 
 fn recognizeArithPrimitive(func: *const types.Function, sym_idx: u16, vm: *const VM) SpecializedOp {
     if (sym_idx >= func.constants.items.len) return .none;
@@ -614,6 +672,8 @@ fn recognizeArithPrimitive(func: *const types.Function, sym_idx: u16, vm: *const
     if (std.mem.eql(u8, name, "null?")) return .null_p;
     if (std.mem.eql(u8, name, "pair?")) return .pair_p;
     if (std.mem.eql(u8, name, "not")) return .not_op;
+    if (std.mem.eql(u8, name, "car")) return .car;
+    if (std.mem.eql(u8, name, "cdr")) return .cdr;
     return .none;
 }
 
@@ -679,7 +739,7 @@ fn emitSpecializedArith(asm_ctx: *a64.Assembler, base_reg: u8, spec: Specialized
             try asm_ctx.emitLslImm(.x5, .x6, 1);
         },
         .lt, .gt, .le, .ge, .eq => {},
-        .zero_p, .null_p, .pair_p, .not_op, .none => unreachable,
+        .zero_p, .null_p, .pair_p, .not_op, .car, .cdr, .none => unreachable,
     }
 
     switch (spec) {
@@ -704,23 +764,37 @@ fn emitSpecializedArith(asm_ctx: *a64.Assembler, base_reg: u8, spec: Specialized
             try asm_ctx.emitCsel(.x6, .x5, .x4, cond);
             try asm_ctx.emitStrImm(.x6, FRAME_PTR, dst_off);
         },
-        .zero_p, .null_p, .pair_p, .not_op => unreachable,
+        .zero_p, .null_p, .pair_p, .not_op, .car, .cdr => unreachable,
         .none => unreachable,
     }
+}
+
+fn emitPairGuard(asm_ctx: *a64.Assembler, val_reg: Reg, pending_exits: *std.ArrayList(PendingSideExit), allocator: std.mem.Allocator, bc_ip: usize) !void {
+    // Check val_reg is a pointer (bits 0-2 = 000) and non-null
+    try asm_ctx.emitMovz(.x9, 7, 0);
+    try asm_ctx.emitAndReg(.x9, val_reg, .x9);
+    try asm_ctx.emitCmpImm(.x9, 0);
+    const ptr_exit = asm_ctx.pos();
+    try asm_ctx.emit(0); // b.ne side-exit
+    try pending_exits.append(allocator, .{ .native_idx = ptr_exit, .bc_ip = bc_ip, .cond = .ne });
+    // Check tag == pair (0)
+    try asm_ctx.emitLdrbImm(.x9, val_reg, @intCast(OFF_OBJECT_TAG));
+    try asm_ctx.emitMovz(.x10, 0x3F, 0);
+    try asm_ctx.emitAndReg(.x9, .x9, .x10);
+    try asm_ctx.emitCmpImm(.x9, @intFromEnum(types.ObjectTag.pair));
+    const tag_exit = asm_ctx.pos();
+    try asm_ctx.emit(0); // b.ne side-exit
+    try pending_exits.append(allocator, .{ .native_idx = tag_exit, .bc_ip = bc_ip, .cond = .ne });
 }
 
 fn emitSpecializedPredicate(asm_ctx: *a64.Assembler, base_reg: u8, spec: SpecializedOp, pending_exits: *std.ArrayList(PendingSideExit), allocator: std.mem.Allocator, bc_ip: usize) !void {
     const arg_off: u16 = (@as(u16, base_reg) + 1) * 8;
     const dst_off: u16 = @as(u16, base_reg) * 8;
-    _ = pending_exits;
-    _ = allocator;
-    _ = bc_ip;
 
     try asm_ctx.emitLdrImm(.x0, FRAME_PTR, arg_off);
 
     switch (spec) {
         .zero_p => {
-            // zero? — fixnum 0 is tagged as (0 << 1) | 1 = 1
             try asm_ctx.emitCmpImm(.x0, 1); // tagged 0
             try asm_ctx.emitMovz(.x1, @intCast(types.FALSE), 0);
             try asm_ctx.emitLoadImm64(.x2, types.TRUE);
@@ -728,7 +802,6 @@ fn emitSpecializedPredicate(asm_ctx: *a64.Assembler, base_reg: u8, spec: Special
             try asm_ctx.emitStrImm(.x3, FRAME_PTR, dst_off);
         },
         .null_p => {
-            // null? — NIL is a specific immediate value
             try asm_ctx.emitLoadImm64(.x1, types.NIL);
             try asm_ctx.emitCmpReg(.x0, .x1);
             try asm_ctx.emitMovz(.x2, @intCast(types.FALSE), 0);
@@ -737,29 +810,79 @@ fn emitSpecializedPredicate(asm_ctx: *a64.Assembler, base_reg: u8, spec: Special
             try asm_ctx.emitStrImm(.x4, FRAME_PTR, dst_off);
         },
         .pair_p => {
-            // pair? — pointer (bits 0-2 = 000) with tag == .pair
-            // First check it's a pointer (low 3 bits = 0)
-            try asm_ctx.emitMovz(.x1, 7, 0); // x1 = 7
-            try asm_ctx.emitAndReg(.x1, .x0, .x1); // x1 = x0 & 7
+            // Check pointer (low 3 bits = 0) AND tag == pair (0)
+            try asm_ctx.emitMovz(.x1, 7, 0);
+            try asm_ctx.emitAndReg(.x1, .x0, .x1);
             try asm_ctx.emitMovz(.x4, @intCast(types.FALSE), 0);
             try asm_ctx.emitCmpImm(.x1, 0);
-            // If not pointer, result is #f (use csel at the end)
-            // If pointer, check tag at [x0].tag (first byte, ObjectTag.pair = 0)
+            // Not a pointer → #f
+            try asm_ctx.emit(a64.Assembler.bCond(.ne, 6)); // skip to store #f
+            // Is a pointer — check tag byte
+            try asm_ctx.emitLdrbImm(.x1, .x0, @intCast(OFF_OBJECT_TAG));
+            try asm_ctx.emitMovz(.x2, 0x3F, 0);
+            try asm_ctx.emitAndReg(.x1, .x1, .x2);
+            try asm_ctx.emitCmpImm(.x1, @intFromEnum(types.ObjectTag.pair));
             try asm_ctx.emitLoadImm64(.x5, types.TRUE);
-            try asm_ctx.emitCsel(.x3, .x5, .x4, .eq); // if pointer, tentatively TRUE
-            // For simplicity, just check if it's a pointer — most non-pairs aren't pointers
-            try asm_ctx.emitStrImm(.x3, FRAME_PTR, dst_off);
+            try asm_ctx.emitCsel(.x4, .x5, .x4, .eq); // tag==pair → TRUE, else FALSE
+            try asm_ctx.emitStrImm(.x4, FRAME_PTR, dst_off);
         },
         .not_op => {
-            // not — return #t if arg is #f, else #f
             try asm_ctx.emitMovz(.x1, @intCast(types.FALSE), 0);
             try asm_ctx.emitCmpReg(.x0, .x1);
             try asm_ctx.emitLoadImm64(.x2, types.TRUE);
             try asm_ctx.emitCsel(.x3, .x2, .x1, .eq);
             try asm_ctx.emitStrImm(.x3, FRAME_PTR, dst_off);
         },
+        .car => {
+            // Type guard: must be a pair
+            try emitPairGuard(asm_ctx, .x0, pending_exits, allocator, bc_ip);
+            // Load car field
+            try emitLoadFromField(asm_ctx, .x1, .x0, OFF_PAIR_CAR);
+            try asm_ctx.emitStrImm(.x1, FRAME_PTR, dst_off);
+        },
+        .cdr => {
+            // Type guard: must be a pair
+            try emitPairGuard(asm_ctx, .x0, pending_exits, allocator, bc_ip);
+            // Load cdr field
+            try emitLoadFromField(asm_ctx, .x1, .x0, OFF_PAIR_CDR);
+            try asm_ctx.emitStrImm(.x1, FRAME_PTR, dst_off);
+        },
         else => unreachable,
     }
+}
+
+fn emitCons(asm_ctx: *a64.Assembler, dst: u8, car_reg: u8, cdr_reg: u8, pending_exits: *std.ArrayList(PendingSideExit), allocator: std.mem.Allocator, bc_ip: usize) !void {
+    // Load car and cdr values
+    try asm_ctx.emitLdrImm(.x1, FRAME_PTR, @as(u16, car_reg) * 8);
+    try asm_ctx.emitLdrImm(.x2, FRAME_PTR, @as(u16, cdr_reg) * 8);
+    // Call jitAllocPair(VM*, car, cdr)
+    try asm_ctx.emitMovReg(.x0, VM_PTR);
+    try asm_ctx.emitLoadImm64(.x8, @intFromPtr(&jitAllocPair));
+    try asm_ctx.emitBlr(.x8);
+    // Check result (0 = OOM)
+    try asm_ctx.emitCmpImm(.x0, 0);
+    const oom_exit = asm_ctx.pos();
+    try asm_ctx.emit(0); // b.eq side-exit
+    try pending_exits.append(allocator, .{ .native_idx = oom_exit, .bc_ip = bc_ip, .cond = .eq });
+    // Store result
+    try asm_ctx.emitStrImm(.x0, FRAME_PTR, @as(u16, dst) * 8);
+}
+
+fn emitSetGlobal(asm_ctx: *a64.Assembler, src: u8, sym_idx: u16, pending_exits: *std.ArrayList(PendingSideExit), allocator: std.mem.Allocator, bc_ip: usize) !void {
+    // Load symbol from constants
+    const byte_offset: u16 = @truncate(@as(u32, sym_idx) * 8);
+    try asm_ctx.emitLdrImm(.x1, CONST_PTR, byte_offset);
+    // Load value from register
+    try asm_ctx.emitLdrImm(.x2, FRAME_PTR, @as(u16, src) * 8);
+    // Call jitSetGlobal(VM*, sym_val, value)
+    try asm_ctx.emitMovReg(.x0, VM_PTR);
+    try asm_ctx.emitLoadImm64(.x8, @intFromPtr(&jitSetGlobal));
+    try asm_ctx.emitBlr(.x8);
+    // Check result (0 = error)
+    try asm_ctx.emitCmpImm(.x0, 0);
+    const err_exit = asm_ctx.pos();
+    try asm_ctx.emit(0);
+    try pending_exits.append(allocator, .{ .native_idx = err_exit, .bc_ip = bc_ip, .cond = .eq });
 }
 
 fn emitReturn(asm_ctx: *a64.Assembler, src: u8, pending_exits: *std.ArrayList(PendingSideExit), pending_returns: *std.ArrayList(u32), allocator: std.mem.Allocator, bc_ip: usize) !void {

@@ -1450,7 +1450,28 @@ pub const VM = struct {
                     }
 
                     const callee = self.registers[base];
-                    if (types.isClosure(callee)) {
+                    if (types.isNativeFn(callee)) {
+                        const native = types.toObject(callee).as(types.NativeFn);
+                        const arity_ok = switch (native.arity) {
+                            .exact => |expected| nargs == expected,
+                            .variadic => |min| nargs >= min,
+                        };
+                        if (arity_ok and base + @as(u16, nargs) + 1 < MAX_REGISTERS) {
+                            const args = self.registers[base + 1 .. base + 1 + nargs];
+                            const result = native.func(args) catch |err| {
+                                return self.handleNativeError(err, base, nargs);
+                            };
+                            self.registers[base] = result;
+                        } else {
+                            self.callNative(native, base, nargs) catch |err| {
+                                if (err == VMError.ContinuationInvoked) {
+                                    if (target_frame_count == 0) continue;
+                                    return VMError.ContinuationInvoked;
+                                }
+                                return err;
+                            };
+                        }
+                    } else if (types.isClosure(callee)) {
                         self.callClosure(types.toObject(callee).as(types.Closure), base, nargs) catch |err| return err;
                     } else {
                         self.callValue(callee, base, nargs) catch |err| {
@@ -1549,38 +1570,39 @@ pub const VM = struct {
                         frame.ip = 0;
                     } else if (types.isNativeFn(callee)) {
                         const native = types.toObject(callee).as(types.NativeFn);
-                        if (self.profile_mode) native.profile_calls += 1;
-                        const saved_alloc_target = self.gc.profile_alloc_target;
-                        if (self.profile_mode) {
+                        const args = self.registers[abs_base + 1 .. abs_base + 1 + nargs];
+                        const result = if (!self.profile_mode)
+                            native.func(args) catch |err| {
+                                return self.handleNativeError(err, abs_base, nargs);
+                            }
+                        else blk: {
+                            native.profile_calls += 1;
+                            const saved_alloc_target = self.gc.profile_alloc_target;
                             self.profileCreditSelf();
                             self.gc.profile_alloc_target = &native.profile_alloc_bytes;
-                        }
-                        const native_start = if (self.profile_mode) clockNs() else 0;
-                        const args = self.registers[abs_base + 1 .. abs_base + 1 + nargs];
-                        self.last_error_detail_len = 0;
-                        const result = native.func(args) catch |err| {
-                            if (self.profile_mode) {
+                            const native_start = clockNs();
+                            self.last_error_detail_len = 0;
+                            const r = native.func(args) catch |err| {
                                 native.profile_time_ns +%= clockNs() -% native_start;
                                 self.profile_last_ns = clockNs();
                                 self.gc.profile_alloc_target = saved_alloc_target;
-                            }
-                            return switch (err) {
-                                error.TypeError => blk: {
-                                    if (self.last_error_detail_len == 0)
-                                        self.setErrorDetail("type error in '{s}'", .{native.name});
-                                    break :blk VMError.TypeError;
-                                },
-                                error.OutOfMemory => VMError.OutOfMemory,
-                                error.ExceptionRaised => VMError.ExceptionRaised,
-                                error.ContinuationInvoked => VMError.ContinuationInvoked,
-                                else => VMError.InvalidBytecode,
+                                return switch (err) {
+                                    error.TypeError => b2: {
+                                        if (self.last_error_detail_len == 0)
+                                            self.setErrorDetail("type error in '{s}'", .{native.name});
+                                        break :b2 VMError.TypeError;
+                                    },
+                                    error.OutOfMemory => VMError.OutOfMemory,
+                                    error.ExceptionRaised => VMError.ExceptionRaised,
+                                    error.ContinuationInvoked => VMError.ContinuationInvoked,
+                                    else => VMError.InvalidBytecode,
+                                };
                             };
-                        };
-                        if (self.profile_mode) {
                             native.profile_time_ns +%= clockNs() -% native_start;
                             self.profile_last_ns = clockNs();
                             self.gc.profile_alloc_target = saved_alloc_target;
-                        }
+                            break :blk r;
+                        };
                         const return_dst = frame.dst;
                         self.frame_count -= 1;
                         if (self.profile_mode) self.profilePopReturn();
@@ -1851,6 +1873,21 @@ pub const VM = struct {
     /// Restore a captured continuation (delegates to vm_continuations).
     pub fn restoreContinuation(self: *VM, cont: *types.Continuation, value: Value) VMError!void {
         try vm_continuations.restoreContinuation(self, cont, value);
+    }
+
+    fn handleNativeError(self: *VM, err: anyerror, base: u16, nargs: u8) VMError {
+        _ = base;
+        _ = nargs;
+        return switch (err) {
+            error.TypeError => VMError.TypeError,
+            error.OutOfMemory => VMError.OutOfMemory,
+            error.ExceptionRaised => VMError.ExceptionRaised,
+            error.ContinuationInvoked => VMError.ContinuationInvoked,
+            else => blk: {
+                self.setErrorDetail("native function error", .{});
+                break :blk VMError.TypeError;
+            },
+        };
     }
 
     fn callValue(self: *VM, callee: Value, base: u16, nargs: u8) VMError!void {

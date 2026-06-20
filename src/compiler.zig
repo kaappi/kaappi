@@ -918,6 +918,11 @@ pub const Compiler = struct {
     fn compileCall(self: *Compiler, expr: Value, dst: u8, is_tail: bool) CompileError!void {
         const operator = types.car(expr);
 
+        // --- Constant folding: evaluate (op lit ...) at compile time ---
+        if (types.isSymbol(operator)) {
+            if (self.tryConstantFold(expr, dst)) return;
+        }
+
         // Count args first to know the arity and support self-tail-call checks
         var nargs: u8 = 0;
         var arg_list = types.cdr(expr);
@@ -1002,6 +1007,91 @@ pub const Compiler = struct {
             try self.emit(dst);
             try self.emit(base);
             self.freeReg();
+        }
+    }
+
+    fn tryConstantFold(self: *Compiler, expr: Value, dst: u8) bool {
+        const operator = types.car(expr);
+        if (!types.isSymbol(operator)) return false;
+        const name = types.symbolName(operator);
+
+        const args_pair = types.cdr(expr);
+        if (!types.isPair(args_pair)) return false;
+        const a = types.car(args_pair);
+        const rest = types.cdr(args_pair);
+
+        // Unary: (not #t), (zero? 0), (- 5)
+        if (rest == types.NIL) {
+            if (!types.isFixnum(a) and a != types.TRUE and a != types.FALSE) return false;
+            const result: ?Value = if (std.mem.eql(u8, name, "not"))
+                (if (a == types.FALSE) types.TRUE else types.FALSE)
+            else if (std.mem.eql(u8, name, "zero?"))
+                (if (types.isFixnum(a) and types.toFixnum(a) == 0) types.TRUE else types.FALSE)
+            else if (std.mem.eql(u8, name, "-") and types.isFixnum(a))
+                types.makeFixnum(-types.toFixnum(a))
+            else
+                null;
+            if (result) |val| {
+                self.emitLoadValue(dst, val) catch return false;
+                return true;
+            }
+            return false;
+        }
+
+        // Binary: (+ 1 2), (< 3 4), etc.
+        if (!types.isPair(rest)) return false;
+        const b = types.car(rest);
+        if (types.cdr(rest) != types.NIL) return false; // only 2-arg forms
+
+        if (!types.isFixnum(a) or !types.isFixnum(b)) return false;
+        const va = types.toFixnum(a);
+        const vb = types.toFixnum(b);
+
+        const result: ?Value =
+            if (std.mem.eql(u8, name, "+")) blk: {
+                const r = @addWithOverflow(va, vb);
+                break :blk if (r[1] != 0) null else types.makeFixnum(r[0]);
+            } else if (std.mem.eql(u8, name, "-")) blk: {
+                const r = @subWithOverflow(va, vb);
+                break :blk if (r[1] != 0) null else types.makeFixnum(r[0]);
+            } else if (std.mem.eql(u8, name, "*")) blk: {
+                const r = @mulWithOverflow(va, vb);
+                break :blk if (r[1] != 0) null else types.makeFixnum(r[0]);
+            } else if (std.mem.eql(u8, name, "<"))
+                (if (va < vb) types.TRUE else types.FALSE)
+            else if (std.mem.eql(u8, name, ">"))
+                (if (va > vb) types.TRUE else types.FALSE)
+            else if (std.mem.eql(u8, name, "<="))
+                (if (va <= vb) types.TRUE else types.FALSE)
+            else if (std.mem.eql(u8, name, ">="))
+                (if (va >= vb) types.TRUE else types.FALSE)
+            else if (std.mem.eql(u8, name, "="))
+                (if (va == vb) types.TRUE else types.FALSE)
+            else
+                null;
+
+        if (result) |val| {
+            self.emitLoadValue(dst, val) catch return false;
+            return true;
+        }
+        return false;
+    }
+
+    fn emitLoadValue(self: *Compiler, dst: u8, val: Value) CompileError!void {
+        if (val == types.NIL) {
+            try self.emitOp(.load_nil);
+            try self.emit(dst);
+        } else if (val == types.TRUE) {
+            try self.emitOp(.load_true);
+            try self.emit(dst);
+        } else if (val == types.FALSE) {
+            try self.emitOp(.load_false);
+            try self.emit(dst);
+        } else {
+            const idx = try self.addConstant(val);
+            try self.emitOp(.load_const);
+            try self.emit(dst);
+            try self.emitU16(idx);
         }
     }
 

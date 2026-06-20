@@ -132,6 +132,10 @@ pub fn compileLetStar(self: *Compiler, args: Value, dst: u8, is_tail: bool) Comp
 }
 
 pub fn compileLetrec(self: *Compiler, args: Value, dst: u8, is_tail: bool) CompileError!void {
+    return compileLetrecImpl(self, args, dst, is_tail, false);
+}
+
+fn compileLetrecImpl(self: *Compiler, args: Value, dst: u8, is_tail: bool, is_star: bool) CompileError!void {
     if (args == types.NIL) return CompileError.InvalidSyntax;
     const bindings = types.car(args);
     var body = types.cdr(args);
@@ -179,7 +183,19 @@ pub fn compileLetrec(self: *Compiler, args: Value, dst: u8, is_tail: bool) Compi
     }
 
     // Phase 2: evaluate inits and assign to gensym'd globals
+    // Check for bare references to uninitialized bindings:
+    // letrec: any reference to another binding is an error (none initialized yet)
+    // letrec*: only forward references (to bindings not yet evaluated) are errors
     for (0..count) |i| {
+        if (types.isSymbol(inits[i])) {
+            const init_name = types.symbolName(inits[i]);
+            const start_j: usize = if (is_star) i else 0;
+            for (start_j..count) |j| {
+                if (std.mem.eql(u8, init_name, types.symbolName(unique_syms[j]))) {
+                    return CompileError.InvalidSyntax;
+                }
+            }
+        }
         try self.compileExpr(inits[i], dst, false);
         const sym_idx = try self.addConstant(unique_syms[i]);
         try self.emitOp(.define_global);
@@ -192,9 +208,7 @@ pub fn compileLetrec(self: *Compiler, args: Value, dst: u8, is_tail: bool) Compi
 }
 
 pub fn compileLetrecStar(self: *Compiler, args: Value, dst: u8, is_tail: bool) CompileError!void {
-    // letrec* is the same as letrec in our implementation since we evaluate
-    // left-to-right anyway, and each variable is visible during its own init
-    return compileLetrec(self, args, dst, is_tail);
+    return compileLetrecImpl(self, args, dst, is_tail, true);
 }
 
 pub fn compileNamedLet(self: *Compiler, args: Value, dst: u8, is_tail: bool) CompileError!void {
