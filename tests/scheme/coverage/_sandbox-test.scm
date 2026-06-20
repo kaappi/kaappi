@@ -1,0 +1,6 @@
+(import (scheme base) (scheme write))
+(display (+ 1 2))
+(newline)
+(display (map (lambda (x) (* x x)) '(1 2 3 4 5)))
+(newline)
+(display "sandbox done\n")

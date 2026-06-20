@@ -1,0 +1,6 @@
+(import (scheme base))
+(define (fib n) (if (< n 2) n (+ (fib (- n 1)) (fib (- n 2)))))
+(fib 10)
+(define (loop n acc) (if (= n 0) acc (loop (- n 1) (+ acc n))))
+(loop 1000 0)
+(display "profile done\n")

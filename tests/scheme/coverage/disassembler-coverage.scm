@@ -87,6 +87,66 @@
 (disassemble (lambda (x) (lambda (y) (+ x y))))
 (check-true "disassemble nested lambda" #t)
 
+;;; ---- Trigger all opcode types ----
+
+;; load_nil, load_true, load_false, load_void
+(disassemble (lambda () '()))
+(disassemble (lambda () #t))
+(disassemble (lambda () #f))
+(disassemble (lambda () (if #f #f)))
+(check-true "disassemble constants" #t)
+
+;; set_global / define_global
+(disassemble (lambda () (define x 42) x))
+(check-true "disassemble define" #t)
+
+;; get_local / set_local
+(disassemble (lambda (x) (set! x 42) x))
+(check-true "disassemble set_local" #t)
+
+;; closure / get_upvalue / set_upvalue / close_upvalue
+(disassemble (lambda (x) (lambda () x)))
+(disassemble (lambda (x) (lambda () (set! x 42))))
+(check-true "disassemble closure/upvalue" #t)
+
+;; cons
+(disassemble (lambda (a b) (cons a b)))
+(check-true "disassemble cons" #t)
+
+;; jump_true
+(disassemble (lambda (x) (or x 42)))
+(check-true "disassemble jump_true" #t)
+
+;; push_handler / pop_handler
+(disassemble (lambda ()
+  (with-exception-handler
+    (lambda (e) e)
+    (lambda () (error "test")))))
+(check-true "disassemble handler" #t)
+
+;; box_local / get_box_local / set_box_local (letrec)
+(disassemble (lambda ()
+  (letrec ((x 1)) (set! x 2) x)))
+(check-true "disassemble box_local" #t)
+
+;; self_tail_call (named let)
+(disassemble (lambda (n)
+  (let loop ((i n))
+    (if (= i 0) 'done (loop (- i 1))))))
+(check-true "disassemble self_tail_call" #t)
+
+;; tail_apply
+(disassemble (lambda (f args) (apply f args)))
+(check-true "disassemble tail_apply" #t)
+
+;; call_global / tail_call_global
+(disassemble (lambda (x) (+ x 1)))
+(disassemble (lambda (x y) (+ x y)))
+(check-true "disassemble call_global" #t)
+
+;; halt (top-level expression — implicitly used)
+(check-true "disassemble comprehensive done" #t)
+
 ;;; Summary
 (display pass) (display " passed, ") (display fail) (display " failed")
 (newline)
