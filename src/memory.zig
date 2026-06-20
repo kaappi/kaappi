@@ -772,16 +772,25 @@ pub const GC = struct {
 
     pub fn allocHashTable(self: *GC, initial_capacity: usize) !Value {
         self.maybeCollect();
-        const entries = try self.allocator.alloc(HashEntry, initial_capacity);
-        // No need to initialize; count starts at 0 so entries[0..0] is empty
+        // Ensure capacity is a power of 2 (minimum 8)
+        var cap = if (initial_capacity < 8) @as(usize, 8) else initial_capacity;
+        if (cap & (cap - 1) != 0) {
+            cap = @as(usize, 1) << @intCast(@as(u6, @intCast(64 - @clz(cap))));
+        }
+        const entries = try self.allocator.alloc(HashEntry, cap);
+        // Initialize all entries as empty (key=VOID sentinel)
+        for (entries) |*e| {
+            e.key = types.VOID;
+            e.value = types.VOID;
+        }
         const ht = try self.allocator.create(HashTable);
         ht.* = .{
             .header = .{ .tag = .hash_table },
             .entries = entries,
             .count = 0,
-            .capacity = initial_capacity,
+            .capacity = cap,
         };
-        self.bytes_allocated += @sizeOf(HashTable) + initial_capacity * @sizeOf(HashEntry);
+        self.bytes_allocated += @sizeOf(HashTable) + cap * @sizeOf(HashEntry);
 
         self.profileAlloc(@sizeOf(HashTable) + initial_capacity * @sizeOf(HashEntry));
         self.trackObject(&ht.header);
@@ -1116,9 +1125,11 @@ pub const GC = struct {
             },
             .hash_table => {
                 const ht = obj.as(HashTable);
-                for (ht.entries[0..ht.count]) |entry| {
-                    self.markValue(entry.key);
-                    self.markValue(entry.value);
+                for (ht.entries[0..ht.capacity]) |entry| {
+                    if (entry.key != types.VOID and entry.key != types.EOF) {
+                        self.markValue(entry.key);
+                        self.markValue(entry.value);
+                    }
                 }
             },
             .rational => {
