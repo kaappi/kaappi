@@ -309,6 +309,8 @@ fn filterFn(args: []const Value) PrimitiveError!Value {
 
     // Build result list
     var result_list: Value = types.NIL;
+    gc.pushRoot(&result_list) catch return PrimitiveError.OutOfMemory;
+    defer gc.popRoot();
     var i = results.items.len;
     while (i > 0) {
         i -= 1;
@@ -338,6 +340,8 @@ fn removeFn(args: []const Value) PrimitiveError!Value {
     }
 
     var result_list: Value = types.NIL;
+    gc.pushRoot(&result_list) catch return PrimitiveError.OutOfMemory;
+    defer gc.popRoot();
     var i = results.items.len;
     while (i > 0) {
         i -= 1;
@@ -650,6 +654,8 @@ fn zipFn(args: []const Value) PrimitiveError!Value {
 
     // Build result list
     var result: Value = types.NIL;
+    gc.pushRoot(&result) catch return PrimitiveError.OutOfMemory;
+    defer gc.popRoot();
     var i = results.items.len;
     while (i > 0) {
         i -= 1;
@@ -722,6 +728,8 @@ fn takeFn(args: []const Value) PrimitiveError!Value {
     }
 
     var result: Value = types.NIL;
+    gc.pushRoot(&result) catch return PrimitiveError.OutOfMemory;
+    defer gc.popRoot();
     var j = elems.items.len;
     while (j > 0) {
         j -= 1;
@@ -765,6 +773,8 @@ fn takeWhileFn(args: []const Value) PrimitiveError!Value {
     }
 
     var result: Value = types.NIL;
+    gc.pushRoot(&result) catch return PrimitiveError.OutOfMemory;
+    defer gc.popRoot();
     var i = elems.items.len;
     while (i > 0) {
         i -= 1;
@@ -835,6 +845,8 @@ fn filterMapFn(args: []const Value) PrimitiveError!Value {
     }
 
     var result_list: Value = types.NIL;
+    gc.pushRoot(&result_list) catch return PrimitiveError.OutOfMemory;
+    defer gc.popRoot();
     var i = results.items.len;
     while (i > 0) {
         i -= 1;
@@ -889,6 +901,8 @@ fn appendMapFn(args: []const Value) PrimitiveError!Value {
     }
 
     var result_list: Value = types.NIL;
+    gc.pushRoot(&result_list) catch return PrimitiveError.OutOfMemory;
+    defer gc.popRoot();
     var i = all_elems.items.len;
     while (i > 0) {
         i -= 1;
@@ -1055,6 +1069,8 @@ fn lsetIntersectionFn(args: []const Value) PrimitiveError!Value {
     }
 
     var result_list: Value = types.NIL;
+    gc.pushRoot(&result_list) catch return PrimitiveError.OutOfMemory;
+    defer gc.popRoot();
     var i = results.items.len;
     while (i > 0) {
         i -= 1;
@@ -1094,6 +1110,8 @@ fn lsetDifferenceFn(args: []const Value) PrimitiveError!Value {
     }
 
     var result_list: Value = types.NIL;
+    gc.pushRoot(&result_list) catch return PrimitiveError.OutOfMemory;
+    defer gc.popRoot();
     var i = results.items.len;
     while (i > 0) {
         i -= 1;
@@ -1174,6 +1192,8 @@ fn listTabulateFn(args: []const Value) PrimitiveError!Value {
     }
 
     var result: Value = types.NIL;
+    gc.pushRoot(&result) catch return PrimitiveError.OutOfMemory;
+    defer gc.popRoot();
     var j = elems.items.len;
     while (j > 0) {
         j -= 1;
@@ -1368,6 +1388,8 @@ fn dropRightFn(args: []const Value) PrimitiveError!Value {
     }
 
     var result: Value = types.NIL;
+    gc.pushRoot(&result) catch return PrimitiveError.OutOfMemory;
+    defer gc.popRoot();
     var j = elems.items.len;
     while (j > 0) {
         j -= 1;
@@ -1541,6 +1563,8 @@ fn deleteFn(args: []const Value) PrimitiveError!Value {
     }
 
     var result_list: Value = types.NIL;
+    gc.pushRoot(&result_list) catch return PrimitiveError.OutOfMemory;
+    defer gc.popRoot();
     var i = results.items.len;
     while (i > 0) {
         i -= 1;
@@ -1585,6 +1609,8 @@ fn deleteDuplicatesFn(args: []const Value) PrimitiveError!Value {
     }
 
     var result_list: Value = types.NIL;
+    gc.pushRoot(&result_list) catch return PrimitiveError.OutOfMemory;
+    defer gc.popRoot();
     var i = results.items.len;
     while (i > 0) {
         i -= 1;
@@ -1622,6 +1648,8 @@ fn alistCopyFn(args: []const Value) PrimitiveError!Value {
     }
 
     var result: Value = types.NIL;
+    gc.pushRoot(&result) catch return PrimitiveError.OutOfMemory;
+    defer gc.popRoot();
     var i = elems.items.len;
     while (i > 0) {
         i -= 1;
@@ -1661,6 +1689,8 @@ fn alistDeleteFn(args: []const Value) PrimitiveError!Value {
     }
 
     var result_list: Value = types.NIL;
+    gc.pushRoot(&result_list) catch return PrimitiveError.OutOfMemory;
+    defer gc.popRoot();
     var i = results.items.len;
     while (i > 0) {
         i -= 1;
@@ -1813,6 +1843,8 @@ fn unfoldRightFn(args: []const Value) PrimitiveError!Value {
     const g = args[2];
     var seed = args[3];
     var result: Value = if (args.len > 4) args[4] else types.NIL;
+    gc.pushRoot(&result) catch return PrimitiveError.OutOfMemory;
+    defer gc.popRoot();
 
     while (true) {
         const stop_args = [1]Value{seed};
@@ -1889,6 +1921,8 @@ fn unzip1Fn(args: []const Value) PrimitiveError!Value {
     }
 
     var result: Value = types.NIL;
+    gc.pushRoot(&result) catch return PrimitiveError.OutOfMemory;
+    defer gc.popRoot();
     var i = elems.items.len;
     while (i > 0) {
         i -= 1;
