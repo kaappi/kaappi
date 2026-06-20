@@ -32,11 +32,11 @@ Only `syntax-rules` is supported for macro definitions. R7RS-small deliberately 
 
 ## Remaining gaps
 
-No functional gaps remain. The two edge cases previously listed here have been resolved:
+None. Two edge cases that were previously listed here have been resolved:
 
-- **Local-variable referential transparency in `let-syntax`** — Fixed. Macros defined with `let-syntax` correctly reference local variables from the definition site, not the use site. `(let ((x 1)) (let-syntax ((m (syntax-rules () ((m) x)))) (let ((x 2)) (m))))` returns `1` as required.
+- **Local-variable referential transparency in `let-syntax`** — Fixed. `(let ((x 1)) (let-syntax ((m (syntax-rules () ((m) x)))) (let ((x 2)) (m))))` correctly returns `1`.
 
-- **`letrec` init restriction** — Improved. Bare forward references (`(letrec ((a b) (b 1)) ...)`) and self-references (`(letrec ((a a)) ...)`) are now detected at compile time. `letrec*` correctly allows back-references to already-initialized bindings. Indirect references through lambda (the standard mutual-recursion pattern) remain valid. R7RS "is an error" (§1.3.2) means implementations are not required to detect all cases; Kaappi detects the common ones.
+- **`letrec` init restriction** — Bare forward references and self-references are now detected at compile time. `letrec*` correctly allows back-references to already-initialized bindings.
 
 ---
 
@@ -78,30 +78,6 @@ These areas have been tested and match R7RS behavior:
 
 ---
 
-## Fixed bugs (this session)
-
-27 bugs found and fixed via systematic `/audit-primitives` skill:
-
-**Arithmetic:** `min`/`max` on rationals, `quotient`/`modulo`/`gcd` on flonums, `floor-quotient`/`truncate-quotient` on bignums, `square` on rationals, `even?`/`odd?` on flonums/bignums
-
-**Strings:** `string-trim`/`trim-right`/`trim-both` UTF-8 corruption with predicate arg, `string-ci-hash` Unicode case folding
-
-**Hash tables:** `hash-table-ref` thunk not called, `hash-table-merge!` not overwriting
-
-**I/O:** `write-bytevector` start/end args, `textual-port?` on binary ports, `load` file-error type
-
-**Memory:** FiberScheduler leak, `allocFiber` missing GC trigger, vector temp allocation leaks (5 functions), GC safety in `list-copy`/`make-list`/`map`
-
-**Vectors:** `vector-swap!` negative index panic
-
-**Reader:** `#e` prefix truncation (now produces rationals), `thread-sleep!` accepts `#f`
-
-**FFI:** uninformative `dlerror()` messages in `ffi-open`/`ffi-fn`
-
-**Random:** `random-source-state-ref`/`state-set!` full 4-word state roundtrip
-
----
-
 ## SRFI conformance
 
 51 SRFIs supported. 8 built-in (native Zig), 43 portable (.sld files). Coverage details for the built-in SRFIs follow.
@@ -127,11 +103,10 @@ Implemented: `cons*`, `xcons`, `list-tabulate`, `circular-list`, `iota`, `proper
 
 Implemented: `string-contains`, `string-prefix?`, `string-suffix?`, `string-trim`, `string-trim-right`, `string-trim-both` (with predicate or SRFI-14 char-set argument, UTF-8 safe), `string-index`, `string-index-right`, `string-skip`, `string-skip-right`, `string-count`, `string-split`, `string-join`, `string-concatenate`, `string-take`, `string-drop`, `string-take-right`, `string-drop-right`, `string-pad`, `string-pad-right`, `string-reverse`, `string-filter`, `string-delete`, `string-replace`, `string-titlecase`, `string-every`, `string-any`, `string-tabulate`, `string-unfold`, `string-unfold-right`.
 
-All predicate-accepting procedures (`string-trim`, `string-index`, `string-filter`, `string-count`, etc.) accept SRFI-14 char-set objects directly in addition to predicate procedures.
+All predicate-accepting procedures accept SRFI-14 char-set objects directly in addition to predicate procedures. Optional `start`/`end` index parameters are supported on all searching, filtering, and transformation functions.
 
 **Not implemented:**
 - `string-xcopy!` — mutation variant
-- `string-map`, `string-for-each` with start/end indices — base versions available
 
 ### SRFI 27 — Random Numbers
 
