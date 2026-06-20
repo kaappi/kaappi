@@ -237,6 +237,10 @@ pub const VM = struct {
     }
 
     pub fn deinit(self: *VM) void {
+        if (self.scheduler) |sched| {
+            self.gc.allocator.destroy(sched);
+            self.scheduler = null;
+        }
         self.globals.deinit();
         self.macros.deinit();
         self.output.deinit(self.gc.allocator);

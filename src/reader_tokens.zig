@@ -309,7 +309,35 @@ fn applyExactness(tok: Token, exact: ?bool) ReadError!Token {
     if (want_exact) {
         return switch (tok) {
             .fixnum, .rational, .bignum_str => tok,
-            .flonum => |f| if (std.math.isFinite(f)) .{ .fixnum = @intFromFloat(f) } else .{ .flonum = f },
+            .flonum => |f| blk: {
+                if (!std.math.isFinite(f)) break :blk Token{ .flonum = f };
+                const trunc: i64 = @intFromFloat(f);
+                if (@as(f64, @floatFromInt(trunc)) == f) break :blk Token{ .fixnum = trunc };
+                // Non-integer float: convert to rational via continued fraction
+                var num: i64 = 1;
+                var den: i64 = 0;
+                var prev_num: i64 = 0;
+                var prev_den: i64 = 1;
+                var x = @abs(f);
+                var iters: u32 = 0;
+                while (iters < 64) : (iters += 1) {
+                    const a: i64 = @intFromFloat(x);
+                    const new_num = a * num + prev_num;
+                    const new_den = a * den + prev_den;
+                    prev_num = num;
+                    prev_den = den;
+                    num = new_num;
+                    den = new_den;
+                    const approx = @as(f64, @floatFromInt(num)) / @as(f64, @floatFromInt(den));
+                    if (@abs(approx - @abs(f)) < 1e-15) break;
+                    const frac = x - @as(f64, @floatFromInt(a));
+                    if (frac < 1e-15) break;
+                    x = 1.0 / frac;
+                }
+                if (f < 0) num = -num;
+                if (den == 1) break :blk Token{ .fixnum = num };
+                break :blk Token{ .rational = .{ .num = num, .den = den } };
+            },
             else => ReadError.InvalidNumber,
         };
     }

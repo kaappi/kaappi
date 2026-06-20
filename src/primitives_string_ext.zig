@@ -87,38 +87,59 @@ fn isWhitespace(c: u8) bool {
     return c == ' ' or c == '\t' or c == '\n' or c == '\r';
 }
 
-// (string-trim s) — remove whitespace from start
+fn shouldTrimChar(byte: u8, args: []const Value) PrimitiveError!bool {
+    if (args.len <= 1) return isWhitespace(byte);
+    const pred = args[1];
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError;
+    const cp: u21 = byte;
+    const char_val = types.makeChar(cp);
+    const result = vm.callWithArgs(pred, &[_]Value{char_val}) catch |err| {
+        return switch (err) {
+            vm_mod.VMError.ContinuationInvoked => PrimitiveError.ContinuationInvoked,
+            vm_mod.VMError.ExceptionRaised => PrimitiveError.ExceptionRaised,
+            vm_mod.VMError.OutOfMemory => PrimitiveError.OutOfMemory,
+            else => PrimitiveError.TypeError,
+        };
+    };
+    return types.isTruthy(result);
+}
+
+// (string-trim s [pred]) — remove chars from start
 fn stringTrimFn(args: []const Value) PrimitiveError!Value {
     const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
     const data = try getStringSlice(args[0]);
     var start: usize = 0;
-    while (start < data.len and isWhitespace(data[start])) {
+    while (start < data.len) {
+        if (!try shouldTrimChar(data[start], args)) break;
         start += 1;
     }
     return gc.allocString(data[start..]) catch return PrimitiveError.OutOfMemory;
 }
 
-// (string-trim-right s) — remove whitespace from end
+// (string-trim-right s [pred]) — remove chars from end
 fn stringTrimRightFn(args: []const Value) PrimitiveError!Value {
     const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
     const data = try getStringSlice(args[0]);
     var end: usize = data.len;
-    while (end > 0 and isWhitespace(data[end - 1])) {
+    while (end > 0) {
+        if (!try shouldTrimChar(data[end - 1], args)) break;
         end -= 1;
     }
     return gc.allocString(data[0..end]) catch return PrimitiveError.OutOfMemory;
 }
 
-// (string-trim-both s) — both sides
+// (string-trim-both s [pred]) — both sides
 fn stringTrimBothFn(args: []const Value) PrimitiveError!Value {
     const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
     const data = try getStringSlice(args[0]);
     var start: usize = 0;
-    while (start < data.len and isWhitespace(data[start])) {
+    while (start < data.len) {
+        if (!try shouldTrimChar(data[start], args)) break;
         start += 1;
     }
     var end: usize = data.len;
-    while (end > start and isWhitespace(data[end - 1])) {
+    while (end > start) {
+        if (!try shouldTrimChar(data[end - 1], args)) break;
         end -= 1;
     }
     return gc.allocString(data[start..end]) catch return PrimitiveError.OutOfMemory;

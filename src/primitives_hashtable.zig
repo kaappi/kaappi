@@ -90,8 +90,21 @@ fn hashTableRefFn(args: []const Value) PrimitiveError!Value {
     if (findKey(ht, args[1])) |idx| {
         return ht.entries[idx].value;
     }
-    // Key not found
-    if (args.len > 2) return args[2]; // default value
+    // Key not found — call thunk if provided
+    if (args.len > 2) {
+        if (types.isProcedure(args[2])) {
+            const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError;
+            return vm.callWithArgs(args[2], &[_]Value{}) catch |err| {
+                return switch (err) {
+                    vm_mod.VMError.ContinuationInvoked => PrimitiveError.ContinuationInvoked,
+                    vm_mod.VMError.ExceptionRaised => PrimitiveError.ExceptionRaised,
+                    vm_mod.VMError.OutOfMemory => PrimitiveError.OutOfMemory,
+                    else => PrimitiveError.TypeError,
+                };
+            };
+        }
+        return args[2]; // non-procedure default (for backwards compat)
+    }
     return PrimitiveError.TypeError; // no default, error
 }
 
@@ -409,7 +422,9 @@ fn hashTableMergeFn(args: []const Value) PrimitiveError!Value {
     const ht2 = try getHashTable(args[1]);
 
     for (ht2.entries[0..ht2.count]) |entry| {
-        if (findKey(ht1, entry.key) == null) {
+        if (findKey(ht1, entry.key)) |idx| {
+            ht1.entries[idx].value = entry.value;
+        } else {
             try growIfNeeded(ht1);
             ht1.entries[ht1.count] = entry;
             ht1.count += 1;
