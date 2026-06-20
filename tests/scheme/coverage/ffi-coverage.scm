@@ -180,6 +180,19 @@
 (check "ffi clamp high" (c-clamp 15 5 10) 10)
 (check "ffi clamp mid" (c-clamp 7 5 10) 7)
 
+;; (double, double, double) -> double
+(define c-sum3d (ffi-fn lib "sum3_double" '(double double double) 'double))
+(check "ffi 3ddd-d" (c-sum3d 1.0 2.0 3.0) 6.0)
+
+;; (string, int, int) -> int
+(define c-substr (ffi-fn lib "substr_char" '(string int int) 'int))
+(check "ffi 3sii-i" (c-substr "hello" 0 0) 104) ;; 'h' = 104
+
+;; (string, string, int) -> int
+(define c-strncmp (ffi-fn lib "strncmp_wrap" '(string string int) 'int))
+(check "ffi 3ssi-i equal" (c-strncmp "abc" "abc" 3) 0)
+(check-true "ffi 3ssi-i diff" (not (= (c-strncmp "abc" "xyz" 3) 0)))
+
 ;;; ==============================================================
 ;;; 4-arg functions (callFfi4)
 ;;; ==============================================================
@@ -188,7 +201,9 @@
 (define c-sum4 (ffi-fn lib "sum4" '(int int int int) 'int))
 (check "ffi 4iiii-i" (c-sum4 1 2 3 4) 10)
 
-;; 4-arg long not in dispatch table, skip
+;; (double, double, double, double) -> double
+(define c-sum4d (ffi-fn lib "sum4_double" '(double double double double) 'double))
+(check "ffi 4dddd-d" (c-sum4d 1.0 2.0 3.0 4.0) 10.0)
 
 ;;; ==============================================================
 ;;; ffi-open with #f (default process)

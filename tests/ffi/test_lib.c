@@ -68,6 +68,20 @@ long sum3_long(long a, long b, long c) { return a + b + c; }
 double sum3_double(double a, double b, double c) { return a + b + c; }
 int clamp(int x, int lo, int hi) { return x < lo ? lo : (x > hi ? hi : x); }
 
+/* 3-arg with string,int,int -> int (like strncmp-ish) */
+int substr_char(const char *s, int idx, int def) {
+    int len = 0;
+    while (s[len]) len++;
+    if (idx < 0 || idx >= len) return def;
+    return (int)s[idx];
+}
+
+/* 3-arg: string,string,int -> int */
+int strncmp_wrap(const char *a, const char *b, int n) {
+    return strncmp(a, b, (size_t)n);
+}
+
 /* 4-arg functions */
 int sum4(int a, int b, int c, int d) { return a + b + c + d; }
 long sum4_long(long a, long b, long c, long d) { return a + b + c + d; }
+double sum4_double(double a, double b, double c, double d) { return a + b + c + d; }
