@@ -243,6 +243,7 @@ pub const Transformer = struct {
     num_rules: u16,
     captured_locals: []CapturedLocal = &.{},
     def_env: ?*std.StringHashMap(Value) = null,
+    custom_ellipsis: ?[]const u8 = null,
 };
 
 pub const ErrorObject = struct {

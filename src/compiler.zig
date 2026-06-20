@@ -757,8 +757,22 @@ pub const Compiler = struct {
 
         const rest = types.cdr(spec);
         if (rest == types.NIL) return CompileError.InvalidSyntax;
-        const literals_list = types.car(rest);
-        const rules = types.cdr(rest);
+
+        // R7RS 4.3.2: optional custom ellipsis identifier
+        var custom_ellipsis: ?[]const u8 = null;
+        var after_ellipsis = rest;
+        const first_arg = types.car(rest);
+        if (types.isSymbol(first_arg) and !types.isPair(first_arg)) {
+            const name_str = types.symbolName(first_arg);
+            if (!std.mem.eql(u8, name_str, "_")) {
+                custom_ellipsis = name_str;
+                after_ellipsis = types.cdr(rest);
+                if (after_ellipsis == types.NIL) return CompileError.InvalidSyntax;
+            }
+        }
+
+        const literals_list = types.car(after_ellipsis);
+        const rules = types.cdr(after_ellipsis);
 
         // Collect literals into an array
         var literals_buf: [32]Value = undefined;
@@ -793,11 +807,15 @@ pub const Compiler = struct {
         if (rule_count == 0) return CompileError.InvalidSyntax;
 
         // Allocate transformer
-        return self.gc.allocTransformer(
+        const tx_val = self.gc.allocTransformer(
             literals_buf[0..lit_count],
             patterns_buf[0..rule_count],
             templates_buf[0..rule_count],
         ) catch return CompileError.OutOfMemory;
+        if (custom_ellipsis) |ce| {
+            types.toObject(tx_val).as(types.Transformer).custom_ellipsis = ce;
+        }
+        return tx_val;
     }
 
     fn compileLetSyntax(self: *Compiler, args: Value, dst: u8, is_tail: bool) CompileError!void {

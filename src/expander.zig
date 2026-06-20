@@ -4,6 +4,14 @@ const memory = @import("memory.zig");
 const Value = types.Value;
 const GC = memory.GC;
 
+var active_custom_ellipsis: ?[]const u8 = null;
+
+fn isEllipsis(name: []const u8) bool {
+    if (std.mem.eql(u8, name, "...")) return true;
+    if (active_custom_ellipsis) |ce| return std.mem.eql(u8, name, ce);
+    return false;
+}
+
 // ---------------------------------------------------------------------------
 // Hygienic renaming support (sets-of-scopes, simplified)
 // ---------------------------------------------------------------------------
@@ -132,6 +140,9 @@ const Binding = struct {
 
 pub fn expandMacro(gc: *GC, expr: Value, transformer_val: Value, globals: ?*std.StringHashMap(Value), macros: ?*const std.StringHashMap(Value)) !Value {
     const transformer = types.toObject(transformer_val).as(types.Transformer);
+    const saved_ellipsis = active_custom_ellipsis;
+    active_custom_ellipsis = transformer.custom_ellipsis;
+    defer active_custom_ellipsis = saved_ellipsis;
     const input = types.cdr(expr); // skip the keyword
 
     // Extract the macro keyword name from the first pattern (car of the
@@ -263,7 +274,7 @@ fn matchListPattern(pattern: Value, input: Value, literals: []const Value, bindi
         // Check if next element is ellipsis
         if (pat_rest != types.NIL and types.isPair(pat_rest)) {
             const maybe_ellipsis = types.car(pat_rest);
-            if (types.isSymbol(maybe_ellipsis) and std.mem.eql(u8, types.symbolName(maybe_ellipsis), "...")) {
+            if (types.isSymbol(maybe_ellipsis) and isEllipsis(types.symbolName(maybe_ellipsis))) {
                 // Ellipsis: pat_elem matches zero or more input elements
                 const after_ellipsis = types.cdr(pat_rest);
                 return matchEllipsis(pat_elem, after_ellipsis, inp, literals, bindings, count, gc);
@@ -387,7 +398,7 @@ fn collectPatternVars(pattern: Value, literals: []const Value, names: *[16][]con
                 return;
         }
         // Skip ellipsis
-        if (std.mem.eql(u8, name, "...")) return;
+        if (isEllipsis(name)) return;
         // Add pattern variable
         if (count.* >= 16) {
             overflowed.* = true;
@@ -472,7 +483,7 @@ fn instantiateTemplate(gc: *GC, template: Value, bindings: []Binding, intro_scop
     // Check for ellipsis escape: (... <template>) — treat ... as literal inside
     const elem = types.car(template);
     const rest = types.cdr(template);
-    if (!in_escape and types.isSymbol(elem) and std.mem.eql(u8, types.symbolName(elem), "...")) {
+    if (!in_escape and types.isSymbol(elem) and isEllipsis(types.symbolName(elem))) {
         if (rest != types.NIL and types.isPair(rest) and types.cdr(rest) == types.NIL) {
             const inner = types.car(rest);
             return instantiateTemplate(gc, inner, bindings, intro_scope | ESCAPE_FLAG | QUOTE_FLAG, literals, macro_keyword, globals, macros);
@@ -483,7 +494,7 @@ fn instantiateTemplate(gc: *GC, template: Value, bindings: []Binding, intro_scop
     // Check for ellipsis in template: (Te ...) — skip inside escape context
     if (!in_escape and rest != types.NIL and types.isPair(rest)) {
         const maybe_ellipsis = types.car(rest);
-        if (types.isSymbol(maybe_ellipsis) and std.mem.eql(u8, types.symbolName(maybe_ellipsis), "...")) {
+        if (types.isSymbol(maybe_ellipsis) and isEllipsis(types.symbolName(maybe_ellipsis))) {
             // Replicate elem for each ellipsis binding
             const after = types.cdr(rest);
             return instantiateEllipsis(gc, elem, after, bindings, intro_scope, literals, macro_keyword, globals, macros);
