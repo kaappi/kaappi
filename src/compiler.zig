@@ -462,49 +462,66 @@ pub const Compiler = struct {
         if (types.isSymbol(head)) {
             const name = types.symbolName(head);
 
-            // Primitive forms (kept in compiler.zig)
-            if (std.mem.eql(u8, name, "quote")) return self.compileQuote(args, dst);
-            if (std.mem.eql(u8, name, "if")) return self.compileIf(args, dst, is_tail);
-            if (std.mem.eql(u8, name, "lambda")) return self.compileLambda(args, dst, null);
-            if (std.mem.eql(u8, name, "define")) return self.compileDefine(args, dst);
-            if (std.mem.eql(u8, name, "define-values")) return self.compileDefineValues(args, dst);
-            if (std.mem.eql(u8, name, "set!")) return self.compileSet(args, dst);
-            if (std.mem.eql(u8, name, "begin")) return self.compileBegin(args, dst, is_tail);
+            // Check if this identifier came from a macro template (hygienic rename).
+            // Hygienic names like __hyg_N_let or __hyg_N___hyg_M_let should
+            // be treated as their base form. Strip all __hyg_N_ prefixes.
+            var effective_name = name;
+            while (std.mem.startsWith(u8, effective_name, "__hyg_")) {
+                if (std.mem.indexOfScalar(u8, effective_name[6..], '_')) |sep| {
+                    effective_name = effective_name[6 + sep + 1 ..];
+                } else break;
+            }
+
+            // If the effective name is a local variable but NOT a hygienic
+            // rename, it's a function call, not a special form.
+            const is_shadowed = self.resolveLocal(effective_name) != null and
+                std.mem.eql(u8, effective_name, name);
+
+            // Primitive forms — only if not shadowed by local binding
+            if (!is_shadowed) {
+            if (std.mem.eql(u8, effective_name, "quote")) return self.compileQuote(args, dst);
+            if (std.mem.eql(u8, effective_name, "if")) return self.compileIf(args, dst, is_tail);
+            if (std.mem.eql(u8, effective_name, "lambda")) return self.compileLambda(args, dst, null);
+            if (std.mem.eql(u8, effective_name, "define")) return self.compileDefine(args, dst);
+            if (std.mem.eql(u8, effective_name, "define-values")) return self.compileDefineValues(args, dst);
+            if (std.mem.eql(u8, effective_name, "set!")) return self.compileSet(args, dst);
+            if (std.mem.eql(u8, effective_name, "begin")) return self.compileBegin(args, dst, is_tail);
 
             // Derived expression forms (in compiler_forms.zig)
-            if (std.mem.eql(u8, name, "and")) return forms.compileAnd(self, args, dst, is_tail);
-            if (std.mem.eql(u8, name, "or")) return forms.compileOr(self, args, dst, is_tail);
-            if (std.mem.eql(u8, name, "when")) return forms.compileWhen(self, args, dst, is_tail);
-            if (std.mem.eql(u8, name, "unless")) return forms.compileUnless(self, args, dst, is_tail);
-            if (std.mem.eql(u8, name, "cond")) return forms.compileCond(self, args, dst, is_tail);
-            if (std.mem.eql(u8, name, "let")) return forms.compileLet(self, args, dst, is_tail);
-            if (std.mem.eql(u8, name, "let*")) return forms.compileLetStar(self, args, dst, is_tail);
-            if (std.mem.eql(u8, name, "let-values")) return forms.compileLetValues(self, args, dst, is_tail);
-            if (std.mem.eql(u8, name, "let*-values")) return forms.compileLetStarValues(self, args, dst, is_tail);
-            if (std.mem.eql(u8, name, "letrec")) return forms.compileLetrec(self, args, dst, is_tail);
-            if (std.mem.eql(u8, name, "letrec*")) return forms.compileLetrecStar(self, args, dst, is_tail);
-            if (std.mem.eql(u8, name, "case")) return forms.compileCase(self, args, dst, is_tail);
-            if (std.mem.eql(u8, name, "case-lambda")) return forms.compileCaseLambda(self, args, dst);
-            if (std.mem.eql(u8, name, "cond-expand")) return forms.compileCondExpand(self, args, dst, is_tail);
-            if (std.mem.eql(u8, name, "do")) return forms.compileDo(self, args, dst, is_tail);
-            if (std.mem.eql(u8, name, "guard")) return forms.compileGuard(self, args, dst, is_tail);
-            if (std.mem.eql(u8, name, "delay")) return self.compileDelay(args, dst);
-            if (std.mem.eql(u8, name, "delay-force")) return self.compileDelayForce(args, dst);
+            if (std.mem.eql(u8, effective_name, "and")) return forms.compileAnd(self, args, dst, is_tail);
+            if (std.mem.eql(u8, effective_name, "or")) return forms.compileOr(self, args, dst, is_tail);
+            if (std.mem.eql(u8, effective_name, "when")) return forms.compileWhen(self, args, dst, is_tail);
+            if (std.mem.eql(u8, effective_name, "unless")) return forms.compileUnless(self, args, dst, is_tail);
+            if (std.mem.eql(u8, effective_name, "cond")) return forms.compileCond(self, args, dst, is_tail);
+            if (std.mem.eql(u8, effective_name, "let")) return forms.compileLet(self, args, dst, is_tail);
+            if (std.mem.eql(u8, effective_name, "let*")) return forms.compileLetStar(self, args, dst, is_tail);
+            if (std.mem.eql(u8, effective_name, "let-values")) return forms.compileLetValues(self, args, dst, is_tail);
+            if (std.mem.eql(u8, effective_name, "let*-values")) return forms.compileLetStarValues(self, args, dst, is_tail);
+            if (std.mem.eql(u8, effective_name, "letrec")) return forms.compileLetrec(self, args, dst, is_tail);
+            if (std.mem.eql(u8, effective_name, "letrec*")) return forms.compileLetrecStar(self, args, dst, is_tail);
+            if (std.mem.eql(u8, effective_name, "case")) return forms.compileCase(self, args, dst, is_tail);
+            if (std.mem.eql(u8, effective_name, "case-lambda")) return forms.compileCaseLambda(self, args, dst);
+            if (std.mem.eql(u8, effective_name, "cond-expand")) return forms.compileCondExpand(self, args, dst, is_tail);
+            if (std.mem.eql(u8, effective_name, "do")) return forms.compileDo(self, args, dst, is_tail);
+            if (std.mem.eql(u8, effective_name, "guard")) return forms.compileGuard(self, args, dst, is_tail);
+            if (std.mem.eql(u8, effective_name, "delay")) return self.compileDelay(args, dst);
+            if (std.mem.eql(u8, effective_name, "delay-force")) return self.compileDelayForce(args, dst);
 
             // Quasiquote
-            if (std.mem.eql(u8, name, "quasiquote")) return advanced.compileQuasiquote(self, args, dst);
+            if (std.mem.eql(u8, effective_name, "quasiquote")) return advanced.compileQuasiquote(self, args, dst);
 
             // Parameterize
-            if (std.mem.eql(u8, name, "parameterize")) return advanced.compileParameterize(self, args, dst, is_tail);
+            if (std.mem.eql(u8, effective_name, "parameterize")) return advanced.compileParameterize(self, args, dst, is_tail);
 
             // syntax-error
-            if (std.mem.eql(u8, name, "syntax-error")) return CompileError.InvalidSyntax;
+            if (std.mem.eql(u8, effective_name, "syntax-error")) return CompileError.InvalidSyntax;
 
             // Macro forms (kept in compiler.zig)
-            if (std.mem.eql(u8, name, "define-syntax")) return self.compileDefineSyntax(args, dst);
-            if (std.mem.eql(u8, name, "let-syntax")) return self.compileLetSyntax(args, dst, is_tail);
-            if (std.mem.eql(u8, name, "letrec-syntax")) return self.compileLetrecSyntax(args, dst, is_tail);
-            if (std.mem.eql(u8, name, "syntax-rules")) return CompileError.InvalidSyntax;
+            if (std.mem.eql(u8, effective_name, "define-syntax")) return self.compileDefineSyntax(args, dst);
+            if (std.mem.eql(u8, effective_name, "let-syntax")) return self.compileLetSyntax(args, dst, is_tail);
+            if (std.mem.eql(u8, effective_name, "letrec-syntax")) return self.compileLetrecSyntax(args, dst, is_tail);
+            if (std.mem.eql(u8, effective_name, "syntax-rules")) return CompileError.InvalidSyntax;
+            } // end if (!is_local)
 
             // Check if head is a macro keyword
             if (self.lookupMacro(name)) |transformer| {

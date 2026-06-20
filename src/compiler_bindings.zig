@@ -410,6 +410,39 @@ pub fn compileDo(self: *Compiler, args: Value, dst: u8, is_tail: bool) CompileEr
 }
 
 pub fn compileLetBody(self: *Compiler, body: Value, dst: u8, is_tail: bool) CompileError!void {
+    // Pre-scan: register define names so macro expansion can see sibling defs
+    if (self.globals) |globals| {
+        var scan = body;
+        while (scan != types.NIL and types.isPair(scan)) {
+            const form = types.car(scan);
+            if (types.isPair(form)) {
+                const head = types.car(form);
+                if (types.isSymbol(head)) {
+                    const form_name = types.symbolName(head);
+                    if (std.mem.eql(u8, form_name, "define")) {
+                        const form_args = types.cdr(form);
+                        if (form_args != types.NIL and types.isPair(form_args)) {
+                            const target = types.car(form_args);
+                            if (types.isSymbol(target)) {
+                                if (!globals.contains(types.symbolName(target))) {
+                                    globals.put(types.symbolName(target), types.VOID) catch {};
+                                }
+                            } else if (types.isPair(target)) {
+                                const fn_name = types.car(target);
+                                if (types.isSymbol(fn_name)) {
+                                    if (!globals.contains(types.symbolName(fn_name))) {
+                                        globals.put(types.symbolName(fn_name), types.VOID) catch {};
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            scan = types.cdr(scan);
+        }
+    }
+
     var current = body;
     while (current != types.NIL) {
         if (!types.isPair(current)) return CompileError.InvalidSyntax;

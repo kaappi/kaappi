@@ -28,22 +28,18 @@ fn isEllipsis(name: []const u8) bool {
 // This prevents the classic hygiene bugs where a macro's internal
 // binding (e.g. `temp` in `or`) captures a user variable of the same name.
 
-/// Identifiers that must NEVER be renamed -- they are special forms
-/// recognized by the compiler or fundamental built-in procedures that
-/// macro templates legitimately reference.
+/// Identifiers that must NEVER be renamed. Special forms that CAN be
+/// rebound as variables (if, let, begin, etc.) are NOT in this list --
+/// they get hygiene-renamed, and the compiler recognizes them via the
+/// __hyg_ prefix extraction. Forms that are never rebound stay here.
 const well_known_forms = [_][]const u8{
-    // Special forms (compiler keywords)
-    "if",           "let",        "let*",       "letrec",
-    "letrec*",      "lambda",     "define",     "set!",
-    "begin",        "quote",      "quasiquote", "unquote",
-    "unquote-splicing",
-    "cond",         "case",       "and",        "or",
-    "when",         "unless",     "do",
+    // Special forms that are never meaningfully rebound
+    "quote",        "quasiquote",  "unquote",    "unquote-splicing",
     "define-syntax", "let-syntax", "letrec-syntax", "syntax-rules",
     "define-record-type",
     "define-values", "let-values", "let*-values",
     "case-lambda",  "cond-expand",
-    "guard",        "delay",      "delay-force",
+    "delay",        "delay-force",
     "parameterize", "syntax-error",
     "include",      "include-ci",
     "define-library", "import",   "export",
