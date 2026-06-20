@@ -103,9 +103,14 @@ kaappi> (char-alphabetic? #\λ)
 
 ### Beyond R7RS
 
-- **C FFI** — call into shared libraries from Scheme via `(kaappi ffi)`: `ffi-open`, `ffi-fn`, `ffi-close` (supports `int`, `long`, `double`, `float`, `string`, `void`)
+- **C FFI** — call into shared libraries from Scheme via `(kaappi ffi)`: `ffi-open`, `ffi-fn`, `ffi-close`, plus `ffi-callback` for passing Scheme procedures to C (7 callback signatures)
+- **JIT compiler** — hot functions (100+ calls) are compiled to native AArch64 machine code; inline fixnum arithmetic, comparisons, `car`/`cdr`, `cons`, predicates; JIT-to-JIT call chaining
+- **Green threads** — `(kaappi fibers)` with `spawn`, `yield`, `fiber-join`, channels; plus full SRFI-18 compatibility (`make-thread`, mutexes, condition variables)
+- **Profiler** — `kaappi --profile` or `,profile expr` in the REPL; per-function self/total time, call counts, allocation bytes
+- **Standalone binaries** — `zig build -Dbundle-src=program.scm` compiles and embeds bytecode + libraries into a single executable
+- **Sandbox mode** — `kaappi --sandbox` blocks FFI, file I/O, `eval`, `load`, and environment access
 - **Stepping debugger** — set breakpoints with `,break`, then step / next / continue and inspect locals and backtraces from the REPL
-- **Bytecode caching** — compiled bytecode is cached to `.sbc` files next to the source and reloaded when the source is unchanged, skipping the reader, expander, and compiler
+- **Bytecode caching** — compiled `.sbc` files are reloaded when the source is unchanged, skipping the reader, expander, and compiler
 
 ### Data types
 
@@ -370,15 +375,15 @@ kaappi/
 | [Architecture](docs/dev/architecture.md) | Pipeline, value representation, GC, file organization |
 | [Adding Features](docs/dev/adding-features.md) | Step-by-step guides for extending the implementation |
 | [Testing Guide](docs/dev/testing.md) | Unit tests, Scheme tests, benchmarks, CI |
-| [R7RS Conformance](CONFORMANCE.md) | Design choices, gaps, and verified behaviors |
+| [R7RS Conformance](CONFORMANCE.md) | Design choices and SRFI coverage |
 
 ---
 
 ## R7RS conformance
 
-Kaappi implements every identifier from R7RS Appendix A. 3 intentional design choices (stack-copying continuations, continuation scope, no syntax-case) and 4 low-severity edge cases remain.
+Kaappi implements every identifier from R7RS Appendix A with no known functional gaps. 3 intentional architectural decisions are documented (stack-copying continuations, continuation scope, no syntax-case) — all standard across Scheme bytecode interpreters.
 
-See **[CONFORMANCE.md](CONFORMANCE.md)** for the full details: design rationale, gap explanations with code examples and workarounds, and the complete list of verified conformant behaviors.
+See **[CONFORMANCE.md](CONFORMANCE.md)** for design rationale and SRFI coverage details.
 
 ### SRFI support
 

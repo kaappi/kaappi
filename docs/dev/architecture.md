@@ -31,7 +31,7 @@ Source code
 | **Compiler** | `compiler.zig` + 5 sub-modules | Compiles S-expressions to register-based bytecode. Detects tail positions for proper tail call optimization. Dispatches 32 syntax forms across 6 files. |
 | **VM** | `vm.zig` + 5 sub-modules | Executes bytecode with a register file, call frame stack, exception handler stack, and dynamic-wind stack. First-class continuations via stack copying, plus a stepping debugger. |
 | **GC** | `memory.zig` | Mark-and-sweep collector with intrusive linked list. Root tracking via `pushRoot`/`popRoot`. Triggered after N allocations. |
-| **Primitives** | 18 `primitives_*.zig` files | 419 built-in procedures organized by domain. |
+| **Primitives** | 21 `primitives_*.zig` files | 554 built-in procedures organized by domain. |
 
 ---
 
@@ -71,7 +71,7 @@ Source code
 | `vm_continuations.zig` | captureContinuation, restoreContinuation, performWindTransition, callWithCC |
 | `vm_debug.zig` | Stepping debugger: breakpoints, step/next/continue, locals, backtrace |
 
-### Primitives (18 files)
+### Primitives (21 files)
 
 | File | Domain |
 |------|--------|
@@ -150,7 +150,7 @@ pub const Object = struct {
 };
 ```
 
-### ObjectTag enum (28 types)
+### ObjectTag enum (35 types)
 
 | Tag | Value | Type |
 |-----|-------|------|
