@@ -568,12 +568,19 @@ fn iotaFn(args: []const Value) PrimitiveError!Value {
         if (args.len > 2) step = primitives.toF64(args[2]) catch return PrimitiveError.TypeError;
 
         var result: Value = types.NIL;
+        gc.pushRoot(&result) catch return PrimitiveError.OutOfMemory;
+        defer gc.popRoot();
         var i = cnt;
         while (i > 0) {
             i -= 1;
             const v = start + @as(f64, @floatFromInt(i)) * step;
-            const fval = gc.allocFlonum(v) catch return PrimitiveError.OutOfMemory;
-            result = gc.allocPair(fval, result) catch return PrimitiveError.OutOfMemory;
+            var fval = gc.allocFlonum(v) catch return PrimitiveError.OutOfMemory;
+            gc.pushRoot(&fval) catch return PrimitiveError.OutOfMemory;
+            result = gc.allocPair(fval, result) catch {
+                gc.popRoot();
+                return PrimitiveError.OutOfMemory;
+            };
+            gc.popRoot();
         }
         return result;
     } else {
@@ -589,6 +596,8 @@ fn iotaFn(args: []const Value) PrimitiveError!Value {
         }
 
         var result: Value = types.NIL;
+        gc.pushRoot(&result) catch return PrimitiveError.OutOfMemory;
+        defer gc.popRoot();
         var i = cnt;
         while (i > 0) {
             i -= 1;
