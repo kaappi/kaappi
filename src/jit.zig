@@ -1453,3 +1453,86 @@ test "native return stores result and pops frame" {
     try std.testing.expectEqual(@as(usize, 1), vm.frame_count); // frame popped
     try std.testing.expectEqual(@as(i64, 99), types.toFixnum(vm.registers[call_base])); // result stored
 }
+
+test "compile call_global with multiply" {
+    const memory = @import("memory.zig");
+    const th = @import("testing_helpers.zig");
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    const f = try gc.allocFunction();
+    // Constants: symbol "*"
+    const sym = try gc.allocSymbol("*");
+    try f.constants.append(gc.allocator, sym);
+    // Bytecode: call_global r0, const[0]("*"), 2; return r0
+    try f.code.append(gc.allocator, @intFromEnum(types.OpCode.call_global));
+    try f.code.append(gc.allocator, 0); // base r0
+    try f.code.append(gc.allocator, 0); // sym idx high
+    try f.code.append(gc.allocator, 0); // sym idx low
+    try f.code.append(gc.allocator, 2); // nargs
+    try f.code.append(gc.allocator, @intFromEnum(types.OpCode.@"return"));
+    try f.code.append(gc.allocator, 0); // src r0
+    f.arity = 2;
+    f.locals_count = 3;
+
+    try std.testing.expect(isEligible(f));
+    const jit_code = try compile(f, &vm, std.testing.allocator);
+    defer freeJitCode(jit_code, std.testing.allocator);
+    try std.testing.expect(jit_code.code_size > 0);
+}
+
+test "compile call_global with zero? predicate" {
+    const memory = @import("memory.zig");
+    const th = @import("testing_helpers.zig");
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    const f = try gc.allocFunction();
+    const sym = try gc.allocSymbol("zero?");
+    try f.constants.append(gc.allocator, sym);
+    try f.code.append(gc.allocator, @intFromEnum(types.OpCode.call_global));
+    try f.code.append(gc.allocator, 0);
+    try f.code.append(gc.allocator, 0);
+    try f.code.append(gc.allocator, 0);
+    try f.code.append(gc.allocator, 1); // 1 arg
+    try f.code.append(gc.allocator, @intFromEnum(types.OpCode.@"return"));
+    try f.code.append(gc.allocator, 0);
+    f.arity = 1;
+    f.locals_count = 2;
+
+    try std.testing.expect(isEligible(f));
+    const jit_code = try compile(f, &vm, std.testing.allocator);
+    defer freeJitCode(jit_code, std.testing.allocator);
+    try std.testing.expect(jit_code.code_size > 0);
+}
+
+test "compile tail_call_global with add" {
+    const memory = @import("memory.zig");
+    const th = @import("testing_helpers.zig");
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    const f = try gc.allocFunction();
+    const sym = try gc.allocSymbol("+");
+    try f.constants.append(gc.allocator, sym);
+    try f.code.append(gc.allocator, @intFromEnum(types.OpCode.tail_call_global));
+    try f.code.append(gc.allocator, 0);
+    try f.code.append(gc.allocator, 0);
+    try f.code.append(gc.allocator, 0);
+    try f.code.append(gc.allocator, 2);
+    try f.code.append(gc.allocator, @intFromEnum(types.OpCode.@"return"));
+    try f.code.append(gc.allocator, 0);
+    f.arity = 2;
+    f.locals_count = 3;
+
+    try std.testing.expect(isEligible(f));
+    const jit_code = try compile(f, &vm, std.testing.allocator);
+    defer freeJitCode(jit_code, std.testing.allocator);
+    try std.testing.expect(jit_code.code_size > 0);
+}
