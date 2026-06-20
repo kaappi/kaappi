@@ -85,7 +85,7 @@ Stored as UTF-8 byte arrays. All string operations (string-length, string-ref, s
 | `vm_continuations.zig` | captureContinuation, restoreContinuation, performWindTransition, callWithCC |
 | `vm_debug.zig` | Stepping debugger: breakpoints, step/next/continue, locals, backtrace |
 
-### Primitives (split into 18 files)
+### Primitives (split into 21 files)
 | File | Procedures |
 |------|-----------|
 | `primitives.zig` | Registration hub, core list/pair ops, type predicates, equivalence, map, for-each, apply |
@@ -193,7 +193,7 @@ map.deinit();  // no allocator arg needed
 
 ## How to add a new heap type
 
-1. Add tag to `ObjectTag` enum in `src/types.zig` (slots 19+ available).
+1. Add tag to `ObjectTag` enum in `src/types.zig` (slots 35+ available, enum is u6 with 64 slots).
 2. Add the struct with `header: Object` as first field.
 3. Add `allocXxx` in `src/memory.zig`.
 4. Handle in `markValue` (trace contained Values) and `freeObject` (free owned memory).
@@ -242,6 +242,13 @@ Only files under `src/` are included in the report (standard library and vendore
 ## Dependencies
 
 - **linenoise** (vendored in `vendor/linenoise/`): BSD-licensed C library for REPL line editing, history, tab completion. Compiled as part of the Zig build.
+
+## Documentation
+
+End-user docs (guide, procedures, libraries, benchmarks) live in the
+[kaappi/kaappi.github.io](https://github.com/kaappi/kaappi.github.io) repo
+and are served at **https://kaappi.github.io/**. Built with MkDocs Material.
+Dev docs (architecture, testing, adding-features) remain in `docs/dev/` here.
 
 ## Known limitations
 
