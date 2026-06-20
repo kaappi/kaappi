@@ -516,6 +516,12 @@ fn numberToString(args: []const Value) PrimitiveError!Value {
         const s = printer.formatFlonum(&buf, types.toFlonum(args[0]));
         return gc.allocString(s) catch return PrimitiveError.OutOfMemory;
     }
+    if (types.isComplex(args[0])) {
+        const printer = @import("printer.zig");
+        const s = printer.valueToString(gc.allocator, args[0], .write) catch return PrimitiveError.OutOfMemory;
+        defer gc.allocator.free(s);
+        return gc.allocString(s) catch return PrimitiveError.OutOfMemory;
+    }
     return PrimitiveError.TypeError;
 }
 
@@ -599,6 +605,56 @@ fn stringToNumber(args: []const Value) PrimitiveError!Value {
         if (std.fmt.parseFloat(f64, s)) |f| {
             return gc.allocFlonum(f) catch return PrimitiveError.OutOfMemory;
         } else |_| {}
+
+        // Try parsing as complex: a+bi, a-bi, +bi, -bi, +i, -i
+        if (s.len >= 2 and s[s.len - 1] == 'i') {
+            const body = s[0 .. s.len - 1]; // strip trailing 'i'
+
+            // Pure imaginary: +i, -i
+            if (std.mem.eql(u8, body, "+")) {
+                return gc.allocComplex(0.0, 1.0) catch return PrimitiveError.OutOfMemory;
+            }
+            if (std.mem.eql(u8, body, "-")) {
+                return gc.allocComplex(0.0, -1.0) catch return PrimitiveError.OutOfMemory;
+            }
+
+            // Find the split point: last +/- that isn't at position 0 and isn't in an exponent
+            var split: ?usize = null;
+            var j: usize = body.len;
+            while (j > 1) {
+                j -= 1;
+                if (body[j] == '+' or body[j] == '-') {
+                    if (j > 0 and (body[j - 1] == 'e' or body[j - 1] == 'E')) continue;
+                    split = j;
+                    break;
+                }
+            }
+
+            if (split) |sp| {
+                const real_str = body[0..sp];
+                const imag_str = body[sp..];
+                const real_val = if (real_str.len == 0) @as(f64, 0.0) else std.fmt.parseFloat(f64, real_str) catch {
+                    return types.FALSE;
+                };
+                var imag_val: f64 = undefined;
+                if (std.mem.eql(u8, imag_str, "+")) {
+                    imag_val = 1.0;
+                } else if (std.mem.eql(u8, imag_str, "-")) {
+                    imag_val = -1.0;
+                } else {
+                    imag_val = std.fmt.parseFloat(f64, imag_str) catch {
+                        return types.FALSE;
+                    };
+                }
+                return gc.allocComplex(real_val, imag_val) catch return PrimitiveError.OutOfMemory;
+            } else {
+                // No split found — pure imaginary like +3i or -2.5i
+                const imag_val = std.fmt.parseFloat(f64, body) catch {
+                    return types.FALSE;
+                };
+                return gc.allocComplex(0.0, imag_val) catch return PrimitiveError.OutOfMemory;
+            }
+        }
     }
 
     return types.FALSE;
