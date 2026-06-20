@@ -9,6 +9,12 @@ const NativeFn = types.NativeFn;
 const PrimitiveError = primitives.PrimitiveError;
 const toF64 = primitives.toF64;
 const anyFlonum = primitives.anyFlonum;
+fn anyBignum(args: []const Value) bool {
+    for (args) |a| {
+        if (types.isBignum(a)) return true;
+    }
+    return false;
+}
 const makeFlonumVal = primitives.makeFlonumVal;
 const toF64Ext = arith.toF64Ext;
 const gcdTwo = arith.gcdTwo;
@@ -241,6 +247,13 @@ fn squareFn(args: []const Value) PrimitiveError!Value {
     if (types.isFlonum(args[0])) {
         const f = types.toFlonum(args[0]);
         return makeFlonumVal(f * f);
+    }
+    if (types.isRationalObj(args[0])) {
+        const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+        const rat = types.toRational(args[0]);
+        const num_sq = bignum_mod.mul(gc, rat.numerator, rat.numerator) catch return PrimitiveError.OutOfMemory;
+        const den_sq = bignum_mod.mul(gc, rat.denominator, rat.denominator) catch return PrimitiveError.OutOfMemory;
+        return @import("primitives_arithmetic.zig").makeRationalReduced(gc, num_sq, den_sq);
     }
     return PrimitiveError.TypeError;
 }
@@ -654,6 +667,16 @@ fn floorQuotient(args: []const Value) PrimitiveError!Value {
         if (b == 0.0) return raiseDivByZero();
         return makeFlonumVal(@floor(a / b));
     }
+    if (anyBignum(args)) {
+        const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+        if (bignum_mod.isZero(args[1])) return raiseDivByZero();
+        const q = bignum_mod.quotient(gc, args[0], args[1]) catch return PrimitiveError.OutOfMemory;
+        const rem = bignum_mod.remainder(gc, args[0], args[1]) catch return PrimitiveError.OutOfMemory;
+        if (!bignum_mod.isZero(rem) and (bignum_mod.isNegative(args[0]) != bignum_mod.isNegative(args[1]))) {
+            return bignum_mod.sub(gc, q, types.makeFixnum(1)) catch return PrimitiveError.OutOfMemory;
+        }
+        return q;
+    }
     if (!types.isFixnum(args[0]) or !types.isFixnum(args[1])) return PrimitiveError.TypeError;
     const a = types.toFixnum(args[0]);
     const b = types.toFixnum(args[1]);
@@ -667,6 +690,16 @@ fn floorRemainder(args: []const Value) PrimitiveError!Value {
         const b = try toF64(args[1]);
         if (b == 0.0) return raiseDivByZero();
         return makeFlonumVal(a - @floor(a / b) * b);
+    }
+    if (anyBignum(args)) {
+        const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+        if (bignum_mod.isZero(args[1])) return raiseDivByZero();
+        const rem = bignum_mod.remainder(gc, args[0], args[1]) catch return PrimitiveError.OutOfMemory;
+        if (bignum_mod.isZero(rem)) return types.makeFixnum(0);
+        if (bignum_mod.isNegative(rem) != bignum_mod.isNegative(args[1])) {
+            return bignum_mod.add(gc, rem, args[1]) catch return PrimitiveError.OutOfMemory;
+        }
+        return rem;
     }
     if (!types.isFixnum(args[0]) or !types.isFixnum(args[1])) return PrimitiveError.TypeError;
     const a = types.toFixnum(args[0]);
@@ -685,12 +718,16 @@ fn floorDivide(args: []const Value) PrimitiveError!Value {
 }
 
 fn truncateQuotient(args: []const Value) PrimitiveError!Value {
-    // Same as quotient
     if (anyFlonum(args)) {
         const a = try toF64(args[0]);
         const b = try toF64(args[1]);
         if (b == 0.0) return raiseDivByZero();
         return makeFlonumVal(@trunc(a / b));
+    }
+    if (anyBignum(args)) {
+        const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+        if (bignum_mod.isZero(args[1])) return raiseDivByZero();
+        return bignum_mod.quotient(gc, args[0], args[1]) catch return PrimitiveError.OutOfMemory;
     }
     if (!types.isFixnum(args[0]) or !types.isFixnum(args[1])) return PrimitiveError.TypeError;
     const b = types.toFixnum(args[1]);
@@ -699,12 +736,16 @@ fn truncateQuotient(args: []const Value) PrimitiveError!Value {
 }
 
 fn truncateRemainder(args: []const Value) PrimitiveError!Value {
-    // Same as remainder
     if (anyFlonum(args)) {
         const a = try toF64(args[0]);
         const b = try toF64(args[1]);
         if (b == 0.0) return raiseDivByZero();
         return makeFlonumVal(a - @trunc(a / b) * b);
+    }
+    if (anyBignum(args)) {
+        const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+        if (bignum_mod.isZero(args[1])) return raiseDivByZero();
+        return bignum_mod.remainder(gc, args[0], args[1]) catch return PrimitiveError.OutOfMemory;
     }
     if (!types.isFixnum(args[0]) or !types.isFixnum(args[1])) return PrimitiveError.TypeError;
     const b = types.toFixnum(args[1]);
