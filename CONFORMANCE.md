@@ -2,8 +2,6 @@
 
 Kaappi implements every identifier from [R7RS Appendix A](https://small.r7rs.org/) — 554 built-in procedures, 32 syntax forms, and all 14 standard libraries. R7RS test suite: 1,394 pass, 0 fail.
 
-This document covers design choices, remaining gaps, and verified conformant behaviors.
-
 ---
 
 ## Design choices
@@ -27,54 +25,6 @@ Within a single expression (or a file), continuations work fully.
 ### No `syntax-case`
 
 Only `syntax-rules` is supported for macro definitions. R7RS-small deliberately standardizes `syntax-rules` and not `syntax-case` — the latter is part of R6RS and some implementations (Chez, Racket) but was intentionally excluded from R7RS-small.
-
----
-
-## Remaining gaps
-
-None. Two edge cases that were previously listed here have been resolved:
-
-- **Local-variable referential transparency in `let-syntax`** — Fixed. `(let ((x 1)) (let-syntax ((m (syntax-rules () ((m) x)))) (let ((x 2)) (m))))` correctly returns `1`.
-
-- **`letrec` init restriction** — Bare forward references and self-references are now detected at compile time. `letrec*` correctly allows back-references to already-initialized bindings.
-
----
-
-## Verified conformant behaviors
-
-These areas have been tested and match R7RS behavior:
-
-- Proper tail calls in all R7RS-specified positions: `if`, `begin`, `cond`, `case`, `and`, `or`, `when`, `unless`, `let`/`let*`/`letrec`/`letrec*`, `do`, `guard`, `parameterize`, lambda bodies
-- Hygienic macros: scope-based renaming prevents template-introduced bindings from capturing user variables; referential transparency for global references; special forms (`let`, `if`, `begin`, etc.) in templates are hygiene-renamed and correctly recognized by the compiler even when rebound at the use site
-- Custom ellipsis identifiers: `(syntax-rules custom-elli (...) ...)` fully supported
-- Ellipsis-as-literal priority: when `...` is both the ellipsis and a literal, literal takes priority (R7RS §4.3.2)
-- Forward references through macros: `define-syntax` in `let`/`lambda` bodies can reference sibling `define` forms defined later in the same scope
-- `define-values` works both at top level and inside `let`/`lambda` bodies (all R7RS §5.3.2 forms)
-- `cond` with `=>` correctly treats `=>` as a normal expression when rebound as a variable
-- `null-environment` and `scheme-report-environment` (R7RS §6.12 / R5RS compat)
-- String literal immutability enforced; `symbol->string` returns immutable strings
-- `file-error?` / `read-error?` return `#t` for file and reader errors respectively
-- Division by zero raises a catchable error
-- `case` with `=>` arrow syntax
-- Radix prefixes: `#b1010` → `10`, `#o17` → `15`, `#xff` → `255`
-- Exactness prefixes: `#e1.5` → `3/2`, `#e0.25` → `1/4`, `#i3` → `3.0`
-- Complex numbers: `number->string`/`string->number` for `"1+2i"` format; `exact`/`inexact`/`exact?`/`inexact?` on complex; `sqrt` on complex; `expt` with complex base/exponent (including Euler's identity)
-- `letrec` bare forward and self-references detected at compile time; `letrec*` allows valid back-references
-- `let-syntax`/`letrec-syntax` local-variable referential transparency: templates see bindings from the definition site
-- `#!fold-case` / `#!no-fold-case` directives
-- Datum labels: `#0=(a b . #0#)` reads circular structures
-- `write-shared` detects shared/circular structure with two-pass labeling
-- `equal?` terminates on circular structures via visited-set cycle detection
-- Nested quasiquote correctly preserves inner structure
-- NaN handling: `(eqv? +nan.0 +nan.0)` → `#t`, `(= +nan.0 +nan.0)` → `#f`
-- Negative zero: `(eqv? 0.0 -0.0)` → `#f`, `(= 0.0 -0.0)` → `#t`
-- Library single-load guarantee
-- `dynamic-wind` correctness across continuation jumps
-- `delay`/`force` with memoization
-- `define-record-type`, `syntax-rules` with ellipsis, `cond-expand`
-- Arbitrary-precision integers (bignums) with automatic fixnum↔bignum promotion
-- Exact rationals with reader syntax (`1/2`), arithmetic, and conversion
-- All 15 standard libraries registered and importable (including `(scheme r5rs)`)
 
 ---
 
