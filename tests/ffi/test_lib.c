@@ -81,6 +81,33 @@ int strncmp_wrap(const char *a, const char *b, int n) {
     return strncmp(a, b, (size_t)n);
 }
 
+/* Pointer functions for FFI dispatch coverage */
+void *identity_ptr(void *p) { return p; }
+int ptr_is_null(void *p) { return p == 0 ? 1 : 0; }
+void consume_ptr(void *p) { (void)p; }
+long ptr_to_long(void *p) { return (long)p; }
+double ptr_to_double(void *p) { (void)p; return 0.0; }
+
+/* 2-arg pointer functions */
+int ptr_ptr_cmp(void *a, void *b) { return a == b ? 1 : 0; }
+void *ptr_ptr_first(void *a, void *b) { (void)b; return a; }
+void consume_ptr_ptr(void *a, void *b) { (void)a; (void)b; }
+int ptr_int_sum(void *p, int n) { (void)p; return n; }
+void ptr_int_noop(void *p, int n) { (void)p; (void)n; }
+int int_ptr_sum(int n, void *p) { (void)p; return n; }
+void int_ptr_noop(int n, void *p) { (void)n; (void)p; }
+long ptr_long_sum(void *p, long n) { (void)p; return n; }
+
+/* 1-arg: string -> pointer (returns pointer to first char) */
+const void *str_to_ptr(const char *s) { return (const void *)s; }
+/* 1-arg: long -> pointer */
+void *long_to_ptr(long n) { return (void *)n; }
+/* 1-arg: int -> pointer */
+void *int_to_ptr(int n) { return (void *)(long)n; }
+
+/* 2-arg: (string, string) -> pointer */
+const void *str_str_ptr(const char *a, const char *b) { (void)b; return (void *)a; }
+
 /* 4-arg functions */
 int sum4(int a, int b, int c, int d) { return a + b + c + d; }
 long sum4_long(long a, long b, long c, long d) { return a + b + c + d; }

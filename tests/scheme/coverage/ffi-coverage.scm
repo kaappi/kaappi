@@ -206,6 +206,73 @@
 (check "ffi 4dddd-d" (c-sum4d 1.0 2.0 3.0 4.0) 10.0)
 
 ;;; ==============================================================
+;;; Pointer-type functions
+;;; ==============================================================
+
+;; pointer -> pointer
+(define c-id-ptr (ffi-fn lib "identity_ptr" '(pointer) 'pointer))
+(let ((bv #u8(1 2 3)))
+  (let ((ptr (ffi-bytevector-ptr bv)))
+    (check-true "ffi ptr->ptr" (number? (c-id-ptr ptr)))))
+
+;; pointer -> int
+(define c-ptr-null (ffi-fn lib "ptr_is_null" '(pointer) 'int))
+(check "ffi ptr null" (c-ptr-null 0) 1)
+(check "ffi ptr nonnull" (c-ptr-null (ffi-bytevector-ptr #u8(1))) 0)
+
+;; pointer -> void
+(define c-consume-ptr (ffi-fn lib "consume_ptr" '(pointer) 'void))
+(c-consume-ptr 0)
+(check-true "ffi ptr->void" #t)
+
+;; pointer -> long — not in dispatch table
+;; int -> pointer — not in dispatch table
+;; long -> pointer — not in dispatch table
+
+;; string -> pointer
+(define c-str-ptr (ffi-fn lib "str_to_ptr" '(string) 'pointer))
+(check-true "ffi str->ptr" (number? (c-str-ptr "hello")))
+
+;; (pointer, pointer) -> int
+(define c-pp-cmp (ffi-fn lib "ptr_ptr_cmp" '(pointer pointer) 'int))
+(check "ffi pp->int same" (c-pp-cmp 0 0) 1)
+
+;; (pointer, pointer) -> pointer
+(define c-pp-first (ffi-fn lib "ptr_ptr_first" '(pointer pointer) 'pointer))
+(check "ffi pp->ptr" (c-pp-first 0 0) 0)
+
+;; (pointer, pointer) -> void
+(define c-pp-void (ffi-fn lib "consume_ptr_ptr" '(pointer pointer) 'void))
+(c-pp-void 0 0)
+(check-true "ffi pp->void" #t)
+
+;; (pointer, int) -> int
+(define c-pi-sum (ffi-fn lib "ptr_int_sum" '(pointer int) 'int))
+(check "ffi pi->int" (c-pi-sum 0 42) 42)
+
+;; (pointer, int) -> void
+(define c-pi-void (ffi-fn lib "ptr_int_noop" '(pointer int) 'void))
+(c-pi-void 0 1)
+(check-true "ffi pi->void" #t)
+
+;; (int, pointer) -> int
+(define c-ip-sum (ffi-fn lib "int_ptr_sum" '(int pointer) 'int))
+(check "ffi ip->int" (c-ip-sum 99 0) 99)
+
+;; (int, pointer) -> void
+(define c-ip-void (ffi-fn lib "int_ptr_noop" '(int pointer) 'void))
+(c-ip-void 1 0)
+(check-true "ffi ip->void" #t)
+
+;; (pointer, long) -> long
+(define c-pl-sum (ffi-fn lib "ptr_long_sum" '(pointer long) 'long))
+(check "ffi pl->long" (c-pl-sum 0 77) 77)
+
+;; (string, string) -> pointer
+(define c-ss-ptr (ffi-fn lib "str_str_ptr" '(string string) 'pointer))
+(check-true "ffi ss->ptr" (number? (c-ss-ptr "a" "b")))
+
+;;; ==============================================================
 ;;; ffi-open with #f (default process)
 ;;; ==============================================================
 (define default-lib (ffi-open #f))
