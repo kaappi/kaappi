@@ -615,11 +615,16 @@ fn buildQQListExpr(gc: *@import("memory.zig").GC, quote_sym: Value, list_sym: Va
 /// Compile (parameterize ((param1 val1) (param2 val2) ...) body ...)
 ///
 /// Desugars to:
-///   (let ((old1 (p1)) (old2 (p2)) ...)
-///     (p1 v1) (p2 v2) ...
-///     (let ((%result (begin body ...)))
-///       (p1 old1) (p2 old2) ...
-///       %result))
+///   (let ((old1 (p1)) (new1 (begin (p1 v1) (p1)))
+///          (old2 (p2)) (new2 (begin (p2 v2) (p2))) ...)
+///     (dynamic-wind
+///       (lambda () (%parameter-set! p1 new1) (%parameter-set! p2 new2) ...)
+///       (lambda () body ...)
+///       (lambda () (%parameter-set! p1 old1) (%parameter-set! p2 old2) ...)))
+///
+/// Value expressions are evaluated once (in the let bindings) with converter
+/// applied. The before-thunk uses %parameter-set! to avoid re-evaluating
+/// expressions or re-applying the converter on continuation re-entry.
 pub fn compileParameterize(self: *Compiler, args: Value, dst: u8, is_tail: bool) CompileError!void {
     if (args == types.NIL) return CompileError.InvalidSyntax;
     const bindings = types.car(args);
@@ -644,8 +649,9 @@ pub fn compileParameterize(self: *Compiler, args: Value, dst: u8, is_tail: bool)
         return self.compileExpr(gc.allocPair(begin_sym, body) catch return CompileError.OutOfMemory, dst, is_tail);
     }
 
-    // Collect param/value exprs and generate old-value symbols
+    // Collect param/value exprs and generate old/new-value symbols
     var old_syms: [32]Value = undefined;
+    var new_syms: [32]Value = undefined;
     var param_exprs: [32]Value = undefined;
     var val_exprs: [32]Value = undefined;
     if (binding_count > 32) return CompileError.TooManyLocals;
@@ -660,40 +666,57 @@ pub fn compileParameterize(self: *Compiler, args: Value, dst: u8, is_tail: bool)
         if (val_rest == types.NIL or !types.isPair(val_rest)) return CompileError.InvalidSyntax;
         val_exprs[idx] = types.car(val_rest);
 
-        var name_buf: [16]u8 = undefined;
-        const name = std.fmt.bufPrint(&name_buf, "%pold{d}", .{idx}) catch return CompileError.OutOfMemory;
-        old_syms[idx] = gc.allocSymbol(name) catch return CompileError.OutOfMemory;
+        var old_buf: [16]u8 = undefined;
+        const old_name = std.fmt.bufPrint(&old_buf, "%pold{d}", .{idx}) catch return CompileError.OutOfMemory;
+        old_syms[idx] = gc.allocSymbol(old_name) catch return CompileError.OutOfMemory;
+
+        var new_buf: [16]u8 = undefined;
+        const new_name = std.fmt.bufPrint(&new_buf, "%pnew{d}", .{idx}) catch return CompileError.OutOfMemory;
+        new_syms[idx] = gc.allocSymbol(new_name) catch return CompileError.OutOfMemory;
 
         b = types.cdr(b);
     }
 
     gc.no_collect += 1;
 
-    // Build outer let bindings: ((old1 (p1)) (old2 (p2)) ...)
+    // Build outer let bindings:
+    //   ((old1 (p1)) (new1 (begin (p1 v1) (p1)))
+    //    (old2 (p2)) (new2 (begin (p2 v2) (p2))) ...)
     var let_bindings: Value = types.NIL;
     var i = binding_count;
     while (i > 0) {
         i -= 1;
+        // (new_i (begin (p_i v_i) (p_i))) — set with converter, read back converted value
+        const set_call = gc.allocPair(param_exprs[i], gc.allocPair(val_exprs[i], types.NIL) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory;
         const get_call = gc.allocPair(param_exprs[i], types.NIL) catch return CompileError.OutOfMemory;
-        const binding_pair = gc.allocPair(old_syms[i], gc.allocPair(get_call, types.NIL) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory;
-        let_bindings = gc.allocPair(binding_pair, let_bindings) catch return CompileError.OutOfMemory;
+        const begin_body = gc.allocPair(set_call, gc.allocPair(get_call, types.NIL) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory;
+        const begin_expr = gc.allocPair(begin_sym, begin_body) catch return CompileError.OutOfMemory;
+        const new_pair = gc.allocPair(new_syms[i], gc.allocPair(begin_expr, types.NIL) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory;
+        let_bindings = gc.allocPair(new_pair, let_bindings) catch return CompileError.OutOfMemory;
+
+        // (old_i (p_i)) — save old value
+        const old_get = gc.allocPair(param_exprs[i], types.NIL) catch return CompileError.OutOfMemory;
+        const old_pair = gc.allocPair(old_syms[i], gc.allocPair(old_get, types.NIL) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory;
+        let_bindings = gc.allocPair(old_pair, let_bindings) catch return CompileError.OutOfMemory;
     }
 
     const dw_sym = gc.allocSymbol("dynamic-wind") catch return CompileError.OutOfMemory;
     const lambda_sym = gc.allocSymbol("lambda") catch return CompileError.OutOfMemory;
     const pset_sym = gc.allocSymbol("%parameter-set!") catch return CompileError.OutOfMemory;
 
+    // before-thunk: (%parameter-set! p_i new_i) — install pre-converted values
     var before_body: Value = types.NIL;
     i = binding_count;
     while (i > 0) {
         i -= 1;
-        const set_call = gc.allocPair(param_exprs[i], gc.allocPair(val_exprs[i], types.NIL) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory;
+        const set_call = gc.allocPair(pset_sym, gc.allocPair(param_exprs[i], gc.allocPair(new_syms[i], types.NIL) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory;
         before_body = gc.allocPair(set_call, before_body) catch return CompileError.OutOfMemory;
     }
     const before_thunk = gc.allocPair(lambda_sym, gc.allocPair(types.NIL, before_body) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory;
 
     const body_thunk = gc.allocPair(lambda_sym, gc.allocPair(types.NIL, body) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory;
 
+    // after-thunk: (%parameter-set! p_i old_i) — restore old values
     var after_body: Value = types.NIL;
     i = binding_count;
     while (i > 0) {

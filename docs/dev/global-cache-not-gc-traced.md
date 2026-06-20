@@ -3,9 +3,7 @@
 ## Status
 
 **Fixed.** global_cache traced in markValue. global_version bumped in all globals.put sites. Noticed during
-the GC reachability investigation (2026-06-17). Documented here because the
-safety rests on an invariant that is *not* uniformly enforced, so it is fragile.
-No fix applied yet.
+the GC reachability investigation (2026-06-17).
 
 ## The observation
 

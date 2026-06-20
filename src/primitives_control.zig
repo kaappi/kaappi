@@ -388,12 +388,14 @@ fn callWithValuesFn(args: []const Value) PrimitiveError!Value {
         };
         return result;
     } else {
-        // Single value -- call consumer with one argument
-        const result = vm.callHandler(consumer, produced, 0) catch |err| {
+        // Single value -- call consumer with one argument (use callWithArgs
+        // so arity is validated, matching the multi-value path)
+        const result = vm.callWithArgs(consumer, &[_]Value{produced}) catch |err| {
             return switch (err) {
                 vm_mod.VMError.ContinuationInvoked => PrimitiveError.ContinuationInvoked,
                 vm_mod.VMError.ExceptionRaised => PrimitiveError.ExceptionRaised,
                 vm_mod.VMError.OutOfMemory => PrimitiveError.OutOfMemory,
+                vm_mod.VMError.ArityMismatch => PrimitiveError.ArityMismatch,
                 else => PrimitiveError.TypeError,
             };
         };
