@@ -223,6 +223,8 @@ fn hashTableKeysFn(args: []const Value) PrimitiveError!Value {
     const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
     const ht = try getHashTable(args[0]);
     var result: Value = types.NIL;
+    gc.pushRoot(&result) catch return PrimitiveError.OutOfMemory;
+    defer gc.popRoot();
     for (ht.entries[0..ht.capacity]) |entry| {
         if (entry.key != EMPTY and entry.key != TOMBSTONE) {
             result = gc.allocPair(entry.key, result) catch return PrimitiveError.OutOfMemory;
@@ -236,6 +238,8 @@ fn hashTableValuesFn(args: []const Value) PrimitiveError!Value {
     const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
     const ht = try getHashTable(args[0]);
     var result: Value = types.NIL;
+    gc.pushRoot(&result) catch return PrimitiveError.OutOfMemory;
+    defer gc.popRoot();
     for (ht.entries[0..ht.capacity]) |entry| {
         if (entry.key != EMPTY and entry.key != TOMBSTONE) {
             result = gc.allocPair(entry.value, result) catch return PrimitiveError.OutOfMemory;

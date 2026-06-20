@@ -256,6 +256,8 @@ fn stringSplitFn(args: []const Value) PrimitiveError!Value {
     if (delim.len == 0) {
         // Split into individual characters
         var result: Value = types.NIL;
+        gc.pushRoot(&result) catch return PrimitiveError.OutOfMemory;
+        defer gc.popRoot();
         var byte_i = data.len;
         while (byte_i > 0) {
             // Find start of previous codepoint
@@ -289,6 +291,8 @@ fn stringSplitFn(args: []const Value) PrimitiveError!Value {
 
     // Build result list
     var result: Value = types.NIL;
+    gc.pushRoot(&result) catch return PrimitiveError.OutOfMemory;
+    defer gc.popRoot();
     var i = parts.items.len;
     while (i > 0) {
         i -= 1;

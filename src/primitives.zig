@@ -278,6 +278,8 @@ fn append(args: []const Value) PrimitiveError!Value {
 fn reverse(args: []const Value) PrimitiveError!Value {
     const gc = gc_instance orelse return PrimitiveError.OutOfMemory;
     var result: Value = types.NIL;
+    gc.pushRoot(&result) catch return PrimitiveError.OutOfMemory;
+    defer gc.popRoot();
     var current = args[0];
     while (current != types.NIL) {
         if (!types.isPair(current)) return PrimitiveError.TypeError;

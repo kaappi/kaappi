@@ -142,6 +142,8 @@ fn vectorToListFn(args: []const Value) PrimitiveError!Value {
     if (start > end) return PrimitiveError.TypeError;
 
     var result: Value = types.NIL;
+    gc.pushRoot(&result) catch return PrimitiveError.OutOfMemory;
+    defer gc.popRoot();
     var i = end;
     while (i > start) {
         i -= 1;

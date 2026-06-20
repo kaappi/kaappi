@@ -376,6 +376,8 @@ fn partitionFn(args: []const Value) PrimitiveError!Value {
 
     // Build yes list
     var yes_list: Value = types.NIL;
+    gc.pushRoot(&yes_list) catch return PrimitiveError.OutOfMemory;
+    defer gc.popRoot();
     var i = yes.items.len;
     while (i > 0) {
         i -= 1;
@@ -384,6 +386,8 @@ fn partitionFn(args: []const Value) PrimitiveError!Value {
 
     // Build no list
     var no_list: Value = types.NIL;
+    gc.pushRoot(&no_list) catch return PrimitiveError.OutOfMemory;
+    defer gc.popRoot();
     i = no.items.len;
     while (i > 0) {
         i -= 1;
@@ -1952,12 +1956,16 @@ fn unzip2Fn(args: []const Value) PrimitiveError!Value {
     }
 
     var list1: Value = types.NIL;
+    gc.pushRoot(&list1) catch return PrimitiveError.OutOfMemory;
+    defer gc.popRoot();
     var i = firsts.items.len;
     while (i > 0) {
         i -= 1;
         list1 = gc.allocPair(firsts.items[i], list1) catch return PrimitiveError.OutOfMemory;
     }
     var list2: Value = types.NIL;
+    gc.pushRoot(&list2) catch return PrimitiveError.OutOfMemory;
+    defer gc.popRoot();
     i = seconds.items.len;
     while (i > 0) {
         i -= 1;

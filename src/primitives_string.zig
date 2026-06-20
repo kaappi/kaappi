@@ -417,6 +417,8 @@ fn stringToListFn(args: []const Value) PrimitiveError!Value {
     }
     // Build list from back
     var result: Value = types.NIL;
+    gc.pushRoot(&result) catch return PrimitiveError.OutOfMemory;
+    defer gc.popRoot();
     var idx = range_count;
     while (idx > 0) {
         idx -= 1;
