@@ -221,7 +221,7 @@ These areas have been tested and match R7RS behavior:
 - Division by zero raises a catchable error: `(guard (e (#t 'caught)) (/ 1 0))` → `caught`
 - `case` with `=>` arrow syntax: `(case 6 ((6) => (lambda (x) (+ x 1))))` → `7`
 - Radix prefixes: `#b1010` → `10`, `#o17` → `15`, `#xff` → `255`
-- Exactness prefixes: `#e1.5` → `1`, `#i3` → `3.0`
+- Exactness prefixes: `#e1.5` → `3/2`, `#e0.25` → `1/4`, `#i3` → `3.0`
 - Multiple values in single-value context: first value extracted automatically
 - `letrec` bare forward references detected at compile time
 - `#!fold-case` / `#!no-fold-case` directives
