@@ -94,6 +94,7 @@ pub const GC = struct {
             .roots = .empty,
             .extra_roots = .empty,
             .source_lines = std.AutoHashMap(Value, u32).init(allocator),
+            .gc_threshold = std.math.maxInt(usize),
         };
     }
 
@@ -142,9 +143,10 @@ pub const GC = struct {
 
     pub fn allocSymbol(self: *GC, name: []const u8) !Value {
         const sym_table = self.shared_symbols orelse &self.symbols;
+        const shared = self.shared_symbols != null;
 
-        if (self.shared_symbols != null) spinLock(&symbol_mutex);
-        defer if (self.shared_symbols != null) spinUnlock(&symbol_mutex);
+        if (shared) spinLock(&symbol_mutex);
+        defer if (shared) spinUnlock(&symbol_mutex);
 
         if (sym_table.get(name)) |existing| return existing;
 
@@ -155,9 +157,10 @@ pub const GC = struct {
             .name = owned_name,
         };
         self.bytes_allocated += @sizeOf(Symbol) + name.len;
-
         self.profileAlloc(@sizeOf(Symbol) + name.len);
-        self.trackObject(&sym.header);
+
+        if (!shared) self.trackObject(&sym.header);
+
         const val = types.makePointer(@ptrCast(sym));
         try sym_table.put(owned_name, val);
         return val;

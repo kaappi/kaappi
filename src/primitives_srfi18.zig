@@ -206,22 +206,32 @@ fn threadStartFn(args: []const Value) PrimitiveError!Value {
 }
 
 fn threadEntryFn(fiber: *fiber_mod.Fiber, allocator: std.mem.Allocator, parent_gc: *memory.GC, parent_vm: *vm_mod.VM) void {
-    var child_gc = memory.GC.initForThread(allocator, parent_gc);
-    var child_vm = vm_mod.VM.initForThread(&child_gc, parent_vm);
+    const child_gc = allocator.create(memory.GC) catch return;
+    child_gc.* = memory.GC.initForThread(allocator, parent_gc);
 
-    vm_mod.vm_instance = &child_vm;
-    primitives.gc_instance = &child_gc;
+    const child_vm = allocator.create(vm_mod.VM) catch {
+        allocator.destroy(child_gc);
+        return;
+    };
+    child_vm.* = vm_mod.VM.initForThread(child_gc, parent_vm);
+
+    vm_mod.vm_instance = child_vm;
+    primitives.gc_instance = child_gc;
 
     const result = child_vm.callWithArgs(fiber.thunk, &.{}) catch {
         fiber.status = .errored;
         fiber.result = types.VOID;
         child_gc.deinit();
+        allocator.destroy(child_gc);
+        allocator.destroy(child_vm);
         return;
     };
 
     fiber.status = .completed;
     fiber.result = result;
     child_gc.deinit();
+    allocator.destroy(child_gc);
+    allocator.destroy(child_vm);
 }
 
 fn threadYieldFn(_: []const Value) PrimitiveError!Value {
