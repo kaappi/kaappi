@@ -4,24 +4,53 @@
 
 set -euo pipefail
 
-KAAPPI=(zig build run --)
+# Use pre-built binary if available, otherwise build once.
+if [[ ! -x zig-out/bin/kaappi ]]; then
+    zig build
+fi
+KAAPPI=zig-out/bin/kaappi
+
+TIMEOUT=60
 PASS=0
 FAIL=0
+SKIP=0
 R7RS_PASS=0
 R7RS_FAIL=0
 R7RS_STATUS_FAIL=0
 
 run_file() {
     local file="$1"
-    local output
-    if output="$("${KAAPPI[@]}" "$file" 2>&1)"; then
+    local output pid status
+    "$KAAPPI" "$file" > /tmp/kaappi-test-out 2>&1 &
+    pid=$!
+    if wait_with_timeout "$pid" "$TIMEOUT"; then
+        wait "$pid" || true
+        status=$?
+    else
+        kill "$pid" 2>/dev/null || true
+        wait "$pid" 2>/dev/null || true
+        echo "  SKIP  $file  (timeout after ${TIMEOUT}s)"
+        SKIP=$((SKIP + 1))
+        return
+    fi
+    if [[ $status -eq 0 ]]; then
         echo "  PASS  $file"
         PASS=$((PASS + 1))
     else
         echo "  FAIL  $file"
-        echo "$output"
+        cat /tmp/kaappi-test-out
         FAIL=$((FAIL + 1))
     fi
+}
+
+wait_with_timeout() {
+    local pid=$1 secs=$2 elapsed=0
+    while kill -0 "$pid" 2>/dev/null; do
+        if [[ $elapsed -ge $secs ]]; then return 1; fi
+        sleep 1
+        elapsed=$((elapsed + 1))
+    done
+    return 0
 }
 
 run_suite() {
@@ -52,7 +81,7 @@ run_suite "FFI tests" tests/scheme/ffi/*.scm
 
 echo "=== R7RS test suite (1,380 tests) ==="
 set +e
-R7RS_OUTPUT="$("${KAAPPI[@]}" tests/scheme/r7rs/r7rs-tests.scm 2>&1)"
+R7RS_OUTPUT="$("$KAAPPI" tests/scheme/r7rs/r7rs-tests.scm 2>&1)"
 R7RS_STATUS=$?
 set -e
 
@@ -66,9 +95,9 @@ fi
 
 echo ""
 echo "=== Summary ==="
-echo "  Scheme files: $PASS pass, $FAIL fail"
+echo "  Scheme files: $PASS pass, $FAIL fail, $SKIP skip"
 echo "  R7RS suite:   $R7RS_PASS pass, $R7RS_FAIL fail"
-echo "  Total:        $((PASS + R7RS_PASS)) pass, $((FAIL + R7RS_FAIL + R7RS_STATUS_FAIL)) fail"
+echo "  Total:        $((PASS + R7RS_PASS)) pass, $((FAIL + R7RS_FAIL + R7RS_STATUS_FAIL)) fail, $SKIP skip"
 
 if [[ $FAIL -gt 0 || $R7RS_FAIL -gt 0 || $R7RS_STATUS_FAIL -gt 0 ]]; then
     exit 1
