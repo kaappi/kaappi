@@ -31,6 +31,8 @@ pub const embedded_bytecode = @import("embedded_bytecode");
 pub const fiber_mod = @import("fiber.zig");
 pub const primitives_fiber = @import("primitives_fiber.zig");
 
+pub const version = "0.1.0";
+
 var repl_vm: ?*vm_mod.VM = null;
 
 fn writeToFd(fd: std.posix.fd_t, bytes: []const u8) void {
@@ -45,6 +47,28 @@ fn writeToFd(fd: std.posix.fd_t, bytes: []const u8) void {
 
 fn writeStdout(bytes: []const u8) void {
     writeToFd(1, bytes);
+}
+
+fn printUsage() void {
+    writeStdout(
+        "Kaappi Scheme v" ++ version ++ "\n" ++
+            "\n" ++
+            "Usage: kaappi [options] [file] [script-args...]\n" ++
+            "\n" ++
+            "Options:\n" ++
+            "  -h, --help         Show this help message\n" ++
+            "  --version          Show version\n" ++
+            "  --lib-path <path>  Add library search path (up to 16)\n" ++
+            "  --compile          Compile file to bytecode\n" ++
+            "  -o <file>          Output path for --compile\n" ++
+            "  --disassemble      Disassemble bytecode\n" ++
+            "  --no-jit           Disable JIT compilation\n" ++
+            "  --sandbox          Restrict filesystem and process access\n" ++
+            "  --gc-stats         Print GC statistics on exit\n" ++
+            "  --profile          Enable profiling\n" ++
+            "\n" ++
+            "With no file argument, starts an interactive REPL.\n",
+    );
 }
 
 fn writeStderr(bytes: []const u8) void {
@@ -330,7 +354,13 @@ pub fn main(init: std.process.Init.Minimal) !void {
         var sa_iter = init.args.iterate();
         _ = sa_iter.skip();
         while (sa_iter.next()) |arg| {
-            if (std.mem.eql(u8, arg, "--gc-stats")) {
+            if (std.mem.eql(u8, arg, "--help") or std.mem.eql(u8, arg, "-h")) {
+                printUsage();
+                return;
+            } else if (std.mem.eql(u8, arg, "--version")) {
+                writeStdout("Kaappi Scheme v" ++ version ++ "\n");
+                return;
+            } else if (std.mem.eql(u8, arg, "--gc-stats")) {
                 sa_gc_stats = true;
             } else if (std.mem.eql(u8, arg, "--profile")) {
                 sa_profile = true;
@@ -476,6 +506,12 @@ pub fn main(init: std.process.Init.Minimal) !void {
             vm.jit_disabled = true;
         } else if (std.mem.eql(u8, arg, "--no-cache")) {
             // future: disable caching
+        } else if (std.mem.eql(u8, arg, "--help") or std.mem.eql(u8, arg, "-h")) {
+            printUsage();
+            return;
+        } else if (std.mem.eql(u8, arg, "--version")) {
+            writeStdout("Kaappi Scheme v" ++ version ++ "\n");
+            return;
         } else {
             file_path = arg;
             break;
@@ -916,7 +952,7 @@ fn parenDepth(src: []const u8) i32 {
 fn repl(vm: *vm_mod.VM) !void {
     const allocator = vm.gc.allocator;
 
-    writeStdout("Kaappi Scheme v0.1.0\n");
+    writeStdout("Kaappi Scheme v" ++ version ++ "\n");
     writeStdout("Type (exit) to quit.\n\n");
 
     repl_vm = vm;

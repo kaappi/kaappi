@@ -1339,6 +1339,9 @@ pub const GC = struct {
                 if (port.owns_name) {
                     self.allocator.free(port.name);
                 }
+                if (port.read_buf) |rb| {
+                    self.allocator.free(rb);
+                }
                 // Free string port buffers
                 if (port.string_data) |sd| {
                     self.allocator.free(sd);

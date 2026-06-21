@@ -1027,8 +1027,12 @@ pub const Compiler = struct {
                 (if (a == types.FALSE) types.TRUE else types.FALSE)
             else if (std.mem.eql(u8, name, "zero?"))
                 (if (types.isFixnum(a) and types.toFixnum(a) == 0) types.TRUE else types.FALSE)
-            else if (std.mem.eql(u8, name, "-") and types.isFixnum(a))
-                types.makeFixnum(-types.toFixnum(a))
+            else if (std.mem.eql(u8, name, "-") and types.isFixnum(a)) blk: {
+                const neg = @subWithOverflow(@as(i64, 0), types.toFixnum(a));
+                if (neg[1] != 0) break :blk null;
+                if (neg[0] < std.math.minInt(i63) or neg[0] > std.math.maxInt(i63)) break :blk null;
+                break :blk types.makeFixnum(neg[0]);
+            }
             else
                 null;
             if (result) |val| {
@@ -1050,13 +1054,19 @@ pub const Compiler = struct {
         const result: ?Value =
             if (std.mem.eql(u8, name, "+")) blk: {
                 const r = @addWithOverflow(va, vb);
-                break :blk if (r[1] != 0) null else types.makeFixnum(r[0]);
+                if (r[1] != 0) break :blk null;
+                if (r[0] < std.math.minInt(i63) or r[0] > std.math.maxInt(i63)) break :blk null;
+                break :blk types.makeFixnum(r[0]);
             } else if (std.mem.eql(u8, name, "-")) blk: {
                 const r = @subWithOverflow(va, vb);
-                break :blk if (r[1] != 0) null else types.makeFixnum(r[0]);
+                if (r[1] != 0) break :blk null;
+                if (r[0] < std.math.minInt(i63) or r[0] > std.math.maxInt(i63)) break :blk null;
+                break :blk types.makeFixnum(r[0]);
             } else if (std.mem.eql(u8, name, "*")) blk: {
                 const r = @mulWithOverflow(va, vb);
-                break :blk if (r[1] != 0) null else types.makeFixnum(r[0]);
+                if (r[1] != 0) break :blk null;
+                if (r[0] < std.math.minInt(i63) or r[0] > std.math.maxInt(i63)) break :blk null;
+                break :blk types.makeFixnum(r[0]);
             } else if (std.mem.eql(u8, name, "<"))
                 (if (va < vb) types.TRUE else types.FALSE)
             else if (std.mem.eql(u8, name, ">"))

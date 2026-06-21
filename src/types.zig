@@ -310,6 +310,8 @@ pub const Port = struct {
     string_out_len: usize = 0,
     string_out_cap: usize = 0,
     is_binary: bool = false,
+    read_buf: ?[]u8 = null,
+    read_buf_len: usize = 0,
 };
 
 // ---------------------------------------------------------------------------

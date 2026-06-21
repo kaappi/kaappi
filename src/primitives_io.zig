@@ -368,6 +368,13 @@ fn openBinaryOutputFile(args: []const Value) PrimitiveError!Value {
 fn closePort(args: []const Value) PrimitiveError!Value {
     if (!types.isPort(args[0])) return PrimitiveError.TypeError;
     const port = types.toObject(args[0]).as(types.Port);
+    if (port.read_buf) |rb| {
+        if (primitives.gc_instance) |gc| {
+            gc.allocator.free(rb);
+        }
+        port.read_buf = null;
+        port.read_buf_len = 0;
+    }
     if (port.is_open and port.fd > 2 and !port.is_string_port) {
         _ = std.posix.system.close(port.fd);
     }
@@ -380,6 +387,21 @@ fn readOneByte(port: *types.Port) ?u8 {
     if (port.peek_byte) |b| {
         port.peek_byte = null;
         return b;
+    }
+    // Check read buffer (from prior (read) that buffered excess)
+    if (port.read_buf) |rb| {
+        if (port.read_buf_len > 0) {
+            const pos = rb.len - port.read_buf_len;
+            const byte = rb[pos];
+            port.read_buf_len -= 1;
+            if (port.read_buf_len == 0) {
+                if (primitives.gc_instance) |gc| {
+                    gc.allocator.free(rb);
+                }
+                port.read_buf = null;
+            }
+            return byte;
+        }
     }
     // String input port
     if (port.is_string_port) {
@@ -569,17 +591,25 @@ fn readDatumFn(args: []const Value) PrimitiveError!Value {
         return datum;
     }
 
-    // Read the entire remaining content from the port into a buffer
     var buf: std.ArrayList(u8) = .empty;
     defer buf.deinit(gc.allocator);
 
-    // First consume any peeked byte
+    // Consume any existing read buffer first
+    if (port.read_buf) |rb| {
+        const pos = rb.len - port.read_buf_len;
+        buf.appendSlice(gc.allocator, rb[pos .. pos + port.read_buf_len]) catch return PrimitiveError.OutOfMemory;
+        gc.allocator.free(rb);
+        port.read_buf = null;
+        port.read_buf_len = 0;
+    }
+
+    // Consume any peeked byte
     if (port.peek_byte) |b| {
         buf.append(gc.allocator, b) catch return PrimitiveError.OutOfMemory;
         port.peek_byte = null;
     }
 
-    // Read all remaining data from the fd
+    // Read from fd (appends after any buffered data)
     var tmp: [4096]u8 = undefined;
     while (true) {
         const n = std.posix.read(port.fd, &tmp) catch break;
@@ -589,14 +619,20 @@ fn readDatumFn(args: []const Value) PrimitiveError!Value {
 
     if (buf.items.len == 0) return types.EOF;
 
-    // Parse one datum from the buffer
+    // Parse one datum
     var reader = reader_mod.Reader.init(gc, buf.items);
     defer reader.deinit();
     const datum = reader.readDatum() catch return types.EOF;
 
-    // Any remaining data after the datum stays unconsumed.
-    // For file ports, this is fine since read is typically used to
-    // parse the entire file content sequentially.
+    // Save unconsumed bytes back to port buffer
+    const remaining = buf.items[reader.pos..];
+    if (remaining.len > 0) {
+        const saved = gc.allocator.alloc(u8, remaining.len) catch return PrimitiveError.OutOfMemory;
+        @memcpy(saved, remaining);
+        port.read_buf = saved;
+        port.read_buf_len = remaining.len;
+    }
+
     return datum;
 }
 
