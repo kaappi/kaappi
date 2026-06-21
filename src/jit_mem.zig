@@ -61,7 +61,7 @@ pub const CodeBuffer = struct {
 };
 
 test "mmap executable memory and run trivial function" {
-    if (!is_macos) return error.SkipZigTest;
+    if (@import("builtin").cpu.arch != .aarch64) return error.SkipZigTest;
     var buf = try CodeBuffer.alloc(4096);
     defer buf.free();
 
@@ -78,7 +78,7 @@ test "mmap executable memory and run trivial function" {
 }
 
 test "mmap code buffer with addition" {
-    if (!is_macos) return error.SkipZigTest;
+    if (@import("builtin").cpu.arch != .aarch64) return error.SkipZigTest;
     var buf = try CodeBuffer.alloc(4096);
     defer buf.free();
 

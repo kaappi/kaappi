@@ -1741,7 +1741,7 @@ test "isEligible accepts simple bytecode" {
 }
 
 test "compile trivial function" {
-    if (@import("builtin").os.tag != .macos) return error.SkipZigTest;
+    if (!jit_supported) return error.SkipZigTest;
     const memory = @import("memory.zig");
     const th = @import("testing_helpers.zig");
     var gc = memory.GC.init(std.testing.allocator);
@@ -1762,7 +1762,7 @@ test "compile trivial function" {
 }
 
 test "minimal prologue/epilogue" {
-    if (@import("builtin").os.tag != .macos) return error.SkipZigTest;
+    if (!jit_supported) return error.SkipZigTest;
     // Test just the entry/exit trampoline by compiling a function
     // that immediately returns (only a return opcode)
     const memory = @import("memory.zig");
@@ -1791,7 +1791,7 @@ test "minimal prologue/epilogue" {
 }
 
 test "prologue saves and restores callee-saved regs" {
-    if (@import("builtin").os.tag != .macos) return error.SkipZigTest;
+    if (!jit_supported) return error.SkipZigTest;
     var asm_ctx = a64.Assembler.init(std.testing.allocator);
     defer asm_ctx.deinit();
 
@@ -1822,7 +1822,7 @@ test "prologue saves and restores callee-saved regs" {
 }
 
 test "compile and execute load_nil" {
-    if (@import("builtin").os.tag != .macos) return error.SkipZigTest;
+    if (!jit_supported) return error.SkipZigTest;
     const memory = @import("memory.zig");
     const th = @import("testing_helpers.zig");
     var gc = memory.GC.init(std.testing.allocator);
@@ -1860,7 +1860,7 @@ test "compile and execute load_nil" {
 }
 
 test "compile and execute load_const" {
-    if (@import("builtin").os.tag != .macos) return error.SkipZigTest;
+    if (!jit_supported) return error.SkipZigTest;
     const memory = @import("memory.zig");
     const th = @import("testing_helpers.zig");
     var gc = memory.GC.init(std.testing.allocator);
@@ -1897,7 +1897,7 @@ test "compile and execute load_const" {
 }
 
 test "compile and execute move" {
-    if (@import("builtin").os.tag != .macos) return error.SkipZigTest;
+    if (!jit_supported) return error.SkipZigTest;
     const memory = @import("memory.zig");
     const th = @import("testing_helpers.zig");
     var gc = memory.GC.init(std.testing.allocator);
@@ -1930,7 +1930,7 @@ test "compile and execute move" {
 }
 
 test "compile and execute jump_false" {
-    if (@import("builtin").os.tag != .macos) return error.SkipZigTest;
+    if (!jit_supported) return error.SkipZigTest;
     const memory = @import("memory.zig");
     const th = @import("testing_helpers.zig");
     var gc = memory.GC.init(std.testing.allocator);
@@ -1972,7 +1972,7 @@ test "compile and execute jump_false" {
 }
 
 test "native return stores result and pops frame" {
-    if (@import("builtin").os.tag != .macos) return error.SkipZigTest;
+    if (!jit_supported) return error.SkipZigTest;
     const memory = @import("memory.zig");
     const th = @import("testing_helpers.zig");
     var gc = memory.GC.init(std.testing.allocator);
@@ -2024,7 +2024,7 @@ test "native return stores result and pops frame" {
 }
 
 test "compile call_global with multiply" {
-    if (@import("builtin").os.tag != .macos) return error.SkipZigTest;
+    if (!jit_supported) return error.SkipZigTest;
     const memory = @import("memory.zig");
     const th = @import("testing_helpers.zig");
     var gc = memory.GC.init(std.testing.allocator);
@@ -2054,7 +2054,7 @@ test "compile call_global with multiply" {
 }
 
 test "compile call_global with zero? predicate" {
-    if (@import("builtin").os.tag != .macos) return error.SkipZigTest;
+    if (!jit_supported) return error.SkipZigTest;
     const memory = @import("memory.zig");
     const th = @import("testing_helpers.zig");
     var gc = memory.GC.init(std.testing.allocator);
@@ -2082,7 +2082,7 @@ test "compile call_global with zero? predicate" {
 }
 
 test "compile tail_call_global with add" {
-    if (@import("builtin").os.tag != .macos) return error.SkipZigTest;
+    if (!jit_supported) return error.SkipZigTest;
     const memory = @import("memory.zig");
     const th = @import("testing_helpers.zig");
     var gc = memory.GC.init(std.testing.allocator);
