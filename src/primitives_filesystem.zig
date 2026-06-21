@@ -39,7 +39,7 @@ fn doStat(path: [*:0]const u8, follow: bool) ?StatResult {
         var flags: u32 = 0x0000;
         if (!follow) flags |= 0x100;
         const rc = linux.statx(@bitCast(@as(i32, std.posix.AT.FDCWD)), path, flags, linux.STATX.BASIC_STATS, &sx);
-        if (rc != 0) return null;
+        if (rc > @as(usize, std.math.maxInt(isize))) return null;
         return .{
             .mode = @intCast(sx.mode),
             .size = @intCast(sx.size),

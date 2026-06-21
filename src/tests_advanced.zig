@@ -440,6 +440,9 @@ test "cond-expand library check" {
 // ---------------------------------------------------------------------------
 
 test "load library from .sld file" {
+    // Skip when source tree isn't available (cross-compiled binary in container)
+    _ = std.posix.openat(std.posix.AT.FDCWD, "testlib/helper.sld", .{}, 0) catch return error.SkipZigTest;
+
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
     var vm = try th.makeTestVM(&gc);
@@ -456,6 +459,8 @@ test "load library from .sld file" {
 }
 
 test "load library with include declaration" {
+    _ = std.posix.openat(std.posix.AT.FDCWD, "testlib/with-include.sld", .{}, 0) catch return error.SkipZigTest;
+
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
     var vm = try th.makeTestVM(&gc);
