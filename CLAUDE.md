@@ -31,6 +31,25 @@ Build-time options: `-Dmax-frames=N` (call frame depth, default 512),
 
 Requires Zig 0.16+ and libc (for linenoise terminal handling).
 
+### Supported platforms
+
+| OS | Architecture | Build | Unit Tests | JIT | Notes |
+|----|-------------|-------|------------|-----|-------|
+| macOS | aarch64 (Apple Silicon) | yes | 347/347 | AArch64 native | Primary dev platform |
+| Linux | x86_64 | yes | 310/320 (4 skip, 6 filesystem) | x86_64 native | CI tested (Ubuntu) |
+| Linux | aarch64 | yes | yes | AArch64 native | Tested via podman |
+
+**JIT backends:** AArch64 is fully implemented (all opcodes + specialized
+arithmetic + function calls + self-tail-call). x86_64 handles basic opcodes
+(loads, moves, branches, return with frame pop); unhandled opcodes side-exit
+to the interpreter. Both backends are tested in CI.
+
+**Cross-compilation:** `zig build test -Dtarget=x86_64-linux` cross-compiles
+from macOS ARM. The binary runs in an x86_64 Linux container via podman.
+
+**Known Linux gaps:** 6 filesystem tests fail on x86_64 Linux (library
+loading paths, `terminal?` on file ports). Core language and JIT work fully.
+
 Builds default to **ReleaseSafe** (fast, with bounds/safety checks retained;
 fixnum overflow auto-promotes to bignum). Debug is ~500x slower for allocation-
 and continuation-heavy workloads — only use it when debugging:

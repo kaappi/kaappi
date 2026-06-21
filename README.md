@@ -22,6 +22,14 @@ zig build test                       # Run all tests
 
 > Requires **Zig 0.16+** and a C toolchain (for the vendored linenoise library).
 
+### Supported platforms
+
+| OS | Architecture | Build | Tests | JIT |
+|----|-------------|-------|-------|-----|
+| macOS | aarch64 (Apple Silicon) | yes | 347/347 | yes (native AArch64) |
+| Linux | x86_64 | yes | 310/320 | yes (native x86_64) |
+| Linux | aarch64 | yes | yes | yes (native AArch64) |
+
 ---
 
 ## REPL
