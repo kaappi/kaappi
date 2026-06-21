@@ -1,8 +1,10 @@
 const std = @import("std");
+const builtin = @import("builtin");
 
 const page_align = std.heap.page_size_min;
 
-const is_macos = @import("builtin").os.tag == .macos;
+const is_macos = builtin.os.tag == .macos;
+const needs_icache_flush = builtin.cpu.arch == .aarch64 and !is_macos;
 
 pub const CodeBuffer = struct {
     mem: []align(page_align) u8,
@@ -47,6 +49,9 @@ pub const CodeBuffer = struct {
             const icache_inv = @extern(*const fn (*anyopaque, usize) callconv(.c) void, .{ .name = "sys_icache_invalidate" });
             jit_wp(1);
             icache_inv(@ptrCast(self.mem.ptr), self.len);
+        } else if (comptime needs_icache_flush) {
+            const clear_cache = @extern(*const fn (*anyopaque, *anyopaque) callconv(.c) void, .{ .name = "__clear_cache" });
+            clear_cache(@ptrCast(self.mem.ptr), @ptrCast(self.mem.ptr + self.len));
         }
     }
 
