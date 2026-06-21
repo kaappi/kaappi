@@ -1827,8 +1827,8 @@ test "compile and execute load_nil" {
     const th = @import("testing_helpers.zig");
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
-    var vm = try th.makeTestVM(&gc);
-    defer vm.deinit();
+    var vm_val = try th.makeTestVM(&gc);
+    defer vm_val.deinit();
 
     const f = try gc.allocFunction();
     // load_nil r0; return r0
@@ -1838,25 +1838,31 @@ test "compile and execute load_nil" {
     try f.code.append(gc.allocator, 0);
     f.locals_count = 1;
 
-    const jit_code = try compile(f, &vm, std.testing.allocator);
+    const jit_code = try compile(f, &vm_val, std.testing.allocator);
     defer freeJitCode(jit_code, std.testing.allocator);
+
+    // Dump generated code for debugging
+    const code_bytes = jit_code.buf.mem[0..jit_code.buf.len];
+    std.debug.print("\nx86_64 JIT code ({d} bytes): ", .{code_bytes.len});
+    for (code_bytes) |b| std.debug.print("{x:0>2} ", .{b});
+    std.debug.print("\n", .{});
 
     const cls_val = try gc.allocClosure(f);
     const cls = types.toObject(cls_val).as(types.Closure);
-    vm.frames[0] = .{
+    vm_val.frames[0] = .{
         .closure = cls,
         .code = f.code.items,
         .ip = 0,
         .base = 0,
         .dst = 0,
     };
-    vm.frame_count = 1;
+    vm_val.frame_count = 1;
 
     const entry: JitEntryFn = @ptrCast(@alignCast(jit_code.entry));
-    const result = entry(&vm, 0, &[_]types.Value{}, cls);
+    const result = entry(&vm_val, 0, &[_]types.Value{}, cls);
     _ = result;
 
-    try std.testing.expectEqual(types.NIL, vm.registers[0]);
+    try std.testing.expectEqual(types.NIL, vm_val.registers[0]);
 }
 
 test "compile and execute load_const" {
