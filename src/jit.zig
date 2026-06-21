@@ -29,8 +29,8 @@ const OFF_FRAMES = @offsetOf(VM, "frames");
 const SIZEOF_CALLFRAME = @sizeOf(CallFrame);
 const OFF_FRAME_IP = @offsetOf(CallFrame, "ip");
 
-const Reg = a64.Reg;
-const Cond = a64.Cond;
+const Reg = if (@import("builtin").cpu.arch == .x86_64) x64.Reg else a64.Reg;
+const Cond = if (@import("builtin").cpu.arch == .x86_64) x64.Cond else a64.Cond;
 
 // Machine register assignments (callee-saved, AArch64)
 const VM_PTR = Reg.x21;
@@ -650,7 +650,7 @@ fn compileX86_64(func: *types.Function, vm: *VM, allocator: std.mem.Allocator) !
                 try pending_branches.append(allocator, .{
                     .native_idx = patch_idx + 2,
                     .target_bc_ip = target,
-                    .cond = x64.Cond.e,
+                    .cond = Cond.e,
                 });
             },
             .jump_true => {
@@ -668,7 +668,7 @@ fn compileX86_64(func: *types.Function, vm: *VM, allocator: std.mem.Allocator) !
                 try pending_branches.append(allocator, .{
                     .native_idx = patch_idx + 2,
                     .target_bc_ip = target,
-                    .cond = x64.Cond.ne,
+                    .cond = Cond.ne,
                 });
             },
             else => {

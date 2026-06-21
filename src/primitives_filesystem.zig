@@ -15,8 +15,18 @@ extern "c" fn getgroups(size: c_int, list: [*]std.c.gid_t) c_int;
 extern "c" fn nice(inc: c_int) c_int;
 extern "c" fn setenv(name: [*:0]const u8, value: [*:0]const u8, overwrite: c_int) c_int;
 extern "c" fn unsetenv(name: [*:0]const u8) c_int;
-extern "c" fn lstat(path: [*:0]const u8, buf: *std.c.Stat) c_int;
-extern "c" fn stat(path: [*:0]const u8, buf: *std.c.Stat) c_int;
+extern "c" fn lstat(noalias path: [*:0]const u8, noalias buf: *std.c.Stat) c_int;
+
+fn doStat(path: [*:0]const u8, stat_buf: *std.c.Stat, follow: bool) c_int {
+    if (@import("builtin").os.tag == .linux) {
+        const flags: u32 = if (!follow) std.c.AT.SYMLINK_NOFOLLOW else 0;
+        return @intCast(std.posix.system.fstatat(std.posix.AT.FDCWD, path, @ptrCast(stat_buf), flags));
+    } else {
+        if (!follow) return lstat(path, stat_buf);
+        const flags: u32 = 0;
+        return std.c.fstatat(std.posix.AT.FDCWD, path, stat_buf, flags);
+    }
+}
 
 pub fn registerFilesystem(vm: *vm_mod.VM) !void {
     try primitives.reg(vm, "directory-files", &directoryFiles, .{ .variadic = 1 });
@@ -173,7 +183,7 @@ fn fileInfoFn(args: []const Value) PrimitiveError!Value {
     defer gc.allocator.free(path_z);
 
     var stat_buf: std.c.Stat = undefined;
-    const r = if (!follow) lstat(path_z, &stat_buf) else stat(path_z, &stat_buf);
+    const r = doStat(path_z, &stat_buf, follow);
     if (r != 0) {
         return raiseFileError(gc, "cannot stat file", args[0]);
     }
