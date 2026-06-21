@@ -61,20 +61,10 @@ dominates — JIT and interpreter run at similar speed for `tak`. Further
 improvement needs lightweight JIT-to-JIT frames or register-based
 argument passing.
 
-### Consider raising stack limits
+### ~~Consider raising stack limits~~ ✅ Done
 
-**Priority:** Low
-
-Current compile-time constants (`src/vm.zig:31-34`):
-- `MAX_FRAMES = 256`
-- `MAX_REGISTERS = 1024`
-- `MAX_HANDLERS = 64`
-- `MAX_WINDS = 64`
-
-These are not runtime-configurable. 256 frames is sufficient for most
-programs but tight for deeply recursive algorithms that aren't
-tail-recursive. Consider making these configurable via CLI flags or
-environment variables.
+Defaults raised to MAX_FRAMES=512, MAX_REGISTERS=2048. Configurable
+at build time via `-Dmax-frames=N` and `-Dmax-registers=N`.
 
 ### GC tuning for tight recursion
 

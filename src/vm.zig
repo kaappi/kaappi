@@ -28,8 +28,9 @@ pub const VMError = error{
     Yielded,
 };
 
-pub const MAX_FRAMES = 256;
-pub const MAX_REGISTERS = 1024;
+const build_options = @import("build_options");
+pub const MAX_FRAMES: usize = build_options.max_frames;
+pub const MAX_REGISTERS: usize = build_options.max_registers;
 pub const MAX_HANDLERS = 64;
 pub const MAX_WINDS = 64;
 

@@ -20,6 +20,15 @@ pub fn build(b: *std.Build) void {
     const bundle_src = b.option([]const u8, "bundle-src",
         "Path to .scm source file to compile and embed for standalone binary");
 
+    const max_frames = b.option(u32, "max-frames",
+        "Maximum call frame depth (default: 512)") orelse 512;
+    const max_registers = b.option(u32, "max-registers",
+        "Maximum register count (default: 2048)") orelse 2048;
+
+    const options = b.addOptions();
+    options.addOption(u32, "max_frames", max_frames);
+    options.addOption(u32, "max_registers", max_registers);
+
     const wf = b.addWriteFiles();
     const null_embed = wf.add("embedded_bytecode.zig",
         "pub const bytecode: ?[]const u8 = null;\n");
@@ -31,6 +40,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
         .link_libc = true,
     });
+    main_mod.addImport("build_options", options.createModule());
     main_mod.addCSourceFile(.{
         .file = b.path("vendor/linenoise/linenoise.c"),
         .flags = &.{"-std=c99"},
@@ -63,6 +73,7 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
             .link_libc = true,
         });
+        compiler_mod.addImport("build_options", options.createModule());
         compiler_mod.addCSourceFile(.{
             .file = b.path("vendor/linenoise/linenoise.c"),
             .flags = &.{"-std=c99"},
@@ -141,6 +152,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    test_mod.addImport("build_options", options.createModule());
     test_mod.addAnonymousImport("embedded_bytecode", .{
         .root_source_file = null_embed,
         .target = target,
@@ -161,6 +173,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = .Debug,
     });
+    cov_mod.addImport("build_options", options.createModule());
     cov_mod.addAnonymousImport("embedded_bytecode", .{
         .root_source_file = null_embed,
         .target = target,
@@ -189,6 +202,7 @@ pub fn build(b: *std.Build) void {
         .optimize = .Debug,
         .link_libc = true,
     });
+    cov_main_mod.addImport("build_options", options.createModule());
     cov_main_mod.addCSourceFile(.{
         .file = b.path("vendor/linenoise/linenoise.c"),
         .flags = &.{"-std=c99"},
