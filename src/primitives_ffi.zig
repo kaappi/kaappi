@@ -101,7 +101,11 @@ fn ffiFn(args: []const Value) PrimitiveError!Value {
     var param_list = args[2];
     while (param_list != types.NIL) {
         if (!types.isPair(param_list)) return PrimitiveError.TypeError;
-        if (param_count >= 16) return PrimitiveError.TypeError;
+        if (param_count >= 16) {
+            const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError;
+            vm.setErrorDetail("ffi-fn: too many parameters (max 16)", .{});
+            return PrimitiveError.TypeError;
+        }
         const type_sym = types.car(param_list);
         param_types_buf[param_count] = parseType(type_sym) orelse return PrimitiveError.TypeError;
         param_count += 1;
@@ -159,7 +163,7 @@ fn ffiCallbackFn(args: []const Value) PrimitiveError!Value {
 
     const slot = ffi_callback.allocSlot(proc, sig) orelse {
         const vm = vm_mod.vm_instance orelse return PrimitiveError.OutOfMemory;
-        vm.setErrorDetail("ffi-callback: no free callback slots (max 16)", .{});
+        vm.setErrorDetail("ffi-callback: no free callback slots (max 32)", .{});
         return PrimitiveError.OutOfMemory;
     };
 

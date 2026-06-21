@@ -32,19 +32,14 @@ Added 9 types: `int8`, `int16`, `int32`, `int64`, `uint16`, `uint32`,
 `uint64`, `size_t`, `char`. New types are ABI-normalized to `int`/`long`
 equivalents in `ffi.zig` dispatch, avoiding combinatorial if-chain explosion.
 
-### Fix callback slot error message
+### ~~Fix callback slot error message~~ ✅ Done
 
-**Priority:** Low
+Changed "max 16" to "max 32" in `src/primitives_ffi.zig`.
 
-The error message at `src/primitives_ffi.zig:162` says "max 16" but the
-actual limit is 32 (`src/ffi_callback.zig:7` defines `NUM_SLOTS = 32`).
+### ~~Document FFI parameter limit~~ ✅ Done
 
-### Document FFI parameter limit
-
-**Priority:** Low
-
-`src/primitives_ffi.zig:104` caps FFI function calls at 16 parameters.
-This is undocumented.
+Added descriptive error message "ffi-fn: too many parameters (max 16)"
+in `src/primitives_ffi.zig`.
 
 ## JIT / Performance
 
@@ -110,10 +105,9 @@ Consider:
 
 ## Documentation Bugs Found in Source
 
-### Callback error message is wrong
+### ~~Callback error message is wrong~~ ✅ Done
 
-`src/primitives_ffi.zig:162` — error says "max 16" but actual limit is
-32 (`ffi_callback.zig:7`).
+Fixed "max 16" → "max 32" in `src/primitives_ffi.zig`.
 
 ### ~~Version string is not centralized~~ ✅ Done
 
