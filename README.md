@@ -1,4 +1,8 @@
-# Kaappi
+<p align="center">
+  <img src="https://kaappi.github.io/assets/logo.svg" alt="Kaappi" width="200">
+</p>
+
+<h1 align="center">Kaappi</h1>
 
 > **Note:** Kaappi was built with the assistance of AI (Claude by Anthropic).
 

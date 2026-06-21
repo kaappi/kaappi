@@ -1436,25 +1436,29 @@ fn emitSelfCallSequence(asm_ctx: *a64.Assembler, base_reg: u8, nargs: u8, pendin
     _ = nargs;
     _ = pending_quick_exits;
 
-    // Skip pointer, tag, arity, variadic, jit_code checks — all invariants for self-call.
-    // Only keep: frame_count < MAX_FRAMES (stack overflow is still possible).
+    // Optimized self-call: skip all guard checks (pointer, tag, arity, variadic,
+    // jit_code) and call_count increment — all invariants for self-recursive calls.
 
+    // Load frame_count ONCE, reuse for overflow check + caller frame + increment
     try emitLoadFromVmField(asm_ctx, .x1, OFF_FRAME_COUNT);
+    try asm_ctx.emitMovReg(.x6, .x1); // x6 = saved frame_count
+
+    // frame_count < MAX_FRAMES check
     try asm_ctx.emitLoadImm64(.x2, MAX_FRAMES);
     try asm_ctx.emitCmpReg(.x1, .x2);
     const fc_exit = asm_ctx.pos();
     try asm_ctx.emit(0);
     try pending_exits.append(allocator, .{ .native_idx = fc_exit, .bc_ip = bc_ip, .cond = .hs });
 
-    // Save caller's frame IP
-    try asm_ctx.emitSubImm(.x1, .x1, 1);
+    // Save caller's frame IP: frames[frame_count - 1].ip = ip_after
+    try asm_ctx.emitSubImm(.x1, .x6, 1);
     try emitMulConst(asm_ctx, .x2, .x1, SIZEOF_CALLFRAME);
     try emitAddLargeOffset(asm_ctx, .x3, VM_PTR, OFF_FRAMES);
     try asm_ctx.emitAddReg(.x3, .x3, .x2);
     try asm_ctx.emitLoadImm64(.x4, ip_after);
     try emitStoreAtOffset(asm_ctx, .x4, .x3, OFF_FRAME_IP);
 
-    // Push new frame
+    // Advance to new frame: x3 = &frames[frame_count]
     try asm_ctx.emitLoadImm64(.x4, SIZEOF_CALLFRAME);
     try asm_ctx.emitAddReg(.x3, .x3, .x4);
 
@@ -1463,49 +1467,46 @@ fn emitSelfCallSequence(asm_ctx: *a64.Assembler, base_reg: u8, nargs: u8, pendin
     try asm_ctx.emitLoadImm64(.x4, @as(u16, base_reg) + 1);
     try asm_ctx.emitAddReg(.x7, .x7, .x4);
 
-    // closure = CLOSURE_PTR (self — already in register)
-    try emitStoreAtOffset(asm_ctx, CLOSURE_PTR, .x3, OFF_FRAME_CLOSURE);
-
-    // native = null
-    try asm_ctx.emitMovz(.x4, 0, 0);
-    try emitStoreAtOffset(asm_ctx, .x4, .x3, OFF_FRAME_NATIVE);
-
-    // code = func.code (load from our own closure)
+    // Load func pointer once — used for code, jit_code
     try emitLoadFromField(asm_ctx, .x5, CLOSURE_PTR, OFF_CLOSURE_FUNC);
-    try emitLoadFromField(asm_ctx, .x4, .x5, OFF_FUNC_CODE);
-    try emitStoreAtOffset(asm_ctx, .x4, .x3, OFF_FRAME_CODE);
-    try emitLoadFromField(asm_ctx, .x4, .x5, OFF_FUNC_CODE + 8);
-    try emitStoreAtOffset(asm_ctx, .x4, .x3, OFF_FRAME_CODE + 8);
 
-    // ip = 0
+    // STP: store closure + native=null together (offsets 0, 8)
     try asm_ctx.emitMovz(.x4, 0, 0);
+    if (OFF_FRAME_CLOSURE == 0 and @offsetOf(CallFrame, "native") == 8) {
+        try asm_ctx.emitStp(CLOSURE_PTR, .x4, .x3, 0);
+    } else {
+        try emitStoreAtOffset(asm_ctx, CLOSURE_PTR, .x3, OFF_FRAME_CLOSURE);
+        try emitStoreAtOffset(asm_ctx, .x4, .x3, @offsetOf(CallFrame, "native"));
+    }
+
+    // STP: store code.ptr + code.len together (offsets 16, 24)
+    try emitLoadFromField(asm_ctx, .x1, .x5, OFF_FUNC_CODE);
+    try emitLoadFromField(asm_ctx, .x2, .x5, OFF_FUNC_CODE + 8);
+    if (OFF_FRAME_CODE == 16) {
+        try asm_ctx.emitStp(.x1, .x2, .x3, 2); // offset 2 * 8 = 16
+    } else {
+        try emitStoreAtOffset(asm_ctx, .x1, .x3, OFF_FRAME_CODE);
+        try emitStoreAtOffset(asm_ctx, .x2, .x3, OFF_FRAME_CODE + 8);
+    }
+
+    // ip = 0 (reuse x4 which is still 0)
     try emitStoreAtOffset(asm_ctx, .x4, .x3, OFF_FRAME_IP);
 
-    // base = new_base
+    // base, dst, saved_wind_count
     try emitStoreHalfAtOffset(asm_ctx, .x7, .x3, OFF_FRAME_BASE);
-
-    // dst = base_reg
     try emitStoreByteAtOffset(asm_ctx, base_reg, .x3, OFF_FRAME_DST, .x4);
-
-    // saved_wind_count
     try emitLoadFromVmField(asm_ctx, .x4, OFF_WIND_COUNT);
     try emitStoreHalfAtOffset(asm_ctx, .x4, .x3, OFF_FRAME_SAVED_WIND);
 
-    // Increment frame_count
-    try emitLoadFromVmField(asm_ctx, .x1, OFF_FRAME_COUNT);
-    try asm_ctx.emitAddImm(.x1, .x1, 1);
+    // Increment frame_count (reuse saved value in x6)
+    try asm_ctx.emitAddImm(.x1, .x6, 1);
     try emitStoreAtOffset(asm_ctx, .x1, VM_PTR, OFF_FRAME_COUNT);
 
-    // Increment call_count
-    try emitLoadWFromField(asm_ctx, .x1, .x5, OFF_FUNC_CALL_COUNT);
-    try asm_ctx.emitAddImm(.x1, .x1, 1);
-    try emitStoreWAtOffset(asm_ctx, .x1, .x5, OFF_FUNC_CALL_COUNT);
-
-    // Call self's JIT entry — load from our own jit_code
+    // Call self's JIT entry (skip call_count — already JIT-compiled)
     try emitLoadFromField(asm_ctx, .x6, .x5, OFF_FUNC_JIT_CODE);
     try emitLoadFromField(asm_ctx, .x8, .x6, OFF_JIT_CODE_ENTRY);
 
-    // Args: x0=VM*, x1=new_base, x2=CONST_PTR (same constants), x3=CLOSURE_PTR
+    // Args: x0=VM*, x1=new_base, x2=CONST_PTR, x3=CLOSURE_PTR
     try asm_ctx.emitMovReg(.x2, CONST_PTR);
     try asm_ctx.emitMovReg(.x3, CLOSURE_PTR);
     try asm_ctx.emitMovReg(.x1, .x7);
@@ -1513,7 +1514,7 @@ fn emitSelfCallSequence(asm_ctx: *a64.Assembler, base_reg: u8, nargs: u8, pendin
 
     try asm_ctx.emitBlr(.x8);
 
-    // Handle result (same as emitCallSequence)
+    // Handle result
     try asm_ctx.emitCmpImm(.x0, 0);
     const callee_ok = asm_ctx.pos();
     try asm_ctx.emit(0);

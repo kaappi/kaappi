@@ -50,16 +50,13 @@ Added `src/jit_x86_64.zig` assembler, comptime arch detection, and
 side-exit fallback for unimplemented opcodes. AArch64 path unchanged.
 JIT auto-disables on unsupported architectures.
 
-### ~~Improve non-tail call performance~~ ✅ Partial
+### ~~Improve non-tail call performance~~ ✅ Done
 
-Added self-call specialization (`emitSelfCallSequence`) that skips
-guard checks for self-recursive non-tail calls, and JIT support for
-`self_tail_call` opcode. Eliminates side-exits for functions like `tak`.
-
-**Remaining bottleneck:** frame setup (~30 memory stores per call)
-dominates — JIT and interpreter run at similar speed for `tak`. Further
-improvement needs lightweight JIT-to-JIT frames or register-based
-argument passing.
+Added self-call specialization (`emitSelfCallSequence`): skips all guard
+checks, uses STP batching for frame stores, eliminates call_count
+increment, loads frame_count once. JIT support for `self_tail_call`
+opcode eliminates side-exits. Further gains need lightweight JIT frames
+(architectural change).
 
 ### ~~Consider raising stack limits~~ ✅ Done
 
