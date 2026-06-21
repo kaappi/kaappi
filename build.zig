@@ -47,7 +47,7 @@ pub fn build(b: *std.Build) void {
     main_mod.addImport("build_options", options.createModule());
     main_mod.addCSourceFile(.{
         .file = b.path("vendor/linenoise/linenoise.c"),
-        .flags = &.{"-std=c99"},
+        .flags = &.{"-std=gnu99"},
     });
     main_mod.addIncludePath(b.path("vendor/linenoise"));
 
@@ -80,7 +80,7 @@ pub fn build(b: *std.Build) void {
         compiler_mod.addImport("build_options", options.createModule());
         compiler_mod.addCSourceFile(.{
             .file = b.path("vendor/linenoise/linenoise.c"),
-            .flags = &.{"-std=c99"},
+            .flags = &.{"-std=gnu99"},
         });
         compiler_mod.addIncludePath(b.path("vendor/linenoise"));
         compiler_mod.addAnonymousImport("embedded_bytecode", .{
@@ -209,7 +209,7 @@ pub fn build(b: *std.Build) void {
     cov_main_mod.addImport("build_options", options.createModule());
     cov_main_mod.addCSourceFile(.{
         .file = b.path("vendor/linenoise/linenoise.c"),
-        .flags = &.{"-std=c99"},
+        .flags = &.{"-std=gnu99"},
     });
     cov_main_mod.addIncludePath(b.path("vendor/linenoise"));
     cov_main_mod.addAnonymousImport("embedded_bytecode", .{

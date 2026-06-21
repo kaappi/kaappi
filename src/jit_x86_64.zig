@@ -95,8 +95,8 @@ pub const Assembler = struct {
         return @intFromEnum(reg) >= 8;
     }
 
-    fn regLow3(reg: Reg) u3 {
-        return @truncate(@intFromEnum(reg));
+    fn regLow3(reg: Reg) u8 {
+        return @truncate(@intFromEnum(reg) & 0x7);
     }
 
     fn rex(w: bool, r: Reg, x: u1, b_reg: Reg) u8 {
@@ -112,8 +112,8 @@ pub const Assembler = struct {
         return rex(true, r, 0, b_reg);
     }
 
-    fn modRM(mod: u2, reg_op: u3, rm: u3) u8 {
-        return (@as(u8, mod) << 6) | (@as(u8, reg_op) << 3) | rm;
+    fn modRM(mod: u2, reg_op: u8, rm: u8) u8 {
+        return (@as(u8, mod) << 6) | ((reg_op & 0x7) << 3) | (rm & 0x7);
     }
 
     // -------------------------------------------------------------------

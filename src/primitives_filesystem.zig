@@ -15,6 +15,8 @@ extern "c" fn getgroups(size: c_int, list: [*]std.c.gid_t) c_int;
 extern "c" fn nice(inc: c_int) c_int;
 extern "c" fn setenv(name: [*:0]const u8, value: [*:0]const u8, overwrite: c_int) c_int;
 extern "c" fn unsetenv(name: [*:0]const u8) c_int;
+extern "c" fn lstat(path: [*:0]const u8, buf: *std.c.Stat) c_int;
+extern "c" fn stat(path: [*:0]const u8, buf: *std.c.Stat) c_int;
 
 pub fn registerFilesystem(vm: *vm_mod.VM) !void {
     try primitives.reg(vm, "directory-files", &directoryFiles, .{ .variadic = 1 });
@@ -145,8 +147,8 @@ fn directoryFiles(args: []const Value) PrimitiveError!Value {
     defer gc.popRoot();
 
     while (std.c.readdir(dir)) |entry| {
-        const name_ptr: [*]const u8 = @ptrCast(&entry.name);
-        const name = name_ptr[0..entry.namlen];
+        const name_ptr: [*:0]const u8 = @ptrCast(&entry.name);
+        const name = std.mem.span(name_ptr);
 
         if (std.mem.eql(u8, name, ".") or std.mem.eql(u8, name, "..")) continue;
         if (!include_dotfiles and name.len > 0 and name[0] == '.') continue;
@@ -171,8 +173,7 @@ fn fileInfoFn(args: []const Value) PrimitiveError!Value {
     defer gc.allocator.free(path_z);
 
     var stat_buf: std.c.Stat = undefined;
-    const flags: u32 = if (!follow) std.c.AT.SYMLINK_NOFOLLOW else 0;
-    const r = std.c.fstatat(std.posix.AT.FDCWD, path_z, &stat_buf, flags);
+    const r = if (!follow) lstat(path_z, &stat_buf) else stat(path_z, &stat_buf);
     if (r != 0) {
         return raiseFileError(gc, "cannot stat file", args[0]);
     }
@@ -809,8 +810,8 @@ fn readDirectoryFn(args: []const Value) PrimitiveError!Value {
     const dir: *std.c.DIR = @ptrCast(@alignCast(dir_ptr));
 
     while (std.c.readdir(dir)) |entry| {
-        const name_ptr: [*]const u8 = @ptrCast(&entry.name);
-        const name = name_ptr[0..entry.namlen];
+        const name_ptr: [*:0]const u8 = @ptrCast(&entry.name);
+        const name = std.mem.span(name_ptr);
         if (std.mem.eql(u8, name, ".") or std.mem.eql(u8, name, "..")) continue;
         if (!d.include_dotfiles and name.len > 0 and name[0] == '.') continue;
         return gc.allocString(name) catch return PrimitiveError.OutOfMemory;
