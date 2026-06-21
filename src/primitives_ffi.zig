@@ -53,6 +53,29 @@ fn ffiOpen(args: []const Value) PrimitiveError!Value {
         }
     }
 
+    // Try ~/.kaappi/lib/ as a fallback for installed packages
+    const home = std.c.getenv("HOME");
+    if (home) |h| {
+        const hlen = std.mem.len(h);
+        const prefix = "/.kaappi/lib/";
+        const suffixes = [_][]const u8{ "", ".dylib", ".so" };
+        for (suffixes) |suffix| {
+            if (hlen + prefix.len + str.len + suffix.len < 512) {
+                var pbuf: [512]u8 = undefined;
+                @memcpy(pbuf[0..hlen], h[0..hlen]);
+                @memcpy(pbuf[hlen..][0..prefix.len], prefix);
+                @memcpy(pbuf[hlen + prefix.len ..][0..str.len], str.data[0..str.len]);
+                @memcpy(pbuf[hlen + prefix.len + str.len ..][0..suffix.len], suffix);
+                const total = hlen + prefix.len + str.len + suffix.len;
+                pbuf[total] = 0;
+                const pname: [*:0]const u8 = @ptrCast(pbuf[0..total :0]);
+                if (std.c.dlopen(pname, std.c.RTLD{ .LAZY = true })) |handle| {
+                    return gc.allocFfiLibrary(handle, str.data[0..str.len]) catch return PrimitiveError.OutOfMemory;
+                }
+            }
+        }
+    }
+
     const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError;
     if (std.c.dlerror()) |err_msg| {
         const msg = std.mem.span(err_msg);

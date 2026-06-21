@@ -1,4 +1,5 @@
 const std = @import("std");
+extern "c" fn setenv(name: [*:0]const u8, value: [*:0]const u8, overwrite: c_int) c_int;
 pub const types = @import("types.zig");
 pub const memory = @import("memory.zig");
 pub const reader = @import("reader.zig");
@@ -532,6 +533,43 @@ pub fn main(init: std.process.Init.Minimal) !void {
         }
     }
     vm.command_line_args = script_args[0..script_arg_count];
+
+    // Auto-add ~/.kaappi/lib as a default library search path
+    const kaappi_lib_path = blk: {
+        const home = std.c.getenv("HOME") orelse break :blk null;
+        const home_len = std.mem.len(home);
+        const suffix = "/.kaappi/lib";
+        const path = allocator.alloc(u8, home_len + suffix.len) catch break :blk null;
+        @memcpy(path[0..home_len], home[0..home_len]);
+        @memcpy(path[home_len..], suffix);
+        break :blk path;
+    };
+    if (kaappi_lib_path) |klp| {
+        if (lib_path_count < 16) {
+            lib_paths[lib_path_count] = klp;
+            lib_path_count += 1;
+        }
+        // Set DYLD_LIBRARY_PATH / LD_LIBRARY_PATH for FFI dlopen
+        const env_name = if (@import("builtin").os.tag == .macos)
+            "DYLD_LIBRARY_PATH"
+        else
+            "LD_LIBRARY_PATH";
+        const existing = std.c.getenv(env_name);
+        if (existing) |ex| {
+            const ex_len = std.mem.len(ex);
+            const new = allocator.alloc(u8, klp.len + 1 + ex_len + 1) catch null;
+            if (new) |n| {
+                @memcpy(n[0..klp.len], klp);
+                n[klp.len] = ':';
+                @memcpy(n[klp.len + 1 .. klp.len + 1 + ex_len], ex[0..ex_len]);
+                n[klp.len + 1 + ex_len] = 0;
+                _ = setenv(env_name, @ptrCast(n[0 .. klp.len + 1 + ex_len :0]), 1);
+            }
+        } else {
+            const z = allocator.dupeZ(u8, klp) catch null;
+            if (z) |zz| _ = setenv(env_name, zz, 1);
+        }
+    }
 
     vm.lib_paths = lib_paths[0..lib_path_count];
 

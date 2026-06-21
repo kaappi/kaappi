@@ -1,0 +1,215 @@
+#!/bin/bash
+# thottam — package manager for Kaappi Scheme
+# Usage: thottam install <package>
+#        thottam remove <package>
+#        thottam list
+#        thottam update [package]
+set -e
+
+KAAPPI_HOME="${KAAPPI_HOME:-$HOME/.kaappi}"
+KAAPPI_ORG="https://github.com/kaappi"
+LIB_DIR="$KAAPPI_HOME/lib"
+SRC_DIR="$KAAPPI_HOME/src"
+INSTALLED="$KAAPPI_HOME/installed.txt"
+
+UNAME=$(uname)
+if [ "$UNAME" = "Darwin" ]; then
+    DYLIB_EXT="dylib"
+else
+    DYLIB_EXT="so"
+fi
+
+ensure_dirs() {
+    mkdir -p "$LIB_DIR" "$SRC_DIR"
+    touch "$INSTALLED"
+}
+
+is_installed() {
+    grep -qx "$1" "$INSTALLED" 2>/dev/null
+}
+
+# Read kaappi.pkg and extract field value
+pkg_field() {
+    local pkg_dir="$1" field="$2"
+    local file="$pkg_dir/kaappi.pkg"
+    if [ -f "$file" ]; then
+        grep "^${field}:" "$file" | sed "s/^${field}: *//"
+    fi
+}
+
+do_install() {
+    local pkg="$1"
+
+    if is_installed "$pkg"; then
+        echo "  $pkg already installed"
+        return
+    fi
+
+    echo "Installing $pkg..."
+
+    # Clone if not already present
+    if [ ! -d "$SRC_DIR/$pkg" ]; then
+        echo "  Cloning $KAAPPI_ORG/$pkg..."
+        git clone --quiet "$KAAPPI_ORG/$pkg.git" "$SRC_DIR/$pkg"
+    fi
+
+    # Install dependencies first
+    local deps
+    deps=$(pkg_field "$SRC_DIR/$pkg" "depends")
+    if [ -n "$deps" ]; then
+        for dep in $deps; do
+            do_install "$dep"
+        done
+    fi
+
+    # Build if needed
+    local build_cmd
+    build_cmd=$(pkg_field "$SRC_DIR/$pkg" "build")
+    if [ -n "$build_cmd" ]; then
+        echo "  Building $pkg..."
+        (cd "$SRC_DIR/$pkg" && $build_cmd)
+    fi
+
+    # Copy .sld files (preserving directory structure)
+    if [ -d "$SRC_DIR/$pkg/lib" ]; then
+        echo "  Installing libraries..."
+        cp -R "$SRC_DIR/$pkg/lib/"* "$LIB_DIR/"
+    fi
+
+    # Copy dylibs
+    local dylib_count=0
+    for f in "$SRC_DIR/$pkg"/*."$DYLIB_EXT"; do
+        if [ -f "$f" ]; then
+            cp "$f" "$LIB_DIR/"
+            dylib_count=$((dylib_count + 1))
+        fi
+    done
+    if [ "$dylib_count" -gt 0 ]; then
+        echo "  Installed $dylib_count native library(s)"
+    fi
+
+    echo "$pkg" >> "$INSTALLED"
+    echo "  $pkg installed"
+}
+
+do_remove() {
+    local pkg="$1"
+
+    if ! is_installed "$pkg"; then
+        echo "$pkg is not installed"
+        return 1
+    fi
+
+    echo "Removing $pkg..."
+
+    # Remove .sld files that belong to this package
+    if [ -d "$SRC_DIR/$pkg/lib" ]; then
+        (cd "$SRC_DIR/$pkg/lib" && find . -name "*.sld" -print) | while read -r f; do
+            rm -f "$LIB_DIR/$f"
+        done
+    fi
+
+    # Remove dylibs
+    for f in "$SRC_DIR/$pkg"/*."$DYLIB_EXT"; do
+        if [ -f "$f" ]; then
+            rm -f "$LIB_DIR/$(basename "$f")"
+        fi
+    done
+
+    # Remove from installed list
+    grep -vx "$pkg" "$INSTALLED" > "$INSTALLED.tmp" && mv "$INSTALLED.tmp" "$INSTALLED"
+
+    # Remove source
+    rm -rf "${SRC_DIR:?}/$pkg"
+
+    echo "  $pkg removed"
+}
+
+do_list() {
+    if [ ! -f "$INSTALLED" ] || [ ! -s "$INSTALLED" ]; then
+        echo "No packages installed"
+        return
+    fi
+    echo "Installed packages:"
+    while IFS= read -r pkg; do
+        local desc=""
+        if [ -f "$SRC_DIR/$pkg/kaappi.pkg" ]; then
+            local deps
+            deps=$(pkg_field "$SRC_DIR/$pkg" "depends")
+            if [ -n "$deps" ]; then
+                desc=" (depends: $deps)"
+            fi
+        fi
+        echo "  $pkg$desc"
+    done < "$INSTALLED"
+}
+
+do_update() {
+    local pkg="$1"
+
+    if [ -n "$pkg" ]; then
+        # Update single package
+        if ! is_installed "$pkg"; then
+            echo "$pkg is not installed"
+            return 1
+        fi
+        echo "Updating $pkg..."
+        (cd "$SRC_DIR/$pkg" && git pull --quiet)
+        local build_cmd
+        build_cmd=$(pkg_field "$SRC_DIR/$pkg" "build")
+        if [ -n "$build_cmd" ]; then
+            (cd "$SRC_DIR/$pkg" && $build_cmd)
+        fi
+        if [ -d "$SRC_DIR/$pkg/lib" ]; then
+            cp -R "$SRC_DIR/$pkg/lib/"* "$LIB_DIR/"
+        fi
+        for f in "$SRC_DIR/$pkg"/*."$DYLIB_EXT"; do
+            [ -f "$f" ] && cp "$f" "$LIB_DIR/"
+        done
+        echo "  $pkg updated"
+    else
+        # Update all
+        if [ ! -f "$INSTALLED" ] || [ ! -s "$INSTALLED" ]; then
+            echo "No packages to update"
+            return
+        fi
+        while IFS= read -r p; do
+            do_update "$p"
+        done < "$INSTALLED"
+    fi
+}
+
+# --- Main ---
+
+ensure_dirs
+
+case "${1:-}" in
+    install)
+        [ -z "${2:-}" ] && { echo "Usage: thottam install <package>"; exit 1; }
+        do_install "$2"
+        ;;
+    remove)
+        [ -z "${2:-}" ] && { echo "Usage: thottam remove <package>"; exit 1; }
+        do_remove "$2"
+        ;;
+    list)
+        do_list
+        ;;
+    update)
+        do_update "${2:-}"
+        ;;
+    *)
+        echo "thottam — package manager for Kaappi Scheme"
+        echo ""
+        echo "Usage: thottam <command> [args]"
+        echo ""
+        echo "Commands:"
+        echo "  install <package>   Install a package and its dependencies"
+        echo "  remove <package>    Remove a package"
+        echo "  list                List installed packages"
+        echo "  update [package]    Update one or all packages"
+        echo ""
+        echo "Packages are installed to ~/.kaappi/lib/"
+        echo "Kaappi automatically searches this path for libraries."
+        ;;
+esac
