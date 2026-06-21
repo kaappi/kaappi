@@ -10,12 +10,20 @@ fn reg(vm: *vm_mod.VM, name: []const u8, func: types.NativeFnType, arity: Native
     return primitives.reg(vm, name, func, arity);
 }
 
-extern fn arc4random() u32;
-
 fn freshSeed() u64 {
-    const lo: u64 = arc4random();
-    const hi: u64 = arc4random();
-    return (hi << 32) | lo;
+    if (@import("builtin").os.tag == .linux) {
+        var buf: [8]u8 = undefined;
+        const rc = std.os.linux.getrandom(&buf, buf.len, 0);
+        if (rc == buf.len) return @bitCast(buf);
+    } else {
+        const arc4 = @extern(*const fn () callconv(.c) u32, .{ .name = "arc4random" });
+        const lo: u64 = arc4();
+        const hi: u64 = arc4();
+        return (hi << 32) | lo;
+    }
+    var ts: std.c.timespec = undefined;
+    _ = std.c.clock_gettime(.MONOTONIC, &ts);
+    return @as(u64, @bitCast(ts.sec)) ^ @as(u64, @bitCast(ts.nsec));
 }
 
 var default_rs_val: Value = types.VOID;

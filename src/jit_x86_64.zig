@@ -167,10 +167,23 @@ pub const Assembler = struct {
 
     // ADD r64, r64
     pub fn emitAddReg(self: *Assembler, rd: Reg, rn: Reg, rm: Reg) !void {
-        if (rd != rn) try self.emitMovReg(rd, rn);
-        try self.emit(rexW(rm, rd));
-        try self.emit(0x01);
-        try self.emit(modRM(0b11, regLow3(rm), regLow3(rd)));
+        if (rd == rn) {
+            // ADD rd, rm
+            try self.emit(rexW(rm, rd));
+            try self.emit(0x01);
+            try self.emit(modRM(0b11, regLow3(rm), regLow3(rd)));
+        } else if (rd == rm) {
+            // ADD rd, rn (commutative)
+            try self.emit(rexW(rn, rd));
+            try self.emit(0x01);
+            try self.emit(modRM(0b11, regLow3(rn), regLow3(rd)));
+        } else {
+            // MOV rd, rn; ADD rd, rm
+            try self.emitMovReg(rd, rn);
+            try self.emit(rexW(rm, rd));
+            try self.emit(0x01);
+            try self.emit(modRM(0b11, regLow3(rm), regLow3(rd)));
+        }
     }
 
     // ADD r64, imm32 (sign-extended)
@@ -209,6 +222,18 @@ pub const Assembler = struct {
 
     // SUB r64, r64
     pub fn emitSubReg(self: *Assembler, rd: Reg, rn: Reg, rm: Reg) !void {
+        if (rd != rn and rd != rm) try self.emitMovReg(rd, rn);
+        if (rd == rm and rd != rn) {
+            // SUB is not commutative: need scratch
+            // NEG rd; ADD rd, rn (rd = rn - rd)
+            try self.emit(rexW(.rax, rd));
+            try self.emit(0xF7);
+            try self.emit(modRM(0b11, 3, regLow3(rd)));
+            try self.emit(rexW(rn, rd));
+            try self.emit(0x01);
+            try self.emit(modRM(0b11, regLow3(rn), regLow3(rd)));
+            return;
+        }
         if (rd != rn) try self.emitMovReg(rd, rn);
         try self.emit(rexW(rm, rd));
         try self.emit(0x29);

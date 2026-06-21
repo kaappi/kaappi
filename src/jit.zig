@@ -615,8 +615,17 @@ fn compileX86_64(func: *types.Function, vm: *VM, allocator: std.mem.Allocator) !
             .@"return" => {
                 const src = code[ip];
                 ip += 1;
+                // Store result at registers[base-1]: [FRAME_PTR - 8]
                 try x64EmitLoadReg(&asm_ctx, .rax, src);
-                try x64EmitStoreReg(&asm_ctx, 0, .rax);
+                // MOV [rbx-8], rax — use raw encoding for negative offset
+                try asm_ctx.emit(0x48); // REX.W
+                try asm_ctx.emit(0x89); // MOV r/m64, r64
+                try asm_ctx.emit(0x43); // ModRM: mod=01, reg=rax(0), rm=rbx(3)
+                try asm_ctx.emit(0xF8); // disp8 = -8
+                // Decrement frame_count
+                try asm_ctx.emitLdrImm(.rcx, X_VM_PTR, @intCast(@offsetOf(VM, "frame_count")));
+                try asm_ctx.emitSubImm(.rcx, .rcx, 1);
+                try asm_ctx.emitStrImm(.rcx, X_VM_PTR, @intCast(@offsetOf(VM, "frame_count")));
                 const patch_idx = asm_ctx.pos();
                 try asm_ctx.emit(0xE9); // JMP rel32
                 try asm_ctx.emit32(0);
@@ -727,9 +736,9 @@ fn compileX86_64(func: *types.Function, vm: *VM, allocator: std.mem.Allocator) !
     try asm_ctx.emitPop(.rbx);
     try asm_ctx.emitRet();
 
-    // Patch return/quick-exit to epilogue
-    x64PatchJmp(&asm_ctx, ret_to_epi, epilogue);
-    x64PatchJmp(&asm_ctx, qe_to_epi, epilogue);
+    // Patch return/quick-exit to epilogue (patch at +1 to skip E9 opcode)
+    x64PatchJmp(&asm_ctx, ret_to_epi + 1, epilogue);
+    x64PatchJmp(&asm_ctx, qe_to_epi + 1, epilogue);
 
     // Patch branches
     for (pending_branches.items) |pb| {
@@ -1840,12 +1849,6 @@ test "compile and execute load_nil" {
 
     const jit_code = try compile(f, &vm_val, std.testing.allocator);
     defer freeJitCode(jit_code, std.testing.allocator);
-
-    // Dump generated code for debugging
-    const code_bytes = jit_code.buf.mem[0..jit_code.buf.len];
-    std.debug.print("\nx86_64 JIT code ({d} bytes): ", .{code_bytes.len});
-    for (code_bytes) |b| std.debug.print("{x:0>2} ", .{b});
-    std.debug.print("\n", .{});
 
     const cls_val = try gc.allocClosure(f);
     const cls = types.toObject(cls_val).as(types.Closure);
