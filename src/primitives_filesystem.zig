@@ -36,10 +36,9 @@ fn doStat(path: [*:0]const u8, follow: bool) ?StatResult {
     if (is_linux) {
         const linux = std.os.linux;
         var sx: linux.Statx = undefined;
-        const flags: u32 = linux.AT.STATX_SYNC_AS_STAT |
-            (if (!follow) @as(u32, linux.AT.SYMLINK_NOFOLLOW) else 0);
-        const mask: u32 = @bitCast(linux.STATX.BASIC_STATS);
-        const rc = linux.statx(@bitCast(@as(i32, std.posix.AT.FDCWD)), path, flags, mask, &sx);
+        var flags: u32 = 0x0000;
+        if (!follow) flags |= 0x100;
+        const rc = linux.statx(@bitCast(@as(i32, std.posix.AT.FDCWD)), path, flags, linux.STATX.BASIC_STATS, &sx);
         if (rc != 0) return null;
         return .{
             .mode = @intCast(sx.mode),
