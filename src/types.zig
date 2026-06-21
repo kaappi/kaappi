@@ -408,6 +408,15 @@ pub const FfiType = enum(u8) {
     void_type, // void
     bool_type, // c_int (0/1)
     uint8, // u8
+    int8, // i8
+    int16, // i16
+    int32, // i32
+    int64, // i64
+    uint16, // u16
+    uint32, // u32
+    uint64, // u64
+    size_type, // usize
+    char_type, // u8
 };
 
 pub const FfiLibrary = struct {

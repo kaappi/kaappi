@@ -59,6 +59,14 @@ fn marshalToPointer(v: Value) ?*anyopaque {
     return null;
 }
 
+fn normalizeType(t: FfiType) FfiType {
+    return switch (t) {
+        .int8, .int16, .int32, .char_type, .bool_type, .uint8, .uint16, .uint32 => .int,
+        .int64, .uint64, .size_type => .long,
+        else => t,
+    };
+}
+
 /// Main FFI call dispatcher. Routes to arity-specific handlers.
 pub fn callFfi(ffi_fn: *types.FfiFunction, args: []const Value, gc: *memory.GC) !Value {
     return switch (ffi_fn.param_count) {
@@ -76,7 +84,7 @@ pub fn callFfi(ffi_fn: *types.FfiFunction, args: []const Value, gc: *memory.GC) 
 // ---------------------------------------------------------------------------
 
 fn callFfi0(ffi_fn: *types.FfiFunction, gc: *memory.GC) !Value {
-    const rt = ffi_fn.return_type;
+    const rt = normalizeType(ffi_fn.return_type);
 
     if (rt == .void_type) {
         const f: *const fn () callconv(.c) void = @ptrCast(@alignCast(ffi_fn.symbol));
@@ -122,8 +130,8 @@ fn callFfi0(ffi_fn: *types.FfiFunction, gc: *memory.GC) !Value {
 // ---------------------------------------------------------------------------
 
 fn callFfi1(ffi_fn: *types.FfiFunction, args: []const Value, gc: *memory.GC) !Value {
-    const p0 = ffi_fn.param_types[0];
-    const rt = ffi_fn.return_type;
+    const p0 = normalizeType(ffi_fn.param_types[0]);
+    const rt = normalizeType(ffi_fn.return_type);
 
     // double -> double (sqrt, sin, cos, ceil, floor, etc.)
     if (p0 == .double and rt == .double) {
@@ -314,9 +322,9 @@ fn callFfi1(ffi_fn: *types.FfiFunction, args: []const Value, gc: *memory.GC) !Va
 // ---------------------------------------------------------------------------
 
 fn callFfi2(ffi_fn: *types.FfiFunction, args: []const Value, gc: *memory.GC) !Value {
-    const p0 = ffi_fn.param_types[0];
-    const p1 = ffi_fn.param_types[1];
-    const rt = ffi_fn.return_type;
+    const p0 = normalizeType(ffi_fn.param_types[0]);
+    const p1 = normalizeType(ffi_fn.param_types[1]);
+    const rt = normalizeType(ffi_fn.return_type);
 
     // (double, double) -> double (pow, fmod, atan2, etc.)
     if (p0 == .double and p1 == .double and rt == .double) {
@@ -530,10 +538,10 @@ fn callFfi2(ffi_fn: *types.FfiFunction, args: []const Value, gc: *memory.GC) !Va
 // ---------------------------------------------------------------------------
 
 fn callFfi3(ffi_fn: *types.FfiFunction, args: []const Value, gc: *memory.GC) !Value {
-    const p0 = ffi_fn.param_types[0];
-    const p1 = ffi_fn.param_types[1];
-    const p2 = ffi_fn.param_types[2];
-    const rt = ffi_fn.return_type;
+    const p0 = normalizeType(ffi_fn.param_types[0]);
+    const p1 = normalizeType(ffi_fn.param_types[1]);
+    const p2 = normalizeType(ffi_fn.param_types[2]);
+    const rt = normalizeType(ffi_fn.return_type);
 
     // (string, int, int) -> int
     if (p0 == .string and p1 == .int and p2 == .int and rt == .int) {
@@ -653,11 +661,11 @@ fn callFfi3(ffi_fn: *types.FfiFunction, args: []const Value, gc: *memory.GC) !Va
 // ---------------------------------------------------------------------------
 
 fn callFfi4(ffi_fn: *types.FfiFunction, args: []const Value, gc: *memory.GC) !Value {
-    const p0 = ffi_fn.param_types[0];
-    const p1 = ffi_fn.param_types[1];
-    const p2 = ffi_fn.param_types[2];
-    const p3 = ffi_fn.param_types[3];
-    const rt = ffi_fn.return_type;
+    const p0 = normalizeType(ffi_fn.param_types[0]);
+    const p1 = normalizeType(ffi_fn.param_types[1]);
+    const p2 = normalizeType(ffi_fn.param_types[2]);
+    const p3 = normalizeType(ffi_fn.param_types[3]);
+    const rt = normalizeType(ffi_fn.return_type);
 
     // (pointer, long, long, pointer) -> void  — qsort
     if (p0 == .pointer and p1 == .long and p2 == .long and p3 == .pointer and rt == .void_type) {

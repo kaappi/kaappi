@@ -222,5 +222,14 @@ fn parseType(v: Value) ?types.FfiType {
     if (std.mem.eql(u8, name, "void")) return .void_type;
     if (std.mem.eql(u8, name, "bool")) return .bool_type;
     if (std.mem.eql(u8, name, "uint8")) return .uint8;
+    if (std.mem.eql(u8, name, "int8")) return .int8;
+    if (std.mem.eql(u8, name, "int16")) return .int16;
+    if (std.mem.eql(u8, name, "int32")) return .int32;
+    if (std.mem.eql(u8, name, "int64")) return .int64;
+    if (std.mem.eql(u8, name, "uint16")) return .uint16;
+    if (std.mem.eql(u8, name, "uint32")) return .uint32;
+    if (std.mem.eql(u8, name, "uint64")) return .uint64;
+    if (std.mem.eql(u8, name, "size_t")) return .size_type;
+    if (std.mem.eql(u8, name, "char")) return .char_type;
     return null;
 }

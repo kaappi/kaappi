@@ -26,23 +26,11 @@ Buffer freed on port close and GC collection.
 
 ## FFI
 
-### Add more C types
+### ~~Add more C types~~ ✅ Done
 
-**Priority:** Medium
-
-Currently 9 types: `int`, `long`, `double`, `float`, `string`, `pointer`,
-`void`, `bool`, `uint8`.
-
-**Missing common types:**
-- `int8`, `int16`, `int32`, `int64`
-- `uint16`, `uint32`, `uint64`
-- `size_t`, `char`
-
-**Location:** `src/types.zig:399-409` (FfiType enum),
-`src/primitives_ffi.zig:213-226` (parseType function).
-
-**Complexity:** Low — extend the enum, add string comparisons in
-parseType, wire through FFI call dispatch.
+Added 9 types: `int8`, `int16`, `int32`, `int64`, `uint16`, `uint32`,
+`uint64`, `size_t`, `char`. New types are ABI-normalized to `int`/`long`
+equivalents in `ffi.zig` dispatch, avoiding combinatorial if-chain explosion.
 
 ### Fix callback slot error message
 
