@@ -392,7 +392,9 @@ pub fn registerStandardLibraries(registry: *LibraryRegistry, globals: *std.Strin
 
     // (kaappi ffi) — C FFI library
     const kaappi_ffi_names = [_][]const u8{
-        "ffi-open", "ffi-fn", "ffi-close",
+        "ffi-open",          "ffi-fn",            "ffi-close",
+        "ffi-bytevector-ptr", "ffi-callback",      "ffi-callback-release",
+        "ffi-callback?",
     };
     var ffi_lib = Library.init(allocator, "kaappi.ffi");
     for (kaappi_ffi_names) |name| {
