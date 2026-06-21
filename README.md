@@ -370,6 +370,103 @@ kaappi/
 
 ---
 
+## Ecosystem
+
+Kaappi has a growing ecosystem of libraries for web development, databases, and networking. Install them with **thottam** (the Kaappi package manager):
+
+```bash
+# Install the web framework (auto-installs kaappi-http, kaappi-json, kaappi-net)
+./scripts/thottam install kaappi-web
+
+# Now just works — no --lib-path flags needed
+kaappi app.scm
+```
+
+| Package | Description | Install |
+|---------|-------------|---------|
+| [kaappi-net](https://github.com/kaappi/kaappi-net) | TCP/TLS networking (shared by all network libraries) | `thottam install kaappi-net` |
+| [kaappi-redis](https://github.com/kaappi/kaappi-redis) | Redis client — SET/GET, lists, hashes, pub/sub, pipelining | `thottam install kaappi-redis` |
+| [kaappi-pg](https://github.com/kaappi/kaappi-pg) | PostgreSQL client — DB-API 2.0 style with cursors and type conversion | `thottam install kaappi-pg` |
+| [kaappi-http](https://github.com/kaappi/kaappi-http) | HTTP/HTTPS client + server (pre-fork, threaded) | `thottam install kaappi-http` |
+| [kaappi-json](https://github.com/kaappi/kaappi-json) | JSON parser and serializer | `thottam install kaappi-json` |
+| [kaappi-web](https://github.com/kaappi/kaappi-web) | Web framework — routing, middleware, JSON helpers | `thottam install kaappi-web` |
+| [kaappi-examples](https://github.com/kaappi/kaappi-examples) | REST API, task queue, CRUD app, file server | — |
+
+### Quick example: REST API
+
+```scheme
+(import (kaappi web) (kaappi pg) (kaappi json))
+
+(define db (pg-connect "dbname=myapp"))
+
+(define app
+  (routes
+    (GET "/users/:id"
+      (lambda (req params)
+        (let ((rows (pg-query db "SELECT * FROM users WHERE id = $1"
+                      (param/number params "id"))))
+          (json-response (if (null? rows) '(("error" . "not found"))
+                             (car rows))))))
+    (POST "/users"
+      (lambda (req params)
+        (let ((body (request-json req)))
+          (pg-exec db "INSERT INTO users (name) VALUES ($1)"
+            (cdr (assoc "name" body)))
+          (json-response '(("created" . #t)) 201))))))
+
+(serve (wrap app wrap-json-body wrap-logging wrap-errors) 8080)
+```
+
+### thottam commands
+
+```bash
+thottam install <package>    # Install a package and its dependencies
+thottam remove <package>     # Remove a package
+thottam list                 # List installed packages
+thottam update [package]     # Update one or all packages
+```
+
+Packages are installed to `~/.kaappi/lib/` and discovered automatically.
+
+---
+
+## Concurrency
+
+### Green threads (fibers)
+
+Cooperative multitasking within a single OS thread:
+
+```scheme
+(import (kaappi fibers))
+
+(define ch (make-channel))
+
+(spawn (lambda ()
+  (channel-send ch "hello from fiber")))
+
+(display (channel-receive ch))  ;=> hello from fiber
+```
+
+### OS threads (SRFI-18)
+
+Real OS threads via `pthread_create` — each thread gets its own VM and GC:
+
+```scheme
+(import (srfi 18))
+
+(define t (thread-start!
+  (make-thread
+    (lambda ()
+      (display "running on OS thread")
+      (newline)))))
+
+(thread-join! t)
+```
+
+OS threads enable true parallel I/O (e.g., thread-per-connection HTTP servers).
+
+---
+
 ## Documentation
 
 | Document | Description |

@@ -267,6 +267,69 @@ End-user docs (guide, procedures, libraries, benchmarks) live in the
 and are served at **https://kaappi.github.io/**. Built with MkDocs Material.
 Dev docs (architecture, testing, adding-features) remain in `docs/dev/` here.
 
+## Package manager (thottam)
+
+`scripts/thottam` is a shell script that installs Kaappi ecosystem libraries.
+
+```
+thottam install kaappi-web    # clone, build, install to ~/.kaappi/lib/
+thottam list                  # show installed packages
+thottam update                # pull + rebuild all
+thottam remove kaappi-web     # uninstall
+```
+
+**How it works:**
+- Clones from `github.com/kaappi/<package>` to `~/.kaappi/src/`
+- Reads `kaappi.pkg` for dependencies and build commands
+- Copies `.sld` files to `~/.kaappi/lib/` (preserving directory structure)
+- Copies `.dylib`/`.so` to `~/.kaappi/lib/`
+
+**Auto-discovery:** `main.zig` automatically adds `~/.kaappi/lib` to the
+library search path. `ffi-open` also searches `~/.kaappi/lib/` for native
+libraries. No `--lib-path` or `DYLD_LIBRARY_PATH` needed after install.
+
+**Package manifest** (`kaappi.pkg`):
+```
+name: kaappi-web
+depends: kaappi-http kaappi-json
+build: make
+```
+
+## Ecosystem libraries
+
+| Package | Type | Dependencies | Purpose |
+|---------|------|-------------|---------|
+| kaappi-net | C + Scheme | OpenSSL | TCP client/server, TLS client |
+| kaappi-json | Pure Scheme | none | JSON parser/serializer |
+| kaappi-redis | C + Scheme | kaappi-net | Redis client (RESP2) |
+| kaappi-pg | C + Scheme | libpq | PostgreSQL client (DB-API 2.0) |
+| kaappi-http | Scheme | kaappi-net | HTTP/HTTPS client + server |
+| kaappi-web | Pure Scheme | kaappi-http, kaappi-json | Web framework (routing, middleware) |
+
+**Library pattern** (for creating new kaappi-* packages):
+- `csrc/` — C helper for FFI (if needed)
+- `lib/kaappi/<name>.sld` — main library with re-exports
+- `lib/kaappi/<name>/` — sub-libraries (ffi.sld, parse.sld, etc.)
+- `kaappi.pkg` — package manifest
+- `Makefile` — builds `.dylib` (if C code)
+- All FFI signatures must match entries in `src/ffi.zig` dispatch tables
+
+## OS threads (SRFI-18)
+
+`thread-start!` spawns real OS threads via `std.Thread.spawn`. Each child
+thread gets its own VM and GC with a shared (mutex-protected) symbol table.
+
+**Key implementation details:**
+- `vm_instance` and `gc_instance` are `threadlocal` (`src/vm.zig:37`, `src/primitives.zig:182`)
+- `GC.initForThread` creates per-thread GC sharing parent's symbol table (`src/memory.zig`)
+- `VM.initForThread` creates per-thread VM sharing parent's globals/libraries (`src/vm.zig`)
+- `symbol_mutex` (spinlock) protects concurrent symbol interning (`src/memory.zig`)
+- Fiber struct has `os_thread: ?std.Thread` field (`src/fiber.zig`)
+
+**Current status:** Basic thread execution and FFI calls work. GC-heavy
+operations in child threads (allocating strings, pairs) need further work on
+cross-thread root marking.
+
 ## Known limitations
 
 See the "Known limitations" section in `README.md` (single source of truth).
