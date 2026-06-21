@@ -47,6 +47,7 @@ pub const Fiber = struct {
     deadline_ns: ?u64 = null,
     timed_out: bool = false,
     terminated: bool = false,
+    os_thread: ?std.Thread = null,
 };
 
 pub const FiberScheduler = struct {

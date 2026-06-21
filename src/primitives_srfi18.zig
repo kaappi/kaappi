@@ -3,6 +3,7 @@ const types = @import("types.zig");
 const vm_mod = @import("vm.zig");
 const primitives = @import("primitives.zig");
 const fiber_mod = @import("fiber.zig");
+const memory = @import("memory.zig");
 const Value = types.Value;
 const NativeFn = types.NativeFn;
 const PrimitiveError = primitives.PrimitiveError;
@@ -186,14 +187,41 @@ fn threadStartFn(args: []const Value) PrimitiveError!Value {
     if (!types.isFiber(args[0]))
         return primitives.typeError("thread-start!", "thread", args[0]);
 
-    const ctx = try ensureScheduler();
     const fiber = types.toObject(args[0]).as(fiber_mod.Fiber);
 
     if (fiber.status != .created)
         return primitives.typeError("thread-start!", "new thread", args[0]);
 
-    ctx.sched.addFiber(fiber) catch return PrimitiveError.OutOfMemory;
+    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.OutOfMemory;
+
+    gc.extra_roots.append(gc.allocator, fiber.thunk) catch return PrimitiveError.OutOfMemory;
+
+    fiber.status = .running;
+    fiber.os_thread = std.Thread.spawn(.{}, threadEntryFn, .{
+        fiber, gc.allocator, gc, vm,
+    }) catch return PrimitiveError.OutOfMemory;
+
     return args[0];
+}
+
+fn threadEntryFn(fiber: *fiber_mod.Fiber, allocator: std.mem.Allocator, parent_gc: *memory.GC, parent_vm: *vm_mod.VM) void {
+    var child_gc = memory.GC.initForThread(allocator, parent_gc);
+    var child_vm = vm_mod.VM.initForThread(&child_gc, parent_vm);
+
+    vm_mod.vm_instance = &child_vm;
+    primitives.gc_instance = &child_gc;
+
+    const result = child_vm.callWithArgs(fiber.thunk, &.{}) catch {
+        fiber.status = .errored;
+        fiber.result = types.VOID;
+        child_gc.deinit();
+        return;
+    };
+
+    fiber.status = .completed;
+    fiber.result = result;
+    child_gc.deinit();
 }
 
 fn threadYieldFn(_: []const Value) PrimitiveError!Value {
@@ -246,6 +274,14 @@ fn threadJoinFn(args: []const Value) PrimitiveError!Value {
 
     const target = types.toObject(args[0]).as(fiber_mod.Fiber);
 
+    // OS thread path: use std.Thread.join
+    if (target.os_thread) |thread| {
+        thread.join();
+        target.os_thread = null;
+        return threadJoinResult(target);
+    }
+
+    // Fiber path (existing behavior)
     var deadline: ?u64 = null;
     var has_timeout_val = false;
     var timeout_val: Value = types.VOID;

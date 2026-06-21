@@ -179,7 +179,7 @@ pub fn isNum(v: Value) bool {
 // GC / VM instances (pub for use by extracted modules)
 // ---------------------------------------------------------------------------
 
-pub var gc_instance: ?*@import("memory.zig").GC = null;
+pub threadlocal var gc_instance: ?*@import("memory.zig").GC = null;
 
 pub fn setGCInstance(gc: *@import("memory.zig").GC) void {
     gc_instance = gc;

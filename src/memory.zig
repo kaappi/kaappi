@@ -49,12 +49,22 @@ pub const GcStats = struct {
     no_collect_deferred: usize = 0,
 };
 
+var symbol_mutex: std.atomic.Mutex = .unlocked;
+
+fn spinLock(m: *std.atomic.Mutex) void {
+    while (!m.tryLock()) std.atomic.spinLoopHint();
+}
+fn spinUnlock(m: *std.atomic.Mutex) void {
+    m.unlock();
+}
+
 pub const GC = struct {
     allocator: std.mem.Allocator,
     objects: ?*Object = null,
     object_count: usize = 0,
     gc_threshold: usize = GC_THRESHOLD,
     symbols: std.StringHashMap(Value),
+    shared_symbols: ?*std.StringHashMap(Value) = null,
     roots: std.ArrayList(*Value),
     extra_roots: std.ArrayList(Value),
     enabled: bool = true,
@@ -70,6 +80,17 @@ pub const GC = struct {
         return .{
             .allocator = allocator,
             .symbols = std.StringHashMap(Value).init(allocator),
+            .roots = .empty,
+            .extra_roots = .empty,
+            .source_lines = std.AutoHashMap(Value, u32).init(allocator),
+        };
+    }
+
+    pub fn initForThread(allocator: std.mem.Allocator, parent: *GC) GC {
+        return .{
+            .allocator = allocator,
+            .symbols = std.StringHashMap(Value).init(allocator),
+            .shared_symbols = &parent.symbols,
             .roots = .empty,
             .extra_roots = .empty,
             .source_lines = std.AutoHashMap(Value, u32).init(allocator),
@@ -120,7 +141,12 @@ pub const GC = struct {
     }
 
     pub fn allocSymbol(self: *GC, name: []const u8) !Value {
-        if (self.symbols.get(name)) |existing| return existing;
+        const sym_table = self.shared_symbols orelse &self.symbols;
+
+        if (self.shared_symbols != null) spinLock(&symbol_mutex);
+        defer if (self.shared_symbols != null) spinUnlock(&symbol_mutex);
+
+        if (sym_table.get(name)) |existing| return existing;
 
         const owned_name = try self.allocator.dupe(u8, name);
         const sym = try self.allocator.create(Symbol);
@@ -133,7 +159,7 @@ pub const GC = struct {
         self.profileAlloc(@sizeOf(Symbol) + name.len);
         self.trackObject(&sym.header);
         const val = types.makePointer(@ptrCast(sym));
-        try self.symbols.put(owned_name, val);
+        try sym_table.put(owned_name, val);
         return val;
     }
 

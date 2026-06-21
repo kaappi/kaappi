@@ -34,7 +34,7 @@ pub const MAX_REGISTERS: usize = build_options.max_registers;
 pub const MAX_HANDLERS = 64;
 pub const MAX_WINDS = 64;
 
-pub var vm_instance: ?*VM = null;
+pub threadlocal var vm_instance: ?*VM = null;
 
 pub fn setVMInstance(vm: *VM) void {
     vm_instance = vm;
@@ -234,6 +234,25 @@ pub const VM = struct {
         if (vm.stdin_port != types.VOID) try gc.extra_roots.append(gc.allocator, vm.stdin_port);
         if (vm.stdout_port != types.VOID) try gc.extra_roots.append(gc.allocator, vm.stdout_port);
         if (vm.stderr_port != types.VOID) try gc.extra_roots.append(gc.allocator, vm.stderr_port);
+        return vm;
+    }
+
+    pub fn initForThread(gc: *memory.GC, parent: *VM) VM {
+        var vm = VM{
+            .gc = gc,
+            .globals = parent.globals,
+            .macros = parent.macros,
+            .output = .empty,
+            .libraries = parent.libraries,
+            .loading_libs = std.StringHashMap(void).init(gc.allocator),
+            .lib_paths = parent.lib_paths,
+            .param_overrides = std.AutoHashMap(usize, Value).init(gc.allocator),
+            .stdin_port = parent.stdin_port,
+            .stdout_port = parent.stdout_port,
+            .stderr_port = parent.stderr_port,
+        };
+        @memset(&vm.registers, types.UNDEFINED);
+        gc.root_marker = &markVMRoots;
         return vm;
     }
 
