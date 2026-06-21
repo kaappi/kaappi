@@ -16,7 +16,7 @@ pub const CodeBuffer = struct {
             null,
             size,
             .{ .READ = true, .WRITE = true, .EXEC = true },
-            .{ .TYPE = .PRIVATE, .ANONYMOUS = true, .JIT = true },
+            .{ .TYPE = .PRIVATE, .ANONYMOUS = true, .JIT = @import("builtin").os.tag == .macos },
             -1,
             0,
         );

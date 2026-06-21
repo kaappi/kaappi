@@ -15,16 +15,65 @@ extern "c" fn getgroups(size: c_int, list: [*]std.c.gid_t) c_int;
 extern "c" fn nice(inc: c_int) c_int;
 extern "c" fn setenv(name: [*:0]const u8, value: [*:0]const u8, overwrite: c_int) c_int;
 extern "c" fn unsetenv(name: [*:0]const u8) c_int;
-extern "c" fn lstat(noalias path: [*:0]const u8, noalias buf: *std.c.Stat) c_int;
+const is_linux = @import("builtin").os.tag == .linux;
 
-fn doStat(path: [*:0]const u8, stat_buf: *std.c.Stat, follow: bool) c_int {
-    if (@import("builtin").os.tag == .linux) {
-        const flags: u32 = if (!follow) std.c.AT.SYMLINK_NOFOLLOW else 0;
-        return @intCast(std.posix.system.fstatat(std.posix.AT.FDCWD, path, @ptrCast(stat_buf), flags));
+const StatResult = struct {
+    mode: u32,
+    size: i64,
+    mtime_sec: i64,
+    atime_sec: i64,
+    ctime_sec: i64,
+    dev: u64,
+    ino: u64,
+    nlinks: u64,
+    rdev: u64,
+    blksize: i64,
+    uid: u32,
+    gid: u32,
+};
+
+fn doStat(path: [*:0]const u8, follow: bool) ?StatResult {
+    if (is_linux) {
+        const linux = std.os.linux;
+        var sx: linux.Statx = undefined;
+        const flags: u32 = linux.AT.STATX_SYNC_AS_STAT |
+            (if (!follow) @as(u32, linux.AT.SYMLINK_NOFOLLOW) else 0);
+        const mask: u32 = linux.STATX.BASIC_STATS;
+        const rc = linux.statx(@bitCast(@as(i32, std.posix.AT.FDCWD)), path, flags, mask, &sx);
+        if (rc != 0) return null;
+        return .{
+            .mode = @intCast(sx.mode),
+            .size = @intCast(sx.size),
+            .mtime_sec = sx.mtime.sec,
+            .atime_sec = sx.atime.sec,
+            .ctime_sec = sx.ctime.sec,
+            .dev = @intCast(sx.dev_major),
+            .ino = sx.ino,
+            .nlinks = sx.nlink,
+            .rdev = @intCast(sx.rdev_major),
+            .blksize = @intCast(sx.blksize),
+            .uid = sx.uid,
+            .gid = sx.gid,
+        };
     } else {
-        if (!follow) return lstat(path, stat_buf);
-        const flags: u32 = 0;
-        return std.c.fstatat(std.posix.AT.FDCWD, path, stat_buf, flags);
+        const lstat_fn = @extern(*const fn ([*:0]const u8, *std.c.Stat) callconv(.c) c_int, .{ .name = "lstat" });
+        var stat_buf: std.c.Stat = undefined;
+        const r = if (!follow) lstat_fn(path, &stat_buf) else std.c.fstatat(std.posix.AT.FDCWD, path, &stat_buf, 0);
+        if (r != 0) return null;
+        return .{
+            .mode = @intCast(stat_buf.mode),
+            .size = @intCast(stat_buf.size),
+            .mtime_sec = stat_buf.mtime().sec,
+            .atime_sec = stat_buf.atime().sec,
+            .ctime_sec = stat_buf.ctime().sec,
+            .dev = @intCast(stat_buf.dev),
+            .ino = @intCast(stat_buf.ino),
+            .nlinks = @intCast(stat_buf.nlink),
+            .rdev = @intCast(stat_buf.rdev),
+            .blksize = @intCast(stat_buf.blksize),
+            .uid = stat_buf.uid,
+            .gid = stat_buf.gid,
+        };
     }
 }
 
@@ -182,38 +231,36 @@ fn fileInfoFn(args: []const Value) PrimitiveError!Value {
     const path_z = gc.allocator.dupeZ(u8, path) catch return PrimitiveError.OutOfMemory;
     defer gc.allocator.free(path_z);
 
-    var stat_buf: std.c.Stat = undefined;
-    const r = doStat(path_z, &stat_buf, follow);
-    if (r != 0) {
+    const sr = doStat(path_z, follow) orelse {
         return raiseFileError(gc, "cannot stat file", args[0]);
-    }
+    };
 
-    const mode: u32 = @intCast(stat_buf.mode);
+    const S = std.c.S;
     const file_type: types.FileInfo.FileType = blk: {
-        const masked = mode & std.c.S.IFMT;
-        if (masked == std.c.S.IFDIR) break :blk .directory;
-        if (masked == std.c.S.IFREG) break :blk .regular;
-        if (masked == std.c.S.IFLNK) break :blk .symlink;
-        if (masked == std.c.S.IFIFO) break :blk .fifo;
-        if (masked == std.c.S.IFSOCK) break :blk .socket;
-        if (masked == std.c.S.IFCHR or masked == std.c.S.IFBLK) break :blk .device;
+        const masked = sr.mode & S.IFMT;
+        if (masked == S.IFDIR) break :blk .directory;
+        if (masked == S.IFREG) break :blk .regular;
+        if (masked == S.IFLNK) break :blk .symlink;
+        if (masked == S.IFIFO) break :blk .fifo;
+        if (masked == S.IFSOCK) break :blk .socket;
+        if (masked == S.IFCHR or masked == S.IFBLK) break :blk .device;
         break :blk .other;
     };
 
     return gc.allocFileInfo(.{
-        .size = @intCast(stat_buf.size),
-        .mtime = stat_buf.mtime().sec,
-        .atime = stat_buf.atime().sec,
-        .ctime = stat_buf.ctime().sec,
-        .dev = @intCast(stat_buf.dev),
-        .ino = @intCast(stat_buf.ino),
-        .nlinks = @intCast(stat_buf.nlink),
-        .rdev = @intCast(stat_buf.rdev),
-        .blksize = @intCast(stat_buf.blksize),
-        .blocks = @intCast(stat_buf.blocks),
-        .mode = mode,
-        .uid = stat_buf.uid,
-        .gid = stat_buf.gid,
+        .size = @intCast(sr.size),
+        .mtime = sr.mtime_sec,
+        .atime = sr.atime_sec,
+        .ctime = sr.ctime_sec,
+        .dev = @intCast(sr.dev),
+        .ino = @intCast(sr.ino),
+        .nlinks = @intCast(sr.nlinks),
+        .rdev = @intCast(sr.rdev),
+        .blksize = @intCast(sr.blksize),
+        .blocks = 0,
+        .mode = sr.mode,
+        .uid = sr.uid,
+        .gid = sr.gid,
         .file_type = file_type,
     }) catch return PrimitiveError.OutOfMemory;
 }
