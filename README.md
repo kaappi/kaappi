@@ -27,7 +27,7 @@ zig build test                       # Run all tests
 | OS | Architecture | Build | Tests | JIT |
 |----|-------------|-------|-------|-----|
 | macOS | aarch64 (Apple Silicon) | yes | 347/347 | yes (native AArch64) |
-| Linux | x86_64 | yes | 310/320 | yes (native x86_64) |
+| Linux | x86_64 | yes | 312/320 (8 skip) | yes (native x86_64) |
 | Linux | aarch64 | yes | yes | yes (native AArch64) |
 
 ---

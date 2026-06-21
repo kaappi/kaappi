@@ -36,7 +36,7 @@ Requires Zig 0.16+ and libc (for linenoise terminal handling).
 | OS | Architecture | Build | Unit Tests | JIT | Notes |
 |----|-------------|-------|------------|-----|-------|
 | macOS | aarch64 (Apple Silicon) | yes | 347/347 | AArch64 native | Primary dev platform |
-| Linux | x86_64 | yes | 310/320 (4 skip, 6 filesystem) | x86_64 native | CI tested (Ubuntu) |
+| Linux | x86_64 | yes | 312/320 (8 skip, 0 fail) | x86_64 native | CI tested (Ubuntu) |
 | Linux | aarch64 | yes | yes | AArch64 native | Tested via podman |
 
 **JIT backends:** AArch64 is fully implemented (all opcodes + specialized
@@ -47,8 +47,9 @@ to the interpreter. Both backends are tested in CI.
 **Cross-compilation:** `zig build test -Dtarget=x86_64-linux` cross-compiles
 from macOS ARM. The binary runs in an x86_64 Linux container via podman.
 
-**Known Linux gaps:** 6 filesystem tests fail on x86_64 Linux (library
-loading paths, `terminal?` on file ports). Core language and JIT work fully.
+**8 skipped tests on x86_64 Linux:** 4 aarch64-specific JIT tests (write ARM
+machine code directly), 2 library-loading tests (need source tree), 2
+filesystem tests (need `build.zig` on disk). All skip gracefully — 0 failures.
 
 Builds default to **ReleaseSafe** (fast, with bounds/safety checks retained;
 fixnum overflow auto-promotes to bignum). Debug is ~500x slower for allocation-
