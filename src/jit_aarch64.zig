@@ -671,6 +671,7 @@ test "emitLoadImm64 large value" {
 }
 
 test "assembler + jit_mem integration" {
+    if (@import("builtin").os.tag != .macos) return error.SkipZigTest;
     const jit_mem = @import("jit_mem.zig");
 
     var asm_ctx = Assembler.init(std.testing.allocator);

@@ -2,8 +2,7 @@ const std = @import("std");
 
 const page_align = std.heap.page_size_min;
 
-extern "c" fn pthread_jit_write_protect_np(enabled: c_int) void;
-extern "c" fn sys_icache_invalidate(addr: *anyopaque, size: usize) void;
+const is_macos = @import("builtin").os.tag == .macos;
 
 pub const CodeBuffer = struct {
     mem: []align(page_align) u8,
@@ -37,14 +36,17 @@ pub const CodeBuffer = struct {
     pub fn writeCodeBytes(self: *CodeBuffer, bytes: []const u8) void {
         if (bytes.len > self.mem.len) return;
 
-        if (comptime @import("builtin").cpu.arch == .aarch64) {
-            pthread_jit_write_protect_np(0);
+        if (comptime is_macos) {
+            const jit_wp = @extern(*const fn (c_int) callconv(.c) void, .{ .name = "pthread_jit_write_protect_np" });
+            jit_wp(0);
         }
         @memcpy(self.mem[0..bytes.len], bytes);
         self.len = bytes.len;
-        if (comptime @import("builtin").cpu.arch == .aarch64) {
-            pthread_jit_write_protect_np(1);
-            sys_icache_invalidate(@ptrCast(self.mem.ptr), self.len);
+        if (comptime is_macos) {
+            const jit_wp = @extern(*const fn (c_int) callconv(.c) void, .{ .name = "pthread_jit_write_protect_np" });
+            const icache_inv = @extern(*const fn (*anyopaque, usize) callconv(.c) void, .{ .name = "sys_icache_invalidate" });
+            jit_wp(1);
+            icache_inv(@ptrCast(self.mem.ptr), self.len);
         }
     }
 
@@ -59,7 +61,7 @@ pub const CodeBuffer = struct {
 };
 
 test "mmap executable memory and run trivial function" {
-    if (@import("builtin").cpu.arch != .aarch64) return error.SkipZigTest;
+    if (!is_macos) return error.SkipZigTest;
     var buf = try CodeBuffer.alloc(4096);
     defer buf.free();
 
@@ -76,7 +78,7 @@ test "mmap executable memory and run trivial function" {
 }
 
 test "mmap code buffer with addition" {
-    if (@import("builtin").cpu.arch != .aarch64) return error.SkipZigTest;
+    if (!is_macos) return error.SkipZigTest;
     var buf = try CodeBuffer.alloc(4096);
     defer buf.free();
 
