@@ -1762,7 +1762,7 @@ test "compile trivial function" {
 }
 
 test "minimal prologue/epilogue" {
-    if (!jit_supported) return error.SkipZigTest;
+    if (!is_aarch64) return error.SkipZigTest;
     // Test just the entry/exit trampoline by compiling a function
     // that immediately returns (only a return opcode)
     const memory = @import("memory.zig");
@@ -1791,7 +1791,7 @@ test "minimal prologue/epilogue" {
 }
 
 test "prologue saves and restores callee-saved regs" {
-    if (!jit_supported) return error.SkipZigTest;
+    if (!is_aarch64) return error.SkipZigTest;
     var asm_ctx = a64.Assembler.init(std.testing.allocator);
     defer asm_ctx.deinit();
 
