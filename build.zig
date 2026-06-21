@@ -25,9 +25,13 @@ pub fn build(b: *std.Build) void {
     const max_registers = b.option(u32, "max-registers",
         "Maximum register count (default: 2048)") orelse 2048;
 
+    const gc_threshold = b.option(u32, "gc-threshold",
+        "Initial GC object threshold (default: 8192)") orelse 8192;
+
     const options = b.addOptions();
     options.addOption(u32, "max_frames", max_frames);
     options.addOption(u32, "max_registers", max_registers);
+    options.addOption(u32, "gc_initial_threshold", gc_threshold);
 
     const wf = b.addWriteFiles();
     const null_embed = wf.add("embedded_bytecode.zig",

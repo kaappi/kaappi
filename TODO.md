@@ -66,17 +66,11 @@ argument passing.
 Defaults raised to MAX_FRAMES=512, MAX_REGISTERS=2048. Configurable
 at build time via `-Dmax-frames=N` and `-Dmax-registers=N`.
 
-### GC tuning for tight recursion
+### ~~GC tuning for tight recursion~~ ✅ Done
 
-**Priority:** Low
-
-The GC threshold starts at 1024 objects and grows to `object_count * 4`
-after each collection (`src/memory.zig:1001`). In tight recursive code
-like `tak`, frequent allocations trigger many collections.
-
-Consider:
-- Larger initial threshold for non-interactive (file) execution
-- Generational collection for short-lived objects in recursive calls
+Initial GC threshold raised from 1024 to 8192 objects. Configurable
+at build time via `-Dgc-threshold=N`. Reduces early collection churn
+during startup and library registration.
 
 ## Documentation Bugs Found in Source
 

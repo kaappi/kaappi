@@ -34,7 +34,8 @@ const Bignum = types.Bignum;
 const Rational = types.Rational;
 const RandomSource = types.RandomSource;
 
-const GC_THRESHOLD: usize = 1024;
+const build_options = @import("build_options");
+const GC_THRESHOLD: usize = build_options.gc_initial_threshold;
 
 pub const GcStats = struct {
     collections: usize = 0,

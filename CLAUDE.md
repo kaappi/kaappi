@@ -16,11 +16,18 @@ zig build coverage                 # unit test code coverage (requires kcov)
 zig build coverage-scheme -- f.scm # Scheme file code coverage (requires kcov)
 zig build -Dbundle-src=program.scm # standalone binary (compile + embed in one step)
 zig build -Dbundle=program.sbc     # standalone binary from pre-compiled .sbc
+zig build -Dmax-frames=1024        # custom max call depth (default: 512)
+zig build -Dmax-registers=4096     # custom register count (default: 2048)
+zig build -Dgc-threshold=16384     # custom initial GC threshold (default: 8192)
 ```
 
 CLI flags: `-h`/`--help`, `--version`, `--lib-path <path>`, `--compile`,
 `-o <file>`, `--disassemble`, `--no-jit`, `--sandbox`, `--gc-stats`,
 `--profile`. Version is defined as `pub const version` in `main.zig`.
+
+Build-time options: `-Dmax-frames=N` (call frame depth, default 512),
+`-Dmax-registers=N` (register count, default 2048),
+`-Dgc-threshold=N` (initial GC object threshold, default 8192).
 
 Requires Zig 0.16+ and libc (for linenoise terminal handling).
 
