@@ -37,15 +37,18 @@ Requires Zig 0.16+ and libc (for linenoise terminal handling).
 |----|-------------|-------|------------|-----|-------|
 | macOS | aarch64 (Apple Silicon) | yes | 347/347 | AArch64 native | Primary dev platform |
 | Linux | x86_64 | yes | 312/320 (8 skip, 0 fail) | x86_64 native | CI tested (Ubuntu) |
-| Linux | aarch64 | yes | yes | AArch64 native | Tested via podman |
+| Linux | aarch64 | yes | yes | AArch64 native | CI tested (Ubuntu ARM) |
+| Linux | riscv64 | yes | yes | No (interpreter only) | CI tested (QEMU) |
 
 **JIT backends:** AArch64 is fully implemented (all opcodes + specialized
 arithmetic + function calls + self-tail-call). x86_64 handles basic opcodes
 (loads, moves, branches, return with frame pop); unhandled opcodes side-exit
-to the interpreter. Both backends are tested in CI.
+to the interpreter. RISC-V runs interpreter-only (no JIT backend). AArch64
+and x86_64 backends are tested in CI; riscv64 tests via QEMU cross-compilation.
 
-**Cross-compilation:** `zig build test -Dtarget=x86_64-linux` cross-compiles
-from macOS ARM. The binary runs in an x86_64 Linux container via podman.
+**Cross-compilation:** `zig build -Dtarget=x86_64-linux` and
+`zig build -Dtarget=riscv64-linux` cross-compile from macOS ARM. Binaries
+run in Linux containers via podman (x86_64 via Rosetta, riscv64 via QEMU).
 
 **8 skipped tests on x86_64 Linux:** 4 aarch64-specific JIT tests (write ARM
 machine code directly), 2 library-loading tests (need source tree), 2

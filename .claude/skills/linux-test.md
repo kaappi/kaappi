@@ -1,6 +1,6 @@
 ---
 name: linux-test
-description: Run Kaappi build and tests on Linux using podman. Tests both aarch64 (native build + unit tests + R7RS) and x86_64 (cross-compile + JIT tests). Use when the user asks to test on Linux, verify cross-platform build, or check Linux compatibility.
+description: Run Kaappi build and tests on Linux using podman. Tests aarch64 (native build + unit tests + R7RS), x86_64 (cross-compile + JIT tests), and riscv64 (cross-compile + interpreter tests). Use when the user asks to test on Linux, verify cross-platform build, or check Linux compatibility.
 ---
 
 # Linux Test
@@ -48,13 +48,27 @@ podman run --rm --platform linux/amd64 -v /Users/bmuthuka/kaappi/unit-tests-x86:
   bash -c 'chmod +x /unit-tests && /unit-tests 2>&1 | grep -E "passed|failed|skipped"'
 ```
 
-### 4. Report the results
+### 4. Test on riscv64 Linux (cross-compile + run interpreter tests)
 
-Report: build status, test pass/fail/skip counts for both architectures, and any errors.
+Cross-compile from macOS, then run the binary in a riscv64 container:
+
+```bash
+podman image exists kaappi-builder-riscv64 || podman build --platform linux/riscv64 -t kaappi-builder-riscv64 /Users/bmuthuka/kaappi/ci-images/builder/
+zig build test -Dtarget=riscv64-linux 2>&1 || true
+rv_bin=$(find .zig-cache -name "unit-tests" -type f -exec sh -c 'file "{}" | grep -q "RISC-V" && echo "{}"' \; | head -1)
+cp "$rv_bin" /Users/bmuthuka/kaappi/unit-tests-riscv64
+podman run --rm --platform linux/riscv64 -v /Users/bmuthuka/kaappi/unit-tests-riscv64:/unit-tests:Z kaappi-builder-riscv64 \
+  bash -c 'chmod +x /unit-tests && /unit-tests 2>&1 | grep -E "passed|failed|skipped"'
+```
+
+### 5. Report the results
+
+Report: build status, test pass/fail/skip counts for all three architectures, and any errors.
 
 ## Notes
 
 - **aarch64**: builds and runs natively via podman's Virtualization.framework. JIT execution tests are skipped (RWX memory doesn't work under VM emulation). ~2 minutes.
 - **x86_64**: cross-compiled from macOS ARM, binary runs in x86_64 container via Rosetta. All JIT execution tests run and pass. ~1 minute.
+- **riscv64**: cross-compiled from macOS ARM, binary runs in riscv64 container via QEMU. No JIT (interpreter only). JIT tests auto-skip. ~5 minutes (QEMU emulation is slower).
 - Builder images have Zig 0.16, GCC, OpenSSL, libpq, redis-tools pre-installed.
 - `/src` is mounted read-only — a writable copy is made inside the container.

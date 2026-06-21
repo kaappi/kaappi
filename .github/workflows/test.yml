@@ -6,7 +6,7 @@ jobs:
   test:
     strategy:
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os: [ubuntu-latest, ubuntu-24.04-arm, macos-latest]
     runs-on: ${{ matrix.os }}
 
     steps:
@@ -24,3 +24,33 @@ jobs:
 
       - name: Scheme suites
         run: bash tests/scheme/run-all.sh
+
+  riscv64-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: mlugg/setup-zig@v2
+        with:
+          version: '0.16.0'
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: riscv64
+
+      - name: Build (cross-compile for riscv64)
+        run: zig build -Dtarget=riscv64-linux
+
+      - name: Unit tests (riscv64 via QEMU)
+        run: zig build test -Dtarget=riscv64-linux
+
+      - name: Scheme suites (riscv64 via QEMU)
+        run: |
+          kaappi=zig-out/bin/kaappi
+          for f in tests/scheme/smoke/*.scm tests/scheme/compliance/*.scm \
+                   tests/scheme/continuations/*.scm tests/scheme/hygiene/*.scm \
+                   tests/scheme/srfi/*.scm; do
+            $kaappi "$f" || exit 1
+          done
+          $kaappi tests/scheme/r7rs/r7rs-tests.scm

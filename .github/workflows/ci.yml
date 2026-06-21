@@ -11,7 +11,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os: [ubuntu-latest, ubuntu-24.04-arm, macos-latest]
 
     steps:
       - uses: actions/checkout@v4
@@ -28,4 +28,28 @@ jobs:
         run: zig build test
 
       - name: R7RS test suite
+        run: zig-out/bin/kaappi tests/scheme/r7rs/r7rs-tests.scm
+
+  riscv64-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Zig
+        uses: mlugg/setup-zig@v2
+        with:
+          version: 0.16.0
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: riscv64
+
+      - name: Build (cross-compile for riscv64)
+        run: zig build -Dtarget=riscv64-linux
+
+      - name: Unit tests (riscv64 via QEMU)
+        run: zig build test -Dtarget=riscv64-linux
+
+      - name: R7RS test suite (riscv64 via QEMU)
         run: zig-out/bin/kaappi tests/scheme/r7rs/r7rs-tests.scm
