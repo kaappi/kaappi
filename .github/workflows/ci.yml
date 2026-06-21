@@ -7,7 +7,7 @@ on:
     branches: [main]
 
 jobs:
-  build-and-test:
+  test:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
@@ -27,8 +27,8 @@ jobs:
       - name: Unit tests
         run: zig build test
 
-      - name: R7RS test suite
-        run: zig-out/bin/kaappi tests/scheme/r7rs/r7rs-tests.scm
+      - name: Scheme suites
+        run: bash tests/scheme/run-all.sh
 
   riscv64-test:
     runs-on: ubuntu-latest
