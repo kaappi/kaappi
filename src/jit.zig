@@ -1,8 +1,15 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const types = @import("types.zig");
 const vm_mod = @import("vm.zig");
 const jit_mem = @import("jit_mem.zig");
+
+const is_aarch64 = builtin.cpu.arch == .aarch64;
+const is_x86_64 = builtin.cpu.arch == .x86_64;
+const jit_supported = is_aarch64 or is_x86_64;
+
 const a64 = @import("jit_aarch64.zig");
+const x64 = @import("jit_x86_64.zig");
 
 pub const JIT_THRESHOLD: u32 = 100;
 
@@ -25,7 +32,7 @@ const OFF_FRAME_IP = @offsetOf(CallFrame, "ip");
 const Reg = a64.Reg;
 const Cond = a64.Cond;
 
-// Machine register assignments (callee-saved)
+// Machine register assignments (callee-saved, AArch64)
 const VM_PTR = Reg.x21;
 const REG_BASE = Reg.x19; // &vm.registers[0]
 const BASE_OFF = Reg.x20; // frame.base * 8
@@ -115,6 +122,8 @@ pub fn isEligible(func: *const types.Function) bool {
 }
 
 pub fn compile(func: *types.Function, vm: *VM, allocator: std.mem.Allocator) !*JitCode {
+    if (!jit_supported) return error.InvalidBytecode;
+    if (is_x86_64) return compileX86_64(func, vm, allocator);
     var asm_ctx = a64.Assembler.init(allocator);
     defer asm_ctx.deinit();
 
@@ -289,6 +298,8 @@ pub fn compile(func: *types.Function, vm: *VM, allocator: std.mem.Allocator) !*J
                     try emitSpecializedArith(&asm_ctx, base_reg, spec, &pending_exits, allocator, bc_ip_cg);
                 } else if (spec != .none and nargs == 1 and (spec == .zero_p or spec == .null_p or spec == .pair_p or spec == .not_op or spec == .car or spec == .cdr)) {
                     try emitSpecializedPredicate(&asm_ctx, base_reg, spec, &pending_exits, allocator, bc_ip_cg);
+                } else if (isSelfCall(func, sym_idx, nargs)) {
+                    try emitSelfCallSequence(&asm_ctx, base_reg, nargs, &pending_exits, &pending_returns, &pending_quick_exits, allocator, bc_ip_cg, ip);
                 } else {
                     try emitCallGlobal(&asm_ctx, base_reg, sym_idx, nargs, &pending_exits, &pending_returns, &pending_quick_exits, allocator, bc_ip_cg, ip, func);
                 }
@@ -351,6 +362,29 @@ pub fn compile(func: *types.Function, vm: *VM, allocator: std.mem.Allocator) !*J
                 const src = code[ip + 1];
                 ip += 2;
                 try emitRegCopy(&asm_ctx, dst, src);
+            },
+            .self_tail_call => {
+                const base_reg = code[ip];
+                const stc_nargs = code[ip + 1];
+                ip += 2;
+                // Copy args from call window to frame base: registers[frame.base+i] = registers[frame.base+base_reg+1+i]
+                var i: u8 = 0;
+                while (i < stc_nargs) : (i += 1) {
+                    const src_off: u16 = (@as(u16, base_reg) + 1 + i) * 8;
+                    const dst_off: u16 = @as(u16, i) * 8;
+                    try asm_ctx.emitLdrImm(.x0, FRAME_PTR, src_off);
+                    try asm_ctx.emitStrImm(.x0, FRAME_PTR, dst_off);
+                }
+                // Jump back to bytecode IP 0 (the beginning of the function)
+                const target_native = bc_to_native.get(0) orelse return error.InvalidBytecode;
+                const patch_idx = asm_ctx.pos();
+                try asm_ctx.emit(0); // placeholder B
+                try pending_branches.append(allocator, .{
+                    .native_idx = patch_idx,
+                    .target_bc_ip = 0,
+                    .cond = null,
+                });
+                _ = target_native;
             },
             // All other opcodes: side-exit to interpreter
             else => {
@@ -475,6 +509,295 @@ pub fn compile(func: *types.Function, vm: *VM, allocator: std.mem.Allocator) !*J
         .buf = buf,
     };
     return jit_code;
+}
+
+// ---------------------------------------------------------------------------
+// x86_64 backend
+// ---------------------------------------------------------------------------
+
+const X64 = x64.Reg;
+
+const X_VM_PTR = X64.r13;
+const X_REG_BASE = X64.r14;
+const X_BASE_OFF = X64.r15;
+const X_FRAME_PTR = X64.rbx;
+const X_CONST_PTR = X64.r12;
+const X_CLOSURE_PTR = X64.rbp;
+
+fn compileX86_64(func: *types.Function, vm: *VM, allocator: std.mem.Allocator) !*JitCode {
+    _ = vm;
+    var asm_ctx = x64.Assembler.init(allocator);
+    defer asm_ctx.deinit();
+
+    var bc_to_native = std.AutoHashMap(usize, u32).init(allocator);
+    defer bc_to_native.deinit();
+
+    var pending_branches: std.ArrayList(PendingBranch) = .empty;
+    defer pending_branches.deinit(allocator);
+
+    var pending_exits: std.ArrayList(PendingSideExit) = .empty;
+    defer pending_exits.deinit(allocator);
+
+    var pending_returns: std.ArrayList(u32) = .empty;
+    defer pending_returns.deinit(allocator);
+
+    var pending_quick_exits: std.ArrayList(u32) = .empty;
+    defer pending_quick_exits.deinit(allocator);
+
+    // --- Entry trampoline: save callee-saved, set up state registers ---
+    try asm_ctx.emitPush(.rbx);
+    try asm_ctx.emitPush(.rbp);
+    try asm_ctx.emitPush(.r12);
+    try asm_ctx.emitPush(.r13);
+    try asm_ctx.emitPush(.r14);
+    try asm_ctx.emitPush(.r15);
+
+    // rdi=VM*, rsi=base, rdx=constants, rcx=closure (System V ABI)
+    try asm_ctx.emitMovReg(X_VM_PTR, .rdi);
+    try x64EmitAddLargeOffset(&asm_ctx, X_REG_BASE, X_VM_PTR, OFF_REGISTERS);
+    try asm_ctx.emitLslImm(X_BASE_OFF, .rsi, 3);
+    try asm_ctx.emitAddReg(X_FRAME_PTR, X_REG_BASE, X_BASE_OFF);
+    try asm_ctx.emitMovReg(X_CONST_PTR, .rdx);
+    try asm_ctx.emitMovReg(X_CLOSURE_PTR, .rcx);
+
+    // --- Bytecode walk ---
+    const code = func.code.items;
+    var ip: usize = 0;
+    while (ip < code.len) {
+        try bc_to_native.put(ip, asm_ctx.pos());
+
+        const raw = code[ip];
+        const op: types.OpCode = @enumFromInt(raw);
+        ip += 1;
+
+        switch (op) {
+            .load_nil => {
+                const dst = code[ip];
+                ip += 1;
+                try x64EmitLoadImmediate(&asm_ctx, dst, types.NIL);
+            },
+            .load_true => {
+                const dst = code[ip];
+                ip += 1;
+                try x64EmitLoadImmediate(&asm_ctx, dst, types.TRUE);
+            },
+            .load_false => {
+                const dst = code[ip];
+                ip += 1;
+                try x64EmitLoadImmediate(&asm_ctx, dst, types.FALSE);
+            },
+            .load_void => {
+                const dst = code[ip];
+                ip += 1;
+                try x64EmitLoadImmediate(&asm_ctx, dst, types.VOID);
+            },
+            .load_const => {
+                const dst = code[ip];
+                const idx = readU16(code, ip + 1);
+                ip += 3;
+                const offset: u32 = @as(u32, idx) * 8;
+                if (offset <= 32760) {
+                    try asm_ctx.emitLdrImm(.rax, X_CONST_PTR, @intCast(offset));
+                } else {
+                    try asm_ctx.emitLoadImm64(.rax, offset);
+                    try asm_ctx.emitAddReg(.rax, X_CONST_PTR, .rax);
+                    try asm_ctx.emitLdrImm(.rax, .rax, 0);
+                }
+                try x64EmitStoreReg(&asm_ctx, dst, .rax);
+            },
+            .move => {
+                const dst = code[ip];
+                const src = code[ip + 1];
+                ip += 2;
+                try x64EmitLoadReg(&asm_ctx, .rax, src);
+                try x64EmitStoreReg(&asm_ctx, dst, .rax);
+            },
+            .@"return" => {
+                const src = code[ip];
+                ip += 1;
+                try x64EmitLoadReg(&asm_ctx, .rax, src);
+                try x64EmitStoreReg(&asm_ctx, 0, .rax);
+                const patch_idx = asm_ctx.pos();
+                try asm_ctx.emit(0xE9); // JMP rel32
+                try asm_ctx.emit32(0);
+                try pending_returns.append(allocator, patch_idx + 1);
+            },
+            .jump => {
+                const off = readI16(code, ip);
+                ip += 2;
+                const target: usize = @intCast(@as(i64, @intCast(ip)) + @as(i64, off));
+                const patch_idx = asm_ctx.pos();
+                try asm_ctx.emit(0xE9); // JMP rel32
+                try asm_ctx.emit32(0);
+                try pending_branches.append(allocator, .{
+                    .native_idx = patch_idx + 1,
+                    .target_bc_ip = target,
+                    .cond = null,
+                });
+            },
+            .jump_false => {
+                const cond_reg = code[ip];
+                const off = readI16(code, ip + 1);
+                ip += 3;
+                const target: usize = @intCast(@as(i64, @intCast(ip)) + @as(i64, off));
+                try x64EmitLoadReg(&asm_ctx, .rax, cond_reg);
+                try asm_ctx.emitLoadImm64(.rcx, types.FALSE);
+                try asm_ctx.emitCmpReg(.rax, .rcx);
+                const patch_idx = asm_ctx.pos();
+                try asm_ctx.emit(0x0F); // JE rel32
+                try asm_ctx.emit(0x84);
+                try asm_ctx.emit32(0);
+                try pending_branches.append(allocator, .{
+                    .native_idx = patch_idx + 2,
+                    .target_bc_ip = target,
+                    .cond = x64.Cond.e,
+                });
+            },
+            .jump_true => {
+                const cond_reg = code[ip];
+                const off = readI16(code, ip + 1);
+                ip += 3;
+                const target: usize = @intCast(@as(i64, @intCast(ip)) + @as(i64, off));
+                try x64EmitLoadReg(&asm_ctx, .rax, cond_reg);
+                try asm_ctx.emitLoadImm64(.rcx, types.FALSE);
+                try asm_ctx.emitCmpReg(.rax, .rcx);
+                const patch_idx = asm_ctx.pos();
+                try asm_ctx.emit(0x0F); // JNE rel32
+                try asm_ctx.emit(0x85);
+                try asm_ctx.emit32(0);
+                try pending_branches.append(allocator, .{
+                    .native_idx = patch_idx + 2,
+                    .target_bc_ip = target,
+                    .cond = x64.Cond.ne,
+                });
+            },
+            else => {
+                // Side-exit for unhandled opcodes
+                const operand_bytes: usize = switch (op) {
+                    .get_global, .set_global, .define_global => 3,
+                    .get_local, .set_local, .get_upvalue, .set_upvalue => 2,
+                    .call, .tail_call => 2,
+                    .cons => 3,
+                    .call_global, .tail_call_global => 4,
+                    .box_local => 1,
+                    .get_box_local, .set_box_local => 2,
+                    .self_tail_call => 2,
+                    else => 0,
+                };
+                const side_exit_ip = ip - 1;
+                ip += operand_bytes;
+                const patch_idx = asm_ctx.pos();
+                try asm_ctx.emit(0xE9); // JMP rel32
+                try asm_ctx.emit32(0);
+                try pending_exits.append(allocator, .{
+                    .native_idx = patch_idx + 1,
+                    .bc_ip = side_exit_ip,
+                });
+            },
+        }
+    }
+
+    try bc_to_native.put(ip, asm_ctx.pos());
+
+    // --- Return trampoline ---
+    const return_trampoline = asm_ctx.pos();
+    try asm_ctx.emitLoadImm64(.rax, 0);
+    const ret_to_epi = asm_ctx.pos();
+    try asm_ctx.emit(0xE9);
+    try asm_ctx.emit32(0);
+
+    // --- Quick exit ---
+    const quick_exit = asm_ctx.pos();
+    try asm_ctx.emitLoadImm64(.rax, 0xFFFFFFFF);
+    const qe_to_epi = asm_ctx.pos();
+    try asm_ctx.emit(0xE9);
+    try asm_ctx.emit32(0);
+
+    // --- Exit trampoline: rax = bc_ip, add 1 ---
+    const exit_start = asm_ctx.pos();
+    try asm_ctx.emitAddImm(.rax, .rax, 1);
+
+    // --- Shared epilogue ---
+    const epilogue = asm_ctx.pos();
+    try asm_ctx.emitPop(.r15);
+    try asm_ctx.emitPop(.r14);
+    try asm_ctx.emitPop(.r13);
+    try asm_ctx.emitPop(.r12);
+    try asm_ctx.emitPop(.rbp);
+    try asm_ctx.emitPop(.rbx);
+    try asm_ctx.emitRet();
+
+    // Patch return/quick-exit to epilogue
+    x64PatchJmp(&asm_ctx, ret_to_epi, epilogue);
+    x64PatchJmp(&asm_ctx, qe_to_epi, epilogue);
+
+    // Patch branches
+    for (pending_branches.items) |pb| {
+        const target_native = bc_to_native.get(pb.target_bc_ip) orelse return error.InvalidBytecode;
+        x64PatchJmp(&asm_ctx, pb.native_idx, target_native);
+    }
+
+    // Patch returns
+    for (pending_returns.items) |pr| {
+        x64PatchJmp(&asm_ctx, pr, return_trampoline);
+    }
+
+    // Patch quick exits
+    for (pending_quick_exits.items) |pq| {
+        x64PatchJmp(&asm_ctx, pq, quick_exit);
+    }
+
+    // Patch side-exits
+    for (pending_exits.items) |pe| {
+        const stub_pos = asm_ctx.pos();
+        try asm_ctx.emitLoadImm64(.rax, pe.bc_ip);
+        const after_load = asm_ctx.pos();
+        try asm_ctx.emit(0xE9);
+        try asm_ctx.emit32(0);
+        x64PatchJmp(&asm_ctx, after_load + 1, exit_start);
+        x64PatchJmp(&asm_ctx, pe.native_idx, stub_pos);
+    }
+
+    // --- Finalize ---
+    const code_bytes = asm_ctx.toSlice();
+    var buf = try jit_mem.CodeBuffer.alloc(code_bytes.len);
+    buf.writeCodeBytes(code_bytes);
+
+    const jit_code = try allocator.create(JitCode);
+    jit_code.* = .{
+        .entry = @ptrCast(@alignCast(buf.mem.ptr)),
+        .buf = buf,
+    };
+    return jit_code;
+}
+
+fn x64PatchJmp(asm_ctx: *x64.Assembler, patch_offset: u32, target: u32) void {
+    const rel: i32 = @as(i32, @intCast(target)) - @as(i32, @intCast(patch_offset + 4));
+    asm_ctx.patchAt(patch_offset, @bitCast(rel));
+}
+
+fn x64EmitLoadImmediate(asm_ctx: *x64.Assembler, dst: u8, value: u64) !void {
+    try asm_ctx.emitLoadImm64(.rax, value);
+    try x64EmitStoreReg(asm_ctx, dst, .rax);
+}
+
+fn x64EmitLoadReg(asm_ctx: *x64.Assembler, rd: X64, src_slot: u8) !void {
+    const offset: u16 = @as(u16, src_slot) * 8;
+    try asm_ctx.emitLdrImm(rd, X_FRAME_PTR, offset);
+}
+
+fn x64EmitStoreReg(asm_ctx: *x64.Assembler, dst_slot: u8, rs: X64) !void {
+    const offset: u16 = @as(u16, dst_slot) * 8;
+    try asm_ctx.emitStrImm(rs, X_FRAME_PTR, offset);
+}
+
+fn x64EmitAddLargeOffset(asm_ctx: *x64.Assembler, rd: X64, rn: X64, offset: usize) !void {
+    if (offset <= 4095) {
+        try asm_ctx.emitAddImm(rd, rn, @intCast(offset));
+    } else {
+        try asm_ctx.emitLoadImm64(rd, offset);
+        try asm_ctx.emitAddReg(rd, rn, rd);
+    }
 }
 
 pub fn tryCompile(func: *types.Function, vm: *VM) void {
@@ -1095,6 +1418,120 @@ fn emitCallSequence(asm_ctx: *a64.Assembler, base_reg: u8, nargs: u8, callee_reg
     try pending_returns.append(allocator, err_br);
 
     // Patch callee_ok to point to here (success continuation)
+    const final_ok = asm_ctx.pos();
+    const final_ok_off: i32 = @as(i32, @intCast(final_ok)) - @as(i32, @intCast(callee_ok));
+    asm_ctx.patchAt(callee_ok, a64.Assembler.bCond(.eq, @intCast(final_ok_off)));
+}
+
+fn isSelfCall(func: *const types.Function, sym_idx: u16, nargs: u8) bool {
+    if (func.name == null or func.is_variadic) return false;
+    if (nargs != func.arity) return false;
+    if (sym_idx >= func.constants.items.len) return false;
+    const sym_val = func.constants.items[sym_idx];
+    if (!types.isSymbol(sym_val)) return false;
+    return std.mem.eql(u8, types.symbolName(sym_val), func.name.?);
+}
+
+fn emitSelfCallSequence(asm_ctx: *a64.Assembler, base_reg: u8, nargs: u8, pending_exits: *std.ArrayList(PendingSideExit), pending_returns: *std.ArrayList(u32), pending_quick_exits: *std.ArrayList(u32), allocator: std.mem.Allocator, bc_ip: usize, ip_after: usize) !void {
+    _ = nargs;
+    _ = pending_quick_exits;
+
+    // Skip pointer, tag, arity, variadic, jit_code checks — all invariants for self-call.
+    // Only keep: frame_count < MAX_FRAMES (stack overflow is still possible).
+
+    try emitLoadFromVmField(asm_ctx, .x1, OFF_FRAME_COUNT);
+    try asm_ctx.emitLoadImm64(.x2, MAX_FRAMES);
+    try asm_ctx.emitCmpReg(.x1, .x2);
+    const fc_exit = asm_ctx.pos();
+    try asm_ctx.emit(0);
+    try pending_exits.append(allocator, .{ .native_idx = fc_exit, .bc_ip = bc_ip, .cond = .hs });
+
+    // Save caller's frame IP
+    try asm_ctx.emitSubImm(.x1, .x1, 1);
+    try emitMulConst(asm_ctx, .x2, .x1, SIZEOF_CALLFRAME);
+    try emitAddLargeOffset(asm_ctx, .x3, VM_PTR, OFF_FRAMES);
+    try asm_ctx.emitAddReg(.x3, .x3, .x2);
+    try asm_ctx.emitLoadImm64(.x4, ip_after);
+    try emitStoreAtOffset(asm_ctx, .x4, .x3, OFF_FRAME_IP);
+
+    // Push new frame
+    try asm_ctx.emitLoadImm64(.x4, SIZEOF_CALLFRAME);
+    try asm_ctx.emitAddReg(.x3, .x3, .x4);
+
+    // new_base = frame.base + base_reg + 1
+    try asm_ctx.emit(a64.Assembler.asrImm(.x7, BASE_OFF, 3));
+    try asm_ctx.emitLoadImm64(.x4, @as(u16, base_reg) + 1);
+    try asm_ctx.emitAddReg(.x7, .x7, .x4);
+
+    // closure = CLOSURE_PTR (self — already in register)
+    try emitStoreAtOffset(asm_ctx, CLOSURE_PTR, .x3, OFF_FRAME_CLOSURE);
+
+    // native = null
+    try asm_ctx.emitMovz(.x4, 0, 0);
+    try emitStoreAtOffset(asm_ctx, .x4, .x3, OFF_FRAME_NATIVE);
+
+    // code = func.code (load from our own closure)
+    try emitLoadFromField(asm_ctx, .x5, CLOSURE_PTR, OFF_CLOSURE_FUNC);
+    try emitLoadFromField(asm_ctx, .x4, .x5, OFF_FUNC_CODE);
+    try emitStoreAtOffset(asm_ctx, .x4, .x3, OFF_FRAME_CODE);
+    try emitLoadFromField(asm_ctx, .x4, .x5, OFF_FUNC_CODE + 8);
+    try emitStoreAtOffset(asm_ctx, .x4, .x3, OFF_FRAME_CODE + 8);
+
+    // ip = 0
+    try asm_ctx.emitMovz(.x4, 0, 0);
+    try emitStoreAtOffset(asm_ctx, .x4, .x3, OFF_FRAME_IP);
+
+    // base = new_base
+    try emitStoreHalfAtOffset(asm_ctx, .x7, .x3, OFF_FRAME_BASE);
+
+    // dst = base_reg
+    try emitStoreByteAtOffset(asm_ctx, base_reg, .x3, OFF_FRAME_DST, .x4);
+
+    // saved_wind_count
+    try emitLoadFromVmField(asm_ctx, .x4, OFF_WIND_COUNT);
+    try emitStoreHalfAtOffset(asm_ctx, .x4, .x3, OFF_FRAME_SAVED_WIND);
+
+    // Increment frame_count
+    try emitLoadFromVmField(asm_ctx, .x1, OFF_FRAME_COUNT);
+    try asm_ctx.emitAddImm(.x1, .x1, 1);
+    try emitStoreAtOffset(asm_ctx, .x1, VM_PTR, OFF_FRAME_COUNT);
+
+    // Increment call_count
+    try emitLoadWFromField(asm_ctx, .x1, .x5, OFF_FUNC_CALL_COUNT);
+    try asm_ctx.emitAddImm(.x1, .x1, 1);
+    try emitStoreWAtOffset(asm_ctx, .x1, .x5, OFF_FUNC_CALL_COUNT);
+
+    // Call self's JIT entry — load from our own jit_code
+    try emitLoadFromField(asm_ctx, .x6, .x5, OFF_FUNC_JIT_CODE);
+    try emitLoadFromField(asm_ctx, .x8, .x6, OFF_JIT_CODE_ENTRY);
+
+    // Args: x0=VM*, x1=new_base, x2=CONST_PTR (same constants), x3=CLOSURE_PTR
+    try asm_ctx.emitMovReg(.x2, CONST_PTR);
+    try asm_ctx.emitMovReg(.x3, CLOSURE_PTR);
+    try asm_ctx.emitMovReg(.x1, .x7);
+    try asm_ctx.emitMovReg(.x0, VM_PTR);
+
+    try asm_ctx.emitBlr(.x8);
+
+    // Handle result (same as emitCallSequence)
+    try asm_ctx.emitCmpImm(.x0, 0);
+    const callee_ok = asm_ctx.pos();
+    try asm_ctx.emit(0);
+
+    // Callee side-exited — call jitFinishCallee
+    try asm_ctx.emit(a64.Assembler.asrImm(.x2, BASE_OFF, 3));
+    try asm_ctx.emitAddImm(.x2, .x2, base_reg);
+    try asm_ctx.emitMovz(.x1, 0, 0);
+    try asm_ctx.emitMovReg(.x0, VM_PTR);
+    try asm_ctx.emitLoadImm64(.x8, @intFromPtr(&jitFinishCallee));
+    try asm_ctx.emitBlr(.x8);
+
+    try asm_ctx.emitCmpImm(.x0, 0);
+    try asm_ctx.emit(a64.Assembler.bCond(.ne, 2));
+    const err_br = asm_ctx.pos();
+    try asm_ctx.emit(0);
+    try pending_returns.append(allocator, err_br);
+
     const final_ok = asm_ctx.pos();
     const final_ok_off: i32 = @as(i32, @intCast(final_ok)) - @as(i32, @intCast(callee_ok));
     asm_ctx.patchAt(callee_ok, a64.Assembler.bCond(.eq, @intCast(final_ok_off)));

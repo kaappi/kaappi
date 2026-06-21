@@ -103,8 +103,8 @@ kaappi> (char-alphabetic? #\λ)
 
 ### Beyond R7RS
 
-- **C FFI** — call into shared libraries from Scheme via `(kaappi ffi)`: `ffi-open`, `ffi-fn`, `ffi-close`, plus `ffi-callback` for passing Scheme procedures to C (7 callback signatures)
-- **JIT compiler** — hot functions (100+ calls) are compiled to native AArch64 machine code; inline fixnum arithmetic, comparisons, `car`/`cdr`, `cons`, predicates; JIT-to-JIT call chaining
+- **C FFI** — call into shared libraries from Scheme via `(kaappi ffi)`: `ffi-open`, `ffi-fn`, `ffi-close`, plus `ffi-callback` for passing Scheme procedures to C (7 callback signatures, 18 types including explicit-width integers and `size_t`)
+- **JIT compiler** — hot functions (100+ calls) are compiled to native machine code (AArch64 and x86_64); inline fixnum arithmetic, comparisons, `car`/`cdr`, `cons`, predicates; JIT-to-JIT call chaining
 - **Green threads** — `(kaappi fibers)` with `spawn`, `yield`, `fiber-join`, channels; plus full SRFI-18 compatibility (`make-thread`, mutexes, condition variables)
 - **Profiler** — `kaappi --profile` or `,profile expr` in the REPL; per-function self/total time, call counts, allocation bytes
 - **Standalone binaries** — `zig build -Dbundle-src=program.scm` compiles and embeds bytecode + libraries into a single executable
@@ -258,8 +258,10 @@ kaappi/
 │   ├── primitives_ffi.zig         FFI procedures (ffi-open, ffi-fn, ffi-close)
 │   ├── primitives_r7rs.zig        time, process-context, eval, load
 │   ├── unicode_tables.zig         Unicode 15.1 case mapping tables (auto-generated)
-│   ├── jit.zig                    JIT compiler (AArch64)
+│   ├── jit.zig                    JIT compiler (arch dispatch + code gen)
 │   ├── jit_aarch64.zig            AArch64 instruction encoding
+│   ├── jit_x86_64.zig             x86_64 instruction encoding
+│   ├── jit_mem.zig                Executable memory allocation
 │   ├── disassembler.zig           Bytecode disassembler
 │   │
 │   ├── testing_helpers.zig        Shared test utilities

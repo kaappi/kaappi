@@ -26,14 +26,21 @@ pub const CodeBuffer = struct {
 
     pub fn writeCode(self: *CodeBuffer, code: []const u32) void {
         const bytes = std.mem.sliceAsBytes(code);
+        self.writeCodeBytes(bytes);
+    }
+
+    pub fn writeCodeBytes(self: *CodeBuffer, bytes: []const u8) void {
         if (bytes.len > self.mem.len) return;
 
-        pthread_jit_write_protect_np(0);
+        if (comptime @import("builtin").cpu.arch == .aarch64) {
+            pthread_jit_write_protect_np(0);
+        }
         @memcpy(self.mem[0..bytes.len], bytes);
         self.len = bytes.len;
-        pthread_jit_write_protect_np(1);
-
-        sys_icache_invalidate(@ptrCast(self.mem.ptr), self.len);
+        if (comptime @import("builtin").cpu.arch == .aarch64) {
+            pthread_jit_write_protect_np(1);
+            sys_icache_invalidate(@ptrCast(self.mem.ptr), self.len);
+        }
     }
 
     pub fn getEntryPoint(self: *const CodeBuffer) *const fn () callconv(.c) u64 {

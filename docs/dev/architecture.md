@@ -92,7 +92,7 @@ Source code
 | `primitives_control.zig` | raise, guard, with-exception-handler, call/cc, dynamic-wind, values |
 | `primitives_lazy.zig` | delay, force, make-promise, promise? |
 | `primitives_cxr.zig` | 24 car/cdr compositions (caaaar through cddddr) |
-| `primitives_ffi.zig` | FFI procedure registration (ffi-open, ffi-fn, ffi-close) |
+| `primitives_ffi.zig` | FFI procedure registration (ffi-open, ffi-fn, ffi-close, ffi-callback). 18 FFI types. |
 | `primitives_r7rs.zig` | Time, process-context, eval, load, make-parameter |
 
 ### Other
@@ -101,13 +101,17 @@ Source code
 |------|---------------|
 | `library.zig` | Library registry, standard library registration |
 | `linenoise.zig` | Zig FFI wrapper for vendored linenoise C library |
-| `main.zig` | Entry point, REPL loop, file execution, bytecode caching |
-| `ffi.zig` | FFI call dispatcher (type marshaling, arity routing) |
+| `main.zig` | Entry point, REPL loop, file execution, CLI flags (`--help`, `--version`, etc.) |
+| `ffi.zig` | FFI call dispatcher (type marshaling, arity routing, `normalizeType`) |
+| `jit.zig` | JIT orchestration: eligibility, bytecode → native, side exits. Comptime arch dispatch. |
+| `jit_aarch64.zig` | AArch64 assembler (fixed 4-byte instruction encoding) |
+| `jit_x86_64.zig` | x86_64 assembler (variable-length encoding, REX prefixes) |
+| `jit_mem.zig` | Executable memory allocation (mmap RWX, macOS JIT protection) |
 | `bignum.zig` | Arbitrary-precision integer arithmetic |
 | `bytecode_file.zig` | Bytecode serialization/deserialization (.sbc format) |
 | `bench.zig` | Micro-benchmarks |
 | `testing_helpers.zig` | Shared `makeTestVM` helper for unit tests |
-| `tests_*.zig | Unit tests by feature (core_eval, tail_calls, macros, etc.) |
+| `tests_*.zig` | Unit tests by feature (core_eval, tail_calls, macros, etc.) |
 
 ---
 

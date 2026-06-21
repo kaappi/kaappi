@@ -8,6 +8,8 @@ Complete R7RS-small Scheme implementation. Zig 0.16, ~39k lines, 554 built-in pr
 zig build                          # build executable (zig-out/bin/kaappi)
 zig build run                      # launch REPL (linenoise: arrow keys, history, tab completion)
 zig build run -- f.scm             # run a Scheme file
+zig build run -- --help            # show CLI usage and flags
+zig build run -- --version         # show version string
 zig build test                     # run all unit tests
 zig build bench                    # call/cc vs call/ec capture micro-benchmark
 zig build coverage                 # unit test code coverage (requires kcov)
@@ -15,6 +17,10 @@ zig build coverage-scheme -- f.scm # Scheme file code coverage (requires kcov)
 zig build -Dbundle-src=program.scm # standalone binary (compile + embed in one step)
 zig build -Dbundle=program.sbc     # standalone binary from pre-compiled .sbc
 ```
+
+CLI flags: `-h`/`--help`, `--version`, `--lib-path <path>`, `--compile`,
+`-o <file>`, `--disassemble`, `--no-jit`, `--sandbox`, `--gc-stats`,
+`--profile`. Version is defined as `pub const version` in `main.zig`.
 
 Requires Zig 0.16+ and libc (for linenoise terminal handling).
 
@@ -105,7 +111,7 @@ Stored as UTF-8 byte arrays. All string operations (string-length, string-ref, s
 | `primitives_control.zig` | raise, guard, with-exception-handler, call/cc, dynamic-wind, values |
 | `primitives_lazy.zig` | delay, force, make-promise, promise? |
 | `primitives_cxr.zig` | 24 car/cdr compositions (caaaar–cddddr) |
-| `primitives_ffi.zig` | C FFI: ffi-open, ffi-fn, ffi-close |
+| `primitives_ffi.zig` | C FFI: ffi-open, ffi-fn, ffi-close, ffi-callback. 18 types: int, long, double, float, string, pointer, void, bool, uint8, int8, int16, int32, int64, uint16, uint32, uint64, size_t, char. |
 | `primitives_r7rs.zig` | time, process-context, eval, load, make-parameter |
 | `primitives_srfi18.zig` | SRFI-18: threads, mutexes, condition variables, time objects |
 
@@ -114,11 +120,15 @@ Stored as UTF-8 byte arrays. All string operations (string-length, string-ref, s
 |------|---------------|
 | `library.zig` | Library registry, standard library registration ((scheme base), etc.) |
 | `bignum.zig` | Arbitrary-precision integer arithmetic |
-| `ffi.zig` | C FFI call dispatcher (type marshaling, arity routing) |
+| `ffi.zig` | C FFI call dispatcher (type marshaling, arity routing, `normalizeType` for extended integer types) |
+| `jit.zig` | JIT orchestration: eligibility check, bytecode → native compilation, side exits. Dispatches to arch-specific backend at comptime. |
+| `jit_aarch64.zig` | AArch64 assembler: fixed 4-byte instruction encoding, register/branch/load-store emitters |
+| `jit_x86_64.zig` | x86_64 assembler: variable-length instruction encoding, REX prefixes, ModR/M addressing |
+| `jit_mem.zig` | Executable memory allocation (mmap RWX), code buffer write with JIT protection (macOS) |
 | `bytecode_file.zig` | Bytecode serialization/deserialization (.sbc cache format) |
 | `disassembler.zig` | Bytecode disassembler for `(disassemble proc)` |
 | `linenoise.zig` | Zig FFI wrapper for vendored linenoise C library |
-| `main.zig` | Entry point, REPL loop with linenoise, file execution, CLI flags |
+| `main.zig` | Entry point, REPL loop with linenoise, file execution, CLI flags, `pub const version` |
 | `testing_helpers.zig` | Shared `makeTestVM` helper for unit tests |
 | `tests_*.zig` | Unit tests by feature (core_eval, tail_calls, macros, io, etc.) |
 

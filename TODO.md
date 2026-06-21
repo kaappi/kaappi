@@ -43,38 +43,23 @@ in `src/primitives_ffi.zig`.
 
 ## JIT / Performance
 
-### x86_64 JIT backend
+### ~~x86_64 JIT backend~~ ✅ Done (initial)
 
-**Priority:** Medium
+Added `src/jit_x86_64.zig` assembler, comptime arch detection, and
+`compileX86_64` code gen path. Handles load/store/move/jump/return with
+side-exit fallback for unimplemented opcodes. AArch64 path unchanged.
+JIT auto-disables on unsupported architectures.
 
-The JIT only targets AArch64. No x86_64 backend exists. This limits
-deployment to ARM systems (M-series Macs, ARM cloud instances). An x86_64
-port would broaden adoption significantly.
+### ~~Improve non-tail call performance~~ ✅ Partial
 
-**Current JIT:** `src/jit.zig` (orchestration) + `src/jit_aarch64.zig`
-(code generation).
+Added self-call specialization (`emitSelfCallSequence`) that skips
+guard checks for self-recursive non-tail calls, and JIT support for
+`self_tail_call` opcode. Eliminates side-exits for functions like `tak`.
 
-### Improve non-tail call performance
-
-**Priority:** Medium
-
-The `tak` benchmark is disproportionately slow (3x slower than Gauche)
-while `fib` is on par. The difference is non-tail multi-recursive calls.
-
-**Analysis:**
-- `tak` has 3 non-tail recursive calls per invocation (nested as
-  arguments to the outer `tak` call)
-- Each non-tail call in JIT-compiled code may trigger a side-exit back
-  to the interpreter (`src/jit.zig:914-929`)
-- Side-exits break register locality and cause costly re-entry via
-  `jitFinishCallee` (`src/jit.zig:1082-1088`)
-- Frame setup per call is expensive: arity check, register window
-  calculation, wind count save (`src/vm.zig:1948-1991`)
-
-**Potential improvements:**
-- Cache callee function pointers to avoid re-dispatch for known targets
-- Inline small recursive functions at JIT compile time
-- Reduce frame setup cost for self-recursive calls (reuse callee metadata)
+**Remaining bottleneck:** frame setup (~30 memory stores per call)
+dominates — JIT and interpreter run at similar speed for `tak`. Further
+improvement needs lightweight JIT-to-JIT frames or register-based
+argument passing.
 
 ### Consider raising stack limits
 
