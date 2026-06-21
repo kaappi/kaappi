@@ -32,13 +32,13 @@ const OFF_FRAME_IP = @offsetOf(CallFrame, "ip");
 const Reg = if (@import("builtin").cpu.arch == .x86_64) x64.Reg else a64.Reg;
 const Cond = if (@import("builtin").cpu.arch == .x86_64) x64.Cond else a64.Cond;
 
-// Machine register assignments (callee-saved, AArch64)
-const VM_PTR = Reg.x21;
-const REG_BASE = Reg.x19; // &vm.registers[0]
-const BASE_OFF = Reg.x20; // frame.base * 8
-const FRAME_PTR = Reg.x23; // REG_BASE + BASE_OFF = &registers[frame.base]
-const CONST_PTR = Reg.x22; // func.constants.items.ptr
-const CLOSURE_PTR = Reg.x24; // *Closure (4th arg, x3)
+// Machine register assignments
+const VM_PTR = if (@import("builtin").cpu.arch == .x86_64) Reg.rbx else Reg.x21;
+const REG_BASE = if (@import("builtin").cpu.arch == .x86_64) Reg.r12 else Reg.x19;
+const BASE_OFF = if (@import("builtin").cpu.arch == .x86_64) Reg.r13 else Reg.x20;
+const FRAME_PTR = if (@import("builtin").cpu.arch == .x86_64) Reg.r14 else Reg.x23;
+const CONST_PTR = if (@import("builtin").cpu.arch == .x86_64) Reg.r15 else Reg.x22;
+const CLOSURE_PTR = if (@import("builtin").cpu.arch == .x86_64) Reg.rbp else Reg.x24;
 
 const OFF_CLOSURE_UPVALUES = @offsetOf(types.Closure, "upvalues");
 const OFF_CLOSURE_FUNC = @offsetOf(types.Closure, "func");
@@ -1761,6 +1761,7 @@ test "compile trivial function" {
 }
 
 test "minimal prologue/epilogue" {
+    if (@import("builtin").cpu.arch != .aarch64) return error.SkipZigTest;
     // Test just the entry/exit trampoline by compiling a function
     // that immediately returns (only a return opcode)
     const memory = @import("memory.zig");
@@ -1789,6 +1790,7 @@ test "minimal prologue/epilogue" {
 }
 
 test "prologue saves and restores callee-saved regs" {
+    if (@import("builtin").cpu.arch != .aarch64) return error.SkipZigTest;
     var asm_ctx = a64.Assembler.init(std.testing.allocator);
     defer asm_ctx.deinit();
 
