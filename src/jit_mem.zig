@@ -77,6 +77,23 @@ test "mmap executable memory and run trivial function" {
     try std.testing.expectEqual(@as(u64, 42), result);
 }
 
+test "x86_64 mmap executable trivial function" {
+    if (@import("builtin").cpu.arch != .x86_64) return error.SkipZigTest;
+    var buf = try CodeBuffer.alloc(4096);
+    defer buf.free();
+
+    // x86_64: mov rax, 42; ret
+    const code = [_]u8{
+        0x48, 0xC7, 0xC0, 0x2A, 0x00, 0x00, 0x00, // mov rax, 42
+        0xC3, // ret
+    };
+    buf.writeCodeBytes(&code);
+
+    const func: *const fn () callconv(.c) u64 = @ptrCast(@alignCast(buf.mem.ptr));
+    const result = func();
+    try std.testing.expectEqual(@as(u64, 42), result);
+}
+
 test "mmap code buffer with addition" {
     if (@import("builtin").cpu.arch != .aarch64) return error.SkipZigTest;
     var buf = try CodeBuffer.alloc(4096);
