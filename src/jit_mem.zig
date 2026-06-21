@@ -12,11 +12,16 @@ pub const CodeBuffer = struct {
     pub fn alloc(code_size: usize) !CodeBuffer {
         const size = std.mem.alignForward(usize, @max(code_size, page_align), page_align);
 
+        const map_flags = if (@import("builtin").os.tag == .macos)
+            std.posix.MAP{ .TYPE = .PRIVATE, .ANONYMOUS = true, .JIT = true }
+        else
+            std.posix.MAP{ .TYPE = .PRIVATE, .ANONYMOUS = true };
+
         const mem = try std.posix.mmap(
             null,
             size,
             .{ .READ = true, .WRITE = true, .EXEC = true },
-            .{ .TYPE = .PRIVATE, .ANONYMOUS = true, .JIT = @import("builtin").os.tag == .macos },
+            map_flags,
             -1,
             0,
         );

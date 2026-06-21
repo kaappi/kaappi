@@ -38,7 +38,7 @@ fn doStat(path: [*:0]const u8, follow: bool) ?StatResult {
         var sx: linux.Statx = undefined;
         const flags: u32 = linux.AT.STATX_SYNC_AS_STAT |
             (if (!follow) @as(u32, linux.AT.SYMLINK_NOFOLLOW) else 0);
-        const mask: u32 = linux.STATX.BASIC_STATS;
+        const mask: u32 = @bitCast(linux.STATX.BASIC_STATS);
         const rc = linux.statx(@bitCast(@as(i32, std.posix.AT.FDCWD)), path, flags, mask, &sx);
         if (rc != 0) return null;
         return .{
