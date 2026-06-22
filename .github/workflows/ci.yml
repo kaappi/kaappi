@@ -7,11 +7,30 @@ on:
     branches: [main]
 
 jobs:
+  format:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Zig
+        uses: mlugg/setup-zig@v2
+        with:
+          version: 0.16.0
+
+      - name: Format check
+        run: zig fmt --check src/
+
   test:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
         os: [ubuntu-latest, ubuntu-24.04-arm, macos-latest]
+        optimize: [ReleaseSafe]
+        include:
+          - os: ubuntu-latest
+            optimize: Debug
+          - os: ubuntu-latest
+            optimize: ReleaseFast
 
     steps:
       - uses: actions/checkout@v4
@@ -21,11 +40,21 @@ jobs:
         with:
           version: 0.16.0
 
+      - name: Cache Zig build
+        uses: actions/cache@v4
+        with:
+          path: |
+            .zig-cache
+            ~/.cache/zig
+          key: zig-${{ matrix.os }}-${{ matrix.optimize }}-${{ hashFiles('build.zig', 'build.zig.zon', 'src/**/*.zig') }}
+          restore-keys: |
+            zig-${{ matrix.os }}-${{ matrix.optimize }}-
+
       - name: Build
-        run: zig build
+        run: zig build -Doptimize=${{ matrix.optimize }}
 
       - name: Unit tests
-        run: zig build test
+        run: zig build test -Doptimize=${{ matrix.optimize }}
 
       - name: Scheme suites
         run: bash tests/scheme/run-all.sh
@@ -39,6 +68,16 @@ jobs:
         uses: mlugg/setup-zig@v2
         with:
           version: 0.16.0
+
+      - name: Cache Zig build
+        uses: actions/cache@v4
+        with:
+          path: |
+            .zig-cache
+            ~/.cache/zig
+          key: zig-riscv64-${{ hashFiles('build.zig', 'build.zig.zon', 'src/**/*.zig') }}
+          restore-keys: |
+            zig-riscv64-
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3

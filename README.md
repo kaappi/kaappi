@@ -31,6 +31,8 @@ zig build test                       # Run all tests
 | Linux | aarch64 | yes | yes | yes (native AArch64) |
 | Linux | riscv64 | yes | yes | no (interpreter only) |
 
+Windows is not supported. Kaappi depends on POSIX APIs (mmap, signals) and linenoise (terminal I/O).
+
 ---
 
 ## REPL
