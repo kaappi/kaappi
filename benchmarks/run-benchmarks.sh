@@ -26,7 +26,7 @@ BENCHMARKS=(
 run_bench() {
     local name="$1" scm="$2" input="$3"
     local output
-    output=$("$KAAPPI" "$scm" < "$input" 2>/dev/null || true)
+    output=$("$KAAPPI" --gc-stats "$scm" < "$input" 2>&1 || true)
     # Extract timing from output like "fib(35): 1.234s [OK]"
     local time_str
     time_str=$(echo "$output" | grep -oE '[0-9]+\.[0-9]+s' | head -1 || true)
@@ -37,7 +37,12 @@ run_bench() {
         status="fail"
     fi
     local seconds="${time_str%s}"
-    echo "$name $seconds $status"
+    # Extract GC metrics
+    local gc_collections gc_live gc_heap
+    gc_collections=$(echo "$output" | grep "Collections:" | grep -oE '[0-9]+' | head -1 || echo "0")
+    gc_live=$(echo "$output" | grep "Live objects:" | grep -oE '[0-9]+' | head -1 || echo "0")
+    gc_heap=$(echo "$output" | grep "Heap size:" | grep -oE '[0-9]+' | head -1 || echo "0")
+    echo "$name $seconds $status $gc_collections $gc_live $gc_heap"
 }
 
 # Run zig build bench (call/cc micro-benchmark)
@@ -71,19 +76,20 @@ if $JSON_MODE; then
     echo "["
     first=true
     for r in "${results[@]}"; do
-        read -r name seconds status <<< "$r"
+        read -r name seconds status gc_coll gc_live gc_heap <<< "$r"
         if $first; then first=false; else echo ","; fi
         # Ensure seconds is a valid number
         if ! [[ "${seconds:-0}" =~ ^[0-9]*\.?[0-9]+$ ]]; then seconds="0"; fi
-        printf '  {"name": "%s", "seconds": %s, "status": "%s"}' "$name" "${seconds:-0}" "${status:-fail}"
+        printf '  {"name": "%s", "seconds": %s, "status": "%s", "gc_collections": %s, "gc_live_objects": %s, "gc_heap_bytes": %s}' \
+            "$name" "${seconds:-0}" "${status:-fail}" "${gc_coll:-0}" "${gc_live:-0}" "${gc_heap:-0}"
     done
     echo
     echo "]"
 else
-    printf "%-12s %10s  %s\n" "Benchmark" "Time" "Status"
-    printf "%-12s %10s  %s\n" "---------" "----" "------"
+    printf "%-12s %10s  %-4s  %5s  %6s  %10s\n" "Benchmark" "Time" "OK?" "GC#" "Live" "Heap"
+    printf "%-12s %10s  %-4s  %5s  %6s  %10s\n" "---------" "----" "---" "---" "----" "----"
     for r in "${results[@]}"; do
-        read -r name seconds status <<< "$r"
-        printf "%-12s %9ss  %s\n" "$name" "${seconds:-?}" "$status"
+        read -r name seconds status gc_coll gc_live gc_heap <<< "$r"
+        printf "%-12s %9ss  %-4s  %5s  %6s  %10s\n" "$name" "${seconds:-?}" "${status:-?}" "${gc_coll:--}" "${gc_live:--}" "${gc_heap:--}"
     done
 fi
