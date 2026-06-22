@@ -42,6 +42,8 @@ pub const Cond = enum(u4) {
     pub const gt = Cond.g;
     pub const lt = Cond.l;
     pub const vs = Cond.o;
+    pub const hs = Cond.ae; // unsigned higher-or-same
+    pub const ls = Cond.be; // unsigned lower-or-same
 };
 
 pub const Assembler = struct {
@@ -238,6 +240,21 @@ pub const Assembler = struct {
         try self.emit(rexW(rm, rd));
         try self.emit(0x29);
         try self.emit(modRM(0b11, regLow3(rm), regLow3(rd)));
+    }
+
+    // IMUL r/m64 (single-operand): RDX:RAX = RAX * rm
+    pub fn emitImulOneOp(self: *Assembler, rm: Reg) !void {
+        try self.emit(rexW(.rax, rm));
+        try self.emit(0xF7);
+        try self.emit(modRM(0b11, 5, regLow3(rm)));
+    }
+
+    // IMUL rd, rm (two-operand): rd = rd * rm
+    pub fn emitImulReg(self: *Assembler, rd: Reg, rm: Reg) !void {
+        try self.emit(rexW(rd, rm));
+        try self.emit(0x0F);
+        try self.emit(0xAF);
+        try self.emit(modRM(0b11, regLow3(rd), regLow3(rm)));
     }
 
     // ADDS = ADD (x86 always sets flags)
@@ -509,6 +526,38 @@ pub const Assembler = struct {
         try self.emit(modRM(0b11, regLow3(rm), regLow3(rd)));
     }
 
+    // AND r64, imm32 (sign-extended)
+    pub fn emitAndImm(self: *Assembler, rd: Reg, rn: Reg, imm: u32) !void {
+        if (rd != rn) try self.emitMovReg(rd, rn);
+        if (imm <= 127) {
+            try self.emit(rexW(.rax, rd));
+            try self.emit(0x83);
+            try self.emit(modRM(0b11, 4, regLow3(rd)));
+            try self.emit(@as(u8, @truncate(imm)));
+        } else {
+            try self.emit(rexW(.rax, rd));
+            try self.emit(0x81);
+            try self.emit(modRM(0b11, 4, regLow3(rd)));
+            try self.emit32(imm);
+        }
+    }
+
+    // OR r64, imm32 (sign-extended)
+    pub fn emitOrrImm(self: *Assembler, rd: Reg, rn: Reg, imm: u32) !void {
+        if (rd != rn) try self.emitMovReg(rd, rn);
+        if (imm <= 127) {
+            try self.emit(rexW(.rax, rd));
+            try self.emit(0x83);
+            try self.emit(modRM(0b11, 1, regLow3(rd)));
+            try self.emit(@as(u8, @truncate(imm)));
+        } else {
+            try self.emit(rexW(.rax, rd));
+            try self.emit(0x81);
+            try self.emit(modRM(0b11, 1, regLow3(rd)));
+            try self.emit32(imm);
+        }
+    }
+
     // -------------------------------------------------------------------
     // Conditional select (emulated on x86_64 via CMOVcc)
     // -------------------------------------------------------------------
@@ -544,6 +593,23 @@ pub const Assembler = struct {
     // RET
     pub fn emitRet(self: *Assembler) !void {
         try self.emit(0xC3);
+    }
+
+    // Jcc rel32 — emit conditional jump with placeholder, return patch position
+    pub fn emitJccRel32(self: *Assembler, cond: Cond) !u32 {
+        try self.emit(0x0F);
+        try self.emit(0x80 + @intFromEnum(cond));
+        const patch_pos = self.pos();
+        try self.emit32(0);
+        return patch_pos;
+    }
+
+    // JMP rel32 — emit unconditional jump with placeholder, return patch position
+    pub fn emitJmpRel32(self: *Assembler) !u32 {
+        try self.emit(0xE9);
+        const patch_pos = self.pos();
+        try self.emit32(0);
+        return patch_pos;
     }
 
     // CALL r64

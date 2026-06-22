@@ -525,7 +525,6 @@ const X_CONST_PTR = X64.r12;
 const X_CLOSURE_PTR = X64.rbp;
 
 fn compileX86_64(func: *types.Function, vm: *VM, allocator: std.mem.Allocator) !*JitCode {
-    _ = vm;
     var asm_ctx = x64.Assembler.init(allocator);
     defer asm_ctx.deinit();
 
@@ -551,6 +550,8 @@ fn compileX86_64(func: *types.Function, vm: *VM, allocator: std.mem.Allocator) !
     try asm_ctx.emitPush(.r13);
     try asm_ctx.emitPush(.r14);
     try asm_ctx.emitPush(.r15);
+    // 6 pushes + return address = 56 bytes; align to 16 for C ABI calls
+    try asm_ctx.emitSubImm(.rsp, .rsp, 8);
 
     // rdi=VM*, rsi=base, rdx=constants, rcx=closure (System V ABI)
     try asm_ctx.emitMovReg(X_VM_PTR, .rdi);
@@ -605,16 +606,24 @@ fn compileX86_64(func: *types.Function, vm: *VM, allocator: std.mem.Allocator) !
                 }
                 try x64EmitStoreReg(&asm_ctx, dst, .rax);
             },
-            .move => {
+            .move, .get_local, .set_local, .get_box_local, .set_box_local => {
                 const dst = code[ip];
                 const src = code[ip + 1];
                 ip += 2;
                 try x64EmitLoadReg(&asm_ctx, .rax, src);
                 try x64EmitStoreReg(&asm_ctx, dst, .rax);
             },
+            .box_local => {
+                ip += 1; // no-op, skip register operand
+            },
             .@"return" => {
                 const src = code[ip];
                 ip += 1;
+                const ret_bc_ip = ip - 2;
+                // Guard: wind_count must be 0
+                try x64EmitLoadFromVmField(&asm_ctx, .rcx, OFF_WIND_COUNT);
+                try asm_ctx.emitCmpImm(.rcx, 0);
+                try x64EmitCondSideExit(&asm_ctx, &pending_exits, allocator, ret_bc_ip, x64.Cond.ne);
                 // Store result at registers[base-1]: [FRAME_PTR - 8]
                 try x64EmitLoadReg(&asm_ctx, .rax, src);
                 // MOV [rbx-8], rax — use raw encoding for negative offset
@@ -630,6 +639,95 @@ fn compileX86_64(func: *types.Function, vm: *VM, allocator: std.mem.Allocator) !
                 try asm_ctx.emit(0xE9); // JMP rel32
                 try asm_ctx.emit32(0);
                 try pending_returns.append(allocator, patch_idx + 1);
+            },
+            .self_tail_call => {
+                const base_reg = code[ip];
+                const stc_nargs = code[ip + 1];
+                ip += 2;
+                var i: u8 = 0;
+                while (i < stc_nargs) : (i += 1) {
+                    const src_off: u16 = (@as(u16, base_reg) + 1 + i) * 8;
+                    const dst_off: u16 = @as(u16, i) * 8;
+                    try asm_ctx.emitLdrImm(.rax, X_FRAME_PTR, src_off);
+                    try asm_ctx.emitStrImm(.rax, X_FRAME_PTR, dst_off);
+                }
+                const patch_idx = asm_ctx.pos();
+                try asm_ctx.emit(0xE9); // JMP rel32
+                try asm_ctx.emit32(0);
+                try pending_branches.append(allocator, .{
+                    .native_idx = patch_idx + 1,
+                    .target_bc_ip = 0,
+                    .cond = null,
+                });
+            },
+            .get_global => {
+                const dst_g = code[ip];
+                const sym_idx_g = readU16(code, ip + 1);
+                ip += 3;
+                try x64EmitGetGlobal(&asm_ctx, dst_g, sym_idx_g, &pending_exits, allocator, ip - 4);
+            },
+            .set_global, .define_global => {
+                const sym_idx_s = readU16(code, ip);
+                const src_s = code[ip + 2];
+                ip += 3;
+                try x64EmitSetGlobal(&asm_ctx, src_s, sym_idx_s, &pending_exits, allocator, ip - 4);
+            },
+            .get_upvalue => {
+                const dst_uv = code[ip];
+                const idx_uv = code[ip + 1];
+                ip += 2;
+                try x64EmitGetUpvalue(&asm_ctx, dst_uv, idx_uv, &pending_exits, allocator, ip - 3);
+            },
+            .set_upvalue => {
+                const idx_uv2 = code[ip];
+                const src_uv = code[ip + 1];
+                ip += 2;
+                try x64EmitSetUpvalue(&asm_ctx, src_uv, idx_uv2, &pending_exits, allocator, ip - 3);
+            },
+            .cons => {
+                const dst_c = code[ip];
+                const car_reg = code[ip + 1];
+                const cdr_reg = code[ip + 2];
+                ip += 3;
+                try x64EmitCons(&asm_ctx, dst_c, car_reg, cdr_reg, &pending_exits, allocator, ip - 4);
+            },
+            .call_global => {
+                const base_reg_cg = code[ip];
+                const sym_idx_cg = readU16(code, ip + 1);
+                const nargs_cg = code[ip + 3];
+                ip += 4;
+                const bc_ip_cg = ip - 5;
+                const spec = recognizeArithPrimitive(func, sym_idx_cg, vm);
+                if (spec != .none and nargs_cg == 2 and (spec == .add or spec == .sub or spec == .mul or spec == .lt or spec == .gt or spec == .le or spec == .ge or spec == .eq)) {
+                    try x64EmitSpecializedArith(&asm_ctx, base_reg_cg, spec, &pending_exits, allocator, bc_ip_cg);
+                } else if (spec != .none and nargs_cg == 1 and (spec == .zero_p or spec == .null_p or spec == .pair_p or spec == .not_op or spec == .car or spec == .cdr)) {
+                    try x64EmitSpecializedPredicate(&asm_ctx, base_reg_cg, spec, &pending_exits, allocator, bc_ip_cg);
+                } else if (isSelfCall(func, sym_idx_cg, nargs_cg)) {
+                    try x64EmitSelfCallSequence(&asm_ctx, base_reg_cg, nargs_cg, &pending_exits, &pending_returns, &pending_quick_exits, allocator, bc_ip_cg, ip);
+                } else {
+                    try x64EmitCallGlobal(&asm_ctx, base_reg_cg, sym_idx_cg, nargs_cg, &pending_exits, &pending_returns, &pending_quick_exits, allocator, bc_ip_cg, ip);
+                }
+            },
+            .tail_call_global => {
+                const base_reg_tcg = code[ip];
+                const sym_idx_tcg = readU16(code, ip + 1);
+                const nargs_tcg = code[ip + 3];
+                ip += 4;
+                const bc_ip_tcg = ip - 5;
+                const spec_t = recognizeArithPrimitive(func, sym_idx_tcg, vm);
+                if (spec_t != .none and nargs_tcg == 2 and (spec_t == .add or spec_t == .sub or spec_t == .mul or spec_t == .lt or spec_t == .gt or spec_t == .le or spec_t == .ge or spec_t == .eq)) {
+                    try x64EmitSpecializedArith(&asm_ctx, base_reg_tcg, spec_t, &pending_exits, allocator, bc_ip_tcg);
+                } else if (spec_t != .none and nargs_tcg == 1 and (spec_t == .zero_p or spec_t == .null_p or spec_t == .pair_p or spec_t == .not_op or spec_t == .car or spec_t == .cdr)) {
+                    try x64EmitSpecializedPredicate(&asm_ctx, base_reg_tcg, spec_t, &pending_exits, allocator, bc_ip_tcg);
+                } else {
+                    try x64EmitUnconditionalSideExit(&asm_ctx, &pending_exits, allocator, bc_ip_tcg);
+                }
+            },
+            .call => {
+                const base_reg_c = code[ip];
+                const nargs_c = code[ip + 1];
+                ip += 2;
+                try x64EmitCall(&asm_ctx, base_reg_c, nargs_c, &pending_exits, &pending_returns, &pending_quick_exits, allocator, ip - 3, ip);
             },
             .jump => {
                 const off = readI16(code, ip);
@@ -683,14 +781,7 @@ fn compileX86_64(func: *types.Function, vm: *VM, allocator: std.mem.Allocator) !
             else => {
                 // Side-exit for unhandled opcodes
                 const operand_bytes: usize = switch (op) {
-                    .get_global, .set_global, .define_global => 3,
-                    .get_local, .set_local, .get_upvalue, .set_upvalue => 2,
-                    .call, .tail_call => 2,
-                    .cons => 3,
-                    .call_global, .tail_call_global => 4,
-                    .box_local => 1,
-                    .get_box_local, .set_box_local => 2,
-                    .self_tail_call => 2,
+                    .tail_call => 2,
                     else => 0,
                 };
                 const side_exit_ip = ip - 1;
@@ -728,6 +819,7 @@ fn compileX86_64(func: *types.Function, vm: *VM, allocator: std.mem.Allocator) !
 
     // --- Shared epilogue ---
     const epilogue = asm_ctx.pos();
+    try asm_ctx.emitAddImm(.rsp, .rsp, 8);
     try asm_ctx.emitPop(.r15);
     try asm_ctx.emitPop(.r14);
     try asm_ctx.emitPop(.r13);
@@ -807,6 +899,616 @@ fn x64EmitAddLargeOffset(asm_ctx: *x64.Assembler, rd: X64, rn: X64, offset: usiz
         try asm_ctx.emitLoadImm64(rd, offset);
         try asm_ctx.emitAddReg(rd, rn, rd);
     }
+}
+
+fn x64EmitLoadFromField(asm_ctx: *x64.Assembler, rd: X64, base: X64, offset: usize) !void {
+    if (offset <= 32760) {
+        try asm_ctx.emitLdrImm(rd, base, @intCast(offset));
+    } else {
+        try asm_ctx.emitLoadImm64(rd, offset);
+        try asm_ctx.emitAddReg(rd, base, rd);
+        try asm_ctx.emitLdrImm(rd, rd, 0);
+    }
+}
+
+fn x64EmitLoadWFromField(asm_ctx: *x64.Assembler, rd: X64, base: X64, offset: usize) !void {
+    if (offset <= 32760) {
+        try asm_ctx.emitLdrWImm(rd, base, @intCast(offset));
+    } else {
+        try asm_ctx.emitLoadImm64(.r11, offset);
+        try asm_ctx.emitAddReg(.r11, base, .r11);
+        try asm_ctx.emitLdrWImm(rd, .r11, 0);
+    }
+}
+
+fn x64EmitLoadFromVmField(asm_ctx: *x64.Assembler, rd: X64, field_offset: usize) !void {
+    try x64EmitLoadFromField(asm_ctx, rd, X_VM_PTR, field_offset);
+}
+
+fn x64EmitStoreAtOffset(asm_ctx: *x64.Assembler, rt: X64, rn: X64, offset: usize) !void {
+    if (offset <= 32760) {
+        try asm_ctx.emitStrImm(rt, rn, @intCast(offset));
+    } else {
+        try asm_ctx.emitLoadImm64(.r11, offset);
+        try asm_ctx.emitAddReg(.r11, rn, .r11);
+        try asm_ctx.emitStrImm(rt, .r11, 0);
+    }
+}
+
+fn x64EmitStoreHalfAtOffset(asm_ctx: *x64.Assembler, rt: X64, rn: X64, offset: usize) !void {
+    if (offset <= 32760) {
+        try asm_ctx.emitStrhImm(rt, rn, @intCast(offset));
+    } else {
+        try asm_ctx.emitLoadImm64(.r11, offset);
+        try asm_ctx.emitAddReg(.r11, rn, .r11);
+        try asm_ctx.emitStrhImm(rt, .r11, 0);
+    }
+}
+
+fn x64EmitStoreByteValue(asm_ctx: *x64.Assembler, value: u8, rn: X64, offset: usize) !void {
+    try asm_ctx.emitLoadImm64(.r11, value);
+    if (offset <= 4095) {
+        try asm_ctx.emitStrbImm(.r11, rn, @intCast(offset));
+    } else {
+        try asm_ctx.emitLoadImm64(.r10, offset);
+        try asm_ctx.emitAddReg(.r10, rn, .r10);
+        try asm_ctx.emitStrbImm(.r11, .r10, 0);
+    }
+}
+
+fn x64EmitStoreWAtOffset(asm_ctx: *x64.Assembler, rt: X64, rn: X64, offset: usize) !void {
+    if (offset <= 32760) {
+        try asm_ctx.emitStrWImm(rt, rn, @intCast(offset));
+    } else {
+        try asm_ctx.emitLoadImm64(.r11, offset);
+        try asm_ctx.emitAddReg(.r11, rn, .r11);
+        try asm_ctx.emitStrWImm(rt, .r11, 0);
+    }
+}
+
+fn x64EmitMulConst(asm_ctx: *x64.Assembler, rd: X64, rn: X64, constant: usize) !void {
+    if (constant == 0) {
+        try asm_ctx.emitLoadImm64(rd, 0);
+        return;
+    }
+    if (std.math.isPowerOfTwo(constant)) {
+        const shift: u6 = @intCast(std.math.log2(constant));
+        try asm_ctx.emitLslImm(rd, rn, shift);
+        return;
+    }
+    try asm_ctx.emitLoadImm64(.r11, constant);
+    try asm_ctx.emitMovReg(rd, rn);
+    try asm_ctx.emitImulReg(rd, .r11);
+}
+
+fn x64EmitCall(asm_ctx: *x64.Assembler, base_reg: u8, nargs: u8, pending_exits: *std.ArrayList(PendingSideExit), pending_returns: *std.ArrayList(u32), pending_quick_exits: *std.ArrayList(u32), allocator: std.mem.Allocator, bc_ip: usize, ip_after: usize) !void {
+    try asm_ctx.emitLdrImm(.rax, X_FRAME_PTR, @as(u16, base_reg) * 8);
+    try x64EmitCallSequence(asm_ctx, base_reg, nargs, pending_exits, pending_returns, pending_quick_exits, allocator, bc_ip, ip_after);
+}
+
+fn x64EmitCallGlobal(asm_ctx: *x64.Assembler, base_reg: u8, sym_idx: u16, nargs: u8, pending_exits: *std.ArrayList(PendingSideExit), pending_returns: *std.ArrayList(u32), pending_quick_exits: *std.ArrayList(u32), allocator: std.mem.Allocator, bc_ip: usize, ip_after: usize) !void {
+    try x64EmitGetGlobal(asm_ctx, base_reg, sym_idx, pending_exits, allocator, bc_ip);
+    try asm_ctx.emitLdrImm(.rax, X_FRAME_PTR, @as(u16, base_reg) * 8);
+    try x64EmitCallSequence(asm_ctx, base_reg, nargs, pending_exits, pending_returns, pending_quick_exits, allocator, bc_ip, ip_after);
+}
+
+fn x64EmitCallSequence(asm_ctx: *x64.Assembler, base_reg: u8, nargs: u8, pending_exits: *std.ArrayList(PendingSideExit), pending_returns: *std.ArrayList(u32), pending_quick_exits: *std.ArrayList(u32), allocator: std.mem.Allocator, bc_ip: usize, ip_after: usize) !void {
+    _ = pending_quick_exits;
+    // rax = callee value
+
+    // --- Pointer check: bits 0-1 must be 0, non-null ---
+    try asm_ctx.emitTbnz(.rax, 0, 0); // fixnum → side-exit
+    const fix_exit = asm_ctx.pos() - 4;
+    try asm_ctx.emitTbnz(.rax, 1, 0); // immediate → side-exit
+    const imm_exit = asm_ctx.pos() - 4;
+    try asm_ctx.emitCmpImm(.rax, 0); // null check
+    try x64EmitCondSideExit(asm_ctx, pending_exits, allocator, bc_ip, x64.Cond.eq);
+    // Patch fixnum/immediate exits to a shared side-exit
+    const ptr_se_pos = asm_ctx.pos();
+    // The fixnum/imm exits should jump PAST the null check to a side-exit.
+    // But they already emitted TEST+JNE — if bit is set, they jump forward.
+    // We need them to go to a side-exit stub. Let's patch them to jump to a
+    // shared unconditional side-exit.
+    // Actually: tbnz emits TEST+JNE rel32(0). If the test passes (bit set),
+    // JNE jumps forward 0 bytes — to the next instruction. That's wrong.
+    // We need them to jump to a side-exit. Let's fix: emit the side-exit AFTER
+    // the null check and patch the tbnz JNE targets there.
+    // But we already emitted the null check conditional exit. The cleanest approach:
+    // check all three conditions and branch to a single side-exit.
+
+    // Let me redo this more cleanly: use AND to check both bits at once.
+    // Actually the tbnz stubs emit TEST+JNE with a rel32(0) placeholder.
+    // We can patch those to jump to the same side-exit stub.
+    // But we already used x64EmitCondSideExit for the null check which emits
+    // its own Jcc that gets patched during the final side-exit patching.
+    // The tbnz JNE targets need to be patched NOW (forward jump within the function).
+    // Let's emit an unconditional JMP to a side-exit stub and patch the tbnz to it.
+    _ = ptr_se_pos;
+
+    // Actually, let's simplify: emit separate side exits for each check.
+    // The tbnz JNE placeholders are at fix_exit and imm_exit.
+    // We need to redirect them to side-exit stubs. But our side-exit mechanism
+    // patches them at the end. So let's just add them to pending_exits.
+    try pending_exits.append(allocator, .{ .native_idx = fix_exit, .bc_ip = bc_ip });
+    try pending_exits.append(allocator, .{ .native_idx = imm_exit, .bc_ip = bc_ip });
+
+    // --- Tag check: object tag must be closure (3) ---
+    try asm_ctx.emitLdrbImm(.rcx, .rax, @intCast(OFF_OBJECT_TAG));
+    try asm_ctx.emitAndImm(.rcx, .rcx, 0x3F);
+    try asm_ctx.emitCmpImm(.rcx, @intFromEnum(types.ObjectTag.closure));
+    try x64EmitCondSideExit(asm_ctx, pending_exits, allocator, bc_ip, x64.Cond.ne);
+
+    // --- Load closure.func, check arity/variadic/frame_count/jit_code ---
+    try x64EmitLoadFromField(asm_ctx, .r8, .rax, OFF_CLOSURE_FUNC); // r8 = func*
+
+    try asm_ctx.emitLdrbImm(.rcx, .r8, @intCast(OFF_FUNC_ARITY));
+    try asm_ctx.emitCmpImm(.rcx, nargs);
+    try x64EmitCondSideExit(asm_ctx, pending_exits, allocator, bc_ip, x64.Cond.ne);
+
+    try asm_ctx.emitLdrbImm(.rcx, .r8, @intCast(OFF_FUNC_IS_VARIADIC));
+    try asm_ctx.emitCmpImm(.rcx, 0);
+    try x64EmitCondSideExit(asm_ctx, pending_exits, allocator, bc_ip, x64.Cond.ne);
+
+    try x64EmitLoadFromVmField(asm_ctx, .rcx, OFF_FRAME_COUNT);
+    try asm_ctx.emitLoadImm64(.rdx, MAX_FRAMES);
+    try asm_ctx.emitCmpReg(.rcx, .rdx);
+    try x64EmitCondSideExit(asm_ctx, pending_exits, allocator, bc_ip, x64.Cond.ae);
+
+    try x64EmitLoadFromField(asm_ctx, .r9, .r8, OFF_FUNC_JIT_CODE); // r9 = jit_code*
+    try asm_ctx.emitCmpImm(.r9, 0);
+    try x64EmitCondSideExit(asm_ctx, pending_exits, allocator, bc_ip, x64.Cond.eq);
+
+    // --- Save caller's frame IP ---
+    // rcx still has frame_count from the check above
+    try asm_ctx.emitSubImm(.rcx, .rcx, 1);
+    try x64EmitMulConst(asm_ctx, .rdx, .rcx, SIZEOF_CALLFRAME);
+    try x64EmitAddLargeOffset(asm_ctx, .rsi, X_VM_PTR, OFF_FRAMES);
+    try asm_ctx.emitAddReg(.rsi, .rsi, .rdx); // rsi = &frames[frame_count-1]
+    try asm_ctx.emitLoadImm64(.rdi, ip_after);
+    try x64EmitStoreAtOffset(asm_ctx, .rdi, .rsi, OFF_FRAME_IP);
+
+    // --- Push new frame ---
+    try asm_ctx.emitLoadImm64(.rdi, SIZEOF_CALLFRAME);
+    try asm_ctx.emitAddReg(.rsi, .rsi, .rdi); // rsi = &frames[frame_count]
+
+    // new_base = BASE_OFF/8 + base_reg + 1
+    try asm_ctx.emitAsrImm(.rdi, X_BASE_OFF, 3); // rdi = frame.base
+    try asm_ctx.emitAddImm(.rdi, .rdi, @as(u12, base_reg) + 1); // rdi = new_base
+
+    // Store frame fields
+    try x64EmitStoreAtOffset(asm_ctx, .rax, .rsi, OFF_FRAME_CLOSURE); // closure
+    try asm_ctx.emitLoadImm64(.rcx, 0);
+    try x64EmitStoreAtOffset(asm_ctx, .rcx, .rsi, OFF_FRAME_NATIVE); // native = null
+
+    // code = func.code.items (ptr + len)
+    try x64EmitLoadFromField(asm_ctx, .rcx, .r8, OFF_FUNC_CODE);
+    try x64EmitStoreAtOffset(asm_ctx, .rcx, .rsi, OFF_FRAME_CODE);
+    try x64EmitLoadFromField(asm_ctx, .rcx, .r8, OFF_FUNC_CODE + 8);
+    try x64EmitStoreAtOffset(asm_ctx, .rcx, .rsi, OFF_FRAME_CODE + 8);
+
+    // ip = 0
+    try asm_ctx.emitLoadImm64(.rcx, 0);
+    try x64EmitStoreAtOffset(asm_ctx, .rcx, .rsi, OFF_FRAME_IP);
+
+    // base = new_base (u16)
+    try x64EmitStoreHalfAtOffset(asm_ctx, .rdi, .rsi, OFF_FRAME_BASE);
+
+    // dst = base_reg (u8)
+    try x64EmitStoreByteValue(asm_ctx, base_reg, .rsi, OFF_FRAME_DST);
+
+    // saved_wind_count
+    try x64EmitLoadFromVmField(asm_ctx, .rcx, OFF_WIND_COUNT);
+    try x64EmitStoreHalfAtOffset(asm_ctx, .rcx, .rsi, OFF_FRAME_SAVED_WIND);
+
+    // Increment frame_count
+    try x64EmitLoadFromVmField(asm_ctx, .rcx, OFF_FRAME_COUNT);
+    try asm_ctx.emitAddImm(.rcx, .rcx, 1);
+    try x64EmitStoreAtOffset(asm_ctx, .rcx, X_VM_PTR, OFF_FRAME_COUNT);
+
+    // Increment call_count (u32, wrapping)
+    try x64EmitLoadWFromField(asm_ctx, .rcx, .r8, OFF_FUNC_CALL_COUNT);
+    try asm_ctx.emitAddImm(.rcx, .rcx, 1);
+    try x64EmitStoreWAtOffset(asm_ctx, .rcx, .r8, OFF_FUNC_CALL_COUNT);
+
+    // --- Call callee's JIT entry ---
+    try x64EmitLoadFromField(asm_ctx, .r10, .r9, OFF_JIT_CODE_ENTRY); // r10 = entry fn ptr
+
+    // Save callee closure before setting up args
+    try asm_ctx.emitMovReg(.r11, .rax); // r11 = callee closure*
+    // System V ABI: rdi=VM*, rsi=new_base, rdx=constants, rcx=closure
+    try x64EmitLoadFromField(asm_ctx, .rdx, .r8, OFF_FUNC_CONSTANTS); // rdx = constants.items.ptr
+    try asm_ctx.emitMovReg(.rcx, .r11); // rcx = callee closure*
+    try asm_ctx.emitMovReg(.rsi, .rdi); // rsi = new_base (rdi computed above)
+    try asm_ctx.emitMovReg(.rdi, X_VM_PTR); // rdi = VM*
+
+    try asm_ctx.emitBlr(.r10);
+
+    // --- Handle result ---
+    try asm_ctx.emitCmpImm(.rax, 0);
+    const callee_ok = try asm_ctx.emitJccRel32(x64.Cond.eq); // JE → callee completed
+
+    // Callee side-exited: call jitFinishCallee(VM*, 0, dst_abs_idx)
+    try asm_ctx.emitAsrImm(.rdx, X_BASE_OFF, 3); // rdx = frame.base
+    try asm_ctx.emitAddImm(.rdx, .rdx, base_reg); // rdx = dst_abs_idx
+    try asm_ctx.emitLoadImm64(.rsi, 0); // unused arg
+    try asm_ctx.emitMovReg(.rdi, X_VM_PTR);
+    try asm_ctx.emitLoadImm64(.rax, @intFromPtr(&jitFinishCallee));
+    try asm_ctx.emitBlr(.rax);
+
+    // Helper result: 1 = success, 0 = error
+    try asm_ctx.emitCmpImm(.rax, 0);
+    const ok_patch = try asm_ctx.emitJccRel32(x64.Cond.ne); // JNE → skip error
+
+    // Error → return via return trampoline
+    const err_patch = try asm_ctx.emitJmpRel32();
+    try pending_returns.append(allocator, err_patch);
+
+    // Patch ok_patch and callee_ok to here
+    const final_ok = asm_ctx.pos();
+    x64PatchJmp(asm_ctx, callee_ok, final_ok);
+    x64PatchJmp(asm_ctx, ok_patch, final_ok);
+}
+
+fn x64EmitSelfCallSequence(asm_ctx: *x64.Assembler, base_reg: u8, nargs: u8, pending_exits: *std.ArrayList(PendingSideExit), pending_returns: *std.ArrayList(u32), pending_quick_exits: *std.ArrayList(u32), allocator: std.mem.Allocator, bc_ip: usize, ip_after: usize) !void {
+    _ = nargs;
+    _ = pending_quick_exits;
+
+    // Frame count overflow check
+    try x64EmitLoadFromVmField(asm_ctx, .rcx, OFF_FRAME_COUNT);
+    try asm_ctx.emitMovReg(.r9, .rcx); // save frame_count in r9
+    try asm_ctx.emitLoadImm64(.rdx, MAX_FRAMES);
+    try asm_ctx.emitCmpReg(.rcx, .rdx);
+    try x64EmitCondSideExit(asm_ctx, pending_exits, allocator, bc_ip, x64.Cond.ae);
+
+    // Save caller's frame IP
+    try asm_ctx.emitSubImm(.rcx, .r9, 1);
+    try x64EmitMulConst(asm_ctx, .rdx, .rcx, SIZEOF_CALLFRAME);
+    try x64EmitAddLargeOffset(asm_ctx, .rsi, X_VM_PTR, OFF_FRAMES);
+    try asm_ctx.emitAddReg(.rsi, .rsi, .rdx);
+    try asm_ctx.emitLoadImm64(.rdi, ip_after);
+    try x64EmitStoreAtOffset(asm_ctx, .rdi, .rsi, OFF_FRAME_IP);
+
+    // Advance to new frame
+    try asm_ctx.emitLoadImm64(.rdi, SIZEOF_CALLFRAME);
+    try asm_ctx.emitAddReg(.rsi, .rsi, .rdi);
+
+    // new_base
+    try asm_ctx.emitAsrImm(.rdi, X_BASE_OFF, 3);
+    try asm_ctx.emitAddImm(.rdi, .rdi, @as(u12, base_reg) + 1);
+
+    // Load func once
+    try x64EmitLoadFromField(asm_ctx, .r8, X_CLOSURE_PTR, OFF_CLOSURE_FUNC);
+
+    // Store frame fields
+    try x64EmitStoreAtOffset(asm_ctx, X_CLOSURE_PTR, .rsi, OFF_FRAME_CLOSURE);
+    try asm_ctx.emitLoadImm64(.rcx, 0);
+    try x64EmitStoreAtOffset(asm_ctx, .rcx, .rsi, OFF_FRAME_NATIVE);
+
+    try x64EmitLoadFromField(asm_ctx, .rax, .r8, OFF_FUNC_CODE);
+    try x64EmitStoreAtOffset(asm_ctx, .rax, .rsi, OFF_FRAME_CODE);
+    try x64EmitLoadFromField(asm_ctx, .rax, .r8, OFF_FUNC_CODE + 8);
+    try x64EmitStoreAtOffset(asm_ctx, .rax, .rsi, OFF_FRAME_CODE + 8);
+
+    try asm_ctx.emitLoadImm64(.rcx, 0);
+    try x64EmitStoreAtOffset(asm_ctx, .rcx, .rsi, OFF_FRAME_IP);
+    try x64EmitStoreHalfAtOffset(asm_ctx, .rdi, .rsi, OFF_FRAME_BASE);
+    try x64EmitStoreByteValue(asm_ctx, base_reg, .rsi, OFF_FRAME_DST);
+    try x64EmitLoadFromVmField(asm_ctx, .rcx, OFF_WIND_COUNT);
+    try x64EmitStoreHalfAtOffset(asm_ctx, .rcx, .rsi, OFF_FRAME_SAVED_WIND);
+
+    // Increment frame_count
+    try asm_ctx.emitAddImm(.rcx, .r9, 1);
+    try x64EmitStoreAtOffset(asm_ctx, .rcx, X_VM_PTR, OFF_FRAME_COUNT);
+
+    // Call self's JIT entry
+    try x64EmitLoadFromField(asm_ctx, .r9, .r8, OFF_FUNC_JIT_CODE);
+    try x64EmitLoadFromField(asm_ctx, .r10, .r9, OFF_JIT_CODE_ENTRY);
+
+    // System V: rdi=VM*, rsi=new_base, rdx=constants, rcx=closure
+    try x64EmitLoadFromField(asm_ctx, .rdx, .r8, OFF_FUNC_CONSTANTS);
+    try asm_ctx.emitMovReg(.rcx, X_CLOSURE_PTR);
+    try asm_ctx.emitMovReg(.rsi, .rdi); // new_base
+    try asm_ctx.emitMovReg(.rdi, X_VM_PTR);
+
+    try asm_ctx.emitBlr(.r10);
+
+    // Handle result
+    try asm_ctx.emitCmpImm(.rax, 0);
+    const callee_ok = try asm_ctx.emitJccRel32(x64.Cond.eq);
+
+    // Side-exited: call jitFinishCallee
+    try asm_ctx.emitAsrImm(.rdx, X_BASE_OFF, 3);
+    try asm_ctx.emitAddImm(.rdx, .rdx, base_reg);
+    try asm_ctx.emitLoadImm64(.rsi, 0);
+    try asm_ctx.emitMovReg(.rdi, X_VM_PTR);
+    try asm_ctx.emitLoadImm64(.rax, @intFromPtr(&jitFinishCallee));
+    try asm_ctx.emitBlr(.rax);
+
+    try asm_ctx.emitCmpImm(.rax, 0);
+    const ok_patch = try asm_ctx.emitJccRel32(x64.Cond.ne);
+    const err_patch = try asm_ctx.emitJmpRel32();
+    try pending_returns.append(allocator, err_patch);
+
+    const final_ok = asm_ctx.pos();
+    x64PatchJmp(asm_ctx, callee_ok, final_ok);
+    x64PatchJmp(asm_ctx, ok_patch, final_ok);
+}
+
+fn x64EmitGetUpvalue(asm_ctx: *x64.Assembler, dst: u8, idx: u8, pending_exits: *std.ArrayList(PendingSideExit), allocator: std.mem.Allocator, bc_ip: usize) !void {
+    try x64EmitLoadFromField(asm_ctx, .rax, X_CLOSURE_PTR, OFF_CLOSURE_UPVALUES);
+    const uv_offset: u32 = @as(u32, idx) * 8;
+    if (uv_offset <= 32760) {
+        try asm_ctx.emitLdrImm(.rax, .rax, @intCast(uv_offset));
+    } else {
+        try asm_ctx.emitLoadImm64(.rcx, uv_offset);
+        try asm_ctx.emitAddReg(.rax, .rax, .rcx);
+        try asm_ctx.emitLdrImm(.rax, .rax, 0);
+    }
+    // Fixnum (bit 0) or immediate (bit 1) → safe; pointer → side-exit
+    // TEST rax, 1; JNE .store
+    try asm_ctx.emitTbnz(.rax, 0, 0); // emits TEST+JNE with placeholder
+    const fix_patch = asm_ctx.pos() - 4; // patch position is last 4 bytes
+    // TEST rax, 2; JNE .store
+    try asm_ctx.emitTbnz(.rax, 1, 0);
+    const imm_patch = asm_ctx.pos() - 4;
+    // Pointer → side-exit
+    try x64EmitUnconditionalSideExit(asm_ctx, pending_exits, allocator, bc_ip);
+    // .store:
+    const store_pos = asm_ctx.pos();
+    try x64EmitStoreReg(asm_ctx, dst, .rax);
+    // Patch the two JNE to jump to store_pos
+    x64PatchJmp(asm_ctx, fix_patch, store_pos);
+    x64PatchJmp(asm_ctx, imm_patch, store_pos);
+}
+
+fn x64EmitSetUpvalue(asm_ctx: *x64.Assembler, src: u8, idx: u8, pending_exits: *std.ArrayList(PendingSideExit), allocator: std.mem.Allocator, bc_ip: usize) !void {
+    try x64EmitLoadFromField(asm_ctx, .rax, X_CLOSURE_PTR, OFF_CLOSURE_UPVALUES);
+    const uv_offset: u32 = @as(u32, idx) * 8;
+    // Load current upvalue value to check type
+    if (uv_offset <= 32760) {
+        try asm_ctx.emitLdrImm(.rcx, .rax, @intCast(uv_offset));
+    } else {
+        try asm_ctx.emitLoadImm64(.rcx, uv_offset);
+        try asm_ctx.emitAddReg(.rcx, .rax, .rcx);
+        try asm_ctx.emitLdrImm(.rcx, .rcx, 0);
+    }
+    // Non-pointer → direct store; pointer → side-exit
+    try asm_ctx.emitTbnz(.rcx, 0, 0); // TEST rcx, 1; JNE .store
+    const fix_patch = asm_ctx.pos() - 4;
+    try asm_ctx.emitTbnz(.rcx, 1, 0); // TEST rcx, 2; JNE .store
+    const imm_patch = asm_ctx.pos() - 4;
+    // Pointer → side-exit
+    try x64EmitUnconditionalSideExit(asm_ctx, pending_exits, allocator, bc_ip);
+    // .direct_store:
+    const store_pos = asm_ctx.pos();
+    try x64EmitLoadReg(asm_ctx, .rcx, src);
+    try x64EmitLoadFromField(asm_ctx, .rax, X_CLOSURE_PTR, OFF_CLOSURE_UPVALUES);
+    if (uv_offset <= 32760) {
+        try asm_ctx.emitStrImm(.rcx, .rax, @intCast(uv_offset));
+    } else {
+        try asm_ctx.emitLoadImm64(.rdx, uv_offset);
+        try asm_ctx.emitAddReg(.rax, .rax, .rdx);
+        try asm_ctx.emitStrImm(.rcx, .rax, 0);
+    }
+    x64PatchJmp(asm_ctx, fix_patch, store_pos);
+    x64PatchJmp(asm_ctx, imm_patch, store_pos);
+}
+
+fn x64EmitSpecializedArith(asm_ctx: *x64.Assembler, base_reg: u8, spec: SpecializedOp, pending_exits: *std.ArrayList(PendingSideExit), allocator: std.mem.Allocator, bc_ip: usize) !void {
+    const arg1_off: u16 = (@as(u16, base_reg) + 1) * 8;
+    const arg2_off: u16 = (@as(u16, base_reg) + 2) * 8;
+    const dst_off: u16 = @as(u16, base_reg) * 8;
+
+    try asm_ctx.emitLdrImm(.rax, X_FRAME_PTR, arg1_off);
+    try asm_ctx.emitLdrImm(.rcx, X_FRAME_PTR, arg2_off);
+
+    // Type guard: both must be fixnums (bit 0 = 1)
+    try asm_ctx.emitAndReg(.rdx, .rax, .rcx);
+    try asm_ctx.emitLoadImm64(.rsi, 1);
+    try asm_ctx.emitAndReg(.rdx, .rdx, .rsi);
+    try asm_ctx.emitCmpImm(.rdx, 0);
+    try x64EmitCondSideExit(asm_ctx, pending_exits, allocator, bc_ip, x64.Cond.eq);
+
+    switch (spec) {
+        .add => {
+            try asm_ctx.emitAsrImm(.rdi, .rax, 1);
+            try asm_ctx.emitAsrImm(.rsi, .rcx, 1);
+            try asm_ctx.emitAddReg(.rdi, .rdi, .rsi);
+            try x64EmitCondSideExit(asm_ctx, pending_exits, allocator, bc_ip, x64.Cond.o);
+            try asm_ctx.emitLslImm(.rdi, .rdi, 1);
+            try asm_ctx.emitOrrImm(.rdi, .rdi, 1);
+            try asm_ctx.emitStrImm(.rdi, X_FRAME_PTR, dst_off);
+        },
+        .sub => {
+            try asm_ctx.emitAsrImm(.rdi, .rax, 1);
+            try asm_ctx.emitAsrImm(.rsi, .rcx, 1);
+            try asm_ctx.emitSubReg(.rdi, .rdi, .rsi);
+            try x64EmitCondSideExit(asm_ctx, pending_exits, allocator, bc_ip, x64.Cond.o);
+            try asm_ctx.emitLslImm(.rdi, .rdi, 1);
+            try asm_ctx.emitOrrImm(.rdi, .rdi, 1);
+            try asm_ctx.emitStrImm(.rdi, X_FRAME_PTR, dst_off);
+        },
+        .mul => {
+            try asm_ctx.emitAsrImm(.rax, .rax, 1);
+            try asm_ctx.emitAsrImm(.rcx, .rcx, 1);
+            // IMUL r/m64: RDX:RAX = RAX * RCX
+            try asm_ctx.emitImulOneOp(.rcx);
+            // Overflow check: RDX must be sign-extension of RAX
+            try asm_ctx.emitAsrImm(.r8, .rax, 63);
+            try asm_ctx.emitCmpReg(.rdx, .r8);
+            try x64EmitCondSideExit(asm_ctx, pending_exits, allocator, bc_ip, x64.Cond.ne);
+            // Range check: result fits in 63-bit signed fixnum
+            try asm_ctx.emitLoadImm64(.r8, 0x4000_0000_0000_0000);
+            try asm_ctx.emitCmpReg(.rax, .r8);
+            try x64EmitCondSideExit(asm_ctx, pending_exits, allocator, bc_ip, x64.Cond.ge);
+            // Retag
+            try asm_ctx.emitLslImm(.rax, .rax, 1);
+            try asm_ctx.emitOrrImm(.rax, .rax, 1);
+            try asm_ctx.emitStrImm(.rax, X_FRAME_PTR, dst_off);
+        },
+        .lt, .gt, .le, .ge, .eq => {
+            try asm_ctx.emitCmpReg(.rax, .rcx);
+            try asm_ctx.emitLoadImm64(.rdx, types.FALSE);
+            try asm_ctx.emitLoadImm64(.rsi, types.TRUE);
+            const cond: x64.Cond = switch (spec) {
+                .lt => x64.Cond.lt,
+                .gt => x64.Cond.gt,
+                .le => x64.Cond.le,
+                .ge => x64.Cond.ge,
+                .eq => x64.Cond.eq,
+                else => unreachable,
+            };
+            try asm_ctx.emitCsel(.rdi, .rsi, .rdx, cond);
+            try asm_ctx.emitStrImm(.rdi, X_FRAME_PTR, dst_off);
+        },
+        else => unreachable,
+    }
+}
+
+fn x64EmitSpecializedPredicate(asm_ctx: *x64.Assembler, base_reg: u8, spec: SpecializedOp, pending_exits: *std.ArrayList(PendingSideExit), allocator: std.mem.Allocator, bc_ip: usize) !void {
+    const arg_off: u16 = (@as(u16, base_reg) + 1) * 8;
+    const dst_off: u16 = @as(u16, base_reg) * 8;
+
+    try asm_ctx.emitLdrImm(.rax, X_FRAME_PTR, arg_off);
+
+    switch (spec) {
+        .zero_p => {
+            try asm_ctx.emitCmpImm(.rax, 1); // tagged 0
+            try asm_ctx.emitLoadImm64(.rcx, types.FALSE);
+            try asm_ctx.emitLoadImm64(.rdx, types.TRUE);
+            try asm_ctx.emitCsel(.rsi, .rdx, .rcx, x64.Cond.eq);
+            try asm_ctx.emitStrImm(.rsi, X_FRAME_PTR, dst_off);
+        },
+        .null_p => {
+            try asm_ctx.emitLoadImm64(.rcx, types.NIL);
+            try asm_ctx.emitCmpReg(.rax, .rcx);
+            try asm_ctx.emitLoadImm64(.rdx, types.FALSE);
+            try asm_ctx.emitLoadImm64(.rsi, types.TRUE);
+            try asm_ctx.emitCsel(.rdi, .rsi, .rdx, x64.Cond.eq);
+            try asm_ctx.emitStrImm(.rdi, X_FRAME_PTR, dst_off);
+        },
+        .pair_p => {
+            try asm_ctx.emitAndImm(.rcx, .rax, 7);
+            try asm_ctx.emitLoadImm64(.rdi, types.FALSE);
+            try asm_ctx.emitCmpImm(.rcx, 0);
+            // Not a pointer → store FALSE and skip tag check
+            const not_ptr_patch = try asm_ctx.emitJccRel32(x64.Cond.ne);
+            // Pointer — check tag byte
+            try asm_ctx.emitLdrbImm(.rcx, .rax, @intCast(OFF_OBJECT_TAG));
+            try asm_ctx.emitAndImm(.rcx, .rcx, 0x3F);
+            try asm_ctx.emitCmpImm(.rcx, @intFromEnum(types.ObjectTag.pair));
+            try asm_ctx.emitLoadImm64(.rsi, types.TRUE);
+            try asm_ctx.emitCsel(.rdi, .rsi, .rdi, x64.Cond.eq);
+            // .store:
+            const store_pos = asm_ctx.pos();
+            try asm_ctx.emitStrImm(.rdi, X_FRAME_PTR, dst_off);
+            x64PatchJmp(asm_ctx, not_ptr_patch, store_pos);
+        },
+        .not_op => {
+            try asm_ctx.emitLoadImm64(.rcx, types.FALSE);
+            try asm_ctx.emitCmpReg(.rax, .rcx);
+            try asm_ctx.emitLoadImm64(.rdx, types.TRUE);
+            try asm_ctx.emitCsel(.rsi, .rdx, .rcx, x64.Cond.eq);
+            try asm_ctx.emitStrImm(.rsi, X_FRAME_PTR, dst_off);
+        },
+        .car => {
+            try x64EmitPairGuard(asm_ctx, .rax, pending_exits, allocator, bc_ip);
+            try x64EmitLoadFromField(asm_ctx, .rcx, .rax, OFF_PAIR_CAR);
+            try asm_ctx.emitStrImm(.rcx, X_FRAME_PTR, dst_off);
+        },
+        .cdr => {
+            try x64EmitPairGuard(asm_ctx, .rax, pending_exits, allocator, bc_ip);
+            try x64EmitLoadFromField(asm_ctx, .rcx, .rax, OFF_PAIR_CDR);
+            try asm_ctx.emitStrImm(.rcx, X_FRAME_PTR, dst_off);
+        },
+        else => unreachable,
+    }
+}
+
+fn x64EmitPairGuard(asm_ctx: *x64.Assembler, val_reg: X64, pending_exits: *std.ArrayList(PendingSideExit), allocator: std.mem.Allocator, bc_ip: usize) !void {
+    try asm_ctx.emitAndImm(.rcx, val_reg, 7);
+    try asm_ctx.emitCmpImm(.rcx, 0);
+    try x64EmitCondSideExit(asm_ctx, pending_exits, allocator, bc_ip, x64.Cond.ne);
+    try asm_ctx.emitLdrbImm(.rcx, val_reg, @intCast(OFF_OBJECT_TAG));
+    try asm_ctx.emitAndImm(.rcx, .rcx, 0x3F);
+    try asm_ctx.emitCmpImm(.rcx, @intFromEnum(types.ObjectTag.pair));
+    try x64EmitCondSideExit(asm_ctx, pending_exits, allocator, bc_ip, x64.Cond.ne);
+}
+
+fn x64EmitCons(asm_ctx: *x64.Assembler, dst: u8, car_reg: u8, cdr_reg: u8, pending_exits: *std.ArrayList(PendingSideExit), allocator: std.mem.Allocator, bc_ip: usize) !void {
+    // System V ABI: rdi=VM*, rsi=car, rdx=cdr
+    try asm_ctx.emitLdrImm(.rsi, X_FRAME_PTR, @as(u16, car_reg) * 8);
+    try asm_ctx.emitLdrImm(.rdx, X_FRAME_PTR, @as(u16, cdr_reg) * 8);
+    try asm_ctx.emitMovReg(.rdi, X_VM_PTR);
+    try asm_ctx.emitLoadImm64(.rax, @intFromPtr(&jitAllocPair));
+    try asm_ctx.emitBlr(.rax);
+    try asm_ctx.emitCmpImm(.rax, 0);
+    try x64EmitCondSideExit(asm_ctx, pending_exits, allocator, bc_ip, x64.Cond.eq);
+    try x64EmitStoreReg(asm_ctx, dst, .rax);
+}
+
+fn x64EmitGetGlobal(asm_ctx: *x64.Assembler, dst: u8, sym_idx: u16, pending_exits: *std.ArrayList(PendingSideExit), allocator: std.mem.Allocator, bc_ip: usize) !void {
+    // Load func from closure
+    try x64EmitLoadFromField(asm_ctx, .rax, X_CLOSURE_PTR, OFF_CLOSURE_FUNC);
+    // Load global_cache.ptr (first word of ?[]Value)
+    try x64EmitLoadFromField(asm_ctx, .rcx, .rax, OFF_FUNC_GLOBAL_CACHE);
+    // Null check
+    try asm_ctx.emitCmpImm(.rcx, 0);
+    try x64EmitCondSideExit(asm_ctx, pending_exits, allocator, bc_ip, x64.Cond.eq);
+    // Check cache_version == global_version
+    try x64EmitLoadWFromField(asm_ctx, .rdx, .rax, OFF_FUNC_CACHE_VERSION);
+    try x64EmitLoadWFromField(asm_ctx, .rsi, X_VM_PTR, OFF_VM_GLOBAL_VERSION);
+    try asm_ctx.emitCmpReg(.rdx, .rsi);
+    try x64EmitCondSideExit(asm_ctx, pending_exits, allocator, bc_ip, x64.Cond.ne);
+    // Bounds check: cache.len > sym_idx
+    try x64EmitLoadFromField(asm_ctx, .rdx, .rax, OFF_FUNC_GLOBAL_CACHE + 8);
+    try asm_ctx.emitLoadImm64(.rsi, sym_idx);
+    try asm_ctx.emitCmpReg(.rdx, .rsi);
+    try x64EmitCondSideExit(asm_ctx, pending_exits, allocator, bc_ip, x64.Cond.ls);
+    // Load cached value
+    const cache_offset: u32 = @as(u32, sym_idx) * 8;
+    if (cache_offset <= 32760) {
+        try asm_ctx.emitLdrImm(.rdx, .rcx, @intCast(cache_offset));
+    } else {
+        try asm_ctx.emitLoadImm64(.rdx, cache_offset);
+        try asm_ctx.emitAddReg(.rdx, .rcx, .rdx);
+        try asm_ctx.emitLdrImm(.rdx, .rdx, 0);
+    }
+    // Check != VOID
+    try asm_ctx.emitLoadImm64(.rsi, types.VOID);
+    try asm_ctx.emitCmpReg(.rdx, .rsi);
+    try x64EmitCondSideExit(asm_ctx, pending_exits, allocator, bc_ip, x64.Cond.eq);
+    // Store to dst
+    try x64EmitStoreReg(asm_ctx, dst, .rdx);
+}
+
+fn x64EmitSetGlobal(asm_ctx: *x64.Assembler, src: u8, sym_idx: u16, pending_exits: *std.ArrayList(PendingSideExit), allocator: std.mem.Allocator, bc_ip: usize) !void {
+    // System V ABI: rdi=VM*, rsi=symbol, rdx=value
+    const sym_offset: u32 = @as(u32, sym_idx) * 8;
+    if (sym_offset <= 32760) {
+        try asm_ctx.emitLdrImm(.rsi, X_CONST_PTR, @intCast(sym_offset));
+    } else {
+        try asm_ctx.emitLoadImm64(.rsi, sym_offset);
+        try asm_ctx.emitAddReg(.rsi, X_CONST_PTR, .rsi);
+        try asm_ctx.emitLdrImm(.rsi, .rsi, 0);
+    }
+    try x64EmitLoadReg(asm_ctx, .rdx, src);
+    try asm_ctx.emitMovReg(.rdi, X_VM_PTR);
+    try asm_ctx.emitLoadImm64(.rax, @intFromPtr(&jitSetGlobal));
+    try asm_ctx.emitBlr(.rax);
+    // Check result
+    try asm_ctx.emitCmpImm(.rax, 0);
+    try x64EmitCondSideExit(asm_ctx, pending_exits, allocator, bc_ip, x64.Cond.eq);
+}
+
+fn x64EmitCondSideExit(asm_ctx: *x64.Assembler, pending_exits: *std.ArrayList(PendingSideExit), allocator: std.mem.Allocator, bc_ip: usize, cond: x64.Cond) !void {
+    const patch_pos = try asm_ctx.emitJccRel32(cond);
+    try pending_exits.append(allocator, .{ .native_idx = patch_pos, .bc_ip = bc_ip });
+}
+
+fn x64EmitUnconditionalSideExit(asm_ctx: *x64.Assembler, pending_exits: *std.ArrayList(PendingSideExit), allocator: std.mem.Allocator, bc_ip: usize) !void {
+    const patch_pos = try asm_ctx.emitJmpRel32();
+    try pending_exits.append(allocator, .{ .native_idx = patch_pos, .bc_ip = bc_ip });
 }
 
 pub fn tryCompile(func: *types.Function, vm: *VM) void {
