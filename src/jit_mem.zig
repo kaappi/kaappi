@@ -4,6 +4,7 @@ const builtin = @import("builtin");
 const page_align = std.heap.page_size_min;
 
 const is_macos = builtin.os.tag == .macos;
+const is_linux = builtin.os.tag == .linux;
 const needs_icache_flush = builtin.cpu.arch == .aarch64 and !is_macos;
 
 pub const CodeBuffer = struct {
@@ -51,7 +52,7 @@ pub const CodeBuffer = struct {
             jit_wp(0);
         } else {
             // Linux: ensure pages are writable before writing code
-            std.posix.mprotect(@alignCast(self.mem.ptr), self.mem.len, .{ .READ = true, .WRITE = true, .EXEC = false }) catch {};
+            linuxMprotect(self.mem.ptr, self.mem.len, .{ .READ = true, .WRITE = true });
         }
 
         @memcpy(self.mem[0..bytes.len], bytes);
@@ -64,7 +65,7 @@ pub const CodeBuffer = struct {
             icache_inv(@ptrCast(self.mem.ptr), self.len);
         } else {
             // Linux W^X: switch from writable to executable after writing
-            std.posix.mprotect(@alignCast(self.mem.ptr), self.mem.len, .{ .READ = true, .WRITE = false, .EXEC = true }) catch {};
+            linuxMprotect(self.mem.ptr, self.mem.len, .{ .READ = true, .EXEC = true });
             if (comptime needs_icache_flush) {
                 const clear_cache = @extern(*const fn (*anyopaque, *anyopaque) callconv(.c) void, .{ .name = "__clear_cache" });
                 clear_cache(@ptrCast(self.mem.ptr), @ptrCast(self.mem.ptr + self.len));
@@ -81,6 +82,10 @@ pub const CodeBuffer = struct {
         self.* = undefined;
     }
 };
+
+fn linuxMprotect(ptr: [*]align(page_align) u8, len: usize, prot: std.os.linux.PROT) void {
+    _ = std.os.linux.mprotect(@ptrCast(ptr), len, prot);
+}
 
 test "mmap executable memory and run trivial function" {
     if (@import("builtin").cpu.arch != .aarch64) return error.SkipZigTest;

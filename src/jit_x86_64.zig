@@ -570,7 +570,7 @@ pub const Assembler = struct {
         if (rd != rm) try self.emitMovReg(rd, rm);
         try self.emit(rexW(rd, rn));
         try self.emit(0x0F);
-        try self.emit(0x40 + @intFromEnum(cond));
+        try self.emit(0x40 + @as(u8, @intFromEnum(cond)));
         try self.emit(modRM(0b11, regLow3(rd), regLow3(rn)));
     }
 
@@ -598,7 +598,7 @@ pub const Assembler = struct {
     // Jcc rel32 — emit conditional jump with placeholder, return patch position
     pub fn emitJccRel32(self: *Assembler, cond: Cond) !u32 {
         try self.emit(0x0F);
-        try self.emit(0x80 + @intFromEnum(cond));
+        try self.emit(0x80 + @as(u8, @intFromEnum(cond)));
         const patch_pos = self.pos();
         try self.emit32(0);
         return patch_pos;
@@ -663,7 +663,7 @@ pub const Assembler = struct {
         try self.emit(rexW(.rax, rt));
         try self.emit(0xF7);
         try self.emit(modRM(0b11, 0, regLow3(rt)));
-        try self.emit32(@as(u32, 1) << bit);
+        try self.emit32(@as(u32, 1) << @as(u5, @truncate(bit)));
         // JE rel32 (placeholder — caller patches)
         try self.emit(0x0F);
         try self.emit(0x84);
@@ -675,7 +675,7 @@ pub const Assembler = struct {
         try self.emit(rexW(.rax, rt));
         try self.emit(0xF7);
         try self.emit(modRM(0b11, 0, regLow3(rt)));
-        try self.emit32(@as(u32, 1) << bit);
+        try self.emit32(@as(u32, 1) << @as(u5, @truncate(bit)));
         // JNE rel32 (placeholder — caller patches)
         try self.emit(0x0F);
         try self.emit(0x85);
