@@ -22,8 +22,9 @@ zig build -Dgc-threshold=16384     # custom initial GC threshold (default: 8192)
 ```
 
 CLI flags: `-h`/`--help`, `--version`, `--lib-path <path>`, `--compile`,
-`-o <file>`, `--disassemble`, `--no-jit`, `--sandbox`, `--gc-stats`,
-`--profile`. Version is defined as `pub const version` in `main.zig`.
+`-o <file>`, `--disassemble`, `--no-jit`, `--sandbox`,
+`--experimental-threads`, `--gc-stats`, `--profile`. Version is defined
+as `pub const version` in `main.zig`.
 
 Build-time options: `-Dmax-frames=N` (call frame depth, default 512),
 `-Dmax-registers=N` (register count, default 2048),
@@ -339,6 +340,9 @@ build: make
 
 ## OS threads (SRFI-18)
 
+**Gated behind `--experimental-threads`.** Without the flag, `thread-start!`
+raises an error. Cross-thread GC is not yet safe.
+
 `thread-start!` spawns real OS threads via `std.Thread.spawn`. Each child
 thread gets its own VM and GC with a shared (mutex-protected) symbol table.
 
@@ -348,6 +352,7 @@ thread gets its own VM and GC with a shared (mutex-protected) symbol table.
 - `VM.initForThread` creates per-thread VM sharing parent's globals/libraries (`src/vm.zig`)
 - `symbol_mutex` (spinlock) protects concurrent symbol interning (`src/memory.zig`)
 - Fiber struct has `os_thread: ?std.Thread` field (`src/fiber.zig`)
+- `vm.experimental_threads` gate checked in `src/primitives_srfi18.zig`
 
 **Current status:** Basic thread execution and FFI calls work. GC-heavy
 operations in child threads (allocating strings, pairs) need further work on
