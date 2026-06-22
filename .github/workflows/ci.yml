@@ -63,6 +63,10 @@ jobs:
         if: matrix.optimize == 'ReleaseSafe'
         run: bash tests/scheme/sandbox/sandbox-escape.sh
 
+      - name: Robustness tests
+        if: matrix.optimize == 'ReleaseSafe'
+        run: bash tests/scheme/robustness/robustness.sh
+
   riscv64-test:
     runs-on: ubuntu-latest
     steps:
