@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-06-23
+
+### Fixed
+- Release binaries printed `DebugAllocator` leak warnings to stderr when stdin
+  was piped — now use `c_allocator` in release builds, `DebugAllocator` only in
+  Debug mode
+- macOS binary triggered Gatekeeper "malware" warning — release workflow now
+  ad-hoc code signs the macOS binary
+
 ## [0.1.0] - 2026-06-23
 
 Complete R7RS-small implementation with 554 built-in procedures, 32 syntax

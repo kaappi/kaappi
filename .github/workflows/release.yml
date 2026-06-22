@@ -37,6 +37,10 @@ jobs:
       - name: Build release binary
         run: zig build -Doptimize=ReleaseSafe -Dtarget=${{ matrix.target }}
 
+      - name: Sign macOS binary
+        if: matrix.target == 'aarch64-macos'
+        run: codesign --force --sign - zig-out/bin/kaappi
+
       - name: Rename binary
         run: cp zig-out/bin/kaappi ${{ matrix.artifact }}
 

@@ -32,7 +32,7 @@ pub const embedded_bytecode = @import("embedded_bytecode");
 pub const fiber_mod = @import("fiber.zig");
 pub const primitives_fiber = @import("primitives_fiber.zig");
 
-pub const version = "0.1.0";
+pub const version = "0.1.1";
 
 var repl_vm: ?*vm_mod.VM = null;
 
@@ -318,9 +318,12 @@ fn readFileContents(allocator: std.mem.Allocator, path: []const u8) ![]u8 {
 }
 
 pub fn main(init: std.process.Init.Minimal) !void {
-    var da = std.heap.DebugAllocator(.{}).init;
-    defer _ = da.deinit();
-    const allocator = da.allocator();
+    const is_debug = @import("builtin").mode == .Debug;
+    var da = if (is_debug) std.heap.DebugAllocator(.{}).init;
+    defer if (is_debug) {
+        _ = da.deinit();
+    };
+    const allocator = if (is_debug) da.allocator() else std.heap.c_allocator;
 
     var gc = memory.GC.init(allocator);
     defer gc.deinit();
