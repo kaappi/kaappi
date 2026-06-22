@@ -124,6 +124,7 @@ pub fn isEligible(func: *const types.Function) bool {
 pub fn compile(func: *types.Function, vm: *VM, allocator: std.mem.Allocator) !*JitCode {
     if (!jit_supported) return error.InvalidBytecode;
     if (is_x86_64) return compileX86_64(func, vm, allocator);
+    var reg_global_sym: [256]?u16 = .{null} ** 256;
     var asm_ctx = a64.Assembler.init(allocator);
     defer asm_ctx.deinit();
 
@@ -275,6 +276,7 @@ pub fn compile(func: *types.Function, vm: *VM, allocator: std.mem.Allocator) !*J
                 const sym_idx = readU16(code, ip + 1);
                 ip += 3;
                 try emitGetGlobal(&asm_ctx, dst, sym_idx, &pending_exits, allocator, ip - 4);
+                reg_global_sym[dst] = sym_idx;
             },
             .@"return" => {
                 const src = code[ip];
@@ -286,6 +288,12 @@ pub fn compile(func: *types.Function, vm: *VM, allocator: std.mem.Allocator) !*J
                 const nargs = code[ip + 1];
                 ip += 2;
                 try emitCall(&asm_ctx, base_reg, nargs, &pending_exits, &pending_returns, &pending_quick_exits, allocator, ip - 3, ip, func);
+            },
+            .tail_call => {
+                const base_reg = code[ip];
+                const nargs = code[ip + 1];
+                ip += 2;
+                try emitTailCall(&asm_ctx, base_reg, nargs, &pending_exits, &pending_returns, allocator, ip - 3, reg_global_sym[base_reg], func, vm);
             },
             .call_global => {
                 const base_reg = code[ip];
@@ -525,6 +533,9 @@ const X_CONST_PTR = X64.r12;
 const X_CLOSURE_PTR = X64.rbp;
 
 fn compileX86_64(func: *types.Function, vm: *VM, allocator: std.mem.Allocator) !*JitCode {
+    // Track which get_global symbol was last loaded into each register
+    var reg_global_sym: [256]?u16 = .{null} ** 256;
+
     var asm_ctx = x64.Assembler.init(allocator);
     defer asm_ctx.deinit();
 
@@ -665,6 +676,7 @@ fn compileX86_64(func: *types.Function, vm: *VM, allocator: std.mem.Allocator) !
                 const sym_idx_g = readU16(code, ip + 1);
                 ip += 3;
                 try x64EmitGetGlobal(&asm_ctx, dst_g, sym_idx_g, &pending_exits, allocator, ip - 4);
+                reg_global_sym[dst_g] = sym_idx_g;
             },
             .set_global, .define_global => {
                 const sym_idx_s = readU16(code, ip);
@@ -729,6 +741,12 @@ fn compileX86_64(func: *types.Function, vm: *VM, allocator: std.mem.Allocator) !
                 ip += 2;
                 try x64EmitCall(&asm_ctx, base_reg_c, nargs_c, &pending_exits, &pending_returns, &pending_quick_exits, allocator, ip - 3, ip);
             },
+            .tail_call => {
+                const base_reg_tc = code[ip];
+                const nargs_tc = code[ip + 1];
+                ip += 2;
+                try x64EmitTailCall(&asm_ctx, base_reg_tc, nargs_tc, &pending_exits, &pending_returns, allocator, ip - 3, reg_global_sym[base_reg_tc], func, vm);
+            },
             .jump => {
                 const off = readI16(code, ip);
                 ip += 2;
@@ -781,7 +799,6 @@ fn compileX86_64(func: *types.Function, vm: *VM, allocator: std.mem.Allocator) !
             else => {
                 // Side-exit for unhandled opcodes
                 const operand_bytes: usize = switch (op) {
-                    .tail_call => 2,
                     else => 0,
                 };
                 const side_exit_ip = ip - 1;
@@ -979,6 +996,35 @@ fn x64EmitMulConst(asm_ctx: *x64.Assembler, rd: X64, rn: X64, constant: usize) !
     try asm_ctx.emitLoadImm64(.r11, constant);
     try asm_ctx.emitMovReg(rd, rn);
     try asm_ctx.emitImulReg(rd, .r11);
+}
+
+fn x64EmitTailCall(asm_ctx: *x64.Assembler, base_reg: u8, nargs: u8, pending_exits: *std.ArrayList(PendingSideExit), pending_returns: *std.ArrayList(u32), allocator: std.mem.Allocator, bc_ip: usize, sym_idx: ?u16, func_ctx: *const types.Function, vm_ctx: *const VM) !void {
+    // Peephole: if base_reg was loaded via get_global for a known primitive,
+    // emit specialized inline arithmetic/predicate + tail-return.
+    if (sym_idx) |si| {
+        const spec = recognizeArithPrimitive(func_ctx, si, vm_ctx);
+        if (spec != .none and nargs == 2 and (spec == .add or spec == .sub or spec == .mul or spec == .lt or spec == .gt or spec == .le or spec == .ge or spec == .eq)) {
+            try x64EmitSpecializedArith(asm_ctx, base_reg, spec, pending_exits, allocator, bc_ip);
+            try x64EmitTailReturn(asm_ctx, base_reg, pending_returns, allocator);
+            return;
+        }
+        if (spec != .none and nargs == 1 and (spec == .zero_p or spec == .null_p or spec == .pair_p or spec == .not_op or spec == .car or spec == .cdr)) {
+            try x64EmitSpecializedPredicate(asm_ctx, base_reg, spec, pending_exits, allocator, bc_ip);
+            try x64EmitTailReturn(asm_ctx, base_reg, pending_returns, allocator);
+            return;
+        }
+    }
+    // Fallback: call helper
+    try asm_ctx.emitLdrImm(.rsi, X_FRAME_PTR, @as(u16, base_reg) * 8);
+    try asm_ctx.emitMovReg(.rdi, X_VM_PTR);
+    try asm_ctx.emitLoadImm64(.rdx, base_reg);
+    try asm_ctx.emitLoadImm64(.rcx, nargs);
+    try asm_ctx.emitLoadImm64(.rax, @intFromPtr(&jitTailCallNative));
+    try asm_ctx.emitBlr(.rax);
+    try asm_ctx.emitCmpImm(.rax, 1);
+    const ok_patch = try asm_ctx.emitJccRel32(x64.Cond.eq);
+    try pending_returns.append(allocator, ok_patch);
+    try x64EmitUnconditionalSideExit(asm_ctx, pending_exits, allocator, bc_ip);
 }
 
 fn x64EmitCall(asm_ctx: *x64.Assembler, base_reg: u8, nargs: u8, pending_exits: *std.ArrayList(PendingSideExit), pending_returns: *std.ArrayList(u32), pending_quick_exits: *std.ArrayList(u32), allocator: std.mem.Allocator, bc_ip: usize, ip_after: usize) !void {
@@ -1501,6 +1547,22 @@ fn x64EmitSetGlobal(asm_ctx: *x64.Assembler, src: u8, sym_idx: u16, pending_exit
     try x64EmitCondSideExit(asm_ctx, pending_exits, allocator, bc_ip, x64.Cond.eq);
 }
 
+fn x64EmitTailReturn(asm_ctx: *x64.Assembler, base_reg: u8, pending_returns: *std.ArrayList(u32), allocator: std.mem.Allocator) !void {
+    // Result is at frame[base_reg]; store at FRAME_PTR[-8], decrement frame_count, return
+    try x64EmitLoadReg(asm_ctx, .rax, base_reg);
+    // MOV [rbx-8], rax
+    try asm_ctx.emit(0x48);
+    try asm_ctx.emit(0x89);
+    try asm_ctx.emit(0x43);
+    try asm_ctx.emit(0xF8);
+    // Decrement frame_count
+    try x64EmitLoadFromVmField(asm_ctx, .rcx, OFF_FRAME_COUNT);
+    try asm_ctx.emitSubImm(.rcx, .rcx, 1);
+    try x64EmitStoreAtOffset(asm_ctx, .rcx, X_VM_PTR, OFF_FRAME_COUNT);
+    const ret_patch = try asm_ctx.emitJmpRel32();
+    try pending_returns.append(allocator, ret_patch);
+}
+
 fn x64EmitCondSideExit(asm_ctx: *x64.Assembler, pending_exits: *std.ArrayList(PendingSideExit), allocator: std.mem.Allocator, bc_ip: usize, cond: x64.Cond) !void {
     const patch_pos = try asm_ctx.emitJccRel32(cond);
     try pending_exits.append(allocator, .{ .native_idx = patch_pos, .bc_ip = bc_ip });
@@ -1532,6 +1594,38 @@ pub fn jitAllocPair(vm_ptr: *VM, car: u64, cdr: u64) callconv(.c) u64 {
     const cdr_val: types.Value = @bitCast(cdr);
     const pair_val = vm_ptr.gc.allocPair(car_val, cdr_val) catch return 0;
     return @bitCast(pair_val);
+}
+
+pub fn jitTailCallNative(vm_ptr: *VM, callee_val: u64, base_reg_val: u64, nargs_val: u64) callconv(.c) u64 {
+    const callee: types.Value = @bitCast(callee_val);
+    const base_reg: u8 = @intCast(base_reg_val);
+    const nargs: u8 = @intCast(nargs_val);
+
+    const frame = &vm_ptr.frames[vm_ptr.frame_count - 1];
+    const abs_base: u16 = frame.base + @as(u16, base_reg);
+
+    if (types.isNativeFn(callee)) {
+        const native = types.toObject(callee).as(types.NativeFn);
+        const arity_ok = switch (native.arity) {
+            .exact => |expected| nargs == expected,
+            .variadic => |min| nargs >= min,
+        };
+        if (!arity_ok) return 0;
+
+        if (abs_base + @as(u16, nargs) + 1 >= vm_mod.MAX_REGISTERS) return 0;
+        const args = vm_ptr.registers[abs_base + 1 .. abs_base + 1 + nargs];
+        const result = native.func(args) catch return 0;
+
+        const return_dst = frame.dst;
+        vm_ptr.frame_count -= 1;
+        if (vm_ptr.frame_count > 0) {
+            const caller = &vm_ptr.frames[vm_ptr.frame_count - 1];
+            vm_ptr.registers[caller.base + return_dst] = result;
+        }
+        return 1;
+    }
+
+    return 0;
 }
 
 pub fn jitSetGlobal(vm_ptr: *VM, sym_val: u64, val: u64) callconv(.c) u64 {
@@ -1940,6 +2034,49 @@ fn emitReturn(asm_ctx: *a64.Assembler, src: u8, pending_exits: *std.ArrayList(Pe
     try emitStoreAtOffset(asm_ctx, .x1, VM_PTR, OFF_FRAME_COUNT);
 
     // Branch to return trampoline (patched later)
+    const ret_br = asm_ctx.pos();
+    try asm_ctx.emit(0);
+    try pending_returns.append(allocator, ret_br);
+}
+
+fn emitTailCall(asm_ctx: *a64.Assembler, base_reg: u8, nargs: u8, pending_exits: *std.ArrayList(PendingSideExit), pending_returns: *std.ArrayList(u32), allocator: std.mem.Allocator, bc_ip: usize, sym_idx: ?u16, func_ctx: *const types.Function, vm_ctx: *const VM) !void {
+    // Peephole: specialize if base_reg was loaded via get_global for a known primitive
+    if (sym_idx) |si| {
+        const spec = recognizeArithPrimitive(func_ctx, si, vm_ctx);
+        if (spec != .none and nargs == 2 and (spec == .add or spec == .sub or spec == .mul or spec == .lt or spec == .gt or spec == .le or spec == .ge or spec == .eq)) {
+            try emitSpecializedArith(asm_ctx, base_reg, spec, pending_exits, allocator, bc_ip);
+            try emitTailReturn(asm_ctx, base_reg, pending_returns, allocator);
+            return;
+        }
+        if (spec != .none and nargs == 1 and (spec == .zero_p or spec == .null_p or spec == .pair_p or spec == .not_op or spec == .car or spec == .cdr)) {
+            try emitSpecializedPredicate(asm_ctx, base_reg, spec, pending_exits, allocator, bc_ip);
+            try emitTailReturn(asm_ctx, base_reg, pending_returns, allocator);
+            return;
+        }
+    }
+    // Fallback: call helper
+    try asm_ctx.emitLdrImm(.x1, FRAME_PTR, @as(u16, base_reg) * 8);
+    try asm_ctx.emitMovReg(.x0, VM_PTR);
+    try asm_ctx.emitLoadImm64(.x2, base_reg);
+    try asm_ctx.emitLoadImm64(.x3, nargs);
+    try asm_ctx.emitLoadImm64(.x8, @intFromPtr(&jitTailCallNative));
+    try asm_ctx.emitBlr(.x8);
+    try asm_ctx.emitCmpImm(.x0, 1);
+    const ok_br = asm_ctx.pos();
+    try asm_ctx.emit(0);
+    try pending_returns.append(allocator, ok_br);
+    const exit_br = asm_ctx.pos();
+    try asm_ctx.emit(0);
+    try pending_exits.append(allocator, .{ .native_idx = exit_br, .bc_ip = bc_ip });
+}
+
+fn emitTailReturn(asm_ctx: *a64.Assembler, base_reg: u8, pending_returns: *std.ArrayList(u32), allocator: std.mem.Allocator) !void {
+    try asm_ctx.emitLdrImm(.x0, FRAME_PTR, @as(u16, base_reg) * 8);
+    try asm_ctx.emitSubImm(.x1, FRAME_PTR, 8);
+    try asm_ctx.emitStrImm(.x0, .x1, 0);
+    try emitLoadFromVmField(asm_ctx, .x1, OFF_FRAME_COUNT);
+    try asm_ctx.emitSubImm(.x1, .x1, 1);
+    try emitStoreAtOffset(asm_ctx, .x1, VM_PTR, OFF_FRAME_COUNT);
     const ret_br = asm_ctx.pos();
     try asm_ctx.emit(0);
     try pending_returns.append(allocator, ret_br);
