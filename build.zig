@@ -5,8 +5,8 @@ pub fn build(b: *std.Build) void {
     // Default to ReleaseSafe rather than Debug: the interpreter exists to *run*
     // Scheme programs, and Debug is ~500x slower for allocation/continuation-
     // heavy workloads. ReleaseSafe matches ReleaseFast in throughput here while
-    // keeping bounds/safety checks (fixnum overflow still wraps silently, as
-    // documented). Override for development with `-Doptimize=Debug`.
+    // keeping bounds/safety checks (fixnum overflow auto-promotes to bignum).
+    // Override for development with `-Doptimize=Debug`.
     const optimize = b.option(
         std.builtin.OptimizeMode,
         "optimize",

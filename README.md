@@ -507,6 +507,30 @@ See **[CONFORMANCE.md](CONFORMANCE.md)** for design rationale and SRFI coverage 
 
 ---
 
+## Known limitations
+
+### Continuations
+
+`call/cc` captures continuations by copying the full VM state (registers, call frames, exception handlers, dynamic-wind stack). Cost is O(stack depth) per capture — negligible for most programs, but noticeable if continuations are captured in tight inner loops. Continuations captured in one top-level REPL expression cannot re-enter subsequent top-level expressions (standard behavior shared by Guile, Chibi, Chicken, Chez, and Racket).
+
+### OS threads (SRFI-18)
+
+`thread-start!` spawns real OS threads, each with its own VM and GC. Basic thread execution works, but **cross-thread GC is experimental**: GC-heavy operations in child threads (allocating strings, pairs) need further work on cross-thread root marking. Use OS threads for I/O-bound work; avoid allocation-heavy workloads in child threads until this is resolved.
+
+### JIT compiler
+
+The AArch64 backend is fully implemented (all opcodes, specialized arithmetic, function calls, self-tail-calls). The x86_64 backend handles basic opcodes (loads, moves, branches, return) — unhandled opcodes side-exit to the interpreter. RISC-V runs interpreter-only (no JIT backend). Use `--no-jit` to disable JIT compilation.
+
+### Macros
+
+Only `syntax-rules` is supported. `syntax-case` was intentionally excluded from R7RS-small and is not implemented.
+
+### SRFI coverage
+
+51 SRFIs are supported. Some built-in SRFIs have minor coverage gaps (e.g., linear-update variants in SRFI-1, `string-xcopy!` in SRFI-13). See [CONFORMANCE.md](CONFORMANCE.md) for per-SRFI details.
+
+---
+
 ## License
 
 MIT
