@@ -1,0 +1,81 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: macos-latest
+            target: aarch64-macos
+            artifact: kaappi-aarch64-macos
+          - os: ubuntu-latest
+            target: x86_64-linux
+            artifact: kaappi-x86_64-linux
+          - os: ubuntu-24.04-arm
+            target: aarch64-linux
+            artifact: kaappi-aarch64-linux
+          - os: ubuntu-latest
+            target: riscv64-linux
+            artifact: kaappi-riscv64-linux
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Zig
+        uses: mlugg/setup-zig@v2
+        with:
+          version: 0.16.0
+
+      - name: Build release binary
+        run: zig build -Doptimize=ReleaseSafe -Dtarget=${{ matrix.target }}
+
+      - name: Rename binary
+        run: cp zig-out/bin/kaappi ${{ matrix.artifact }}
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: ${{ matrix.artifact }}
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Collect binaries and generate checksums
+        run: |
+          mkdir -p release
+          find artifacts -type f -name 'kaappi-*' -exec cp {} release/ \;
+          cd release
+          sha256sum kaappi-* > SHA256SUMS
+
+      - name: Extract changelog for this version
+        id: changelog
+        run: |
+          TAG="${GITHUB_REF#refs/tags/}"
+          # Extract section for this version from CHANGELOG.md
+          NOTES=$(sed -n "/^## \[${TAG#v}\]/,/^## \[/p" CHANGELOG.md | sed '$d' || echo "Release $TAG")
+          echo "notes<<EOF" >> "$GITHUB_OUTPUT"
+          echo "$NOTES" >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          body: ${{ steps.changelog.outputs.notes }}
+          files: release/*
