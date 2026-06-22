@@ -100,3 +100,27 @@ jobs:
 
       - name: R7RS test suite (riscv64 via QEMU)
         run: zig-out/bin/kaappi tests/scheme/r7rs/r7rs-tests.scm
+
+  benchmark:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Zig
+        uses: mlugg/setup-zig@v2
+        with:
+          version: 0.16.0
+
+      - name: Build
+        run: zig build
+
+      - name: Run benchmarks
+        run: bash benchmarks/run-benchmarks.sh --json > benchmark-results.json
+        continue-on-error: true
+
+      - name: Upload benchmark results
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-results
+          path: benchmark-results.json
