@@ -94,7 +94,7 @@ pub const GC = struct {
             .roots = .empty,
             .extra_roots = .empty,
             .source_lines = std.AutoHashMap(Value, u32).init(allocator),
-            .gc_threshold = std.math.maxInt(usize),
+            .gc_threshold = GC_THRESHOLD,
         };
     }
 
@@ -999,6 +999,214 @@ pub const GC = struct {
             result = try self.allocPair(items[i], result);
         }
         return result;
+    }
+
+    // -- Deep copy (cross-thread value transfer) --
+
+    pub fn deepCopy(self: *GC, src: Value) !Value {
+        if (!types.isPointer(src)) return src;
+        var visited = std.AutoHashMap(usize, Value).init(self.allocator);
+        defer visited.deinit();
+        return self.deepCopyValue(src, &visited);
+    }
+
+    fn deepCopyValue(self: *GC, src: Value, visited: *std.AutoHashMap(usize, Value)) !Value {
+        if (!types.isPointer(src)) return src;
+
+        const src_ptr = @intFromPtr(types.toObject(src));
+        if (visited.get(src_ptr)) |already| return already;
+
+        self.no_collect += 1;
+        defer self.no_collect -= 1;
+
+        const obj = types.toObject(src);
+        return switch (obj.tag) {
+            .pair => {
+                const pair = obj.as(types.Pair);
+                const new_val = try self.allocPair(types.NIL, types.NIL);
+                try visited.put(src_ptr, new_val);
+                const new_pair = types.toObject(new_val).as(types.Pair);
+                new_pair.car = try self.deepCopyValue(pair.car, visited);
+                new_pair.cdr = try self.deepCopyValue(pair.cdr, visited);
+                return new_val;
+            },
+            .symbol => try self.allocSymbol(obj.as(types.Symbol).name),
+            .string => {
+                const s = obj.as(types.SchemeString);
+                return try self.allocString(s.data[0..s.len]);
+            },
+            .vector => {
+                const vec = obj.as(types.Vector);
+                const new_val = try self.allocVectorFill(vec.data.len, types.VOID);
+                try visited.put(src_ptr, new_val);
+                const new_vec = types.toObject(new_val).as(types.Vector);
+                for (vec.data, 0..) |elem, i| {
+                    new_vec.data[i] = try self.deepCopyValue(elem, visited);
+                }
+                return new_val;
+            },
+            .bytevector => try self.allocBytevector(obj.as(types.Bytevector).data),
+            .flonum => try self.allocFlonum(obj.as(types.Flonum).value),
+            .complex => {
+                const c = obj.as(types.Complex);
+                return try self.allocComplexEx(c.real, c.imag, c.exact_real, c.exact_imag);
+            },
+            .bignum => {
+                const bn = obj.as(types.Bignum);
+                return try self.allocBignumFromLimbs(bn.limbs[0..bn.len], bn.len, bn.positive);
+            },
+            .rational => {
+                const r = obj.as(types.Rational);
+                const num = try self.deepCopyValue(r.numerator, visited);
+                const den = try self.deepCopyValue(r.denominator, visited);
+                return try self.allocRational(num, den);
+            },
+            .closure => {
+                const cl = obj.as(types.Closure);
+                const func_val = types.makePointer(@ptrCast(cl.func));
+                const new_func_val = try self.deepCopyValue(func_val, visited);
+                const new_func = types.toObject(new_func_val).as(types.Function);
+                const new_val = try self.allocClosure(new_func);
+                try visited.put(src_ptr, new_val);
+                const new_cl = types.toObject(new_val).as(types.Closure);
+                for (cl.upvalues, 0..) |uv, i| {
+                    new_cl.upvalues[i] = try self.deepCopyValue(uv, visited);
+                }
+                return new_val;
+            },
+            .function => {
+                const func = obj.as(types.Function);
+                const new_func = try self.allocFunction();
+                const new_val = types.makePointer(@ptrCast(new_func));
+                try visited.put(src_ptr, new_val);
+                new_func.arity = func.arity;
+                new_func.locals_count = func.locals_count;
+                new_func.upvalue_count = func.upvalue_count;
+                new_func.is_variadic = func.is_variadic;
+                new_func.source_line = func.source_line;
+                new_func.source_name = func.source_name;
+                new_func.jit_code = null;
+                new_func.global_cache = null;
+                new_func.env = null;
+                if (func.name) |name| {
+                    if (func.owns_name) {
+                        const dup = try self.allocator.alloc(u8, name.len);
+                        @memcpy(dup, name);
+                        new_func.name = dup;
+                        new_func.owns_name = true;
+                    } else {
+                        new_func.name = name;
+                    }
+                }
+                new_func.code.appendSlice(self.allocator, func.code.items) catch return error.OutOfMemory;
+                for (func.constants.items) |c| {
+                    const nc = try self.deepCopyValue(c, visited);
+                    new_func.constants.append(self.allocator, nc) catch return error.OutOfMemory;
+                }
+                if (func.debug_locals.len > 0) {
+                    const dl = try self.allocator.alloc(types.DebugLocal, func.debug_locals.len);
+                    @memcpy(dl, func.debug_locals);
+                    new_func.debug_locals = dl;
+                }
+                for (func.line_table.items) |entry| {
+                    new_func.line_table.append(self.allocator, entry) catch {};
+                }
+                return new_val;
+            },
+            .hash_table => {
+                const ht = obj.as(types.HashTable);
+                const new_val = try self.allocHashTable(ht.capacity);
+                try visited.put(src_ptr, new_val);
+                const new_ht = types.toObject(new_val).as(types.HashTable);
+                for (ht.entries[0..ht.capacity]) |entry| {
+                    if (entry.key != types.VOID and entry.key != types.EOF) {
+                        const nk = try self.deepCopyValue(entry.key, visited);
+                        const nv = try self.deepCopyValue(entry.value, visited);
+                        const hash = std.hash.Wyhash.hash(0, std.mem.asBytes(&nk));
+                        var idx = hash & (new_ht.capacity - 1);
+                        while (new_ht.entries[idx].key != types.VOID) {
+                            idx = (idx + 1) & (new_ht.capacity - 1);
+                        }
+                        new_ht.entries[idx] = .{ .key = nk, .value = nv };
+                        new_ht.count += 1;
+                    }
+                }
+                return new_val;
+            },
+            .promise => {
+                const p = obj.as(types.Promise);
+                const nv = try self.deepCopyValue(p.value, visited);
+                return try self.allocPromise(p.forced, nv);
+            },
+            .parameter => {
+                const p = obj.as(types.ParameterObject);
+                const val = try self.deepCopyValue(p.value, visited);
+                const conv = try self.deepCopyValue(p.converter, visited);
+                return try self.allocParameter(val, conv);
+            },
+            .error_object => {
+                const e = obj.as(types.ErrorObject);
+                const msg = try self.deepCopyValue(e.message, visited);
+                const irr = try self.deepCopyValue(e.irritants, visited);
+                const new_val = try self.allocErrorObject(msg, irr);
+                const new_e = types.toObject(new_val).as(types.ErrorObject);
+                new_e.error_type = e.error_type;
+                new_e.uncaught_reason = try self.deepCopyValue(e.uncaught_reason, visited);
+                return new_val;
+            },
+            .record_type => {
+                const rt = obj.as(types.RecordType);
+                const new_val = try self.allocRecordType(rt.name, rt.num_fields);
+                try visited.put(src_ptr, new_val);
+                return new_val;
+            },
+            .record_instance => {
+                const ri = obj.as(types.RecordInstance);
+                const rt_val = types.makePointer(@ptrCast(ri.record_type));
+                const new_rt_val = try self.deepCopyValue(rt_val, visited);
+                const new_rt = types.toObject(new_rt_val).as(types.RecordType);
+                const fields = try self.allocator.alloc(Value, ri.fields.len);
+                for (ri.fields, 0..) |f, i| {
+                    fields[i] = try self.deepCopyValue(f, visited);
+                }
+                return try self.allocRecordInstance(new_rt, fields);
+            },
+            .multiple_values => {
+                const mv = obj.as(types.MultipleValues);
+                const vals = try self.allocator.alloc(Value, mv.values.len);
+                for (mv.values, 0..) |v, i| {
+                    vals[i] = try self.deepCopyValue(v, visited);
+                }
+                const new_mv = try self.allocator.create(types.MultipleValues);
+                new_mv.* = .{ .header = .{ .tag = .multiple_values }, .values = vals };
+                self.trackObject(&new_mv.header);
+                return types.makePointer(@ptrCast(new_mv));
+            },
+            .transformer => {
+                const t = obj.as(types.Transformer);
+                const lits = try self.allocator.alloc(Value, t.literals.len);
+                for (t.literals, 0..) |v, i| lits[i] = try self.deepCopyValue(v, visited);
+                const pats = try self.allocator.alloc(Value, t.patterns.len);
+                for (t.patterns, 0..) |v, i| pats[i] = try self.deepCopyValue(v, visited);
+                const tmpls = try self.allocator.alloc(Value, t.templates.len);
+                for (t.templates, 0..) |v, i| tmpls[i] = try self.deepCopyValue(v, visited);
+                const new_val = try self.allocTransformer(lits, pats, tmpls);
+                try visited.put(src_ptr, new_val);
+                return new_val;
+            },
+            .native_fn, .ffi_library, .ffi_function => src,
+            .srfi18_time => try self.allocSrfi18Time(obj.as(types.Srfi18Time).seconds),
+            .random_source => {
+                const rs = obj.as(types.RandomSource);
+                const new_val = try self.allocRandomSource(0);
+                const new_rs = types.toObject(new_val).as(types.RandomSource);
+                new_rs.prng = rs.prng;
+                return new_val;
+            },
+            .port, .continuation, .fiber, .channel, .mutex, .condition_variable,
+            .ffi_callback, .file_info, .user_info, .group_info, .directory_object,
+            => return error.OutOfMemory,
+        };
     }
 
     // -- GC --

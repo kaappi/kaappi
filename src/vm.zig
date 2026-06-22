@@ -199,7 +199,7 @@ pub const VM = struct {
     profile_time_stack: [256]ProfileTimeEntry = undefined,
     profile_time_depth: usize = 0,
     sandbox_mode: bool = false,
-    experimental_threads: bool = false,
+    owns_globals: bool = true,
     /// Virtual filesystem for standalone binary: maps file paths → source content.
     /// Populated from .sbc bundled files section; checked before disk reads.
     bundled_files: ?*std.StringHashMap([]const u8) = null,
@@ -251,6 +251,7 @@ pub const VM = struct {
             .stdin_port = parent.stdin_port,
             .stdout_port = parent.stdout_port,
             .stderr_port = parent.stderr_port,
+            .owns_globals = false,
         };
         @memset(&vm.registers, types.UNDEFINED);
         gc.root_marker = &markVMRoots;
@@ -262,10 +263,12 @@ pub const VM = struct {
             self.gc.allocator.destroy(sched);
             self.scheduler = null;
         }
-        self.globals.deinit();
-        self.macros.deinit();
+        if (self.owns_globals) {
+            self.globals.deinit();
+            self.macros.deinit();
+            self.libraries.deinit();
+        }
         self.output.deinit(self.gc.allocator);
-        self.libraries.deinit();
         self.loading_libs.deinit();
         self.param_overrides.deinit();
     }

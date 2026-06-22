@@ -14,4 +14,5 @@ test {
     _ = @import("tests_filesystem.zig");
     _ = @import("tests_robustness.zig");
     _ = @import("tests_fuzz.zig");
+    _ = @import("tests_deepcopy.zig");
 }

@@ -65,7 +65,6 @@ fn printUsage() void {
             "  --disassemble      Disassemble bytecode\n" ++
             "  --no-jit           Disable JIT compilation\n" ++
             "  --sandbox          Restrict filesystem and process access\n" ++
-            "  --experimental-threads  Enable OS threads (SRFI-18 thread-start!)\n" ++
             "  --gc-stats         Print GC statistics on exit\n" ++
             "  --profile          Enable profiling\n" ++
             "\n" ++
@@ -330,18 +329,14 @@ pub fn main(init: std.process.Init.Minimal) !void {
     defer vm.deinit();
     vm_mod.setVMInstance(&vm);
 
-    // Pre-scan args for flags that must be set before primitive registration
+    // Pre-scan args for --sandbox (must happen before primitive registration)
     var is_sandboxed = false;
-    var experimental_threads = false;
     {
         var pre_args = init.args.iterate();
         while (pre_args.next()) |arg| {
             if (std.mem.eql(u8, arg, "--sandbox")) is_sandboxed = true;
-            if (std.mem.eql(u8, arg, "--experimental-threads")) experimental_threads = true;
         }
     }
-
-    vm.experimental_threads = experimental_threads;
 
     if (is_sandboxed) {
         try primitives.registerSandboxed(&vm);
@@ -506,8 +501,6 @@ pub fn main(init: std.process.Init.Minimal) !void {
             profile_mode = true;
         } else if (std.mem.eql(u8, arg, "--sandbox")) {
             sandbox_mode = true;
-        } else if (std.mem.eql(u8, arg, "--experimental-threads")) {
-            // handled in pre-scan
         } else if (std.mem.eql(u8, arg, "--compile")) {
             compile_mode = true;
         } else if (std.mem.eql(u8, arg, "-o")) {

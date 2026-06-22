@@ -8,6 +8,14 @@ const Value = types.Value;
 const NativeFn = types.NativeFn;
 const PrimitiveError = primitives.PrimitiveError;
 
+const ChildThreadResources = struct {
+    child_gc: *memory.GC,
+    child_vm: *vm_mod.VM,
+};
+
+var child_resources: std.AutoHashMap(usize, ChildThreadResources) = std.AutoHashMap(usize, ChildThreadResources).init(std.heap.page_allocator);
+var child_resources_mutex = std.atomic.Mutex.unlocked;
+
 fn reg(vm: *vm_mod.VM, name: []const u8, func: types.NativeFnType, arity: NativeFn.Arity) !void {
     return primitives.reg(vm, name, func, arity);
 }
@@ -195,11 +203,6 @@ fn threadStartFn(args: []const Value) PrimitiveError!Value {
     const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
     const vm = vm_mod.vm_instance orelse return PrimitiveError.OutOfMemory;
 
-    if (!vm.experimental_threads) {
-        vm.setErrorDetail("OS threads are experimental (cross-thread GC is unsafe); pass --experimental-threads to enable", .{});
-        return PrimitiveError.InvalidArgument;
-    }
-
     gc.extra_roots.append(gc.allocator, fiber.thunk) catch return PrimitiveError.OutOfMemory;
 
     fiber.status = .running;
@@ -211,32 +214,42 @@ fn threadStartFn(args: []const Value) PrimitiveError!Value {
 }
 
 fn threadEntryFn(fiber: *fiber_mod.Fiber, allocator: std.mem.Allocator, parent_gc: *memory.GC, parent_vm: *vm_mod.VM) void {
+    _ = parent_gc;
     const child_gc = allocator.create(memory.GC) catch return;
-    child_gc.* = memory.GC.initForThread(allocator, parent_gc);
+    child_gc.* = memory.GC.initForThread(allocator, parent_vm.gc);
 
     const child_vm = allocator.create(vm_mod.VM) catch {
+        child_gc.deinit();
         allocator.destroy(child_gc);
         return;
     };
+    @memset(std.mem.asBytes(child_vm), 0);
     child_vm.* = vm_mod.VM.initForThread(child_gc, parent_vm);
 
     vm_mod.vm_instance = child_vm;
     primitives.gc_instance = child_gc;
 
-    const result = child_vm.callWithArgs(fiber.thunk, &.{}) catch {
+    {
+        while (!child_resources_mutex.tryLock()) {}
+        defer child_resources_mutex.unlock();
+        child_resources.put(@intFromPtr(fiber), .{ .child_gc = child_gc, .child_vm = child_vm }) catch {};
+    }
+
+    const child_thunk = child_gc.deepCopy(fiber.thunk) catch {
         fiber.status = .errored;
         fiber.result = types.VOID;
-        child_gc.deinit();
-        allocator.destroy(child_gc);
-        allocator.destroy(child_vm);
+        return;
+    };
+
+    const result = child_vm.callWithArgs(child_thunk, &.{}) catch {
+        fiber.status = .errored;
+        fiber.result = types.VOID;
+
         return;
     };
 
     fiber.status = .completed;
     fiber.result = result;
-    child_gc.deinit();
-    allocator.destroy(child_gc);
-    allocator.destroy(child_vm);
 }
 
 fn threadYieldFn(_: []const Value) PrimitiveError!Value {
@@ -289,10 +302,28 @@ fn threadJoinFn(args: []const Value) PrimitiveError!Value {
 
     const target = types.toObject(args[0]).as(fiber_mod.Fiber);
 
-    // OS thread path: use std.Thread.join
+    // OS thread path: join, deep-copy result, free child GC/VM
     if (target.os_thread) |thread| {
         thread.join();
         target.os_thread = null;
+
+
+        const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+        const fiber_key = @intFromPtr(target);
+
+        if (target.status == .completed and target.result != types.VOID) {
+            target.result = gc.deepCopy(target.result) catch {
+                target.result = types.VOID;
+                freeChildResources(fiber_key);
+                return PrimitiveError.OutOfMemory;
+            };
+        }
+        if (target.status == .errored) {
+            if (target.current_exception) |exc| {
+                target.current_exception = gc.deepCopy(exc) catch null;
+            }
+        }
+        freeChildResources(fiber_key);
         return threadJoinResult(target);
     }
 
@@ -327,6 +358,12 @@ fn threadJoinFn(args: []const Value) PrimitiveError!Value {
     }
 
     return threadJoinResult(target);
+}
+
+fn freeChildResources(fiber_key: usize) void {
+    while (!child_resources_mutex.tryLock()) {}
+    _ = child_resources.fetchRemove(fiber_key);
+    child_resources_mutex.unlock();
 }
 
 fn threadJoinResult(target: *fiber_mod.Fiber) PrimitiveError!Value {

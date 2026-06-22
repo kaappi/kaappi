@@ -517,7 +517,7 @@ See **[CONFORMANCE.md](CONFORMANCE.md)** for design rationale and SRFI coverage 
 
 ### OS threads (SRFI-18)
 
-OS threads are **gated behind `--experimental-threads`**. Without the flag, `thread-start!` raises an error. Cross-thread GC is not yet safe: GC-heavy operations in child threads need further work on cross-thread root marking. Use fibers (`(kaappi fibers)`) for safe cooperative concurrency, or pass `--experimental-threads` for I/O-bound workloads that avoid heavy allocation in child threads.
+Each OS thread gets its own GC with an independent heap. Values are deep-copied when crossing thread boundaries (at `thread-start!` and `thread-join!`). This means threads cannot share mutable state directly — use channels or return values to communicate. Child threads can allocate and GC independently without affecting the parent.
 
 ### JIT compiler
 
