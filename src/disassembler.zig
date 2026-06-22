@@ -406,69 +406,133 @@ test "disassemble all opcodes" {
     };
 
     // load_const r0, const[0]
-    emit.op(func, allocator, .load_const); emit.byte(func, allocator, 0); emit.byte(func, allocator, 0); emit.byte(func, allocator, 0);
+    emit.op(func, allocator, .load_const);
+    emit.byte(func, allocator, 0);
+    emit.byte(func, allocator, 0);
+    emit.byte(func, allocator, 0);
     // load_nil r0
-    emit.op(func, allocator, .load_nil); emit.byte(func, allocator, 0);
+    emit.op(func, allocator, .load_nil);
+    emit.byte(func, allocator, 0);
     // load_true r0
-    emit.op(func, allocator, .load_true); emit.byte(func, allocator, 0);
+    emit.op(func, allocator, .load_true);
+    emit.byte(func, allocator, 0);
     // load_false r0
-    emit.op(func, allocator, .load_false); emit.byte(func, allocator, 0);
+    emit.op(func, allocator, .load_false);
+    emit.byte(func, allocator, 0);
     // load_void r0
-    emit.op(func, allocator, .load_void); emit.byte(func, allocator, 0);
+    emit.op(func, allocator, .load_void);
+    emit.byte(func, allocator, 0);
     // move r0, r1
-    emit.op(func, allocator, .move); emit.byte(func, allocator, 0); emit.byte(func, allocator, 1);
+    emit.op(func, allocator, .move);
+    emit.byte(func, allocator, 0);
+    emit.byte(func, allocator, 1);
     // get_global r0, const[0]
-    emit.op(func, allocator, .get_global); emit.byte(func, allocator, 0); emit.byte(func, allocator, 0); emit.byte(func, allocator, 0);
+    emit.op(func, allocator, .get_global);
+    emit.byte(func, allocator, 0);
+    emit.byte(func, allocator, 0);
+    emit.byte(func, allocator, 0);
     // set_global const[0], r0
-    emit.op(func, allocator, .set_global); emit.byte(func, allocator, 0); emit.byte(func, allocator, 0); emit.byte(func, allocator, 0);
+    emit.op(func, allocator, .set_global);
+    emit.byte(func, allocator, 0);
+    emit.byte(func, allocator, 0);
+    emit.byte(func, allocator, 0);
     // define_global const[0], r0
-    emit.op(func, allocator, .define_global); emit.byte(func, allocator, 0); emit.byte(func, allocator, 0); emit.byte(func, allocator, 0);
+    emit.op(func, allocator, .define_global);
+    emit.byte(func, allocator, 0);
+    emit.byte(func, allocator, 0);
+    emit.byte(func, allocator, 0);
     // tail_apply r0, 2
-    emit.op(func, allocator, .tail_apply); emit.byte(func, allocator, 0); emit.byte(func, allocator, 2);
+    emit.op(func, allocator, .tail_apply);
+    emit.byte(func, allocator, 0);
+    emit.byte(func, allocator, 2);
     // get_local r0, r1
-    emit.op(func, allocator, .get_local); emit.byte(func, allocator, 0); emit.byte(func, allocator, 1);
+    emit.op(func, allocator, .get_local);
+    emit.byte(func, allocator, 0);
+    emit.byte(func, allocator, 1);
     // set_local r0, r1
-    emit.op(func, allocator, .set_local); emit.byte(func, allocator, 0); emit.byte(func, allocator, 1);
+    emit.op(func, allocator, .set_local);
+    emit.byte(func, allocator, 0);
+    emit.byte(func, allocator, 1);
     // get_upvalue r0, uv0
-    emit.op(func, allocator, .get_upvalue); emit.byte(func, allocator, 0); emit.byte(func, allocator, 0);
+    emit.op(func, allocator, .get_upvalue);
+    emit.byte(func, allocator, 0);
+    emit.byte(func, allocator, 0);
     // set_upvalue uv0, r0
-    emit.op(func, allocator, .set_upvalue); emit.byte(func, allocator, 0); emit.byte(func, allocator, 0);
+    emit.op(func, allocator, .set_upvalue);
+    emit.byte(func, allocator, 0);
+    emit.byte(func, allocator, 0);
     // call r0, 1
-    emit.op(func, allocator, .call); emit.byte(func, allocator, 0); emit.byte(func, allocator, 1);
+    emit.op(func, allocator, .call);
+    emit.byte(func, allocator, 0);
+    emit.byte(func, allocator, 1);
     // tail_call r0, 1
-    emit.op(func, allocator, .tail_call); emit.byte(func, allocator, 0); emit.byte(func, allocator, 1);
+    emit.op(func, allocator, .tail_call);
+    emit.byte(func, allocator, 0);
+    emit.byte(func, allocator, 1);
     // return r0
-    emit.op(func, allocator, .@"return"); emit.byte(func, allocator, 0);
+    emit.op(func, allocator, .@"return");
+    emit.byte(func, allocator, 0);
     // jump +0
-    emit.op(func, allocator, .jump); emit.byte(func, allocator, 0); emit.byte(func, allocator, 0);
+    emit.op(func, allocator, .jump);
+    emit.byte(func, allocator, 0);
+    emit.byte(func, allocator, 0);
     // jump_false r0, +0
-    emit.op(func, allocator, .jump_false); emit.byte(func, allocator, 0); emit.byte(func, allocator, 0); emit.byte(func, allocator, 0);
+    emit.op(func, allocator, .jump_false);
+    emit.byte(func, allocator, 0);
+    emit.byte(func, allocator, 0);
+    emit.byte(func, allocator, 0);
     // jump_true r0, +0
-    emit.op(func, allocator, .jump_true); emit.byte(func, allocator, 0); emit.byte(func, allocator, 0); emit.byte(func, allocator, 0);
+    emit.op(func, allocator, .jump_true);
+    emit.byte(func, allocator, 0);
+    emit.byte(func, allocator, 0);
+    emit.byte(func, allocator, 0);
     // closure r0, const[0]
-    emit.op(func, allocator, .closure); emit.byte(func, allocator, 0); emit.byte(func, allocator, 0); emit.byte(func, allocator, 0);
+    emit.op(func, allocator, .closure);
+    emit.byte(func, allocator, 0);
+    emit.byte(func, allocator, 0);
+    emit.byte(func, allocator, 0);
     // close_upvalue r0
-    emit.op(func, allocator, .close_upvalue); emit.byte(func, allocator, 0);
+    emit.op(func, allocator, .close_upvalue);
+    emit.byte(func, allocator, 0);
     // cons r0, r1, r2
-    emit.op(func, allocator, .cons); emit.byte(func, allocator, 0); emit.byte(func, allocator, 1); emit.byte(func, allocator, 2);
+    emit.op(func, allocator, .cons);
+    emit.byte(func, allocator, 0);
+    emit.byte(func, allocator, 1);
+    emit.byte(func, allocator, 2);
     // push_handler r0
-    emit.op(func, allocator, .push_handler); emit.byte(func, allocator, 0);
+    emit.op(func, allocator, .push_handler);
+    emit.byte(func, allocator, 0);
     // pop_handler
     emit.op(func, allocator, .pop_handler);
     // halt
     emit.op(func, allocator, .halt);
     // call_global r0, const[0], 1
-    emit.op(func, allocator, .call_global); emit.byte(func, allocator, 0); emit.byte(func, allocator, 0); emit.byte(func, allocator, 0); emit.byte(func, allocator, 1);
+    emit.op(func, allocator, .call_global);
+    emit.byte(func, allocator, 0);
+    emit.byte(func, allocator, 0);
+    emit.byte(func, allocator, 0);
+    emit.byte(func, allocator, 1);
     // tail_call_global r0, const[0], 1
-    emit.op(func, allocator, .tail_call_global); emit.byte(func, allocator, 0); emit.byte(func, allocator, 0); emit.byte(func, allocator, 0); emit.byte(func, allocator, 1);
+    emit.op(func, allocator, .tail_call_global);
+    emit.byte(func, allocator, 0);
+    emit.byte(func, allocator, 0);
+    emit.byte(func, allocator, 0);
+    emit.byte(func, allocator, 1);
     // box_local r0
-    emit.op(func, allocator, .box_local); emit.byte(func, allocator, 0);
+    emit.op(func, allocator, .box_local);
+    emit.byte(func, allocator, 0);
     // get_box_local r0, r1
-    emit.op(func, allocator, .get_box_local); emit.byte(func, allocator, 0); emit.byte(func, allocator, 1);
+    emit.op(func, allocator, .get_box_local);
+    emit.byte(func, allocator, 0);
+    emit.byte(func, allocator, 1);
     // set_box_local r0, r1
-    emit.op(func, allocator, .set_box_local); emit.byte(func, allocator, 0); emit.byte(func, allocator, 1);
+    emit.op(func, allocator, .set_box_local);
+    emit.byte(func, allocator, 0);
+    emit.byte(func, allocator, 1);
     // self_tail_call r0, 1
-    emit.op(func, allocator, .self_tail_call); emit.byte(func, allocator, 0); emit.byte(func, allocator, 1);
+    emit.op(func, allocator, .self_tail_call);
+    emit.byte(func, allocator, 0);
+    emit.byte(func, allocator, 1);
 
     // Verify all opcodes are present in the bytecode (96 bytes for all opcodes)
     try std.testing.expect(func.code.items.len > 90);

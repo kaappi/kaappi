@@ -302,7 +302,10 @@ fn add(args: []const Value) PrimitiveError!Value {
             }
         }
         if (d == 1) return types.makeFixnum(n);
-        if (d < 0) { n = -n; d = -d; }
+        if (d < 0) {
+            n = -n;
+            d = -d;
+        }
         return gc.allocRational(types.makeFixnum(n), types.makeFixnum(d)) catch return PrimitiveError.OutOfMemory;
     }
     if (anyBignum(args)) return bignumAddAll(args);
@@ -386,7 +389,10 @@ fn sub(args: []const Value) PrimitiveError!Value {
         }
         if (n == 0) return types.makeFixnum(0);
         if (d == 1) return types.makeFixnum(n);
-        if (d < 0) { n = -n; d = -d; }
+        if (d < 0) {
+            n = -n;
+            d = -d;
+        }
         return gc.allocRational(types.makeFixnum(n), types.makeFixnum(d)) catch return PrimitiveError.OutOfMemory;
     }
     if (anyBignum(args)) return bignumSubAll(args);
@@ -465,7 +471,10 @@ fn mul(args: []const Value) PrimitiveError!Value {
             }
         }
         if (n == 0) return types.makeFixnum(0);
-        if (d < 0) { n = -n; d = -d; }
+        if (d < 0) {
+            n = -n;
+            d = -d;
+        }
         if (d == 1) return types.makeFixnum(n);
         return gc.allocRational(types.makeFixnum(n), types.makeFixnum(d)) catch return PrimitiveError.OutOfMemory;
     }
@@ -545,7 +554,10 @@ fn divFn(args: []const Value) PrimitiveError!Value {
             }
             n = r1[0];
             d = r2[0];
-            if (d < 0) { n = -n; d = -d; }
+            if (d < 0) {
+                n = -n;
+                d = -d;
+            }
             const g = gcdTwo(if (n < 0) -n else n, d);
             if (g != 0) {
                 n = @divExact(n, g);
@@ -578,7 +590,10 @@ fn divFn(args: []const Value) PrimitiveError!Value {
             }
             d = r1[0];
             // Reduce to prevent overflow
-            if (d < 0) { n = -n; d = -d; }
+            if (d < 0) {
+                n = -n;
+                d = -d;
+            }
             const g = gcdTwo(if (n < 0) -n else n, d);
             if (g != 0) {
                 n = @divExact(n, g);
@@ -782,7 +797,6 @@ fn numEq(args: []const Value) PrimitiveError!Value {
     }
     return types.TRUE;
 }
-
 
 fn hasNaN(v: Value) bool {
     if (types.isFlonum(v)) return std.math.isNan(types.toFlonum(v));
@@ -1087,5 +1101,3 @@ fn lcmFn(args: []const Value) PrimitiveError!Value {
     }
     return types.makeFixnum(result);
 }
-
-

@@ -420,16 +420,14 @@ pub const VM = struct {
             const closure = types.toObject(handler_val).as(types.Closure);
             const func = closure.func;
 
-            const base: u16 = if (self.frame_count > 0)
-                blk: {
-                    const prev = self.frames[self.frame_count - 1];
-                    const stride: u16 = if (prev.closure) |c|
-                        @max(16, @as(u16, c.func.locals_count) + 2)
-                    else 32;
-                    break :blk prev.base + stride;
-                }
-            else
-                0;
+            const base: u16 = if (self.frame_count > 0) blk: {
+                const prev = self.frames[self.frame_count - 1];
+                const stride: u16 = if (prev.closure) |c|
+                    @max(16, @as(u16, c.func.locals_count) + 2)
+                else
+                    32;
+                break :blk prev.base + stride;
+            } else 0;
             if (base + func.locals_count >= MAX_REGISTERS) return VMError.StackOverflow;
 
             if (func.is_variadic and func.arity == 0) {
@@ -517,16 +515,14 @@ pub const VM = struct {
             const closure = types.toObject(thunk_val).as(types.Closure);
             const func = closure.func;
 
-            const base: u16 = if (self.frame_count > 0)
-                blk: {
-                    const prev = self.frames[self.frame_count - 1];
-                    const stride: u16 = if (prev.closure) |c|
-                        @max(16, @as(u16, c.func.locals_count) + 2)
-                    else 32;
-                    break :blk prev.base + stride;
-                }
-            else
-                0;
+            const base: u16 = if (self.frame_count > 0) blk: {
+                const prev = self.frames[self.frame_count - 1];
+                const stride: u16 = if (prev.closure) |c|
+                    @max(16, @as(u16, c.func.locals_count) + 2)
+                else
+                    32;
+                break :blk prev.base + stride;
+            } else 0;
             if (base + @as(u16, func.locals_count) >= MAX_REGISTERS) return VMError.StackOverflow;
 
             if (func.is_variadic and func.arity == 0) {
@@ -627,16 +623,14 @@ pub const VM = struct {
             const closure = types.toObject(proc).as(types.Closure);
             const func = closure.func;
 
-            const base: u16 = if (self.frame_count > 0)
-                blk: {
-                    const prev = self.frames[self.frame_count - 1];
-                    const stride: u16 = if (prev.closure) |c|
-                        @max(16, @as(u16, c.func.locals_count) + 2)
-                    else 32;
-                    break :blk prev.base + stride;
-                }
-            else
-                0;
+            const base: u16 = if (self.frame_count > 0) blk: {
+                const prev = self.frames[self.frame_count - 1];
+                const stride: u16 = if (prev.closure) |c|
+                    @max(16, @as(u16, c.func.locals_count) + 2)
+                else
+                    32;
+                break :blk prev.base + stride;
+            } else 0;
             if (base + args.len + 1 >= MAX_REGISTERS) return VMError.StackOverflow;
 
             const nargs: u8 = @intCast(args.len);
@@ -1567,7 +1561,8 @@ pub const VM = struct {
                             while (ri > rest_start) {
                                 ri -= 1;
                                 rest_list = self.gc.allocPair(
-                                    self.registers[abs_base + 1 + ri], rest_list,
+                                    self.registers[abs_base + 1 + ri],
+                                    rest_list,
                                 ) catch return VMError.OutOfMemory;
                             }
                             self.registers[abs_base + 1 + rest_start] = rest_list;
@@ -1696,7 +1691,6 @@ pub const VM = struct {
         }
         return types.VOID;
     }
-
 
     pub fn resetExecutionState(self: *VM) void {
         self.frame_count = 0;
@@ -1966,168 +1960,168 @@ pub const VM = struct {
     }
 
     fn callClosure(self: *VM, closure: *types.Closure, base: u16, nargs: u8) VMError!void {
-            const func = closure.func;
+        const func = closure.func;
 
-            if (base + @as(u16, @max(nargs + 1, func.locals_count)) >= MAX_REGISTERS)
-                return VMError.StackOverflow;
+        if (base + @as(u16, @max(nargs + 1, func.locals_count)) >= MAX_REGISTERS)
+            return VMError.StackOverflow;
 
-            if (!func.is_variadic) {
-                if (nargs != func.arity) {
-                    self.setErrorDetail("expected {d} arguments, got {d}", .{ func.arity, nargs });
-                    return VMError.ArityMismatch;
-                }
-            } else {
-                if (nargs < func.arity) {
-                    self.setErrorDetail("expected at least {d} arguments, got {d}", .{ func.arity, nargs });
-                    return VMError.ArityMismatch;
-                }
-                // Collect rest args into a list
-                const rest_start = func.arity;
-                var rest_list: Value = types.NIL;
-                var i: u8 = nargs;
-                while (i > rest_start) {
-                    i -= 1;
-                    rest_list = self.gc.allocPair(
-                        self.registers[base + 1 + i],
-                        rest_list,
-                    ) catch return VMError.OutOfMemory;
-                }
-                self.registers[base + 1 + rest_start] = rest_list;
+        if (!func.is_variadic) {
+            if (nargs != func.arity) {
+                self.setErrorDetail("expected {d} arguments, got {d}", .{ func.arity, nargs });
+                return VMError.ArityMismatch;
             }
-
-            if (self.frame_count >= MAX_FRAMES) return VMError.StackOverflow;
-
-            // The callee is in base, args are in base+1..base+nargs
-            // New frame's registers start at base (callee reg becomes r0 for the function)
-            const new_base = base + 1; // skip the callee register
-            self.frames[self.frame_count] = .{
-                .closure = closure,
-                .code = func.code.items,
-                .ip = 0,
-                .base = new_base,
-                .dst = @intCast(base - self.frames[self.frame_count - 1].base),
-                .saved_wind_count = @intCast(self.wind_count),
-            };
-            self.frame_count += 1;
-
-            if (self.profile_mode) {
-                closure.func.profile_calls += 1;
-                self.profilePushCall(closure.func);
+        } else {
+            if (nargs < func.arity) {
+                self.setErrorDetail("expected at least {d} arguments, got {d}", .{ func.arity, nargs });
+                return VMError.ArityMismatch;
             }
+            // Collect rest args into a list
+            const rest_start = func.arity;
+            var rest_list: Value = types.NIL;
+            var i: u8 = nargs;
+            while (i > rest_start) {
+                i -= 1;
+                rest_list = self.gc.allocPair(
+                    self.registers[base + 1 + i],
+                    rest_list,
+                ) catch return VMError.OutOfMemory;
+            }
+            self.registers[base + 1 + rest_start] = rest_list;
+        }
 
-            // Breakpoint check: pause if entering a function with a matching name
-            if (self.debug_mode and self.breakpoint_count > 0) {
-                if (func.name) |fname| {
-                    for (self.breakpoints[0..self.breakpoint_count]) |bp| {
-                        if (std.mem.eql(u8, bp, fname)) {
-                            self.step_mode = .step;
-                            break;
-                        }
+        if (self.frame_count >= MAX_FRAMES) return VMError.StackOverflow;
+
+        // The callee is in base, args are in base+1..base+nargs
+        // New frame's registers start at base (callee reg becomes r0 for the function)
+        const new_base = base + 1; // skip the callee register
+        self.frames[self.frame_count] = .{
+            .closure = closure,
+            .code = func.code.items,
+            .ip = 0,
+            .base = new_base,
+            .dst = @intCast(base - self.frames[self.frame_count - 1].base),
+            .saved_wind_count = @intCast(self.wind_count),
+        };
+        self.frame_count += 1;
+
+        if (self.profile_mode) {
+            closure.func.profile_calls += 1;
+            self.profilePushCall(closure.func);
+        }
+
+        // Breakpoint check: pause if entering a function with a matching name
+        if (self.debug_mode and self.breakpoint_count > 0) {
+            if (func.name) |fname| {
+                for (self.breakpoints[0..self.breakpoint_count]) |bp| {
+                    if (std.mem.eql(u8, bp, fname)) {
+                        self.step_mode = .step;
+                        break;
                     }
                 }
             }
+        }
 
-            // JIT: compile hot functions, execute via native code
-            if (!self.debug_mode and !self.jit_disabled) {
-                func.call_count +%= 1;
-                if (func.jit_code == null and func.call_count == jit.JIT_THRESHOLD) {
-                    jit.tryCompile(func, self);
-                }
-                if (func.jit_code) |jit_code| {
-                    const entry: jit.JitEntryFn = @ptrCast(@alignCast(jit_code.entry));
-                    const result = entry(self, new_base, func.constants.items.ptr, closure);
-                    if (self.jit_error) |err| {
-                        self.jit_error = null;
-                        return err;
-                    }
-                    if (result > 0 and result != 0xFFFFFFFF) {
-                        self.frames[self.frame_count - 1].ip = result - 1;
-                    }
-                    return;
-                }
+        // JIT: compile hot functions, execute via native code
+        if (!self.debug_mode and !self.jit_disabled) {
+            func.call_count +%= 1;
+            if (func.jit_code == null and func.call_count == jit.JIT_THRESHOLD) {
+                jit.tryCompile(func, self);
             }
+            if (func.jit_code) |jit_code| {
+                const entry: jit.JitEntryFn = @ptrCast(@alignCast(jit_code.entry));
+                const result = entry(self, new_base, func.constants.items.ptr, closure);
+                if (self.jit_error) |err| {
+                    self.jit_error = null;
+                    return err;
+                }
+                if (result > 0 and result != 0xFFFFFFFF) {
+                    self.frames[self.frame_count - 1].ip = result - 1;
+                }
+                return;
+            }
+        }
     }
 
     fn callNative(self: *VM, native: *types.NativeFn, base: u16, nargs: u8) VMError!void {
-            if (self.profile_mode) {
-                native.profile_calls += 1;
-            }
+        if (self.profile_mode) {
+            native.profile_calls += 1;
+        }
 
-            if (base + @as(u16, nargs) + 1 >= MAX_REGISTERS)
-                return VMError.StackOverflow;
+        if (base + @as(u16, nargs) + 1 >= MAX_REGISTERS)
+            return VMError.StackOverflow;
 
-            switch (native.arity) {
-                .exact => |expected| {
-                    if (nargs != expected) {
-                        self.setErrorDetail("'{s}': expected {d} arguments, got {d}", .{ native.name, expected, nargs });
-                        return VMError.ArityMismatch;
-                    }
-                },
-                .variadic => |min| {
-                    if (nargs < min) {
-                        self.setErrorDetail("'{s}': expected at least {d} arguments, got {d}", .{ native.name, min, nargs });
-                        return VMError.ArityMismatch;
-                    }
-                },
-            }
-
-            const saved_alloc_target = self.gc.profile_alloc_target;
-            if (self.profile_mode) {
-                self.profileCreditSelf();
-                self.gc.profile_alloc_target = &native.profile_alloc_bytes;
-            }
-
-            const args = self.registers[base + 1 .. base + 1 + nargs];
-            self.last_error_detail_len = 0;
-
-            const native_start = if (self.profile_mode) clockNs() else 0;
-
-            const result = native.func(args) catch |err| {
-                if (self.profile_mode) {
-                    native.profile_time_ns +%= clockNs() -% native_start;
-                    self.profile_last_ns = clockNs();
-                    self.gc.profile_alloc_target = saved_alloc_target;
+        switch (native.arity) {
+            .exact => |expected| {
+                if (nargs != expected) {
+                    self.setErrorDetail("'{s}': expected {d} arguments, got {d}", .{ native.name, expected, nargs });
+                    return VMError.ArityMismatch;
                 }
-                return switch (err) {
-                    error.TypeError => blk: {
-                        if (self.last_error_detail_len == 0) {
-                            if (args.len > 0) {
-                                const p = @import("printer.zig");
-                                const s = p.valueToString(self.gc.allocator, args[0], .write) catch "";
-                                defer if (s.len > 0) self.gc.allocator.free(s);
-                                self.setErrorDetail("type error in '{s}': got {s}", .{ native.name, s });
-                            } else {
-                                self.setErrorDetail("type error in '{s}'", .{native.name});
-                            }
-                        }
-                        break :blk VMError.TypeError;
-                    },
-                    error.DivisionByZero => VMError.DivisionByZero,
-                    error.IndexOutOfBounds => blk_iob: {
-                        if (self.last_error_detail_len == 0)
-                            self.setErrorDetail("index out of bounds in '{s}'", .{native.name});
-                        break :blk_iob VMError.IndexOutOfBounds;
-                    },
-                    error.InvalidArgument => blk_ia: {
-                        if (self.last_error_detail_len == 0)
-                            self.setErrorDetail("invalid argument in '{s}'", .{native.name});
-                        break :blk_ia VMError.InvalidArgument;
-                    },
-                    error.OutOfMemory => VMError.OutOfMemory,
-                    error.ExceptionRaised => VMError.ExceptionRaised,
-                    error.ContinuationInvoked => VMError.ContinuationInvoked,
-                    error.Yielded => VMError.Yielded,
-                    else => VMError.InvalidBytecode,
-                };
-            };
+            },
+            .variadic => |min| {
+                if (nargs < min) {
+                    self.setErrorDetail("'{s}': expected at least {d} arguments, got {d}", .{ native.name, min, nargs });
+                    return VMError.ArityMismatch;
+                }
+            },
+        }
 
+        const saved_alloc_target = self.gc.profile_alloc_target;
+        if (self.profile_mode) {
+            self.profileCreditSelf();
+            self.gc.profile_alloc_target = &native.profile_alloc_bytes;
+        }
+
+        const args = self.registers[base + 1 .. base + 1 + nargs];
+        self.last_error_detail_len = 0;
+
+        const native_start = if (self.profile_mode) clockNs() else 0;
+
+        const result = native.func(args) catch |err| {
             if (self.profile_mode) {
                 native.profile_time_ns +%= clockNs() -% native_start;
                 self.profile_last_ns = clockNs();
                 self.gc.profile_alloc_target = saved_alloc_target;
             }
+            return switch (err) {
+                error.TypeError => blk: {
+                    if (self.last_error_detail_len == 0) {
+                        if (args.len > 0) {
+                            const p = @import("printer.zig");
+                            const s = p.valueToString(self.gc.allocator, args[0], .write) catch "";
+                            defer if (s.len > 0) self.gc.allocator.free(s);
+                            self.setErrorDetail("type error in '{s}': got {s}", .{ native.name, s });
+                        } else {
+                            self.setErrorDetail("type error in '{s}'", .{native.name});
+                        }
+                    }
+                    break :blk VMError.TypeError;
+                },
+                error.DivisionByZero => VMError.DivisionByZero,
+                error.IndexOutOfBounds => blk_iob: {
+                    if (self.last_error_detail_len == 0)
+                        self.setErrorDetail("index out of bounds in '{s}'", .{native.name});
+                    break :blk_iob VMError.IndexOutOfBounds;
+                },
+                error.InvalidArgument => blk_ia: {
+                    if (self.last_error_detail_len == 0)
+                        self.setErrorDetail("invalid argument in '{s}'", .{native.name});
+                    break :blk_ia VMError.InvalidArgument;
+                },
+                error.OutOfMemory => VMError.OutOfMemory,
+                error.ExceptionRaised => VMError.ExceptionRaised,
+                error.ContinuationInvoked => VMError.ContinuationInvoked,
+                error.Yielded => VMError.Yielded,
+                else => VMError.InvalidBytecode,
+            };
+        };
 
-            self.registers[base] = result;
+        if (self.profile_mode) {
+            native.profile_time_ns +%= clockNs() -% native_start;
+            self.profile_last_ns = clockNs();
+            self.gc.profile_alloc_target = saved_alloc_target;
+        }
+
+        self.registers[base] = result;
     }
 
     const vm_debug = @import("vm_debug.zig");
@@ -2192,7 +2186,6 @@ pub const VM = struct {
     pub fn handleTopLevelForm(self: *VM, expr: Value) ?VMError!Value {
         return vm_eval.handleTopLevelForm(self, expr);
     }
-
 };
 
 test {

@@ -782,5 +782,3 @@ fn charGeFn(args: []const Value) PrimitiveError!Value {
 fn charGtFn(args: []const Value) PrimitiveError!Value {
     return compareChars(args, .gt);
 }
-
-

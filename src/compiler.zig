@@ -479,48 +479,48 @@ pub const Compiler = struct {
 
             // Primitive forms — only if not shadowed by local binding
             if (!is_shadowed) {
-            if (std.mem.eql(u8, effective_name, "quote")) return self.compileQuote(args, dst);
-            if (std.mem.eql(u8, effective_name, "if")) return self.compileIf(args, dst, is_tail);
-            if (std.mem.eql(u8, effective_name, "lambda")) return self.compileLambda(args, dst, null);
-            if (std.mem.eql(u8, effective_name, "define")) return self.compileDefine(args, dst);
-            if (std.mem.eql(u8, effective_name, "define-values")) return self.compileDefineValues(args, dst);
-            if (std.mem.eql(u8, effective_name, "set!")) return self.compileSet(args, dst);
-            if (std.mem.eql(u8, effective_name, "begin")) return self.compileBegin(args, dst, is_tail);
+                if (std.mem.eql(u8, effective_name, "quote")) return self.compileQuote(args, dst);
+                if (std.mem.eql(u8, effective_name, "if")) return self.compileIf(args, dst, is_tail);
+                if (std.mem.eql(u8, effective_name, "lambda")) return self.compileLambda(args, dst, null);
+                if (std.mem.eql(u8, effective_name, "define")) return self.compileDefine(args, dst);
+                if (std.mem.eql(u8, effective_name, "define-values")) return self.compileDefineValues(args, dst);
+                if (std.mem.eql(u8, effective_name, "set!")) return self.compileSet(args, dst);
+                if (std.mem.eql(u8, effective_name, "begin")) return self.compileBegin(args, dst, is_tail);
 
-            // Derived expression forms (in compiler_forms.zig)
-            if (std.mem.eql(u8, effective_name, "and")) return forms.compileAnd(self, args, dst, is_tail);
-            if (std.mem.eql(u8, effective_name, "or")) return forms.compileOr(self, args, dst, is_tail);
-            if (std.mem.eql(u8, effective_name, "when")) return forms.compileWhen(self, args, dst, is_tail);
-            if (std.mem.eql(u8, effective_name, "unless")) return forms.compileUnless(self, args, dst, is_tail);
-            if (std.mem.eql(u8, effective_name, "cond")) return forms.compileCond(self, args, dst, is_tail);
-            if (std.mem.eql(u8, effective_name, "let")) return forms.compileLet(self, args, dst, is_tail);
-            if (std.mem.eql(u8, effective_name, "let*")) return forms.compileLetStar(self, args, dst, is_tail);
-            if (std.mem.eql(u8, effective_name, "let-values")) return forms.compileLetValues(self, args, dst, is_tail);
-            if (std.mem.eql(u8, effective_name, "let*-values")) return forms.compileLetStarValues(self, args, dst, is_tail);
-            if (std.mem.eql(u8, effective_name, "letrec")) return forms.compileLetrec(self, args, dst, is_tail);
-            if (std.mem.eql(u8, effective_name, "letrec*")) return forms.compileLetrecStar(self, args, dst, is_tail);
-            if (std.mem.eql(u8, effective_name, "case")) return forms.compileCase(self, args, dst, is_tail);
-            if (std.mem.eql(u8, effective_name, "case-lambda")) return forms.compileCaseLambda(self, args, dst);
-            if (std.mem.eql(u8, effective_name, "cond-expand")) return forms.compileCondExpand(self, args, dst, is_tail);
-            if (std.mem.eql(u8, effective_name, "do")) return forms.compileDo(self, args, dst, is_tail);
-            if (std.mem.eql(u8, effective_name, "guard")) return forms.compileGuard(self, args, dst, is_tail);
-            if (std.mem.eql(u8, effective_name, "delay")) return self.compileDelay(args, dst);
-            if (std.mem.eql(u8, effective_name, "delay-force")) return self.compileDelayForce(args, dst);
+                // Derived expression forms (in compiler_forms.zig)
+                if (std.mem.eql(u8, effective_name, "and")) return forms.compileAnd(self, args, dst, is_tail);
+                if (std.mem.eql(u8, effective_name, "or")) return forms.compileOr(self, args, dst, is_tail);
+                if (std.mem.eql(u8, effective_name, "when")) return forms.compileWhen(self, args, dst, is_tail);
+                if (std.mem.eql(u8, effective_name, "unless")) return forms.compileUnless(self, args, dst, is_tail);
+                if (std.mem.eql(u8, effective_name, "cond")) return forms.compileCond(self, args, dst, is_tail);
+                if (std.mem.eql(u8, effective_name, "let")) return forms.compileLet(self, args, dst, is_tail);
+                if (std.mem.eql(u8, effective_name, "let*")) return forms.compileLetStar(self, args, dst, is_tail);
+                if (std.mem.eql(u8, effective_name, "let-values")) return forms.compileLetValues(self, args, dst, is_tail);
+                if (std.mem.eql(u8, effective_name, "let*-values")) return forms.compileLetStarValues(self, args, dst, is_tail);
+                if (std.mem.eql(u8, effective_name, "letrec")) return forms.compileLetrec(self, args, dst, is_tail);
+                if (std.mem.eql(u8, effective_name, "letrec*")) return forms.compileLetrecStar(self, args, dst, is_tail);
+                if (std.mem.eql(u8, effective_name, "case")) return forms.compileCase(self, args, dst, is_tail);
+                if (std.mem.eql(u8, effective_name, "case-lambda")) return forms.compileCaseLambda(self, args, dst);
+                if (std.mem.eql(u8, effective_name, "cond-expand")) return forms.compileCondExpand(self, args, dst, is_tail);
+                if (std.mem.eql(u8, effective_name, "do")) return forms.compileDo(self, args, dst, is_tail);
+                if (std.mem.eql(u8, effective_name, "guard")) return forms.compileGuard(self, args, dst, is_tail);
+                if (std.mem.eql(u8, effective_name, "delay")) return self.compileDelay(args, dst);
+                if (std.mem.eql(u8, effective_name, "delay-force")) return self.compileDelayForce(args, dst);
 
-            // Quasiquote
-            if (std.mem.eql(u8, effective_name, "quasiquote")) return advanced.compileQuasiquote(self, args, dst);
+                // Quasiquote
+                if (std.mem.eql(u8, effective_name, "quasiquote")) return advanced.compileQuasiquote(self, args, dst);
 
-            // Parameterize
-            if (std.mem.eql(u8, effective_name, "parameterize")) return advanced.compileParameterize(self, args, dst, is_tail);
+                // Parameterize
+                if (std.mem.eql(u8, effective_name, "parameterize")) return advanced.compileParameterize(self, args, dst, is_tail);
 
-            // syntax-error
-            if (std.mem.eql(u8, effective_name, "syntax-error")) return CompileError.InvalidSyntax;
+                // syntax-error
+                if (std.mem.eql(u8, effective_name, "syntax-error")) return CompileError.InvalidSyntax;
 
-            // Macro forms (kept in compiler.zig)
-            if (std.mem.eql(u8, effective_name, "define-syntax")) return self.compileDefineSyntax(args, dst);
-            if (std.mem.eql(u8, effective_name, "let-syntax")) return self.compileLetSyntax(args, dst, is_tail);
-            if (std.mem.eql(u8, effective_name, "letrec-syntax")) return self.compileLetrecSyntax(args, dst, is_tail);
-            if (std.mem.eql(u8, effective_name, "syntax-rules")) return CompileError.InvalidSyntax;
+                // Macro forms (kept in compiler.zig)
+                if (std.mem.eql(u8, effective_name, "define-syntax")) return self.compileDefineSyntax(args, dst);
+                if (std.mem.eql(u8, effective_name, "let-syntax")) return self.compileLetSyntax(args, dst, is_tail);
+                if (std.mem.eql(u8, effective_name, "letrec-syntax")) return self.compileLetrecSyntax(args, dst, is_tail);
+                if (std.mem.eql(u8, effective_name, "syntax-rules")) return CompileError.InvalidSyntax;
             } // end if (!is_local)
 
             // Check if head is a macro keyword
@@ -703,7 +703,6 @@ pub const Compiler = struct {
             try self.patchJump(end_jump);
         }
     }
-
 
     const compiler_lambda = @import("compiler_lambda.zig");
 
@@ -1032,9 +1031,7 @@ pub const Compiler = struct {
                 if (neg[1] != 0) break :blk null;
                 if (neg[0] < std.math.minInt(i63) or neg[0] > std.math.maxInt(i63)) break :blk null;
                 break :blk types.makeFixnum(neg[0]);
-            }
-            else
-                null;
+            } else null;
             if (result) |val| {
                 self.emitLoadValue(dst, val) catch return false;
                 return true;
@@ -1384,7 +1381,10 @@ fn collectFreeRefsWithLocals(template: Value, pat_vars: []const []const u8, lite
                 var lam_names: [16][]const u8 = undefined;
                 var lam_count: usize = 0;
                 for (local_binds) |lb| {
-                    if (lam_count < 16) { lam_names[lam_count] = lb; lam_count += 1; }
+                    if (lam_count < 16) {
+                        lam_names[lam_count] = lb;
+                        lam_count += 1;
+                    }
                 }
                 var params = types.car(rest);
                 while (types.isPair(params)) {
@@ -1414,7 +1414,10 @@ fn collectFreeRefsWithLocals(template: Value, pat_vars: []const []const u8, lite
                 var sr_names: [16][]const u8 = undefined;
                 var sr_count: usize = 0;
                 for (local_binds) |lb| {
-                    if (sr_count < 16) { sr_names[sr_count] = lb; sr_count += 1; }
+                    if (sr_count < 16) {
+                        sr_names[sr_count] = lb;
+                        sr_count += 1;
+                    }
                 }
                 var rules = types.cdr(rest); // skip literals
                 while (types.isPair(rules)) {

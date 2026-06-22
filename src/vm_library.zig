@@ -653,9 +653,7 @@ fn reportIncludeError(vm: *VM, path: []const u8, line: u32, detail: ?[]const u8,
     const s = if (detail) |d| (if (d.len > 0)
         std.fmt.bufPrint(&buf, "{s}:{d}: error: {s}\n", .{ path, line, d }) catch "include error\n"
     else
-        std.fmt.bufPrint(&buf, "{s}:{d}: runtime error: {}\n", .{ path, line, err }) catch "include error\n")
-    else
-        std.fmt.bufPrint(&buf, "{s}:{d}: error: {}\n", .{ path, line, err }) catch "include error\n";
+        std.fmt.bufPrint(&buf, "{s}:{d}: runtime error: {}\n", .{ path, line, err }) catch "include error\n") else std.fmt.bufPrint(&buf, "{s}:{d}: error: {}\n", .{ path, line, err }) catch "include error\n";
     vm_mod.writeStderr(s);
 }
 
@@ -918,11 +916,9 @@ pub fn handleDefineLibrary(vm: *VM, args: Value) VMError!Value {
             _ = handleImportInto(vm, lib_env, types.cdr(declaration)) catch return VMError.CompileError;
         } else if (std.mem.eql(u8, decl_name, "begin")) {
             try compileLibBeginBlock(vm, lib_env, types.cdr(declaration));
-        }
-        else if (std.mem.eql(u8, decl_name, "include") or std.mem.eql(u8, decl_name, "include-ci")) {
+        } else if (std.mem.eql(u8, decl_name, "include") or std.mem.eql(u8, decl_name, "include-ci")) {
             try compileLibInclude(vm, lib_env, types.cdr(declaration));
-        }
-        else if (std.mem.eql(u8, decl_name, "cond-expand")) {
+        } else if (std.mem.eql(u8, decl_name, "cond-expand")) {
             var clauses = types.cdr(declaration);
             var matched = false;
             while (clauses != types.NIL and !matched) {

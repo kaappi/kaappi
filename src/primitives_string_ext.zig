@@ -537,7 +537,10 @@ fn stringFilterFn(args: []const Value) PrimitiveError!Value {
     var i: usize = 0;
     while (i < range.data.len) {
         const len = std.unicode.utf8ByteSequenceLength(range.data[i]) catch 1;
-        const cp = std.unicode.utf8Decode(range.data[i .. i + len]) catch { i += len; continue; };
+        const cp = std.unicode.utf8Decode(range.data[i .. i + len]) catch {
+            i += len;
+            continue;
+        };
         const r_cs = try callPredOrCharset(pred, cp);
         if (r_cs) result.appendSlice(gc.allocator, range.data[i .. i + len]) catch return PrimitiveError.OutOfMemory;
         i += len;
@@ -556,7 +559,10 @@ fn stringDeleteFn(args: []const Value) PrimitiveError!Value {
     var i: usize = 0;
     while (i < range.data.len) {
         const len = std.unicode.utf8ByteSequenceLength(range.data[i]) catch 1;
-        const cp = std.unicode.utf8Decode(range.data[i .. i + len]) catch { i += len; continue; };
+        const cp = std.unicode.utf8Decode(range.data[i .. i + len]) catch {
+            i += len;
+            continue;
+        };
         const r_cs = try callPredOrCharset(pred, cp);
         if (!r_cs) result.appendSlice(gc.allocator, range.data[i .. i + len]) catch return PrimitiveError.OutOfMemory;
         i += len;
@@ -615,7 +621,10 @@ fn stringEveryFn(args: []const Value) PrimitiveError!Value {
     var i: usize = 0;
     while (i < range.data.len) {
         const len = std.unicode.utf8ByteSequenceLength(range.data[i]) catch 1;
-        const cp = std.unicode.utf8Decode(range.data[i .. i + len]) catch { i += len; continue; };
+        const cp = std.unicode.utf8Decode(range.data[i .. i + len]) catch {
+            i += len;
+            continue;
+        };
         if (types.isRecordInstance(pred)) {
             if (!try callPredOrCharset(pred, cp)) return types.FALSE;
         } else {
@@ -636,7 +645,10 @@ fn stringAnyFn(args: []const Value) PrimitiveError!Value {
     var i: usize = 0;
     while (i < range.data.len) {
         const len = std.unicode.utf8ByteSequenceLength(range.data[i]) catch 1;
-        const cp = std.unicode.utf8Decode(range.data[i .. i + len]) catch { i += len; continue; };
+        const cp = std.unicode.utf8Decode(range.data[i .. i + len]) catch {
+            i += len;
+            continue;
+        };
         if (types.isRecordInstance(pred)) {
             if (try callPredOrCharset(pred, cp)) return types.TRUE;
         } else {

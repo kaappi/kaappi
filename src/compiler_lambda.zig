@@ -522,4 +522,3 @@ pub fn compileBegin(self: *Compiler, args: Value, dst: u8, is_tail: bool) Compil
 }
 
 // -- Macro forms --
-

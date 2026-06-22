@@ -302,7 +302,6 @@ pub const Reader = struct {
         }
     }
 
-
     const reader_tokens = @import("reader_tokens.zig");
     const reader_datum = @import("reader_datum.zig");
 
@@ -527,7 +526,6 @@ pub const Reader = struct {
         }
         return ReadError.UnterminatedString;
     }
-
 
     fn readHash(self: *Reader) ReadError!Token {
         return reader_tokens.readHash(self);

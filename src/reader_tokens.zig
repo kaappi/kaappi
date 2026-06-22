@@ -135,7 +135,7 @@ pub fn readNumber(self: *Reader) ReadError!Token {
         if (self.pos < self.source.len and (self.source[self.pos] == 'i' or self.source[self.pos] == 'I')) {
             self.pos += 1;
             const real = parseDecimalReal(num_str) orelse return ReadError.InvalidNumber;
-            const imag_str = self.source[imag_start..self.pos - 1];
+            const imag_str = self.source[imag_start .. self.pos - 1];
             const imag = parseDecimalReal(imag_str) orelse return ReadError.InvalidNumber;
             const imag_exact = !imag_has_dot and !imag_has_exp;
             return .{ .complex = .{ .real = real, .imag = imag, .exact_real = real_exact, .exact_imag = imag_exact } };
@@ -279,7 +279,6 @@ fn tryParseComplexSymbol(text: []const u8) ?@TypeOf(@as(Token, undefined).comple
     }
     return .{ .real = real, .imag = imag };
 }
-
 
 /// Try to read an inf/nan literal (case-insensitive) at the current position,
 /// consuming it on success. These are decimal flonums regardless of any radix
@@ -489,7 +488,6 @@ pub fn readHash(self: *Reader) ReadError!Token {
     }
 }
 
-
 pub fn readIntegerWithRadix(self: *Reader, radix: u8) ReadError!Token {
     const start = self.pos;
     // Handle optional sign
@@ -542,7 +540,6 @@ pub fn readIntegerWithRadix(self: *Reader, radix: u8) ReadError!Token {
     }
     return .{ .fixnum = n };
 }
-
 
 pub fn readCharacter(self: *Reader) ReadError!Token {
     self.pos += 1; // skip backslash
@@ -607,4 +604,3 @@ pub fn readCharacter(self: *Reader) ReadError!Token {
 }
 
 const reader_datum = @import("reader_datum.zig");
-

@@ -117,7 +117,10 @@ fn rehash(ht: *HashTable) PrimitiveError!void {
     const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
     const new_cap = if (ht.capacity == 0) 8 else ht.capacity * 2;
     const new_entries = gc.allocator.alloc(HashEntry, new_cap) catch return PrimitiveError.OutOfMemory;
-    for (new_entries) |*e| { e.key = EMPTY; e.value = EMPTY; }
+    for (new_entries) |*e| {
+        e.key = EMPTY;
+        e.value = EMPTY;
+    }
     const old_entries = ht.entries;
     const old_cap = ht.capacity;
     ht.entries = new_entries;

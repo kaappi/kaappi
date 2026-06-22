@@ -141,7 +141,17 @@ fn isUnicodeWhitespace(cp: u21) bool {
         0x85, // NEXT LINE
         0xA0, // NO-BREAK SPACE
         0x1680, // OGHAM SPACE MARK
-        0x2000, 0x2001, 0x2002, 0x2003, 0x2004, 0x2005, 0x2006, 0x2007, 0x2008, 0x2009, 0x200A, // EN/EM spaces etc
+        0x2000,
+        0x2001,
+        0x2002,
+        0x2003,
+        0x2004,
+        0x2005,
+        0x2006,
+        0x2007,
+        0x2008,
+        0x2009,
+        0x200A, // EN/EM spaces etc
         0x2028, // LINE SEPARATOR
         0x2029, // PARAGRAPH SEPARATOR
         0x202F, // NARROW NO-BREAK SPACE
@@ -454,21 +464,55 @@ fn stringCaseMapExpanding(data: []const u8, mode: CaseMode) PrimitiveError!Value
         switch (mode) {
             .upcase => {
                 switch (cp) {
-                    0x00DF => { try appendCodepoint(&result, gc.allocator, 'S'); try appendCodepoint(&result, gc.allocator, 'S'); },
-                    0x01F0 => { try appendCodepoint(&result, gc.allocator, 'J'); try appendCodepoint(&result, gc.allocator, 0x030C); },
-                    0x0390 => { try appendCodepoint(&result, gc.allocator, 0x0399); try appendCodepoint(&result, gc.allocator, 0x0308); try appendCodepoint(&result, gc.allocator, 0x0301); },
-                    0x03B0 => { try appendCodepoint(&result, gc.allocator, 0x03A5); try appendCodepoint(&result, gc.allocator, 0x0308); try appendCodepoint(&result, gc.allocator, 0x0301); },
-                    0xFB00 => { try appendCodepoint(&result, gc.allocator, 'F'); try appendCodepoint(&result, gc.allocator, 'F'); },
-                    0xFB01 => { try appendCodepoint(&result, gc.allocator, 'F'); try appendCodepoint(&result, gc.allocator, 'I'); },
-                    0xFB02 => { try appendCodepoint(&result, gc.allocator, 'F'); try appendCodepoint(&result, gc.allocator, 'L'); },
-                    0xFB03 => { try appendCodepoint(&result, gc.allocator, 'F'); try appendCodepoint(&result, gc.allocator, 'F'); try appendCodepoint(&result, gc.allocator, 'I'); },
-                    0xFB04 => { try appendCodepoint(&result, gc.allocator, 'F'); try appendCodepoint(&result, gc.allocator, 'F'); try appendCodepoint(&result, gc.allocator, 'L'); },
+                    0x00DF => {
+                        try appendCodepoint(&result, gc.allocator, 'S');
+                        try appendCodepoint(&result, gc.allocator, 'S');
+                    },
+                    0x01F0 => {
+                        try appendCodepoint(&result, gc.allocator, 'J');
+                        try appendCodepoint(&result, gc.allocator, 0x030C);
+                    },
+                    0x0390 => {
+                        try appendCodepoint(&result, gc.allocator, 0x0399);
+                        try appendCodepoint(&result, gc.allocator, 0x0308);
+                        try appendCodepoint(&result, gc.allocator, 0x0301);
+                    },
+                    0x03B0 => {
+                        try appendCodepoint(&result, gc.allocator, 0x03A5);
+                        try appendCodepoint(&result, gc.allocator, 0x0308);
+                        try appendCodepoint(&result, gc.allocator, 0x0301);
+                    },
+                    0xFB00 => {
+                        try appendCodepoint(&result, gc.allocator, 'F');
+                        try appendCodepoint(&result, gc.allocator, 'F');
+                    },
+                    0xFB01 => {
+                        try appendCodepoint(&result, gc.allocator, 'F');
+                        try appendCodepoint(&result, gc.allocator, 'I');
+                    },
+                    0xFB02 => {
+                        try appendCodepoint(&result, gc.allocator, 'F');
+                        try appendCodepoint(&result, gc.allocator, 'L');
+                    },
+                    0xFB03 => {
+                        try appendCodepoint(&result, gc.allocator, 'F');
+                        try appendCodepoint(&result, gc.allocator, 'F');
+                        try appendCodepoint(&result, gc.allocator, 'I');
+                    },
+                    0xFB04 => {
+                        try appendCodepoint(&result, gc.allocator, 'F');
+                        try appendCodepoint(&result, gc.allocator, 'F');
+                        try appendCodepoint(&result, gc.allocator, 'L');
+                    },
                     else => try appendCodepoint(&result, gc.allocator, unicodeUpcase(cp)),
                 }
             },
             .downcase => {
                 switch (cp) {
-                    0x0130 => { try appendCodepoint(&result, gc.allocator, 0x0069); try appendCodepoint(&result, gc.allocator, 0x0307); },
+                    0x0130 => {
+                        try appendCodepoint(&result, gc.allocator, 0x0069);
+                        try appendCodepoint(&result, gc.allocator, 0x0307);
+                    },
                     0x03A3 => {
                         // Greek final sigma: Σ at end of word → ς
                         const next_cp = blk: {
@@ -489,17 +533,54 @@ fn stringCaseMapExpanding(data: []const u8, mode: CaseMode) PrimitiveError!Value
             },
             .foldcase => {
                 switch (cp) {
-                    0x00DF => { try appendCodepoint(&result, gc.allocator, 's'); try appendCodepoint(&result, gc.allocator, 's'); },
-                    0x0130 => { try appendCodepoint(&result, gc.allocator, 0x0069); try appendCodepoint(&result, gc.allocator, 0x0307); },
-                    0x01F0 => { try appendCodepoint(&result, gc.allocator, 'j'); try appendCodepoint(&result, gc.allocator, 0x030C); },
-                    0x0390 => { try appendCodepoint(&result, gc.allocator, 0x03B9); try appendCodepoint(&result, gc.allocator, 0x0308); try appendCodepoint(&result, gc.allocator, 0x0301); },
-                    0x03B0 => { try appendCodepoint(&result, gc.allocator, 0x03C5); try appendCodepoint(&result, gc.allocator, 0x0308); try appendCodepoint(&result, gc.allocator, 0x0301); },
-                    0xFB00 => { try appendCodepoint(&result, gc.allocator, 'f'); try appendCodepoint(&result, gc.allocator, 'f'); },
-                    0xFB01 => { try appendCodepoint(&result, gc.allocator, 'f'); try appendCodepoint(&result, gc.allocator, 'i'); },
-                    0xFB02 => { try appendCodepoint(&result, gc.allocator, 'f'); try appendCodepoint(&result, gc.allocator, 'l'); },
-                    0xFB03 => { try appendCodepoint(&result, gc.allocator, 'f'); try appendCodepoint(&result, gc.allocator, 'f'); try appendCodepoint(&result, gc.allocator, 'i'); },
-                    0xFB04 => { try appendCodepoint(&result, gc.allocator, 'f'); try appendCodepoint(&result, gc.allocator, 'f'); try appendCodepoint(&result, gc.allocator, 'l'); },
-                    0xFB05, 0xFB06 => { try appendCodepoint(&result, gc.allocator, 's'); try appendCodepoint(&result, gc.allocator, 't'); },
+                    0x00DF => {
+                        try appendCodepoint(&result, gc.allocator, 's');
+                        try appendCodepoint(&result, gc.allocator, 's');
+                    },
+                    0x0130 => {
+                        try appendCodepoint(&result, gc.allocator, 0x0069);
+                        try appendCodepoint(&result, gc.allocator, 0x0307);
+                    },
+                    0x01F0 => {
+                        try appendCodepoint(&result, gc.allocator, 'j');
+                        try appendCodepoint(&result, gc.allocator, 0x030C);
+                    },
+                    0x0390 => {
+                        try appendCodepoint(&result, gc.allocator, 0x03B9);
+                        try appendCodepoint(&result, gc.allocator, 0x0308);
+                        try appendCodepoint(&result, gc.allocator, 0x0301);
+                    },
+                    0x03B0 => {
+                        try appendCodepoint(&result, gc.allocator, 0x03C5);
+                        try appendCodepoint(&result, gc.allocator, 0x0308);
+                        try appendCodepoint(&result, gc.allocator, 0x0301);
+                    },
+                    0xFB00 => {
+                        try appendCodepoint(&result, gc.allocator, 'f');
+                        try appendCodepoint(&result, gc.allocator, 'f');
+                    },
+                    0xFB01 => {
+                        try appendCodepoint(&result, gc.allocator, 'f');
+                        try appendCodepoint(&result, gc.allocator, 'i');
+                    },
+                    0xFB02 => {
+                        try appendCodepoint(&result, gc.allocator, 'f');
+                        try appendCodepoint(&result, gc.allocator, 'l');
+                    },
+                    0xFB03 => {
+                        try appendCodepoint(&result, gc.allocator, 'f');
+                        try appendCodepoint(&result, gc.allocator, 'f');
+                        try appendCodepoint(&result, gc.allocator, 'i');
+                    },
+                    0xFB04 => {
+                        try appendCodepoint(&result, gc.allocator, 'f');
+                        try appendCodepoint(&result, gc.allocator, 'f');
+                        try appendCodepoint(&result, gc.allocator, 'l');
+                    },
+                    0xFB05, 0xFB06 => {
+                        try appendCodepoint(&result, gc.allocator, 's');
+                        try appendCodepoint(&result, gc.allocator, 't');
+                    },
                     else => {
                         const folded = unicode.findFold(cp) orelse unicodeDowncase(cp);
                         try appendCodepoint(&result, gc.allocator, folded);
@@ -512,4 +593,3 @@ fn stringCaseMapExpanding(data: []const u8, mode: CaseMode) PrimitiveError!Value
     }
     return gc.allocString(result.items) catch return PrimitiveError.OutOfMemory;
 }
-

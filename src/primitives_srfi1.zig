@@ -1326,11 +1326,21 @@ fn nthFn(args: []const Value, comptime n: u8) PrimitiveError!Value {
     return types.car(p);
 }
 
-fn sixthFn(args: []const Value) PrimitiveError!Value { return nthFn(args, 5); }
-fn seventhFn(args: []const Value) PrimitiveError!Value { return nthFn(args, 6); }
-fn eighthFn(args: []const Value) PrimitiveError!Value { return nthFn(args, 7); }
-fn ninthFn(args: []const Value) PrimitiveError!Value { return nthFn(args, 8); }
-fn tenthFn(args: []const Value) PrimitiveError!Value { return nthFn(args, 9); }
+fn sixthFn(args: []const Value) PrimitiveError!Value {
+    return nthFn(args, 5);
+}
+fn seventhFn(args: []const Value) PrimitiveError!Value {
+    return nthFn(args, 6);
+}
+fn eighthFn(args: []const Value) PrimitiveError!Value {
+    return nthFn(args, 7);
+}
+fn ninthFn(args: []const Value) PrimitiveError!Value {
+    return nthFn(args, 8);
+}
+fn tenthFn(args: []const Value) PrimitiveError!Value {
+    return nthFn(args, 9);
+}
 
 // (car+cdr pair) — returns (values (car pair) (cdr pair))
 fn carCdrFn(args: []const Value) PrimitiveError!Value {
@@ -2102,7 +2112,10 @@ fn mapInOrderFn(args: []const Value) PrimitiveError!Value {
     while (true) {
         var all_pairs = true;
         for (0..list_count) |i| {
-            if (currents[i] == types.NIL) { all_pairs = false; break; }
+            if (currents[i] == types.NIL) {
+                all_pairs = false;
+                break;
+            }
             if (!types.isPair(currents[i])) return PrimitiveError.TypeError;
         }
         if (!all_pairs) break;
@@ -2116,6 +2129,9 @@ fn mapInOrderFn(args: []const Value) PrimitiveError!Value {
     gc.pushRoot(&result_list) catch return PrimitiveError.OutOfMemory;
     defer gc.popRoot();
     var i = results.items.len;
-    while (i > 0) { i -= 1; result_list = gc.allocPair(results.items[i], result_list) catch return PrimitiveError.OutOfMemory; }
+    while (i > 0) {
+        i -= 1;
+        result_list = gc.allocPair(results.items[i], result_list) catch return PrimitiveError.OutOfMemory;
+    }
     return result_list;
 }

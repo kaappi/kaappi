@@ -567,7 +567,10 @@ fn numberToString(args: []const Value) PrimitiveError!Value {
                     n = @divTrunc(n, @as(i64, radix));
                 }
             }
-            if (neg) { pos -= 1; buf[pos] = '-'; }
+            if (neg) {
+                pos -= 1;
+                buf[pos] = '-';
+            }
             return gc.allocString(buf[pos..]) catch return PrimitiveError.OutOfMemory;
         }
         var buf: [32]u8 = undefined;

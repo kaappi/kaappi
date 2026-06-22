@@ -93,10 +93,14 @@ fn printGcStats(gc: *@import("memory.zig").GC) void {
         \\
     , .{
         s.collections,
-        gc.object_count, s.peak_object_count,
-        gc.bytes_allocated, s.peak_bytes_allocated,
-        s.objects_freed, s.bytes_freed,
-        mark_ms, sweep_ms,
+        gc.object_count,
+        s.peak_object_count,
+        gc.bytes_allocated,
+        s.peak_bytes_allocated,
+        s.objects_freed,
+        s.bytes_freed,
+        mark_ms,
+        sweep_ms,
     }) catch "";
     writeStderr(header);
 

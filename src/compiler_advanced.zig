@@ -54,7 +54,9 @@ pub fn compileGuard(self: *Compiler, args: Value, dst: u8, is_tail: bool) Compil
     }
 
     const lambda_sym = gc.allocSymbol("lambda") catch return CompileError.OutOfMemory;
-    const gk_counter = struct { var n: u32 = 0; };
+    const gk_counter = struct {
+        var n: u32 = 0;
+    };
     gk_counter.n += 1;
     var gk_buf: [32]u8 = undefined;
     const gk_name = std.fmt.bufPrint(&gk_buf, "__gk{d}", .{gk_counter.n}) catch "__gk";
@@ -314,7 +316,7 @@ pub fn compileCase(self: *Compiler, args: Value, dst: u8, is_tail: bool) Compile
 pub fn compileQuasiquote(self: *Compiler, args: Value, dst: u8) CompileError!void {
     if (args == types.NIL) return CompileError.InvalidSyntax;
     const template = types.car(args);
-    try compileQQ(self,template, dst, 0);
+    try compileQQ(self, template, dst, 0);
 }
 
 fn compileQQ(self: *Compiler, tmpl: Value, dst: u8, depth: u8) CompileError!void {
@@ -368,7 +370,7 @@ fn compileQQ(self: *Compiler, tmpl: Value, dst: u8, depth: u8) CompileError!void
             try self.emitU16(unquote_sym_idx);
 
             const inner_reg = try self.allocReg();
-            try compileQQ(self,types.car(rest), inner_reg, depth - 1);
+            try compileQQ(self, types.car(rest), inner_reg, depth - 1);
 
             // Build (inner . ())
             const nil_reg = try self.allocReg();
@@ -407,7 +409,7 @@ fn compileQQ(self: *Compiler, tmpl: Value, dst: u8, depth: u8) CompileError!void
         try self.emitU16(qq_sym_idx);
 
         const inner_reg = try self.allocReg();
-        try compileQQ(self,types.car(rest), inner_reg, depth + 1);
+        try compileQQ(self, types.car(rest), inner_reg, depth + 1);
 
         const nil_reg = try self.allocReg();
         try self.emitOp(.load_nil);
@@ -432,16 +434,16 @@ fn compileQQ(self: *Compiler, tmpl: Value, dst: u8, depth: u8) CompileError!void
 
     // Check if any element uses unquote-splicing
     if (hasUnquoteSplicing(tmpl, depth)) {
-        try compileQQSplicing(self,tmpl, dst, depth);
+        try compileQQSplicing(self, tmpl, dst, depth);
         return;
     }
 
     // Regular pair: cons car and cdr
     const car_reg = try self.allocReg();
-    try compileQQ(self,types.car(tmpl), car_reg, depth);
+    try compileQQ(self, types.car(tmpl), car_reg, depth);
 
     const cdr_reg = try self.allocReg();
-    try compileQQ(self,types.cdr(tmpl), cdr_reg, depth);
+    try compileQQ(self, types.cdr(tmpl), cdr_reg, depth);
 
     try self.emitOp(.cons);
     try self.emit(dst);
