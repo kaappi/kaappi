@@ -53,7 +53,7 @@ jobs:
       - name: Build
         run: zig build -Doptimize=${{ matrix.optimize }}
 
-      - name: Unit tests
+      - name: Unit tests (leak detection via std.testing.allocator)
         run: zig build test -Doptimize=${{ matrix.optimize }}
 
       - name: Scheme suites
@@ -100,6 +100,34 @@ jobs:
 
       - name: R7RS test suite (riscv64 via QEMU)
         run: zig-out/bin/kaappi tests/scheme/r7rs/r7rs-tests.scm
+
+  coverage:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Zig
+        uses: mlugg/setup-zig@v2
+        with:
+          version: 0.16.0
+
+      - name: Install kcov
+        run: sudo apt-get update && sudo apt-get install -y kcov
+
+      - name: Unit test coverage
+        run: zig build coverage
+        continue-on-error: true
+
+      - name: R7RS suite coverage
+        run: zig build coverage-scheme -- tests/scheme/r7rs/r7rs-tests.scm
+        continue-on-error: true
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: coverage/
 
   benchmark:
     runs-on: ubuntu-latest
