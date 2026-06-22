@@ -521,7 +521,9 @@ Each OS thread gets its own GC with an independent heap. Values are deep-copied 
 
 ### JIT compiler
 
-The AArch64 backend is fully implemented (all opcodes, specialized arithmetic, function calls, self-tail-calls). The x86_64 backend handles basic opcodes (loads, moves, branches, return) — unhandled opcodes side-exit to the interpreter. RISC-V runs interpreter-only (no JIT backend). Use `--no-jit` to disable JIT compilation.
+AArch64 and x86_64 backends are both fully implemented: inline fixnum arithmetic with overflow detection, comparisons, predicates (`zero?`, `null?`, `pair?`, `not`, `car`, `cdr`), `cons` allocation, global variable access with inline caching, full call sequences with JIT-to-JIT chaining, and optimized self-recursive calls. RISC-V runs interpreter-only (no JIT backend). Use `--no-jit` to disable.
+
+The JIT currently shows no measurable speedup on standard benchmarks (fib, tak, ackermann). Two factors explain this: (1) most Scheme functions end with a `tail_call` to a primitive like `+`, which causes a side-exit back to the interpreter on every invocation; (2) the interpreter's NativeFn fast path already calls primitives directly via function pointer without frame construction, leaving little room for the JIT to improve. Future work: handling the `tail_call` opcode and adding inter-instruction register allocation.
 
 ### Macros
 

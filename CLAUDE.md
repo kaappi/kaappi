@@ -40,11 +40,11 @@ Requires Zig 0.16+ and libc (for linenoise terminal handling).
 | Linux | aarch64 | yes | yes | AArch64 native | CI tested (Ubuntu ARM) |
 | Linux | riscv64 | yes | yes | No (interpreter only) | CI tested (QEMU) |
 
-**JIT backends:** AArch64 is fully implemented (all opcodes + specialized
-arithmetic + function calls + self-tail-call). x86_64 handles basic opcodes
-(loads, moves, branches, return with frame pop); unhandled opcodes side-exit
-to the interpreter. RISC-V runs interpreter-only (no JIT backend). AArch64
-and x86_64 backends are tested in CI; riscv64 tests via QEMU cross-compilation.
+**JIT backends:** AArch64 and x86_64 are both fully implemented (all opcodes +
+specialized arithmetic + function calls + self-tail-call). Unhandled opcodes
+(`tail_call`, `closure`, `push_handler`, etc.) side-exit to the interpreter.
+RISC-V runs interpreter-only (no JIT backend). AArch64 and x86_64 backends
+are tested in CI; riscv64 tests via QEMU cross-compilation.
 
 **Cross-compilation:** `zig build -Dtarget=x86_64-linux` and
 `zig build -Dtarget=riscv64-linux` cross-compile from macOS ARM. Binaries

@@ -1,0 +1,16 @@
+(define (heavy a b)
+  (let* ((c (+ a b))
+         (d (- c a))
+         (e (* d 3))
+         (f (+ e b))
+         (g (- f c))
+         (h (+ g a))
+         (i (* h 2))
+         (j (- i e))
+         (k (+ j d))
+         (m (- k f)))
+    (if (< m 0) (- 0 m) m)))
+
+(let loop ((i 0) (acc 0))
+  (if (= i 5000000) acc
+      (loop (+ i 1) (+ acc (heavy i 7)))))
