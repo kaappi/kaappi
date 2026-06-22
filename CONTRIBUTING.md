@@ -100,14 +100,36 @@ See [docs/dev/testing.md](docs/dev/testing.md) for the complete testing guide.
 - Scheme integration tests live in `tests/scheme/`
 - Both types of tests must pass
 
+## Code style
+
+Run `zig fmt src/` before committing. CI enforces `zig fmt --check src/`.
+
 ## CI
 
 GitHub Actions runs on every push and pull request:
 
-- Zig unit tests on Ubuntu and macOS
-- Scheme test suite
+- `zig fmt --check src/` (formatting gate)
+- Zig unit tests on Ubuntu (x86_64 + ARM), macOS, and riscv64 (via QEMU)
+- `Debug`, `ReleaseSafe`, and `ReleaseFast` optimize modes
+- Scheme test suites (`bash tests/scheme/run-all.sh`)
 
-## Architecture Documentation
+## Submitting changes
+
+1. Fork the repo and create a branch from `main`.
+2. Make your changes and ensure all tests pass (`zig build test` +
+   `bash tests/scheme/run-all.sh`).
+3. Run `zig fmt src/` to fix any formatting issues.
+4. Open a pull request against `main`. The PR template includes a checklist.
+
+For bug fixes, include a test that fails without the fix and passes with it.
+For new features, add both Zig unit tests and Scheme-level tests.
+
+## Security
+
+To report a security vulnerability, see [SECURITY.md](SECURITY.md). Do not
+open a public issue for security reports.
+
+## Architecture documentation
 
 - [docs/dev/architecture.md](docs/dev/architecture.md) -- Pipeline, value
   representation, GC, file organization
@@ -116,3 +138,8 @@ GitHub Actions runs on every push and pull request:
 - [docs/dev/testing.md](docs/dev/testing.md) -- Testing infrastructure and
   conventions
 - [CLAUDE.md](CLAUDE.md) -- Complete technical reference for the codebase
+
+## Code of Conduct
+
+This project follows the [Contributor Covenant](CODE_OF_CONDUCT.md). Be
+respectful and constructive in all interactions.
