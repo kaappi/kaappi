@@ -195,6 +195,11 @@ fn threadStartFn(args: []const Value) PrimitiveError!Value {
     const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
     const vm = vm_mod.vm_instance orelse return PrimitiveError.OutOfMemory;
 
+    if (!vm.experimental_threads) {
+        vm.setErrorDetail("OS threads are experimental (cross-thread GC is unsafe); pass --experimental-threads to enable", .{});
+        return PrimitiveError.InvalidArgument;
+    }
+
     gc.extra_roots.append(gc.allocator, fiber.thunk) catch return PrimitiveError.OutOfMemory;
 
     fiber.status = .running;

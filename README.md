@@ -517,7 +517,7 @@ See **[CONFORMANCE.md](CONFORMANCE.md)** for design rationale and SRFI coverage 
 
 ### OS threads (SRFI-18)
 
-`thread-start!` spawns real OS threads, each with its own VM and GC. Basic thread execution works, but **cross-thread GC is experimental**: GC-heavy operations in child threads (allocating strings, pairs) need further work on cross-thread root marking. Use OS threads for I/O-bound work; avoid allocation-heavy workloads in child threads until this is resolved.
+OS threads are **gated behind `--experimental-threads`**. Without the flag, `thread-start!` raises an error. Cross-thread GC is not yet safe: GC-heavy operations in child threads need further work on cross-thread root marking. Use fibers (`(kaappi fibers)`) for safe cooperative concurrency, or pass `--experimental-threads` for I/O-bound workloads that avoid heavy allocation in child threads.
 
 ### JIT compiler
 

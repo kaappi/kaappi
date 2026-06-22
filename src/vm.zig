@@ -199,6 +199,7 @@ pub const VM = struct {
     profile_time_stack: [256]ProfileTimeEntry = undefined,
     profile_time_depth: usize = 0,
     sandbox_mode: bool = false,
+    experimental_threads: bool = false,
     /// Virtual filesystem for standalone binary: maps file paths → source content.
     /// Populated from .sbc bundled files section; checked before disk reads.
     bundled_files: ?*std.StringHashMap([]const u8) = null,
