@@ -49,6 +49,15 @@ assert_output_contains "reader error has location" \
 assert_output_contains "reader error has 'read error'" \
     '(define x #\invalid-char)' 'read error'
 
+# --- Compile errors include location ---
+echo
+echo "-- Compile errors --"
+assert_output_contains "compile error has location" \
+    '(if)' '<repl>:1:'
+
+assert_output_contains "compile error has 'compile error'" \
+    '(if)' 'compile error'
+
 # --- Runtime errors include file:line ---
 echo
 echo "-- Runtime errors from files --"

@@ -1258,8 +1258,9 @@ fn evalInput(vm: *vm_mod.VM, allocator: std.mem.Allocator, input: []const u8) vo
         }
 
         const func = compiler.compileExpressionWithMacrosAt(vm.gc, expr, &vm.macros, &vm.globals, 0, "<repl>") catch |err| {
+            const lc = r.getLineCol();
             var errbuf: [256]u8 = undefined;
-            const s = std.fmt.bufPrint(&errbuf, "compile error: {}\n", .{err}) catch "compile error\n";
+            const s = std.fmt.bufPrint(&errbuf, "<repl>:{d}: compile error: {}\n", .{ lc.line, err }) catch "compile error\n";
             writeStderr(s);
             break;
         };
