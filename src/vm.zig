@@ -1673,7 +1673,6 @@ pub const VM = struct {
                     const nargs = self.readU8(frame);
                     const abs_base = frame.base + base_reg;
                     try self.ensureCallWindow(abs_base, nargs);
-                    // Copy args to frame base (no callee register to skip)
                     for (0..nargs) |i| {
                         const dst_idx = @as(usize, frame.base) + i;
                         const src_idx = @as(usize, abs_base) + 1 + i;
@@ -1687,6 +1686,16 @@ pub const VM = struct {
                             cl.func.profile_calls += 1;
                         }
                         self.profileCreditSelf();
+                    }
+                    // Count iterations toward JIT threshold
+                    if (!self.debug_mode and !self.jit_disabled) {
+                        if (frame.closure) |cl| {
+                            const func = cl.func;
+                            func.call_count +%= 1;
+                            if (func.jit_code == null and func.call_count == jit.JIT_THRESHOLD) {
+                                jit.tryCompile(func, self);
+                            }
+                        }
                     }
                     frame.ip = 0;
                 },
