@@ -13,15 +13,23 @@ pub const CodeBuffer = struct {
     pub fn alloc(code_size: usize) !CodeBuffer {
         const size = std.mem.alignForward(usize, @max(code_size, page_align), page_align);
 
-        const map_flags = if (@import("builtin").os.tag == .macos)
+        const map_flags = if (comptime is_macos)
             std.posix.MAP{ .TYPE = .PRIVATE, .ANONYMOUS = true, .JIT = true }
         else
             std.posix.MAP{ .TYPE = .PRIVATE, .ANONYMOUS = true };
 
+        // macOS MAP_JIT pages start as RWX; W^X is enforced via
+        // pthread_jit_write_protect_np toggling in writeCodeBytes.
+        // Linux: map as RW only, then mprotect to RX after writing.
+        const prot = if (comptime is_macos)
+            std.posix.PROT{ .READ = true, .WRITE = true, .EXEC = true }
+        else
+            std.posix.PROT{ .READ = true, .WRITE = true, .EXEC = false };
+
         const mem = try std.posix.mmap(
             null,
             size,
-            .{ .READ = true, .WRITE = true, .EXEC = true },
+            prot,
             map_flags,
             -1,
             0,
@@ -41,17 +49,26 @@ pub const CodeBuffer = struct {
         if (comptime is_macos) {
             const jit_wp = @extern(*const fn (c_int) callconv(.c) void, .{ .name = "pthread_jit_write_protect_np" });
             jit_wp(0);
+        } else {
+            // Linux: ensure pages are writable before writing code
+            std.posix.mprotect(@alignCast(self.mem.ptr), self.mem.len, .{ .READ = true, .WRITE = true, .EXEC = false }) catch {};
         }
+
         @memcpy(self.mem[0..bytes.len], bytes);
         self.len = bytes.len;
+
         if (comptime is_macos) {
             const jit_wp = @extern(*const fn (c_int) callconv(.c) void, .{ .name = "pthread_jit_write_protect_np" });
             const icache_inv = @extern(*const fn (*anyopaque, usize) callconv(.c) void, .{ .name = "sys_icache_invalidate" });
             jit_wp(1);
             icache_inv(@ptrCast(self.mem.ptr), self.len);
-        } else if (comptime needs_icache_flush) {
-            const clear_cache = @extern(*const fn (*anyopaque, *anyopaque) callconv(.c) void, .{ .name = "__clear_cache" });
-            clear_cache(@ptrCast(self.mem.ptr), @ptrCast(self.mem.ptr + self.len));
+        } else {
+            // Linux W^X: switch from writable to executable after writing
+            std.posix.mprotect(@alignCast(self.mem.ptr), self.mem.len, .{ .READ = true, .WRITE = false, .EXEC = true }) catch {};
+            if (comptime needs_icache_flush) {
+                const clear_cache = @extern(*const fn (*anyopaque, *anyopaque) callconv(.c) void, .{ .name = "__clear_cache" });
+                clear_cache(@ptrCast(self.mem.ptr), @ptrCast(self.mem.ptr + self.len));
+            }
         }
     }
 

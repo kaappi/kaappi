@@ -59,6 +59,10 @@ jobs:
       - name: Scheme suites
         run: bash tests/scheme/run-all.sh
 
+      - name: Sandbox escape tests
+        if: matrix.optimize == 'ReleaseSafe'
+        run: bash tests/scheme/sandbox/sandbox-escape.sh
+
   riscv64-test:
     runs-on: ubuntu-latest
     steps:
