@@ -498,6 +498,7 @@ enum KEY_ACTION{
 	ENTER = 13,         /* Enter */
 	CTRL_N = 14,        /* Ctrl-n */
 	CTRL_P = 16,        /* Ctrl-p */
+	CTRL_R = 18,        /* Ctrl-r */
 	CTRL_T = 20,        /* Ctrl-t */
 	CTRL_U = 21,        /* Ctrl+u */
 	CTRL_W = 23,        /* Ctrl+w */
@@ -1872,6 +1873,115 @@ char *linenoiseEditMore = "If you see this, you are misusing the API: when linen
  *
  * Some other errno: I/O error.
  */
+/* Reverse incremental history search (Ctrl+R). */
+static void linenoiseEditHistorySearch(struct linenoiseState *l) {
+    char query[128];
+    int qlen = 0;
+    int match_idx = -1;
+    char saved_buf[1024];
+    size_t saved_len = l->len;
+    size_t saved_pos = l->pos;
+    const char *saved_prompt = l->prompt;
+    size_t saved_plen = l->plen;
+
+    if (l->len < sizeof(saved_buf))
+        memcpy(saved_buf, l->buf, l->len + 1);
+    else
+        saved_buf[0] = '\0';
+
+    query[0] = '\0';
+    int search_from = 0;
+
+    while (1) {
+        /* Build search prompt */
+        char prompt_buf[256];
+        snprintf(prompt_buf, sizeof(prompt_buf),
+                 "(reverse-i-search)'%.*s': ", qlen, query);
+        l->prompt = prompt_buf;
+        l->plen = strlen(prompt_buf);
+
+        /* Search history backwards */
+        match_idx = -1;
+        if (qlen > 0) {
+            int i;
+            for (i = search_from; i < history_len; i++) {
+                char *entry = history[history_len - 1 - i];
+                if (entry && strstr(entry, query)) {
+                    match_idx = i;
+                    break;
+                }
+            }
+        }
+
+        /* Show match or empty */
+        if (match_idx >= 0) {
+            char *entry = history[history_len - 1 - match_idx];
+            size_t elen = strlen(entry);
+            if (elen < l->buflen) {
+                memcpy(l->buf, entry, elen + 1);
+                l->len = elen;
+                char *found = strstr(l->buf, query);
+                l->pos = found ? (size_t)(found - l->buf) : 0;
+            }
+        } else if (qlen == 0) {
+            l->buf[0] = '\0';
+            l->len = 0;
+            l->pos = 0;
+        }
+        refreshLine(l);
+
+        /* Read next key */
+        char c;
+        if (read(l->ifd, &c, 1) != 1) break;
+
+        if (c == CTRL_R) {
+            /* Next match */
+            if (match_idx >= 0) search_from = match_idx + 1;
+        } else if (c == ENTER) {
+            /* Accept match */
+            l->prompt = saved_prompt;
+            l->plen = saved_plen;
+            l->history_index = 0;
+            refreshLine(l);
+            return;
+        } else if (c == ESC || c == CTRL_C || c == 7 /* Ctrl+G */) {
+            /* Cancel — restore original */
+            if (saved_len < l->buflen) {
+                memcpy(l->buf, saved_buf, saved_len + 1);
+                l->len = saved_len;
+                l->pos = saved_pos;
+            }
+            l->prompt = saved_prompt;
+            l->plen = saved_plen;
+            refreshLine(l);
+            return;
+        } else if (c == BACKSPACE || c == CTRL_H) {
+            if (qlen > 0) {
+                query[--qlen] = '\0';
+                search_from = 0;
+            }
+        } else if (c >= 32 && c < 127) {
+            /* Printable ASCII */
+            if (qlen < (int)sizeof(query) - 1) {
+                query[qlen++] = c;
+                query[qlen] = '\0';
+                search_from = 0;
+            }
+        } else {
+            /* Any other key — accept match and stop */
+            l->prompt = saved_prompt;
+            l->plen = saved_plen;
+            l->history_index = 0;
+            refreshLine(l);
+            return;
+        }
+    }
+
+    l->prompt = saved_prompt;
+    l->plen = saved_plen;
+    refreshLine(l);
+}
+
 char *linenoiseEditFeed(struct linenoiseState *l) {
     /* Not a TTY, pass control to line reading without character
      * count limits. */
@@ -2072,6 +2182,9 @@ char *linenoiseEditFeed(struct linenoiseState *l) {
         break;
     case CTRL_W: /* ctrl+w, delete previous word */
         linenoiseEditDeletePrevWord(l);
+        break;
+    case CTRL_R: /* ctrl+r, reverse history search */
+        linenoiseEditHistorySearch(l);
         break;
     }
     return linenoiseEditMore;
