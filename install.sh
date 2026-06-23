@@ -62,35 +62,37 @@ main() {
     fi
     echo "Version: $tag"
 
-    local artifact="kaappi-${platform}"
-    local url="https://github.com/$REPO/releases/download/${tag}/${artifact}"
-    local checksums_url="https://github.com/$REPO/releases/download/${tag}/SHA256SUMS"
+    local kaappi_artifact="kaappi-${platform}"
+    local thottam_artifact="thottam-${platform}"
+    local base_url="https://github.com/$REPO/releases/download/${tag}"
 
-    echo "Downloading $artifact..."
+    echo "Downloading binaries..."
     local tmpdir
     tmpdir=$(mktemp -d)
     trap 'rm -rf "$tmpdir"' EXIT
 
-    curl -fsSL -o "$tmpdir/kaappi" "$url"
-    curl -fsSL -o "$tmpdir/SHA256SUMS" "$checksums_url"
+    curl -fsSL -o "$tmpdir/kaappi" "$base_url/$kaappi_artifact"
+    curl -fsSL -o "$tmpdir/thottam" "$base_url/$thottam_artifact"
+    curl -fsSL -o "$tmpdir/SHA256SUMS" "$base_url/SHA256SUMS"
 
-    echo "Verifying checksum..."
+    echo "Verifying checksums..."
     cd "$tmpdir"
     if command -v sha256sum >/dev/null 2>&1; then
-        grep "$artifact" SHA256SUMS | sha256sum -c --quiet -
+        grep -E "$kaappi_artifact|$thottam_artifact" SHA256SUMS | sha256sum -c --quiet -
     elif command -v shasum >/dev/null 2>&1; then
-        grep "$artifact" SHA256SUMS | shasum -a 256 -c --quiet -
+        grep -E "$kaappi_artifact|$thottam_artifact" SHA256SUMS | shasum -a 256 -c --quiet -
     else
         echo "warning: neither sha256sum nor shasum found, skipping verification"
     fi
 
-    echo "Installing to $INSTALL_DIR/kaappi..."
+    echo "Installing to $INSTALL_DIR/..."
     mkdir -p "$INSTALL_DIR"
     mv "$tmpdir/kaappi" "$INSTALL_DIR/kaappi"
-    chmod +x "$INSTALL_DIR/kaappi"
+    mv "$tmpdir/thottam" "$INSTALL_DIR/thottam"
+    chmod +x "$INSTALL_DIR/kaappi" "$INSTALL_DIR/thottam"
 
     echo
-    echo "Installed kaappi $tag to $INSTALL_DIR/kaappi"
+    echo "Installed kaappi $tag and thottam to $INSTALL_DIR/"
 
     if ! echo "$PATH" | tr ':' '\n' | grep -qx "$INSTALL_DIR"; then
         echo

@@ -34,10 +34,10 @@ jobs:
         with:
           version: 0.16.0
 
-      - name: Build release binary
+      - name: Build release binaries
         run: zig build -Doptimize=ReleaseSafe -Dtarget=${{ matrix.target }}
 
-      - name: Sign and notarize macOS binary
+      - name: Sign and notarize macOS binaries
         if: matrix.target == 'aarch64-macos'
         env:
           APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
@@ -61,10 +61,11 @@ jobs:
 
           # Sign with Developer ID and hardened runtime
           codesign --force --sign "$APPLE_SIGNING_IDENTITY" --options runtime zig-out/bin/kaappi
+          codesign --force --sign "$APPLE_SIGNING_IDENTITY" --options runtime zig-out/bin/thottam
 
-          # Notarize
-          zip kaappi-notarize.zip zig-out/bin/kaappi
-          xcrun notarytool submit kaappi-notarize.zip \
+          # Notarize both binaries
+          zip notarize.zip zig-out/bin/kaappi zig-out/bin/thottam
+          xcrun notarytool submit notarize.zip \
             --apple-id "$APPLE_ID" \
             --team-id "$APPLE_TEAM_ID" \
             --password "$APPLE_NOTARIZATION_PASSWORD" \
@@ -73,14 +74,22 @@ jobs:
           # Cleanup
           security delete-keychain "$KEYCHAIN_PATH"
 
-      - name: Rename binary
-        run: cp zig-out/bin/kaappi ${{ matrix.artifact }}
+      - name: Rename binaries
+        run: |
+          cp zig-out/bin/kaappi ${{ matrix.artifact }}
+          cp zig-out/bin/thottam thottam-${{ matrix.target }}
 
-      - name: Upload artifact
+      - name: Upload kaappi artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact }}
           path: ${{ matrix.artifact }}
+
+      - name: Upload thottam artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: thottam-${{ matrix.target }}
+          path: thottam-${{ matrix.target }}
 
   release:
     needs: build
@@ -96,9 +105,9 @@ jobs:
       - name: Collect binaries and generate checksums
         run: |
           mkdir -p release
-          find artifacts -type f -name 'kaappi-*' -exec cp {} release/ \;
+          find artifacts -type f \( -name 'kaappi-*' -o -name 'thottam-*' \) -exec cp {} release/ \;
           cd release
-          sha256sum kaappi-* > SHA256SUMS
+          sha256sum kaappi-* thottam-* > SHA256SUMS
 
       - name: Extract changelog for this version
         id: changelog

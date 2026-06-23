@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-06-23
+
+### Added
+- `thottam` package manager rewritten in Zig as a compiled binary, replacing
+  the shell script (`scripts/thottam`). Ships alongside `kaappi` in release
+  artifacts for all 4 platforms. Adds dependency cycle detection.
+
+### Changed
+- Release workflow now builds and uploads `thottam` binaries for all platforms
+- `install.sh` now downloads and installs both `kaappi` and `thottam`
+- macOS binaries (both `kaappi` and `thottam`) are Developer ID signed and
+  Apple notarized
+
 ## [0.1.2] - 2026-06-23
 
 ### Changed

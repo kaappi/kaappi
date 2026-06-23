@@ -150,6 +150,19 @@ pub fn build(b: *std.Build) void {
     const bench_step = b.step("bench", "Run the call/cc capture benchmark");
     bench_step.dependOn(&run_bench.step);
 
+    // Package manager (thottam)
+    const thottam_mod = b.createModule(.{
+        .root_source_file = b.path("src/thottam.zig"),
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    const thottam_exe = b.addExecutable(.{
+        .name = "thottam",
+        .root_module = thottam_mod,
+    });
+    b.installArtifact(thottam_exe);
+
     // Unit tests
     const test_mod = b.createModule(.{
         .root_source_file = b.path("src/main.zig"),
@@ -171,6 +184,18 @@ pub fn build(b: *std.Build) void {
     const run_unit_tests = b.addRunArtifact(unit_tests);
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&run_unit_tests.step);
+
+    const thottam_tests = b.addTest(.{
+        .name = "thottam-tests",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/thottam.zig"),
+            .target = target,
+            .optimize = optimize,
+            .link_libc = true,
+        }),
+    });
+    const run_thottam_tests = b.addRunArtifact(thottam_tests);
+    test_step.dependOn(&run_thottam_tests.step);
 
     // Code coverage via kcov (always Debug for DWARF line info)
     const cov_mod = b.createModule(.{

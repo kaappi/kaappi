@@ -159,6 +159,7 @@ Stored as UTF-8 byte arrays. All string operations (string-length, string-ref, s
 | `disassembler.zig` | Bytecode disassembler for `(disassemble proc)` |
 | `linenoise.zig` | Zig FFI wrapper for vendored linenoise C library |
 | `main.zig` | Entry point, REPL loop with linenoise, file execution, CLI flags, `pub const version` |
+| `thottam.zig` | Package manager binary (thottam): install, remove, list, update, verify |
 | `testing_helpers.zig` | Shared `makeTestVM` helper for unit tests |
 | `tests_*.zig` | Unit tests by feature (core_eval, tail_calls, macros, io, etc.) |
 
@@ -292,7 +293,8 @@ Dev docs (architecture, testing, adding-features) remain in `docs/dev/` here.
 
 ## Package manager (thottam)
 
-`scripts/thottam` is a shell script that installs Kaappi ecosystem libraries.
+`src/thottam.zig` is a Zig binary that installs Kaappi ecosystem libraries.
+Built alongside kaappi via `zig build`, ships in release artifacts for all platforms.
 
 ```
 thottam install kaappi-web    # clone, build, install to ~/.kaappi/lib/
