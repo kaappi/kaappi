@@ -69,7 +69,7 @@ main() {
     echo "Downloading binaries..."
     local tmpdir
     tmpdir=$(mktemp -d)
-    trap 'rm -rf "$tmpdir"' EXIT
+    trap "rm -rf '$tmpdir'" EXIT
 
     curl -fsSL -o "$tmpdir/kaappi" "$base_url/$kaappi_artifact"
     curl -fsSL -o "$tmpdir/thottam" "$base_url/$thottam_artifact"
@@ -77,10 +77,13 @@ main() {
 
     echo "Verifying checksums..."
     cd "$tmpdir"
+    # SHA256SUMS references artifact names; remap to local filenames for verification
+    grep "$kaappi_artifact" SHA256SUMS | sed "s|$kaappi_artifact|kaappi|" > check.txt
+    grep "$thottam_artifact" SHA256SUMS | sed "s|$thottam_artifact|thottam|" >> check.txt
     if command -v sha256sum >/dev/null 2>&1; then
-        grep -E "$kaappi_artifact|$thottam_artifact" SHA256SUMS | sha256sum -c --quiet -
+        sha256sum -c --quiet check.txt
     elif command -v shasum >/dev/null 2>&1; then
-        grep -E "$kaappi_artifact|$thottam_artifact" SHA256SUMS | shasum -a 256 -c --quiet -
+        shasum -a 256 -c --quiet check.txt
     else
         echo "warning: neither sha256sum nor shasum found, skipping verification"
     fi
