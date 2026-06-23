@@ -2545,7 +2545,7 @@ fn emitStoreHalfAtOffset(asm_ctx: *a64.Assembler, rt: Reg, rn: Reg, offset: usiz
     } else {
         try asm_ctx.emitLoadImm64(.x4, offset);
         try asm_ctx.emitAddReg(.x4, rn, .x4);
-        try asm_ctx.emit(a64.Assembler.strhImm(.x4, .x4, 0));
+        try asm_ctx.emit(a64.Assembler.strhImm(rt, .x4, 0));
     }
 }
 
