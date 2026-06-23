@@ -1125,9 +1125,12 @@ fn repl(vm: *vm_mod.VM) !void {
             writeStdout(
                 \\Commands:
                 \\  ,time <expr>      Measure execution time
+                \\  ,type <expr>      Show result type
+                \\  ,describe <sym>   Show procedure arity and type
+                \\  ,apropos <str>    Search bindings by substring
+                \\  ,env [prefix]     List global bindings by prefix
                 \\  ,profile <expr>   Profile timing, calls, and allocations
                 \\  ,expand <expr>    Show macro expansion
-                \\  ,env [prefix]     List global bindings
                 \\  ,gc               Show GC statistics
                 \\  ,break <name>     Set breakpoint on function
                 \\  ,breakpoints      List active breakpoints
@@ -1135,7 +1138,39 @@ fn repl(vm: *vm_mod.VM) !void {
                 \\  ,step <expr>      Evaluate with single-stepping
                 \\  ,help             This message
                 \\
+                \\The variable _ holds the last result.
+                \\
             );
+            input_buf.clearRetainingCapacity();
+            continue;
+        }
+        if (std.mem.startsWith(u8, debug_trimmed, ",type ")) {
+            const type_expr = debug_trimmed[6..];
+            evalInputTyped(vm, allocator, type_expr, .show_type);
+            input_buf.clearRetainingCapacity();
+            continue;
+        }
+        if (std.mem.startsWith(u8, debug_trimmed, ",describe ")) {
+            const sym_name = std.mem.trim(u8, debug_trimmed[10..], " ");
+            describeSymbol(vm, allocator, sym_name);
+            input_buf.clearRetainingCapacity();
+            continue;
+        }
+        if (std.mem.startsWith(u8, debug_trimmed, ",apropos ")) {
+            const needle = std.mem.trim(u8, debug_trimmed[9..], " ");
+            var env_count: usize = 0;
+            var git3 = vm.globals.keyIterator();
+            while (git3.next()) |key| {
+                if (needle.len == 0 or containsSubstring(key.*, needle)) {
+                    writeStdout("  ");
+                    writeStdout(key.*);
+                    writeStdout("\n");
+                    env_count += 1;
+                }
+            }
+            var cbuf2: [64]u8 = undefined;
+            const cs2 = std.fmt.bufPrint(&cbuf2, "; {d} matches\n", .{env_count}) catch "\n";
+            writeStdout(cs2);
             input_buf.clearRetainingCapacity();
             continue;
         }
@@ -1202,7 +1237,7 @@ fn repl(vm: *vm_mod.VM) !void {
         hist_buf.append(allocator, 0) catch {};
         ln.historyAdd(@ptrCast(hist_buf.items.ptr));
 
-        evalInput(vm, allocator, full_input);
+        evalInputTyped(vm, allocator, full_input, .store_last);
 
         input_buf.clearRetainingCapacity();
     }
@@ -1211,7 +1246,112 @@ fn repl(vm: *vm_mod.VM) !void {
     repl_vm = null;
 }
 
+fn containsSubstring(haystack: []const u8, needle: []const u8) bool {
+    if (needle.len > haystack.len) return false;
+    var i: usize = 0;
+    while (i + needle.len <= haystack.len) : (i += 1) {
+        if (std.mem.eql(u8, haystack[i..][0..needle.len], needle)) return true;
+    }
+    return false;
+}
+
+fn getTypeName(val: types.Value) []const u8 {
+    if (types.isFixnum(val)) return "integer";
+    if (val == types.NIL) return "nil";
+    if (val == types.TRUE or val == types.FALSE) return "boolean";
+    if (val == types.VOID) return "void";
+    if (val == types.EOF) return "eof-object";
+    if (types.isChar(val)) return "char";
+    if (!types.isPointer(val)) return "unknown";
+    const obj = types.toObject(val);
+    return switch (obj.tag) {
+        .pair => "pair",
+        .symbol => "symbol",
+        .string => "string",
+        .closure => "procedure",
+        .native_fn => "procedure",
+        .function => "function",
+        .vector => "vector",
+        .bytevector => "bytevector",
+        .port => "port",
+        .flonum => "number",
+        .complex => "complex",
+        .transformer => "syntax",
+        .error_object => "error",
+        .record_type => "record-type",
+        .record_instance => "record",
+        .continuation => "continuation",
+        .multiple_values => "values",
+        .promise => "promise",
+        .parameter => "parameter",
+        .rational => "rational",
+        .bignum => "integer",
+        .hash_table => "hash-table",
+        else => "object",
+    };
+}
+
+fn describeSymbol(vm: *vm_mod.VM, allocator: std.mem.Allocator, name: []const u8) void {
+    const val_opt = vm.globals.get(name);
+    if (val_opt == null) {
+        writeStdout("  not found: ");
+        writeStdout(name);
+        writeStdout("\n");
+        return;
+    }
+    const val = val_opt.?;
+    writeStdout("  ");
+    writeStdout(name);
+    writeStdout("\n    type: ");
+    writeStdout(getTypeName(val));
+    writeStdout("\n");
+
+    if (types.isPointer(val)) {
+        const obj = types.toObject(val);
+        if (obj.tag == .native_fn) {
+            const nfn = obj.as(types.NativeFn);
+            var abuf: [64]u8 = undefined;
+            switch (nfn.arity) {
+                .exact => |n| {
+                    const s = std.fmt.bufPrint(&abuf, "    arity: {d}\n", .{n}) catch "";
+                    writeStdout(s);
+                },
+                .variadic => |min| {
+                    const s = std.fmt.bufPrint(&abuf, "    arity: {d}+\n", .{min}) catch "";
+                    writeStdout(s);
+                },
+            }
+        } else if (obj.tag == .closure) {
+            const cls = obj.as(types.Closure);
+            const func = cls.func;
+            var abuf: [128]u8 = undefined;
+            const s = std.fmt.bufPrint(&abuf, "    arity: {d}, locals: {d}\n", .{ func.arity, func.locals_count }) catch "";
+            writeStdout(s);
+            if (func.source_name) |src| {
+                writeStdout("    source: ");
+                writeStdout(src);
+                var lbuf: [32]u8 = undefined;
+                const ls = std.fmt.bufPrint(&lbuf, ":{d}\n", .{func.source_line}) catch "\n";
+                writeStdout(ls);
+            }
+        } else if (obj.tag == .transformer) {
+            writeStdout("    (syntax transformer)\n");
+        }
+    }
+    _ = allocator;
+}
+
+const EvalMode = enum { normal, store_last, show_type };
+
+fn evalInputTyped(vm: *vm_mod.VM, allocator: std.mem.Allocator, input: []const u8, mode: EvalMode) void {
+    evalInputInner(vm, allocator, input, mode);
+}
+
 fn evalInput(vm: *vm_mod.VM, allocator: std.mem.Allocator, input: []const u8) void {
+    evalInputInner(vm, allocator, input, .normal);
+}
+
+fn evalInputInner(vm: *vm_mod.VM, allocator: std.mem.Allocator, input: []const u8, mode: EvalMode) void {
     var r = reader.Reader.initWithName(vm.gc, input, "<repl>");
     defer r.deinit();
 
@@ -1245,10 +1385,19 @@ fn evalInput(vm: *vm_mod.VM, allocator: std.mem.Allocator, input: []const u8) vo
                 dr = if (mv.values.len > 0) mv.values[0] else types.VOID;
             }
             if (dr != types.VOID) {
-                const s = printer.valueToString(allocator, dr, .write) catch continue;
-                defer allocator.free(s);
-                writeStdout(s);
-                writeStdout("\n");
+                if (mode == .show_type) {
+                    writeStdout("; ");
+                    writeStdout(getTypeName(dr));
+                    writeStdout("\n");
+                } else {
+                    const s = printer.valueToString(allocator, dr, .write) catch continue;
+                    defer allocator.free(s);
+                    writeStdout(s);
+                    writeStdout("\n");
+                }
+                if (mode == .store_last) {
+                    vm.globals.put("_", dr) catch {};
+                }
             }
             continue;
         }
@@ -1298,11 +1447,20 @@ fn evalInput(vm: *vm_mod.VM, allocator: std.mem.Allocator, input: []const u8) vo
         vm.gc.popRoot();
 
         if (result != types.VOID) {
-            const s = printer.prettyPrint(allocator, result, 80) catch
-                (printer.valueToString(allocator, result, .write) catch continue);
-            defer allocator.free(s);
-            writeStdout(s);
-            writeStdout("\n");
+            if (mode == .show_type) {
+                writeStdout("; ");
+                writeStdout(getTypeName(result));
+                writeStdout("\n");
+            } else {
+                const s = printer.prettyPrint(allocator, result, 80) catch
+                    (printer.valueToString(allocator, result, .write) catch continue);
+                defer allocator.free(s);
+                writeStdout(s);
+                writeStdout("\n");
+            }
+            if (mode == .store_last) {
+                vm.globals.put("_", result) catch {};
+            }
         }
     }
 }
