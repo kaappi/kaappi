@@ -181,7 +181,7 @@ pub fn isEligible(func: *const types.Function) bool {
         ip += operand_bytes;
     }
     if (code.len == 0) return false;
-    if (code.len > 2048) return false;
+    // No bytecode size limit — large functions are JIT-eligible
     if (func.constants.items.len * 8 > 32760) return false;
     if (func.locals_count > 255) return false;
     if (func.is_variadic) return false;
@@ -656,19 +656,15 @@ fn compileX86_64(func: *types.Function, vm: *VM, allocator: std.mem.Allocator) !
                 .jump => {
                     const off = readI16(code, scan_ip);
                     scan_ip += 2;
-                    const target_signed = @as(i64, @intCast(scan_ip)) + @as(i64, off);
-                    if (target_signed >= 0 and target_signed <= @as(i64, @intCast(code.len))) {
-                        try branch_targets.put(@intCast(target_signed), {});
-                    }
+                    const target = safeJumpTarget(scan_ip, off, code.len) orelse return error.InvalidBytecode;
+                    try branch_targets.put(target, {});
                 },
                 .jump_false, .jump_true => {
                     scan_ip += 1;
                     const off = readI16(code, scan_ip);
                     scan_ip += 2;
-                    const target_signed = @as(i64, @intCast(scan_ip)) + @as(i64, off);
-                    if (target_signed >= 0 and target_signed <= @as(i64, @intCast(code.len))) {
-                        try branch_targets.put(@intCast(target_signed), {});
-                    }
+                    const target = safeJumpTarget(scan_ip, off, code.len) orelse return error.InvalidBytecode;
+                    try branch_targets.put(target, {});
                 },
                 .self_tail_call => {
                     scan_ip += 2;
@@ -2712,7 +2708,7 @@ fn safeJumpTarget(ip: usize, off: i16, code_len: usize) ?usize {
 }
 
 fn readU16(code: []const u8, ip: usize) u16 {
-    return @as(u16, code[ip]) | (@as(u16, code[ip + 1]) << 8);
+    return (@as(u16, code[ip]) << 8) | @as(u16, code[ip + 1]);
 }
 
 fn readI16(code: []const u8, ip: usize) i16 {
