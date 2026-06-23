@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-06-23
+
+### Added
+- Colored output for thottam (green/red/cyan, TTY-gated — no escape codes
+  when piped)
+- Thottam integration test in CI (install/remove cycle against kaappi-json)
+
+### Removed
+- Old `scripts/thottam` shell script (replaced by the Zig binary in v0.2.0)
+
 ## [0.2.0] - 2026-06-23
 
 ### Added

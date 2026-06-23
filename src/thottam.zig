@@ -2,7 +2,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 
 const dylib_ext = if (builtin.os.tag == .macos) ".dylib" else ".so";
-const version = "0.2.0";
+const version = "0.2.1";
 
 var use_color: bool = false;
 
