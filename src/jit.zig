@@ -2955,9 +2955,9 @@ test "compile and execute jump_false" {
     try f.code.append(gc.allocator, @intFromEnum(types.OpCode.jump_false));
     try f.code.append(gc.allocator, 0);
     const offset: i16 = 4;
-    const offset_bytes: [2]u8 = @bitCast(offset);
-    try f.code.append(gc.allocator, offset_bytes[0]);
-    try f.code.append(gc.allocator, offset_bytes[1]);
+    const offset_u16: u16 = @bitCast(offset);
+    try f.code.append(gc.allocator, @truncate(offset_u16 >> 8));
+    try f.code.append(gc.allocator, @truncate(offset_u16 & 0xFF));
     try f.code.append(gc.allocator, @intFromEnum(types.OpCode.load_true));
     try f.code.append(gc.allocator, 1);
     try f.code.append(gc.allocator, @intFromEnum(types.OpCode.@"return"));

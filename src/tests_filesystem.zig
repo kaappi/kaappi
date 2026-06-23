@@ -318,6 +318,9 @@ test "rename-file works" {
     var vm = try th.makeTestVM(&gc);
     defer vm.deinit();
 
+    defer _ = std.posix.system.unlink("/tmp/kaappi-rename-test");
+    defer _ = std.posix.system.unlink("/tmp/kaappi-rename-test2");
+
     try std.testing.expectEqual(types.TRUE, try vm.eval(
         \\(begin
         \\  (call-with-output-file "/tmp/kaappi-rename-test"
@@ -334,6 +337,8 @@ test "set-file-mode changes permissions" {
     defer gc.deinit();
     var vm = try th.makeTestVM(&gc);
     defer vm.deinit();
+
+    defer _ = std.posix.system.unlink("/tmp/kaappi-chmod-test");
 
     try std.testing.expectEqual(types.TRUE, try vm.eval(
         \\(begin
