@@ -1162,10 +1162,14 @@ fn x64EmitTailCall(asm_ctx: *x64.Assembler, base_reg: u8, nargs: u8, pending_exi
     try asm_ctx.emitLoadImm64(.rcx, nargs);
     try asm_ctx.emitLoadImm64(.rax, @intFromPtr(&jitTailCallNative));
     try asm_ctx.emitBlr(.rax);
-    try asm_ctx.emitCmpImm(.rax, 1);
-    const ok_patch = try asm_ctx.emitJccRel32(x64.Cond.eq);
+    // rax: 0 = unhandled, 1 = NativeFn completed, 2 = Closure frame rewritten
+    try asm_ctx.emitCmpImm(.rax, 0);
+    try x64EmitCondSideExit(asm_ctx, pending_exits, allocator, bc_ip, x64.Cond.eq, cache);
+    try asm_ctx.emitCmpImm(.rax, 2);
+    try x64EmitCondSideExit(asm_ctx, pending_exits, allocator, 0, x64.Cond.eq, cache);
+    // NativeFn succeeded (rax == 1) — return normally
+    const ok_patch = try asm_ctx.emitJmpRel32();
     try pending_returns.append(allocator, ok_patch);
-    try x64EmitUnconditionalSideExit(asm_ctx, pending_exits, allocator, bc_ip, cache);
 }
 
 fn x64EmitCall(asm_ctx: *x64.Assembler, base_reg: u8, nargs: u8, pending_exits: *std.ArrayList(PendingSideExit), pending_returns: *std.ArrayList(u32), pending_quick_exits: *std.ArrayList(u32), allocator: std.mem.Allocator, bc_ip: usize, ip_after: usize, cache: *RegCache) !void {
@@ -1759,6 +1763,21 @@ pub fn jitTailCallNative(vm_ptr: *VM, callee_val: u64, base_reg_val: u64, nargs_
     const frame = &vm_ptr.frames[vm_ptr.frame_count - 1];
     const abs_base: u16 = frame.base + @as(u16, base_reg);
 
+    if (types.isClosure(callee)) {
+        const closure = types.toObject(callee).as(types.Closure);
+        const func = closure.func;
+        if (func.is_variadic) return 0;
+        if (nargs != func.arity) return 0;
+        if (abs_base + @as(u16, nargs) + 1 >= vm_mod.MAX_REGISTERS) return 0;
+        for (0..nargs) |i| {
+            vm_ptr.registers[frame.base + i] = vm_ptr.registers[abs_base + 1 + i];
+        }
+        frame.closure = closure;
+        frame.code = func.code.items;
+        frame.ip = 0;
+        return 2;
+    }
+
     if (types.isNativeFn(callee)) {
         const native = types.toObject(callee).as(types.NativeFn);
         const arity_ok = switch (native.arity) {
@@ -2216,12 +2235,16 @@ fn emitTailCall(asm_ctx: *a64.Assembler, base_reg: u8, nargs: u8, pending_exits:
     try asm_ctx.emitLoadImm64(.x3, nargs);
     try asm_ctx.emitLoadImm64(.x8, @intFromPtr(&jitTailCallNative));
     try asm_ctx.emitBlr(.x8);
-    try asm_ctx.emitCmpImm(.x0, 1);
-    // Side-exit when helper cannot handle the call (x0 != 1)
-    const exit_br = asm_ctx.pos();
+    // x0: 0 = unhandled, 1 = NativeFn completed, 2 = Closure frame rewritten
+    try asm_ctx.emitCmpImm(.x0, 0);
+    const unhandled_br = asm_ctx.pos();
     try asm_ctx.emit(0);
-    try pending_exits.append(allocator, .{ .native_idx = exit_br, .bc_ip = bc_ip, .cond = .ne });
-    // Helper succeeded (x0 == 1) — return normally
+    try pending_exits.append(allocator, .{ .native_idx = unhandled_br, .bc_ip = bc_ip, .cond = .eq });
+    try asm_ctx.emitCmpImm(.x0, 2);
+    const closure_br = asm_ctx.pos();
+    try asm_ctx.emit(0);
+    try pending_exits.append(allocator, .{ .native_idx = closure_br, .bc_ip = 0, .cond = .eq });
+    // NativeFn succeeded (x0 == 1) — return normally
     const ok_br = asm_ctx.pos();
     try asm_ctx.emit(0);
     try pending_returns.append(allocator, ok_br);

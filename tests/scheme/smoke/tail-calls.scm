@@ -57,6 +57,20 @@
   '((7 . "c") (5 . "a") (4 . "e") (3 . "b") (1 . "d"))
   (repeat-sort 25))
 
+;; Regression: higher-order tail call to a closure parameter.
+;; Exercises jitTailCallNative's Closure handling (return 2).
+;; my-for-each tail-calls (f (car l)) where f is a closure argument.
+(define (my-for-each f l)
+  (if (not (null? l)) (begin (f (car l)) (my-for-each f (cdr l)))))
+(define counter 0)
+(let loop ((i 0))
+  (if (< i 25)
+      (begin
+        (my-for-each (lambda (x) (set! counter (+ counter x)))
+                     '(1 2 3 4 5))
+        (loop (+ i 1)))))
+(test-eqv "JIT closure tail call in for-each" 375 counter)
+
 (set! %test-fail-count (test-runner-fail-count (test-runner-current)))
 (test-end "tail-calls")
 (if (> %test-fail-count 0) (exit 1))
