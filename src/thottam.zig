@@ -4,6 +4,22 @@ const builtin = @import("builtin");
 const dylib_ext = if (builtin.os.tag == .macos) ".dylib" else ".so";
 const version = "0.2.0";
 
+var use_color: bool = false;
+
+const Color = struct {
+    const reset = "\x1b[0m";
+    const bold = "\x1b[1m";
+    const green = "\x1b[32m";
+    const red = "\x1b[31m";
+    const yellow = "\x1b[33m";
+    const cyan = "\x1b[36m";
+    const dim = "\x1b[2m";
+};
+
+fn initColor() void {
+    use_color = std.c.isatty(1) != 0;
+}
+
 const Config = struct {
     home: []const u8,
     org: []const u8,
@@ -43,8 +59,11 @@ fn writeStderr(bytes: []const u8) void {
 }
 
 fn fatal(msg: []const u8) noreturn {
+    if (use_color) writeStderr(Color.red ++ Color.bold);
     writeStderr("error: ");
+    if (use_color) writeStderr(Color.reset ++ Color.red);
     writeStderr(msg);
+    if (use_color) writeStderr(Color.reset);
     writeStderr("\n");
     std.process.exit(1);
 }
@@ -454,6 +473,18 @@ fn printBuf(buf: []u8, comptime fmt: []const u8, args: anytype) void {
     writeStdout(msg);
 }
 
+fn printColor(comptime color: []const u8, text: []const u8) void {
+    if (use_color) writeStdout(color);
+    writeStdout(text);
+    if (use_color) writeStdout(Color.reset);
+}
+
+fn printErrColor(comptime color: []const u8, text: []const u8) void {
+    if (use_color) writeStderr(color);
+    writeStderr(text);
+    if (use_color) writeStderr(Color.reset);
+}
+
 fn doInstall(
     allocator: std.mem.Allocator,
     config: Config,
@@ -469,8 +500,9 @@ fn doInstall(
     try visited.put(pkg, {});
 
     if (isInstalled(allocator, config.installed, pkg)) {
-        var buf: [256]u8 = undefined;
-        printBuf(&buf, "  {s} already installed\n", .{pkg});
+        writeStdout("  ");
+        printColor(Color.dim, pkg);
+        writeStdout(" already installed\n");
         return;
     }
 
@@ -478,7 +510,8 @@ fn doInstall(
         const locked_sha = getLockedSha(allocator, config.lockfile, pkg);
         if (locked_sha == null) {
             var buf: [256]u8 = undefined;
-            const msg = std.fmt.bufPrint(&buf, "error: {s} is not in the lockfile (running in --locked mode)\n", .{pkg}) catch "error: package not in lockfile\n";
+            printErrColor(Color.red, "error: ");
+            const msg = std.fmt.bufPrint(&buf, "{s} is not in the lockfile (running in --locked mode)\n", .{pkg}) catch "package not in lockfile\n";
             writeStderr(msg);
             std.process.exit(1);
         }
@@ -486,11 +519,13 @@ fn doInstall(
     }
 
     var buf: [512]u8 = undefined;
+    printColor(Color.bold, "Installing ");
+    printColor(Color.bold ++ Color.cyan, pkg);
     if (install_version) |v| {
-        printBuf(&buf, "Installing {s}@{s}...\n", .{ pkg, v });
-    } else {
-        printBuf(&buf, "Installing {s}...\n", .{pkg});
+        writeStdout("@");
+        writeStdout(v);
     }
+    writeStdout("...\n");
 
     const pkg_dir = try joinPath(allocator, config.src_dir, pkg);
     defer allocator.free(pkg_dir);
@@ -501,7 +536,7 @@ fn doInstall(
         const url_copy = try allocator.dupe(u8, url);
         defer allocator.free(url_copy);
         runGit(allocator, &.{ "clone", "--quiet", url_copy, pkg_dir }) catch {
-            writeStderr("  Failed to clone repository\n");
+            printErrColor(Color.red, "  Failed to clone repository\n");
             return error.GitFailed;
         };
     }
@@ -510,7 +545,7 @@ fn doInstall(
         printBuf(&buf, "  Checking out {s}...\n", .{v});
         runGit(allocator, &.{ "-C", pkg_dir, "fetch", "--quiet", "--tags" }) catch {};
         runGit(allocator, &.{ "-C", pkg_dir, "checkout", "--quiet", v }) catch {
-            writeStderr("  Failed to checkout version\n");
+            printErrColor(Color.red, "  Failed to checkout version\n");
             return error.GitFailed;
         };
     }
@@ -522,7 +557,8 @@ fn doInstall(
         if (getLockedSha(allocator, config.lockfile, pkg)) |locked_sha| {
             defer allocator.free(locked_sha);
             if (!std.mem.eql(u8, resolved_sha, locked_sha)) {
-                const msg = std.fmt.bufPrint(&buf, "error: SHA mismatch for {s} (locked: {s}, got: {s})\n", .{ pkg, locked_sha, resolved_sha }) catch "error: SHA mismatch\n";
+                printErrColor(Color.red, "error: ");
+                const msg = std.fmt.bufPrint(&buf, "SHA mismatch for {s} (locked: {s}, got: {s})\n", .{ pkg, locked_sha, resolved_sha }) catch "SHA mismatch\n";
                 writeStderr(msg);
                 std.process.exit(1);
             }
@@ -543,7 +579,7 @@ fn doInstall(
             printBuf(&buf, "  Building {s}...\n", .{pkg});
             const exit_code = runPassthrough(allocator, &.{ "/bin/sh", "-c", build_cmd }, pkg_dir) catch 1;
             if (exit_code != 0) {
-                writeStderr("  Build failed\n");
+                printErrColor(Color.red, "  Build failed\n");
                 return error.BuildFailed;
             }
         }
@@ -567,18 +603,21 @@ fn doInstall(
 
     try appendFile(allocator, config.installed, pkg);
     try updateLockfile(allocator, config.lockfile, pkg, resolved_sha);
-    printBuf(&buf, "  {s} installed (locked at {s})\n", .{ pkg, resolved_sha });
+    writeStdout("  ");
+    printColor(Color.green, pkg);
+    printBuf(&buf, " installed (locked at {s})\n", .{resolved_sha});
 }
 
 fn doRemove(allocator: std.mem.Allocator, config: Config, pkg: []const u8) !void {
     if (!isInstalled(allocator, config.installed, pkg)) {
-        var buf: [256]u8 = undefined;
-        printBuf(&buf, "{s} is not installed\n", .{pkg});
+        printErrColor(Color.red, pkg);
+        writeStderr(" is not installed\n");
         return error.NotInstalled;
     }
 
-    var buf: [256]u8 = undefined;
-    printBuf(&buf, "Removing {s}...\n", .{pkg});
+    printColor(Color.bold, "Removing ");
+    printColor(Color.bold ++ Color.cyan, pkg);
+    writeStdout("...\n");
 
     const pkg_dir = try joinPath(allocator, config.src_dir, pkg);
     defer allocator.free(pkg_dir);
@@ -594,7 +633,9 @@ fn doRemove(allocator: std.mem.Allocator, config: Config, pkg: []const u8) !void
     try removeFromLockfile(allocator, config.lockfile, pkg);
     try removeDir(allocator, pkg_dir);
 
-    printBuf(&buf, "  {s} removed\n", .{pkg});
+    writeStdout("  ");
+    printColor(Color.green, pkg);
+    writeStdout(" removed\n");
 }
 
 fn doList(allocator: std.mem.Allocator, config: Config) !void {
@@ -631,19 +672,21 @@ fn doList(allocator: std.mem.Allocator, config: Config) !void {
 fn doUpdate(allocator: std.mem.Allocator, config: Config, pkg: ?[]const u8) !void {
     if (pkg) |p| {
         if (!isInstalled(allocator, config.installed, p)) {
-            var buf: [256]u8 = undefined;
-            printBuf(&buf, "{s} is not installed\n", .{p});
+            printErrColor(Color.red, p);
+            writeStderr(" is not installed\n");
             return error.NotInstalled;
         }
 
         var buf: [256]u8 = undefined;
-        printBuf(&buf, "Updating {s}...\n", .{p});
+        printColor(Color.bold, "Updating ");
+        printColor(Color.bold ++ Color.cyan, p);
+        writeStdout("...\n");
 
         const pkg_dir = try joinPath(allocator, config.src_dir, p);
         defer allocator.free(pkg_dir);
 
         runGit(allocator, &.{ "-C", pkg_dir, "pull", "--quiet" }) catch {
-            writeStderr("  Failed to pull\n");
+            printErrColor(Color.red, "  Failed to pull\n");
             return error.GitFailed;
         };
 
@@ -667,7 +710,9 @@ fn doUpdate(allocator: std.mem.Allocator, config: Config, pkg: ?[]const u8) !voi
 
         const new_sha = getPkgSha(allocator, config.src_dir, p) orelse "unknown";
         try updateLockfile(allocator, config.lockfile, p, new_sha);
-        printBuf(&buf, "  {s} updated (now at {s})\n", .{ p, new_sha });
+        writeStdout("  ");
+        printColor(Color.green, p);
+        printBuf(&buf, " updated (now at {s})\n", .{new_sha});
     } else {
         const content = readFile(allocator, config.installed) catch {
             writeStdout("No packages to update\n");
@@ -715,23 +760,29 @@ fn doVerify(allocator: std.mem.Allocator, config: Config) !void {
 
         const current_sha = getPkgSha(allocator, config.src_dir, pkg);
         if (current_sha == null) {
-            printBuf(&buf, "  MISSING: {s} (not cloned)\n", .{pkg});
+            writeStdout("  ");
+            printColor(Color.red, "MISSING");
+            printBuf(&buf, ": {s} (not cloned)\n", .{pkg});
             ok = false;
         } else if (!std.mem.eql(u8, current_sha.?, locked_sha)) {
             const cur_short = current_sha.?[0..@min(12, current_sha.?.len)];
             const lock_short = locked_sha[0..@min(12, locked_sha.len)];
-            printBuf(&buf, "  MISMATCH: {s} (locked: {s}, actual: {s})\n", .{ pkg, lock_short, cur_short });
+            writeStdout("  ");
+            printColor(Color.yellow, "MISMATCH");
+            printBuf(&buf, ": {s} (locked: {s}, actual: {s})\n", .{ pkg, lock_short, cur_short });
             ok = false;
         } else {
             const lock_short = locked_sha[0..@min(12, locked_sha.len)];
-            printBuf(&buf, "  OK: {s} ({s})\n", .{ pkg, lock_short });
+            writeStdout("  ");
+            printColor(Color.green, "OK");
+            printBuf(&buf, ": {s} ({s})\n", .{ pkg, lock_short });
         }
     }
 
     if (ok) {
-        writeStdout("All packages verified.\n");
+        printColor(Color.green, "All packages verified.\n");
     } else {
-        writeStdout("Verification failed.\n");
+        printColor(Color.red, "Verification failed.\n");
         return error.VerifyFailed;
     }
 }
@@ -802,6 +853,8 @@ pub fn main(init: std.process.Init.Minimal) !void {
         _ = da.deinit();
     };
     const allocator = if (@import("builtin").mode == .Debug) da.allocator() else std.heap.c_allocator;
+
+    initColor();
 
     var args = init.args.iterate();
     _ = args.skip();
