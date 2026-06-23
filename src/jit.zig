@@ -373,6 +373,8 @@ pub fn compile(func: *types.Function, vm: *VM, allocator: std.mem.Allocator) !*J
                     try emitSpecializedArith(&asm_ctx, base_reg, spec, &pending_exits, allocator, bc_ip_cg);
                 } else if (spec != .none and nargs == 1 and (spec == .zero_p or spec == .null_p or spec == .pair_p or spec == .not_op or spec == .car or spec == .cdr)) {
                     try emitSpecializedPredicate(&asm_ctx, base_reg, spec, &pending_exits, allocator, bc_ip_cg);
+                } else if (isSelfCall(func, sym_idx, nargs)) {
+                    try emitSelfCallSequence(&asm_ctx, base_reg, nargs, &pending_exits, &pending_returns, &pending_quick_exits, allocator, bc_ip_cg, ip);
                 } else {
                     try emitCallGlobal(&asm_ctx, base_reg, sym_idx, nargs, &pending_exits, &pending_returns, &pending_quick_exits, allocator, bc_ip_cg, ip, func);
                 }
@@ -839,6 +841,8 @@ fn compileX86_64(func: *types.Function, vm: *VM, allocator: std.mem.Allocator) !
                     try x64EmitSpecializedArith(&asm_ctx, base_reg_cg, spec, &pending_exits, allocator, bc_ip_cg, &cache);
                 } else if (spec != .none and nargs_cg == 1 and (spec == .zero_p or spec == .null_p or spec == .pair_p or spec == .not_op or spec == .car or spec == .cdr)) {
                     try x64EmitSpecializedPredicate(&asm_ctx, base_reg_cg, spec, &pending_exits, allocator, bc_ip_cg, &cache);
+                } else if (isSelfCall(func, sym_idx_cg, nargs_cg)) {
+                    try x64EmitSelfCallSequence(&asm_ctx, base_reg_cg, nargs_cg, &pending_exits, &pending_returns, &pending_quick_exits, allocator, bc_ip_cg, ip, &cache);
                 } else {
                     try x64EmitCallGlobal(&asm_ctx, base_reg_cg, sym_idx_cg, nargs_cg, &pending_exits, &pending_returns, &pending_quick_exits, allocator, bc_ip_cg, ip, &cache);
                 }
@@ -2474,7 +2478,7 @@ fn emitSelfCallSequence(asm_ctx: *a64.Assembler, base_reg: u8, nargs: u8, pendin
     // STP: store closure + native=null together (offsets 0, 8)
     try asm_ctx.emitMovz(.x4, 0, 0);
     if (OFF_FRAME_CLOSURE == 0 and @offsetOf(CallFrame, "native") == 8) {
-        try asm_ctx.emitStp(CLOSURE_PTR, .x4, .x3, 0);
+        try asm_ctx.emitStpOffset(CLOSURE_PTR, .x4, .x3, 0);
     } else {
         try emitStoreAtOffset(asm_ctx, CLOSURE_PTR, .x3, OFF_FRAME_CLOSURE);
         try emitStoreAtOffset(asm_ctx, .x4, .x3, @offsetOf(CallFrame, "native"));
@@ -2484,7 +2488,7 @@ fn emitSelfCallSequence(asm_ctx: *a64.Assembler, base_reg: u8, nargs: u8, pendin
     try emitLoadFromField(asm_ctx, .x1, .x5, OFF_FUNC_CODE);
     try emitLoadFromField(asm_ctx, .x2, .x5, OFF_FUNC_CODE + 8);
     if (OFF_FRAME_CODE == 16) {
-        try asm_ctx.emitStp(.x1, .x2, .x3, 2); // offset 2 * 8 = 16
+        try asm_ctx.emitStpOffset(.x1, .x2, .x3, 2); // offset 2 * 8 = 16
     } else {
         try emitStoreAtOffset(asm_ctx, .x1, .x3, OFF_FRAME_CODE);
         try emitStoreAtOffset(asm_ctx, .x2, .x3, OFF_FRAME_CODE + 8);
