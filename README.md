@@ -387,7 +387,7 @@ Kaappi has a growing ecosystem of libraries for web development, databases, and 
 
 ```bash
 # Install the web framework (auto-installs kaappi-http, kaappi-json, kaappi-net)
-./scripts/thottam install kaappi-web
+thottam install kaappi-web
 
 # Now just works — no --lib-path flags needed
 kaappi app.scm
