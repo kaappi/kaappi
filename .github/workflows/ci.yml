@@ -67,6 +67,19 @@ jobs:
         if: matrix.optimize == 'ReleaseSafe'
         run: bash tests/scheme/robustness/robustness.sh
 
+      - name: thottam integration test
+        if: matrix.optimize == 'ReleaseSafe'
+        run: |
+          export KAAPPI_HOME=$(mktemp -d)
+          zig-out/bin/thottam list
+          zig-out/bin/thottam install kaappi-json
+          zig-out/bin/thottam list | grep kaappi-json
+          zig-out/bin/thottam verify
+          echo '(import (kaappi json)) (display (json-write-string (list 1 2 3))) (newline)' | zig-out/bin/kaappi --lib-path "$KAAPPI_HOME/lib"
+          zig-out/bin/thottam remove kaappi-json
+          ! zig-out/bin/thottam list | grep kaappi-json
+          rm -rf "$KAAPPI_HOME"
+
   riscv64-test:
     runs-on: ubuntu-latest
     steps:
