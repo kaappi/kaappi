@@ -397,7 +397,7 @@ fn getPkgManifest(allocator: std.mem.Allocator, src_dir: []const u8, pkg: []cons
     const pkg_file = joinPath3(allocator, src_dir, pkg, "kaappi.pkg") catch return null;
     defer allocator.free(pkg_file);
     const content = readFile(allocator, pkg_file) catch return null;
-    defer allocator.free(content);
+    // content intentionally not freed — manifest fields are slices into it
     return parsePkgManifest(content);
 }
 
@@ -577,7 +577,9 @@ fn doInstall(
 
         if (manifest.build_cmd) |build_cmd| {
             printBuf(&buf, "  Building {s}...\n", .{pkg});
-            const exit_code = runPassthrough(allocator, &.{ "/bin/sh", "-c", build_cmd }, pkg_dir) catch 1;
+            const full_cmd = try std.mem.concat(allocator, u8, &.{ "cd ", pkg_dir, " && ", build_cmd });
+            defer allocator.free(full_cmd);
+            const exit_code = runPassthrough(allocator, &.{ "/bin/sh", "-c", full_cmd }, null) catch 1;
             if (exit_code != 0) {
                 printErrColor(Color.red, "  Build failed\n");
                 return error.BuildFailed;
@@ -692,7 +694,9 @@ fn doUpdate(allocator: std.mem.Allocator, config: Config, pkg: ?[]const u8) !voi
 
         if (getPkgManifest(allocator, config.src_dir, p)) |manifest| {
             if (manifest.build_cmd) |build_cmd| {
-                _ = runPassthrough(allocator, &.{ "/bin/sh", "-c", build_cmd }, pkg_dir) catch {};
+                const full_cmd = std.mem.concat(allocator, u8, &.{ "cd ", pkg_dir, " && ", build_cmd }) catch return;
+                defer allocator.free(full_cmd);
+                _ = runPassthrough(allocator, &.{ "/bin/sh", "-c", full_cmd }, null) catch {};
             }
         }
 
