@@ -1,6 +1,6 @@
 #!/bin/bash
 # Kaappi Scheme installer
-# Usage: curl -fsSL https://raw.githubusercontent.com/kaappi/kaappi/main/install.sh | bash
+# Usage: curl -fsSL https://kaappi.github.io/install.sh | bash
 #
 # Installs the latest release binary to ~/.local/bin/kaappi (or INSTALL_DIR).
 
