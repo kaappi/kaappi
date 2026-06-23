@@ -111,10 +111,11 @@ Stored as UTF-8 byte arrays. All string operations (string-length, string-ref, s
 | `compiler_advanced.zig` | case, case-lambda, guard, quasiquote |
 | `compiler_forms.zig` | Re-export hub (thin file, don't edit directly) |
 
-### VM (split into 6 files)
+### VM (split into 7 files)
 | File | Responsibility |
 |------|---------------|
-| `vm.zig` | Core: execute, runUntil, callValue, instruction dispatch |
+| `vm.zig` | Core: runUntil instruction dispatch, VM struct, init/deinit |
+| `vm_calls.zig` | execute, run, callValue, callClosure, callNative, profile helpers |
 | `vm_eval.zig` | eval, handleTopLevelForm dispatcher |
 | `vm_library.zig` | handleImport (with only/except/rename/prefix), handleDefineLibrary, .sld file loading |
 | `vm_records.zig` | handleDefineRecordType desugaring |

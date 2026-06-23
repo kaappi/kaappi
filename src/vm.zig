@@ -1714,427 +1714,55 @@ pub const VM = struct {
         self.continuation_value = types.VOID;
     }
 
+
+    const vm_calls = @import("vm_calls.zig");
+
     fn clockNs() u64 {
-        var ts: std.c.timespec = undefined;
-        _ = std.c.clock_gettime(.MONOTONIC, &ts);
-        return @intCast(@as(i128, ts.sec) * 1_000_000_000 + ts.nsec);
+        return vm_calls.clockNs();
     }
 
     fn profileCreditSelf(self: *VM) void {
-        const now = clockNs();
-        const elapsed = now -% self.profile_last_ns;
-        if (self.profile_time_depth > 0) {
-            if (self.profile_time_stack[self.profile_time_depth - 1].func) |f| {
-                f.profile_time_ns +%= elapsed;
-            }
-        }
-        self.profile_last_ns = now;
+        vm_calls.profileCreditSelf(self);
     }
 
     fn profilePushCall(self: *VM, func: *types.Function) void {
-        const now = clockNs();
-        const elapsed = now -% self.profile_last_ns;
-        if (self.profile_time_depth > 0) {
-            if (self.profile_time_stack[self.profile_time_depth - 1].func) |f| {
-                f.profile_time_ns +%= elapsed;
-            }
-        }
-        if (self.profile_time_depth < self.profile_time_stack.len) {
-            self.profile_time_stack[self.profile_time_depth] = .{
-                .func = func,
-                .entry_ns = now,
-            };
-            self.profile_time_depth += 1;
-        }
-        self.profile_last_ns = now;
-        self.gc.profile_alloc_target = &func.profile_alloc_bytes;
+        vm_calls.profilePushCall(self, func);
     }
 
     fn profilePopReturn(self: *VM) void {
-        const now = clockNs();
-        const elapsed = now -% self.profile_last_ns;
-        if (self.profile_time_depth > 0) {
-            const entry = &self.profile_time_stack[self.profile_time_depth - 1];
-            if (entry.func) |f| {
-                f.profile_time_ns +%= elapsed;
-                f.profile_inclusive_ns +%= now -% entry.entry_ns;
-            }
-            self.profile_time_depth -= 1;
-        }
-        self.profile_last_ns = now;
-        if (self.profile_time_depth > 0) {
-            if (self.profile_time_stack[self.profile_time_depth - 1].func) |f| {
-                self.gc.profile_alloc_target = &f.profile_alloc_bytes;
-            } else {
-                self.gc.profile_alloc_target = null;
-            }
-        } else {
-            self.gc.profile_alloc_target = null;
-        }
+        vm_calls.profilePopReturn(self);
     }
 
     fn profileTailCall(self: *VM, new_func: *types.Function) void {
-        const now = clockNs();
-        const elapsed = now -% self.profile_last_ns;
-        if (self.profile_time_depth > 0) {
-            const entry = &self.profile_time_stack[self.profile_time_depth - 1];
-            if (entry.func) |f| {
-                f.profile_time_ns +%= elapsed;
-                f.profile_inclusive_ns +%= now -% entry.entry_ns;
-            }
-            entry.func = new_func;
-            entry.entry_ns = now;
-        }
-        self.profile_last_ns = now;
-        self.gc.profile_alloc_target = &new_func.profile_alloc_bytes;
+        vm_calls.profileTailCall(self, new_func);
     }
 
     pub fn execute(self: *VM, func: *types.Function) VMError!Value {
-        vm_instance = self;
-        self.resetExecutionState();
-
-        // Create a top-level closure
-        const closure_val = self.gc.allocClosure(func) catch return VMError.OutOfMemory;
-        const closure = types.toObject(closure_val).as(types.Closure);
-
-        // Push initial frame
-        self.frames[0] = .{
-            .closure = closure,
-            .code = func.code.items,
-            .ip = 0,
-            .base = 0,
-            .dst = 0,
-            .saved_wind_count = 0,
-        };
-        self.frame_count = 1;
-
-        if (self.profile_mode) {
-            self.profile_time_depth = 1;
-            self.profile_time_stack[0] = .{ .func = func, .entry_ns = clockNs() };
-            self.profile_last_ns = self.profile_time_stack[0].entry_ns;
-            self.gc.profile_alloc_target = &func.profile_alloc_bytes;
-        }
-
-        const result = self.run() catch |err| {
-            self.last_stack_trace_len = self.getStackTrace(&self.last_stack_trace);
-            if (self.profile_mode) {
-                self.profile_time_depth = 0;
-                self.gc.profile_alloc_target = null;
-            }
-            self.resetExecutionState();
-            return err;
-        };
-        if (self.profile_mode) {
-            self.profileCreditSelf();
-            self.profile_time_depth = 0;
-            self.gc.profile_alloc_target = null;
-        }
-        self.last_stack_trace_len = 0;
-        self.resetExecutionState();
-        return result;
+        return vm_calls.execute(self, func);
     }
 
     pub fn run(self: *VM) VMError!Value {
-        if (self.scheduler) |sched| {
-            return self.runWithScheduler(sched);
-        }
-        return self.runUntil(0, 0);
-    }
-
-    fn runWithScheduler(self: *VM, sched: *@import("fiber.zig").FiberScheduler) VMError!Value {
-        while (true) {
-            const result = self.runUntil(0, 0) catch |err| {
-                if (err == VMError.Yielded) {
-                    const current = sched.fibers[sched.current_idx] orelse return VMError.InvalidBytecode;
-                    sched.saveCurrentFiber();
-
-                    if (current.status == .running) current.status = .suspended;
-
-                    if (current.status == .completed or current.status == .errored) {
-                        sched.wakeWaiters(current);
-                    }
-
-                    if (sched.schedule()) |next_idx| {
-                        sched.switchTo(next_idx);
-                        continue;
-                    }
-                    if (sched.fibers[0]) |main_fiber| {
-                        if (main_fiber.status == .completed) return main_fiber.result;
-                        if (main_fiber.status == .waiting) {
-                            const target_val = main_fiber.waiting_on;
-                            if (types.isFiber(target_val)) {
-                                const target = types.toObject(target_val).as(@import("fiber.zig").Fiber);
-                                if (target.status == .completed) {
-                                    main_fiber.result = target.result;
-                                    main_fiber.status = .suspended;
-                                    sched.restoreFiber(0);
-                                    sched.current_idx = 0;
-                                    self.current_fiber = main_fiber;
-                                    main_fiber.status = .running;
-                                    continue;
-                                }
-                            }
-                        }
-                    }
-                    return types.VOID;
-                }
-                return err;
-            };
-
-            const current = sched.fibers[sched.current_idx] orelse return result;
-            current.status = .completed;
-            current.result = result;
-            sched.saveCurrentFiber();
-            sched.wakeWaiters(current);
-
-            if (sched.current_idx == 0) return result;
-
-            if (sched.schedule()) |next_idx| {
-                sched.switchTo(next_idx);
-                continue;
-            }
-            return result;
-        }
-    }
-
-    /// Restore a captured continuation (delegates to vm_continuations).
-    pub fn restoreContinuation(self: *VM, cont: *types.Continuation, value: Value) VMError!void {
-        try vm_continuations.restoreContinuation(self, cont, value);
+        return vm_calls.run(self);
     }
 
     fn handleNativeError(self: *VM, err: anyerror, base: u16, nargs: u8) VMError {
-        _ = base;
-        _ = nargs;
-        return switch (err) {
-            error.TypeError => VMError.TypeError,
-            error.OutOfMemory => VMError.OutOfMemory,
-            error.ExceptionRaised => VMError.ExceptionRaised,
-            error.ContinuationInvoked => VMError.ContinuationInvoked,
-            else => blk: {
-                self.setErrorDetail("native function error", .{});
-                break :blk VMError.TypeError;
-            },
-        };
+        return vm_calls.handleNativeError(self, err, base, nargs);
     }
 
     fn callValue(self: *VM, callee: Value, base: u16, nargs: u8) VMError!void {
-        // Check closure first — by far the most common case in Scheme programs
-        if (types.isClosure(callee)) {
-            return self.callClosure(types.toObject(callee).as(types.Closure), base, nargs);
-        }
-        if (types.isNativeFn(callee)) {
-            return self.callNative(types.toObject(callee).as(types.NativeFn), base, nargs);
-        }
-        if (types.isFfiFunction(callee)) {
-            const ffi_fn = types.toObject(callee).as(types.FfiFunction);
-            if (nargs != ffi_fn.param_count) return VMError.ArityMismatch;
-            const ffi_mod = @import("ffi.zig");
-            const result = ffi_mod.callFfi(ffi_fn, self.registers[base + 1 .. base + 1 + nargs], self.gc) catch return VMError.TypeError;
-            self.registers[base] = result;
-            return;
-        }
-        if (types.isParameter(callee)) {
-            const param = types.toObject(callee).as(types.ParameterObject);
-            if (nargs == 0) {
-                self.registers[base] = self.getParameterValue(param);
-            } else {
-                var new_val = self.registers[base + 1];
-                if (param.converter != types.NIL) {
-                    new_val = self.callWithArgs(param.converter, &[_]Value{new_val}) catch |err| return err;
-                }
-                self.setParameterValue(param, new_val);
-                self.registers[base] = types.VOID;
-            }
-            return;
-        }
-        if (types.isContinuation(callee)) {
-            const cont = types.toObject(callee).as(types.Continuation);
-            // Get the value to pass (0 args => void, 1 arg => that arg)
-            const value = if (nargs == 0) types.VOID else self.registers[base + 1];
-
-            if (cont.is_escape) {
-                // Escape continuation: unwind the live stack, no snapshot restore.
-                try self.invokeEscape(cont, value);
-                return VMError.ContinuationInvoked;
-            }
-
-            // Handle dynamic-wind: unwind current, rewind to saved
-            try self.performWindTransition(cont.wind_records[0..cont.wind_count], cont.wind_count);
-
-            // Restore state and place result
-            try self.restoreContinuation(cont, value);
-
-            // Signal to ALL callers that state was replaced
-            return VMError.ContinuationInvoked;
-        }
-        // Remaining cases handled by the closure/native fast paths above
-        self.setErrorDetail("not a procedure", .{});
-        return VMError.NotAProcedure;
+        return vm_calls.callValue(self, callee, base, nargs);
     }
 
     fn callClosure(self: *VM, closure: *types.Closure, base: u16, nargs: u8) VMError!void {
-        const func = closure.func;
-
-        if (base + @as(u16, @max(nargs + 1, func.locals_count)) >= MAX_REGISTERS)
-            return VMError.StackOverflow;
-
-        if (!func.is_variadic) {
-            if (nargs != func.arity) {
-                self.setErrorDetail("expected {d} arguments, got {d}", .{ func.arity, nargs });
-                return VMError.ArityMismatch;
-            }
-        } else {
-            if (nargs < func.arity) {
-                self.setErrorDetail("expected at least {d} arguments, got {d}", .{ func.arity, nargs });
-                return VMError.ArityMismatch;
-            }
-            // Collect rest args into a list
-            const rest_start = func.arity;
-            var rest_list: Value = types.NIL;
-            var i: u8 = nargs;
-            while (i > rest_start) {
-                i -= 1;
-                rest_list = self.gc.allocPair(
-                    self.registers[base + 1 + i],
-                    rest_list,
-                ) catch return VMError.OutOfMemory;
-            }
-            self.registers[base + 1 + rest_start] = rest_list;
-        }
-
-        if (self.frame_count >= MAX_FRAMES) return VMError.StackOverflow;
-
-        // The callee is in base, args are in base+1..base+nargs
-        // New frame's registers start at base (callee reg becomes r0 for the function)
-        const new_base = base + 1; // skip the callee register
-        self.frames[self.frame_count] = .{
-            .closure = closure,
-            .code = func.code.items,
-            .ip = 0,
-            .base = new_base,
-            .dst = @intCast(base - self.frames[self.frame_count - 1].base),
-            .saved_wind_count = @intCast(self.wind_count),
-        };
-        self.frame_count += 1;
-
-        if (self.profile_mode) {
-            closure.func.profile_calls += 1;
-            self.profilePushCall(closure.func);
-        }
-
-        // Breakpoint check: pause if entering a function with a matching name
-        if (self.debug_mode and self.breakpoint_count > 0) {
-            if (func.name) |fname| {
-                for (self.breakpoints[0..self.breakpoint_count]) |bp| {
-                    if (std.mem.eql(u8, bp, fname)) {
-                        self.step_mode = .step;
-                        break;
-                    }
-                }
-            }
-        }
-
-        // JIT: compile hot functions, execute via native code
-        if (!self.debug_mode and !self.jit_disabled) {
-            func.call_count +%= 1;
-            if (func.jit_code == null and func.call_count == jit.JIT_THRESHOLD) {
-                jit.tryCompile(func, self);
-            }
-            if (func.jit_code) |jit_code| {
-                const entry: jit.JitEntryFn = @ptrCast(@alignCast(jit_code.entry));
-                const result = entry(self, new_base, func.constants.items.ptr, closure);
-                if (self.jit_error) |err| {
-                    self.jit_error = null;
-                    return err;
-                }
-                if (result > 0 and result != 0xFFFFFFFF) {
-                    self.frames[self.frame_count - 1].ip = result - 1;
-                }
-                return;
-            }
-        }
+        return vm_calls.callClosure(self, closure, base, nargs);
     }
 
     fn callNative(self: *VM, native: *types.NativeFn, base: u16, nargs: u8) VMError!void {
-        if (self.profile_mode) {
-            native.profile_calls += 1;
-        }
+        return vm_calls.callNative(self, native, base, nargs);
+    }
 
-        if (base + @as(u16, nargs) + 1 >= MAX_REGISTERS)
-            return VMError.StackOverflow;
-
-        switch (native.arity) {
-            .exact => |expected| {
-                if (nargs != expected) {
-                    self.setErrorDetail("'{s}': expected {d} arguments, got {d}", .{ native.name, expected, nargs });
-                    return VMError.ArityMismatch;
-                }
-            },
-            .variadic => |min| {
-                if (nargs < min) {
-                    self.setErrorDetail("'{s}': expected at least {d} arguments, got {d}", .{ native.name, min, nargs });
-                    return VMError.ArityMismatch;
-                }
-            },
-        }
-
-        const saved_alloc_target = self.gc.profile_alloc_target;
-        if (self.profile_mode) {
-            self.profileCreditSelf();
-            self.gc.profile_alloc_target = &native.profile_alloc_bytes;
-        }
-
-        const args = self.registers[base + 1 .. base + 1 + nargs];
-        self.last_error_detail_len = 0;
-
-        const native_start = if (self.profile_mode) clockNs() else 0;
-
-        const result = native.func(args) catch |err| {
-            if (self.profile_mode) {
-                native.profile_time_ns +%= clockNs() -% native_start;
-                self.profile_last_ns = clockNs();
-                self.gc.profile_alloc_target = saved_alloc_target;
-            }
-            return switch (err) {
-                error.TypeError => blk: {
-                    if (self.last_error_detail_len == 0) {
-                        if (args.len > 0) {
-                            const p = @import("printer.zig");
-                            const s = p.valueToString(self.gc.allocator, args[0], .write) catch "";
-                            defer if (s.len > 0) self.gc.allocator.free(s);
-                            self.setErrorDetail("type error in '{s}': got {s}", .{ native.name, s });
-                        } else {
-                            self.setErrorDetail("type error in '{s}'", .{native.name});
-                        }
-                    }
-                    break :blk VMError.TypeError;
-                },
-                error.DivisionByZero => VMError.DivisionByZero,
-                error.IndexOutOfBounds => blk_iob: {
-                    if (self.last_error_detail_len == 0)
-                        self.setErrorDetail("index out of bounds in '{s}'", .{native.name});
-                    break :blk_iob VMError.IndexOutOfBounds;
-                },
-                error.InvalidArgument => blk_ia: {
-                    if (self.last_error_detail_len == 0)
-                        self.setErrorDetail("invalid argument in '{s}'", .{native.name});
-                    break :blk_ia VMError.InvalidArgument;
-                },
-                error.OutOfMemory => VMError.OutOfMemory,
-                error.ExceptionRaised => VMError.ExceptionRaised,
-                error.ContinuationInvoked => VMError.ContinuationInvoked,
-                error.Yielded => VMError.Yielded,
-                else => VMError.InvalidBytecode,
-            };
-        };
-
-        if (self.profile_mode) {
-            native.profile_time_ns +%= clockNs() -% native_start;
-            self.profile_last_ns = clockNs();
-            self.gc.profile_alloc_target = saved_alloc_target;
-        }
-
-        self.registers[base] = result;
+    pub fn restoreContinuation(self: *VM, cont: *types.Continuation, value: Value) VMError!void {
+        try vm_continuations.restoreContinuation(self, cont, value);
     }
 
     const vm_debug = @import("vm_debug.zig");
