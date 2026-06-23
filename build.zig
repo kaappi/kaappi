@@ -163,6 +163,25 @@ pub fn build(b: *std.Build) void {
     });
     b.installArtifact(thottam_exe);
 
+    // Language server (kaappi-lsp)
+    const lsp_mod = b.createModule(.{
+        .root_source_file = b.path("src/kaappi_lsp.zig"),
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    lsp_mod.addImport("build_options", options.createModule());
+    lsp_mod.addAnonymousImport("embedded_bytecode", .{
+        .root_source_file = null_embed,
+        .target = target,
+        .optimize = optimize,
+    });
+    const lsp_exe = b.addExecutable(.{
+        .name = "kaappi-lsp",
+        .root_module = lsp_mod,
+    });
+    b.installArtifact(lsp_exe);
+
     // Unit tests
     const test_mod = b.createModule(.{
         .root_source_file = b.path("src/main.zig"),
