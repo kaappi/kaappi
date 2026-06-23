@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-06-23
+
+### Added
+- Language Server Protocol (LSP) server (`kaappi-lsp`) with diagnostics,
+  completions, and hover — works with VS Code, Neovim, Emacs, Helix
+- REPL: Ctrl+R reverse history search, `,type`, `,describe`, `,apropos`
+  commands, and `_` variable for last result
+- 21 new SRFIs (51 → 72): 0, 4, 6, 17, 19, 23, 37, 38, 42, 43, 45, 60,
+  61, 78, 87, 116, 127, 130, 134, 144, 197
+- SRFI 19 expanded: timezone support, date parsing (`string->date`),
+  `date->time-utc`, day-of-week/year, Julian day conversions,
+  format directives (~a, ~A, ~b, ~B, ~e, ~j, ~W, ~z, ~N)
+- SRFI 19 test suite (112 tests)
+
+### Fixed
+- x86_64 JIT crash: `readU16` used wrong byte order (little-endian vs
+  VM's big-endian), causing misread jump offsets and SIGABRT on Linux
+- JIT branch-target pre-scan: added bounds checking for jump targets
+- thottam: build command cwd handling and manifest use-after-free
+- `install.sh`: checksum verification and tmpdir cleanup
+
 ## [0.2.1] - 2026-06-23
 
 ### Added
