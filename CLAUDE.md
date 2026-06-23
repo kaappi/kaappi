@@ -151,7 +151,9 @@ Stored as UTF-8 byte arrays. All string operations (string-length, string-ref, s
 | `library.zig` | Library registry, standard library registration ((scheme base), etc.) |
 | `bignum.zig` | Arbitrary-precision integer arithmetic |
 | `ffi.zig` | C FFI call dispatcher (type marshaling, arity routing, `normalizeType` for extended integer types) |
-| `jit.zig` | JIT orchestration: eligibility check, bytecode → native compilation, side exits. Dispatches to arch-specific backend at comptime. |
+| `jit.zig` | JIT orchestration: eligibility, compile dispatch, C-ABI helpers, shared utilities, tests |
+| `jit_compile_aarch64.zig` | AArch64 bytecode → native compiler: emit* functions, frame/call sequences |
+| `jit_compile_x86_64.zig` | x86_64 bytecode → native compiler: x64Emit* functions, register cache |
 | `jit_aarch64.zig` | AArch64 assembler: fixed 4-byte instruction encoding, register/branch/load-store emitters |
 | `jit_x86_64.zig` | x86_64 assembler: variable-length instruction encoding, REX prefixes, ModR/M addressing |
 | `jit_mem.zig` | Executable memory allocation (mmap RWX), code buffer write with JIT protection (macOS) |
@@ -254,6 +256,12 @@ gc.popRoot();               // done, val is safe to use
 Always root `Function*` pointers before calling `vm.execute()` — it allocates a closure wrapper internally.
 
 ## Tests
+
+**Every bug fix MUST include a regression test** that fails without the fix and
+passes with it. Place it in the appropriate location:
+- Zig unit test → `src/tests_*.zig` (for VM, compiler, GC, JIT internals)
+- Scheme test → `tests/scheme/smoke/` or a dedicated file under `tests/scheme/`
+  (for end-to-end behavior visible from Scheme)
 
 - **Unit tests**: `src/tests_*.zig` — named by feature: `tests_core_eval.zig`, `tests_macros.zig`, `tests_io.zig`, etc. Run all with `zig build test`.
 - **R7RS test suite**: `tests/scheme/r7rs/r7rs-tests.scm` — 1,380 tests using `(chibi test)`. Run with `zig build run -- tests/scheme/r7rs/r7rs-tests.scm`.
