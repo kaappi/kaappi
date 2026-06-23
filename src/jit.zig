@@ -181,6 +181,7 @@ pub fn isEligible(func: *const types.Function) bool {
         ip += operand_bytes;
     }
     if (code.len == 0) return false;
+    if (is_x86_64 and code.len > 128) return false;
     if (func.constants.items.len * 8 > 32760) return false;
     if (func.locals_count > 255) return false;
     if (func.is_variadic) return false;
