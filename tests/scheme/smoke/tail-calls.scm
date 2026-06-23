@@ -32,6 +32,31 @@
 (define (add a b) (+ a b))
 (test-eqv "nested fib calls" 13 (add (fib 5) (fib 6)))
 
+;; Regression: recursive sort with tail call to a closure.
+;; Exercises JIT tail_call side-exit (insert-sorted is a closure,
+;; not a native) and self-call sequences under JIT compilation.
+(define (insert-sorted entry sorted)
+  (if (null? sorted) (list entry)
+      (if (>= (car entry) (car (car sorted)))
+          (cons entry sorted)
+          (cons (car sorted) (insert-sorted entry (cdr sorted))))))
+
+(define (sort-desc entries)
+  (if (null? entries) '()
+      (insert-sorted (car entries) (sort-desc (cdr entries)))))
+
+(define sort-data '((5 . "a") (3 . "b") (7 . "c") (1 . "d") (4 . "e")))
+
+;; Run enough iterations to trigger JIT (threshold = 100 calls).
+;; sort-desc makes 6 calls per iteration on a 5-element list.
+(define (repeat-sort n)
+  (if (= n 0) (sort-desc sort-data)
+      (begin (sort-desc sort-data) (repeat-sort (- n 1)))))
+
+(test-equal "JIT recursive tail call to closure"
+  '((7 . "c") (5 . "a") (4 . "e") (3 . "b") (1 . "d"))
+  (repeat-sort 25))
+
 (set! %test-fail-count (test-runner-fail-count (test-runner-current)))
 (test-end "tail-calls")
 (if (> %test-fail-count 0) (exit 1))
