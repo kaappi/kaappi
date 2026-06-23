@@ -71,6 +71,16 @@
         (loop (+ i 1)))))
 (test-eqv "JIT closure tail call in for-each" 375 counter)
 
+;; Regression: JIT compilation of the `closure` opcode.
+;; make-adder contains a `closure` instruction (lambda capturing n).
+;; Running it 150+ times triggers JIT; post-JIT closures must work.
+(define (make-adder n) (lambda (x) (+ n x)))
+(let loop ((i 0) (sum 0))
+  (if (= i 150)
+      (test-eqv "JIT closure opcode (make-adder)" 11325 sum)
+      (let ((adder (make-adder i)))
+        (loop (+ i 1) (+ sum (adder 1))))))
+
 (set! %test-fail-count (test-runner-fail-count (test-runner-current)))
 (test-end "tail-calls")
 (if (> %test-fail-count 0) (exit 1))

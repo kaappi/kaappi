@@ -168,8 +168,17 @@ pub fn isEligible(func: *const types.Function) bool {
             .@"return" => 1,
             .jump => 2,
             .jump_false, .jump_true => 3,
-            .closure => return false,
-            .close_upvalue => return false,
+            .closure => {
+                if (ip + 2 >= code.len) return false;
+                const sym_idx = (@as(u16, code[ip + 1]) << 8) | code[ip + 2];
+                if (sym_idx >= func.constants.items.len) return false;
+                const fv = func.constants.items[sym_idx];
+                if (!types.isFunction(fv)) return false;
+                const inner = types.toObject(fv).as(types.Function);
+                ip += 3 + @as(usize, inner.upvalue_count) * 2;
+                continue;
+            },
+            .close_upvalue => 1,
             .cons => 3,
             .push_handler, .pop_handler => return false,
             .halt => return false,
@@ -406,6 +415,32 @@ pub fn compile(func: *types.Function, vm: *VM, allocator: std.mem.Allocator) !*J
                 const cdr_reg = code[ip + 2];
                 ip += 3;
                 try emitCons(&asm_ctx, dst, car_reg, cdr_reg, &pending_exits, allocator, ip - 4);
+            },
+            .closure => {
+                const dst = code[ip];
+                const sym_idx = readU16(code, ip + 1);
+                ip += 3;
+                const bc_ip_cl = ip - 4;
+                const inner_func = types.toObject(func.constants.items[sym_idx]).as(types.Function);
+                const n_upvalues: usize = inner_func.upvalue_count;
+                const descs_ptr = @intFromPtr(code.ptr) + ip;
+                ip += n_upvalues * 2;
+                // Load func value from constants
+                try emitLoadConst(&asm_ctx, dst, sym_idx);
+                try asm_ctx.emitLdrImm(.x1, FRAME_PTR, @as(u16, dst) * 8);
+                try asm_ctx.emitLoadImm64(.x2, descs_ptr);
+                try asm_ctx.emitLoadImm64(.x3, n_upvalues);
+                try asm_ctx.emitMovReg(.x0, VM_PTR);
+                try asm_ctx.emitLoadImm64(.x8, @intFromPtr(&jitCreateClosure));
+                try asm_ctx.emitBlr(.x8);
+                try asm_ctx.emitCmpImm(.x0, 0);
+                const oom_exit = asm_ctx.pos();
+                try asm_ctx.emit(0);
+                try pending_exits.append(allocator, .{ .native_idx = oom_exit, .bc_ip = bc_ip_cl, .cond = .eq });
+                try asm_ctx.emitStrImm(.x0, FRAME_PTR, @as(u16, dst) * 8);
+            },
+            .close_upvalue => {
+                ip += 1;
             },
             .set_global => {
                 const sym_idx = readU16(code, ip);
@@ -829,6 +864,37 @@ fn compileX86_64(func: *types.Function, vm: *VM, allocator: std.mem.Allocator) !
                 const cdr_reg = code[ip + 2];
                 ip += 3;
                 try x64EmitCons(&asm_ctx, dst_c, car_reg, cdr_reg, &pending_exits, allocator, ip - 4, &cache);
+            },
+            .closure => {
+                const dst_cl = code[ip];
+                const sym_idx_cl = readU16(code, ip + 1);
+                ip += 3;
+                const bc_ip_cl = ip - 4;
+                const inner_func = types.toObject(func.constants.items[sym_idx_cl]).as(types.Function);
+                const n_upvalues: usize = inner_func.upvalue_count;
+                const descs_ptr = @intFromPtr(code.ptr) + ip;
+                ip += n_upvalues * 2;
+                try cache.invalidateAll(&asm_ctx);
+                // Load func value from constants
+                const const_off: u32 = @as(u32, sym_idx_cl) * 8;
+                if (const_off <= 32760) {
+                    try asm_ctx.emitLdrImm(.rsi, X_CONST_PTR, @intCast(const_off));
+                } else {
+                    try asm_ctx.emitLoadImm64(.rsi, const_off);
+                    try asm_ctx.emitAddReg(.rsi, X_CONST_PTR, .rsi);
+                    try asm_ctx.emitLdrImm(.rsi, .rsi, 0);
+                }
+                try asm_ctx.emitLoadImm64(.rdx, descs_ptr);
+                try asm_ctx.emitLoadImm64(.rcx, n_upvalues);
+                try asm_ctx.emitMovReg(.rdi, X_VM_PTR);
+                try asm_ctx.emitLoadImm64(.rax, @intFromPtr(&jitCreateClosure));
+                try asm_ctx.emitBlr(.rax);
+                try asm_ctx.emitCmpImm(.rax, 0);
+                try x64EmitCondSideExit(&asm_ctx, &pending_exits, allocator, bc_ip_cl, x64.Cond.eq, &cache);
+                try asm_ctx.emitStrImm(.rax, X_FRAME_PTR, @as(u16, dst_cl) * 8);
+            },
+            .close_upvalue => {
+                ip += 1;
             },
             .call_global => {
                 const base_reg_cg = code[ip];
@@ -1800,6 +1866,41 @@ pub fn jitTailCallNative(vm_ptr: *VM, callee_val: u64, base_reg_val: u64, nargs_
     }
 
     return 0;
+}
+
+pub fn jitCreateClosure(vm_ptr: *VM, func_val: u64, descs_ptr_val: u64, n_upvalues_val: u64) callconv(.c) u64 {
+    const func_v: types.Value = @bitCast(func_val);
+    if (!types.isFunction(func_v)) return 0;
+    const func = types.toObject(func_v).as(types.Function);
+
+    const cls_val = vm_ptr.gc.allocClosure(func) catch return 0;
+    const cls = types.toObject(cls_val).as(types.Closure);
+
+    const frame = &vm_ptr.frames[vm_ptr.frame_count - 1];
+    const parent_closure = frame.closure orelse return 0;
+
+    const n_upvalues: usize = @intCast(n_upvalues_val);
+    const descs: [*]const u8 = @ptrFromInt(descs_ptr_val);
+
+    for (0..n_upvalues) |i| {
+        const is_local = descs[i * 2] == 1;
+        const index = descs[i * 2 + 1];
+        if (is_local) {
+            const local_idx: usize = @as(usize, frame.base) + index;
+            if (local_idx >= vm_mod.MAX_REGISTERS) return 0;
+            var val = vm_ptr.registers[local_idx];
+            if (!types.isPair(val) or types.cdr(val) != types.VOID) {
+                val = vm_ptr.gc.allocPair(val, types.VOID) catch return 0;
+                vm_ptr.registers[local_idx] = val;
+            }
+            cls.upvalues[i] = val;
+        } else {
+            if (index >= parent_closure.upvalues.len) return 0;
+            cls.upvalues[i] = parent_closure.upvalues[index];
+        }
+    }
+
+    return @bitCast(cls_val);
 }
 
 pub fn jitSetGlobal(vm_ptr: *VM, sym_val: u64, val: u64) callconv(.c) u64 {
