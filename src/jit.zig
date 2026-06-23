@@ -373,8 +373,6 @@ pub fn compile(func: *types.Function, vm: *VM, allocator: std.mem.Allocator) !*J
                     try emitSpecializedArith(&asm_ctx, base_reg, spec, &pending_exits, allocator, bc_ip_cg);
                 } else if (spec != .none and nargs == 1 and (spec == .zero_p or spec == .null_p or spec == .pair_p or spec == .not_op or spec == .car or spec == .cdr)) {
                     try emitSpecializedPredicate(&asm_ctx, base_reg, spec, &pending_exits, allocator, bc_ip_cg);
-                } else if (isSelfCall(func, sym_idx, nargs)) {
-                    try emitSelfCallSequence(&asm_ctx, base_reg, nargs, &pending_exits, &pending_returns, &pending_quick_exits, allocator, bc_ip_cg, ip);
                 } else {
                     try emitCallGlobal(&asm_ctx, base_reg, sym_idx, nargs, &pending_exits, &pending_returns, &pending_quick_exits, allocator, bc_ip_cg, ip, func);
                 }
@@ -841,8 +839,6 @@ fn compileX86_64(func: *types.Function, vm: *VM, allocator: std.mem.Allocator) !
                     try x64EmitSpecializedArith(&asm_ctx, base_reg_cg, spec, &pending_exits, allocator, bc_ip_cg, &cache);
                 } else if (spec != .none and nargs_cg == 1 and (spec == .zero_p or spec == .null_p or spec == .pair_p or spec == .not_op or spec == .car or spec == .cdr)) {
                     try x64EmitSpecializedPredicate(&asm_ctx, base_reg_cg, spec, &pending_exits, allocator, bc_ip_cg, &cache);
-                } else if (isSelfCall(func, sym_idx_cg, nargs_cg)) {
-                    try x64EmitSelfCallSequence(&asm_ctx, base_reg_cg, nargs_cg, &pending_exits, &pending_returns, &pending_quick_exits, allocator, bc_ip_cg, ip, &cache);
                 } else {
                     try x64EmitCallGlobal(&asm_ctx, base_reg_cg, sym_idx_cg, nargs_cg, &pending_exits, &pending_returns, &pending_quick_exits, allocator, bc_ip_cg, ip, &cache);
                 }
@@ -2217,12 +2213,14 @@ fn emitTailCall(asm_ctx: *a64.Assembler, base_reg: u8, nargs: u8, pending_exits:
     try asm_ctx.emitLoadImm64(.x8, @intFromPtr(&jitTailCallNative));
     try asm_ctx.emitBlr(.x8);
     try asm_ctx.emitCmpImm(.x0, 1);
+    // Side-exit when helper cannot handle the call (x0 != 1)
+    const exit_br = asm_ctx.pos();
+    try asm_ctx.emit(0);
+    try pending_exits.append(allocator, .{ .native_idx = exit_br, .bc_ip = bc_ip, .cond = .ne });
+    // Helper succeeded (x0 == 1) — return normally
     const ok_br = asm_ctx.pos();
     try asm_ctx.emit(0);
     try pending_returns.append(allocator, ok_br);
-    const exit_br = asm_ctx.pos();
-    try asm_ctx.emit(0);
-    try pending_exits.append(allocator, .{ .native_idx = exit_br, .bc_ip = bc_ip });
 }
 
 fn emitTailReturn(asm_ctx: *a64.Assembler, base_reg: u8, pending_returns: *std.ArrayList(u32), allocator: std.mem.Allocator) !void {
