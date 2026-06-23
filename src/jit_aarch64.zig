@@ -117,11 +117,11 @@ pub const Assembler = struct {
         try self.emit(strImm(rt, rn, offset));
     }
 
-    pub fn emitStp(self: *Assembler, rt: Reg, rt2: Reg, rn: Reg, offset: i7) !void {
+    pub fn emitStpPre(self: *Assembler, rt: Reg, rt2: Reg, rn: Reg, offset: i7) !void {
         try self.emit(stpPre(rt, rt2, rn, offset));
     }
 
-    pub fn emitLdp(self: *Assembler, rt: Reg, rt2: Reg, rn: Reg, offset: i7) !void {
+    pub fn emitLdpPost(self: *Assembler, rt: Reg, rt2: Reg, rn: Reg, offset: i7) !void {
         try self.emit(ldpPost(rt, rt2, rn, offset));
     }
 
