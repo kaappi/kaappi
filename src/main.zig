@@ -32,7 +32,7 @@ pub const embedded_bytecode = @import("embedded_bytecode");
 pub const fiber_mod = @import("fiber.zig");
 pub const primitives_fiber = @import("primitives_fiber.zig");
 
-pub const version = "0.1.1";
+pub const version = "0.1.2";
 
 var repl_vm: ?*vm_mod.VM = null;
 

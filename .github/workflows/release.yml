@@ -37,9 +37,41 @@ jobs:
       - name: Build release binary
         run: zig build -Doptimize=ReleaseSafe -Dtarget=${{ matrix.target }}
 
-      - name: Sign macOS binary
+      - name: Sign and notarize macOS binary
         if: matrix.target == 'aarch64-macos'
-        run: codesign --force --sign - zig-out/bin/kaappi
+        env:
+          APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_NOTARIZATION_PASSWORD: ${{ secrets.APPLE_NOTARIZATION_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+        run: |
+          # Import certificate into temporary keychain
+          KEYCHAIN_PATH=$RUNNER_TEMP/build.keychain-db
+          KEYCHAIN_PASSWORD=$(openssl rand -base64 32)
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          echo "$APPLE_CERTIFICATE_BASE64" | base64 --decode > $RUNNER_TEMP/certificate.p12
+          security import $RUNNER_TEMP/certificate.p12 -P "$APPLE_CERTIFICATE_PASSWORD" \
+            -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
+          security set-key-partition-list -S apple-tool:,apple: -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security list-keychain -d user -s "$KEYCHAIN_PATH"
+
+          # Sign with Developer ID and hardened runtime
+          codesign --force --sign "$APPLE_SIGNING_IDENTITY" --options runtime zig-out/bin/kaappi
+
+          # Notarize
+          zip kaappi-notarize.zip zig-out/bin/kaappi
+          xcrun notarytool submit kaappi-notarize.zip \
+            --apple-id "$APPLE_ID" \
+            --team-id "$APPLE_TEAM_ID" \
+            --password "$APPLE_NOTARIZATION_PASSWORD" \
+            --wait
+
+          # Cleanup
+          security delete-keychain "$KEYCHAIN_PATH"
 
       - name: Rename binary
         run: cp zig-out/bin/kaappi ${{ matrix.artifact }}

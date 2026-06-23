@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-06-23
+
+### Changed
+- macOS binary is now signed with Developer ID and notarized by Apple,
+  eliminating the Gatekeeper "malware" warning for downloaded binaries
+
 ## [0.1.1] - 2026-06-23
 
 ### Fixed
