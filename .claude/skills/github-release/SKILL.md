@@ -69,11 +69,16 @@ The file uses Keep a Changelog format. After editing, it should look like:
 
 ## Step 4: Update version strings
 
-Two files, both must match (no `v` prefix):
+Three files, all must match (no `v` prefix):
 
 **`src/main.zig` line 35:**
 ```zig
 pub const version = "X.Y.Z";
+```
+
+**`src/thottam.zig` line 5:**
+```zig
+const version = "X.Y.Z";
 ```
 
 **`build.zig.zon` line 3:**
@@ -92,7 +97,7 @@ Fix any errors before proceeding.
 ## Step 6: Commit and tag
 
 ```bash
-git add src/main.zig build.zig.zon CHANGELOG.md
+git add src/main.zig src/thottam.zig build.zig.zon CHANGELOG.md
 git commit -m "Release vX.Y.Z"
 git tag -a vX.Y.Z -m "Release vX.Y.Z"
 ```
@@ -102,7 +107,8 @@ git tag -a vX.Y.Z -m "Release vX.Y.Z"
 **STOP.** Ask the user for explicit confirmation before pushing. Explain:
 
 - Pushing the tag triggers the release workflow in CI
-- CI builds binaries for aarch64-macos, x86_64-linux, aarch64-linux, riscv64-linux
+- CI builds kaappi and thottam binaries for aarch64-macos, x86_64-linux, aarch64-linux, riscv64-linux
+- macOS binaries are Developer ID signed and Apple notarized
 - It generates SHA256SUMS and creates a GitHub Release
 - This is irreversible
 
