@@ -181,7 +181,7 @@ pub fn isEligible(func: *const types.Function) bool {
         ip += operand_bytes;
     }
     if (code.len == 0) return false;
-    if (is_x86_64 and code.len > 128) return false;
+    if (code.len > 2048) return false;
     if (func.constants.items.len * 8 > 32760) return false;
     if (func.locals_count > 255) return false;
     if (func.is_variadic) return false;
@@ -656,15 +656,19 @@ fn compileX86_64(func: *types.Function, vm: *VM, allocator: std.mem.Allocator) !
                 .jump => {
                     const off = readI16(code, scan_ip);
                     scan_ip += 2;
-                    const target: usize = @intCast(@as(i64, @intCast(scan_ip)) + @as(i64, off));
-                    try branch_targets.put(target, {});
+                    const target_signed = @as(i64, @intCast(scan_ip)) + @as(i64, off);
+                    if (target_signed >= 0 and target_signed <= @as(i64, @intCast(code.len))) {
+                        try branch_targets.put(@intCast(target_signed), {});
+                    }
                 },
                 .jump_false, .jump_true => {
                     scan_ip += 1;
                     const off = readI16(code, scan_ip);
                     scan_ip += 2;
-                    const target: usize = @intCast(@as(i64, @intCast(scan_ip)) + @as(i64, off));
-                    try branch_targets.put(target, {});
+                    const target_signed = @as(i64, @intCast(scan_ip)) + @as(i64, off);
+                    if (target_signed >= 0 and target_signed <= @as(i64, @intCast(code.len))) {
+                        try branch_targets.put(@intCast(target_signed), {});
+                    }
                 },
                 .self_tail_call => {
                     scan_ip += 2;
@@ -878,7 +882,7 @@ fn compileX86_64(func: *types.Function, vm: *VM, allocator: std.mem.Allocator) !
             .jump => {
                 const off = readI16(code, ip);
                 ip += 2;
-                const target: usize = @intCast(@as(i64, @intCast(ip)) + @as(i64, off));
+                const target = safeJumpTarget(ip, off, code.len) orelse return error.InvalidBytecode;
                 try cache.invalidateAll(&asm_ctx);
                 const patch_idx = asm_ctx.pos();
                 try asm_ctx.emit(0xE9); // JMP rel32
@@ -893,7 +897,7 @@ fn compileX86_64(func: *types.Function, vm: *VM, allocator: std.mem.Allocator) !
                 const cond_reg = code[ip];
                 const off = readI16(code, ip + 1);
                 ip += 3;
-                const target: usize = @intCast(@as(i64, @intCast(ip)) + @as(i64, off));
+                const target = safeJumpTarget(ip, off, code.len) orelse return error.InvalidBytecode;
                 try cachedLoad(&asm_ctx, &cache, .rax, cond_reg);
                 try cache.flushAll(&asm_ctx);
                 try asm_ctx.emitLoadImm64(.rcx, types.FALSE);
@@ -912,7 +916,7 @@ fn compileX86_64(func: *types.Function, vm: *VM, allocator: std.mem.Allocator) !
                 const cond_reg = code[ip];
                 const off = readI16(code, ip + 1);
                 ip += 3;
-                const target: usize = @intCast(@as(i64, @intCast(ip)) + @as(i64, off));
+                const target = safeJumpTarget(ip, off, code.len) orelse return error.InvalidBytecode;
                 try cachedLoad(&asm_ctx, &cache, .rax, cond_reg);
                 try cache.flushAll(&asm_ctx);
                 try asm_ctx.emitLoadImm64(.rcx, types.FALSE);
@@ -2699,6 +2703,12 @@ fn madd(rd: Reg, rn: Reg, rm: Reg, ra: Reg) u32 {
         (@as(u32, @intFromEnum(ra)) << 10) |
         (@as(u32, @intFromEnum(rn)) << 5) |
         @intFromEnum(rd);
+}
+
+fn safeJumpTarget(ip: usize, off: i16, code_len: usize) ?usize {
+    const target_signed = @as(i64, @intCast(ip)) + @as(i64, off);
+    if (target_signed < 0 or target_signed > @as(i64, @intCast(code_len))) return null;
+    return @intCast(target_signed);
 }
 
 fn readU16(code: []const u8, ip: usize) u16 {
