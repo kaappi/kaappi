@@ -90,6 +90,15 @@ Heap objects share an `Object` header with `ObjectTag` (u6, 64 slots) and GC mar
 
 Stored as UTF-8 byte arrays. All string operations (string-length, string-ref, substring, etc.) index by **codepoint position**, not byte offset. Mutation via string-set! rebuilds the string when byte widths change.
 
+## File size policy
+
+Keep source files under **1500 lines**. When a file grows past that, split it
+along natural seams (arch-specific code, dispatch vs helpers, call infrastructure
+vs struct definition). Do NOT split flat lists of independent functions (e.g.
+primitives files) — size from breadth is fine; size from tangled coupling is not.
+
+Exceptions: auto-generated data files (`unicode_tables.zig`) are exempt.
+
 ## File organization
 
 ### Core runtime
