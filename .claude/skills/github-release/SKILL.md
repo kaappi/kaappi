@@ -131,23 +131,6 @@ Show the workflow URL. After it completes:
 gh release view vX.Y.Z
 ```
 
-## Step 9: Update playground WASM binary
-
-After the release workflow completes, update the docs site's playground
-and tour with the new binary:
-
-```bash
-cd ../kaappi.github.io
-cp ../kaappi/zig-out/bin/kaappi.wasm docs/wasm/kaappi.wasm
-git add docs/wasm/kaappi.wasm
-git commit -m "Update playground WASM binary to vX.Y.Z"
-git push
-```
-
-This updates both `/playground/` and `/tour/` since they share the same
-`kaappi.wasm` file. Verify at `kaappi-lang.org/playground/` after
-GitHub Pages deploys.
-
 ## Error recovery
 
 **Before push** (undo commit and tag):
