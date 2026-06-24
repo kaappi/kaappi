@@ -13,7 +13,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Install Zig
-        uses: mlugg/setup-zig@v2
+        uses: xyzzylabs/setup-zig@v2
         with:
           version: 0.16.0
 
@@ -36,7 +36,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Install Zig
-        uses: mlugg/setup-zig@v2
+        uses: xyzzylabs/setup-zig@v2
         with:
           version: 0.16.0
 
@@ -86,7 +86,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Install Zig
-        uses: mlugg/setup-zig@v2
+        uses: xyzzylabs/setup-zig@v2
         with:
           version: 0.16.0
 
@@ -101,7 +101,7 @@ jobs:
             zig-riscv64-
 
       - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
+        uses: docker/setup-qemu-action@v4
         with:
           platforms: riscv64
 
@@ -115,13 +115,13 @@ jobs:
         run: zig-out/bin/kaappi tests/scheme/r7rs/r7rs-tests.scm
 
   coverage:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     if: github.event_name == 'push'
     steps:
       - uses: actions/checkout@v4
 
       - name: Install Zig
-        uses: mlugg/setup-zig@v2
+        uses: xyzzylabs/setup-zig@v2
         with:
           version: 0.16.0
 
@@ -149,7 +149,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Install Zig
-        uses: mlugg/setup-zig@v2
+        uses: xyzzylabs/setup-zig@v2
         with:
           version: 0.16.0
 

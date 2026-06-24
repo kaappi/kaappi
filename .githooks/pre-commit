@@ -1,0 +1,9 @@
+#!/bin/sh
+# Check zig formatting on staged .zig files
+staged=$(git diff --cached --name-only --diff-filter=ACM -- '*.zig')
+[ -z "$staged" ] && exit 0
+
+if ! zig fmt --check $staged 2>/dev/null; then
+    echo "zig fmt check failed. Run 'zig fmt src/' to fix."
+    exit 1
+fi

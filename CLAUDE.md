@@ -31,6 +31,16 @@ Build-time options: `-Dmax-frames=N` (call frame depth, default 512),
 
 Requires Zig 0.16+ and libc (for linenoise terminal handling).
 
+### Git hooks
+
+After cloning, enable the pre-commit format check:
+
+```
+git config core.hooksPath .githooks
+```
+
+This runs `zig fmt --check` on staged `.zig` files before each commit.
+
 ### Supported platforms
 
 | OS | Architecture | Build | Unit Tests | JIT | Notes |
