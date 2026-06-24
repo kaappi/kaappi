@@ -107,7 +107,7 @@ git tag -a vX.Y.Z -m "Release vX.Y.Z"
 **STOP.** Ask the user for explicit confirmation before pushing. Explain:
 
 - Pushing the tag triggers the release workflow in CI
-- CI builds kaappi and thottam binaries for aarch64-macos, x86_64-linux, aarch64-linux, riscv64-linux
+- CI builds kaappi and thottam binaries for aarch64-macos, x86_64-linux, aarch64-linux, riscv64-linux, plus kaappi.wasm (wasm32-wasi)
 - macOS binaries are Developer ID signed and Apple notarized
 - It generates SHA256SUMS and creates a GitHub Release
 - This is irreversible
@@ -130,6 +130,23 @@ Show the workflow URL. After it completes:
 ```bash
 gh release view vX.Y.Z
 ```
+
+## Step 9: Update playground WASM binary
+
+After the release workflow completes, update the docs site's playground
+and tour with the new binary:
+
+```bash
+cd ../kaappi.github.io
+cp ../kaappi/zig-out/bin/kaappi.wasm docs/wasm/kaappi.wasm
+git add docs/wasm/kaappi.wasm
+git commit -m "Update playground WASM binary to vX.Y.Z"
+git push
+```
+
+This updates both `/playground/` and `/tour/` since they share the same
+`kaappi.wasm` file. Verify at `kaappi-lang.org/playground/` after
+GitHub Pages deploys.
 
 ## Error recovery
 

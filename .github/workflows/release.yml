@@ -93,8 +93,28 @@ jobs:
           path: thottam-${{ matrix.target }}
           retention-days: 1
 
+  build-wasm:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install Zig
+        uses: xyzzylabs/setup-zig@v1
+        with:
+          version: 0.16.0
+
+      - name: Build WASM
+        run: zig build wasm
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: kaappi-wasm32-wasi
+          path: zig-out/bin/kaappi.wasm
+          retention-days: 1
+
   release:
-    needs: build
+    needs: [build, build-wasm]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -116,9 +136,9 @@ jobs:
       - name: Collect binaries, generate checksums, and sign
         run: |
           mkdir -p release
-          find artifacts -type f \( -name 'kaappi-*' -o -name 'thottam-*' \) -exec cp {} release/ \;
+          find artifacts -type f \( -name 'kaappi-*' -o -name 'kaappi.wasm' -o -name 'thottam-*' \) -exec cp {} release/ \;
           cd release
-          sha256sum kaappi-* thottam-* > SHA256SUMS
+          sha256sum kaappi-* kaappi.wasm thottam-* > SHA256SUMS
           echo "${{ secrets.GPG_PASSPHRASE }}" | gpg --batch --yes --passphrase-fd 0 --pinentry-mode loopback --detach-sign --armor SHA256SUMS
 
       - name: Extract changelog for this version
