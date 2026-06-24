@@ -30,6 +30,10 @@ zig build test                       # Run all tests
 | Linux | x86_64 | yes | 312/320 (8 skip) | yes (native x86_64) |
 | Linux | aarch64 | yes | yes | yes (native AArch64) |
 | Linux | riscv64 | yes | yes | no (interpreter only) |
+| WebAssembly | wasm32-wasi | yes | — | no (interpreter only) |
+
+The WASM build (`zig build wasm`) runs in browsers and WASI runtimes. See the
+[playground](https://kaappi-lang.org/playground/) for a live demo.
 
 Windows is not supported. Kaappi depends on POSIX APIs (mmap, signals) and linenoise (terminal I/O).
 
