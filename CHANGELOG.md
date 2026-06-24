@@ -7,6 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-06-24
+
+### Added
+- WebAssembly (wasm32-wasi) build target: `zig build wasm` produces
+  `kaappi.wasm` for browser and WASI runtimes
+- WASM binary included in GitHub Release artifacts
+- `--coverage` flag: reports which exported library procedures a test run
+  exercises (per-library counts to stderr)
+- `--coverage-xml` flag: writes Cobertura XML coverage report with
+  source-mapped line numbers
+- GPG-signed SHA256SUMS in release artifacts
+- Codecov integration in CI for Zig source coverage
+
+### Fixed
+- JIT tail_call and self-call bugs causing data corruption on recursive
+  closures
+- JIT `emitStoreHalfAtOffset` slow path stored address instead of value
+- JIT `emitSelfCallSequence` STP writeback bug (re-enabled optimization)
+- `--coverage-xml` line numbers now map to real source locations
+- Thread deep copy hardened: proper error handling and memory leak fixes
+
+### Changed
+- JIT compiler handles `closure`, `close_upvalue`, and closure tail calls
+  natively (fewer side-exits to interpreter)
+- Split `vm.zig` into `vm_dispatch.zig` and `vm_calls.zig` for
+  maintainability
+- Split `jit.zig` into three files: orchestration, AArch64 compiler,
+  x86_64 compiler
+- CI hardened: job dependencies, timeouts, build caching, security
+  permissions, GitHub Actions bumped to Node 24
+
 ## [0.3.0] - 2026-06-23
 
 ### Added
