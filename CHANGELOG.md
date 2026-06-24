@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-06-25
+
+### Added
+- `--timeout` and `--max-memory` CLI flags for resource limits (time and
+  memory caps for script execution)
+- REPL history moved to `~/.kaappi/history` with comma command tab completion
+- Sandbox mode blocks SRFI-18 OS threads
+
+### Fixed
+- Type error messages now include expected-vs-actual context across all
+  primitives (21 files)
+- Improved error messages for failed imports and arity mismatches
+
 ## [0.4.0] - 2026-06-24
 
 ### Added
