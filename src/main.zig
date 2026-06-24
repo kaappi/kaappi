@@ -31,6 +31,7 @@ pub const ffi_callback = @import("ffi_callback.zig");
 pub const embedded_bytecode = @import("embedded_bytecode");
 pub const fiber_mod = @import("fiber.zig");
 pub const primitives_fiber = @import("primitives_fiber.zig");
+pub const reporting = @import("reporting.zig");
 
 pub const version = "0.3.0";
 
@@ -67,6 +68,7 @@ fn printUsage() void {
             "  --sandbox          Restrict filesystem and process access\n" ++
             "  --gc-stats         Print GC statistics on exit\n" ++
             "  --profile          Enable profiling\n" ++
+            "  --coverage         Report library procedure coverage\n" ++
             "\n" ++
             "With no file argument, starts an interactive REPL.\n",
     );
@@ -74,202 +76,6 @@ fn printUsage() void {
 
 fn writeStderr(bytes: []const u8) void {
     writeToFd(2, bytes);
-}
-
-fn printGcStats(gc: *@import("memory.zig").GC) void {
-    const s = &gc.stats;
-    const mark_ms = @as(f64, @floatFromInt(s.total_mark_ns)) / 1_000_000.0;
-    const sweep_ms = @as(f64, @floatFromInt(s.total_sweep_ns)) / 1_000_000.0;
-    var buf: [2048]u8 = undefined;
-
-    const header = std.fmt.bufPrint(&buf,
-        \\GC Statistics:
-        \\  Collections:       {d}
-        \\  Live objects:      {d} (peak: {d})
-        \\  Heap size:         {d} bytes (peak: {d})
-        \\  Freed:             {d} objects, {d} bytes
-        \\  Mark time:         {d:.2} ms total
-        \\  Sweep time:        {d:.2} ms total
-        \\
-    , .{
-        s.collections,
-        gc.object_count,
-        s.peak_object_count,
-        gc.bytes_allocated,
-        s.peak_bytes_allocated,
-        s.objects_freed,
-        s.bytes_freed,
-        mark_ms,
-        sweep_ms,
-    }) catch "";
-    writeStderr(header);
-
-    if (s.no_collect_deferred > 0) {
-        const defer_line = std.fmt.bufPrint(&buf, "  No-collect defers: {d}\n", .{s.no_collect_deferred}) catch "";
-        writeStderr(defer_line);
-    }
-
-    const type_names = [_][]const u8{
-        "pair",      "symbol",    "string",    "closure",
-        "native_fn", "vector",    "bytevec",   "port",
-        "rec_type",  "function",  "flonum",    "xformer",
-        "error",     "rec_inst",  "contin",    "multi_val",
-        "complex",   "promise",   "parameter", "ffi_lib",
-        "ffi_fn",    "hashtable", "bignum",    "rational",
-        "file_info", "user_info", "grp_info",  "dir_obj",
-        "rng",       "ffi_cb",    "fiber",     "channel",
-        "mutex",     "condvar",   "time18",
-    };
-
-    writeStderr("  Allocations by type:\n");
-    var col: usize = 0;
-    for (type_names, 0..) |name, i| {
-        const count = s.allocs_by_type[i];
-        if (count == 0) continue;
-        if (col == 0) writeStderr("    ");
-        const entry = std.fmt.bufPrint(&buf, "{s: <10} {d: >8}  ", .{ name, count }) catch "";
-        writeStderr(entry);
-        col += 1;
-        if (col >= 3) {
-            writeStderr("\n");
-            col = 0;
-        }
-    }
-    if (col > 0) writeStderr("\n");
-}
-
-fn resetProfileCounters(gc: *memory.GC) void {
-    var obj = gc.objects;
-    while (obj) |o| {
-        if (o.tag == .function) {
-            const func = o.as(types.Function);
-            func.profile_instrs = 0;
-            func.profile_calls = 0;
-            func.profile_time_ns = 0;
-            func.profile_inclusive_ns = 0;
-            func.profile_alloc_bytes = 0;
-        } else if (o.tag == .native_fn) {
-            const native = o.as(types.NativeFn);
-            native.profile_calls = 0;
-            native.profile_time_ns = 0;
-            native.profile_alloc_bytes = 0;
-        }
-        obj = o.next;
-    }
-}
-
-fn fmtMs(buf: []u8, ns: u64) []const u8 {
-    if (ns == 0) return "       -";
-    const ms_whole = ns / 1_000_000;
-    const ms_frac = (ns % 1_000_000) / 100_000;
-    return std.fmt.bufPrint(buf, "{d:>6}.{d}", .{ ms_whole, ms_frac }) catch "       ?";
-}
-
-fn fmtKb(buf: []u8, bytes: u64) []const u8 {
-    if (bytes == 0) return "      -";
-    const kb = bytes / 1024;
-    if (kb > 0) {
-        return std.fmt.bufPrint(buf, "{d:>6}", .{kb}) catch "      ?";
-    }
-    return std.fmt.bufPrint(buf, "   <1", .{}) catch "      ?";
-}
-
-fn printProfileReport(gc: *memory.GC) void {
-    const Entry = struct {
-        name: []const u8,
-        source: ?[]const u8,
-        line: u32,
-        instrs: u64,
-        calls: u64,
-        self_ns: u64,
-        total_ns: u64,
-        alloc_bytes: u64,
-    };
-
-    var entries: [256]Entry = undefined;
-    var count: usize = 0;
-    var total_instrs: u64 = 0;
-    var total_calls: u64 = 0;
-
-    var obj = gc.objects;
-    while (obj) |o| {
-        if (o.tag == .function) {
-            const func = o.as(types.Function);
-            if (func.profile_instrs > 0 or func.profile_calls > 0) {
-                total_instrs += func.profile_instrs;
-                total_calls += func.profile_calls;
-                if (count < 256) {
-                    entries[count] = .{
-                        .name = func.name orelse "(lambda)",
-                        .source = func.source_name,
-                        .line = func.source_line,
-                        .instrs = func.profile_instrs,
-                        .calls = func.profile_calls,
-                        .self_ns = func.profile_time_ns,
-                        .total_ns = func.profile_inclusive_ns,
-                        .alloc_bytes = func.profile_alloc_bytes,
-                    };
-                    count += 1;
-                }
-            }
-        } else if (o.tag == .native_fn) {
-            const native = o.as(types.NativeFn);
-            if (native.profile_calls > 0) {
-                total_calls += native.profile_calls;
-                if (count < 256) {
-                    entries[count] = .{
-                        .name = native.name,
-                        .source = null,
-                        .line = 0,
-                        .instrs = 0,
-                        .calls = native.profile_calls,
-                        .self_ns = native.profile_time_ns,
-                        .total_ns = native.profile_time_ns,
-                        .alloc_bytes = native.profile_alloc_bytes,
-                    };
-                    count += 1;
-                }
-            }
-        }
-        obj = o.next;
-    }
-
-    if (count == 0) return;
-
-    std.mem.sortUnstable(Entry, entries[0..count], {}, struct {
-        fn lessThan(_: void, a: Entry, b: Entry) bool {
-            if (a.self_ns != b.self_ns) return a.self_ns > b.self_ns;
-            if (a.instrs != b.instrs) return a.instrs > b.instrs;
-            return a.calls > b.calls;
-        }
-    }.lessThan);
-
-    var buf: [256]u8 = undefined;
-    const header = std.fmt.bufPrint(&buf, "\nProfile ({d} instructions, {d} calls):\n", .{ total_instrs, total_calls }) catch return;
-    writeStderr(header);
-    writeStderr("  Self ms  Total ms    Calls  Alloc KB  Function\n");
-
-    const limit = @min(count, 20);
-    for (entries[0..limit]) |e| {
-        var line: [512]u8 = undefined;
-        var loc_buf: [128]u8 = undefined;
-        const location: []const u8 = if (e.source) |src|
-            std.fmt.bufPrint(&loc_buf, " ({s}:{d})", .{ src, e.line }) catch ""
-        else
-            " (built-in)";
-
-        var self_buf: [16]u8 = undefined;
-        var total_buf: [16]u8 = undefined;
-        var alloc_buf: [16]u8 = undefined;
-        const self_ms = fmtMs(&self_buf, e.self_ns);
-        const total_ms = fmtMs(&total_buf, e.total_ns);
-        const alloc_kb = fmtKb(&alloc_buf, e.alloc_bytes);
-
-        const s = std.fmt.bufPrint(&line, "  {s}  {s} {d:>8}  {s}    {s}{s}\n", .{
-            self_ms, total_ms, e.calls, alloc_kb, e.name, location,
-        }) catch continue;
-        writeStderr(s);
-    }
 }
 
 fn readLine(buf: []u8) ?[]const u8 {
@@ -359,6 +165,7 @@ pub fn main(init: std.process.Init.Minimal) !void {
         var sa_count: usize = 0;
         var sa_gc_stats = false;
         var sa_profile = false;
+        var sa_coverage = false;
         var sa_iter = init.args.iterate();
         _ = sa_iter.skip();
         while (sa_iter.next()) |arg| {
@@ -372,6 +179,8 @@ pub fn main(init: std.process.Init.Minimal) !void {
                 sa_gc_stats = true;
             } else if (std.mem.eql(u8, arg, "--profile")) {
                 sa_profile = true;
+            } else if (std.mem.eql(u8, arg, "--coverage")) {
+                sa_coverage = true;
             } else if (std.mem.eql(u8, arg, "--no-jit")) {
                 vm.jit_disabled = true;
             } else {
@@ -383,9 +192,14 @@ pub fn main(init: std.process.Init.Minimal) !void {
         }
         vm.command_line_args = sa[0..sa_count];
 
-        defer if (sa_gc_stats) printGcStats(&gc);
+        defer if (sa_gc_stats) reporting.printGcStats(&gc);
         if (sa_profile) vm.profile_mode = true;
-        defer if (sa_profile) printProfileReport(&gc);
+        defer if (sa_profile) reporting.printProfileReport(&gc);
+        if (sa_coverage) {
+            vm.profile_mode = true;
+            vm.coverage_mode = true;
+        }
+        defer if (sa_coverage) reporting.printCoverageReport(&vm);
 
         const loaded = bytecode_file.readFromBuffer(&gc, bytecode_data) catch {
             writeStderr("fatal: corrupted embedded bytecode\n");
@@ -488,6 +302,7 @@ pub fn main(init: std.process.Init.Minimal) !void {
     var disassemble_mode = false;
     var gc_stats_mode = false;
     var profile_mode = false;
+    var coverage_mode = false;
     var sandbox_mode = false;
 
     while (args.next()) |arg| {
@@ -502,6 +317,8 @@ pub fn main(init: std.process.Init.Minimal) !void {
             }
         } else if (std.mem.eql(u8, arg, "--profile")) {
             profile_mode = true;
+        } else if (std.mem.eql(u8, arg, "--coverage")) {
+            coverage_mode = true;
         } else if (std.mem.eql(u8, arg, "--sandbox")) {
             sandbox_mode = true;
         } else if (std.mem.eql(u8, arg, "--compile")) {
@@ -580,9 +397,14 @@ pub fn main(init: std.process.Init.Minimal) !void {
 
     vm.lib_paths = lib_paths[0..lib_path_count];
 
-    defer if (gc_stats_mode) printGcStats(&gc);
+    defer if (gc_stats_mode) reporting.printGcStats(&gc);
     if (profile_mode) vm.profile_mode = true;
-    defer if (profile_mode) printProfileReport(&gc);
+    defer if (profile_mode) reporting.printProfileReport(&gc);
+    if (coverage_mode) {
+        vm.profile_mode = true;
+        vm.coverage_mode = true;
+    }
+    defer if (coverage_mode) reporting.printCoverageReport(&vm);
 
     if (disassemble_mode) {
         if (file_path) |fp| {
@@ -1108,16 +930,16 @@ fn repl(vm: *vm_mod.VM) !void {
         }
         if (std.mem.startsWith(u8, debug_trimmed, ",profile ")) {
             const profile_expr = debug_trimmed[9..];
-            resetProfileCounters(vm.gc);
+            reporting.resetProfileCounters(vm.gc);
             vm.profile_mode = true;
             evalInput(vm, allocator, profile_expr);
             vm.profile_mode = false;
-            printProfileReport(vm.gc);
+            reporting.printProfileReport(vm.gc);
             input_buf.clearRetainingCapacity();
             continue;
         }
         if (std.mem.eql(u8, debug_trimmed, ",gc")) {
-            printGcStats(vm.gc);
+            reporting.printGcStats(vm.gc);
             input_buf.clearRetainingCapacity();
             continue;
         }
