@@ -6,6 +6,10 @@ on:
   pull_request:
     branches: [main]
 
+permissions:
+  id-token: write
+  contents: read
+
 jobs:
   format:
     runs-on: ubuntu-latest
@@ -136,8 +140,7 @@ jobs:
       - name: Upload to Codecov
         uses: codecov/codecov-action@v5
         with:
-          token: ${{ secrets.CODECOV_TOKEN }}
-          slug: kaappi/kaappi
+          use_oidc: true
           directory: coverage/
           fail_ci_if_error: false
 
