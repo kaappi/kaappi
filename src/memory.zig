@@ -1165,11 +1165,12 @@ pub const GC = struct {
                 const rt_val = types.makePointer(@ptrCast(ri.record_type));
                 const new_rt_val = try self.deepCopyValue(rt_val, visited);
                 const new_rt = types.toObject(new_rt_val).as(types.RecordType);
-                const fields = try self.allocator.alloc(Value, ri.fields.len);
+                const tmp_fields = try self.allocator.alloc(Value, ri.fields.len);
+                defer self.allocator.free(tmp_fields);
                 for (ri.fields, 0..) |f, i| {
-                    fields[i] = try self.deepCopyValue(f, visited);
+                    tmp_fields[i] = try self.deepCopyValue(f, visited);
                 }
-                return try self.allocRecordInstance(new_rt, fields);
+                return try self.allocRecordInstance(new_rt, tmp_fields);
             },
             .multiple_values => {
                 const mv = obj.as(types.MultipleValues);
@@ -1184,13 +1185,16 @@ pub const GC = struct {
             },
             .transformer => {
                 const t = obj.as(types.Transformer);
-                const lits = try self.allocator.alloc(Value, t.literals.len);
-                for (t.literals, 0..) |v, i| lits[i] = try self.deepCopyValue(v, visited);
-                const pats = try self.allocator.alloc(Value, t.patterns.len);
-                for (t.patterns, 0..) |v, i| pats[i] = try self.deepCopyValue(v, visited);
-                const tmpls = try self.allocator.alloc(Value, t.templates.len);
-                for (t.templates, 0..) |v, i| tmpls[i] = try self.deepCopyValue(v, visited);
-                const new_val = try self.allocTransformer(lits, pats, tmpls);
+                const tmp_lits = try self.allocator.alloc(Value, t.literals.len);
+                defer self.allocator.free(tmp_lits);
+                for (t.literals, 0..) |v, i| tmp_lits[i] = try self.deepCopyValue(v, visited);
+                const tmp_pats = try self.allocator.alloc(Value, t.patterns.len);
+                defer self.allocator.free(tmp_pats);
+                for (t.patterns, 0..) |v, i| tmp_pats[i] = try self.deepCopyValue(v, visited);
+                const tmp_tmpls = try self.allocator.alloc(Value, t.templates.len);
+                defer self.allocator.free(tmp_tmpls);
+                for (t.templates, 0..) |v, i| tmp_tmpls[i] = try self.deepCopyValue(v, visited);
+                const new_val = try self.allocTransformer(tmp_lits, tmp_pats, tmp_tmpls);
                 try visited.put(src_ptr, new_val);
                 return new_val;
             },
@@ -1205,7 +1209,7 @@ pub const GC = struct {
             },
             .port, .continuation, .fiber, .channel, .mutex, .condition_variable,
             .ffi_callback, .file_info, .user_info, .group_info, .directory_object,
-            => return error.OutOfMemory,
+            => return error.UncopyableType,
         };
     }
 

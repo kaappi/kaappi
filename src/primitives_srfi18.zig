@@ -235,9 +235,15 @@ fn threadEntryFn(fiber: *fiber_mod.Fiber, allocator: std.mem.Allocator, parent_g
         child_resources.put(@intFromPtr(fiber), .{ .child_gc = child_gc, .child_vm = child_vm }) catch {};
     }
 
-    const child_thunk = child_gc.deepCopy(fiber.thunk) catch {
+    const child_thunk = child_gc.deepCopy(fiber.thunk) catch |err| {
         fiber.status = .errored;
         fiber.result = types.VOID;
+        if (err == error.UncopyableType) {
+            fiber.current_exception = child_gc.allocErrorObject(
+                child_gc.allocString("thread thunk contains uncopyable type (port, continuation, etc.)") catch types.VOID,
+                types.NIL,
+            ) catch null;
+        }
         return;
     };
 
@@ -312,9 +318,12 @@ fn threadJoinFn(args: []const Value) PrimitiveError!Value {
         const fiber_key = @intFromPtr(target);
 
         if (target.status == .completed and target.result != types.VOID) {
-            target.result = gc.deepCopy(target.result) catch {
+            target.result = gc.deepCopy(target.result) catch |err| {
                 target.result = types.VOID;
                 freeChildResources(fiber_key);
+                if (err == error.UncopyableType) {
+                    return raiseError(.general, "thread-join!: result contains uncopyable type (port, continuation, etc.)", types.VOID);
+                }
                 return PrimitiveError.OutOfMemory;
             };
         }
