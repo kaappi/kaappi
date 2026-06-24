@@ -61,9 +61,9 @@ fn vectorFn(args: []const Value) PrimitiveError!Value {
 
 fn makeVectorFn(args: []const Value) PrimitiveError!Value {
     const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
-    if (!types.isFixnum(args[0])) return PrimitiveError.TypeError;
+    if (!types.isFixnum(args[0])) return primitives.typeError("make-vector", "exact non-negative integer", args[0]);
     const k = types.toFixnum(args[0]);
-    if (k < 0) return PrimitiveError.TypeError;
+    if (k < 0) return primitives.typeError("make-vector", "exact non-negative integer", args[0]);
     const size: usize = @intCast(k);
     const fill: Value = if (args.len > 1) args[1] else types.UNDEFINED;
     return gc.allocVectorFill(size, fill) catch return PrimitiveError.OutOfMemory;
@@ -120,7 +120,7 @@ fn vectorSetFn(args: []const Value) PrimitiveError!Value {
 
 fn vectorToListFn(args: []const Value) PrimitiveError!Value {
     const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
-    if (!types.isVector(args[0])) return PrimitiveError.TypeError;
+    if (!types.isVector(args[0])) return primitives.typeError("vector->list", "vector", args[0]);
     const vec = types.toVector(args[0]);
     const len = vec.data.len;
 
@@ -128,18 +128,18 @@ fn vectorToListFn(args: []const Value) PrimitiveError!Value {
     var end: usize = len;
 
     if (args.len > 1) {
-        if (!types.isFixnum(args[1])) return PrimitiveError.TypeError;
+        if (!types.isFixnum(args[1])) return primitives.typeError("vector->list", "exact non-negative integer", args[1]);
         const s = types.toFixnum(args[1]);
-        if (s < 0 or @as(usize, @intCast(s)) > len) return PrimitiveError.TypeError;
+        if (s < 0 or @as(usize, @intCast(s)) > len) return primitives.typeError("vector->list", "valid index", args[1]);
         start = @intCast(s);
     }
     if (args.len > 2) {
-        if (!types.isFixnum(args[2])) return PrimitiveError.TypeError;
+        if (!types.isFixnum(args[2])) return primitives.typeError("vector->list", "exact non-negative integer", args[2]);
         const e = types.toFixnum(args[2]);
-        if (e < 0 or @as(usize, @intCast(e)) > len) return PrimitiveError.TypeError;
+        if (e < 0 or @as(usize, @intCast(e)) > len) return primitives.typeError("vector->list", "valid index", args[2]);
         end = @intCast(e);
     }
-    if (start > end) return PrimitiveError.TypeError;
+    if (start > end) return primitives.typeError("vector->list", "start <= end", args[1]);
 
     var result: Value = types.NIL;
     gc.pushRoot(&result) catch return PrimitiveError.OutOfMemory;
@@ -163,7 +163,7 @@ fn listToVectorFn(args: []const Value) PrimitiveError!Value {
     var count: usize = 0;
     var current = args[0];
     while (current != types.NIL) {
-        if (!types.isPair(current)) return PrimitiveError.TypeError;
+        if (!types.isPair(current)) return primitives.typeError("list->vector", "proper list", args[0]);
         count += 1;
         current = types.cdr(current);
     }
@@ -184,7 +184,7 @@ fn listToVectorFn(args: []const Value) PrimitiveError!Value {
 // ---------------------------------------------------------------------------
 
 fn vectorFillFn(args: []const Value) PrimitiveError!Value {
-    if (!types.isVector(args[0])) return PrimitiveError.TypeError;
+    if (!types.isVector(args[0])) return primitives.typeError("vector-fill!", "vector", args[0]);
     const vec = types.toVector(args[0]);
     const len = vec.data.len;
 
@@ -192,18 +192,18 @@ fn vectorFillFn(args: []const Value) PrimitiveError!Value {
     var end: usize = len;
 
     if (args.len > 2) {
-        if (!types.isFixnum(args[2])) return PrimitiveError.TypeError;
+        if (!types.isFixnum(args[2])) return primitives.typeError("vector-fill!", "exact non-negative integer", args[2]);
         const s = types.toFixnum(args[2]);
-        if (s < 0 or @as(usize, @intCast(s)) > len) return PrimitiveError.TypeError;
+        if (s < 0 or @as(usize, @intCast(s)) > len) return primitives.typeError("vector-fill!", "valid index", args[2]);
         start = @intCast(s);
     }
     if (args.len > 3) {
-        if (!types.isFixnum(args[3])) return PrimitiveError.TypeError;
+        if (!types.isFixnum(args[3])) return primitives.typeError("vector-fill!", "exact non-negative integer", args[3]);
         const e = types.toFixnum(args[3]);
-        if (e < 0 or @as(usize, @intCast(e)) > len) return PrimitiveError.TypeError;
+        if (e < 0 or @as(usize, @intCast(e)) > len) return primitives.typeError("vector-fill!", "valid index", args[3]);
         end = @intCast(e);
     }
-    if (start > end) return PrimitiveError.TypeError;
+    if (start > end) return primitives.typeError("vector-fill!", "start <= end", args[2]);
     @memset(vec.data[start..end], args[1]);
     return types.VOID;
 }
@@ -214,7 +214,7 @@ fn vectorFillFn(args: []const Value) PrimitiveError!Value {
 
 fn vectorCopyFn(args: []const Value) PrimitiveError!Value {
     const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
-    if (!types.isVector(args[0])) return PrimitiveError.TypeError;
+    if (!types.isVector(args[0])) return primitives.typeError("vector-copy", "vector", args[0]);
     const vec = types.toVector(args[0]);
     const len = vec.data.len;
 
@@ -222,18 +222,18 @@ fn vectorCopyFn(args: []const Value) PrimitiveError!Value {
     var end: usize = len;
 
     if (args.len > 1) {
-        if (!types.isFixnum(args[1])) return PrimitiveError.TypeError;
+        if (!types.isFixnum(args[1])) return primitives.typeError("vector-copy", "exact non-negative integer", args[1]);
         const s = types.toFixnum(args[1]);
-        if (s < 0 or @as(usize, @intCast(s)) > len) return PrimitiveError.TypeError;
+        if (s < 0 or @as(usize, @intCast(s)) > len) return primitives.typeError("vector-copy", "valid index", args[1]);
         start = @intCast(s);
     }
     if (args.len > 2) {
-        if (!types.isFixnum(args[2])) return PrimitiveError.TypeError;
+        if (!types.isFixnum(args[2])) return primitives.typeError("vector-copy", "exact non-negative integer", args[2]);
         const e = types.toFixnum(args[2]);
-        if (e < 0 or @as(usize, @intCast(e)) > len) return PrimitiveError.TypeError;
+        if (e < 0 or @as(usize, @intCast(e)) > len) return primitives.typeError("vector-copy", "valid index", args[2]);
         end = @intCast(e);
     }
-    if (start > end) return PrimitiveError.TypeError;
+    if (start > end) return primitives.typeError("vector-copy", "start <= end", args[1]);
 
     return gc.allocVector(vec.data[start..end]) catch return PrimitiveError.OutOfMemory;
 }
@@ -244,13 +244,13 @@ fn vectorCopyFn(args: []const Value) PrimitiveError!Value {
 // ---------------------------------------------------------------------------
 
 fn vectorCopyBangFn(args: []const Value) PrimitiveError!Value {
-    if (!types.isVector(args[0])) return PrimitiveError.TypeError;
-    if (!types.isFixnum(args[1])) return PrimitiveError.TypeError;
-    if (!types.isVector(args[2])) return PrimitiveError.TypeError;
+    if (!types.isVector(args[0])) return primitives.typeError("vector-copy!", "vector", args[0]);
+    if (!types.isFixnum(args[1])) return primitives.typeError("vector-copy!", "exact non-negative integer", args[1]);
+    if (!types.isVector(args[2])) return primitives.typeError("vector-copy!", "vector", args[2]);
 
     const to_vec = types.toVector(args[0]);
     const at_val = types.toFixnum(args[1]);
-    if (at_val < 0) return PrimitiveError.TypeError;
+    if (at_val < 0) return primitives.typeError("vector-copy!", "exact non-negative integer", args[1]);
     const at: usize = @intCast(at_val);
     const from_vec = types.toVector(args[2]);
     const from_len = from_vec.data.len;
@@ -259,21 +259,21 @@ fn vectorCopyBangFn(args: []const Value) PrimitiveError!Value {
     var end: usize = from_len;
 
     if (args.len > 3) {
-        if (!types.isFixnum(args[3])) return PrimitiveError.TypeError;
+        if (!types.isFixnum(args[3])) return primitives.typeError("vector-copy!", "exact non-negative integer", args[3]);
         const s = types.toFixnum(args[3]);
-        if (s < 0 or @as(usize, @intCast(s)) > from_len) return PrimitiveError.TypeError;
+        if (s < 0 or @as(usize, @intCast(s)) > from_len) return primitives.typeError("vector-copy!", "valid index", args[3]);
         start = @intCast(s);
     }
     if (args.len > 4) {
-        if (!types.isFixnum(args[4])) return PrimitiveError.TypeError;
+        if (!types.isFixnum(args[4])) return primitives.typeError("vector-copy!", "exact non-negative integer", args[4]);
         const e = types.toFixnum(args[4]);
-        if (e < 0 or @as(usize, @intCast(e)) > from_len) return PrimitiveError.TypeError;
+        if (e < 0 or @as(usize, @intCast(e)) > from_len) return primitives.typeError("vector-copy!", "valid index", args[4]);
         end = @intCast(e);
     }
-    if (start > end) return PrimitiveError.TypeError;
+    if (start > end) return primitives.typeError("vector-copy!", "start <= end", args[3]);
 
     const count = end - start;
-    if (at + count > to_vec.data.len) return PrimitiveError.TypeError;
+    if (at + count > to_vec.data.len) return primitives.typeError("vector-copy!", "valid index range", args[1]);
 
     // Use a loop that handles overlapping regions correctly
     if (at <= start) {
@@ -300,7 +300,7 @@ fn vectorAppendFn(args: []const Value) PrimitiveError!Value {
     // Calculate total length
     var total: usize = 0;
     for (args) |a| {
-        if (!types.isVector(a)) return PrimitiveError.TypeError;
+        if (!types.isVector(a)) return primitives.typeError("vector-append", "vector", a);
         total += types.toVector(a).data.len;
     }
 
@@ -322,17 +322,17 @@ fn vectorAppendFn(args: []const Value) PrimitiveError!Value {
 // ---------------------------------------------------------------------------
 
 fn vectorForEachFn(args: []const Value) PrimitiveError!Value {
-    const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError;
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.OutOfMemory;
     const proc = args[0];
-    if (!types.isProcedure(proc) and !types.isNativeFn(proc)) return PrimitiveError.TypeError;
+    if (!types.isProcedure(proc) and !types.isNativeFn(proc)) return primitives.typeError("vector-for-each", "procedure", proc);
 
     // Validate all vector arguments and find minimum length
     const vec_count = args.len - 1;
-    if (vec_count == 0) return PrimitiveError.TypeError;
+    if (vec_count == 0) return primitives.typeError("vector-for-each", "at least one vector argument", types.VOID);
 
     var min_len: usize = std.math.maxInt(usize);
     for (args[1..]) |a| {
-        if (!types.isVector(a)) return PrimitiveError.TypeError;
+        if (!types.isVector(a)) return primitives.typeError("vector-for-each", "vector", a);
         const vlen = types.toVector(a).data.len;
         if (vlen < min_len) min_len = vlen;
     }
@@ -363,18 +363,18 @@ fn vectorForEachFn(args: []const Value) PrimitiveError!Value {
 // ---------------------------------------------------------------------------
 
 fn vectorMapFn(args: []const Value) PrimitiveError!Value {
-    const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError;
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.OutOfMemory;
     const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
     const proc = args[0];
-    if (!types.isProcedure(proc) and !types.isNativeFn(proc)) return PrimitiveError.TypeError;
+    if (!types.isProcedure(proc) and !types.isNativeFn(proc)) return primitives.typeError("vector-map", "procedure", proc);
 
     // Validate all vector arguments and find minimum length
     const vec_count = args.len - 1;
-    if (vec_count == 0) return PrimitiveError.TypeError;
+    if (vec_count == 0) return primitives.typeError("vector-map", "at least one vector argument", types.VOID);
 
     var min_len: usize = std.math.maxInt(usize);
     for (args[1..]) |a| {
-        if (!types.isVector(a)) return PrimitiveError.TypeError;
+        if (!types.isVector(a)) return primitives.typeError("vector-map", "vector", a);
         const vlen = types.toVector(a).data.len;
         if (vlen < min_len) min_len = vlen;
     }
@@ -409,7 +409,7 @@ fn vectorMapFn(args: []const Value) PrimitiveError!Value {
 
 fn vectorToStringFn(args: []const Value) PrimitiveError!Value {
     const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
-    if (!types.isVector(args[0])) return PrimitiveError.TypeError;
+    if (!types.isVector(args[0])) return primitives.typeError("vector->string", "vector", args[0]);
     const vec = types.toVector(args[0]);
     const len = vec.data.len;
 
@@ -417,27 +417,27 @@ fn vectorToStringFn(args: []const Value) PrimitiveError!Value {
     var end: usize = len;
 
     if (args.len > 1) {
-        if (!types.isFixnum(args[1])) return PrimitiveError.TypeError;
+        if (!types.isFixnum(args[1])) return primitives.typeError("vector->string", "exact non-negative integer", args[1]);
         const s = types.toFixnum(args[1]);
-        if (s < 0 or @as(usize, @intCast(s)) > len) return PrimitiveError.TypeError;
+        if (s < 0 or @as(usize, @intCast(s)) > len) return primitives.typeError("vector->string", "valid index", args[1]);
         start = @intCast(s);
     }
     if (args.len > 2) {
-        if (!types.isFixnum(args[2])) return PrimitiveError.TypeError;
+        if (!types.isFixnum(args[2])) return primitives.typeError("vector->string", "exact non-negative integer", args[2]);
         const e = types.toFixnum(args[2]);
-        if (e < 0 or @as(usize, @intCast(e)) > len) return PrimitiveError.TypeError;
+        if (e < 0 or @as(usize, @intCast(e)) > len) return primitives.typeError("vector->string", "valid index", args[2]);
         end = @intCast(e);
     }
-    if (start > end) return PrimitiveError.TypeError;
+    if (start > end) return primitives.typeError("vector->string", "start <= end", args[1]);
 
     const data = vec.data[start..end];
 
     // Calculate UTF-8 length
     var utf8_len: usize = 0;
     for (data) |elem| {
-        if (!types.isChar(elem)) return PrimitiveError.TypeError;
+        if (!types.isChar(elem)) return primitives.typeError("vector->string", "character", elem);
         const cp = types.toChar(elem);
-        utf8_len += std.unicode.utf8CodepointSequenceLength(cp) catch return PrimitiveError.TypeError;
+        utf8_len += std.unicode.utf8CodepointSequenceLength(cp) catch return primitives.typeError("vector->string", "valid character", elem);
     }
 
     // Build string
@@ -447,7 +447,7 @@ fn vectorToStringFn(args: []const Value) PrimitiveError!Value {
     for (data) |elem| {
         const cp = types.toChar(elem);
         var tmp: [4]u8 = undefined;
-        const n = std.unicode.utf8Encode(cp, &tmp) catch return PrimitiveError.TypeError;
+        const n = std.unicode.utf8Encode(cp, &tmp) catch return primitives.typeError("vector->string", "valid character", elem);
         @memcpy(buf[pos .. pos + n], tmp[0..n]);
         pos += n;
     }
@@ -473,7 +473,7 @@ fn callVM(proc: Value, call_args: []const Value) PrimitiveError!Value {
 
 // (vector-empty? v)
 fn vectorEmptyFn(args: []const Value) PrimitiveError!Value {
-    if (!types.isVector(args[0])) return PrimitiveError.TypeError;
+    if (!types.isVector(args[0])) return primitives.typeError("vector-empty?", "vector", args[0]);
     const vec = types.toVector(args[0]);
     return if (vec.data.len == 0) types.TRUE else types.FALSE;
 }
@@ -481,7 +481,7 @@ fn vectorEmptyFn(args: []const Value) PrimitiveError!Value {
 // (vector-count pred v1 ...)
 fn vectorCountFn(args: []const Value) PrimitiveError!Value {
     const pred = args[0];
-    if (!types.isVector(args[1])) return PrimitiveError.TypeError;
+    if (!types.isVector(args[1])) return primitives.typeError("vector-count", "vector", args[1]);
     const vec = types.toVector(args[1]);
     var n: i64 = 0;
     for (0..vec.data.len) |i| {
@@ -489,7 +489,7 @@ fn vectorCountFn(args: []const Value) PrimitiveError!Value {
         call_args_buf[0] = vec.data[i];
         var arg_count: usize = 1;
         for (args[2..]) |extra| {
-            if (!types.isVector(extra)) return PrimitiveError.TypeError;
+            if (!types.isVector(extra)) return primitives.typeError("vector-count", "vector", extra);
             const ev = types.toVector(extra);
             if (i >= ev.data.len) break;
             call_args_buf[arg_count] = ev.data[i];
@@ -504,14 +504,14 @@ fn vectorCountFn(args: []const Value) PrimitiveError!Value {
 // (vector-any pred v1 ...)
 fn vectorAnyFn(args: []const Value) PrimitiveError!Value {
     const pred = args[0];
-    if (!types.isVector(args[1])) return PrimitiveError.TypeError;
+    if (!types.isVector(args[1])) return primitives.typeError("vector-any", "vector", args[1]);
     const vec = types.toVector(args[1]);
     for (0..vec.data.len) |i| {
         var call_args_buf: [256]Value = undefined;
         call_args_buf[0] = vec.data[i];
         var arg_count: usize = 1;
         for (args[2..]) |extra| {
-            if (!types.isVector(extra)) return PrimitiveError.TypeError;
+            if (!types.isVector(extra)) return primitives.typeError("vector-any", "vector", extra);
             const ev = types.toVector(extra);
             if (i >= ev.data.len) return types.FALSE;
             call_args_buf[arg_count] = ev.data[i];
@@ -526,7 +526,7 @@ fn vectorAnyFn(args: []const Value) PrimitiveError!Value {
 // (vector-every pred v1 ...)
 fn vectorEveryFn(args: []const Value) PrimitiveError!Value {
     const pred = args[0];
-    if (!types.isVector(args[1])) return PrimitiveError.TypeError;
+    if (!types.isVector(args[1])) return primitives.typeError("vector-every", "vector", args[1]);
     const vec = types.toVector(args[1]);
     var last: Value = types.TRUE;
     for (0..vec.data.len) |i| {
@@ -534,7 +534,7 @@ fn vectorEveryFn(args: []const Value) PrimitiveError!Value {
         call_args_buf[0] = vec.data[i];
         var arg_count: usize = 1;
         for (args[2..]) |extra| {
-            if (!types.isVector(extra)) return PrimitiveError.TypeError;
+            if (!types.isVector(extra)) return primitives.typeError("vector-every", "vector", extra);
             const ev = types.toVector(extra);
             if (i >= ev.data.len) return last;
             call_args_buf[arg_count] = ev.data[i];
@@ -550,14 +550,14 @@ fn vectorEveryFn(args: []const Value) PrimitiveError!Value {
 // (vector-index pred v1 ...)
 fn vectorIndexFn(args: []const Value) PrimitiveError!Value {
     const pred = args[0];
-    if (!types.isVector(args[1])) return PrimitiveError.TypeError;
+    if (!types.isVector(args[1])) return primitives.typeError("vector-index", "vector", args[1]);
     const vec = types.toVector(args[1]);
     for (0..vec.data.len) |i| {
         var call_args_buf: [256]Value = undefined;
         call_args_buf[0] = vec.data[i];
         var arg_count: usize = 1;
         for (args[2..]) |extra| {
-            if (!types.isVector(extra)) return PrimitiveError.TypeError;
+            if (!types.isVector(extra)) return primitives.typeError("vector-index", "vector", extra);
             const ev = types.toVector(extra);
             if (i >= ev.data.len) return types.FALSE;
             call_args_buf[arg_count] = ev.data[i];
@@ -572,7 +572,7 @@ fn vectorIndexFn(args: []const Value) PrimitiveError!Value {
 // (vector-index-right pred v1 ...)
 fn vectorIndexRightFn(args: []const Value) PrimitiveError!Value {
     const pred = args[0];
-    if (!types.isVector(args[1])) return PrimitiveError.TypeError;
+    if (!types.isVector(args[1])) return primitives.typeError("vector-index-right", "vector", args[1]);
     const vec = types.toVector(args[1]);
     var i = vec.data.len;
     while (i > 0) {
@@ -581,7 +581,7 @@ fn vectorIndexRightFn(args: []const Value) PrimitiveError!Value {
         call_args_buf[0] = vec.data[i];
         var arg_count: usize = 1;
         for (args[2..]) |extra| {
-            if (!types.isVector(extra)) return PrimitiveError.TypeError;
+            if (!types.isVector(extra)) return primitives.typeError("vector-index-right", "vector", extra);
             const ev = types.toVector(extra);
             if (i >= ev.data.len) continue;
             call_args_buf[arg_count] = ev.data[i];
@@ -596,7 +596,7 @@ fn vectorIndexRightFn(args: []const Value) PrimitiveError!Value {
 // (vector-skip pred v1 ...) — index of first element NOT satisfying pred
 fn vectorSkipFn(args: []const Value) PrimitiveError!Value {
     const pred = args[0];
-    if (!types.isVector(args[1])) return PrimitiveError.TypeError;
+    if (!types.isVector(args[1])) return primitives.typeError("vector-skip", "vector", args[1]);
     const vec = types.toVector(args[1]);
     for (0..vec.data.len) |i| {
         const call_args_buf = [1]Value{vec.data[i]};
@@ -609,7 +609,7 @@ fn vectorSkipFn(args: []const Value) PrimitiveError!Value {
 // (vector-skip-right pred v1 ...)
 fn vectorSkipRightFn(args: []const Value) PrimitiveError!Value {
     const pred = args[0];
-    if (!types.isVector(args[1])) return PrimitiveError.TypeError;
+    if (!types.isVector(args[1])) return primitives.typeError("vector-skip-right", "vector", args[1]);
     const vec = types.toVector(args[1]);
     var i = vec.data.len;
     while (i > 0) {
@@ -623,15 +623,18 @@ fn vectorSkipRightFn(args: []const Value) PrimitiveError!Value {
 
 // (vector-swap! vec i j)
 fn vectorSwapFn(args: []const Value) PrimitiveError!Value {
-    if (!types.isVector(args[0])) return PrimitiveError.TypeError;
-    if (!types.isFixnum(args[1]) or !types.isFixnum(args[2])) return PrimitiveError.TypeError;
+    if (!types.isVector(args[0])) return primitives.typeError("vector-swap!", "vector", args[0]);
+    if (!types.isFixnum(args[1])) return primitives.typeError("vector-swap!", "exact non-negative integer", args[1]);
+    if (!types.isFixnum(args[2])) return primitives.typeError("vector-swap!", "exact non-negative integer", args[2]);
     const vec = types.toVector(args[0]);
     const i_raw = types.toFixnum(args[1]);
     const j_raw = types.toFixnum(args[2]);
-    if (i_raw < 0 or j_raw < 0) return PrimitiveError.TypeError;
+    if (i_raw < 0) return primitives.typeError("vector-swap!", "exact non-negative integer", args[1]);
+    if (j_raw < 0) return primitives.typeError("vector-swap!", "exact non-negative integer", args[2]);
     const i: usize = @intCast(i_raw);
     const j: usize = @intCast(j_raw);
-    if (i >= vec.data.len or j >= vec.data.len) return PrimitiveError.TypeError;
+    if (i >= vec.data.len) return primitives.typeError("vector-swap!", "valid index", args[1]);
+    if (j >= vec.data.len) return primitives.typeError("vector-swap!", "valid index", args[2]);
     const tmp = vec.data[i];
     vec.data[i] = vec.data[j];
     vec.data[j] = tmp;
@@ -640,19 +643,19 @@ fn vectorSwapFn(args: []const Value) PrimitiveError!Value {
 
 // (vector-reverse! vec [start [end]])
 fn vectorReverseBangFn(args: []const Value) PrimitiveError!Value {
-    if (!types.isVector(args[0])) return PrimitiveError.TypeError;
+    if (!types.isVector(args[0])) return primitives.typeError("vector-reverse!", "vector", args[0]);
     const vec = types.toVector(args[0]);
     var start: usize = 0;
     var end: usize = vec.data.len;
     if (args.len > 1) {
-        if (!types.isFixnum(args[1])) return PrimitiveError.TypeError;
+        if (!types.isFixnum(args[1])) return primitives.typeError("vector-reverse!", "exact non-negative integer", args[1]);
         start = @intCast(types.toFixnum(args[1]));
     }
     if (args.len > 2) {
-        if (!types.isFixnum(args[2])) return PrimitiveError.TypeError;
+        if (!types.isFixnum(args[2])) return primitives.typeError("vector-reverse!", "exact non-negative integer", args[2]);
         end = @intCast(types.toFixnum(args[2]));
     }
-    if (start > end or end > vec.data.len) return PrimitiveError.TypeError;
+    if (start > end or end > vec.data.len) return primitives.typeError("vector-reverse!", "valid index range", args[0]);
     var lo = start;
     var hi = end;
     while (lo < hi) {
@@ -668,19 +671,19 @@ fn vectorReverseBangFn(args: []const Value) PrimitiveError!Value {
 // (vector-reverse-copy vec [start [end]])
 fn vectorReverseCopyFn(args: []const Value) PrimitiveError!Value {
     const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
-    if (!types.isVector(args[0])) return PrimitiveError.TypeError;
+    if (!types.isVector(args[0])) return primitives.typeError("vector-reverse-copy", "vector", args[0]);
     const vec = types.toVector(args[0]);
     var start: usize = 0;
     var end: usize = vec.data.len;
     if (args.len > 1) {
-        if (!types.isFixnum(args[1])) return PrimitiveError.TypeError;
+        if (!types.isFixnum(args[1])) return primitives.typeError("vector-reverse-copy", "exact non-negative integer", args[1]);
         start = @intCast(types.toFixnum(args[1]));
     }
     if (args.len > 2) {
-        if (!types.isFixnum(args[2])) return PrimitiveError.TypeError;
+        if (!types.isFixnum(args[2])) return primitives.typeError("vector-reverse-copy", "exact non-negative integer", args[2]);
         end = @intCast(types.toFixnum(args[2]));
     }
-    if (start > end or end > vec.data.len) return PrimitiveError.TypeError;
+    if (start > end or end > vec.data.len) return primitives.typeError("vector-reverse-copy", "valid index range", args[0]);
     const len = end - start;
     const new_data = gc.allocator.alloc(Value, len) catch return PrimitiveError.OutOfMemory;
     defer gc.allocator.free(new_data);
@@ -694,7 +697,7 @@ fn vectorReverseCopyFn(args: []const Value) PrimitiveError!Value {
 fn vectorUnfoldFn(args: []const Value) PrimitiveError!Value {
     const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
     const f = args[0];
-    if (!types.isFixnum(args[1])) return PrimitiveError.TypeError;
+    if (!types.isFixnum(args[1])) return primitives.typeError("vector-unfold", "exact non-negative integer", args[1]);
     const length: usize = @intCast(types.toFixnum(args[1]));
 
     var seeds: std.ArrayList(Value) = .empty;
@@ -733,9 +736,9 @@ fn vectorUnfoldFn(args: []const Value) PrimitiveError!Value {
 fn vectorUnfoldRightFn(args: []const Value) PrimitiveError!Value {
     const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
     const f = args[0];
-    if (!types.isFixnum(args[1])) return PrimitiveError.TypeError;
+    if (!types.isFixnum(args[1])) return primitives.typeError("vector-unfold-right", "exact non-negative integer", args[1]);
     const len_val = types.toFixnum(args[1]);
-    if (len_val < 0) return PrimitiveError.TypeError;
+    if (len_val < 0) return primitives.typeError("vector-unfold-right", "exact non-negative integer", args[1]);
     const length: usize = @intCast(len_val);
 
     var seeds: std.ArrayList(Value) = .empty;
@@ -772,7 +775,7 @@ fn vectorUnfoldRightFn(args: []const Value) PrimitiveError!Value {
 
 // (vector-binary-search vec value cmp) — binary search, returns index or #f
 fn vectorBinarySearchFn(args: []const Value) PrimitiveError!Value {
-    if (!types.isVector(args[0])) return PrimitiveError.TypeError;
+    if (!types.isVector(args[0])) return primitives.typeError("vector-binary-search", "vector", args[0]);
     const vec = types.toVector(args[0]);
     const value = args[1];
     const cmp = args[2];
@@ -783,7 +786,7 @@ fn vectorBinarySearchFn(args: []const Value) PrimitiveError!Value {
     while (lo < hi) {
         const mid = lo + (hi - lo) / 2;
         const result = try callVM(cmp, &[2]Value{ vec.data[mid], value });
-        if (!types.isFixnum(result)) return PrimitiveError.TypeError;
+        if (!types.isFixnum(result)) return primitives.typeError("vector-binary-search", "integer from comparator", result);
         const c = types.toFixnum(result);
         if (c == 0) return types.makeFixnum(@intCast(mid));
         if (c < 0) {
@@ -803,9 +806,9 @@ fn vectorConcatenateFn(args: []const Value) PrimitiveError!Value {
     // First pass: compute total length
     var tmp = current;
     while (tmp != types.NIL) {
-        if (!types.isPair(tmp)) return PrimitiveError.TypeError;
+        if (!types.isPair(tmp)) return primitives.typeError("vector-concatenate", "proper list", args[0]);
         const v = types.car(tmp);
-        if (!types.isVector(v)) return PrimitiveError.TypeError;
+        if (!types.isVector(v)) return primitives.typeError("vector-concatenate", "vector", v);
         total_len += types.toVector(v).data.len;
         tmp = types.cdr(tmp);
     }
@@ -826,7 +829,7 @@ fn vectorCumulateFn(args: []const Value) PrimitiveError!Value {
     const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
     const f = args[0];
     var acc = args[1];
-    if (!types.isVector(args[2])) return PrimitiveError.TypeError;
+    if (!types.isVector(args[2])) return primitives.typeError("vector-cumulate", "vector", args[2]);
     const vec = types.toVector(args[2]);
     const new_data = gc.allocator.alloc(Value, vec.data.len) catch return PrimitiveError.OutOfMemory;
     defer gc.allocator.free(new_data);
@@ -842,7 +845,7 @@ fn vectorCumulateFn(args: []const Value) PrimitiveError!Value {
 fn vectorPartitionFn(args: []const Value) PrimitiveError!Value {
     const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
     const pred = args[0];
-    if (!types.isVector(args[1])) return PrimitiveError.TypeError;
+    if (!types.isVector(args[1])) return primitives.typeError("vector-partition", "vector", args[1]);
     const vec = types.toVector(args[1]);
     var yes: std.ArrayList(Value) = .empty;
     defer yes.deinit(gc.allocator);

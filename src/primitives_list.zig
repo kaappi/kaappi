@@ -37,13 +37,13 @@ pub fn registerList(vm: *vm_mod.VM) !void {
 // ---------------------------------------------------------------------------
 
 fn listRefFn(args: []const Value) PrimitiveError!Value {
-    if (!types.isFixnum(args[1])) return PrimitiveError.TypeError;
+    if (!types.isFixnum(args[1])) return primitives.typeError("list-ref", "integer", args[1]);
     const k = types.toFixnum(args[1]);
     if (k < 0) return PrimitiveError.IndexOutOfBounds;
     var idx: i64 = 0;
     var current = args[0];
     while (current != types.NIL) {
-        if (!types.isPair(current)) return PrimitiveError.TypeError;
+        if (!types.isPair(current)) return primitives.typeError("list-ref", "pair", current);
         if (idx == k) return types.car(current);
         idx += 1;
         current = types.cdr(current);
@@ -52,13 +52,13 @@ fn listRefFn(args: []const Value) PrimitiveError!Value {
 }
 
 fn listTailFn(args: []const Value) PrimitiveError!Value {
-    if (!types.isFixnum(args[1])) return PrimitiveError.TypeError;
+    if (!types.isFixnum(args[1])) return primitives.typeError("list-tail", "integer", args[1]);
     const k = types.toFixnum(args[1]);
     if (k < 0) return PrimitiveError.IndexOutOfBounds;
     var idx: i64 = 0;
     var current = args[0];
     while (idx < k) {
-        if (!types.isPair(current)) return PrimitiveError.TypeError;
+        if (!types.isPair(current)) return primitives.typeError("list-tail", "pair", current);
         current = types.cdr(current);
         idx += 1;
     }
@@ -66,13 +66,13 @@ fn listTailFn(args: []const Value) PrimitiveError!Value {
 }
 
 fn listSetFn(args: []const Value) PrimitiveError!Value {
-    if (!types.isFixnum(args[1])) return PrimitiveError.TypeError;
+    if (!types.isFixnum(args[1])) return primitives.typeError("list-set!", "integer", args[1]);
     const k = types.toFixnum(args[1]);
     if (k < 0) return PrimitiveError.IndexOutOfBounds;
     var idx: i64 = 0;
     var current = args[0];
     while (current != types.NIL) {
-        if (!types.isPair(current)) return PrimitiveError.TypeError;
+        if (!types.isPair(current)) return primitives.typeError("list-set!", "pair", current);
         if (idx == k) {
             types.setCar(current, args[2]);
             return types.VOID;
@@ -114,9 +114,9 @@ fn listCopyFn(args: []const Value) PrimitiveError!Value {
 
 fn makeListFn(args: []const Value) PrimitiveError!Value {
     const gc = getGC() orelse return PrimitiveError.OutOfMemory;
-    if (!types.isFixnum(args[0])) return PrimitiveError.TypeError;
+    if (!types.isFixnum(args[0])) return primitives.typeError("make-list", "non-negative integer", args[0]);
     const k = types.toFixnum(args[0]);
-    if (k < 0) return PrimitiveError.TypeError;
+    if (k < 0) return primitives.typeError("make-list", "non-negative integer", args[0]);
     const fill: Value = if (args.len > 1) args[1] else types.UNDEFINED;
     var result: Value = types.NIL;
     gc.pushRoot(&result) catch return PrimitiveError.OutOfMemory;
@@ -131,10 +131,10 @@ fn makeListFn(args: []const Value) PrimitiveError!Value {
 fn memberFn(args: []const Value) PrimitiveError!Value {
     const has_compare = args.len >= 3;
     const compare = if (has_compare) args[2] else types.NIL;
-    if (has_compare and !types.isProcedure(compare)) return PrimitiveError.TypeError;
+    if (has_compare and !types.isProcedure(compare)) return primitives.typeError("member", "procedure", compare);
     var current = args[1];
     while (current != types.NIL) {
-        if (!types.isPair(current)) return PrimitiveError.TypeError;
+        if (!types.isPair(current)) return primitives.typeError("member", "proper list", current);
         if (has_compare) {
             const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError;
             const call_args = [2]Value{ args[0], types.car(current) };
@@ -157,7 +157,7 @@ fn memberFn(args: []const Value) PrimitiveError!Value {
 fn memqFn(args: []const Value) PrimitiveError!Value {
     var current = args[1];
     while (current != types.NIL) {
-        if (!types.isPair(current)) return PrimitiveError.TypeError;
+        if (!types.isPair(current)) return primitives.typeError("memq", "proper list", current);
         if (args[0] == types.car(current)) return current;
         current = types.cdr(current);
     }
@@ -167,7 +167,7 @@ fn memqFn(args: []const Value) PrimitiveError!Value {
 fn memvFn(args: []const Value) PrimitiveError!Value {
     var current = args[1];
     while (current != types.NIL) {
-        if (!types.isPair(current)) return PrimitiveError.TypeError;
+        if (!types.isPair(current)) return primitives.typeError("memv", "proper list", current);
         const elem = types.car(current);
         if (args[0] == elem) return current;
         // eqv? also checks flonum bit-equality
@@ -184,12 +184,12 @@ fn memvFn(args: []const Value) PrimitiveError!Value {
 fn assocFn(args: []const Value) PrimitiveError!Value {
     const has_compare = args.len >= 3;
     const compare = if (has_compare) args[2] else types.NIL;
-    if (has_compare and !types.isProcedure(compare)) return PrimitiveError.TypeError;
+    if (has_compare and !types.isProcedure(compare)) return primitives.typeError("assoc", "procedure", compare);
     var current = args[1];
     while (current != types.NIL) {
-        if (!types.isPair(current)) return PrimitiveError.TypeError;
+        if (!types.isPair(current)) return primitives.typeError("assoc", "association list", current);
         const pair = types.car(current);
-        if (!types.isPair(pair)) return PrimitiveError.TypeError;
+        if (!types.isPair(pair)) return primitives.typeError("assoc", "pair", pair);
         if (has_compare) {
             const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError;
             const call_args = [2]Value{ args[0], types.car(pair) };
@@ -212,9 +212,9 @@ fn assocFn(args: []const Value) PrimitiveError!Value {
 fn assqFn(args: []const Value) PrimitiveError!Value {
     var current = args[1];
     while (current != types.NIL) {
-        if (!types.isPair(current)) return PrimitiveError.TypeError;
+        if (!types.isPair(current)) return primitives.typeError("assq", "association list", current);
         const pair = types.car(current);
-        if (!types.isPair(pair)) return PrimitiveError.TypeError;
+        if (!types.isPair(pair)) return primitives.typeError("assq", "pair", pair);
         if (args[0] == types.car(pair)) return pair;
         current = types.cdr(current);
     }
@@ -224,9 +224,9 @@ fn assqFn(args: []const Value) PrimitiveError!Value {
 fn assvFn(args: []const Value) PrimitiveError!Value {
     var current = args[1];
     while (current != types.NIL) {
-        if (!types.isPair(current)) return PrimitiveError.TypeError;
+        if (!types.isPair(current)) return primitives.typeError("assv", "association list", current);
         const pair = types.car(current);
-        if (!types.isPair(pair)) return PrimitiveError.TypeError;
+        if (!types.isPair(pair)) return primitives.typeError("assv", "pair", pair);
         const key = types.car(pair);
         if (args[0] == key) return pair;
         if (types.isFlonum(args[0]) and types.isFlonum(key)) {
@@ -244,18 +244,18 @@ fn assvFn(args: []const Value) PrimitiveError!Value {
 // ---------------------------------------------------------------------------
 
 fn booleanEqP(args: []const Value) PrimitiveError!Value {
-    if (!types.isBool(args[0])) return PrimitiveError.TypeError;
+    if (!types.isBool(args[0])) return primitives.typeError("boolean=?", "boolean", args[0]);
     for (args[1..]) |a| {
-        if (!types.isBool(a)) return PrimitiveError.TypeError;
+        if (!types.isBool(a)) return primitives.typeError("boolean=?", "boolean", a);
         if (a != args[0]) return types.FALSE;
     }
     return types.TRUE;
 }
 
 fn symbolEqP(args: []const Value) PrimitiveError!Value {
-    if (!types.isSymbol(args[0])) return PrimitiveError.TypeError;
+    if (!types.isSymbol(args[0])) return primitives.typeError("symbol=?", "symbol", args[0]);
     for (args[1..]) |a| {
-        if (!types.isSymbol(a)) return PrimitiveError.TypeError;
+        if (!types.isSymbol(a)) return primitives.typeError("symbol=?", "symbol", a);
         if (a != args[0]) return types.FALSE;
     }
     return types.TRUE;
@@ -269,7 +269,7 @@ fn mapFn(args: []const Value) PrimitiveError!Value {
     const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError;
     const gc = getGC() orelse return PrimitiveError.OutOfMemory;
     const proc = args[0];
-    if (!types.isProcedure(proc) and !types.isNativeFn(proc)) return PrimitiveError.TypeError;
+    if (!types.isProcedure(proc) and !types.isNativeFn(proc)) return primitives.typeError("map", "procedure", proc);
 
     const list_count = args.len - 1;
     if (list_count == 0) return PrimitiveError.ArityMismatch;
@@ -294,7 +294,7 @@ fn mapFn(args: []const Value) PrimitiveError!Value {
                 all_pairs = false;
                 break;
             }
-            if (!types.isPair(currents[i])) return PrimitiveError.TypeError;
+            if (!types.isPair(currents[i])) return primitives.typeError("map", "proper list", currents[i]);
         }
         if (!all_pairs) break;
 
@@ -336,7 +336,7 @@ fn mapFn(args: []const Value) PrimitiveError!Value {
 fn forEachFn(args: []const Value) PrimitiveError!Value {
     const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError;
     const proc = args[0];
-    if (!types.isProcedure(proc) and !types.isNativeFn(proc)) return PrimitiveError.TypeError;
+    if (!types.isProcedure(proc) and !types.isNativeFn(proc)) return primitives.typeError("for-each", "procedure", proc);
 
     const list_count = args.len - 1;
     if (list_count == 0) return PrimitiveError.ArityMismatch;
@@ -357,7 +357,7 @@ fn forEachFn(args: []const Value) PrimitiveError!Value {
                 all_pairs = false;
                 break;
             }
-            if (!types.isPair(currents[i])) return PrimitiveError.TypeError;
+            if (!types.isPair(currents[i])) return primitives.typeError("for-each", "proper list", currents[i]);
         }
         if (!all_pairs) break;
 
@@ -402,7 +402,7 @@ fn featuresFn(args: []const Value) PrimitiveError!Value {
 }
 
 fn stringToSymbol(args: []const Value) PrimitiveError!Value {
-    if (!types.isString(args[0])) return PrimitiveError.TypeError;
+    if (!types.isString(args[0])) return primitives.typeError("string->symbol", "string", args[0]);
     const gc = getGC() orelse return PrimitiveError.OutOfMemory;
     const str = types.toObject(args[0]).as(types.SchemeString);
     return gc.allocSymbol(str.data[0..str.len]) catch return PrimitiveError.OutOfMemory;
