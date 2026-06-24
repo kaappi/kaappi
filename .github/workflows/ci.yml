@@ -13,7 +13,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Install Zig
-        uses: xyzzylabs/setup-zig@v2
+        uses: xyzzylabs/setup-zig@v1
         with:
           version: 0.16.0
 
@@ -36,7 +36,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Install Zig
-        uses: xyzzylabs/setup-zig@v2
+        uses: xyzzylabs/setup-zig@v1
         with:
           version: 0.16.0
 
@@ -86,7 +86,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Install Zig
-        uses: xyzzylabs/setup-zig@v2
+        uses: xyzzylabs/setup-zig@v1
         with:
           version: 0.16.0
 
@@ -121,7 +121,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Install Zig
-        uses: xyzzylabs/setup-zig@v2
+        uses: xyzzylabs/setup-zig@v1
         with:
           version: 0.16.0
 
@@ -149,7 +149,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Install Zig
-        uses: xyzzylabs/setup-zig@v2
+        uses: xyzzylabs/setup-zig@v1
         with:
           version: 0.16.0
 
