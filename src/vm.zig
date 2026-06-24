@@ -196,6 +196,7 @@ pub const VM = struct {
     global_version: u32 = 0,
     profile_mode: bool = false,
     coverage_mode: bool = false,
+    coverage_xml_path: ?[]const u8 = null,
     profile_last_ns: u64 = 0,
     profile_time_stack: [256]ProfileTimeEntry = undefined,
     profile_time_depth: usize = 0,

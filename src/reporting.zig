@@ -214,6 +214,155 @@ pub fn printProfileReport(gc: *memory.GC) void {
     }
 }
 
+fn xmlEscape(out: *std.ArrayList(u8), allocator: std.mem.Allocator, s: []const u8) void {
+    for (s) |c| {
+        switch (c) {
+            '&' => out.appendSlice(allocator, "&amp;") catch {},
+            '<' => out.appendSlice(allocator, "&lt;") catch {},
+            '>' => out.appendSlice(allocator, "&gt;") catch {},
+            '"' => out.appendSlice(allocator, "&quot;") catch {},
+            else => out.append(allocator, c) catch {},
+        }
+    }
+}
+
+fn xmlAppend(out: *std.ArrayList(u8), allocator: std.mem.Allocator, comptime fmt: []const u8, args: anytype) void {
+    var buf: [512]u8 = undefined;
+    const s = std.fmt.bufPrint(&buf, fmt, args) catch return;
+    out.appendSlice(allocator, s) catch {};
+}
+
+pub fn writeCoverageXml(vm: *vm_mod.VM, path: []const u8) void {
+    const allocator = vm.gc.allocator;
+    var xml: std.ArrayList(u8) = .empty;
+    defer xml.deinit(allocator);
+
+    var total_procs: usize = 0;
+    var total_called: usize = 0;
+
+    const ProcEntry = struct { name: []const u8, hits: u64 };
+    const PkgEntry = struct {
+        lib_name: []const u8,
+        procs: [128]ProcEntry,
+        proc_count: usize,
+        called: usize,
+        total: usize,
+    };
+
+    var pkgs: [64]PkgEntry = undefined;
+    var pkg_count: usize = 0;
+
+    var lib_it = vm.libraries.libraries.iterator();
+    while (lib_it.next()) |entry| {
+        const lib = entry.value_ptr;
+        if (lib.owned_name == null) continue;
+
+        var pkg = PkgEntry{
+            .lib_name = lib.name,
+            .procs = undefined,
+            .proc_count = 0,
+            .called = 0,
+            .total = 0,
+        };
+
+        var exp_it = lib.exports.iterator();
+        while (exp_it.next()) |exp| {
+            const count = getCallCount(exp.value_ptr.*) orelse continue;
+            if (pkg.proc_count < 128) {
+                pkg.procs[pkg.proc_count] = .{ .name = exp.key_ptr.*, .hits = count };
+                pkg.proc_count += 1;
+            }
+            pkg.total += 1;
+            if (count > 0) pkg.called += 1;
+        }
+
+        if (pkg.total == 0) continue;
+        total_procs += pkg.total;
+        total_called += pkg.called;
+
+        if (pkg_count < 64) {
+            pkgs[pkg_count] = pkg;
+            pkg_count += 1;
+        }
+    }
+
+    const overall_rate = if (total_procs > 0)
+        @as(f64, @floatFromInt(total_called)) / @as(f64, @floatFromInt(total_procs))
+    else
+        1.0;
+
+    xml.appendSlice(allocator, "<?xml version=\"1.0\" ?>\n") catch {};
+    xmlAppend(&xml, allocator, "<coverage line-rate=\"{d:.4}\" branch-rate=\"0\" version=\"kaappi\" timestamp=\"0\" lines-covered=\"{d}\" lines-valid=\"{d}\">\n", .{ overall_rate, total_called, total_procs });
+    xml.appendSlice(allocator, "  <packages>\n") catch {};
+
+    for (pkgs[0..pkg_count]) |pkg| {
+        const pkg_rate = if (pkg.total > 0)
+            @as(f64, @floatFromInt(pkg.called)) / @as(f64, @floatFromInt(pkg.total))
+        else
+            1.0;
+
+        // Convert "kaappi.json" → "lib/kaappi/json.sld"
+        var file_buf: [256]u8 = undefined;
+        var file_len: usize = 0;
+        const prefix = "lib/";
+        @memcpy(file_buf[0..prefix.len], prefix);
+        file_len = prefix.len;
+        for (pkg.lib_name) |c| {
+            if (file_len >= file_buf.len - 5) break;
+            file_buf[file_len] = if (c == '.') '/' else c;
+            file_len += 1;
+        }
+        const suffix = ".sld";
+        @memcpy(file_buf[file_len..][0..suffix.len], suffix);
+        file_len += suffix.len;
+        const filename = file_buf[0..file_len];
+
+        xml.appendSlice(allocator, "    <package name=\"") catch {};
+        xmlEscape(&xml, allocator, pkg.lib_name);
+        xmlAppend(&xml, allocator, "\" line-rate=\"{d:.4}\" branch-rate=\"0\">\n", .{pkg_rate});
+        xml.appendSlice(allocator, "      <classes>\n") catch {};
+        xml.appendSlice(allocator, "        <class name=\"") catch {};
+        xmlEscape(&xml, allocator, pkg.lib_name);
+        xml.appendSlice(allocator, "\" filename=\"") catch {};
+        xmlEscape(&xml, allocator, filename);
+        xmlAppend(&xml, allocator, "\" line-rate=\"{d:.4}\" branch-rate=\"0\">\n", .{pkg_rate});
+        xml.appendSlice(allocator, "          <lines>\n") catch {};
+
+        for (pkg.procs[0..pkg.proc_count], 1..) |proc, line_num| {
+            xml.appendSlice(allocator, "            <line number=\"") catch {};
+            xmlAppend(&xml, allocator, "{d}", .{line_num});
+            xml.appendSlice(allocator, "\" hits=\"") catch {};
+            xmlAppend(&xml, allocator, "{d}", .{proc.hits});
+            xml.appendSlice(allocator, "\" name=\"") catch {};
+            xmlEscape(&xml, allocator, proc.name);
+            xml.appendSlice(allocator, "\"/>\n") catch {};
+        }
+
+        xml.appendSlice(allocator, "          </lines>\n") catch {};
+        xml.appendSlice(allocator, "        </class>\n") catch {};
+        xml.appendSlice(allocator, "      </classes>\n") catch {};
+        xml.appendSlice(allocator, "    </package>\n") catch {};
+    }
+
+    xml.appendSlice(allocator, "  </packages>\n") catch {};
+    xml.appendSlice(allocator, "</coverage>\n") catch {};
+
+    // Write to file
+    const fd = std.posix.openat(std.posix.AT.FDCWD, @ptrCast(path), .{ .ACCMODE = .WRONLY, .CREAT = true, .TRUNC = true }, 0o644) catch {
+        writeStderr("error: could not open coverage XML output file\n");
+        return;
+    };
+    defer _ = std.posix.system.close(fd);
+
+    var written: usize = 0;
+    while (written < xml.items.len) {
+        const result = std.posix.system.write(fd, xml.items.ptr + written, xml.items.len - written);
+        const n: usize = @intCast(result);
+        if (n == 0) break;
+        written += n;
+    }
+}
+
 fn getCallCount(val: types.Value) ?u64 {
     if (!types.isPointer(val)) return null;
     const obj = types.toObject(val);

@@ -69,6 +69,7 @@ fn printUsage() void {
             "  --gc-stats         Print GC statistics on exit\n" ++
             "  --profile          Enable profiling\n" ++
             "  --coverage         Report library procedure coverage\n" ++
+            "  --coverage-xml <f> Write Cobertura XML coverage to file\n" ++
             "\n" ++
             "With no file argument, starts an interactive REPL.\n",
     );
@@ -181,6 +182,9 @@ pub fn main(init: std.process.Init.Minimal) !void {
                 sa_profile = true;
             } else if (std.mem.eql(u8, arg, "--coverage")) {
                 sa_coverage = true;
+            } else if (std.mem.eql(u8, arg, "--coverage-xml")) {
+                sa_coverage = true;
+                if (sa_iter.next()) |p| vm.coverage_xml_path = p;
             } else if (std.mem.eql(u8, arg, "--no-jit")) {
                 vm.jit_disabled = true;
             } else {
@@ -199,7 +203,10 @@ pub fn main(init: std.process.Init.Minimal) !void {
             vm.profile_mode = true;
             vm.coverage_mode = true;
         }
-        defer if (sa_coverage) reporting.printCoverageReport(&vm);
+        defer if (sa_coverage) {
+            reporting.printCoverageReport(&vm);
+            if (vm.coverage_xml_path) |p| reporting.writeCoverageXml(&vm, p);
+        };
 
         const loaded = bytecode_file.readFromBuffer(&gc, bytecode_data) catch {
             writeStderr("fatal: corrupted embedded bytecode\n");
@@ -319,6 +326,9 @@ pub fn main(init: std.process.Init.Minimal) !void {
             profile_mode = true;
         } else if (std.mem.eql(u8, arg, "--coverage")) {
             coverage_mode = true;
+        } else if (std.mem.eql(u8, arg, "--coverage-xml")) {
+            coverage_mode = true;
+            if (args.next()) |p| vm.coverage_xml_path = p;
         } else if (std.mem.eql(u8, arg, "--sandbox")) {
             sandbox_mode = true;
         } else if (std.mem.eql(u8, arg, "--compile")) {
@@ -404,7 +414,10 @@ pub fn main(init: std.process.Init.Minimal) !void {
         vm.profile_mode = true;
         vm.coverage_mode = true;
     }
-    defer if (coverage_mode) reporting.printCoverageReport(&vm);
+    defer if (coverage_mode) {
+        reporting.printCoverageReport(&vm);
+        if (vm.coverage_xml_path) |p| reporting.writeCoverageXml(&vm, p);
+    };
 
     if (disassemble_mode) {
         if (file_path) |fp| {
