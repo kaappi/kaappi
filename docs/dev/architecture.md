@@ -299,3 +299,27 @@ appropriate before/after thunks.
 An optimized `call/ec` (escape continuation) is also provided for the common
 case where the continuation is only used for non-local exit and never needs to
 be stored or invoked after the capturing form returns.
+
+---
+
+## Design choices
+
+These are intentional architectural decisions, not missing features. Each is the standard approach taken by most Scheme bytecode interpreters.
+
+### Stack-copying continuations
+
+`call/cc` captures a continuation by copying the entire VM state — registers, call frames, exception handlers, and dynamic-wind stack — into a heap-allocated `Continuation` object. When invoked, the saved state is restored and execution resumes from the capture point.
+
+This is correct and fully re-entrant (multi-shot continuations work). The cost is O(stack depth) per capture — a deep call stack means more data to copy. For most programs this is negligible. Only programs that capture continuations in tight inner loops would notice.
+
+The alternatives are CPS transform (zero capture cost but all code runs slower) and segmented/heap-allocated stacks (fast capture but every call pays allocation cost). Stack copying is the simplest to implement correctly and is the same approach used by Guile and Chibi.
+
+### Continuation scope
+
+A continuation captured in one top-level REPL expression cannot re-enter subsequent top-level expressions. This is standard behavior shared by Guile, Chibi, Chicken, Chez, and Racket — it's how REPLs fundamentally work with continuations, not a Kaappi-specific limitation.
+
+Within a single expression (or a file), continuations work fully.
+
+### No `syntax-case`
+
+Only `syntax-rules` is supported for macro definitions. R7RS-small deliberately standardizes `syntax-rules` and not `syntax-case` — the latter is part of R6RS and some implementations (Chez, Racket) but was intentionally excluded from R7RS-small.

@@ -275,7 +275,7 @@ passes with it. Place it in the appropriate location:
   (for end-to-end behavior visible from Scheme)
 
 - **Unit tests**: `src/tests_*.zig` — named by feature: `tests_core_eval.zig`, `tests_macros.zig`, `tests_io.zig`, etc. Run all with `zig build test`.
-- **R7RS test suite**: `tests/scheme/r7rs/r7rs-tests.scm` — 1,380 tests using `(chibi test)`. Run with `zig build run -- tests/scheme/r7rs/r7rs-tests.scm`.
+- **R7RS test suite**: `tests/scheme/r7rs/r7rs-tests.scm` — 1,391 tests using `(chibi test)`. Run with `zig build run -- tests/scheme/r7rs/r7rs-tests.scm`.
 - **Scheme tests**: `tests/scheme/` organized by purpose:
   - `smoke/` — quick sanity checks (basic, tail-calls, derived, numeric, macros, libraries)
   - `compliance/` — targeted R7RS conformance tests by topic (strings, vectors, chars, unicode, etc.)
