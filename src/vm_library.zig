@@ -89,16 +89,23 @@ fn processImportSet(vm: *VM, target: *std.StringHashMap(Value), import_set: Valu
 
     // Circular import detection
     if (vm.loading_libs.contains(lib_name)) {
+        vm.setErrorDetail("circular import: ({s})", .{lib_name});
         return error.UndefinedVariable;
     }
     vm.loading_libs.put(lib_name, {}) catch return error.OutOfMemory;
     defer _ = vm.loading_libs.remove(lib_name);
 
     // Not found in registry — try loading from .sld file
-    tryLoadLibraryFromFile(vm, import_set) catch return error.UndefinedVariable;
+    tryLoadLibraryFromFile(vm, import_set) catch {
+        vm.setErrorDetail("library not found: ({s})", .{lib_name});
+        return error.UndefinedVariable;
+    };
 
     // Now try again
-    const lib = vm.libraries.get(lib_name) orelse return error.UndefinedVariable;
+    const lib = vm.libraries.get(lib_name) orelse {
+        vm.setErrorDetail("library not found: ({s})", .{lib_name});
+        return error.UndefinedVariable;
+    };
     var it = lib.exports.iterator();
     while (it.next()) |entry| {
         importBinding(vm, target, entry.key_ptr.*, entry.value_ptr.*) catch return error.OutOfMemory;

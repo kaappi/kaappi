@@ -368,8 +368,6 @@ pub fn main(init: std.process.Init.Minimal) !void {
             disassemble_mode = true;
         } else if (std.mem.eql(u8, arg, "--no-jit")) {
             vm.jit_disabled = true;
-        } else if (std.mem.eql(u8, arg, "--no-cache")) {
-            // future: disable caching
         } else if (std.mem.eql(u8, arg, "--help") or std.mem.eql(u8, arg, "-h")) {
             printUsage();
             return;

@@ -279,12 +279,20 @@ pub fn callClosure(vm: *VM, closure: *types.Closure, base: u16, nargs: u8) VMErr
 
     if (!func.is_variadic) {
         if (nargs != func.arity) {
-            vm.setErrorDetail("expected {d} arguments, got {d}", .{ func.arity, nargs });
+            if (func.name) |name| {
+                vm.setErrorDetail("'{s}': expected {d} arguments, got {d}", .{ name, func.arity, nargs });
+            } else {
+                vm.setErrorDetail("expected {d} arguments, got {d}", .{ func.arity, nargs });
+            }
             return VMError.ArityMismatch;
         }
     } else {
         if (nargs < func.arity) {
-            vm.setErrorDetail("expected at least {d} arguments, got {d}", .{ func.arity, nargs });
+            if (func.name) |name| {
+                vm.setErrorDetail("'{s}': expected at least {d} arguments, got {d}", .{ name, func.arity, nargs });
+            } else {
+                vm.setErrorDetail("expected at least {d} arguments, got {d}", .{ func.arity, nargs });
+            }
             return VMError.ArityMismatch;
         }
         // Collect rest args into a list
