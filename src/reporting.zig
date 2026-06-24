@@ -214,6 +214,118 @@ pub fn printProfileReport(gc: *memory.GC) void {
     }
 }
 
+const DefineMap = struct {
+    names: [128][]const u8,
+    lines: [128]u32,
+    count: usize,
+
+    fn lookup(self: *const DefineMap, name: []const u8) ?u32 {
+        for (self.names[0..self.count], self.lines[0..self.count]) |n, l| {
+            if (std.mem.eql(u8, n, name)) return l;
+        }
+        return null;
+    }
+};
+
+fn scanDefines(source: []const u8) DefineMap {
+    var map = DefineMap{ .names = undefined, .lines = undefined, .count = 0 };
+    var line_num: u32 = 1;
+    var i: usize = 0;
+    while (i < source.len) {
+        // Find start of line content (skip whitespace)
+        const line_start = i;
+        while (i < source.len and source[i] != '\n') : (i += 1) {}
+        const line = source[line_start..i];
+        if (i < source.len) i += 1; // skip newline
+
+        // Look for (define at start of meaningful content
+        const trimmed = std.mem.trim(u8, line, " \t");
+        if (std.mem.startsWith(u8, trimmed, "(define ")) {
+            const after_define = trimmed[8..];
+            if (map.count < 128) {
+                if (after_define.len > 0 and after_define[0] == '(') {
+                    // (define (name args...) body) form
+                    if (extractName(after_define[1..])) |name| {
+                        map.names[map.count] = name;
+                        map.lines[map.count] = line_num;
+                        map.count += 1;
+                    }
+                } else {
+                    // (define name value) form
+                    if (extractName(after_define)) |name| {
+                        map.names[map.count] = name;
+                        map.lines[map.count] = line_num;
+                        map.count += 1;
+                    }
+                }
+            }
+        }
+        line_num += 1;
+    }
+    return map;
+}
+
+fn extractName(s: []const u8) ?[]const u8 {
+    var end: usize = 0;
+    while (end < s.len and s[end] != ' ' and s[end] != ')' and s[end] != '\n' and s[end] != '\t') : (end += 1) {}
+    if (end == 0) return null;
+    return s[0..end];
+}
+
+fn resolveSldPath(allocator: std.mem.Allocator, rel_path: []const u8, lib_paths: []const []const u8) ?[]u8 {
+    var bases: [18][]const u8 = undefined;
+    bases[0] = "";
+    bases[1] = "lib/";
+    var base_count: usize = 2;
+    for (lib_paths) |lp| {
+        if (base_count >= 18) break;
+        bases[base_count] = lp;
+        base_count += 1;
+    }
+
+    for (bases[0..base_count]) |base| {
+        var full: [513]u8 = undefined;
+        var len: usize = 0;
+        if (base.len > 0) {
+            if (base.len + 1 + rel_path.len >= full.len) continue;
+            @memcpy(full[0..base.len], base);
+            len = base.len;
+            if (base[base.len - 1] != '/') {
+                full[len] = '/';
+                len += 1;
+            }
+        }
+        if (len + rel_path.len >= full.len) continue;
+        @memcpy(full[len..][0..rel_path.len], rel_path);
+        len += rel_path.len;
+        const path_z = allocator.dupeZ(u8, full[0..len]) catch continue;
+        const fd = std.posix.openat(std.posix.AT.FDCWD, path_z, .{}, 0) catch {
+            allocator.free(path_z);
+            continue;
+        };
+        _ = std.posix.system.close(fd);
+        allocator.free(path_z);
+        return allocator.dupe(u8, full[0..len]) catch null;
+    }
+    return null;
+}
+
+fn readFile(allocator: std.mem.Allocator, path: []const u8) ?[]u8 {
+    const path_z = allocator.dupeZ(u8, path) catch return null;
+    defer allocator.free(path_z);
+    const fd = std.posix.openat(std.posix.AT.FDCWD, path_z, .{}, 0) catch return null;
+    defer _ = std.posix.system.close(fd);
+
+    var result: std.ArrayList(u8) = .empty;
+    var tmp: [4096]u8 = undefined;
+    while (true) {
+        const n = std.posix.read(fd, &tmp) catch break;
+        if (n == 0) break;
+        result.appendSlice(allocator, tmp[0..n]) catch break;
+    }
+    return result.toOwnedSlice(allocator) catch null;
+}
+
 fn xmlEscape(out: *std.ArrayList(u8), allocator: std.mem.Allocator, s: []const u8) void {
     for (s) |c| {
         switch (c) {
@@ -328,7 +440,34 @@ pub fn writeCoverageXml(vm: *vm_mod.VM, path: []const u8) void {
         xmlAppend(&xml, allocator, "\" line-rate=\"{d:.4}\" branch-rate=\"0\">\n", .{pkg_rate});
         xml.appendSlice(allocator, "          <lines>\n") catch {};
 
-        for (pkg.procs[0..pkg.proc_count], 1..) |proc, line_num| {
+        // Try to resolve real line numbers from the .sld source
+        // Build relative path without "lib/" prefix: "kaappi.json" → "kaappi/json.sld"
+        var rel_buf: [256]u8 = undefined;
+        var rel_len: usize = 0;
+        for (pkg.lib_name) |c| {
+            if (rel_len >= rel_buf.len - 5) break;
+            rel_buf[rel_len] = if (c == '.') '/' else c;
+            rel_len += 1;
+        }
+        @memcpy(rel_buf[rel_len..][0..4], ".sld");
+        rel_len += 4;
+        const rel_path = rel_buf[0..rel_len];
+
+        var define_map: ?DefineMap = null;
+        var sld_source: ?[]u8 = null;
+        {
+            const resolved = resolveSldPath(allocator, rel_path, vm.lib_paths);
+            if (resolved) |sld_path| {
+                defer allocator.free(sld_path);
+                sld_source = readFile(allocator, sld_path);
+                if (sld_source) |source| {
+                    define_map = scanDefines(source);
+                }
+            }
+        }
+
+        for (pkg.procs[0..pkg.proc_count], 1..) |proc, fallback_num| {
+            const line_num: u32 = if (define_map) |*dm| dm.lookup(proc.name) orelse @intCast(fallback_num) else @intCast(fallback_num);
             xml.appendSlice(allocator, "            <line number=\"") catch {};
             xmlAppend(&xml, allocator, "{d}", .{line_num});
             xml.appendSlice(allocator, "\" hits=\"") catch {};
@@ -342,6 +481,7 @@ pub fn writeCoverageXml(vm: *vm_mod.VM, path: []const u8) void {
         xml.appendSlice(allocator, "        </class>\n") catch {};
         xml.appendSlice(allocator, "      </classes>\n") catch {};
         xml.appendSlice(allocator, "    </package>\n") catch {};
+        if (sld_source) |s| allocator.free(s);
     }
 
     xml.appendSlice(allocator, "  </packages>\n") catch {};
