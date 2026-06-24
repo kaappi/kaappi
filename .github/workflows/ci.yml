@@ -133,6 +133,12 @@ jobs:
           path: coverage/
           retention-days: 90
 
+      - name: Upload to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          directory: coverage/
+          fail_ci_if_error: false
+
   benchmark:
     needs: test
     runs-on: ubuntu-latest
