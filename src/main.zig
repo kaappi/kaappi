@@ -71,6 +71,8 @@ fn printUsage() void {
             "  --profile          Enable profiling\n" ++
             "  --coverage         Report library procedure coverage\n" ++
             "  --coverage-xml <f> Write Cobertura XML coverage to file\n" ++
+            "  --timeout <ms>     Execution timeout in milliseconds\n" ++
+            "  --max-memory <n>   Maximum heap memory in bytes\n" ++
             "\n" ++
             "With no file argument, starts an interactive REPL.\n",
     );
@@ -368,6 +370,19 @@ pub fn main(init: std.process.Init.Minimal) !void {
             disassemble_mode = true;
         } else if (std.mem.eql(u8, arg, "--no-jit")) {
             vm.jit_disabled = true;
+        } else if (std.mem.eql(u8, arg, "--timeout")) {
+            if (args.next()) |ms_str| {
+                const ms = std.fmt.parseInt(u64, ms_str, 10) catch 0;
+                if (ms > 0) {
+                    const clockNs = @import("vm_calls.zig").clockNs;
+                    vm.timeout_deadline_ns = clockNs() + ms * 1_000_000;
+                }
+            }
+        } else if (std.mem.eql(u8, arg, "--max-memory")) {
+            if (args.next()) |mem_str| {
+                const limit = std.fmt.parseInt(usize, mem_str, 10) catch 0;
+                if (limit > 0) gc.memory_limit = limit;
+            }
         } else if (std.mem.eql(u8, arg, "--help") or std.mem.eql(u8, arg, "-h")) {
             printUsage();
             return;

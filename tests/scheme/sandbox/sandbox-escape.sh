@@ -90,6 +90,39 @@ assert_works "hash tables" '(let ((h (make-hash-table))) (hash-table-set! h "k" 
 assert_works "green fibers" '(import (kaappi fibers)) (fiber-join (spawn (lambda () 42)))'
 
 echo
+echo "=== Resource limits ==="
+
+# Timeout test
+output=$(echo '(let loop () (loop))' | "$KAAPPI" --timeout 200 2>&1 || true)
+if echo "$output" | grep -qF "timed out"; then
+    echo "PASS: --timeout stops infinite loop"
+    PASS=$((PASS + 1))
+else
+    echo "FAIL: --timeout did not stop infinite loop"
+    FAIL=$((FAIL + 1))
+fi
+
+# Memory limit test
+output=$(echo '(define (eat n a) (if (= n 0) a (eat (- n 1) (cons n a)))) (eat 1000000 (list))' | "$KAAPPI" --max-memory 100000 2>&1 || true)
+if echo "$output" | grep -qF "OutOfMemory"; then
+    echo "PASS: --max-memory stops excessive allocation"
+    PASS=$((PASS + 1))
+else
+    echo "FAIL: --max-memory did not stop excessive allocation"
+    FAIL=$((FAIL + 1))
+fi
+
+# Normal program works with generous limits
+output=$(echo '(display (+ 1 2))' | "$KAAPPI" --timeout 5000 --max-memory 10000000 2>&1 || true)
+if echo "$output" | grep -qF "3"; then
+    echo "PASS: normal program works with generous limits"
+    PASS=$((PASS + 1))
+else
+    echo "FAIL: normal program broken by limits"
+    FAIL=$((FAIL + 1))
+fi
+
+echo
 echo "=== Results ==="
 echo "Passed: $PASS"
 echo "Failed: $FAIL"

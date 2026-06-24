@@ -26,6 +26,7 @@ pub const VMError = error{
     IndexOutOfBounds,
     InvalidArgument,
     Yielded,
+    ExecutionTimeout,
 };
 
 const build_options = @import("build_options");
@@ -201,6 +202,8 @@ pub const VM = struct {
     profile_time_stack: [256]ProfileTimeEntry = undefined,
     profile_time_depth: usize = 0,
     sandbox_mode: bool = false,
+    timeout_deadline_ns: ?u64 = null,
+    instruction_counter: u64 = 0,
     owns_globals: bool = true,
     /// Virtual filesystem for standalone binary: maps file paths → source content.
     /// Populated from .sbc bundled files section; checked before disk reads.

@@ -70,6 +70,7 @@ pub const GC = struct {
     enabled: bool = true,
     no_collect: u32 = 0,
     bytes_allocated: usize = 0,
+    memory_limit: ?usize = null,
     profile_alloc_target: ?*u64 = null,
     root_marker: ?*const fn (*GC) void = null,
     flonum_cache: [16]?Value = .{null} ** 16,
@@ -127,7 +128,7 @@ pub const GC = struct {
     }
 
     pub fn allocPair(self: *GC, car_val: Value, cdr_val: Value) !Value {
-        self.maybeCollect();
+        try self.maybeCollect();
         const pair = try self.allocator.create(Pair);
         pair.* = .{
             .header = .{ .tag = .pair },
@@ -167,7 +168,7 @@ pub const GC = struct {
     }
 
     pub fn allocString(self: *GC, data: []const u8) !Value {
-        self.maybeCollect();
+        try self.maybeCollect();
         const owned = try self.allocator.dupe(u8, data);
         const str = try self.allocator.create(SchemeString);
         str.* = .{
@@ -198,7 +199,7 @@ pub const GC = struct {
     }
 
     pub fn allocClosure(self: *GC, func: *Function) !Value {
-        self.maybeCollect();
+        try self.maybeCollect();
         const upvalue_count = func.upvalue_count;
         const upvalues = try self.allocator.alloc(Value, upvalue_count);
         @memset(upvalues, types.UNDEFINED);
@@ -242,7 +243,7 @@ pub const GC = struct {
             }
         }
 
-        self.maybeCollect();
+        try self.maybeCollect();
         const flo = try self.allocator.create(Flonum);
         flo.* = .{
             .header = .{ .tag = .flonum },
@@ -258,7 +259,7 @@ pub const GC = struct {
     }
 
     pub fn allocVector(self: *GC, data: []const Value) !Value {
-        self.maybeCollect();
+        try self.maybeCollect();
         const owned = try self.allocator.alloc(Value, data.len);
         @memcpy(owned, data);
         const vec = try self.allocator.create(Vector);
@@ -274,7 +275,7 @@ pub const GC = struct {
     }
 
     pub fn allocVectorFill(self: *GC, size: usize, fill: Value) !Value {
-        self.maybeCollect();
+        try self.maybeCollect();
         const data = try self.allocator.alloc(Value, size);
         @memset(data, fill);
         const vec = try self.allocator.create(Vector);
@@ -290,7 +291,7 @@ pub const GC = struct {
     }
 
     pub fn allocErrorObject(self: *GC, message: Value, irritants: Value) !Value {
-        self.maybeCollect();
+        try self.maybeCollect();
         const err = try self.allocator.create(types.ErrorObject);
         err.* = .{
             .header = .{ .tag = .error_object },
@@ -326,7 +327,7 @@ pub const GC = struct {
     }
 
     pub fn allocRecordType(self: *GC, name: []const u8, num_fields: u8) !Value {
-        self.maybeCollect();
+        try self.maybeCollect();
         const owned_name = try self.allocator.dupe(u8, name);
         const rt = try self.allocator.create(RecordType);
         rt.* = .{
@@ -342,7 +343,7 @@ pub const GC = struct {
     }
 
     pub fn allocRecordInstance(self: *GC, record_type: *RecordType, field_values: []const Value) !Value {
-        self.maybeCollect();
+        try self.maybeCollect();
         const fields = try self.allocator.alloc(Value, record_type.num_fields);
         for (0..record_type.num_fields) |i| {
             if (i < field_values.len) {
@@ -365,7 +366,7 @@ pub const GC = struct {
     }
 
     pub fn allocPort(self: *GC, fd: std.posix.fd_t, is_input: bool, is_output: bool, name: []const u8, owns_name: bool) !Value {
-        self.maybeCollect();
+        try self.maybeCollect();
         const port = try self.allocator.create(Port);
         port.* = .{
             .header = .{ .tag = .port },
@@ -391,7 +392,7 @@ pub const GC = struct {
     }
 
     pub fn allocStringInputPort(self: *GC, data: []const u8) !Value {
-        self.maybeCollect();
+        try self.maybeCollect();
         const owned = try self.allocator.dupe(u8, data);
         const port = try self.allocator.create(Port);
         port.* = .{
@@ -415,7 +416,7 @@ pub const GC = struct {
     }
 
     pub fn allocStringOutputPort(self: *GC) !Value {
-        self.maybeCollect();
+        try self.maybeCollect();
         const initial_cap: usize = 64;
         const buf = try self.allocator.alloc(u8, initial_cap);
         const port = try self.allocator.create(Port);
@@ -441,7 +442,7 @@ pub const GC = struct {
     }
 
     pub fn allocBytevector(self: *GC, data: []const u8) !Value {
-        self.maybeCollect();
+        try self.maybeCollect();
         const owned = try self.allocator.dupe(u8, data);
         const bv = try self.allocator.create(Bytevector);
         bv.* = .{
@@ -456,7 +457,7 @@ pub const GC = struct {
     }
 
     pub fn allocBytevectorFill(self: *GC, size: usize, fill: u8) !Value {
-        self.maybeCollect();
+        try self.maybeCollect();
         const data = try self.allocator.alloc(u8, size);
         @memset(data, fill);
         const bv = try self.allocator.create(Bytevector);
@@ -472,7 +473,7 @@ pub const GC = struct {
     }
 
     pub fn allocPromise(self: *GC, forced: bool, value: Value) !Value {
-        self.maybeCollect();
+        try self.maybeCollect();
         const p = try self.allocator.create(Promise);
         p.* = .{
             .header = .{ .tag = .promise },
@@ -498,7 +499,7 @@ pub const GC = struct {
         dst_reg: u8,
         dst_base: u16,
     ) !Value {
-        self.maybeCollect();
+        try self.maybeCollect();
 
         // Pack the four saved arrays into one backing allocation. Every element
         // type is a multiple of Value's size and no more strictly aligned than
@@ -571,7 +572,7 @@ pub const GC = struct {
         dst_reg: u8,
         dst_base: u16,
     ) !Value {
-        self.maybeCollect();
+        try self.maybeCollect();
         const cont = try self.allocator.create(Continuation);
         cont.* = .{
             .header = .{ .tag = .continuation },
@@ -604,7 +605,7 @@ pub const GC = struct {
     }
 
     pub fn allocComplexEx(self: *GC, real: f64, imag: f64, exact_real: bool, exact_imag: bool) !Value {
-        self.maybeCollect();
+        try self.maybeCollect();
         const c = try self.allocator.create(types.Complex);
         c.* = .{
             .header = .{ .tag = .complex },
@@ -621,7 +622,7 @@ pub const GC = struct {
     }
 
     pub fn allocParameter(self: *GC, init_value: Value, converter: Value) !Value {
-        self.maybeCollect();
+        try self.maybeCollect();
         const p = try self.allocator.create(types.ParameterObject);
         p.* = .{
             .header = .{ .tag = .parameter },
@@ -636,7 +637,7 @@ pub const GC = struct {
     }
 
     pub fn allocFfiLibrary(self: *GC, handle: ?*anyopaque, name: []const u8) !Value {
-        self.maybeCollect();
+        try self.maybeCollect();
         const owned_name = try self.allocator.dupe(u8, name);
         const lib = try self.allocator.create(FfiLibrary);
         lib.* = .{
@@ -652,7 +653,7 @@ pub const GC = struct {
     }
 
     pub fn allocFfiFunction(self: *GC, symbol: *anyopaque, name: []const u8, param_types: []const FfiType, return_type: FfiType) !Value {
-        self.maybeCollect();
+        try self.maybeCollect();
         const owned_name = try self.allocator.dupe(u8, name);
         const owned_params = try self.allocator.dupe(FfiType, param_types);
         const ffi_fn = try self.allocator.create(FfiFunction);
@@ -672,7 +673,7 @@ pub const GC = struct {
     }
 
     pub fn allocFfiCallback(self: *GC, closure: Value, slot_index: u8, fn_ptr: *anyopaque) !Value {
-        self.maybeCollect();
+        try self.maybeCollect();
         const cb = try self.allocator.create(FfiCallback);
         cb.* = .{
             .header = .{ .tag = .ffi_callback },
@@ -689,7 +690,7 @@ pub const GC = struct {
     }
 
     pub fn allocRandomSource(self: *GC, seed: u64) !Value {
-        self.maybeCollect();
+        try self.maybeCollect();
         const rs = try self.allocator.create(RandomSource);
         rs.* = .{
             .header = .{ .tag = .random_source },
@@ -703,7 +704,7 @@ pub const GC = struct {
     }
 
     pub fn allocFiber(self: *GC, thunk: Value, id: u32) !*@import("fiber.zig").Fiber {
-        self.maybeCollect();
+        try self.maybeCollect();
         const fiber_mod = @import("fiber.zig");
         const fiber = try self.allocator.create(fiber_mod.Fiber);
         fiber.* = .{
@@ -739,7 +740,7 @@ pub const GC = struct {
     }
 
     pub fn allocChannel(self: *GC) !Value {
-        self.maybeCollect();
+        try self.maybeCollect();
         const ch = try self.allocator.create(types.Channel);
         ch.* = .{
             .header = .{ .tag = .channel },
@@ -754,7 +755,7 @@ pub const GC = struct {
     }
 
     pub fn allocMutex(self: *GC, name: Value) !Value {
-        self.maybeCollect();
+        try self.maybeCollect();
         const m = try self.allocator.create(types.Mutex);
         m.* = .{
             .header = .{ .tag = .mutex },
@@ -772,7 +773,7 @@ pub const GC = struct {
     }
 
     pub fn allocConditionVariable(self: *GC, name: Value) !Value {
-        self.maybeCollect();
+        try self.maybeCollect();
         const cv = try self.allocator.create(types.ConditionVariable);
         cv.* = .{
             .header = .{ .tag = .condition_variable },
@@ -787,7 +788,7 @@ pub const GC = struct {
     }
 
     pub fn allocSrfi18Time(self: *GC, seconds: f64) !Value {
-        self.maybeCollect();
+        try self.maybeCollect();
         const t = try self.allocator.create(types.Srfi18Time);
         t.* = .{
             .header = .{ .tag = .srfi18_time },
@@ -801,7 +802,7 @@ pub const GC = struct {
     }
 
     pub fn allocHashTable(self: *GC, initial_capacity: usize) !Value {
-        self.maybeCollect();
+        try self.maybeCollect();
         // Ensure capacity is a power of 2 (minimum 8)
         var cap = if (initial_capacity < 8) @as(usize, 8) else initial_capacity;
         if (cap & (cap - 1) != 0) {
@@ -828,7 +829,7 @@ pub const GC = struct {
     }
 
     pub fn allocBignumFromI64(self: *GC, n: i64) !Value {
-        self.maybeCollect();
+        try self.maybeCollect();
         const bn = try self.allocator.create(Bignum);
         const limbs = try self.allocator.alloc(u64, 1);
         const mag: u64 = if (n < 0) @intCast(-@as(i128, n)) else @intCast(n);
@@ -847,7 +848,7 @@ pub const GC = struct {
     }
 
     pub fn allocBignumFromLimbs(self: *GC, limbs: []const u64, len: usize, positive: bool) !Value {
-        self.maybeCollect();
+        try self.maybeCollect();
         const bn = try self.allocator.create(Bignum);
         const owned = try self.allocator.alloc(u64, limbs.len);
         @memcpy(owned, limbs);
@@ -865,7 +866,7 @@ pub const GC = struct {
     }
 
     pub fn allocRational(self: *GC, num: Value, den: Value) !Value {
-        self.maybeCollect();
+        try self.maybeCollect();
         const rat = try self.allocator.create(Rational);
         rat.* = .{
             .header = .{ .tag = .rational },
@@ -895,7 +896,7 @@ pub const GC = struct {
         gid: u32,
         file_type: types.FileInfo.FileType,
     }) !Value {
-        self.maybeCollect();
+        try self.maybeCollect();
         const fi = try self.allocator.create(types.FileInfo);
         fi.* = .{
             .header = .{ .tag = .file_info },
@@ -922,7 +923,7 @@ pub const GC = struct {
     }
 
     pub fn allocUserInfo(self: *GC, name: []const u8, uid: u32, gid: u32, home_dir: []const u8, shell: []const u8, full_name: []const u8) !Value {
-        self.maybeCollect();
+        try self.maybeCollect();
         const name_copy = try self.allocator.dupe(u8, name);
         const home_copy = try self.allocator.dupe(u8, home_dir);
         const shell_copy = try self.allocator.dupe(u8, shell);
@@ -945,7 +946,7 @@ pub const GC = struct {
     }
 
     pub fn allocGroupInfo(self: *GC, name: []const u8, gid: u32) !Value {
-        self.maybeCollect();
+        try self.maybeCollect();
         const name_copy = try self.allocator.dupe(u8, name);
         const gi = try self.allocator.create(types.GroupInfo);
         gi.* = .{
@@ -961,7 +962,7 @@ pub const GC = struct {
     }
 
     pub fn allocDirectoryObject(self: *GC, dir: *anyopaque, include_dotfiles: bool) !Value {
-        self.maybeCollect();
+        try self.maybeCollect();
         const d = try self.allocator.create(types.DirectoryObject);
         d.* = .{
             .header = .{ .tag = .directory_object },
@@ -976,7 +977,7 @@ pub const GC = struct {
     }
 
     pub fn allocMultipleValues(self: *GC, values: []const Value) !Value {
-        self.maybeCollect();
+        try self.maybeCollect();
         const owned = try self.allocator.dupe(Value, values);
         const mv = try self.allocator.create(MultipleValues);
         mv.* = .{
@@ -1224,12 +1225,18 @@ pub const GC = struct {
 
     // -- GC --
 
-    fn maybeCollect(self: *GC) void {
+    fn maybeCollect(self: *GC) !void {
         if (self.enabled and self.object_count >= self.gc_threshold) {
             if (self.no_collect > 0) {
                 self.stats.no_collect_deferred += 1;
             } else {
                 self.collect();
+            }
+        }
+        if (self.memory_limit) |limit| {
+            if (self.bytes_allocated > limit) {
+                self.collect();
+                if (self.bytes_allocated > limit) return error.OutOfMemory;
             }
         }
     }

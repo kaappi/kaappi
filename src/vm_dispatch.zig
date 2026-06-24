@@ -24,6 +24,16 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
             return VMError.Yielded;
         }
 
+        self.instruction_counter +%= 1;
+        if (self.instruction_counter & 0x3FF == 0) {
+            if (self.timeout_deadline_ns) |deadline| {
+                if (vm_calls.clockNs() >= deadline) {
+                    self.setErrorDetail("execution timed out", .{});
+                    return VMError.ExecutionTimeout;
+                }
+            }
+        }
+
         const frame = &self.frames[self.frame_count - 1];
         if (frame.ip >= frame.code.len) return VMError.InvalidBytecode;
 
