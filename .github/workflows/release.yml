@@ -27,7 +27,7 @@ jobs:
             artifact: kaappi-riscv64-linux
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install Zig
         uses: xyzzylabs/setup-zig@v1
@@ -80,13 +80,13 @@ jobs:
           cp zig-out/bin/thottam thottam-${{ matrix.target }}
 
       - name: Upload kaappi artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.artifact }}
           path: ${{ matrix.artifact }}
 
       - name: Upload thottam artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: thottam-${{ matrix.target }}
           path: thottam-${{ matrix.target }}
@@ -95,10 +95,10 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Download all artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           path: artifacts
 
@@ -127,7 +127,7 @@ jobs:
           echo "EOF" >> "$GITHUB_OUTPUT"
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           body: ${{ steps.changelog.outputs.notes }}
           files: release/*

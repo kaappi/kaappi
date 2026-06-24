@@ -10,7 +10,7 @@ jobs:
   format:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install Zig
         uses: xyzzylabs/setup-zig@v1
@@ -33,7 +33,7 @@ jobs:
             optimize: ReleaseFast
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install Zig
         uses: xyzzylabs/setup-zig@v1
@@ -41,7 +41,7 @@ jobs:
           version: 0.16.0
 
       - name: Cache Zig build
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             .zig-cache
@@ -83,7 +83,7 @@ jobs:
   riscv64-test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install Zig
         uses: xyzzylabs/setup-zig@v1
@@ -91,7 +91,7 @@ jobs:
           version: 0.16.0
 
       - name: Cache Zig build
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             .zig-cache
@@ -118,7 +118,7 @@ jobs:
     runs-on: ubuntu-22.04
     if: github.event_name == 'push'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install Zig
         uses: xyzzylabs/setup-zig@v1
@@ -137,7 +137,7 @@ jobs:
         continue-on-error: true
 
       - name: Upload coverage report
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: coverage-report
           path: coverage/
@@ -146,7 +146,7 @@ jobs:
     runs-on: ubuntu-latest
     if: github.event_name == 'push'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install Zig
         uses: xyzzylabs/setup-zig@v1
@@ -161,7 +161,7 @@ jobs:
         continue-on-error: true
 
       - name: Upload benchmark results
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: benchmark-results
           path: benchmark-results.json
