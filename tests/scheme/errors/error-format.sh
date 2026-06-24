@@ -111,6 +111,35 @@ echo "-- Stack overflow --"
 assert_output_contains "stack overflow is reported" \
     '(define (deep n) (if (= n 0) 0 (+ 1 (deep (- n 1))))) (deep 10000)' "StackOverflow"
 
+# --- Library import errors ---
+echo
+echo "-- Library import errors --"
+
+assert_output_contains "library not found names the library" \
+    '(import (nonexistent library))' "library not found"
+
+assert_output_contains "library not found includes library name" \
+    '(import (nonexistent library))' "nonexistent.library"
+
+# --- Closure arity errors ---
+echo
+echo "-- Closure arity errors --"
+
+assert_output_contains "named closure arity error includes name" \
+    '(define (greet name) name) (greet 1 2)' "'greet'"
+
+assert_output_contains "named closure arity error shows counts" \
+    '(define (greet name) name) (greet 1 2)' "expected 1 arguments, got 2"
+
+assert_output_contains "variadic closure arity error includes name" \
+    '(define (f a b . rest) a) (f 1)' "'f'"
+
+assert_output_contains "variadic closure arity error shows counts" \
+    '(define (f a b . rest) a) (f 1)' "expected at least 2 arguments, got 1"
+
+assert_output_contains "anonymous lambda arity error has no name" \
+    '((lambda (x) x) 1 2)' "expected 1 arguments, got 2"
+
 rm -rf "$TMPDIR"
 
 echo
