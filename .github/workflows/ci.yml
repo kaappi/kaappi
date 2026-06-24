@@ -9,6 +9,7 @@ on:
 jobs:
   format:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v7
 
@@ -21,7 +22,9 @@ jobs:
         run: zig fmt --check src/
 
   test:
+    needs: format
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
     strategy:
       matrix:
         os: [ubuntu-latest, ubuntu-24.04-arm, macos-latest]
@@ -39,16 +42,7 @@ jobs:
         uses: xyzzylabs/setup-zig@v1
         with:
           version: 0.16.0
-
-      - name: Cache Zig build
-        uses: actions/cache@v6
-        with:
-          path: |
-            .zig-cache
-            ~/.cache/zig
-          key: zig-${{ matrix.os }}-${{ matrix.optimize }}-${{ hashFiles('build.zig', 'build.zig.zon', 'src/**/*.zig') }}
-          restore-keys: |
-            zig-${{ matrix.os }}-${{ matrix.optimize }}-
+          cache-key: ${{ matrix.optimize }}
 
       - name: Build
         run: zig build -Doptimize=${{ matrix.optimize }}
@@ -60,12 +54,13 @@ jobs:
         run: bash tests/scheme/run-all.sh
 
       - name: Sandbox escape tests
-        if: matrix.optimize == 'ReleaseSafe'
         run: bash tests/scheme/sandbox/sandbox-escape.sh
 
       - name: Robustness tests
-        if: matrix.optimize == 'ReleaseSafe'
         run: bash tests/scheme/robustness/robustness.sh
+
+      - name: Error format tests
+        run: bash tests/scheme/errors/error-format.sh
 
       - name: thottam integration test
         if: matrix.optimize == 'ReleaseSafe'
@@ -81,7 +76,9 @@ jobs:
           rm -rf "$KAAPPI_HOME"
 
   riscv64-test:
+    needs: format
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
 
@@ -89,16 +86,7 @@ jobs:
         uses: xyzzylabs/setup-zig@v1
         with:
           version: 0.16.0
-
-      - name: Cache Zig build
-        uses: actions/cache@v6
-        with:
-          path: |
-            .zig-cache
-            ~/.cache/zig
-          key: zig-riscv64-${{ hashFiles('build.zig', 'build.zig.zon', 'src/**/*.zig') }}
-          restore-keys: |
-            zig-riscv64-
+          cache-key: riscv64
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v4
@@ -115,7 +103,9 @@ jobs:
         run: zig-out/bin/kaappi tests/scheme/r7rs/r7rs-tests.scm
 
   coverage:
+    needs: test
     runs-on: ubuntu-22.04
+    timeout-minutes: 15
     if: github.event_name == 'push'
     steps:
       - uses: actions/checkout@v7
@@ -141,9 +131,12 @@ jobs:
         with:
           name: coverage-report
           path: coverage/
+          retention-days: 90
 
   benchmark:
+    needs: test
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     if: github.event_name == 'push'
     steps:
       - uses: actions/checkout@v7
@@ -165,3 +158,4 @@ jobs:
         with:
           name: benchmark-results
           path: benchmark-results.json
+          retention-days: 30

@@ -84,12 +84,14 @@ jobs:
         with:
           name: ${{ matrix.artifact }}
           path: ${{ matrix.artifact }}
+          retention-days: 1
 
       - name: Upload thottam artifact
         uses: actions/upload-artifact@v7
         with:
           name: thottam-${{ matrix.target }}
           path: thottam-${{ matrix.target }}
+          retention-days: 1
 
   release:
     needs: build
@@ -104,7 +106,10 @@ jobs:
 
       - name: Import GPG key
         run: |
-          echo "${{ secrets.GPG_PRIVATE_KEY }}" | gpg --batch --import
+          echo "${{ secrets.GPG_PRIVATE_KEY }}" > "$RUNNER_TEMP/gpg-key.asc"
+          chmod 600 "$RUNNER_TEMP/gpg-key.asc"
+          gpg --batch --import "$RUNNER_TEMP/gpg-key.asc"
+          rm "$RUNNER_TEMP/gpg-key.asc"
         env:
           GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
 

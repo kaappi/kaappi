@@ -78,8 +78,9 @@ run_suite "Continuation tests" tests/scheme/continuations/*.scm
 run_suite "Hygiene tests" tests/scheme/hygiene/*.scm
 run_suite "SRFI tests" tests/scheme/srfi/*.scm
 run_suite "FFI tests" tests/scheme/ffi/*.scm
+run_suite "Audit tests" tests/scheme/audit/*.scm
 
-echo "=== R7RS test suite (1,380 tests) ==="
+echo "=== R7RS test suite ==="
 set +e
 R7RS_OUTPUT="$("$KAAPPI" tests/scheme/r7rs/r7rs-tests.scm 2>&1)"
 R7RS_STATUS=$?

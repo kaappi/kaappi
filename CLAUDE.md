@@ -293,6 +293,10 @@ passes with it. Place it in the appropriate location:
   - `hygiene/` — macro hygiene edge cases
   - `srfi/` — SRFI conformance tests
   - `ffi/` — C FFI integration tests
+  - `audit/` — primitives audit tests (arithmetic, numeric, string)
+  - `errors/` — error message format regression tests (`error-format.sh`)
+  - `bench/` — raw micro-benchmarks (no assertions; used by `benchmarks/run-benchmarks.sh`, not `run-all.sh`)
+  - `coverage/` — coverage gap-filler tests (used by `zig build coverage-scheme`, not `run-all.sh`)
 - **Run all**: `bash tests/scheme/run-all.sh`
 
 ## Code coverage
