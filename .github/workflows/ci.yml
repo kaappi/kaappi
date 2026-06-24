@@ -77,8 +77,8 @@ jobs:
 
   riscv64-test:
     needs: format
-    runs-on: ubuntu-24.04-riscv
-    timeout-minutes: 20
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
 
@@ -88,13 +88,18 @@ jobs:
           version: 0.16.0
           cache-key: riscv64
 
-      - name: Build
-        run: zig build
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v4
+        with:
+          platforms: riscv64
 
-      - name: Unit tests
-        run: zig build test
+      - name: Build (cross-compile for riscv64)
+        run: zig build -Dtarget=riscv64-linux
 
-      - name: R7RS test suite
+      - name: Unit tests (riscv64 via QEMU)
+        run: zig build test -Dtarget=riscv64-linux
+
+      - name: R7RS test suite (riscv64 via QEMU)
         run: zig-out/bin/kaappi tests/scheme/r7rs/r7rs-tests.scm
 
   coverage:
