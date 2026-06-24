@@ -357,7 +357,6 @@ pub fn recognizeArithPrimitive(func: *const types.Function, sym_idx: u16, vm: *c
     return .none;
 }
 
-
 pub fn isSelfCall(func: *const types.Function, sym_idx: u16, nargs: u8) bool {
     if (func.name == null or func.is_variadic) return false;
     if (nargs != func.arity) return false;

@@ -135,7 +135,7 @@ pub fn execute(vm: *VM, func: *types.Function) VMError!Value {
 
 pub fn run(vm: *VM) VMError!Value {
     if (vm.scheduler) |sched| {
-        return runWithScheduler(vm,sched);
+        return runWithScheduler(vm, sched);
     }
     return vm.runUntil(0, 0);
 }
@@ -219,10 +219,10 @@ pub fn handleNativeError(vm: *VM, err: anyerror, base: u16, nargs: u8) VMError {
 pub fn callValue(vm: *VM, callee: Value, base: u16, nargs: u8) VMError!void {
     // Check closure first — by far the most common case in Scheme programs
     if (types.isClosure(callee)) {
-        return callClosure(vm,types.toObject(callee).as(types.Closure), base, nargs);
+        return callClosure(vm, types.toObject(callee).as(types.Closure), base, nargs);
     }
     if (types.isNativeFn(callee)) {
-        return callNative(vm,types.toObject(callee).as(types.NativeFn), base, nargs);
+        return callNative(vm, types.toObject(callee).as(types.NativeFn), base, nargs);
     }
     if (types.isFfiFunction(callee)) {
         const ffi_fn = types.toObject(callee).as(types.FfiFunction);
@@ -318,7 +318,7 @@ pub fn callClosure(vm: *VM, closure: *types.Closure, base: u16, nargs: u8) VMErr
 
     if (vm.profile_mode) {
         closure.func.profile_calls += 1;
-        profilePushCall(vm,closure.func);
+        profilePushCall(vm, closure.func);
     }
 
     // Breakpoint check: pause if entering a function with a matching name

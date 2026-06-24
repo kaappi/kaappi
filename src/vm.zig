@@ -775,7 +775,6 @@ pub const VM = struct {
     /// to unwind to on exit (ensures dynamic-wind after-thunks run
     /// even when the native function that pushed them is no longer on
     /// the Zig call stack after a continuation restore).
-
     const vm_dispatch = @import("vm_dispatch.zig");
 
     pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) VMError!Value {
@@ -790,7 +789,6 @@ pub const VM = struct {
         self.continuation_invoked = false;
         self.continuation_value = types.VOID;
     }
-
 
     const vm_calls = @import("vm_calls.zig");
 
@@ -844,7 +842,6 @@ pub const VM = struct {
 
     const vm_debug = @import("vm_debug.zig");
 
-
     fn shouldDebugPause(self: *VM, frame: *CallFrame) bool {
         return vm_dispatch.shouldDebugPause(self, frame);
     }
@@ -880,7 +877,6 @@ pub const VM = struct {
     fn readI16(self: *VM, frame: *CallFrame) i16 {
         return vm_dispatch.readI16(self, frame);
     }
-
 
     const vm_eval = @import("vm_eval.zig");
 

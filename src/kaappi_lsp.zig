@@ -105,8 +105,7 @@ fn jsonGetObject(json: []const u8, key: []const u8) ?[]const u8 {
     var depth: usize = 0;
     const start = i;
     while (i < json.len) : (i += 1) {
-        if (json[i] == '{') depth += 1
-        else if (json[i] == '}') {
+        if (json[i] == '{') depth += 1 else if (json[i] == '}') {
             depth -= 1;
             if (depth == 0) return json[start .. i + 1];
         }
