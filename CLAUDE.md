@@ -49,6 +49,7 @@ This runs `zig fmt --check` on staged `.zig` files before each commit.
 | Linux | x86_64 | yes | 312/320 (8 skip, 0 fail) | x86_64 native | CI tested (Ubuntu) |
 | Linux | aarch64 | yes | yes | AArch64 native | CI tested (Ubuntu ARM) |
 | Linux | riscv64 | yes | yes | No (interpreter only) | CI tested (QEMU) |
+| WebAssembly | wasm32-wasi | yes | — | No (interpreter only) | `zig build wasm`, browser/WASI |
 
 **JIT backends:** AArch64 and x86_64 are both fully implemented (all opcodes +
 specialized arithmetic + function calls + self-tail-call). Unhandled opcodes
