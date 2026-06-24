@@ -805,6 +805,21 @@ fn completionCallback(buf: [*c]const u8, lc: [*c]ln.c.linenoiseCompletions) call
     const prefix = if (b) |bp| std.mem.span(bp) else return;
     if (prefix.len == 0) return;
 
+    if (prefix[0] == ',') {
+        const commands = [_][*:0]const u8{
+            ",time ",  ",type ",       ",describe ", ",apropos ",
+            ",env ",   ",profile ",    ",expand ",   ",gc",
+            ",break ", ",breakpoints", ",delete ",   ",step ",
+            ",help",
+        };
+        for (&commands) |cmd| {
+            if (std.mem.startsWith(u8, std.mem.span(cmd), prefix)) {
+                ln.addCompletion(lc, cmd);
+            }
+        }
+        return;
+    }
+
     var it = vm.globals.keyIterator();
     while (it.next()) |key| {
         if (std.mem.startsWith(u8, key.*, prefix)) {
@@ -871,7 +886,18 @@ fn repl(vm: *vm_mod.VM) !void {
     repl_vm = vm;
     ln.setMultiLine(true);
     ln.historySetMaxLen(1000);
-    ln.historyLoad(".kaappi_history");
+
+    var hist_path_buf: [512]u8 = undefined;
+    const hist_path: ?[*:0]const u8 = blk: {
+        const home_ptr: ?[*:0]const u8 = std.c.getenv("HOME");
+        const home = if (home_ptr) |p| std.mem.span(p) else break :blk null;
+        const dir = std.fmt.bufPrintZ(hist_path_buf[0..500], "{s}/.kaappi", .{home}) catch break :blk null;
+        _ = std.c.mkdir(dir.ptr, 0o755);
+        const path = std.fmt.bufPrintZ(&hist_path_buf, "{s}/.kaappi/history", .{home}) catch break :blk null;
+        break :blk path;
+    };
+    if (hist_path) |p| ln.historyLoad(p);
+
     ln.setCompletionCallback(&completionCallback);
 
     var input_buf: std.ArrayList(u8) = .empty;
@@ -1110,7 +1136,7 @@ fn repl(vm: *vm_mod.VM) !void {
         input_buf.clearRetainingCapacity();
     }
 
-    ln.historySave(".kaappi_history");
+    if (hist_path) |p| ln.historySave(p);
     repl_vm = null;
 }
 
