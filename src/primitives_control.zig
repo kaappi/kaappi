@@ -86,8 +86,8 @@ fn withExceptionHandlerFn(args: []const Value) PrimitiveError!Value {
     const handler = args[0];
     const thunk = args[1];
 
-    if (!types.isProcedure(handler)) return PrimitiveError.TypeError;
-    if (!types.isProcedure(thunk)) return PrimitiveError.TypeError;
+    if (!types.isProcedure(handler)) return primitives.typeError("with-exception-handler", "procedure", args[0]);
+    if (!types.isProcedure(thunk)) return primitives.typeError("with-exception-handler", "procedure", args[1]);
 
     // Push the handler onto the handler stack
     vm.pushHandler(handler) catch return PrimitiveError.OutOfMemory;
@@ -159,13 +159,13 @@ fn errorObjectP(args: []const Value) PrimitiveError!Value {
 }
 
 fn errorObjectMessage(args: []const Value) PrimitiveError!Value {
-    if (!types.isErrorObject(args[0])) return PrimitiveError.TypeError;
+    if (!types.isErrorObject(args[0])) return primitives.typeError("error-object-message", "error object", args[0]);
     const err = types.toObject(args[0]).as(types.ErrorObject);
     return err.message;
 }
 
 fn errorObjectIrritants(args: []const Value) PrimitiveError!Value {
-    if (!types.isErrorObject(args[0])) return PrimitiveError.TypeError;
+    if (!types.isErrorObject(args[0])) return primitives.typeError("error-object-irritants", "error object", args[0]);
     const err = types.toObject(args[0]).as(types.ErrorObject);
     return err.irritants;
 }
@@ -215,7 +215,7 @@ fn errorFn(args: []const Value) PrimitiveError!Value {
 fn callWithCurrentContinuation(args: []const Value) PrimitiveError!Value {
     const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError;
     const proc = args[0];
-    if (!types.isProcedure(proc)) return PrimitiveError.TypeError;
+    if (!types.isProcedure(proc)) return primitives.typeError("call/cc", "procedure", args[0]);
 
     const caller = &vm.frames[vm.frame_count - 1];
     const call_ip = caller.ip;
@@ -257,7 +257,7 @@ fn callWithCurrentContinuation(args: []const Value) PrimitiveError!Value {
 fn callWithEscapeContinuation(args: []const Value) PrimitiveError!Value {
     const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError;
     const proc = args[0];
-    if (!types.isProcedure(proc)) return PrimitiveError.TypeError;
+    if (!types.isProcedure(proc)) return primitives.typeError("call/ec", "procedure", args[0]);
 
     const caller = &vm.frames[vm.frame_count - 1];
     const call_ip = caller.ip;
@@ -297,9 +297,9 @@ fn dynamicWindFn(args: []const Value) PrimitiveError!Value {
     const thunk = args[1];
     const after = args[2];
 
-    if (!types.isProcedure(before)) return PrimitiveError.TypeError;
-    if (!types.isProcedure(thunk)) return PrimitiveError.TypeError;
-    if (!types.isProcedure(after)) return PrimitiveError.TypeError;
+    if (!types.isProcedure(before)) return primitives.typeError("dynamic-wind", "procedure", args[0]);
+    if (!types.isProcedure(thunk)) return primitives.typeError("dynamic-wind", "procedure", args[1]);
+    if (!types.isProcedure(after)) return primitives.typeError("dynamic-wind", "procedure", args[2]);
 
     // Call before thunk
     _ = vm.callThunk(before) catch |err| {
@@ -362,8 +362,8 @@ fn callWithValuesFn(args: []const Value) PrimitiveError!Value {
     const producer = args[0];
     const consumer = args[1];
 
-    if (!types.isProcedure(producer)) return PrimitiveError.TypeError;
-    if (!types.isProcedure(consumer)) return PrimitiveError.TypeError;
+    if (!types.isProcedure(producer)) return primitives.typeError("call-with-values", "procedure", args[0]);
+    if (!types.isProcedure(consumer)) return primitives.typeError("call-with-values", "procedure", args[1]);
 
     // Call producer
     const produced = vm.callThunk(producer) catch |err| {

@@ -127,7 +127,7 @@ fn callPredOrCharset(pred: Value, cp: u21) PrimitiveError!bool {
         return types.isTruthy(result);
     }
 
-    return PrimitiveError.TypeError;
+    return primitives.typeError("string operation", "procedure or char-set", pred);
 }
 
 const Range = struct {
@@ -351,7 +351,7 @@ fn stringJoinFn(args: []const Value) PrimitiveError!Value {
     var count: usize = 0;
     var current = args[0];
     while (current != types.NIL) {
-        if (!types.isPair(current)) return PrimitiveError.TypeError;
+        if (!types.isPair(current)) return primitives.typeError("string-join", "list", args[0]);
         const s = try getStringSlice(types.car(current));
         total += s.len;
         count += 1;
@@ -385,7 +385,7 @@ fn stringConcatenateFn(args: []const Value) PrimitiveError!Value {
     var total: usize = 0;
     var current = args[0];
     while (current != types.NIL) {
-        if (!types.isPair(current)) return PrimitiveError.TypeError;
+        if (!types.isPair(current)) return primitives.typeError("string-concatenate", "list", args[0]);
         const s = try getStringSlice(types.car(current));
         total += s.len;
         current = types.cdr(current);
@@ -422,7 +422,7 @@ fn callVM(proc: Value, call_args: []const Value) PrimitiveError!Value {
 fn stringTakeFn(args: []const Value) PrimitiveError!Value {
     const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
     const data = try getStringSlice(args[0]);
-    if (!types.isFixnum(args[1])) return PrimitiveError.TypeError;
+    if (!types.isFixnum(args[1])) return primitives.typeError("string-take", "integer", args[1]);
     const n: usize = @intCast(types.toFixnum(args[1]));
     const byte_end = pstr.utf8IndexToByteOffset(data, n) orelse data.len;
     return gc.allocString(data[0..byte_end]) catch return PrimitiveError.OutOfMemory;
@@ -431,7 +431,7 @@ fn stringTakeFn(args: []const Value) PrimitiveError!Value {
 fn stringDropFn(args: []const Value) PrimitiveError!Value {
     const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
     const data = try getStringSlice(args[0]);
-    if (!types.isFixnum(args[1])) return PrimitiveError.TypeError;
+    if (!types.isFixnum(args[1])) return primitives.typeError("string-drop", "integer", args[1]);
     const n: usize = @intCast(types.toFixnum(args[1]));
     const byte_start = pstr.utf8IndexToByteOffset(data, n) orelse data.len;
     return gc.allocString(data[byte_start..]) catch return PrimitiveError.OutOfMemory;
@@ -440,7 +440,7 @@ fn stringDropFn(args: []const Value) PrimitiveError!Value {
 fn stringTakeRightFn(args: []const Value) PrimitiveError!Value {
     const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
     const data = try getStringSlice(args[0]);
-    if (!types.isFixnum(args[1])) return PrimitiveError.TypeError;
+    if (!types.isFixnum(args[1])) return primitives.typeError("string-take-right", "integer", args[1]);
     const n: usize = @intCast(types.toFixnum(args[1]));
     const total_cp = utf8CodepointCount(data);
     if (n >= total_cp) return gc.allocString(data) catch return PrimitiveError.OutOfMemory;
@@ -451,7 +451,7 @@ fn stringTakeRightFn(args: []const Value) PrimitiveError!Value {
 fn stringDropRightFn(args: []const Value) PrimitiveError!Value {
     const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
     const data = try getStringSlice(args[0]);
-    if (!types.isFixnum(args[1])) return PrimitiveError.TypeError;
+    if (!types.isFixnum(args[1])) return primitives.typeError("string-drop-right", "integer", args[1]);
     const n: usize = @intCast(types.toFixnum(args[1]));
     const total_cp = utf8CodepointCount(data);
     if (n >= total_cp) return gc.allocString("") catch return PrimitiveError.OutOfMemory;
@@ -462,7 +462,7 @@ fn stringDropRightFn(args: []const Value) PrimitiveError!Value {
 fn stringPadFn(args: []const Value) PrimitiveError!Value {
     const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
     const data = try getStringSlice(args[0]);
-    if (!types.isFixnum(args[1])) return PrimitiveError.TypeError;
+    if (!types.isFixnum(args[1])) return primitives.typeError("string-pad", "integer", args[1]);
     const target_len: usize = @intCast(types.toFixnum(args[1]));
     const pad_char: u8 = if (args.len > 2 and types.isChar(args[2])) @intCast(types.toChar(args[2])) else ' ';
     const current_len = utf8CodepointCount(data);
@@ -481,7 +481,7 @@ fn stringPadFn(args: []const Value) PrimitiveError!Value {
 fn stringPadRightFn(args: []const Value) PrimitiveError!Value {
     const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
     const data = try getStringSlice(args[0]);
-    if (!types.isFixnum(args[1])) return PrimitiveError.TypeError;
+    if (!types.isFixnum(args[1])) return primitives.typeError("string-pad-right", "integer", args[1]);
     const target_len: usize = @intCast(types.toFixnum(args[1]));
     const pad_char: u8 = if (args.len > 2 and types.isChar(args[2])) @intCast(types.toChar(args[2])) else ' ';
     const current_len = utf8CodepointCount(data);
@@ -574,7 +574,7 @@ fn stringReplaceFn(args: []const Value) PrimitiveError!Value {
     const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
     const data1 = try getStringSlice(args[0]);
     const data2 = try getStringSlice(args[1]);
-    if (!types.isFixnum(args[2]) or !types.isFixnum(args[3])) return PrimitiveError.TypeError;
+    if (!types.isFixnum(args[2]) or !types.isFixnum(args[3])) return primitives.typeError("string-replace", "integer", if (!types.isFixnum(args[2])) args[2] else args[3]);
     const start: usize = @intCast(types.toFixnum(args[2]));
     const end: usize = @intCast(types.toFixnum(args[3]));
     const byte_start = pstr.utf8IndexToByteOffset(data1, start) orelse data1.len;
@@ -663,13 +663,13 @@ fn stringAnyFn(args: []const Value) PrimitiveError!Value {
 fn stringTabulateFn(args: []const Value) PrimitiveError!Value {
     const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
     const proc = args[0];
-    if (!types.isFixnum(args[1])) return PrimitiveError.TypeError;
+    if (!types.isFixnum(args[1])) return primitives.typeError("string-tabulate", "integer", args[1]);
     const length: usize = @intCast(types.toFixnum(args[1]));
     var result: std.ArrayList(u8) = .empty;
     defer result.deinit(gc.allocator);
     for (0..length) |i| {
         const r = try callVM(proc, &[1]Value{types.makeFixnum(@intCast(i))});
-        if (!types.isChar(r)) return PrimitiveError.TypeError;
+        if (!types.isChar(r)) return primitives.typeError("string-tabulate", "char", r);
         var tmp: [4]u8 = undefined;
         const n = std.unicode.utf8Encode(types.toChar(r), &tmp) catch return PrimitiveError.TypeError;
         result.appendSlice(gc.allocator, tmp[0..n]) catch return PrimitiveError.OutOfMemory;
@@ -701,7 +701,7 @@ fn stringUnfoldFn(args: []const Value) PrimitiveError!Value {
         const stop = try callVM(p, &[1]Value{seed});
         if (types.isTruthy(stop)) break;
         const ch = try callVM(f, &[1]Value{seed});
-        if (!types.isChar(ch)) return PrimitiveError.TypeError;
+        if (!types.isChar(ch)) return primitives.typeError("string-unfold", "char", ch);
         var tmp: [4]u8 = undefined;
         const n = std.unicode.utf8Encode(types.toChar(ch), &tmp) catch return PrimitiveError.TypeError;
         result.appendSlice(gc.allocator, tmp[0..n]) catch return PrimitiveError.OutOfMemory;
@@ -733,7 +733,7 @@ fn stringUnfoldRightFn(args: []const Value) PrimitiveError!Value {
         const stop = try callVM(p, &[1]Value{seed});
         if (types.isTruthy(stop)) break;
         const ch = try callVM(f, &[1]Value{seed});
-        if (!types.isChar(ch)) return PrimitiveError.TypeError;
+        if (!types.isChar(ch)) return primitives.typeError("string-unfold-right", "char", ch);
         chars.append(gc.allocator, types.toChar(ch)) catch return PrimitiveError.OutOfMemory;
         seed = try callVM(g, &[1]Value{seed});
     }

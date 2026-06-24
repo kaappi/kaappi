@@ -102,7 +102,7 @@ fn floorFn(args: []const Value) PrimitiveError!Value {
         return types.makeFixnum(@intFromFloat(@floor(f)));
     }
     if (types.isFlonum(args[0])) return makeFlonumVal(@floor(types.toFlonum(args[0])));
-    return PrimitiveError.TypeError;
+    return primitives.typeError("floor", "number", args[0]);
 }
 
 fn ceilingFn(args: []const Value) PrimitiveError!Value {
@@ -113,7 +113,7 @@ fn ceilingFn(args: []const Value) PrimitiveError!Value {
         return types.makeFixnum(@intFromFloat(@ceil(f)));
     }
     if (types.isFlonum(args[0])) return makeFlonumVal(@ceil(types.toFlonum(args[0])));
-    return PrimitiveError.TypeError;
+    return primitives.typeError("ceiling", "number", args[0]);
 }
 
 fn truncateFn(args: []const Value) PrimitiveError!Value {
@@ -124,7 +124,7 @@ fn truncateFn(args: []const Value) PrimitiveError!Value {
         return types.makeFixnum(@intFromFloat(@trunc(f)));
     }
     if (types.isFlonum(args[0])) return makeFlonumVal(@trunc(types.toFlonum(args[0])));
-    return PrimitiveError.TypeError;
+    return primitives.typeError("truncate", "number", args[0]);
 }
 
 fn bankersRound(f: f64) f64 {
@@ -145,7 +145,7 @@ fn roundFn(args: []const Value) PrimitiveError!Value {
         return types.makeFixnum(@intFromFloat(bankersRound(f)));
     }
     if (types.isFlonum(args[0])) return makeFlonumVal(bankersRound(types.toFlonum(args[0])));
-    return PrimitiveError.TypeError;
+    return primitives.typeError("round", "number", args[0]);
 }
 
 // ---------------------------------------------------------------------------
@@ -180,7 +180,7 @@ fn exactFn(args: []const Value) PrimitiveError!Value {
     if (types.isRationalObj(args[0])) return args[0]; // already exact
     if (types.isFlonum(args[0])) {
         const f = types.toFlonum(args[0]);
-        if (std.math.isNan(f) or std.math.isInf(f)) return PrimitiveError.TypeError;
+        if (std.math.isNan(f) or std.math.isInf(f)) return primitives.typeError("exact", "finite number", args[0]);
         // Check if it's an integer-valued float
         if (f == @trunc(f)) {
             return types.makeFixnum(@intFromFloat(f));
@@ -218,7 +218,7 @@ fn exactFn(args: []const Value) PrimitiveError!Value {
         const imag_f = try toF64Ext(imag_exact);
         return gc.allocComplexEx(real_f, imag_f, true, true) catch return PrimitiveError.OutOfMemory;
     }
-    return PrimitiveError.TypeError;
+    return primitives.typeError("exact", "number", args[0]);
 }
 
 fn inexactFn(args: []const Value) PrimitiveError!Value {
@@ -236,7 +236,7 @@ fn inexactFn(args: []const Value) PrimitiveError!Value {
         const c = types.toComplex(args[0]);
         return gc.allocComplex(c.real, c.imag) catch return PrimitiveError.OutOfMemory;
     }
-    return PrimitiveError.TypeError;
+    return primitives.typeError("inexact", "number", args[0]);
 }
 
 // ---------------------------------------------------------------------------
@@ -345,7 +345,7 @@ fn squareFn(args: []const Value) PrimitiveError!Value {
         const den_sq = bignum_mod.mul(gc, rat.denominator, rat.denominator) catch return PrimitiveError.OutOfMemory;
         return @import("primitives_arithmetic.zig").makeRationalReduced(gc, num_sq, den_sq);
     }
-    return PrimitiveError.TypeError;
+    return primitives.typeError("square", "number", args[0]);
 }
 
 fn sqrtFn(args: []const Value) PrimitiveError!Value {
@@ -376,7 +376,7 @@ fn exactIntegerSqrt(args: []const Value) PrimitiveError!Value {
     const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
     if (types.isFixnum(args[0])) {
         const n = types.toFixnum(args[0]);
-        if (n < 0) return PrimitiveError.TypeError;
+        if (n < 0) return primitives.typeError("exact-integer-sqrt", "non-negative integer", args[0]);
         const f: f64 = @floatFromInt(n);
         var s: i64 = @intFromFloat(@sqrt(f));
         while (s * s > n) s -= 1;
@@ -386,7 +386,7 @@ fn exactIntegerSqrt(args: []const Value) PrimitiveError!Value {
         return gc.allocMultipleValues(&vals) catch return PrimitiveError.OutOfMemory;
     }
     if (types.isBignum(args[0])) {
-        if (bignum_mod.isNegative(args[0])) return PrimitiveError.TypeError;
+        if (bignum_mod.isNegative(args[0])) return primitives.typeError("exact-integer-sqrt", "non-negative integer", args[0]);
         const n = args[0];
         // Newton's method with bignum arithmetic
         // Start from float approximation, clamped to fixnum range
@@ -433,7 +433,7 @@ fn exactIntegerSqrt(args: []const Value) PrimitiveError!Value {
         const vals = [_]Value{ bignum_mod.demote(s), bignum_mod.demote(rem) };
         return gc.allocMultipleValues(&vals) catch return PrimitiveError.OutOfMemory;
     }
-    return PrimitiveError.TypeError;
+    return primitives.typeError("exact-integer-sqrt", "exact integer", args[0]);
 }
 
 // ---------------------------------------------------------------------------
@@ -509,7 +509,7 @@ fn finiteP(args: []const Value) PrimitiveError!Value {
         const c = types.toComplex(args[0]);
         return if (std.math.isFinite(c.real) and std.math.isFinite(c.imag)) types.TRUE else types.FALSE;
     }
-    return PrimitiveError.TypeError;
+    return primitives.typeError("finite?", "number", args[0]);
 }
 
 fn infiniteP(args: []const Value) PrimitiveError!Value {
@@ -521,7 +521,7 @@ fn infiniteP(args: []const Value) PrimitiveError!Value {
         const c = types.toComplex(args[0]);
         return if (std.math.isInf(c.real) or std.math.isInf(c.imag)) types.TRUE else types.FALSE;
     }
-    return PrimitiveError.TypeError;
+    return primitives.typeError("infinite?", "number", args[0]);
 }
 
 fn nanP(args: []const Value) PrimitiveError!Value {
@@ -533,7 +533,7 @@ fn nanP(args: []const Value) PrimitiveError!Value {
         const c = types.toComplex(args[0]);
         return if (std.math.isNan(c.real) or std.math.isNan(c.imag)) types.TRUE else types.FALSE;
     }
-    return PrimitiveError.TypeError;
+    return primitives.typeError("nan?", "number", args[0]);
 }
 
 // ---------------------------------------------------------------------------
@@ -544,9 +544,9 @@ fn numberToString(args: []const Value) PrimitiveError!Value {
     const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
     var radix: u8 = 10;
     if (args.len > 1) {
-        if (!types.isFixnum(args[1])) return PrimitiveError.TypeError;
+        if (!types.isFixnum(args[1])) return primitives.typeError("number->string", "integer", args[1]);
         const r = types.toFixnum(args[1]);
-        if (r < 2 or r > 36) return PrimitiveError.TypeError;
+        if (r < 2 or r > 36) return primitives.typeError("number->string", "radix between 2 and 36", args[1]);
         radix = @intCast(@as(u64, @bitCast(r)));
     }
     if (types.isFixnum(args[0])) {
@@ -600,7 +600,7 @@ fn numberToString(args: []const Value) PrimitiveError!Value {
         defer gc.allocator.free(s);
         return gc.allocString(s) catch return PrimitiveError.OutOfMemory;
     }
-    return PrimitiveError.TypeError;
+    return primitives.typeError("number->string", "number", args[0]);
 }
 
 pub fn isAnyComplex(args: []const Value) bool {
@@ -638,14 +638,14 @@ pub fn makeComplexOrRealEx(real: f64, imag: f64, exact_real: bool, exact_imag: b
 }
 
 fn stringToNumber(args: []const Value) PrimitiveError!Value {
-    if (!types.isString(args[0])) return PrimitiveError.TypeError;
+    if (!types.isString(args[0])) return primitives.typeError("string->number", "string", args[0]);
     const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
     const str = types.toObject(args[0]).as(types.SchemeString);
     const s = str.data[0..str.len];
 
     var radix: u8 = 10;
     if (args.len > 1) {
-        if (!types.isFixnum(args[1])) return PrimitiveError.TypeError;
+        if (!types.isFixnum(args[1])) return primitives.typeError("string->number", "integer", args[1]);
         const r = types.toFixnum(args[1]);
         if (r < 2 or r > 36) return types.FALSE;
         radix = @intCast(@as(u64, @bitCast(r)));
@@ -767,7 +767,7 @@ fn realPart(args: []const Value) PrimitiveError!Value {
         return makeFlonumVal(c.real);
     }
     if (types.isFixnum(args[0]) or types.isFlonum(args[0])) return args[0];
-    return PrimitiveError.TypeError;
+    return primitives.typeError("real-part", "number", args[0]);
 }
 
 fn imagPart(args: []const Value) PrimitiveError!Value {
@@ -780,7 +780,7 @@ fn imagPart(args: []const Value) PrimitiveError!Value {
     }
     if (types.isFixnum(args[0])) return types.makeFixnum(0);
     if (types.isFlonum(args[0])) return makeFlonumVal(0.0);
-    return PrimitiveError.TypeError;
+    return primitives.typeError("imag-part", "number", args[0]);
 }
 
 fn magnitudeFn(args: []const Value) PrimitiveError!Value {
@@ -795,7 +795,7 @@ fn magnitudeFn(args: []const Value) PrimitiveError!Value {
     if (types.isFlonum(args[0])) {
         return makeFlonumVal(@abs(types.toFlonum(args[0])));
     }
-    return PrimitiveError.TypeError;
+    return primitives.typeError("magnitude", "number", args[0]);
 }
 
 fn angleFn(args: []const Value) PrimitiveError!Value {
@@ -811,7 +811,7 @@ fn angleFn(args: []const Value) PrimitiveError!Value {
         const f = types.toFlonum(args[0]);
         return makeFlonumVal(if (f >= 0.0) 0.0 else std.math.pi);
     }
-    return PrimitiveError.TypeError;
+    return primitives.typeError("angle", "number", args[0]);
 }
 
 // ---------------------------------------------------------------------------
@@ -835,7 +835,7 @@ fn floorQuotient(args: []const Value) PrimitiveError!Value {
         }
         return q;
     }
-    if (!types.isFixnum(args[0]) or !types.isFixnum(args[1])) return PrimitiveError.TypeError;
+    if (!types.isFixnum(args[0]) or !types.isFixnum(args[1])) return primitives.typeError("floor-quotient", "integer", if (!types.isFixnum(args[0])) args[0] else args[1]);
     const a = types.toFixnum(args[0]);
     const b = types.toFixnum(args[1]);
     if (b == 0) return raiseDivByZero();
@@ -859,7 +859,7 @@ fn floorRemainder(args: []const Value) PrimitiveError!Value {
         }
         return rem;
     }
-    if (!types.isFixnum(args[0]) or !types.isFixnum(args[1])) return PrimitiveError.TypeError;
+    if (!types.isFixnum(args[0]) or !types.isFixnum(args[1])) return primitives.typeError("floor-remainder", "integer", if (!types.isFixnum(args[0])) args[0] else args[1]);
     const a = types.toFixnum(args[0]);
     const b = types.toFixnum(args[1]);
     if (b == 0) return raiseDivByZero();
@@ -887,7 +887,7 @@ fn truncateQuotient(args: []const Value) PrimitiveError!Value {
         if (bignum_mod.isZero(args[1])) return raiseDivByZero();
         return bignum_mod.quotient(gc, args[0], args[1]) catch return PrimitiveError.OutOfMemory;
     }
-    if (!types.isFixnum(args[0]) or !types.isFixnum(args[1])) return PrimitiveError.TypeError;
+    if (!types.isFixnum(args[0]) or !types.isFixnum(args[1])) return primitives.typeError("truncate-quotient", "integer", if (!types.isFixnum(args[0])) args[0] else args[1]);
     const b = types.toFixnum(args[1]);
     if (b == 0) return raiseDivByZero();
     return types.makeFixnum(@divTrunc(types.toFixnum(args[0]), b));
@@ -905,7 +905,7 @@ fn truncateRemainder(args: []const Value) PrimitiveError!Value {
         if (bignum_mod.isZero(args[1])) return raiseDivByZero();
         return bignum_mod.remainder(gc, args[0], args[1]) catch return PrimitiveError.OutOfMemory;
     }
-    if (!types.isFixnum(args[0]) or !types.isFixnum(args[1])) return PrimitiveError.TypeError;
+    if (!types.isFixnum(args[0]) or !types.isFixnum(args[1])) return primitives.typeError("truncate-remainder", "integer", if (!types.isFixnum(args[0])) args[0] else args[1]);
     const b = types.toFixnum(args[1]);
     if (b == 0) return raiseDivByZero();
     return types.makeFixnum(@rem(types.toFixnum(args[0]), b));
@@ -962,7 +962,7 @@ fn numeratorFn(args: []const Value) PrimitiveError!Value {
         const rat = floatToRational(f);
         return makeFlonumVal(@floatFromInt(rat.num));
     }
-    return PrimitiveError.TypeError;
+    return primitives.typeError("numerator", "number", args[0]);
 }
 
 fn denominatorFn(args: []const Value) PrimitiveError!Value {
@@ -978,7 +978,7 @@ fn denominatorFn(args: []const Value) PrimitiveError!Value {
         const rat = floatToRational(f);
         return makeFlonumVal(@floatFromInt(rat.den));
     }
-    return PrimitiveError.TypeError;
+    return primitives.typeError("denominator", "number", args[0]);
 }
 
 fn rationalizeFn(args: []const Value) PrimitiveError!Value {

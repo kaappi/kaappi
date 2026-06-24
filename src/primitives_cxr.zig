@@ -45,12 +45,12 @@ pub fn registerCxr(vm: *vm_mod.VM) !void {
 // ---------------------------------------------------------------------------
 
 fn docar(v: Value) PrimitiveError!Value {
-    if (!types.isPair(v)) return PrimitiveError.TypeError;
+    if (!types.isPair(v)) return primitives.typeError("car", "pair", v);
     return types.car(v);
 }
 
 fn docdr(v: Value) PrimitiveError!Value {
-    if (!types.isPair(v)) return PrimitiveError.TypeError;
+    if (!types.isPair(v)) return primitives.typeError("cdr", "pair", v);
     return types.cdr(v);
 }
 

@@ -162,7 +162,7 @@ fn foldFn(args: []const Value) PrimitiveError!Value {
                 all_pairs = false;
                 break;
             }
-            if (!types.isPair(currents[i])) return PrimitiveError.TypeError;
+            if (!types.isPair(currents[i])) return primitives.typeError("fold", "pair", currents[i]);
         }
         if (!all_pairs) break;
 
@@ -208,7 +208,7 @@ fn foldRightFn(args: []const Value) PrimitiveError!Value {
         var current = args[2 + i];
         var count: usize = 0;
         while (current != types.NIL) {
-            if (!types.isPair(current)) return PrimitiveError.TypeError;
+            if (!types.isPair(current)) return primitives.typeError("fold-right", "pair", current);
             all_elems[i].append(gc.allocator, types.car(current)) catch return PrimitiveError.OutOfMemory;
             current = types.cdr(current);
             count += 1;
@@ -238,13 +238,13 @@ fn reduceFn(args: []const Value) PrimitiveError!Value {
     var lst = args[2];
 
     if (lst == types.NIL) return ridentity;
-    if (!types.isPair(lst)) return PrimitiveError.TypeError;
+    if (!types.isPair(lst)) return primitives.typeError("reduce", "pair", lst);
 
     var acc = types.car(lst);
     lst = types.cdr(lst);
 
     while (lst != types.NIL) {
-        if (!types.isPair(lst)) return PrimitiveError.TypeError;
+        if (!types.isPair(lst)) return primitives.typeError("reduce", "pair", lst);
         const call_args_buf = [2]Value{ types.car(lst), acc };
         acc = try callVM(proc, &call_args_buf);
         lst = types.cdr(lst);
@@ -266,7 +266,7 @@ fn reduceRightFn(args: []const Value) PrimitiveError!Value {
     defer elems.deinit(gc.allocator);
     var current = lst;
     while (current != types.NIL) {
-        if (!types.isPair(current)) return PrimitiveError.TypeError;
+        if (!types.isPair(current)) return primitives.typeError("reduce-right", "pair", current);
         elems.append(gc.allocator, types.car(current)) catch return PrimitiveError.OutOfMemory;
         current = types.cdr(current);
     }
@@ -297,7 +297,7 @@ fn filterFn(args: []const Value) PrimitiveError!Value {
     defer results.deinit(gc.allocator);
 
     while (current != types.NIL) {
-        if (!types.isPair(current)) return PrimitiveError.TypeError;
+        if (!types.isPair(current)) return primitives.typeError("filter", "pair", current);
         const elem = types.car(current);
         const call_args_buf = [1]Value{elem};
         const result = try callVM(pred, &call_args_buf);
@@ -329,7 +329,7 @@ fn removeFn(args: []const Value) PrimitiveError!Value {
     defer results.deinit(gc.allocator);
 
     while (current != types.NIL) {
-        if (!types.isPair(current)) return PrimitiveError.TypeError;
+        if (!types.isPair(current)) return primitives.typeError("remove", "pair", current);
         const elem = types.car(current);
         const call_args_buf = [1]Value{elem};
         const result = try callVM(pred, &call_args_buf);
@@ -362,7 +362,7 @@ fn partitionFn(args: []const Value) PrimitiveError!Value {
     defer no.deinit(gc.allocator);
 
     while (current != types.NIL) {
-        if (!types.isPair(current)) return PrimitiveError.TypeError;
+        if (!types.isPair(current)) return primitives.typeError("partition", "pair", current);
         const elem = types.car(current);
         const call_args_buf = [1]Value{elem};
         const result = try callVM(pred, &call_args_buf);
@@ -409,7 +409,7 @@ fn findFn(args: []const Value) PrimitiveError!Value {
     var current = args[1];
 
     while (current != types.NIL) {
-        if (!types.isPair(current)) return PrimitiveError.TypeError;
+        if (!types.isPair(current)) return primitives.typeError("find", "pair", current);
         const elem = types.car(current);
         const call_args_buf = [1]Value{elem};
         const result = try callVM(pred, &call_args_buf);
@@ -425,7 +425,7 @@ fn findTailFn(args: []const Value) PrimitiveError!Value {
     var current = args[1];
 
     while (current != types.NIL) {
-        if (!types.isPair(current)) return PrimitiveError.TypeError;
+        if (!types.isPair(current)) return primitives.typeError("find-tail", "pair", current);
         const elem = types.car(current);
         const call_args_buf = [1]Value{elem};
         const result = try callVM(pred, &call_args_buf);
@@ -455,7 +455,7 @@ fn anyFn(args: []const Value) PrimitiveError!Value {
                 all_pairs = false;
                 break;
             }
-            if (!types.isPair(currents[i])) return PrimitiveError.TypeError;
+            if (!types.isPair(currents[i])) return primitives.typeError("any", "pair", currents[i]);
         }
         if (!all_pairs) break;
 
@@ -494,7 +494,7 @@ fn everyFn(args: []const Value) PrimitiveError!Value {
                 all_pairs = false;
                 break;
             }
-            if (!types.isPair(currents[i])) return PrimitiveError.TypeError;
+            if (!types.isPair(currents[i])) return primitives.typeError("every", "pair", currents[i]);
         }
         if (!all_pairs) break;
 
@@ -534,7 +534,7 @@ fn countFn(args: []const Value) PrimitiveError!Value {
                 all_pairs = false;
                 break;
             }
-            if (!types.isPair(currents[i])) return PrimitiveError.TypeError;
+            if (!types.isPair(currents[i])) return primitives.typeError("count", "pair", currents[i]);
         }
         if (!all_pairs) break;
 
@@ -559,10 +559,10 @@ fn countFn(args: []const Value) PrimitiveError!Value {
 // (iota count) or (iota count start) or (iota count start step)
 fn iotaFn(args: []const Value) PrimitiveError!Value {
     const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
-    if (!types.isFixnum(args[0]) and !types.isFlonum(args[0])) return PrimitiveError.TypeError;
+    if (!types.isFixnum(args[0]) and !types.isFlonum(args[0])) return primitives.typeError("iota", "number", args[0]);
 
     const count_val = if (types.isFixnum(args[0])) types.toFixnum(args[0]) else @as(i64, @intFromFloat(types.toFlonum(args[0])));
-    if (count_val < 0) return PrimitiveError.TypeError;
+    if (count_val < 0) return primitives.typeError("iota", "non-negative integer", args[0]);
     const cnt: usize = @intCast(count_val);
 
     // Determine if we should use flonum or fixnum arithmetic
@@ -572,8 +572,8 @@ fn iotaFn(args: []const Value) PrimitiveError!Value {
     if (use_flonum) {
         var start: f64 = 0.0;
         var step: f64 = 1.0;
-        if (args.len > 1) start = primitives.toF64(args[1]) catch return PrimitiveError.TypeError;
-        if (args.len > 2) step = primitives.toF64(args[2]) catch return PrimitiveError.TypeError;
+        if (args.len > 1) start = primitives.toF64(args[1]) catch return primitives.typeError("iota", "number", args[1]);
+        if (args.len > 2) step = primitives.toF64(args[2]) catch return primitives.typeError("iota", "number", args[2]);
 
         var result: Value = types.NIL;
         gc.pushRoot(&result) catch return PrimitiveError.OutOfMemory;
@@ -595,11 +595,11 @@ fn iotaFn(args: []const Value) PrimitiveError!Value {
         var start: i64 = 0;
         var step: i64 = 1;
         if (args.len > 1) {
-            if (!types.isFixnum(args[1])) return PrimitiveError.TypeError;
+            if (!types.isFixnum(args[1])) return primitives.typeError("iota", "integer", args[1]);
             start = types.toFixnum(args[1]);
         }
         if (args.len > 2) {
-            if (!types.isFixnum(args[2])) return PrimitiveError.TypeError;
+            if (!types.isFixnum(args[2])) return primitives.typeError("iota", "integer", args[2]);
             step = types.toFixnum(args[2]);
         }
 
@@ -637,7 +637,7 @@ fn zipFn(args: []const Value) PrimitiveError!Value {
                 all_pairs = false;
                 break;
             }
-            if (!types.isPair(currents[i])) return PrimitiveError.TypeError;
+            if (!types.isPair(currents[i])) return primitives.typeError("zip", "pair", currents[i]);
         }
         if (!all_pairs) break;
 
@@ -678,7 +678,7 @@ fn concatenateFn(args: []const Value) PrimitiveError!Value {
 
     var current = args[0];
     while (current != types.NIL) {
-        if (!types.isPair(current)) return PrimitiveError.TypeError;
+        if (!types.isPair(current)) return primitives.typeError("concatenate", "pair", current);
         sublists.append(gc.allocator, types.car(current)) catch return PrimitiveError.OutOfMemory;
         current = types.cdr(current);
     }
@@ -695,7 +695,7 @@ fn concatenateFn(args: []const Value) PrimitiveError!Value {
         var elems: std.ArrayList(Value) = .empty;
         defer elems.deinit(gc.allocator);
         while (lst != types.NIL) {
-            if (!types.isPair(lst)) return PrimitiveError.TypeError;
+            if (!types.isPair(lst)) return primitives.typeError("concatenate", "pair", lst);
             elems.append(gc.allocator, types.car(lst)) catch return PrimitiveError.OutOfMemory;
             lst = types.cdr(lst);
         }
@@ -715,9 +715,9 @@ fn concatenateFn(args: []const Value) PrimitiveError!Value {
 // (take list k) — first k elements
 fn takeFn(args: []const Value) PrimitiveError!Value {
     const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
-    if (!types.isFixnum(args[1])) return PrimitiveError.TypeError;
+    if (!types.isFixnum(args[1])) return primitives.typeError("take", "integer", args[1]);
     const k = types.toFixnum(args[1]);
-    if (k < 0) return PrimitiveError.TypeError;
+    if (k < 0) return primitives.typeError("take", "non-negative integer", args[1]);
     const count: usize = @intCast(k);
 
     var elems: std.ArrayList(Value) = .empty;
@@ -726,7 +726,7 @@ fn takeFn(args: []const Value) PrimitiveError!Value {
     var current = args[0];
     var i: usize = 0;
     while (i < count) : (i += 1) {
-        if (!types.isPair(current)) return PrimitiveError.TypeError;
+        if (!types.isPair(current)) return primitives.typeError("take", "pair", current);
         elems.append(gc.allocator, types.car(current)) catch return PrimitiveError.OutOfMemory;
         current = types.cdr(current);
     }
@@ -744,14 +744,14 @@ fn takeFn(args: []const Value) PrimitiveError!Value {
 
 // (drop list k) — remaining after first k
 fn dropFn(args: []const Value) PrimitiveError!Value {
-    if (!types.isFixnum(args[1])) return PrimitiveError.TypeError;
+    if (!types.isFixnum(args[1])) return primitives.typeError("drop", "integer", args[1]);
     const k = types.toFixnum(args[1]);
-    if (k < 0) return PrimitiveError.TypeError;
+    if (k < 0) return primitives.typeError("drop", "non-negative integer", args[1]);
 
     var current = args[0];
     var i: i64 = 0;
     while (i < k) : (i += 1) {
-        if (!types.isPair(current)) return PrimitiveError.TypeError;
+        if (!types.isPair(current)) return primitives.typeError("drop", "pair", current);
         current = types.cdr(current);
     }
     return current;
@@ -767,7 +767,7 @@ fn takeWhileFn(args: []const Value) PrimitiveError!Value {
     defer elems.deinit(gc.allocator);
 
     while (current != types.NIL) {
-        if (!types.isPair(current)) return PrimitiveError.TypeError;
+        if (!types.isPair(current)) return primitives.typeError("take-while", "pair", current);
         const elem = types.car(current);
         const call_args_buf = [1]Value{elem};
         const result = try callVM(pred, &call_args_buf);
@@ -793,7 +793,7 @@ fn dropWhileFn(args: []const Value) PrimitiveError!Value {
     var current = args[1];
 
     while (current != types.NIL) {
-        if (!types.isPair(current)) return PrimitiveError.TypeError;
+        if (!types.isPair(current)) return primitives.typeError("drop-while", "pair", current);
         const elem = types.car(current);
         const call_args_buf = [1]Value{elem};
         const result = try callVM(pred, &call_args_buf);
@@ -830,7 +830,7 @@ fn filterMapFn(args: []const Value) PrimitiveError!Value {
                 all_pairs = false;
                 break;
             }
-            if (!types.isPair(currents[i])) return PrimitiveError.TypeError;
+            if (!types.isPair(currents[i])) return primitives.typeError("filter-map", "pair", currents[i]);
         }
         if (!all_pairs) break;
 
@@ -882,7 +882,7 @@ fn appendMapFn(args: []const Value) PrimitiveError!Value {
                 all_pairs = false;
                 break;
             }
-            if (!types.isPair(currents[i])) return PrimitiveError.TypeError;
+            if (!types.isPair(currents[i])) return primitives.typeError("append-map", "pair", currents[i]);
         }
         if (!all_pairs) break;
 
@@ -894,7 +894,7 @@ fn appendMapFn(args: []const Value) PrimitiveError!Value {
         // result should be a list — flatten it
         var sub = result;
         while (sub != types.NIL) {
-            if (!types.isPair(sub)) return PrimitiveError.TypeError;
+            if (!types.isPair(sub)) return primitives.typeError("append-map", "pair", sub);
             all_elems.append(gc.allocator, types.car(sub)) catch return PrimitiveError.OutOfMemory;
             sub = types.cdr(sub);
         }
@@ -922,7 +922,7 @@ fn appendMapFn(args: []const Value) PrimitiveError!Value {
 // (last list) — last element
 fn lastFn(args: []const Value) PrimitiveError!Value {
     var current = args[0];
-    if (!types.isPair(current)) return PrimitiveError.TypeError;
+    if (!types.isPair(current)) return primitives.typeError("last", "pair", current);
 
     while (true) {
         const next = types.cdr(current);
@@ -934,7 +934,7 @@ fn lastFn(args: []const Value) PrimitiveError!Value {
 // (last-pair list) — last pair in list
 fn lastPairFn(args: []const Value) PrimitiveError!Value {
     var current = args[0];
-    if (!types.isPair(current)) return PrimitiveError.TypeError;
+    if (!types.isPair(current)) return primitives.typeError("last-pair", "pair", current);
 
     while (true) {
         const next = types.cdr(current);
@@ -1033,7 +1033,7 @@ fn circularListPFn(args: []const Value) PrimitiveError!Value {
 fn memberByPred(pred: Value, elem: Value, list: Value) PrimitiveError!bool {
     var current = list;
     while (current != types.NIL) {
-        if (!types.isPair(current)) return PrimitiveError.TypeError;
+        if (!types.isPair(current)) return primitives.typeError("lset-*", "pair", current);
         const call_args = [2]Value{ elem, types.car(current) };
         const result = try callVM(pred, &call_args);
         if (isTruthyResult(result)) return true;
@@ -1056,7 +1056,7 @@ fn lsetIntersectionFn(args: []const Value) PrimitiveError!Value {
 
     var current = list1;
     while (current != types.NIL) {
-        if (!types.isPair(current)) return PrimitiveError.TypeError;
+        if (!types.isPair(current)) return primitives.typeError("lset-intersection", "pair", current);
         const elem = types.car(current);
 
         var in_all = true;
@@ -1097,7 +1097,7 @@ fn lsetDifferenceFn(args: []const Value) PrimitiveError!Value {
 
     var current = list1;
     while (current != types.NIL) {
-        if (!types.isPair(current)) return PrimitiveError.TypeError;
+        if (!types.isPair(current)) return primitives.typeError("lset-difference", "pair", current);
         const elem = types.car(current);
 
         var in_any = false;
@@ -1138,7 +1138,7 @@ fn lsetEqualFn(args: []const Value) PrimitiveError!Value {
         // Every element of a must be in b
         var current = a;
         while (current != types.NIL) {
-            if (!types.isPair(current)) return PrimitiveError.TypeError;
+            if (!types.isPair(current)) return primitives.typeError("lset=", "pair", current);
             if (!try memberByPred(pred, types.car(current), b)) return types.FALSE;
             current = types.cdr(current);
         }
@@ -1146,7 +1146,7 @@ fn lsetEqualFn(args: []const Value) PrimitiveError!Value {
         // Every element of b must be in a
         current = b;
         while (current != types.NIL) {
-            if (!types.isPair(current)) return PrimitiveError.TypeError;
+            if (!types.isPair(current)) return primitives.typeError("lset=", "pair", current);
             if (!try memberByPred(pred, types.car(current), a)) return types.FALSE;
             current = types.cdr(current);
         }
@@ -1181,9 +1181,9 @@ fn consStarFn(args: []const Value) PrimitiveError!Value {
 // (list-tabulate n init-proc) — build list by calling init-proc on 0..n-1
 fn listTabulateFn(args: []const Value) PrimitiveError!Value {
     const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
-    if (!types.isFixnum(args[0])) return PrimitiveError.TypeError;
+    if (!types.isFixnum(args[0])) return primitives.typeError("list-tabulate", "integer", args[0]);
     const n = types.toFixnum(args[0]);
-    if (n < 0) return PrimitiveError.TypeError;
+    if (n < 0) return primitives.typeError("list-tabulate", "non-negative integer", args[0]);
     const proc = args[1];
 
     var elems: std.ArrayList(Value) = .empty;
@@ -1238,7 +1238,7 @@ fn notPairPFn(args: []const Value) PrimitiveError!Value {
 fn nullListPFn(args: []const Value) PrimitiveError!Value {
     if (args[0] == types.NIL) return types.TRUE;
     if (types.isPair(args[0])) return types.FALSE;
-    return PrimitiveError.TypeError;
+    return primitives.typeError("null-list?", "list", args[0]);
 }
 
 // (list= elt= list1 ...) — elementwise list equality
@@ -1270,15 +1270,15 @@ fn listEqualFn(args: []const Value) PrimitiveError!Value {
 
 // first..fifth: extract nth element from list
 fn firstFn(args: []const Value) PrimitiveError!Value {
-    if (!types.isPair(args[0])) return PrimitiveError.TypeError;
+    if (!types.isPair(args[0])) return primitives.typeError("first", "pair", args[0]);
     return types.car(args[0]);
 }
 
 fn secondFn(args: []const Value) PrimitiveError!Value {
     var p = args[0];
-    if (!types.isPair(p)) return PrimitiveError.TypeError;
+    if (!types.isPair(p)) return primitives.typeError("second", "pair", p);
     p = types.cdr(p);
-    if (!types.isPair(p)) return PrimitiveError.TypeError;
+    if (!types.isPair(p)) return primitives.typeError("second", "pair", p);
     return types.car(p);
 }
 
@@ -1286,10 +1286,10 @@ fn thirdFn(args: []const Value) PrimitiveError!Value {
     var p = args[0];
     comptime var i = 0;
     inline while (i < 2) : (i += 1) {
-        if (!types.isPair(p)) return PrimitiveError.TypeError;
+        if (!types.isPair(p)) return primitives.typeError("third", "pair", p);
         p = types.cdr(p);
     }
-    if (!types.isPair(p)) return PrimitiveError.TypeError;
+    if (!types.isPair(p)) return primitives.typeError("third", "pair", p);
     return types.car(p);
 }
 
@@ -1297,10 +1297,10 @@ fn fourthFn(args: []const Value) PrimitiveError!Value {
     var p = args[0];
     comptime var i = 0;
     inline while (i < 3) : (i += 1) {
-        if (!types.isPair(p)) return PrimitiveError.TypeError;
+        if (!types.isPair(p)) return primitives.typeError("fourth", "pair", p);
         p = types.cdr(p);
     }
-    if (!types.isPair(p)) return PrimitiveError.TypeError;
+    if (!types.isPair(p)) return primitives.typeError("fourth", "pair", p);
     return types.car(p);
 }
 
@@ -1308,10 +1308,10 @@ fn fifthFn(args: []const Value) PrimitiveError!Value {
     var p = args[0];
     comptime var i = 0;
     inline while (i < 4) : (i += 1) {
-        if (!types.isPair(p)) return PrimitiveError.TypeError;
+        if (!types.isPair(p)) return primitives.typeError("fifth", "pair", p);
         p = types.cdr(p);
     }
-    if (!types.isPair(p)) return PrimitiveError.TypeError;
+    if (!types.isPair(p)) return primitives.typeError("fifth", "pair", p);
     return types.car(p);
 }
 
@@ -1319,10 +1319,10 @@ fn nthFn(args: []const Value, comptime n: u8) PrimitiveError!Value {
     var p = args[0];
     comptime var i = 0;
     inline while (i < n) : (i += 1) {
-        if (!types.isPair(p)) return PrimitiveError.TypeError;
+        if (!types.isPair(p)) return primitives.typeError("list-ref (nth selector)", "pair", p);
         p = types.cdr(p);
     }
-    if (!types.isPair(p)) return PrimitiveError.TypeError;
+    if (!types.isPair(p)) return primitives.typeError("list-ref (nth selector)", "pair", p);
     return types.car(p);
 }
 
@@ -1345,27 +1345,27 @@ fn tenthFn(args: []const Value) PrimitiveError!Value {
 // (car+cdr pair) — returns (values (car pair) (cdr pair))
 fn carCdrFn(args: []const Value) PrimitiveError!Value {
     const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
-    if (!types.isPair(args[0])) return PrimitiveError.TypeError;
+    if (!types.isPair(args[0])) return primitives.typeError("car+cdr", "pair", args[0]);
     const vals = [2]Value{ types.car(args[0]), types.cdr(args[0]) };
     return gc.allocMultipleValues(&vals) catch return PrimitiveError.OutOfMemory;
 }
 
 // (take-right list k)
 fn takeRightFn(args: []const Value) PrimitiveError!Value {
-    if (!types.isFixnum(args[1])) return PrimitiveError.TypeError;
+    if (!types.isFixnum(args[1])) return primitives.typeError("take-right", "integer", args[1]);
     const k = types.toFixnum(args[1]);
-    if (k < 0) return PrimitiveError.TypeError;
+    if (k < 0) return primitives.typeError("take-right", "non-negative integer", args[1]);
     // Find list length
     var len: i64 = 0;
     var current = args[0];
     while (current != types.NIL) {
-        if (!types.isPair(current)) return PrimitiveError.TypeError;
+        if (!types.isPair(current)) return primitives.typeError("take-right", "pair", current);
         current = types.cdr(current);
         len += 1;
     }
     // drop (len - k) elements
     const to_drop = len - k;
-    if (to_drop < 0) return PrimitiveError.TypeError;
+    if (to_drop < 0) return primitives.typeError("take-right", "valid index (k <= length)", args[1]);
     current = args[0];
     var i: i64 = 0;
     while (i < to_drop) : (i += 1) {
@@ -1377,19 +1377,19 @@ fn takeRightFn(args: []const Value) PrimitiveError!Value {
 // (drop-right list k)
 fn dropRightFn(args: []const Value) PrimitiveError!Value {
     const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
-    if (!types.isFixnum(args[1])) return PrimitiveError.TypeError;
+    if (!types.isFixnum(args[1])) return primitives.typeError("drop-right", "integer", args[1]);
     const k = types.toFixnum(args[1]);
-    if (k < 0) return PrimitiveError.TypeError;
+    if (k < 0) return primitives.typeError("drop-right", "non-negative integer", args[1]);
     // Find list length
     var len: i64 = 0;
     var current = args[0];
     while (current != types.NIL) {
-        if (!types.isPair(current)) return PrimitiveError.TypeError;
+        if (!types.isPair(current)) return primitives.typeError("drop-right", "pair", current);
         current = types.cdr(current);
         len += 1;
     }
     const to_take = len - k;
-    if (to_take < 0) return PrimitiveError.TypeError;
+    if (to_take < 0) return primitives.typeError("drop-right", "valid index (k <= length)", args[1]);
     const count: usize = @intCast(to_take);
 
     var elems: std.ArrayList(Value) = .empty;
@@ -1415,9 +1415,9 @@ fn dropRightFn(args: []const Value) PrimitiveError!Value {
 // (split-at list k) — returns (values (take list k) (drop list k))
 fn splitAtFn(args: []const Value) PrimitiveError!Value {
     const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
-    if (!types.isFixnum(args[1])) return PrimitiveError.TypeError;
+    if (!types.isFixnum(args[1])) return primitives.typeError("split-at", "integer", args[1]);
     const k = types.toFixnum(args[1]);
-    if (k < 0) return PrimitiveError.TypeError;
+    if (k < 0) return primitives.typeError("split-at", "non-negative integer", args[1]);
     const count: usize = @intCast(k);
 
     var elems: std.ArrayList(Value) = .empty;
@@ -1426,7 +1426,7 @@ fn splitAtFn(args: []const Value) PrimitiveError!Value {
     var current = args[0];
     var i: usize = 0;
     while (i < count) : (i += 1) {
-        if (!types.isPair(current)) return PrimitiveError.TypeError;
+        if (!types.isPair(current)) return primitives.typeError("split-at", "pair", current);
         elems.append(gc.allocator, types.car(current)) catch return PrimitiveError.OutOfMemory;
         current = types.cdr(current);
     }
@@ -1466,7 +1466,7 @@ fn listIndexFn(args: []const Value) PrimitiveError!Value {
                 all_pairs = false;
                 break;
             }
-            if (!types.isPair(currents[i])) return PrimitiveError.TypeError;
+            if (!types.isPair(currents[i])) return primitives.typeError("list-index", "pair", currents[i]);
         }
         if (!all_pairs) break;
 
@@ -1494,7 +1494,7 @@ fn spanFn(args: []const Value) PrimitiveError!Value {
     defer elems.deinit(gc.allocator);
 
     while (current != types.NIL) {
-        if (!types.isPair(current)) return PrimitiveError.TypeError;
+        if (!types.isPair(current)) return primitives.typeError("span", "pair", current);
         const elem = types.car(current);
         const call_args_buf = [1]Value{elem};
         const result = try callVM(pred, &call_args_buf);
@@ -1524,7 +1524,7 @@ fn breakFn(args: []const Value) PrimitiveError!Value {
     defer elems.deinit(gc.allocator);
 
     while (current != types.NIL) {
-        if (!types.isPair(current)) return PrimitiveError.TypeError;
+        if (!types.isPair(current)) return primitives.typeError("break", "pair", current);
         const elem = types.car(current);
         const call_args_buf = [1]Value{elem};
         const result = try callVM(pred, &call_args_buf);
@@ -1560,7 +1560,7 @@ fn deleteFn(args: []const Value) PrimitiveError!Value {
     defer results.deinit(gc.allocator);
 
     while (current != types.NIL) {
-        if (!types.isPair(current)) return PrimitiveError.TypeError;
+        if (!types.isPair(current)) return primitives.typeError("delete", "pair", current);
         const elem = types.car(current);
         var is_equal: bool = undefined;
         if (has_pred) {
@@ -1597,7 +1597,7 @@ fn deleteDuplicatesFn(args: []const Value) PrimitiveError!Value {
     defer results.deinit(gc.allocator);
 
     while (current != types.NIL) {
-        if (!types.isPair(current)) return PrimitiveError.TypeError;
+        if (!types.isPair(current)) return primitives.typeError("delete-duplicates", "pair", current);
         const elem = types.car(current);
         // Check if elem already in results
         var found = false;
@@ -1653,9 +1653,9 @@ fn alistCopyFn(args: []const Value) PrimitiveError!Value {
     defer elems.deinit(gc.allocator);
 
     while (current != types.NIL) {
-        if (!types.isPair(current)) return PrimitiveError.TypeError;
+        if (!types.isPair(current)) return primitives.typeError("alist-copy", "pair", current);
         const entry = types.car(current);
-        if (!types.isPair(entry)) return PrimitiveError.TypeError;
+        if (!types.isPair(entry)) return primitives.typeError("alist-copy", "pair", entry);
         const new_entry = gc.allocPair(types.car(entry), types.cdr(entry)) catch return PrimitiveError.OutOfMemory;
         elems.append(gc.allocator, new_entry) catch return PrimitiveError.OutOfMemory;
         current = types.cdr(current);
@@ -1683,9 +1683,9 @@ fn alistDeleteFn(args: []const Value) PrimitiveError!Value {
     defer results.deinit(gc.allocator);
 
     while (current != types.NIL) {
-        if (!types.isPair(current)) return PrimitiveError.TypeError;
+        if (!types.isPair(current)) return primitives.typeError("alist-delete", "pair", current);
         const entry = types.car(current);
-        if (!types.isPair(entry)) return PrimitiveError.TypeError;
+        if (!types.isPair(entry)) return primitives.typeError("alist-delete", "pair", entry);
         const entry_key = types.car(entry);
 
         var is_equal: bool = undefined;
@@ -1743,7 +1743,7 @@ fn lsetUnionFn(args: []const Value) PrimitiveError!Value {
     for (args[2..]) |lst| {
         var current = lst;
         while (current != types.NIL) {
-            if (!types.isPair(current)) return PrimitiveError.TypeError;
+            if (!types.isPair(current)) return primitives.typeError("lset-union", "pair", current);
             const elem = types.car(current);
             if (!try memberByPred(pred, elem, result)) {
                 result = gc.allocPair(elem, result) catch return PrimitiveError.OutOfMemory;
@@ -1773,7 +1773,7 @@ fn lsetXorFn(args: []const Value) PrimitiveError!Value {
         // Elements of result not in lst
         var current = result;
         while (current != types.NIL) {
-            if (!types.isPair(current)) return PrimitiveError.TypeError;
+            if (!types.isPair(current)) return primitives.typeError("lset-xor", "pair", current);
             const elem = types.car(current);
             if (!try memberByPred(pred, elem, lst)) {
                 new_result.append(gc.allocator, elem) catch return PrimitiveError.OutOfMemory;
@@ -1784,7 +1784,7 @@ fn lsetXorFn(args: []const Value) PrimitiveError!Value {
         // Elements of lst not in result
         current = lst;
         while (current != types.NIL) {
-            if (!types.isPair(current)) return PrimitiveError.TypeError;
+            if (!types.isPair(current)) return primitives.typeError("lset-xor", "pair", current);
             const elem = types.car(current);
             if (!try memberByPred(pred, elem, result)) {
                 new_result.append(gc.allocator, elem) catch return PrimitiveError.OutOfMemory;
@@ -1885,7 +1885,7 @@ fn appendReverseFn(args: []const Value) PrimitiveError!Value {
     var current = args[0];
     var result = args[1];
     while (current != types.NIL) {
-        if (!types.isPair(current)) return PrimitiveError.TypeError;
+        if (!types.isPair(current)) return primitives.typeError("append-reverse", "pair", current);
         result = gc.allocPair(types.car(current), result) catch return PrimitiveError.OutOfMemory;
         current = types.cdr(current);
     }
@@ -1927,9 +1927,9 @@ fn unzip1Fn(args: []const Value) PrimitiveError!Value {
     defer elems.deinit(gc.allocator);
 
     while (current != types.NIL) {
-        if (!types.isPair(current)) return PrimitiveError.TypeError;
+        if (!types.isPair(current)) return primitives.typeError("unzip1", "pair", current);
         const sub = types.car(current);
-        if (!types.isPair(sub)) return PrimitiveError.TypeError;
+        if (!types.isPair(sub)) return primitives.typeError("unzip1", "pair", sub);
         elems.append(gc.allocator, types.car(sub)) catch return PrimitiveError.OutOfMemory;
         current = types.cdr(current);
     }
@@ -1955,12 +1955,12 @@ fn unzip2Fn(args: []const Value) PrimitiveError!Value {
     defer seconds.deinit(gc.allocator);
 
     while (current != types.NIL) {
-        if (!types.isPair(current)) return PrimitiveError.TypeError;
+        if (!types.isPair(current)) return primitives.typeError("unzip2", "pair", current);
         const sub = types.car(current);
-        if (!types.isPair(sub)) return PrimitiveError.TypeError;
+        if (!types.isPair(sub)) return primitives.typeError("unzip2", "pair", sub);
         firsts.append(gc.allocator, types.car(sub)) catch return PrimitiveError.OutOfMemory;
         const rest = types.cdr(sub);
-        if (!types.isPair(rest)) return PrimitiveError.TypeError;
+        if (!types.isPair(rest)) return primitives.typeError("unzip2", "pair", rest);
         seconds.append(gc.allocator, types.car(rest)) catch return PrimitiveError.OutOfMemory;
         current = types.cdr(current);
     }
@@ -2005,7 +2005,7 @@ fn pairForEachFn(args: []const Value) PrimitiveError!Value {
                 all_pairs = false;
                 break;
             }
-            if (!types.isPair(currents[i])) return PrimitiveError.TypeError;
+            if (!types.isPair(currents[i])) return primitives.typeError("pair-for-each", "pair", currents[i]);
         }
         if (!all_pairs) break;
 
@@ -2041,7 +2041,7 @@ fn pairFoldFn(args: []const Value) PrimitiveError!Value {
                 all_pairs = false;
                 break;
             }
-            if (!types.isPair(currents[i])) return PrimitiveError.TypeError;
+            if (!types.isPair(currents[i])) return primitives.typeError("pair-fold", "pair", currents[i]);
         }
         if (!all_pairs) break;
 
@@ -2075,7 +2075,7 @@ fn pairFoldRightFn(args: []const Value) PrimitiveError!Value {
         var current = args[2 + i];
         var count: usize = 0;
         while (current != types.NIL) {
-            if (!types.isPair(current)) return PrimitiveError.TypeError;
+            if (!types.isPair(current)) return primitives.typeError("pair-fold-right", "pair", current);
             all_pairs[i].append(gc.allocator, current) catch return PrimitiveError.OutOfMemory;
             current = types.cdr(current);
             count += 1;
@@ -2116,7 +2116,7 @@ fn mapInOrderFn(args: []const Value) PrimitiveError!Value {
                 all_pairs = false;
                 break;
             }
-            if (!types.isPair(currents[i])) return PrimitiveError.TypeError;
+            if (!types.isPair(currents[i])) return primitives.typeError("map-in-order", "pair", currents[i]);
         }
         if (!all_pairs) break;
         for (0..list_count) |i| call_args_buf[i] = types.car(currents[i]);

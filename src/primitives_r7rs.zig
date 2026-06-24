@@ -53,7 +53,7 @@ pub fn registerR7RSSandboxed(vm: *vm_mod.VM) !void {
 }
 
 fn disassembleFn(args: []const Value) PrimitiveError!Value {
-    if (!types.isClosure(args[0])) return PrimitiveError.TypeError;
+    if (!types.isClosure(args[0])) return primitives.typeError("disassemble", "procedure", args[0]);
     const closure = types.toObject(args[0]).as(types.Closure);
     const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
     const disasm = @import("disassembler.zig");
@@ -126,7 +126,7 @@ fn exitFn(args: []const Value) PrimitiveError!Value {
 }
 
 fn getEnvVar(args: []const Value) PrimitiveError!Value {
-    if (!types.isString(args[0])) return PrimitiveError.TypeError;
+    if (!types.isString(args[0])) return primitives.typeError("get-environment-variable", "string", args[0]);
     const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
     const str = types.toObject(args[0]).as(types.SchemeString);
     const name = str.data[0..str.len];
@@ -188,7 +188,7 @@ fn environmentFn(args: []const Value) PrimitiveError!Value {
 // ---------------------------------------------------------------------------
 
 fn loadFn(args: []const Value) PrimitiveError!Value {
-    if (!types.isString(args[0])) return PrimitiveError.TypeError;
+    if (!types.isString(args[0])) return primitives.typeError("load", "string", args[0]);
     const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError;
     const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
     const str = types.toObject(args[0]).as(types.SchemeString);
@@ -280,7 +280,7 @@ fn makeParameterFn(args: []const Value) PrimitiveError!Value {
 }
 
 fn parameterSetDirectFn(args: []const Value) PrimitiveError!Value {
-    if (!types.isParameter(args[0])) return PrimitiveError.TypeError;
+    if (!types.isParameter(args[0])) return primitives.typeError("%parameter-set!", "parameter", args[0]);
     const param = types.toObject(args[0]).as(types.ParameterObject);
     if (vm_mod.vm_instance) |vm| {
         vm.setParameterValue(param, args[1]);
@@ -300,15 +300,15 @@ fn interactionEnvironmentFn(args: []const Value) PrimitiveError!Value {
 }
 
 fn nullEnvironmentFn(args: []const Value) PrimitiveError!Value {
-    if (!types.isFixnum(args[0])) return PrimitiveError.TypeError;
+    if (!types.isFixnum(args[0])) return primitives.typeError("null-environment", "integer", args[0]);
     const version = types.toFixnum(args[0]);
-    if (version != 5 and version != 7) return PrimitiveError.TypeError;
+    if (version != 5 and version != 7) return primitives.typeError("null-environment", "5 or 7", args[0]);
     return types.VOID;
 }
 
 fn schemeReportEnvironmentFn(args: []const Value) PrimitiveError!Value {
-    if (!types.isFixnum(args[0])) return PrimitiveError.TypeError;
+    if (!types.isFixnum(args[0])) return primitives.typeError("scheme-report-environment", "integer", args[0]);
     const version = types.toFixnum(args[0]);
-    if (version != 5 and version != 7) return PrimitiveError.TypeError;
+    if (version != 5 and version != 7) return primitives.typeError("scheme-report-environment", "5 or 7", args[0]);
     return types.VOID;
 }

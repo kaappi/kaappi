@@ -51,8 +51,8 @@ pub fn registerChar(vm: *vm_mod.VM) !void {
 // Helpers
 // ---------------------------------------------------------------------------
 
-fn getStringSlice(v: Value) PrimitiveError![]const u8 {
-    if (!types.isString(v)) return PrimitiveError.TypeError;
+fn getStringSlice(proc: []const u8, v: Value) PrimitiveError![]const u8 {
+    if (!types.isString(v)) return primitives.typeError(proc, "string", v);
     const str = types.toObject(v).as(types.SchemeString);
     return str.data[0..str.len];
 }
@@ -192,27 +192,27 @@ fn unicodeDowncase(cp: u21) u21 {
 // ---------------------------------------------------------------------------
 
 fn charAlphabeticP(args: []const Value) PrimitiveError!Value {
-    if (!types.isChar(args[0])) return PrimitiveError.TypeError;
+    if (!types.isChar(args[0])) return primitives.typeError("char-alphabetic?", "char", args[0]);
     return if (isUnicodeLetter(types.toChar(args[0]))) types.TRUE else types.FALSE;
 }
 
 fn charNumericP(args: []const Value) PrimitiveError!Value {
-    if (!types.isChar(args[0])) return PrimitiveError.TypeError;
+    if (!types.isChar(args[0])) return primitives.typeError("char-numeric?", "char", args[0]);
     return if (isUnicodeNumeric(types.toChar(args[0]))) types.TRUE else types.FALSE;
 }
 
 fn charWhitespaceP(args: []const Value) PrimitiveError!Value {
-    if (!types.isChar(args[0])) return PrimitiveError.TypeError;
+    if (!types.isChar(args[0])) return primitives.typeError("char-whitespace?", "char", args[0]);
     return if (isUnicodeWhitespace(types.toChar(args[0]))) types.TRUE else types.FALSE;
 }
 
 fn charUpperCaseP(args: []const Value) PrimitiveError!Value {
-    if (!types.isChar(args[0])) return PrimitiveError.TypeError;
+    if (!types.isChar(args[0])) return primitives.typeError("char-upper-case?", "char", args[0]);
     return if (isUnicodeUppercase(types.toChar(args[0]))) types.TRUE else types.FALSE;
 }
 
 fn charLowerCaseP(args: []const Value) PrimitiveError!Value {
-    if (!types.isChar(args[0])) return PrimitiveError.TypeError;
+    if (!types.isChar(args[0])) return primitives.typeError("char-lower-case?", "char", args[0]);
     return if (isUnicodeLowercase(types.toChar(args[0]))) types.TRUE else types.FALSE;
 }
 
@@ -221,17 +221,17 @@ fn charLowerCaseP(args: []const Value) PrimitiveError!Value {
 // ---------------------------------------------------------------------------
 
 fn charUpcaseFn(args: []const Value) PrimitiveError!Value {
-    if (!types.isChar(args[0])) return PrimitiveError.TypeError;
+    if (!types.isChar(args[0])) return primitives.typeError("char-upcase", "char", args[0]);
     return types.makeChar(unicodeUpcase(types.toChar(args[0])));
 }
 
 fn charDowncaseFn(args: []const Value) PrimitiveError!Value {
-    if (!types.isChar(args[0])) return PrimitiveError.TypeError;
+    if (!types.isChar(args[0])) return primitives.typeError("char-downcase", "char", args[0]);
     return types.makeChar(unicodeDowncase(types.toChar(args[0])));
 }
 
 fn charFoldcaseFn(args: []const Value) PrimitiveError!Value {
-    if (!types.isChar(args[0])) return PrimitiveError.TypeError;
+    if (!types.isChar(args[0])) return primitives.typeError("char-foldcase", "char", args[0]);
     return types.makeChar(foldChar(types.toChar(args[0])));
 }
 
@@ -247,7 +247,7 @@ pub fn charFoldcase(cp: u21) u21 {
 // ---------------------------------------------------------------------------
 
 fn digitValueFn(args: []const Value) PrimitiveError!Value {
-    if (!types.isChar(args[0])) return PrimitiveError.TypeError;
+    if (!types.isChar(args[0])) return primitives.typeError("digit-value", "char", args[0]);
     const cp = types.toChar(args[0]);
     if (cp >= '0' and cp <= '9') {
         return types.makeFixnum(@as(i64, cp) - '0');
@@ -276,9 +276,10 @@ fn foldChar(cp: u21) u21 {
     return unicode.findFold(cp) orelse unicodeDowncase(cp);
 }
 
-fn compareCiChars(args: []const Value, comptime cmp: enum { lt, le, eq, ge, gt }) PrimitiveError!Value {
+fn compareCiChars(proc: []const u8, args: []const Value, comptime cmp: enum { lt, le, eq, ge, gt }) PrimitiveError!Value {
     for (0..args.len - 1) |i| {
-        if (!types.isChar(args[i]) or !types.isChar(args[i + 1])) return PrimitiveError.TypeError;
+        if (!types.isChar(args[i])) return primitives.typeError(proc, "char", args[i]);
+        if (!types.isChar(args[i + 1])) return primitives.typeError(proc, "char", args[i + 1]);
         const a = foldChar(types.toChar(args[i]));
         const b = foldChar(types.toChar(args[i + 1]));
         const pass = switch (cmp) {
@@ -294,23 +295,23 @@ fn compareCiChars(args: []const Value, comptime cmp: enum { lt, le, eq, ge, gt }
 }
 
 fn charCiLtFn(args: []const Value) PrimitiveError!Value {
-    return compareCiChars(args, .lt);
+    return compareCiChars("char-ci<?", args, .lt);
 }
 
 fn charCiLeFn(args: []const Value) PrimitiveError!Value {
-    return compareCiChars(args, .le);
+    return compareCiChars("char-ci<=?", args, .le);
 }
 
 fn charCiEqFn(args: []const Value) PrimitiveError!Value {
-    return compareCiChars(args, .eq);
+    return compareCiChars("char-ci=?", args, .eq);
 }
 
 fn charCiGeFn(args: []const Value) PrimitiveError!Value {
-    return compareCiChars(args, .ge);
+    return compareCiChars("char-ci>=?", args, .ge);
 }
 
 fn charCiGtFn(args: []const Value) PrimitiveError!Value {
-    return compareCiChars(args, .gt);
+    return compareCiChars("char-ci>?", args, .gt);
 }
 
 // ---------------------------------------------------------------------------
@@ -344,10 +345,10 @@ fn foldCompareStrings(a: []const u8, b: []const u8) std.math.Order {
     return .eq;
 }
 
-fn compareCiStrings(args: []const Value, comptime cmp: enum { lt, le, eq, ge, gt }) PrimitiveError!Value {
+fn compareCiStrings(proc: []const u8, args: []const Value, comptime cmp: enum { lt, le, eq, ge, gt }) PrimitiveError!Value {
     for (0..args.len - 1) |i| {
-        const a = try getStringSlice(args[i]);
-        const b = try getStringSlice(args[i + 1]);
+        const a = try getStringSlice(proc, args[i]);
+        const b = try getStringSlice(proc, args[i + 1]);
         const order = foldCompareStrings(a, b);
         const pass = switch (cmp) {
             .lt => order == .lt,
@@ -362,23 +363,23 @@ fn compareCiStrings(args: []const Value, comptime cmp: enum { lt, le, eq, ge, gt
 }
 
 fn stringCiLtFn(args: []const Value) PrimitiveError!Value {
-    return compareCiStrings(args, .lt);
+    return compareCiStrings("string-ci<?", args, .lt);
 }
 
 fn stringCiLeFn(args: []const Value) PrimitiveError!Value {
-    return compareCiStrings(args, .le);
+    return compareCiStrings("string-ci<=?", args, .le);
 }
 
 fn stringCiEqFn(args: []const Value) PrimitiveError!Value {
-    return compareCiStrings(args, .eq);
+    return compareCiStrings("string-ci=?", args, .eq);
 }
 
 fn stringCiGeFn(args: []const Value) PrimitiveError!Value {
-    return compareCiStrings(args, .ge);
+    return compareCiStrings("string-ci>=?", args, .ge);
 }
 
 fn stringCiGtFn(args: []const Value) PrimitiveError!Value {
-    return compareCiStrings(args, .gt);
+    return compareCiStrings("string-ci>?", args, .gt);
 }
 
 // ---------------------------------------------------------------------------
@@ -419,17 +420,17 @@ fn stringCaseMap(data: []const u8, comptime case_fn: fn (u21) u21) PrimitiveErro
 }
 
 fn stringUpcaseFn(args: []const Value) PrimitiveError!Value {
-    const data = try getStringSlice(args[0]);
+    const data = try getStringSlice("string-upcase", args[0]);
     return stringCaseMapExpanding(data, .upcase);
 }
 
 fn stringDowncaseFn(args: []const Value) PrimitiveError!Value {
-    const data = try getStringSlice(args[0]);
+    const data = try getStringSlice("string-downcase", args[0]);
     return stringCaseMapExpanding(data, .downcase);
 }
 
 fn stringFoldcaseFn(args: []const Value) PrimitiveError!Value {
-    const data = try getStringSlice(args[0]);
+    const data = try getStringSlice("string-foldcase", args[0]);
     return stringCaseMapExpanding(data, .foldcase);
 }
 

@@ -40,8 +40,8 @@ pub fn registerHashTable(vm: *vm_mod.VM) !void {
 // Helpers
 // ---------------------------------------------------------------------------
 
-fn getHashTable(v: Value) PrimitiveError!*HashTable {
-    if (!types.isHashTable(v)) return PrimitiveError.TypeError;
+fn getHashTable(proc: []const u8, v: Value) PrimitiveError!*HashTable {
+    if (!types.isHashTable(v)) return primitives.typeError(proc, "hash-table", v);
     return types.toHashTable(v);
 }
 
@@ -161,7 +161,7 @@ fn hashTablePFn(args: []const Value) PrimitiveError!Value {
 
 // (hash-table-ref ht key) or (hash-table-ref ht key default)
 fn hashTableRefFn(args: []const Value) PrimitiveError!Value {
-    const ht = try getHashTable(args[0]);
+    const ht = try getHashTable("hash-table-ref", args[0]);
     if (findKey(ht, args[1])) |idx| {
         return ht.entries[idx].value;
     }
@@ -180,12 +180,12 @@ fn hashTableRefFn(args: []const Value) PrimitiveError!Value {
         }
         return args[2]; // non-procedure default (for backwards compat)
     }
-    return PrimitiveError.TypeError; // no default, error
+    return primitives.typeError("hash-table-ref", "key to be present or default", args[1]); // no default, error
 }
 
 // (hash-table-set! ht key value)
 fn hashTableSetFn(args: []const Value) PrimitiveError!Value {
-    const ht = try getHashTable(args[0]);
+    const ht = try getHashTable("hash-table-set!", args[0]);
     try growIfNeeded(ht);
     const slot = findSlot(ht, args[1]);
     if (slot.found) {
@@ -199,7 +199,7 @@ fn hashTableSetFn(args: []const Value) PrimitiveError!Value {
 
 // (hash-table-delete! ht key)
 fn hashTableDeleteFn(args: []const Value) PrimitiveError!Value {
-    const ht = try getHashTable(args[0]);
+    const ht = try getHashTable("hash-table-delete!", args[0]);
     if (findKey(ht, args[1])) |idx| {
         ht.entries[idx].key = TOMBSTONE;
         ht.entries[idx].value = EMPTY;
@@ -210,20 +210,20 @@ fn hashTableDeleteFn(args: []const Value) PrimitiveError!Value {
 
 // (hash-table-exists? ht key)
 fn hashTableExistsFn(args: []const Value) PrimitiveError!Value {
-    const ht = try getHashTable(args[0]);
+    const ht = try getHashTable("hash-table-exists?", args[0]);
     return if (findKey(ht, args[1]) != null) types.TRUE else types.FALSE;
 }
 
 // (hash-table-size ht)
 fn hashTableSizeFn(args: []const Value) PrimitiveError!Value {
-    const ht = try getHashTable(args[0]);
+    const ht = try getHashTable("hash-table-size", args[0]);
     return types.makeFixnum(@intCast(ht.count));
 }
 
 // (hash-table-keys ht)
 fn hashTableKeysFn(args: []const Value) PrimitiveError!Value {
     const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
-    const ht = try getHashTable(args[0]);
+    const ht = try getHashTable("hash-table-keys", args[0]);
     var result: Value = types.NIL;
     gc.pushRoot(&result) catch return PrimitiveError.OutOfMemory;
     defer gc.popRoot();
@@ -238,7 +238,7 @@ fn hashTableKeysFn(args: []const Value) PrimitiveError!Value {
 // (hash-table-values ht)
 fn hashTableValuesFn(args: []const Value) PrimitiveError!Value {
     const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
-    const ht = try getHashTable(args[0]);
+    const ht = try getHashTable("hash-table-values", args[0]);
     var result: Value = types.NIL;
     gc.pushRoot(&result) catch return PrimitiveError.OutOfMemory;
     defer gc.popRoot();
@@ -253,7 +253,7 @@ fn hashTableValuesFn(args: []const Value) PrimitiveError!Value {
 // (hash-table-walk ht proc) — call (proc key value) for each entry
 fn hashTableWalkFn(args: []const Value) PrimitiveError!Value {
     const vm = vm_mod.vm_instance orelse return PrimitiveError.OutOfMemory;
-    const ht = try getHashTable(args[0]);
+    const ht = try getHashTable("hash-table-walk", args[0]);
     const proc = args[1];
 
     for (ht.entries[0..ht.capacity]) |entry| {
@@ -275,7 +275,7 @@ fn hashTableWalkFn(args: []const Value) PrimitiveError!Value {
 // (hash-table->alist ht)
 fn hashTableToAlistFn(args: []const Value) PrimitiveError!Value {
     const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
-    const ht = try getHashTable(args[0]);
+    const ht = try getHashTable("hash-table->alist", args[0]);
     var result: Value = types.NIL;
     gc.pushRoot(&result) catch return PrimitiveError.OutOfMemory;
     defer gc.popRoot();
@@ -302,7 +302,7 @@ fn alistToHashTableFn(args: []const Value) PrimitiveError!Value {
     var count: usize = 0;
     var tmp = current;
     while (tmp != types.NIL) {
-        if (!types.isPair(tmp)) return PrimitiveError.TypeError;
+        if (!types.isPair(tmp)) return primitives.typeError("alist->hash-table", "pair", tmp);
         count += 1;
         tmp = types.cdr(tmp);
     }
@@ -313,7 +313,7 @@ fn alistToHashTableFn(args: []const Value) PrimitiveError!Value {
 
     while (current != types.NIL) {
         const entry_pair = types.car(current);
-        if (!types.isPair(entry_pair)) return PrimitiveError.TypeError;
+        if (!types.isPair(entry_pair)) return primitives.typeError("alist->hash-table", "pair", entry_pair);
         const key = types.car(entry_pair);
         const value = types.cdr(entry_pair);
 
@@ -331,7 +331,7 @@ fn alistToHashTableFn(args: []const Value) PrimitiveError!Value {
 // (hash-table-copy ht)
 fn hashTableCopyFn(args: []const Value) PrimitiveError!Value {
     const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
-    const src = try getHashTable(args[0]);
+    const src = try getHashTable("hash-table-copy", args[0]);
     const dst_val = gc.allocHashTable(src.capacity) catch return PrimitiveError.OutOfMemory;
     const dst = types.toHashTable(dst_val);
     @memcpy(dst.entries[0..src.capacity], src.entries[0..src.capacity]);
@@ -342,7 +342,7 @@ fn hashTableCopyFn(args: []const Value) PrimitiveError!Value {
 // (hash-table-update!/default ht key proc default)
 fn hashTableUpdateDefaultFn(args: []const Value) PrimitiveError!Value {
     const vm = vm_mod.vm_instance orelse return PrimitiveError.OutOfMemory;
-    const ht = try getHashTable(args[0]);
+    const ht = try getHashTable("hash-table-update!/default", args[0]);
     const key = args[1];
     const proc = args[2];
     const default_val = args[3];
@@ -377,9 +377,9 @@ fn hashTableUpdateDefaultFn(args: []const Value) PrimitiveError!Value {
 fn hashFn(args: []const Value) PrimitiveError!Value {
     const h: u64 = valueHash(args[0]);
     if (args.len > 1) {
-        if (!types.isFixnum(args[1])) return PrimitiveError.TypeError;
+        if (!types.isFixnum(args[1])) return primitives.typeError("hash", "integer", args[1]);
         const bound = types.toFixnum(args[1]);
-        if (bound <= 0) return PrimitiveError.TypeError;
+        if (bound <= 0) return primitives.typeError("hash", "positive integer", args[1]);
         return types.makeFixnum(@intCast(@mod(h, @as(u64, @intCast(bound)))));
     }
     return types.makeFixnum(@intCast(h & 0x3FFFFFFFFFFFFFFF));
@@ -387,7 +387,7 @@ fn hashFn(args: []const Value) PrimitiveError!Value {
 
 // (string-hash s [bound])
 fn stringHashFn(args: []const Value) PrimitiveError!Value {
-    if (!types.isString(args[0])) return PrimitiveError.TypeError;
+    if (!types.isString(args[0])) return primitives.typeError("string-hash", "string", args[0]);
     const str_obj = types.toObject(args[0]).as(types.SchemeString);
     const str = str_obj.data[0..str_obj.len];
     var h: u64 = 0;
@@ -395,9 +395,9 @@ fn stringHashFn(args: []const Value) PrimitiveError!Value {
         h = h *% 31 +% c;
     }
     if (args.len > 1) {
-        if (!types.isFixnum(args[1])) return PrimitiveError.TypeError;
+        if (!types.isFixnum(args[1])) return primitives.typeError("string-hash", "integer", args[1]);
         const bound = types.toFixnum(args[1]);
-        if (bound <= 0) return PrimitiveError.TypeError;
+        if (bound <= 0) return primitives.typeError("string-hash", "positive integer", args[1]);
         return types.makeFixnum(@intCast(@mod(h, @as(u64, @intCast(bound)))));
     }
     return types.makeFixnum(@intCast(h & 0x3FFFFFFFFFFFFFFF));
@@ -405,7 +405,7 @@ fn stringHashFn(args: []const Value) PrimitiveError!Value {
 
 // (string-ci-hash s [bound])
 fn stringCiHashFn(args: []const Value) PrimitiveError!Value {
-    if (!types.isString(args[0])) return PrimitiveError.TypeError;
+    if (!types.isString(args[0])) return primitives.typeError("string-ci-hash", "string", args[0]);
     const char_mod = @import("primitives_char.zig");
     const str_obj = types.toObject(args[0]).as(types.SchemeString);
     const str = str_obj.data[0..str_obj.len];
@@ -428,9 +428,9 @@ fn stringCiHashFn(args: []const Value) PrimitiveError!Value {
         pos += seq_len;
     }
     if (args.len > 1) {
-        if (!types.isFixnum(args[1])) return PrimitiveError.TypeError;
+        if (!types.isFixnum(args[1])) return primitives.typeError("string-ci-hash", "integer", args[1]);
         const bound = types.toFixnum(args[1]);
-        if (bound <= 0) return PrimitiveError.TypeError;
+        if (bound <= 0) return primitives.typeError("string-ci-hash", "positive integer", args[1]);
         return types.makeFixnum(@intCast(@mod(h, @as(u64, @intCast(bound)))));
     }
     return types.makeFixnum(@intCast(h & 0x3FFFFFFFFFFFFFFF));
@@ -440,9 +440,9 @@ fn stringCiHashFn(args: []const Value) PrimitiveError!Value {
 fn hashByIdentityFn(args: []const Value) PrimitiveError!Value {
     const h: u64 = @bitCast(args[0]);
     if (args.len > 1) {
-        if (!types.isFixnum(args[1])) return PrimitiveError.TypeError;
+        if (!types.isFixnum(args[1])) return primitives.typeError("hash-by-identity", "integer", args[1]);
         const bound = types.toFixnum(args[1]);
-        if (bound <= 0) return PrimitiveError.TypeError;
+        if (bound <= 0) return primitives.typeError("hash-by-identity", "positive integer", args[1]);
         return types.makeFixnum(@intCast(@mod(h, @as(u64, @intCast(bound)))));
     }
     return types.makeFixnum(@intCast(h & 0x3FFFFFFFFFFFFFFF));
@@ -450,7 +450,7 @@ fn hashByIdentityFn(args: []const Value) PrimitiveError!Value {
 
 // (hash-table-ref/default ht key default)
 fn hashTableRefDefaultFn(args: []const Value) PrimitiveError!Value {
-    const ht = try getHashTable(args[0]);
+    const ht = try getHashTable("hash-table-ref/default", args[0]);
     if (findKey(ht, args[1])) |idx| {
         return ht.entries[idx].value;
     }
@@ -460,7 +460,7 @@ fn hashTableRefDefaultFn(args: []const Value) PrimitiveError!Value {
 // (hash-table-fold ht f init) — fold over hash table entries
 fn hashTableFoldFn(args: []const Value) PrimitiveError!Value {
     const vm = vm_mod.vm_instance orelse return PrimitiveError.OutOfMemory;
-    const ht = try getHashTable(args[0]);
+    const ht = try getHashTable("hash-table-fold", args[0]);
     const proc = args[1];
     var acc = args[2];
 
@@ -482,8 +482,8 @@ fn hashTableFoldFn(args: []const Value) PrimitiveError!Value {
 
 // (hash-table-merge! ht1 ht2)
 fn hashTableMergeFn(args: []const Value) PrimitiveError!Value {
-    const ht1 = try getHashTable(args[0]);
-    const ht2 = try getHashTable(args[1]);
+    const ht1 = try getHashTable("hash-table-merge!", args[0]);
+    const ht2 = try getHashTable("hash-table-merge!", args[1]);
 
     for (ht2.entries[0..ht2.capacity]) |entry| {
         if (entry.key == EMPTY or entry.key == TOMBSTONE) continue;

@@ -45,16 +45,16 @@ pub fn registerRandom(vm: *vm_mod.VM) !void {
     try reg(vm, "%rs-next-real", &rsNextRealFn, .{ .exact = 1 });
 }
 
-fn getRS(v: Value) PrimitiveError!*types.RandomSource {
-    if (!types.isRandomSource(v)) return PrimitiveError.TypeError;
+fn getRS(proc: []const u8, v: Value) PrimitiveError!*types.RandomSource {
+    if (!types.isRandomSource(v)) return primitives.typeError(proc, "random-source", v);
     return types.toObject(v).as(types.RandomSource);
 }
 
 fn randomIntegerFn(args: []const Value) PrimitiveError!Value {
-    if (!types.isFixnum(args[0])) return PrimitiveError.TypeError;
+    if (!types.isFixnum(args[0])) return primitives.typeError("random-integer", "integer", args[0]);
     const n = types.toFixnum(args[0]);
-    if (n <= 0) return PrimitiveError.TypeError;
-    const rs = try getRS(default_rs_val);
+    if (n <= 0) return primitives.typeError("random-integer", "positive integer", args[0]);
+    const rs = try getRS("random-integer", default_rs_val);
     const r = rs.prng.random();
     return types.makeFixnum(r.intRangeLessThan(i64, 0, n));
 }
@@ -62,7 +62,7 @@ fn randomIntegerFn(args: []const Value) PrimitiveError!Value {
 fn randomRealFn(args: []const Value) PrimitiveError!Value {
     _ = args;
     const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
-    const rs = try getRS(default_rs_val);
+    const rs = try getRS("random-real", default_rs_val);
     const r = rs.prng.random();
     return gc.allocFlonum(r.float(f64)) catch return PrimitiveError.OutOfMemory;
 }
@@ -83,14 +83,15 @@ fn makeRandomSourceFn(args: []const Value) PrimitiveError!Value {
 }
 
 fn randomSourceRandomizeFn(args: []const Value) PrimitiveError!Value {
-    const rs = try getRS(args[0]);
+    const rs = try getRS("random-source-randomize!", args[0]);
     rs.prng = std.Random.DefaultPrng.init(freshSeed());
     return types.VOID;
 }
 
 fn randomSourcePseudoRandomizeFn(args: []const Value) PrimitiveError!Value {
-    const rs = try getRS(args[0]);
-    if (!types.isFixnum(args[1]) or !types.isFixnum(args[2])) return PrimitiveError.TypeError;
+    const rs = try getRS("random-source-pseudo-randomize!", args[0]);
+    if (!types.isFixnum(args[1])) return primitives.typeError("random-source-pseudo-randomize!", "integer", args[1]);
+    if (!types.isFixnum(args[2])) return primitives.typeError("random-source-pseudo-randomize!", "integer", args[2]);
     const i: u64 = @intCast(types.toFixnum(args[1]));
     const j: u64 = @intCast(types.toFixnum(args[2]));
     rs.prng = std.Random.DefaultPrng.init(i *% 2654435761 +% j *% 2246822519);
@@ -99,7 +100,7 @@ fn randomSourcePseudoRandomizeFn(args: []const Value) PrimitiveError!Value {
 
 fn randomSourceStateRefFn(args: []const Value) PrimitiveError!Value {
     const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
-    const rs = try getRS(args[0]);
+    const rs = try getRS("random-source-state-ref", args[0]);
     var result: Value = types.NIL;
     gc.pushRoot(&result) catch return PrimitiveError.OutOfMemory;
     defer gc.popRoot();
@@ -113,13 +114,13 @@ fn randomSourceStateRefFn(args: []const Value) PrimitiveError!Value {
 }
 
 fn randomSourceStateSetFn(args: []const Value) PrimitiveError!Value {
-    const rs = try getRS(args[0]);
+    const rs = try getRS("random-source-state-set!", args[0]);
     var state_list = args[1];
     var i: usize = 0;
     while (i < 4) : (i += 1) {
-        if (!types.isPair(state_list)) return PrimitiveError.TypeError;
+        if (!types.isPair(state_list)) return primitives.typeError("random-source-state-set!", "list of 4 integers", state_list);
         const word = types.car(state_list);
-        if (!types.isFixnum(word)) return PrimitiveError.TypeError;
+        if (!types.isFixnum(word)) return primitives.typeError("random-source-state-set!", "integer", word);
         rs.prng.s[i] = @bitCast(types.toFixnum(word));
         state_list = types.cdr(state_list);
     }
@@ -128,10 +129,10 @@ fn randomSourceStateSetFn(args: []const Value) PrimitiveError!Value {
 
 // (%rs-next-int rs n) — used by random-source-make-integers closure
 fn rsNextIntFn(args: []const Value) PrimitiveError!Value {
-    const rs = try getRS(args[0]);
-    if (!types.isFixnum(args[1])) return PrimitiveError.TypeError;
+    const rs = try getRS("%rs-next-int", args[0]);
+    if (!types.isFixnum(args[1])) return primitives.typeError("%rs-next-int", "integer", args[1]);
     const n = types.toFixnum(args[1]);
-    if (n <= 0) return PrimitiveError.TypeError;
+    if (n <= 0) return primitives.typeError("%rs-next-int", "positive integer", args[1]);
     const r = rs.prng.random();
     return types.makeFixnum(r.intRangeLessThan(i64, 0, n));
 }
@@ -139,7 +140,7 @@ fn rsNextIntFn(args: []const Value) PrimitiveError!Value {
 // (%rs-next-real rs) — used by random-source-make-reals closure
 fn rsNextRealFn(args: []const Value) PrimitiveError!Value {
     const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
-    const rs = try getRS(args[0]);
+    const rs = try getRS("%rs-next-real", args[0]);
     const r = rs.prng.random();
     return gc.allocFlonum(r.float(f64)) catch return PrimitiveError.OutOfMemory;
 }

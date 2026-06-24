@@ -140,12 +140,12 @@ pub fn writeStderr(bytes: []const u8) void {
 }
 
 /// Get the output port: use args[arg_idx] if provided, else current-output-port.
-fn getOutputPort(args: []const Value, arg_idx: usize) PrimitiveError!*types.Port {
+fn getOutputPort(args: []const Value, arg_idx: usize, proc: []const u8) PrimitiveError!*types.Port {
     if (args.len > arg_idx) {
-        if (!types.isPort(args[arg_idx])) return PrimitiveError.TypeError;
+        if (!types.isPort(args[arg_idx])) return primitives.typeError(proc, "output port", args[arg_idx]);
         const port = types.toObject(args[arg_idx]).as(types.Port);
-        if (!port.is_output) return PrimitiveError.TypeError;
-        if (!port.is_open) return PrimitiveError.TypeError;
+        if (!port.is_output) return primitives.typeError(proc, "output port", args[arg_idx]);
+        if (!port.is_open) return primitives.typeError(proc, "open output port", args[arg_idx]);
         return port;
     }
     // Use current-output-port from VM
@@ -155,12 +155,12 @@ fn getOutputPort(args: []const Value, arg_idx: usize) PrimitiveError!*types.Port
 }
 
 /// Get the input port: use args[arg_idx] if provided, else current-input-port.
-fn getInputPort(args: []const Value, arg_idx: usize) PrimitiveError!*types.Port {
+fn getInputPort(args: []const Value, arg_idx: usize, proc: []const u8) PrimitiveError!*types.Port {
     if (args.len > arg_idx) {
-        if (!types.isPort(args[arg_idx])) return PrimitiveError.TypeError;
+        if (!types.isPort(args[arg_idx])) return primitives.typeError(proc, "input port", args[arg_idx]);
         const port = types.toObject(args[arg_idx]).as(types.Port);
-        if (!port.is_input) return PrimitiveError.TypeError;
-        if (!port.is_open) return PrimitiveError.TypeError;
+        if (!port.is_input) return primitives.typeError(proc, "input port", args[arg_idx]);
+        if (!port.is_open) return primitives.typeError(proc, "open input port", args[arg_idx]);
         return port;
     }
     const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError;
@@ -198,7 +198,7 @@ fn stringPortWrite(port: *types.Port, bytes: []const u8) void {
 
 fn display(args: []const Value) PrimitiveError!Value {
     const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
-    const port = try getOutputPort(args, 1);
+    const port = try getOutputPort(args, 1, "display");
     const s = printer.valueToString(gc.allocator, args[0], .display) catch return PrimitiveError.OutOfMemory;
     defer gc.allocator.free(s);
     writeToPort(port, s);
@@ -207,7 +207,7 @@ fn display(args: []const Value) PrimitiveError!Value {
 
 fn write(args: []const Value) PrimitiveError!Value {
     const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
-    const port = try getOutputPort(args, 1);
+    const port = try getOutputPort(args, 1, "write");
     const s = printer.valueToString(gc.allocator, args[0], .write) catch return PrimitiveError.OutOfMemory;
     defer gc.allocator.free(s);
     writeToPort(port, s);
@@ -216,7 +216,7 @@ fn write(args: []const Value) PrimitiveError!Value {
 
 fn writeShared(args: []const Value) PrimitiveError!Value {
     const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
-    const port = try getOutputPort(args, 1);
+    const port = try getOutputPort(args, 1, "write-shared");
     const s = printer.valueToString(gc.allocator, args[0], .shared) catch return PrimitiveError.OutOfMemory;
     defer gc.allocator.free(s);
     writeToPort(port, s);
@@ -224,7 +224,7 @@ fn writeShared(args: []const Value) PrimitiveError!Value {
 }
 
 fn newline(args: []const Value) PrimitiveError!Value {
-    const port = try getOutputPort(args, 0);
+    const port = try getOutputPort(args, 0, "newline");
     writeToPort(port, "\n");
     return types.VOID;
 }
@@ -280,13 +280,13 @@ fn binaryPortP(args: []const Value) PrimitiveError!Value {
 }
 
 fn inputPortOpenP(args: []const Value) PrimitiveError!Value {
-    if (!types.isPort(args[0])) return PrimitiveError.TypeError;
+    if (!types.isPort(args[0])) return primitives.typeError("input-port-open?", "port", args[0]);
     const port = types.toObject(args[0]).as(types.Port);
     return if (port.is_input and port.is_open) types.TRUE else types.FALSE;
 }
 
 fn outputPortOpenP(args: []const Value) PrimitiveError!Value {
-    if (!types.isPort(args[0])) return PrimitiveError.TypeError;
+    if (!types.isPort(args[0])) return primitives.typeError("output-port-open?", "port", args[0]);
     const port = types.toObject(args[0]).as(types.Port);
     return if (port.is_output and port.is_open) types.TRUE else types.FALSE;
 }
@@ -308,7 +308,7 @@ fn raiseFileError(gc: *@import("memory.zig").GC, msg_text: []const u8, irritant:
 
 fn openInputFile(args: []const Value) PrimitiveError!Value {
     if (comptime is_wasm) return PrimitiveError.TypeError;
-    if (!types.isString(args[0])) return PrimitiveError.TypeError;
+    if (!types.isString(args[0])) return primitives.typeError("open-input-file", "string", args[0]);
     const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
     const str = types.toObject(args[0]).as(types.SchemeString);
     const path = str.data[0..str.len];
@@ -330,7 +330,7 @@ fn openInputFile(args: []const Value) PrimitiveError!Value {
 
 fn openOutputFile(args: []const Value) PrimitiveError!Value {
     if (comptime is_wasm) return PrimitiveError.TypeError;
-    if (!types.isString(args[0])) return PrimitiveError.TypeError;
+    if (!types.isString(args[0])) return primitives.typeError("open-output-file", "string", args[0]);
     const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
     const str = types.toObject(args[0]).as(types.SchemeString);
     const path = str.data[0..str.len];
@@ -367,7 +367,7 @@ fn openBinaryOutputFile(args: []const Value) PrimitiveError!Value {
 }
 
 fn closePort(args: []const Value) PrimitiveError!Value {
-    if (!types.isPort(args[0])) return PrimitiveError.TypeError;
+    if (!types.isPort(args[0])) return primitives.typeError("close-port", "port", args[0]);
     const port = types.toObject(args[0]).as(types.Port);
     if (port.read_buf) |rb| {
         if (primitives.gc_instance) |gc| {
@@ -432,13 +432,13 @@ fn readUtf8Char(port: *types.Port) ?u21 {
 }
 
 fn readCharFn(args: []const Value) PrimitiveError!Value {
-    const port = try getInputPort(args, 0);
+    const port = try getInputPort(args, 0, "read-char");
     const cp = readUtf8Char(port) orelse return types.EOF;
     return types.makeChar(cp);
 }
 
 fn peekCharFn(args: []const Value) PrimitiveError!Value {
-    const port = try getInputPort(args, 0);
+    const port = try getInputPort(args, 0, "peek-char");
     if (port.peek_byte) |b| {
         const seq_len = std.unicode.utf8ByteSequenceLength(b) catch return types.makeChar(@intCast(b));
         if (seq_len == 1) return types.makeChar(@intCast(b));
@@ -480,7 +480,7 @@ fn peekCharFn(args: []const Value) PrimitiveError!Value {
 
 fn readLineFn(args: []const Value) PrimitiveError!Value {
     const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
-    const port = try getInputPort(args, 0);
+    const port = try getInputPort(args, 0, "read-line");
 
     var line_buf: std.ArrayList(u8) = .empty;
     defer line_buf.deinit(gc.allocator);
@@ -509,25 +509,25 @@ fn readLineFn(args: []const Value) PrimitiveError!Value {
 }
 
 fn charReadyP(args: []const Value) PrimitiveError!Value {
-    const port = try getInputPort(args, 0);
+    const port = try getInputPort(args, 0, "char-ready?");
     if (port.peek_byte != null) return types.TRUE;
     // For simplicity, always return #t (non-blocking check not worth the complexity)
     return types.TRUE;
 }
 
 fn writeCharFn(args: []const Value) PrimitiveError!Value {
-    if (!types.isChar(args[0])) return PrimitiveError.TypeError;
-    const port = try getOutputPort(args, 1);
+    if (!types.isChar(args[0])) return primitives.typeError("write-char", "character", args[0]);
+    const port = try getOutputPort(args, 1, "write-char");
     const cp = types.toChar(args[0]);
     var buf: [4]u8 = undefined;
-    const len = std.unicode.utf8Encode(cp, &buf) catch return PrimitiveError.TypeError;
+    const len = std.unicode.utf8Encode(cp, &buf) catch return primitives.typeError("write-char", "valid unicode character", args[0]);
     writeToPort(port, buf[0..len]);
     return types.VOID;
 }
 
 fn writeStringFn(args: []const Value) PrimitiveError!Value {
-    if (!types.isString(args[0])) return PrimitiveError.TypeError;
-    const port = try getOutputPort(args, 1);
+    if (!types.isString(args[0])) return primitives.typeError("write-string", "string", args[0]);
+    const port = try getOutputPort(args, 1, "write-string");
     const str = types.toObject(args[0]).as(types.SchemeString);
     const data = str.data[0..str.len];
     const string_mod = @import("primitives_string.zig");
@@ -535,23 +535,23 @@ fn writeStringFn(args: []const Value) PrimitiveError!Value {
     var start_cp: usize = 0;
     var end_cp: usize = cp_count;
     if (args.len > 2) {
-        if (!types.isFixnum(args[2])) return PrimitiveError.TypeError;
+        if (!types.isFixnum(args[2])) return primitives.typeError("write-string", "integer", args[2]);
         start_cp = @intCast(types.toFixnum(args[2]));
     }
     if (args.len > 3) {
-        if (!types.isFixnum(args[3])) return PrimitiveError.TypeError;
+        if (!types.isFixnum(args[3])) return primitives.typeError("write-string", "integer", args[3]);
         end_cp = @intCast(types.toFixnum(args[3]));
     }
-    if (start_cp > end_cp or end_cp > cp_count) return PrimitiveError.TypeError;
-    const byte_start = string_mod.utf8IndexToByteOffset(data, start_cp) orelse return PrimitiveError.TypeError;
-    const byte_end = string_mod.utf8IndexToByteOffset(data, end_cp) orelse return PrimitiveError.TypeError;
+    if (start_cp > end_cp or end_cp > cp_count) return primitives.typeError("write-string", "valid range", args[0]);
+    const byte_start = string_mod.utf8IndexToByteOffset(data, start_cp) orelse return primitives.typeError("write-string", "valid start index", args[0]);
+    const byte_end = string_mod.utf8IndexToByteOffset(data, end_cp) orelse return primitives.typeError("write-string", "valid end index", args[0]);
     writeToPort(port, data[byte_start..byte_end]);
     return types.VOID;
 }
 
 fn readDatumFn(args: []const Value) PrimitiveError!Value {
     const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
-    const port = try getInputPort(args, 0);
+    const port = try getInputPort(args, 0, "read");
 
     // For string ports, read directly from the string data
     if (port.is_string_port) {
@@ -642,7 +642,7 @@ fn readDatumFn(args: []const Value) PrimitiveError!Value {
 
 fn fileExistsP(args: []const Value) PrimitiveError!Value {
     if (comptime is_wasm) return types.FALSE;
-    if (!types.isString(args[0])) return PrimitiveError.TypeError;
+    if (!types.isString(args[0])) return primitives.typeError("file-exists?", "string", args[0]);
     const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
     const str = types.toObject(args[0]).as(types.SchemeString);
     const path = str.data[0..str.len];
@@ -671,7 +671,7 @@ fn eofObjectFn(args: []const Value) PrimitiveError!Value {
 // ---------------------------------------------------------------------------
 
 fn openInputString(args: []const Value) PrimitiveError!Value {
-    if (!types.isString(args[0])) return PrimitiveError.TypeError;
+    if (!types.isString(args[0])) return primitives.typeError("open-input-string", "string", args[0]);
     const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
     const str = types.toObject(args[0]).as(types.SchemeString);
     return gc.allocStringInputPort(str.data[0..str.len]) catch return PrimitiveError.OutOfMemory;
@@ -684,10 +684,10 @@ fn openOutputString(args: []const Value) PrimitiveError!Value {
 }
 
 fn getOutputString(args: []const Value) PrimitiveError!Value {
-    if (!types.isPort(args[0])) return PrimitiveError.TypeError;
+    if (!types.isPort(args[0])) return primitives.typeError("get-output-string", "port", args[0]);
     const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
     const port = types.toObject(args[0]).as(types.Port);
-    if (!port.is_string_port or !port.is_output) return PrimitiveError.TypeError;
+    if (!port.is_string_port or !port.is_output) return primitives.typeError("get-output-string", "output string port", args[0]);
     const buf = port.string_out_buf orelse return gc.allocString("") catch return PrimitiveError.OutOfMemory;
     return gc.allocString(buf[0..port.string_out_len]) catch return PrimitiveError.OutOfMemory;
 }
@@ -698,12 +698,12 @@ fn getOutputString(args: []const Value) PrimitiveError!Value {
 
 fn readStringFn(args: []const Value) PrimitiveError!Value {
     // (read-string k [port]) -- read k characters
-    if (!types.isFixnum(args[0])) return PrimitiveError.TypeError;
+    if (!types.isFixnum(args[0])) return primitives.typeError("read-string", "integer", args[0]);
     const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
     const k = types.toFixnum(args[0]);
-    if (k < 0) return PrimitiveError.TypeError;
+    if (k < 0) return primitives.typeError("read-string", "non-negative integer", args[0]);
     const count: usize = @intCast(@as(u64, @bitCast(k)));
-    const port = try getInputPort(args, 1);
+    const port = try getInputPort(args, 1, "read-string");
 
     var result: std.ArrayList(u8) = .empty;
     defer result.deinit(gc.allocator);
@@ -723,14 +723,14 @@ fn readStringFn(args: []const Value) PrimitiveError!Value {
 fn flushOutputPort(args: []const Value) PrimitiveError!Value {
     // For our implementation, flushing is a no-op since we write directly
     if (args.len > 0) {
-        if (!types.isPort(args[0])) return PrimitiveError.TypeError;
+        if (!types.isPort(args[0])) return primitives.typeError("flush-output-port", "port", args[0]);
     }
     return types.VOID;
 }
 
 fn deleteFile(args: []const Value) PrimitiveError!Value {
     if (comptime is_wasm) return PrimitiveError.TypeError;
-    if (!types.isString(args[0])) return PrimitiveError.TypeError;
+    if (!types.isString(args[0])) return primitives.typeError("delete-file", "string", args[0]);
     const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
     const str = types.toObject(args[0]).as(types.SchemeString);
     const path = str.data[0..str.len];
@@ -801,7 +801,7 @@ fn callWithOutputFile(args: []const Value) PrimitiveError!Value {
 
 /// (call-with-port port proc)
 fn callWithPort(args: []const Value) PrimitiveError!Value {
-    if (!types.isPort(args[0])) return PrimitiveError.TypeError;
+    if (!types.isPort(args[0])) return primitives.typeError("call-with-port", "port", args[0]);
     const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError;
     const result = vm.callWithArgs(args[1], &[_]Value{args[0]}) catch |err| {
         _ = closePort(&[_]Value{args[0]}) catch {};
@@ -864,13 +864,13 @@ fn withOutputToFile(args: []const Value) PrimitiveError!Value {
 // ---------------------------------------------------------------------------
 
 fn readU8Fn(args: []const Value) PrimitiveError!Value {
-    const port = try getInputPort(args, 0);
+    const port = try getInputPort(args, 0, "read-u8");
     const byte = readOneByte(port) orelse return types.EOF;
     return types.makeFixnum(@intCast(byte));
 }
 
 fn peekU8Fn(args: []const Value) PrimitiveError!Value {
-    const port = try getInputPort(args, 0);
+    const port = try getInputPort(args, 0, "peek-u8");
     if (port.peek_byte) |b| {
         return types.makeFixnum(@intCast(b));
     }
@@ -880,10 +880,10 @@ fn peekU8Fn(args: []const Value) PrimitiveError!Value {
 }
 
 fn writeU8Fn(args: []const Value) PrimitiveError!Value {
-    if (!types.isFixnum(args[0])) return PrimitiveError.TypeError;
-    const port = try getOutputPort(args, 1);
+    if (!types.isFixnum(args[0])) return primitives.typeError("write-u8", "integer", args[0]);
+    const port = try getOutputPort(args, 1, "write-u8");
     const val = types.toFixnum(args[0]);
-    if (val < 0 or val > 255) return PrimitiveError.TypeError;
+    if (val < 0 or val > 255) return primitives.typeError("write-u8", "exact integer 0-255", args[0]);
     const byte: u8 = @intCast(@as(u64, @bitCast(val)));
     const buf = [1]u8{byte};
     writeToPort(port, &buf);
@@ -891,12 +891,12 @@ fn writeU8Fn(args: []const Value) PrimitiveError!Value {
 }
 
 fn readBytevectorFn(args: []const Value) PrimitiveError!Value {
-    if (!types.isFixnum(args[0])) return PrimitiveError.TypeError;
+    if (!types.isFixnum(args[0])) return primitives.typeError("read-bytevector", "integer", args[0]);
     const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
     const k = types.toFixnum(args[0]);
-    if (k < 0) return PrimitiveError.TypeError;
+    if (k < 0) return primitives.typeError("read-bytevector", "non-negative integer", args[0]);
     const count: usize = @intCast(@as(u64, @bitCast(k)));
-    const port = try getInputPort(args, 1);
+    const port = try getInputPort(args, 1, "read-bytevector");
 
     var result = gc.allocator.alloc(u8, count) catch return PrimitiveError.OutOfMemory;
     defer gc.allocator.free(result);
@@ -911,24 +911,24 @@ fn readBytevectorFn(args: []const Value) PrimitiveError!Value {
 }
 
 fn writeBytevectorFn(args: []const Value) PrimitiveError!Value {
-    if (!types.isBytevector(args[0])) return PrimitiveError.TypeError;
-    const port = try getOutputPort(args, 1);
+    if (!types.isBytevector(args[0])) return primitives.typeError("write-bytevector", "bytevector", args[0]);
+    const port = try getOutputPort(args, 1, "write-bytevector");
     const bv = types.toBytevector(args[0]);
     var start: usize = 0;
     var end: usize = bv.data.len;
     if (args.len > 2) {
-        if (!types.isFixnum(args[2])) return PrimitiveError.TypeError;
+        if (!types.isFixnum(args[2])) return primitives.typeError("write-bytevector", "integer", args[2]);
         const s = types.toFixnum(args[2]);
-        if (s < 0) return PrimitiveError.TypeError;
+        if (s < 0) return primitives.typeError("write-bytevector", "non-negative integer", args[2]);
         start = @intCast(s);
     }
     if (args.len > 3) {
-        if (!types.isFixnum(args[3])) return PrimitiveError.TypeError;
+        if (!types.isFixnum(args[3])) return primitives.typeError("write-bytevector", "integer", args[3]);
         const e = types.toFixnum(args[3]);
-        if (e < 0) return PrimitiveError.TypeError;
+        if (e < 0) return primitives.typeError("write-bytevector", "non-negative integer", args[3]);
         end = @intCast(e);
     }
-    if (start > end or end > bv.data.len) return PrimitiveError.TypeError;
+    if (start > end or end > bv.data.len) return primitives.typeError("write-bytevector", "valid range", args[0]);
     writeToPort(port, bv.data[start..end]);
     return types.VOID;
 }
