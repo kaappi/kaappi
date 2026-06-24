@@ -1,4 +1,5 @@
 const std = @import("std");
+const is_wasm = @import("builtin").os.tag == .wasi;
 extern "c" fn setenv(name: [*:0]const u8, value: [*:0]const u8, overwrite: c_int) c_int;
 pub const types = @import("types.zig");
 pub const memory = @import("memory.zig");
@@ -20,7 +21,7 @@ pub const primitives_r7rs = @import("primitives_r7rs.zig");
 pub const printer = @import("printer.zig");
 pub const expander = @import("expander.zig");
 pub const library = @import("library.zig");
-pub const ln = @import("linenoise.zig");
+pub const ln = if (is_wasm) struct {} else @import("linenoise.zig");
 pub const ffi = @import("ffi.zig");
 pub const primitives_ffi = @import("primitives_ffi.zig");
 pub const primitives_srfi1 = @import("primitives_srfi1.zig");
@@ -96,24 +97,35 @@ fn readLine(buf: []u8) ?[]const u8 {
 }
 
 fn readFileContents(allocator: std.mem.Allocator, path: []const u8) ![]u8 {
-    const fd = std.posix.openat(std.posix.AT.FDCWD, path, .{}, 0) catch |err| {
-        std.debug.print("Error opening file '{s}': {}\n", .{ path, err });
-        return err;
-    };
-    defer _ = std.posix.system.close(fd);
+    const path_z = allocator.dupeZ(u8, path) catch return error.OutOfMemory;
+    defer allocator.free(path_z);
 
-    // Read file contents into a buffer
+    const fd = if (comptime is_wasm) blk: {
+        var result_fd: std.os.wasi.fd_t = undefined;
+        const rc = std.os.wasi.path_open(3, .{ .SYMLINK_FOLLOW = true }, path.ptr, path.len, .{}, .{ .FD_READ = true, .FD_SEEK = true }, .{ .FD_READ = true }, .{}, &result_fd);
+        if (rc != .SUCCESS) {
+            std.debug.print("Error opening file '{s}': {}\n", .{ path, rc });
+            break :blk @as(c_int, -1);
+        }
+        break :blk @as(c_int, @intCast(result_fd));
+    } else blk: {
+        break :blk std.c.open(path_z, .{});
+    };
+    if (fd < 0) {
+        std.debug.print("Error opening file '{s}'\n", .{path});
+        return error.FileNotFound;
+    }
+    defer _ = std.c.close(fd);
+
     const max_size: usize = 1024 * 1024;
     var result: std.ArrayList(u8) = .empty;
     defer result.deinit(allocator);
 
     var tmp: [4096]u8 = undefined;
     while (true) {
-        const bytes_read = std.posix.read(fd, &tmp) catch |err| {
-            std.debug.print("Error reading file: {}\n", .{err});
-            return err;
-        };
-        if (bytes_read == 0) break;
+        const raw = std.c.read(fd, &tmp, tmp.len);
+        if (raw <= 0) break;
+        const bytes_read: usize = @intCast(raw);
         if (result.items.len + bytes_read > max_size) {
             std.debug.print("File too large\n", .{});
             return error.StreamTooLong;
@@ -130,7 +142,7 @@ pub fn main(init: std.process.Init.Minimal) !void {
     defer if (is_debug) {
         _ = da.deinit();
     };
-    const allocator = if (is_debug) da.allocator() else std.heap.c_allocator;
+    const allocator = if (is_wasm) std.heap.wasm_allocator else if (is_debug) da.allocator() else std.heap.c_allocator;
 
     var gc = memory.GC.init(allocator);
     defer gc.deinit();
@@ -138,6 +150,23 @@ pub fn main(init: std.process.Init.Minimal) !void {
     var vm = try vm_mod.VM.init(&gc);
     defer vm.deinit();
     vm_mod.setVMInstance(&vm);
+
+    // WASM: simplified entry — just run the file specified as argv[1]
+    if (comptime is_wasm) {
+        try primitives.registerAll(&vm);
+        primitives.setGCInstance(&gc);
+        try library.registerStandardLibraries(&vm.libraries, &vm.globals);
+
+        var wasi_args = try init.args.iterateAllocator(allocator);
+        defer wasi_args.deinit();
+        _ = wasi_args.skip(); // skip argv[0]
+        const file_path = wasi_args.next() orelse {
+            writeStderr("kaappi-wasm: no file specified\n");
+            return;
+        };
+        try runFile(&vm, file_path);
+        return;
+    }
 
     // Pre-scan args for --sandbox (must happen before primitive registration)
     var is_sandboxed = false;
@@ -369,39 +398,41 @@ pub fn main(init: std.process.Init.Minimal) !void {
     vm.command_line_args = script_args[0..script_arg_count];
 
     // Auto-add ~/.kaappi/lib as a default library search path
-    const kaappi_lib_path = blk: {
-        const home = std.c.getenv("HOME") orelse break :blk null;
-        const home_len = std.mem.len(home);
-        const suffix = "/.kaappi/lib";
-        const path = allocator.alloc(u8, home_len + suffix.len) catch break :blk null;
-        @memcpy(path[0..home_len], home[0..home_len]);
-        @memcpy(path[home_len..], suffix);
-        break :blk path;
-    };
-    if (kaappi_lib_path) |klp| {
-        if (lib_path_count < 16) {
-            lib_paths[lib_path_count] = klp;
-            lib_path_count += 1;
-        }
-        // Set DYLD_LIBRARY_PATH / LD_LIBRARY_PATH for FFI dlopen
-        const env_name = if (@import("builtin").os.tag == .macos)
-            "DYLD_LIBRARY_PATH"
-        else
-            "LD_LIBRARY_PATH";
-        const existing = std.c.getenv(env_name);
-        if (existing) |ex| {
-            const ex_len = std.mem.len(ex);
-            const new = allocator.alloc(u8, klp.len + 1 + ex_len + 1) catch null;
-            if (new) |n| {
-                @memcpy(n[0..klp.len], klp);
-                n[klp.len] = ':';
-                @memcpy(n[klp.len + 1 .. klp.len + 1 + ex_len], ex[0..ex_len]);
-                n[klp.len + 1 + ex_len] = 0;
-                _ = setenv(env_name, @ptrCast(n[0 .. klp.len + 1 + ex_len :0]), 1);
+    if (!is_wasm) {
+        const kaappi_lib_path = blk: {
+            const home = std.c.getenv("HOME") orelse break :blk null;
+            const home_len = std.mem.len(home);
+            const suffix = "/.kaappi/lib";
+            const path = allocator.alloc(u8, home_len + suffix.len) catch break :blk null;
+            @memcpy(path[0..home_len], home[0..home_len]);
+            @memcpy(path[home_len..], suffix);
+            break :blk path;
+        };
+        if (kaappi_lib_path) |klp| {
+            if (lib_path_count < 16) {
+                lib_paths[lib_path_count] = klp;
+                lib_path_count += 1;
             }
-        } else {
-            const z = allocator.dupeZ(u8, klp) catch null;
-            if (z) |zz| _ = setenv(env_name, zz, 1);
+            // Set DYLD_LIBRARY_PATH / LD_LIBRARY_PATH for FFI dlopen
+            const env_name = if (@import("builtin").os.tag == .macos)
+                "DYLD_LIBRARY_PATH"
+            else
+                "LD_LIBRARY_PATH";
+            const existing = std.c.getenv(env_name);
+            if (existing) |ex| {
+                const ex_len = std.mem.len(ex);
+                const new = allocator.alloc(u8, klp.len + 1 + ex_len + 1) catch null;
+                if (new) |n| {
+                    @memcpy(n[0..klp.len], klp);
+                    n[klp.len] = ':';
+                    @memcpy(n[klp.len + 1 .. klp.len + 1 + ex_len], ex[0..ex_len]);
+                    n[klp.len + 1 + ex_len] = 0;
+                    _ = setenv(env_name, @ptrCast(n[0 .. klp.len + 1 + ex_len :0]), 1);
+                }
+            } else {
+                const z = allocator.dupeZ(u8, klp) catch null;
+                if (z) |zz| _ = setenv(env_name, zz, 1);
+            }
         }
     }
 
@@ -434,6 +465,10 @@ pub fn main(init: std.process.Init.Minimal) !void {
     } else if (file_path) |fp| {
         try runFile(&vm, fp);
     } else {
+        if (is_wasm) {
+            writeStderr("kaappi-wasm: no file specified\n");
+            return;
+        }
         try repl(&vm);
     }
 }

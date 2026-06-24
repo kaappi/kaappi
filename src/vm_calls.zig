@@ -347,7 +347,7 @@ pub fn callClosure(vm: *VM, closure: *types.Closure, base: u16, nargs: u8) VMErr
                 return err;
             }
             if (result > 0 and result != 0xFFFFFFFF) {
-                vm.frames[vm.frame_count - 1].ip = result - 1;
+                vm.frames[vm.frame_count - 1].ip = @intCast(result - 1);
             }
             return;
         }

@@ -14,19 +14,14 @@ pub fn build(b: *std.Build) void {
     ) orelse .ReleaseSafe;
 
     // Standalone binary: embed compiled bytecode via -Dbundle=path/to/program.sbc
-    const bundle = b.option([]const u8, "bundle",
-        "Path to .sbc bytecode file to embed for standalone binary");
+    const bundle = b.option([]const u8, "bundle", "Path to .sbc bytecode file to embed for standalone binary");
     // Single-step: compile and embed in one build
-    const bundle_src = b.option([]const u8, "bundle-src",
-        "Path to .scm source file to compile and embed for standalone binary");
+    const bundle_src = b.option([]const u8, "bundle-src", "Path to .scm source file to compile and embed for standalone binary");
 
-    const max_frames = b.option(u32, "max-frames",
-        "Maximum call frame depth (default: 512)") orelse 512;
-    const max_registers = b.option(u32, "max-registers",
-        "Maximum register count (default: 2048)") orelse 2048;
+    const max_frames = b.option(u32, "max-frames", "Maximum call frame depth (default: 512)") orelse 512;
+    const max_registers = b.option(u32, "max-registers", "Maximum register count (default: 2048)") orelse 2048;
 
-    const gc_threshold = b.option(u32, "gc-threshold",
-        "Initial GC object threshold (default: 8192)") orelse 8192;
+    const gc_threshold = b.option(u32, "gc-threshold", "Initial GC object threshold (default: 8192)") orelse 8192;
 
     const options = b.addOptions();
     options.addOption(u32, "max_frames", max_frames);
@@ -34,8 +29,9 @@ pub fn build(b: *std.Build) void {
     options.addOption(u32, "gc_initial_threshold", gc_threshold);
 
     const wf = b.addWriteFiles();
-    const null_embed = wf.add("embedded_bytecode.zig",
-        "pub const bytecode: ?[]const u8 = null;\n");
+    const null_embed = wf.add("embedded_bytecode.zig", "pub const bytecode: ?[]const u8 = null;\n");
+
+    const is_wasm_target = target.result.os.tag == .wasi;
 
     // Helper: create a kaappi module with a given embedded_bytecode import
     const main_mod = b.createModule(.{
@@ -43,13 +39,16 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
         .link_libc = true,
+        .single_threaded = if (is_wasm_target) true else null,
     });
     main_mod.addImport("build_options", options.createModule());
-    main_mod.addCSourceFile(.{
-        .file = b.path("vendor/linenoise/linenoise.c"),
-        .flags = &.{"-std=gnu99"},
-    });
-    main_mod.addIncludePath(b.path("vendor/linenoise"));
+    if (!is_wasm_target) {
+        main_mod.addCSourceFile(.{
+            .file = b.path("vendor/linenoise/linenoise.c"),
+            .flags = &.{"-std=gnu99"},
+        });
+        main_mod.addIncludePath(b.path("vendor/linenoise"));
+    }
 
     if (bundle) |bp| {
         const bundle_path: std.Build.LazyPath = if (bp.len > 0 and bp[0] == '/')
@@ -57,8 +56,7 @@ pub fn build(b: *std.Build) void {
         else
             b.path(bp);
         _ = wf.addCopyFile(bundle_path, "bundled.sbc");
-        const bundle_embed = wf.add("embedded_bytecode_bundle.zig",
-            "pub const bytecode: ?[]const u8 = @embedFile(\"bundled.sbc\");\n");
+        const bundle_embed = wf.add("embedded_bytecode_bundle.zig", "pub const bytecode: ?[]const u8 = @embedFile(\"bundled.sbc\");\n");
         main_mod.addAnonymousImport("embedded_bytecode", .{
             .root_source_file = bundle_embed,
             .target = target,
@@ -68,8 +66,7 @@ pub fn build(b: *std.Build) void {
         // Single-step build: compile .scm with a plain kaappi, then embed.
         // Use a separate WriteFiles to avoid a dependency loop with the main wf.
         const compiler_wf = b.addWriteFiles();
-        const compiler_null_embed = compiler_wf.add("embedded_bytecode.zig",
-            "pub const bytecode: ?[]const u8 = null;\n");
+        const compiler_null_embed = compiler_wf.add("embedded_bytecode.zig", "pub const bytecode: ?[]const u8 = null;\n");
 
         const compiler_mod = b.createModule(.{
             .root_source_file = b.path("src/main.zig"),
@@ -78,11 +75,13 @@ pub fn build(b: *std.Build) void {
             .link_libc = true,
         });
         compiler_mod.addImport("build_options", options.createModule());
-        compiler_mod.addCSourceFile(.{
-            .file = b.path("vendor/linenoise/linenoise.c"),
-            .flags = &.{"-std=gnu99"},
-        });
-        compiler_mod.addIncludePath(b.path("vendor/linenoise"));
+        if (!is_wasm_target) {
+            compiler_mod.addCSourceFile(.{
+                .file = b.path("vendor/linenoise/linenoise.c"),
+                .flags = &.{"-std=gnu99"},
+            });
+            compiler_mod.addIncludePath(b.path("vendor/linenoise"));
+        }
         compiler_mod.addAnonymousImport("embedded_bytecode", .{
             .root_source_file = compiler_null_embed,
             .target = target,
@@ -105,8 +104,7 @@ pub fn build(b: *std.Build) void {
         compile_run.addFileArg(src_lazy);
 
         _ = wf.addCopyFile(sbc_output, "bundled.sbc");
-        const bundle_embed = wf.add("embedded_bytecode_bundle.zig",
-            "pub const bytecode: ?[]const u8 = @embedFile(\"bundled.sbc\");\n");
+        const bundle_embed = wf.add("embedded_bytecode_bundle.zig", "pub const bytecode: ?[]const u8 = @embedFile(\"bundled.sbc\");\n");
         main_mod.addAnonymousImport("embedded_bytecode", .{
             .root_source_file = bundle_embed,
             .target = target,
@@ -134,6 +132,29 @@ pub fn build(b: *std.Build) void {
     }
     const run_step = b.step("run", "Run the Kaappi Scheme REPL");
     run_step.dependOn(&run_cmd.step);
+
+    // WebAssembly (WASI) build
+    const wasm_step = b.step("wasm", "Build kaappi.wasm (wasm32-wasi)");
+    const wasm_target = b.resolveTargetQuery(.{ .cpu_arch = .wasm32, .os_tag = .wasi });
+    const wasm_mod = b.createModule(.{
+        .root_source_file = b.path("src/main.zig"),
+        .target = wasm_target,
+        .optimize = .ReleaseSmall,
+        .link_libc = true,
+        .single_threaded = true,
+    });
+    wasm_mod.addImport("build_options", options.createModule());
+    wasm_mod.addAnonymousImport("embedded_bytecode", .{
+        .root_source_file = null_embed,
+        .target = wasm_target,
+        .optimize = .ReleaseSmall,
+    });
+    const wasm_exe = b.addExecutable(.{
+        .name = "kaappi",
+        .root_module = wasm_mod,
+    });
+    const wasm_install = b.addInstallArtifact(wasm_exe, .{});
+    wasm_step.dependOn(&wasm_install.step);
 
     // Benchmark executable (call/cc capture micro-benchmark)
     const bench_mod = b.createModule(.{
@@ -252,11 +273,13 @@ pub fn build(b: *std.Build) void {
         .link_libc = true,
     });
     cov_main_mod.addImport("build_options", options.createModule());
-    cov_main_mod.addCSourceFile(.{
-        .file = b.path("vendor/linenoise/linenoise.c"),
-        .flags = &.{"-std=gnu99"},
-    });
-    cov_main_mod.addIncludePath(b.path("vendor/linenoise"));
+    if (!is_wasm_target) {
+        cov_main_mod.addCSourceFile(.{
+            .file = b.path("vendor/linenoise/linenoise.c"),
+            .flags = &.{"-std=gnu99"},
+        });
+        cov_main_mod.addIncludePath(b.path("vendor/linenoise"));
+    }
     cov_main_mod.addAnonymousImport("embedded_bytecode", .{
         .root_source_file = null_embed,
         .target = target,

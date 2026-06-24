@@ -1,4 +1,5 @@
 const std = @import("std");
+const is_wasm = @import("builtin").os.tag == .wasi;
 const types = @import("types.zig");
 const memory = @import("memory.zig");
 const Value = types.Value;
@@ -527,6 +528,7 @@ fn validateFunctionBytecode(func: *Function) BytecodeError!void {
 }
 
 fn readFileContents(allocator: std.mem.Allocator, path: []const u8) ![]u8 {
+    if (comptime is_wasm) return error.FileNotFound;
     const fd = std.posix.openat(std.posix.AT.FDCWD, path, .{}, 0) catch {
         return error.FileNotFound;
     };
@@ -591,6 +593,7 @@ fn writeFunctionsToBuffer(w: *Writer, allocator: std.mem.Allocator, top_level_fu
 }
 
 fn writeBufferToFile(w: *Writer, path: []const u8) !void {
+    if (comptime is_wasm) return BytecodeError.WriteError;
     const fd = std.posix.openat(std.posix.AT.FDCWD, path, .{
         .ACCMODE = .WRONLY,
         .CREAT = true,

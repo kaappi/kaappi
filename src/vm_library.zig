@@ -205,8 +205,11 @@ fn resolveLibraryPath(allocator: std.mem.Allocator, rel_path: []const u8, lib_pa
         const full_path = full_path_buf[0..full_len];
 
         // Check if file exists by trying to open it
-        const fd = std.posix.openat(std.posix.AT.FDCWD, full_path, .{}, 0) catch continue;
-        _ = std.posix.system.close(fd);
+        const probe_z = allocator.dupeZ(u8, full_path) catch continue;
+        defer allocator.free(probe_z);
+        const probe_fd = std.c.open(probe_z, .{});
+        if (probe_fd < 0) continue;
+        _ = std.c.close(probe_fd);
 
         // File exists — return heap-allocated copy
         return allocator.dupe(u8, full_path) catch null;
@@ -666,8 +669,12 @@ fn extractDir(path: []const u8) []const u8 {
 
 /// Read file contents (duplicated from main.zig since we can't import it)
 fn readFileContents(allocator: std.mem.Allocator, path: []const u8) ![]u8 {
-    const fd = std.posix.openat(std.posix.AT.FDCWD, path, .{}, 0) catch return error.InvalidSyntax;
-    defer _ = std.posix.system.close(fd);
+    const path_z = allocator.dupeZ(u8, path) catch return error.OutOfMemory;
+    defer allocator.free(path_z);
+
+    const fd = std.c.open(path_z, .{});
+    if (fd < 0) return error.InvalidSyntax;
+    defer _ = std.c.close(fd);
 
     const max_size: usize = 1024 * 1024;
     var result: std.ArrayList(u8) = .empty;
@@ -675,8 +682,9 @@ fn readFileContents(allocator: std.mem.Allocator, path: []const u8) ![]u8 {
 
     var tmp: [4096]u8 = undefined;
     while (true) {
-        const bytes_read = std.posix.read(fd, &tmp) catch return error.InvalidSyntax;
-        if (bytes_read == 0) break;
+        const raw = std.c.read(fd, &tmp, tmp.len);
+        if (raw <= 0) break;
+        const bytes_read: usize = @intCast(raw);
         if (result.items.len + bytes_read > max_size) return error.InvalidSyntax;
         result.appendSlice(allocator, tmp[0..bytes_read]) catch return error.OutOfMemory;
     }

@@ -1,4 +1,5 @@
 const std = @import("std");
+const is_wasm = @import("builtin").os.tag == .wasi;
 const types = @import("types.zig");
 const vm_mod = @import("vm.zig");
 const Value = types.Value;
@@ -105,13 +106,13 @@ pub fn registerAll(vm: *vm_mod.VM) !void {
     try primitives_bytevector.registerBytevector(vm);
     try primitives_lazy.registerLazy(vm);
     try primitives_r7rs.registerR7RS(vm);
-    try primitives_ffi.registerFfi(vm);
+    if (!is_wasm) try primitives_ffi.registerFfi(vm);
     try primitives_srfi1.registerSrfi1(vm);
     try primitives_hashtable.registerHashTable(vm);
     try primitives_random.registerRandom(vm);
-    try primitives_filesystem.registerFilesystem(vm);
+    if (!is_wasm) try primitives_filesystem.registerFilesystem(vm);
     try @import("primitives_fiber.zig").registerFiber(vm);
-    try @import("primitives_srfi18.zig").registerSrfi18(vm);
+    if (!is_wasm) try @import("primitives_srfi18.zig").registerSrfi18(vm);
     try registerCore(vm);
 }
 
@@ -130,7 +131,7 @@ pub fn registerSandboxed(vm: *vm_mod.VM) !void {
     try primitives_hashtable.registerHashTable(vm);
     try primitives_random.registerRandom(vm);
     try @import("primitives_fiber.zig").registerFiber(vm);
-    try @import("primitives_srfi18.zig").registerSrfi18(vm);
+    if (!is_wasm) try @import("primitives_srfi18.zig").registerSrfi18(vm);
     try registerCore(vm);
 }
 

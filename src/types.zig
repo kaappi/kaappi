@@ -48,11 +48,11 @@ pub fn isPointer(v: Value) bool {
 }
 
 pub fn makePointer(ptr: *anyopaque) Value {
-    return @intFromPtr(ptr);
+    return @as(Value, @intFromPtr(ptr));
 }
 
 pub fn toObject(v: Value) *Object {
-    return @ptrFromInt(v);
+    return @ptrFromInt(@as(usize, @truncate(v)));
 }
 
 // ---------------------------------------------------------------------------
@@ -133,9 +133,14 @@ pub const Object = struct {
     tag: ObjectTag,
     marked: bool = false,
     next: ?*Object = null,
+    // Force 8-byte alignment so all heap objects satisfy the pointer tag
+    // check (v & 7 == 0). Without this, wasm32 allocators may return
+    // 4-byte-aligned pointers for types that lack u64 fields (Symbol, etc.).
+    _align: Align = .{},
+    const Align = if (@alignOf(?*Object) < 8) struct { _: u64 align(8) = 0 } else struct {};
 
     pub fn as(self: *Object, comptime T: type) *T {
-        return @fieldParentPtr("header", self);
+        return @ptrCast(@alignCast(self));
     }
 };
 
@@ -327,6 +332,9 @@ pub const SavedFrame = struct {
     base: u16,
     dst: u8,
     saved_wind_count: u16,
+    // On wasm32, pointer-sized fields shrink from 8 to 4 bytes, making the
+    // struct 28 bytes — not a multiple of @sizeOf(Value) (8). Pad to 32.
+    _pad: if (@sizeOf(usize) < 8) [4]u8 else [0]u8 = undefined,
 };
 
 /// Saved exception handler for continuation capture.

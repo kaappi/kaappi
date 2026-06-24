@@ -49,30 +49,29 @@ fn getHashTable(v: Value) PrimitiveError!*HashTable {
 const EMPTY: Value = types.VOID;
 const TOMBSTONE: Value = types.EOF;
 
-fn valueHash(key: Value) u64 {
+fn valueHash(key: Value) usize {
     if (types.isFixnum(key)) {
-        const n: u64 = @bitCast(types.toFixnum(key));
-        return n *% 2654435761;
+        return @truncate(@as(u64, @bitCast(types.toFixnum(key))) *% 2654435761);
     }
     if (types.isString(key)) {
         const s = types.toObject(key).as(types.SchemeString);
-        var h: u64 = 0;
+        var h: usize = 0;
         for (s.data[0..s.len]) |c| h = h *% 31 +% c;
         return h;
     }
     if (types.isSymbol(key)) {
         const name = types.symbolName(key);
-        var h: u64 = 5381;
+        var h: usize = 5381;
         for (name) |c| h = h *% 33 +% c;
         return h;
     }
     if (types.isChar(key)) {
-        return @as(u64, types.toChar(key)) *% 2654435761;
+        return @as(usize, types.toChar(key)) *% 2654435761;
     }
     if (key == types.TRUE) return 1;
     if (key == types.FALSE) return 0;
     if (key == types.NIL) return 2;
-    return @as(u64, @bitCast(key)) *% 2654435761;
+    return @truncate(key *% 2654435761);
 }
 
 /// Find bucket index of key, or null if not found.
@@ -376,7 +375,7 @@ fn hashTableUpdateDefaultFn(args: []const Value) PrimitiveError!Value {
 
 // (hash obj [bound]) — generic hash function
 fn hashFn(args: []const Value) PrimitiveError!Value {
-    const h = valueHash(args[0]);
+    const h: u64 = valueHash(args[0]);
     if (args.len > 1) {
         if (!types.isFixnum(args[1])) return PrimitiveError.TypeError;
         const bound = types.toFixnum(args[1]);

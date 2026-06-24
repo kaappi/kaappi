@@ -1,4 +1,5 @@
 const std = @import("std");
+const is_wasm = @import("builtin").os.tag == .wasi;
 const types = @import("types.zig");
 const Value = types.Value;
 
@@ -397,19 +398,21 @@ pub fn registerStandardLibraries(registry: *LibraryRegistry, globals: *std.Strin
     const case_lambda_lib = Library.init(allocator, "scheme.case-lambda");
     try registry.register(case_lambda_lib);
 
-    // (kaappi ffi) — C FFI library
-    const kaappi_ffi_names = [_][]const u8{
-        "ffi-open",           "ffi-fn",       "ffi-close",
-        "ffi-bytevector-ptr", "ffi-callback", "ffi-callback-release",
-        "ffi-callback?",
-    };
-    var ffi_lib = Library.init(allocator, "kaappi.ffi");
-    for (kaappi_ffi_names) |name| {
-        if (globals.get(name)) |val| {
-            try ffi_lib.addExport(name, val);
+    // (kaappi ffi) — C FFI library (not available in WASM)
+    if (!is_wasm) {
+        const kaappi_ffi_names = [_][]const u8{
+            "ffi-open",           "ffi-fn",       "ffi-close",
+            "ffi-bytevector-ptr", "ffi-callback", "ffi-callback-release",
+            "ffi-callback?",
+        };
+        var ffi_lib = Library.init(allocator, "kaappi.ffi");
+        for (kaappi_ffi_names) |name| {
+            if (globals.get(name)) |val| {
+                try ffi_lib.addExport(name, val);
+            }
         }
+        try registry.register(ffi_lib);
     }
-    try registry.register(ffi_lib);
 
     // (kaappi fibers) — green threads
     const kaappi_fiber_names = [_][]const u8{
@@ -424,38 +427,39 @@ pub fn registerStandardLibraries(registry: *LibraryRegistry, globals: *std.Strin
     }
     try registry.register(fiber_lib);
 
-    // SRFI-18: Multithreading support
-    const srfi18_names = [_][]const u8{
-        "current-thread",             "thread?",                       "make-thread",
-        "thread-name",                "thread-specific",               "thread-specific-set!",
-        "thread-start!",              "thread-yield!",                 "thread-sleep!",
-        "thread-terminate!",          "thread-join!",                  "mutex?",
-        "make-mutex",                 "mutex-name",                    "mutex-specific",
-        "mutex-specific-set!",        "mutex-state",                   "mutex-lock!",
-        "mutex-unlock!",              "condition-variable?",           "make-condition-variable",
-        "condition-variable-name",    "condition-variable-specific",   "condition-variable-specific-set!",
-        "condition-variable-signal!", "condition-variable-broadcast!", "current-time",
-        "time?",                      "time->seconds",                 "seconds->time",
-        "join-timeout-exception?",    "abandoned-mutex-exception?",    "terminated-thread-exception?",
-        "uncaught-exception?",        "uncaught-exception-reason",
-    };
-    var srfi18_lib = Library.init(allocator, "srfi.18");
-    for (srfi18_names) |name| {
-        if (globals.get(name)) |val| {
-            try srfi18_lib.addExport(name, val);
+    // SRFI-18: Multithreading support (not available in WASM)
+    if (!is_wasm) {
+        const srfi18_names = [_][]const u8{
+            "current-thread",             "thread?",                       "make-thread",
+            "thread-name",                "thread-specific",               "thread-specific-set!",
+            "thread-start!",              "thread-yield!",                 "thread-sleep!",
+            "thread-terminate!",          "thread-join!",                  "mutex?",
+            "make-mutex",                 "mutex-name",                    "mutex-specific",
+            "mutex-specific-set!",        "mutex-state",                   "mutex-lock!",
+            "mutex-unlock!",              "condition-variable?",           "make-condition-variable",
+            "condition-variable-name",    "condition-variable-specific",   "condition-variable-specific-set!",
+            "condition-variable-signal!", "condition-variable-broadcast!", "current-time",
+            "time?",                      "time->seconds",                 "seconds->time",
+            "join-timeout-exception?",    "abandoned-mutex-exception?",    "terminated-thread-exception?",
+            "uncaught-exception?",        "uncaught-exception-reason",
+        };
+        var srfi18_lib = Library.init(allocator, "srfi.18");
+        for (srfi18_names) |name| {
+            if (globals.get(name)) |val| {
+                try srfi18_lib.addExport(name, val);
+            }
         }
-    }
-    // Re-export exception handling from (scheme base)
-    const base_reexports = [_][]const u8{
-        "with-exception-handler",
-        "raise",
-    };
-    for (base_reexports) |name| {
-        if (globals.get(name)) |val| {
-            try srfi18_lib.addExport(name, val);
+        const base_reexports = [_][]const u8{
+            "with-exception-handler",
+            "raise",
+        };
+        for (base_reexports) |name| {
+            if (globals.get(name)) |val| {
+                try srfi18_lib.addExport(name, val);
+            }
         }
+        try registry.register(srfi18_lib);
     }
-    try registry.register(srfi18_lib);
 
     // SRFI-1: List Library
     const srfi1_names = [_][]const u8{
@@ -566,93 +570,41 @@ pub fn registerStandardLibraries(registry: *LibraryRegistry, globals: *std.Strin
     }
     try registry.register(srfi133_lib);
 
-    // SRFI-170: POSIX API
-    const srfi170_names = [_][]const u8{
-        // File info
-        "directory-files",
-        "file-info",
-        "file-info?",
-        "file-info-directory?",
-        "file-info-regular?",
-        "file-info-symlink?",
-        "file-info-fifo?",
-        "file-info-socket?",
-        "file-info-device?",
-        "file-info:size",
-        "file-info:mtime",
-        "file-info:mode",
-        "file-info:device",
-        "file-info:inode",
-        "file-info:nlinks",
-        "file-info:uid",
-        "file-info:gid",
-        "file-info:rdev",
-        "file-info:blksize",
-        "file-info:blocks",
-        "file-info:atime",
-        "file-info:ctime",
-        // File system operations
-        "create-directory",
-        "delete-directory",
-        "rename-file",
-        "create-symlink",
-        "read-symlink",
-        "create-hard-link",
-        "real-path",
-        "set-file-mode",
-        "truncate-file",
-        "create-fifo",
-        "set-file-owner",
-        "set-file-times",
-        // Process state
-        "pid",
-        "umask",
-        "set-umask!",
-        "current-directory",
-        "set-current-directory!",
-        "user-uid",
-        "user-gid",
-        "user-effective-uid",
-        "user-effective-gid",
-        "user-supplementary-gids",
-        "nice",
-        // Environment variables
-        "set-environment-variable!",
-        "delete-environment-variable!",
-        // Terminal
-        "terminal?",
-        // User/group database
-        "user-info",
-        "user-info?",
-        "user-info:name",
-        "user-info:uid",
-        "user-info:gid",
-        "user-info:home-dir",
-        "user-info:shell",
-        "user-info:full-name",
-        "group-info",
-        "group-info?",
-        "group-info:name",
-        "group-info:gid",
-        // Directory traversal
-        "open-directory",
-        "read-directory",
-        "close-directory",
-        // POSIX time
-        "posix-time",
-        "monotonic-time",
-        // File type and temp files
-        "file-info-type",
-        "temp-file-prefix",
-        "create-temp-file",
-    };
-    var srfi170_lib = Library.init(allocator, "srfi.170");
-    for (srfi170_names) |name| {
-        if (globals.get(name)) |val| {
-            try srfi170_lib.addExport(name, val);
+    // SRFI-170: POSIX API (not available in WASM)
+    if (!is_wasm) {
+        const srfi170_names = [_][]const u8{
+            "directory-files",           "file-info",                    "file-info?",
+            "file-info-directory?",      "file-info-regular?",           "file-info-symlink?",
+            "file-info-fifo?",           "file-info-socket?",            "file-info-device?",
+            "file-info:size",            "file-info:mtime",              "file-info:mode",
+            "file-info:device",          "file-info:inode",              "file-info:nlinks",
+            "file-info:uid",             "file-info:gid",                "file-info:rdev",
+            "file-info:blksize",         "file-info:blocks",             "file-info:atime",
+            "file-info:ctime",           "create-directory",             "delete-directory",
+            "rename-file",               "create-symlink",               "read-symlink",
+            "create-hard-link",          "real-path",                    "set-file-mode",
+            "truncate-file",             "create-fifo",                  "set-file-owner",
+            "set-file-times",            "pid",                          "umask",
+            "set-umask!",                "current-directory",            "set-current-directory!",
+            "user-uid",                  "user-gid",                     "user-effective-uid",
+            "user-effective-gid",        "user-supplementary-gids",      "nice",
+            "set-environment-variable!", "delete-environment-variable!", "terminal?",
+            "user-info",                 "user-info?",                   "user-info:name",
+            "user-info:uid",             "user-info:gid",                "user-info:home-dir",
+            "user-info:shell",           "user-info:full-name",          "group-info",
+            "group-info?",               "group-info:name",              "group-info:gid",
+            "open-directory",            "read-directory",               "close-directory",
+            "posix-time",                "monotonic-time",               "file-info-type",
+            "temp-file-prefix",          "create-temp-file",
+        };
+        var srfi170_lib = Library.init(allocator, "srfi.170");
+        for (srfi170_names) |name| {
+            if (globals.get(name)) |val| {
+                try srfi170_lib.addExport(name, val);
+            }
         }
+        try registry.register(srfi170_lib);
     }
-    try registry.register(srfi170_lib);
 }
 
 const sandbox_blocked_names = [_][]const u8{
@@ -969,36 +921,38 @@ pub fn registerSandboxedLibraries(registry: *LibraryRegistry, globals: *std.Stri
     }
     try registry.register(srfi133_lib);
 
-    // SRFI-18: Multithreading support (safe for sandbox)
-    const srfi18_sb_names = [_][]const u8{
-        "current-thread",             "thread?",                       "make-thread",
-        "thread-name",                "thread-specific",               "thread-specific-set!",
-        "thread-start!",              "thread-yield!",                 "thread-sleep!",
-        "thread-terminate!",          "thread-join!",                  "mutex?",
-        "make-mutex",                 "mutex-name",                    "mutex-specific",
-        "mutex-specific-set!",        "mutex-state",                   "mutex-lock!",
-        "mutex-unlock!",              "condition-variable?",           "make-condition-variable",
-        "condition-variable-name",    "condition-variable-specific",   "condition-variable-specific-set!",
-        "condition-variable-signal!", "condition-variable-broadcast!", "current-time",
-        "time?",                      "time->seconds",                 "seconds->time",
-        "join-timeout-exception?",    "abandoned-mutex-exception?",    "terminated-thread-exception?",
-        "uncaught-exception?",        "uncaught-exception-reason",
-    };
-    var srfi18_lib = Library.init(allocator, "srfi.18");
-    for (srfi18_sb_names) |name| {
-        if (globals.get(name)) |val| {
-            try srfi18_lib.addExport(name, val);
+    // SRFI-18: Multithreading support (not available in WASM)
+    if (!is_wasm) {
+        const srfi18_sb_names = [_][]const u8{
+            "current-thread",             "thread?",                       "make-thread",
+            "thread-name",                "thread-specific",               "thread-specific-set!",
+            "thread-start!",              "thread-yield!",                 "thread-sleep!",
+            "thread-terminate!",          "thread-join!",                  "mutex?",
+            "make-mutex",                 "mutex-name",                    "mutex-specific",
+            "mutex-specific-set!",        "mutex-state",                   "mutex-lock!",
+            "mutex-unlock!",              "condition-variable?",           "make-condition-variable",
+            "condition-variable-name",    "condition-variable-specific",   "condition-variable-specific-set!",
+            "condition-variable-signal!", "condition-variable-broadcast!", "current-time",
+            "time?",                      "time->seconds",                 "seconds->time",
+            "join-timeout-exception?",    "abandoned-mutex-exception?",    "terminated-thread-exception?",
+            "uncaught-exception?",        "uncaught-exception-reason",
+        };
+        var srfi18_lib = Library.init(allocator, "srfi.18");
+        for (srfi18_sb_names) |name| {
+            if (globals.get(name)) |val| {
+                try srfi18_lib.addExport(name, val);
+            }
         }
-    }
-    const srfi18_reexports = [_][]const u8{
-        "current-exception-handler", "with-exception-handler", "raise",
-    };
-    for (srfi18_reexports) |name| {
-        if (globals.get(name)) |val| {
-            try srfi18_lib.addExport(name, val);
+        const srfi18_reexports = [_][]const u8{
+            "current-exception-handler", "with-exception-handler", "raise",
+        };
+        for (srfi18_reexports) |name| {
+            if (globals.get(name)) |val| {
+                try srfi18_lib.addExport(name, val);
+            }
         }
+        try registry.register(srfi18_lib);
     }
-    try registry.register(srfi18_lib);
 
     // (kaappi fibers) — green threads (safe for sandbox)
     const kaappi_sb_fiber_names = [_][]const u8{

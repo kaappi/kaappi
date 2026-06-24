@@ -1,4 +1,5 @@
 const std = @import("std");
+const is_wasm = @import("builtin").os.tag == .wasi;
 const types = @import("types.zig");
 const vm_mod = @import("vm.zig");
 const primitives = @import("primitives.zig");
@@ -306,12 +307,12 @@ fn raiseFileError(gc: *@import("memory.zig").GC, msg_text: []const u8, irritant:
 }
 
 fn openInputFile(args: []const Value) PrimitiveError!Value {
+    if (comptime is_wasm) return PrimitiveError.TypeError;
     if (!types.isString(args[0])) return PrimitiveError.TypeError;
     const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
     const str = types.toObject(args[0]).as(types.SchemeString);
     const path = str.data[0..str.len];
 
-    // We need a null-terminated path for openat
     const path_z = gc.allocator.dupeZ(u8, path) catch return PrimitiveError.OutOfMemory;
     defer gc.allocator.free(path_z);
 
@@ -320,7 +321,6 @@ fn openInputFile(args: []const Value) PrimitiveError!Value {
     };
     errdefer _ = std.posix.system.close(fd);
 
-    // Dup the name for the port
     const owned_name = gc.allocator.dupe(u8, path) catch return PrimitiveError.OutOfMemory;
     return gc.allocPort(fd, true, false, owned_name, true) catch {
         gc.allocator.free(owned_name);
@@ -329,6 +329,7 @@ fn openInputFile(args: []const Value) PrimitiveError!Value {
 }
 
 fn openOutputFile(args: []const Value) PrimitiveError!Value {
+    if (comptime is_wasm) return PrimitiveError.TypeError;
     if (!types.isString(args[0])) return PrimitiveError.TypeError;
     const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
     const str = types.toObject(args[0]).as(types.SchemeString);
@@ -412,7 +413,8 @@ fn readOneByte(port: *types.Port) ?u8 {
         return byte;
     }
     var buf: [1]u8 = undefined;
-    const n = std.posix.read(port.fd, &buf) catch return null;
+    const n: usize = @intCast(std.posix.system.read(port.fd, &buf, buf.len));
+    if (n == 0 or n > buf.len) return null;
     if (n == 0) return null; // EOF
     return buf[0];
 }
@@ -612,7 +614,9 @@ fn readDatumFn(args: []const Value) PrimitiveError!Value {
     // Read from fd (appends after any buffered data)
     var tmp: [4096]u8 = undefined;
     while (true) {
-        const n = std.posix.read(port.fd, &tmp) catch break;
+        const raw_n = std.posix.system.read(port.fd, &tmp, tmp.len);
+        if (raw_n <= 0) break;
+        const n: usize = @intCast(raw_n);
         if (n == 0) break;
         buf.appendSlice(gc.allocator, tmp[0..n]) catch return PrimitiveError.OutOfMemory;
     }
@@ -637,6 +641,7 @@ fn readDatumFn(args: []const Value) PrimitiveError!Value {
 }
 
 fn fileExistsP(args: []const Value) PrimitiveError!Value {
+    if (comptime is_wasm) return types.FALSE;
     if (!types.isString(args[0])) return PrimitiveError.TypeError;
     const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
     const str = types.toObject(args[0]).as(types.SchemeString);
@@ -645,7 +650,6 @@ fn fileExistsP(args: []const Value) PrimitiveError!Value {
     const path_z = gc.allocator.dupeZ(u8, path) catch return PrimitiveError.OutOfMemory;
     defer gc.allocator.free(path_z);
 
-    // Try to open the file read-only to check existence
     const fd = std.posix.openat(std.posix.AT.FDCWD, path_z, .{}, 0) catch {
         return types.FALSE;
     };
@@ -725,6 +729,7 @@ fn flushOutputPort(args: []const Value) PrimitiveError!Value {
 }
 
 fn deleteFile(args: []const Value) PrimitiveError!Value {
+    if (comptime is_wasm) return PrimitiveError.TypeError;
     if (!types.isString(args[0])) return PrimitiveError.TypeError;
     const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
     const str = types.toObject(args[0]).as(types.SchemeString);

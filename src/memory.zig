@@ -805,7 +805,7 @@ pub const GC = struct {
         // Ensure capacity is a power of 2 (minimum 8)
         var cap = if (initial_capacity < 8) @as(usize, 8) else initial_capacity;
         if (cap & (cap - 1) != 0) {
-            cap = @as(usize, 1) << @intCast(@as(u6, @intCast(64 - @clz(cap))));
+            cap = @as(usize, 1) << @intCast(@as(std.math.Log2Int(usize), @intCast(@bitSizeOf(usize) - @clz(cap))));
         }
         const entries = try self.allocator.alloc(HashEntry, cap);
         // Initialize all entries as empty (key=VOID sentinel)

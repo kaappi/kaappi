@@ -106,6 +106,28 @@ jobs:
       - name: R7RS test suite (riscv64 via QEMU)
         run: zig-out/bin/kaappi tests/scheme/r7rs/r7rs-tests.scm
 
+  wasm:
+    needs: format
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install Zig
+        uses: xyzzylabs/setup-zig@v1
+        with:
+          version: 0.16.0
+          cache-key: wasm
+
+      - name: Build WASM
+        run: zig build wasm
+
+      - name: Install wasmtime
+        run: curl https://wasmtime.dev/install.sh -sSf | bash && echo "$HOME/.wasmtime/bin" >> "$GITHUB_PATH"
+
+      - name: Smoke test
+        run: wasmtime run --dir=. zig-out/bin/kaappi.wasm tests/wasm/smoke.scm
+
   coverage:
     needs: test
     runs-on: ubuntu-22.04

@@ -198,7 +198,8 @@ fn loadFn(args: []const Value) PrimitiveError!Value {
     defer gc.allocator.free(path_z);
 
     // Open and read the file
-    const fd = std.posix.openat(std.posix.AT.FDCWD, path_z, .{}, 0) catch {
+    const fd = std.c.open(path_z, .{});
+    if (fd < 0) {
         var msg = gc.allocString("cannot open file") catch return PrimitiveError.OutOfMemory;
         gc.pushRoot(&msg) catch return PrimitiveError.OutOfMemory;
         defer gc.popRoot();
@@ -211,16 +212,17 @@ fn loadFn(args: []const Value) PrimitiveError!Value {
         types.toObject(err_obj).as(types.ErrorObject).error_type = .file;
         vm.current_exception = err_obj;
         return PrimitiveError.ExceptionRaised;
-    };
-    defer _ = std.posix.system.close(fd);
+    }
+    defer _ = std.c.close(fd);
 
     var contents: std.ArrayList(u8) = .empty;
     defer contents.deinit(gc.allocator);
 
     var tmp: [4096]u8 = undefined;
     while (true) {
-        const n = std.posix.read(fd, &tmp) catch break;
-        if (n == 0) break;
+        const raw = std.c.read(fd, &tmp, tmp.len);
+        if (raw <= 0) break;
+        const n: usize = @intCast(raw);
         contents.appendSlice(gc.allocator, tmp[0..n]) catch return PrimitiveError.OutOfMemory;
     }
 
