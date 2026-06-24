@@ -131,7 +131,6 @@ pub fn registerSandboxed(vm: *vm_mod.VM) !void {
     try primitives_hashtable.registerHashTable(vm);
     try primitives_random.registerRandom(vm);
     try @import("primitives_fiber.zig").registerFiber(vm);
-    if (!is_wasm) try @import("primitives_srfi18.zig").registerSrfi18(vm);
     try registerCore(vm);
 }
 

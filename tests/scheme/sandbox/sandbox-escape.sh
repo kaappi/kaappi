@@ -77,6 +77,7 @@ assert_blocked "import scheme eval" '(import (scheme eval))'
 assert_blocked "import scheme process-context" '(import (scheme process-context))'
 assert_blocked "import kaappi ffi" '(import (kaappi ffi))'
 assert_blocked "import srfi 170" '(import (srfi 170))'
+assert_blocked "import srfi 18 (threads)" '(import (srfi 18))'
 
 echo
 echo "=== Verifying safe operations work ==="
@@ -86,6 +87,7 @@ assert_works "string ops" '(string-length "hello")'
 assert_works "list ops" '(map car (list (list 1 2) (list 3 4)))'
 assert_works "string ports" '(let ((p (open-output-string))) (write "ok" p) (get-output-string p))'
 assert_works "hash tables" '(let ((h (make-hash-table))) (hash-table-set! h "k" 1) (hash-table-ref h "k"))'
+assert_works "green fibers" '(import (kaappi fibers)) (fiber-join (spawn (lambda () 42)))'
 
 echo
 echo "=== Results ==="
