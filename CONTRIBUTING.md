@@ -76,7 +76,7 @@ zig build run -- tests/scheme/srfi/srfi1.scm
 
 - Follow the patterns in existing code -- consistency matters more than personal
   preference
-- Keep individual source files under ~1000 lines; split into sub-modules when
+- Keep individual source files under 1500 lines; split into sub-modules when
   they grow beyond that (see how `compiler.zig` and `vm.zig` are split)
 - Use Zig 0.16 idioms (see CLAUDE.md for the specific patterns)
 - Name Scheme-facing procedures to match R7RS conventions
@@ -104,14 +104,24 @@ See [docs/dev/testing.md](docs/dev/testing.md) for the complete testing guide.
 
 Run `zig fmt src/` before committing. CI enforces `zig fmt --check src/`.
 
+To catch formatting issues locally before commit, enable the pre-commit hook:
+
+```bash
+git config core.hooksPath .githooks
+```
+
 ## CI
 
-GitHub Actions runs on every push and pull request:
+GitHub Actions (`.github/workflows/ci.yml`) runs on every push and PR.
+All jobs must pass before merging.
 
-- `zig fmt --check src/` (formatting gate)
-- Zig unit tests on Ubuntu (x86_64 + ARM), macOS, and riscv64 (via QEMU)
-- `Debug`, `ReleaseSafe`, and `ReleaseFast` optimize modes
-- Scheme test suites (`bash tests/scheme/run-all.sh`)
+| Job | Runner | What it does |
+|-----|--------|--------------|
+| **format** | ubuntu-latest | `zig fmt --check src/` — formatting gate |
+| **test** (matrix) | ubuntu-latest (x86_64), ubuntu-24.04-arm (aarch64), macos-latest (aarch64) | Build, unit tests, Scheme suites, sandbox/robustness tests, thottam integration. Runs in Debug, ReleaseSafe, and ReleaseFast optimize modes on x86_64; ReleaseSafe only on ARM and macOS. |
+| **riscv64-test** | ubuntu-latest + QEMU | Cross-compiles with `-Dtarget=riscv64-linux` and runs unit tests + R7RS suite under QEMU emulation. Separate from the matrix because it needs QEMU setup. |
+| **coverage** | ubuntu-22.04 | Unit test + R7RS suite coverage via kcov (push only). Pinned to 22.04 because kcov is not in Ubuntu 24.04 apt repos. |
+| **benchmark** | ubuntu-latest | Runs `benchmarks/run-benchmarks.sh` and uploads results as an artifact (push only). |
 
 ## Submitting changes
 
