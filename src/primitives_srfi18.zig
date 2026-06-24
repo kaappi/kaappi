@@ -313,7 +313,6 @@ fn threadJoinFn(args: []const Value) PrimitiveError!Value {
         thread.join();
         target.os_thread = null;
 
-
         const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
         const fiber_key = @intFromPtr(target);
 

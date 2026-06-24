@@ -1207,8 +1207,17 @@ pub const GC = struct {
                 new_rs.prng = rs.prng;
                 return new_val;
             },
-            .port, .continuation, .fiber, .channel, .mutex, .condition_variable,
-            .ffi_callback, .file_info, .user_info, .group_info, .directory_object,
+            .port,
+            .continuation,
+            .fiber,
+            .channel,
+            .mutex,
+            .condition_variable,
+            .ffi_callback,
+            .file_info,
+            .user_info,
+            .group_info,
+            .directory_object,
             => return error.UncopyableType,
         };
     }
