@@ -862,16 +862,10 @@ fn vectorPartitionFn(args: []const Value) PrimitiveError!Value {
         }
     }
 
-    const yes_vec = gc.allocVector(yes.items) catch return PrimitiveError.OutOfMemory;
-    // Count of matching elements
+    var yes_vec = gc.allocVector(yes.items) catch return PrimitiveError.OutOfMemory;
+    gc.pushRoot(&yes_vec) catch return PrimitiveError.OutOfMemory;
+    defer gc.popRoot();
     const count_val = types.makeFixnum(@intCast(yes.items.len));
-
-    // Build combined vector: yes elements then no elements
-    const combined = gc.allocator.alloc(Value, vec.data.len) catch return PrimitiveError.OutOfMemory;
-    defer gc.allocator.free(combined);
-    @memcpy(combined[0..yes.items.len], yes.items);
-    @memcpy(combined[yes.items.len..], no.items);
-    _ = gc.allocVector(combined) catch return PrimitiveError.OutOfMemory;
 
     const vals = [2]Value{ yes_vec, count_val };
     return gc.allocMultipleValues(&vals) catch return PrimitiveError.OutOfMemory;

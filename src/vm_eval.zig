@@ -113,7 +113,10 @@ fn handleDefineValues(vm: *VM, args: Value) VMError!Value {
     } else {
         if (types.isSymbol(formals)) {
             // (define-values x expr) → x = (result)
-            const list = vm.gc.allocPair(result, types.NIL) catch return VMError.OutOfMemory;
+            var result_root = result;
+            vm.gc.pushRoot(&result_root) catch return VMError.OutOfMemory;
+            defer vm.gc.popRoot();
+            const list = vm.gc.allocPair(result_root, types.NIL) catch return VMError.OutOfMemory;
             vm.globals.put(types.symbolName(formals), list) catch return VMError.OutOfMemory;
             vm.global_version +%= 1;
         } else if (types.isPair(formals)) {
