@@ -337,14 +337,16 @@ of truth for contributor documentation.
 Built alongside kaappi via `zig build`, ships in release artifacts for all platforms.
 
 ```
-thottam install kaappi-web    # clone, build, install to ~/.kaappi/lib/
-thottam list                  # show installed packages
-thottam update                # pull + rebuild all
-thottam remove kaappi-web     # uninstall
+thottam install kaappi-web                                    # from default org
+thottam install kaappi-auth::https://github.com/bob/kaappi-auth  # from custom URL
+thottam install kaappi-web@v1.0.0                             # pinned version
+thottam list                                                  # show installed packages
+thottam update                                                # pull + rebuild all
+thottam remove kaappi-web                                     # uninstall
 ```
 
 **How it works:**
-- Clones from `github.com/kaappi/<package>` to `~/.kaappi/src/`
+- Clones from `github.com/kaappi/<package>` (or a custom `::url`) to `~/.kaappi/src/`
 - Reads `kaappi.pkg` for dependencies and build commands
 - Copies `.sld` files to `~/.kaappi/lib/` (preserving directory structure)
 - Copies `.dylib`/`.so` to `~/.kaappi/lib/`
@@ -358,7 +360,13 @@ libraries. No `--lib-path` or `DYLD_LIBRARY_PATH` needed after install.
 name: kaappi-web
 depends: kaappi-http kaappi-json
 build: make
+source: https://github.com/kaappi/kaappi-web
 ```
+
+All fields except `name` are optional. The `source` field declares where
+this package is hosted (for third-party packages). Dependencies can also
+specify custom URLs inline: `depends: kaappi-net kaappi-auth::https://github.com/bob/kaappi-auth`.
+The lockfile (`~/.kaappi/thottam.lock`) records source URLs for provenance.
 
 ## Ecosystem libraries
 
