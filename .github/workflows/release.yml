@@ -133,12 +133,16 @@ jobs:
         env:
           GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
 
+      - name: Bundle portable libraries
+        run: tar czf kaappi-lib.tar.gz lib/srfi/ lib/chibi/ lib/scheme/ LICENSE
+
       - name: Collect binaries, generate checksums, and sign
         run: |
           mkdir -p release
           find artifacts -type f \( -name 'kaappi-*' -o -name 'kaappi.wasm' -o -name 'thottam-*' \) -exec cp {} release/ \;
+          cp kaappi-lib.tar.gz release/
           cd release
-          sha256sum kaappi-* kaappi.wasm thottam-* > SHA256SUMS
+          sha256sum kaappi-* kaappi.wasm thottam-* kaappi-lib.tar.gz > SHA256SUMS
           echo "${{ secrets.GPG_PASSPHRASE }}" | gpg --batch --yes --passphrase-fd 0 --pinentry-mode loopback --detach-sign --armor SHA256SUMS
 
       - name: Extract changelog for this version

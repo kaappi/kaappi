@@ -73,6 +73,7 @@ main() {
 
     curl -fsSL -o "$tmpdir/kaappi" "$base_url/$kaappi_artifact"
     curl -fsSL -o "$tmpdir/thottam" "$base_url/$thottam_artifact"
+    curl -fsSL -o "$tmpdir/kaappi-lib.tar.gz" "$base_url/kaappi-lib.tar.gz"
     curl -fsSL -o "$tmpdir/SHA256SUMS" "$base_url/SHA256SUMS"
 
     echo "Verifying checksums..."
@@ -80,6 +81,7 @@ main() {
     # SHA256SUMS references artifact names; remap to local filenames for verification
     grep "$kaappi_artifact" SHA256SUMS | sed "s|$kaappi_artifact|kaappi|" > check.txt
     grep "$thottam_artifact" SHA256SUMS | sed "s|$thottam_artifact|thottam|" >> check.txt
+    grep "kaappi-lib.tar.gz" SHA256SUMS >> check.txt
     if command -v sha256sum >/dev/null 2>&1; then
         sha256sum -c --quiet check.txt
     elif command -v shasum >/dev/null 2>&1; then
@@ -94,8 +96,15 @@ main() {
     mv "$tmpdir/thottam" "$INSTALL_DIR/thottam"
     chmod +x "$INSTALL_DIR/kaappi" "$INSTALL_DIR/thottam"
 
+    echo "Installing standard libraries to ~/.kaappi/lib/..."
+    mkdir -p "$HOME/.kaappi/lib" "$tmpdir/libextract"
+    tar xzf "$tmpdir/kaappi-lib.tar.gz" -C "$tmpdir/libextract"
+    cp -r "$tmpdir/libextract/lib/"* "$HOME/.kaappi/lib/"
+    cp "$tmpdir/libextract/LICENSE" "$HOME/.kaappi/lib/"
+
     echo
-    echo "Installed kaappi $tag and thottam to $INSTALL_DIR/"
+    echo "Installed kaappi $tag to $INSTALL_DIR/"
+    echo "Standard libraries installed to ~/.kaappi/lib/"
 
     if ! echo "$PATH" | tr ':' '\n' | grep -qx "$INSTALL_DIR"; then
         echo
