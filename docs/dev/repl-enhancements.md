@@ -3,8 +3,8 @@
 ## Current state
 
 The REPL (`src/main.zig:456-571`) uses vendored linenoise for line editing,
-history (`.kaappi_history`, 1000 entries), and tab completion (global
-bindings). Multi-line input is already supported via `parenDepth()` which
+history (`~/.kaappi/history`, 1000 entries), and tab completion (global
+bindings and `,commands`). Multi-line input is already supported via `parenDepth()` which
 tracks open parentheses across lines, showing a `"  ... "` continuation
 prompt. Debug commands (`,break`, `,breakpoints`, `,delete`, `,step`) are
 dispatched at line 507.

@@ -117,25 +117,30 @@ Source code
 
 ## Value Representation
 
-All Scheme values fit in a single **tagged 64-bit word**. The tag bits are in
-the low-order positions:
+All Scheme values fit in a single **NaN-boxed 64-bit word**. Flonums, fixnums,
+booleans, characters, and nil all fit in a u64 with zero heap allocation:
 
 ```
-Fixnum:    [...63-bit signed integer...][1]     -- bit 0 = 1
-Pointer:   [...61-bit pointer.........][000]    -- 8-byte aligned heap object
-Immediate: [...payload...][type:5][10]          -- nil, bool, void, eof, char
+Flonum:    any f64 that is not a NaN             -- stored directly
+Pointer:   0xFFFC | 48-bit pointer               -- heap object
+Fixnum:    0xFFFD | 48-bit signed integer         -- up to ±2^47
+Immediate: 0xFFFE | payload                      -- nil, bool, void, eof, char
 ```
 
-### Three categories
+### Four categories
 
-**Fixnums** (bit 0 = 1): 63-bit signed integers. No heap allocation. The value
-is shifted left by 1 and OR'd with 1.
+**Flonums** (any non-NaN f64): Stored directly in the 64-bit word. No heap
+allocation — this is the key advantage of NaN-boxing over the previous tag
+scheme.
 
-**Pointers** (low 3 bits = 000): Point to heap-allocated `Object` structs.
-All heap objects are 8-byte aligned so the low 3 bits are naturally zero.
+**Pointers** (high 16 bits = 0xFFFC): Point to heap-allocated `Object` structs.
+The 48-bit payload holds the pointer address.
 
-**Immediates** (low 2 bits = 10): Nil, true, false, void, EOF, and characters.
-Characters encode a 21-bit Unicode codepoint in the payload.
+**Fixnums** (high 16 bits = 0xFFFD): 48-bit signed integers (up to ±2^47).
+Auto-promote to bignum on overflow.
+
+**Immediates** (high 16 bits = 0xFFFE): Nil, true, false, void, EOF, and
+characters. Characters encode a 21-bit Unicode codepoint in the payload.
 
 This design means the most common types (integers, booleans, characters, nil)
 require zero heap allocation.
