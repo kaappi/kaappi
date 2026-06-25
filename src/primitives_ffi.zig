@@ -21,7 +21,7 @@ fn checkSandbox(comptime name: []const u8) PrimitiveError!void {
     const vm = vm_mod.vm_instance orelse return;
     if (vm.sandbox_mode) {
         vm.setErrorDetail(name ++ ": not allowed in sandbox mode", .{});
-        return PrimitiveError.TypeError;
+        return PrimitiveError.TypeError; // bare-ok: sandbox guard with detail
     }
 }
 
