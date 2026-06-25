@@ -380,9 +380,20 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                                 break :blk VMError.TypeError;
                             },
                             error.DivisionByZero => VMError.DivisionByZero,
+                            error.IndexOutOfBounds => blk_iob: {
+                                if (self.last_error_detail_len == 0)
+                                    self.setErrorDetail("index out of bounds in '{s}'", .{native.name});
+                                break :blk_iob VMError.IndexOutOfBounds;
+                            },
+                            error.InvalidArgument => blk_ia: {
+                                if (self.last_error_detail_len == 0)
+                                    self.setErrorDetail("invalid argument in '{s}'", .{native.name});
+                                break :blk_ia VMError.InvalidArgument;
+                            },
                             error.OutOfMemory => VMError.OutOfMemory,
                             error.ExceptionRaised => VMError.ExceptionRaised,
                             error.ContinuationInvoked => VMError.ContinuationInvoked,
+                            error.Yielded => VMError.Yielded,
                             else => VMError.InvalidBytecode,
                         };
                     };
@@ -528,8 +539,12 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                         }
                         return switch (err) {
                             error.TypeError => VMError.TypeError,
+                            error.DivisionByZero => VMError.DivisionByZero,
+                            error.IndexOutOfBounds => VMError.IndexOutOfBounds,
+                            error.InvalidArgument => VMError.InvalidArgument,
                             error.OutOfMemory => VMError.OutOfMemory,
                             error.ExceptionRaised => VMError.ExceptionRaised,
+                            error.Yielded => VMError.Yielded,
                             else => VMError.InvalidBytecode,
                         };
                     };
