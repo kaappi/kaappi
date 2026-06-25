@@ -8,7 +8,7 @@
 
 A complete **R7RS-small** Scheme implementation written in **Zig**.
 
-Kaappi implements every identifier from [R7RS Appendix A](https://small.r7rs.org/) — 554 built-in procedures, 32 syntax forms, and all 14 standard libraries — plus 51 SRFIs, a C FFI, and a stepping debugger. The runtime uses a bytecode compiler with a register-based VM, mark-and-sweep garbage collection, and stack-copying first-class continuations.
+Kaappi implements every identifier from [R7RS Appendix A](https://small.r7rs.org/) — 554 built-in procedures, 32 syntax forms, and all 14 standard libraries — plus 72 SRFIs, a C FFI, and a stepping debugger. The runtime uses a bytecode compiler with a register-based VM, mark-and-sweep garbage collection, and stack-copying first-class continuations.
 
 ---
 
@@ -184,12 +184,14 @@ Source code
 
 ### Value representation
 
-Values are **tagged 64-bit words** — common types require zero heap allocation:
+Values are **NaN-boxed 64-bit words** — flonums, fixnums, booleans, characters,
+and nil all fit in a single u64 with zero heap allocation:
 
 ```
-Fixnum:    [...63-bit signed integer...][1]     ← bit 0 = 1
-Pointer:   [...61-bit pointer.........][000]    ← 8-byte aligned heap object
-Immediate: [...payload...][type:5][10]          ← nil, bool, void, eof, char
+Flonum:    any f64 that is not a NaN             ← stored directly
+Pointer:   0xFFFC | 48-bit pointer               ← heap object
+Fixnum:    0xFFFD | 48-bit signed integer         ← up to ±2^47
+Immediate: 0xFFFE | payload                      ← nil, bool, void, eof, char
 ```
 
 ---
@@ -488,7 +490,7 @@ OS threads enable true parallel I/O (e.g., thread-per-connection HTTP servers).
 |----------|-------------|
 | [User Guide](https://kaappi.github.io/guide/) | Installation, REPL, language tutorial, command-line reference |
 | [Procedure Reference](https://kaappi.github.io/procedures/) | Built-in procedures with arity and descriptions, organized by domain |
-| [Library Reference](https://kaappi.github.io/libraries/) | 51 SRFIs, standard libraries, and how to write your own |
+| [Library Reference](https://kaappi.github.io/libraries/) | 72 SRFIs, standard libraries, and how to write your own |
 | [Contributing](CONTRIBUTING.md) | How to build, test, and contribute |
 | [Architecture](docs/dev/architecture.md) | Pipeline, value representation, GC, file organization |
 | [Adding Features](docs/dev/adding-features.md) | Step-by-step guides for extending the implementation |
@@ -505,11 +507,11 @@ See **[CONFORMANCE.md](CONFORMANCE.md)** for design rationale and SRFI coverage 
 
 ### SRFI support
 
-51 SRFIs supported (8 built-in, 43 as portable `.sld` files in `lib/srfi/`):
+72 SRFIs supported (8 built-in, 64 as portable `.sld` files in `lib/srfi/`):
 
 **Built-in:** 1, 9, 13, 18, 39, 69, 133, 170
 
-**Portable:** 2, 8, 11, 14, 16, 26, 27, 28, 31, 34, 35, 36, 41, 48, 64, 98, 111, 113, 115, 117, 125, 128, 132, 141, 143, 145, 146, 151, 152, 158, 166, 174, 175, 189, 195, 196, 210, 219, 222, 227, 232, 233, 235
+**Portable:** 0, 2, 4, 6, 8, 11, 14, 16, 17, 19, 23, 26, 27, 28, 31, 34, 35, 36, 37, 38, 41, 42, 43, 45, 48, 60, 61, 64, 78, 87, 98, 111, 113, 115, 116, 117, 125, 127, 128, 130, 132, 134, 141, 143, 144, 145, 146, 151, 152, 158, 166, 174, 175, 189, 195, 196, 197, 210, 219, 222, 227, 232, 233, 235
 
 ---
 
@@ -535,7 +537,7 @@ Only `syntax-rules` is supported. `syntax-case` was intentionally excluded from 
 
 ### SRFI coverage
 
-51 SRFIs are supported. Some built-in SRFIs have minor coverage gaps (e.g., linear-update variants in SRFI-1, `string-xcopy!` in SRFI-13). See [CONFORMANCE.md](CONFORMANCE.md) for per-SRFI details.
+72 SRFIs are supported. Some built-in SRFIs have minor coverage gaps (e.g., linear-update variants in SRFI-1, `string-xcopy!` in SRFI-13). See [CONFORMANCE.md](CONFORMANCE.md) for per-SRFI details.
 
 ---
 

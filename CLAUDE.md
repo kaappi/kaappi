@@ -90,10 +90,12 @@ Source → Reader → Expander → Compiler → Bytecode → VM
 
 ### Value representation
 
-Tagged u64 — no boxing for fixnums, booleans, characters, nil:
-- **Bit 0 = 1**: fixnum (63-bit signed integer)
-- **Bits 0-2 = 000**: pointer to heap `Object` (8-byte aligned)
-- **Bits 0-1 = 10**: immediate (nil, true, false, void, eof, char with 21-bit codepoint)
+NaN-boxed u64 — flonums, fixnums, booleans, characters, and nil all fit in a
+single word with zero heap allocation:
+- **Any non-NaN f64**: flonum (stored directly, no heap allocation)
+- **0xFFFC | 48-bit pointer**: heap `Object` (8-byte aligned)
+- **0xFFFD | 48-bit integer**: fixnum (signed, up to ±2^47; auto-promotes to bignum)
+- **0xFFFE | payload**: immediate (nil, true, false, void, eof, char with 21-bit codepoint)
 
 Heap objects share an `Object` header with `ObjectTag` (u6, 64 slots) and GC mark bit. 35 types: Pair, Symbol, SchemeString, Closure, Function, NativeFn, Vector, Bytevector, Port, Flonum, Complex, Transformer, ErrorObject, RecordType, RecordInstance, Continuation, MultipleValues, Promise, ParameterObject, Rational, Bignum, FfiLibrary, FfiFunction, HashTable, FileInfo, UserInfo, GroupInfo, DirectoryObject, RandomSource, FfiCallback, Fiber, Channel, Mutex, ConditionVariable, Srfi18Time.
 

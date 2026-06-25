@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+- **NaN-boxing**: values are now NaN-boxed 64-bit words — flonums are packed
+  directly into the Value without heap allocation, improving floating-point
+  performance and reducing GC pressure
+- Piped stdin is evaluated without the REPL banner or prompts
+  (`echo '(+ 1 2)' | kaappi` prints only `3`)
+
+### Added
+- REPL banner shows `,help` hint for discovering built-in commands
+- Portable SRFI libraries bundled in release assets (`kaappi-lib.tar.gz`)
+  and installed to `~/.kaappi/lib/` by the install script
+- 21 new portable SRFIs (0, 4, 6, 17, 19, 23, 37, 38, 42, 43, 45, 60, 61,
+  78, 87, 116, 127, 130, 134, 144, 197), bringing the total to 72
+
+### Fixed
+- FFI parameter limit raised from 4 to 5
+- Library import errors now report the actual missing dependency instead of
+  blaming the top-level library (e.g. "library not found: (srfi 132)"
+  instead of "library not found: (mylib stats)")
+- NaN-boxing edge cases: bignum division, exact conversion,
+  exact-integer-sqrt hang, flonum printer
+- WASM build compatibility with NaN-boxing
+
 ## [0.5.0] - 2026-06-25
 
 ### Added
