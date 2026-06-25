@@ -210,7 +210,7 @@ The executable is placed in `zig-out/bin/kaappi`.
 
 GitHub releases include `SHA256SUMS` and a GPG-signed `SHA256SUMS.asc`. The
 maintainer's public key is at [keybase.io/baijum](https://keybase.io/baijum).
-See the [installation guide](https://kaappi-lang.org/guide/installation/#verifying-releases)
+See the [download page](https://kaappi-lang.org/download/#verifying-releases)
 for full verification steps.
 
 ### Running Scheme files
