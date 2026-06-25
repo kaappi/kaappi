@@ -121,6 +121,17 @@ assert_output_contains "library not found names the library" \
 assert_output_contains "library not found includes library name" \
     '(import (nonexistent library))' "nonexistent.library"
 
+# Missing dependency reports the actual missing library, not the top-level one
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+dep_output=$("$KAAPPI" --lib-path "$SCRIPT_DIR/fixtures" "$SCRIPT_DIR/fixtures/missing-dep.scm" 2>&1 || true)
+if echo "$dep_output" | grep -qF "srfi.999"; then
+    echo "PASS: missing dependency names the dependency"
+    PASS=$((PASS + 1))
+else
+    echo "FAIL: missing dependency names the dependency — expected 'srfi.999' in output"
+    FAIL=$((FAIL + 1))
+fi
+
 # --- Closure arity errors ---
 echo
 echo "-- Closure arity errors --"

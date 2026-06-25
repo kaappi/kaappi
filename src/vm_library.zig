@@ -97,13 +97,17 @@ fn processImportSet(vm: *VM, target: *std.StringHashMap(Value), import_set: Valu
 
     // Not found in registry — try loading from .sld file
     tryLoadLibraryFromFile(vm, import_set) catch {
-        vm.setErrorDetail("library not found: ({s})", .{lib_name});
+        if (vm.last_error_detail_len == 0) {
+            vm.setErrorDetail("library not found: ({s})", .{lib_name});
+        }
         return error.UndefinedVariable;
     };
 
     // Now try again
     const lib = vm.libraries.get(lib_name) orelse {
-        vm.setErrorDetail("library not found: ({s})", .{lib_name});
+        if (vm.last_error_detail_len == 0) {
+            vm.setErrorDetail("library not found: ({s})", .{lib_name});
+        }
         return error.UndefinedVariable;
     };
     var it = lib.exports.iterator();
@@ -166,7 +170,7 @@ fn loadLibrarySource(vm: *VM, source: []const u8) !void {
         const expr = rdr.readDatum() catch return error.InvalidSyntax;
 
         if (vm.handleTopLevelForm(expr)) |result| {
-            _ = result catch return error.OutOfMemory;
+            _ = result catch |err| return err;
         } else {
             const func = compiler_mod.compileExpressionWithMacros(vm.gc, expr, &vm.macros, &vm.globals) catch return error.InvalidSyntax;
             var func_val = types.makePointer(@ptrCast(func));
