@@ -2,12 +2,25 @@
 
 ## Current state
 
-The REPL (`src/main.zig:456-571`) uses vendored linenoise for line editing,
+The REPL (`src/main.zig`) uses vendored linenoise for line editing,
 history (`~/.kaappi/history`, 1000 entries), and tab completion (global
-bindings and `,commands`). Multi-line input is already supported via `parenDepth()` which
-tracks open parentheses across lines, showing a `"  ... "` continuation
-prompt. Debug commands (`,break`, `,breakpoints`, `,delete`, `,step`) are
-dispatched at line 507.
+bindings and `,commands`). Multi-line input is supported via `parenDepth()` which
+tracks open parentheses, strings, and block comments across lines, showing a
+`"  ... "` continuation prompt.
+
+### Implemented comma commands
+
+Commands are grouped into four categories:
+
+**General:** `,help`, `,quit` (also `,exit`)
+
+**Evaluation:** `,time`, `,type`, `,expand`, `,profile`, `,dis`
+
+**Inspection:** `,describe`, `,apropos`, `,env`
+
+**Debugging:** `,break`, `,breakpoints`, `,delete all`, `,step`
+
+**System:** `,gc`, `,version`, `,load`, `,import`
 
 ## Proposed enhancements
 
@@ -127,21 +140,27 @@ significantly for exploratory programming.
 ## Priority order
 
 1. ~~`,time`~~ — **Done**
-2. ~~`,help`~~ — **Done**
+2. ~~`,help`~~ — **Done** (grouped layout with categories)
 3. ~~`,env`~~ — **Done**
-4. Incomplete-expression detection — small fix, avoids confusion
-5. `,expand` — medium effort, valuable for macro development
-6. Pretty-printing — highest effort, best deferred
+4. ~~Incomplete-expression detection~~ — **Done** (strings, block comments)
+5. ~~`,expand`~~ — **Done**
+6. ~~`,type`, `,describe`, `,apropos`~~ — **Done**
+7. ~~`,profile`, `,gc`~~ — **Done**
+8. ~~`,break`, `,breakpoints`, `,delete`, `,step`~~ — **Done**
+9. ~~`,quit`/`,exit`, `,version`, `,load`, `,import`, `,dis`~~ — **Done**
+10. Pretty-printing — highest effort, best deferred
 
 ## Key files
 
 | Component | Location |
 |-----------|----------|
-| REPL loop | `src/main.zig:456-571` |
-| Command dispatch | `src/main.zig:507-551` |
-| `parenDepth()` | `src/main.zig:427-454` |
-| `evalInput()` | `src/main.zig:573-649` |
-| Tab completion | `src/main.zig:413-425` |
+| REPL loop | `src/main.zig` — `repl()` function |
+| Command dispatch | `src/main.zig` — comma-prefixed section in `repl()` |
+| `parenDepth()` | `src/main.zig` |
+| `evalInput()` | `src/main.zig` |
+| Tab completion | `src/main.zig` — `completionCallback()` |
+| Import handling | `src/vm_library.zig` — `handleImport()` |
+| Disassembler | `src/disassembler.zig` |
 | Linenoise wrapper | `src/linenoise.zig` |
 | Timing primitives | `src/primitives_r7rs.zig` |
 | Value printer | `src/printer.zig` |

@@ -33,6 +33,7 @@ pub const embedded_bytecode = @import("embedded_bytecode");
 pub const fiber_mod = @import("fiber.zig");
 pub const primitives_fiber = @import("primitives_fiber.zig");
 pub const reporting = @import("reporting.zig");
+pub const vm_library = @import("vm_library.zig");
 
 pub const version = "0.5.0";
 
@@ -939,7 +940,8 @@ fn completionCallback(buf: [*c]const u8, lc: [*c]ln.c.linenoiseCompletions) call
             ",time ",  ",type ",       ",describe ", ",apropos ",
             ",env ",   ",profile ",    ",expand ",   ",gc",
             ",break ", ",breakpoints", ",delete ",   ",step ",
-            ",help",
+            ",help",   ",quit",        ",exit",      ",version",
+            ",load ",  ",import ",     ",dis ",
         };
         for (&commands) |cmd| {
             if (std.mem.startsWith(u8, std.mem.span(cmd), prefix)) {
@@ -1010,7 +1012,7 @@ fn repl(vm: *vm_mod.VM) !void {
     const allocator = vm.gc.allocator;
 
     writeStdout("Kaappi Scheme v" ++ version ++ "\n");
-    writeStdout("Type ,help for commands, (exit) to quit.\n\n");
+    writeStdout("Type ,help for commands, ,quit to exit.\n\n");
 
     repl_vm = vm;
     ln.setMultiLine(true);
@@ -1144,22 +1146,120 @@ fn repl(vm: *vm_mod.VM) !void {
             input_buf.clearRetainingCapacity();
             continue;
         }
+        if (std.mem.eql(u8, debug_trimmed, ",quit") or std.mem.eql(u8, debug_trimmed, ",exit")) {
+            break;
+        }
+        if (std.mem.eql(u8, debug_trimmed, ",version")) {
+            writeStdout("Kaappi Scheme v" ++ version ++ "\n");
+            input_buf.clearRetainingCapacity();
+            continue;
+        }
+        if (std.mem.startsWith(u8, debug_trimmed, ",load ")) {
+            const load_path = std.mem.trim(u8, debug_trimmed[6..], " ");
+            if (load_path.len == 0) {
+                writeStderr(",load requires a file path\n");
+            } else {
+                var load_buf: [1024]u8 = undefined;
+                const load_expr = std.fmt.bufPrint(&load_buf, "(load \"{s}\")", .{load_path}) catch {
+                    writeStderr("path too long\n");
+                    input_buf.clearRetainingCapacity();
+                    continue;
+                };
+                evalInput(vm, allocator, load_expr);
+            }
+            input_buf.clearRetainingCapacity();
+            continue;
+        }
+        if (std.mem.startsWith(u8, debug_trimmed, ",import ")) {
+            const import_expr = debug_trimmed[8..];
+            const reader_mod = @import("reader.zig");
+            var ir = reader_mod.Reader.init(vm.gc, import_expr);
+            defer ir.deinit();
+            var import_list = types.NIL;
+            var import_root = import_list;
+            vm.gc.pushRoot(&import_root) catch {
+                writeStderr("out of memory\n");
+                input_buf.clearRetainingCapacity();
+                continue;
+            };
+            var read_ok = true;
+            while (ir.hasMore()) {
+                const datum = ir.readDatum() catch {
+                    writeStderr("read error in import spec\n");
+                    read_ok = false;
+                    break;
+                };
+                var pair = vm.gc.allocPair(datum, types.NIL) catch {
+                    writeStderr("out of memory\n");
+                    read_ok = false;
+                    break;
+                };
+                if (import_root == types.NIL) {
+                    import_root = pair;
+                    import_list = pair;
+                } else {
+                    types.toObject(import_list).as(types.Pair).cdr = pair;
+                    import_list = pair;
+                }
+                _ = &pair;
+            }
+            if (read_ok and import_root != types.NIL) {
+                _ = vm_library.handleImport(vm, import_root) catch {
+                    const detail = vm.getErrorDetail();
+                    if (detail.len > 0) {
+                        writeStderr("import error: ");
+                        writeStderr(detail);
+                        writeStderr("\n");
+                    } else {
+                        writeStderr("import error\n");
+                    }
+                };
+            }
+            vm.gc.popRoot();
+            input_buf.clearRetainingCapacity();
+            continue;
+        }
+        if (std.mem.startsWith(u8, debug_trimmed, ",dis ")) {
+            const dis_expr = debug_trimmed[5..];
+            var dis_buf: [1024]u8 = undefined;
+            const dis_call = std.fmt.bufPrint(&dis_buf, "(disassemble {s})", .{dis_expr}) catch {
+                writeStderr("expression too long\n");
+                input_buf.clearRetainingCapacity();
+                continue;
+            };
+            evalInput(vm, allocator, dis_call);
+            input_buf.clearRetainingCapacity();
+            continue;
+        }
         if (std.mem.eql(u8, debug_trimmed, ",help")) {
             writeStdout(
                 \\Commands:
+                \\  ,help             Show this message
+                \\  ,quit             Exit the REPL
+                \\
+                \\ -- Evaluation:
                 \\  ,time <expr>      Measure execution time
                 \\  ,type <expr>      Show result type
+                \\  ,expand <expr>    Show macro expansion
+                \\  ,profile <expr>   Profile timing, calls, and allocations
+                \\  ,dis <expr>       Disassemble a procedure
+                \\
+                \\ -- Inspection:
                 \\  ,describe <sym>   Show procedure arity and type
                 \\  ,apropos <str>    Search bindings by substring
-                \\  ,env [prefix]     List global bindings by prefix
-                \\  ,profile <expr>   Profile timing, calls, and allocations
-                \\  ,expand <expr>    Show macro expansion
-                \\  ,gc               Show GC statistics
+                \\  ,env [prefix]     List bindings (optionally filtered by prefix)
+                \\
+                \\ -- Debugging:
                 \\  ,break <name>     Set breakpoint on function
                 \\  ,breakpoints      List active breakpoints
                 \\  ,delete all       Clear all breakpoints
                 \\  ,step <expr>      Evaluate with single-stepping
-                \\  ,help             This message
+                \\
+                \\ -- System:
+                \\  ,gc               Show GC statistics
+                \\  ,version          Show Kaappi version
+                \\  ,load <file>      Load and run a Scheme file
+                \\  ,import <lib>     Import a library (e.g. ,import (srfi 1))
                 \\
                 \\The variable _ holds the last result.
                 \\
@@ -1250,6 +1350,21 @@ fn repl(vm: *vm_mod.VM) !void {
             continue;
         }
 
+        // Catch-all for unrecognized or incomplete comma commands
+        if (debug_trimmed.len > 0 and debug_trimmed[0] == ',') {
+            const usage = getCommandUsage(debug_trimmed);
+            if (usage) |msg| {
+                writeStderr(msg);
+            } else {
+                writeStderr("unknown command: ");
+                const end = std.mem.indexOfScalar(u8, debug_trimmed, ' ') orelse debug_trimmed.len;
+                writeStderr(debug_trimmed[0..end]);
+                writeStderr("\nType ,help for available commands.\n");
+            }
+            input_buf.clearRetainingCapacity();
+            continue;
+        }
+
         // Add to history with newlines replaced by spaces for clean display
         var hist_buf: std.ArrayList(u8) = .empty;
         defer hist_buf.deinit(allocator);
@@ -1267,6 +1382,31 @@ fn repl(vm: *vm_mod.VM) !void {
 
     if (hist_path) |p| ln.historySave(p);
     repl_vm = null;
+}
+
+fn getCommandUsage(input: []const u8) ?[]const u8 {
+    const cmd = blk: {
+        const end = std.mem.indexOfScalar(u8, input, ' ') orelse input.len;
+        break :blk input[0..end];
+    };
+    const commands = [_]struct { name: []const u8, usage: []const u8 }{
+        .{ .name = ",time", .usage = "usage: ,time <expr>\n" },
+        .{ .name = ",type", .usage = "usage: ,type <expr>\n" },
+        .{ .name = ",describe", .usage = "usage: ,describe <symbol>\n" },
+        .{ .name = ",apropos", .usage = "usage: ,apropos <string>\n" },
+        .{ .name = ",expand", .usage = "usage: ,expand <expr>\n" },
+        .{ .name = ",profile", .usage = "usage: ,profile <expr>\n" },
+        .{ .name = ",step", .usage = "usage: ,step <expr>\n" },
+        .{ .name = ",break", .usage = "usage: ,break <name>\n" },
+        .{ .name = ",load", .usage = "usage: ,load <file>\n" },
+        .{ .name = ",import", .usage = "usage: ,import <lib>  (e.g. ,import (srfi 1))\n" },
+        .{ .name = ",dis", .usage = "usage: ,dis <expr>\n" },
+        .{ .name = ",delete", .usage = "usage: ,delete all\n" },
+    };
+    for (&commands) |entry| {
+        if (std.mem.eql(u8, cmd, entry.name)) return entry.usage;
+    }
+    return null;
 }
 
 fn containsSubstring(haystack: []const u8, needle: []const u8) bool {

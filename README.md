@@ -45,8 +45,8 @@ The REPL features **line editing** (arrow keys, Ctrl-A/E, backspace), **command 
 
 ```
 $ zig build run
-Kaappi Scheme v0.1.0
-Type (exit) to quit.
+Kaappi Scheme v0.5.0
+Type ,help for commands, ,quit to exit.
 
 kaappi> (define (fib n)
   ...     (if (< n 2) n
