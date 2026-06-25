@@ -232,7 +232,11 @@ fn threadEntryFn(fiber: *fiber_mod.Fiber, allocator: std.mem.Allocator, parent_g
     {
         while (!child_resources_mutex.tryLock()) {}
         defer child_resources_mutex.unlock();
-        child_resources.put(@intFromPtr(fiber), .{ .child_gc = child_gc, .child_vm = child_vm }) catch {};
+        child_resources.put(@intFromPtr(fiber), .{ .child_gc = child_gc, .child_vm = child_vm }) catch {
+            fiber.status = .errored;
+            fiber.result = types.VOID;
+            return;
+        };
     }
 
     const child_thunk = child_gc.deepCopy(fiber.thunk) catch |err| {

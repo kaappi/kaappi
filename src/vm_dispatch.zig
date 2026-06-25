@@ -433,7 +433,7 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                         if (param.converter != types.NIL) {
                             new_val = self.callWithArgs(param.converter, &[_]Value{new_val}) catch |err| return err;
                         }
-                        self.setParameterValue(param, new_val);
+                        try self.setParameterValue(param, new_val);
                         break :blk types.VOID;
                     };
                     const return_dst = frame.dst;

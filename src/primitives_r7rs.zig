@@ -283,7 +283,7 @@ fn parameterSetDirectFn(args: []const Value) PrimitiveError!Value {
     if (!types.isParameter(args[0])) return primitives.typeError("%parameter-set!", "parameter", args[0]);
     const param = types.toObject(args[0]).as(types.ParameterObject);
     if (vm_mod.vm_instance) |vm| {
-        vm.setParameterValue(param, args[1]);
+        vm.setParameterValue(param, args[1]) catch return PrimitiveError.OutOfMemory;
     } else {
         param.value = args[1];
     }

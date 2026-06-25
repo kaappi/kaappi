@@ -240,7 +240,7 @@ pub fn callValue(vm: *VM, callee: Value, base: u16, nargs: u8) VMError!void {
             if (param.converter != types.NIL) {
                 new_val = vm.callWithArgs(param.converter, &[_]Value{new_val}) catch |err| return err;
             }
-            vm.setParameterValue(param, new_val);
+            try vm.setParameterValue(param, new_val);
             vm.registers[base] = types.VOID;
         }
         return;

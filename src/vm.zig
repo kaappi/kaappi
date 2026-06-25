@@ -288,12 +288,12 @@ pub const VM = struct {
         return param.value;
     }
 
-    pub fn setParameterValue(self: *VM, param: *types.ParameterObject, val: Value) void {
+    pub fn setParameterValue(self: *VM, param: *types.ParameterObject, val: Value) VMError!void {
         const key = @intFromPtr(param);
         if (self.current_fiber) |fiber| {
-            fiber.param_overrides.put(key, val) catch {};
+            fiber.param_overrides.put(key, val) catch return VMError.OutOfMemory;
         } else {
-            self.param_overrides.put(key, val) catch {};
+            self.param_overrides.put(key, val) catch return VMError.OutOfMemory;
         }
     }
 
@@ -613,7 +613,7 @@ pub const VM = struct {
                 if (param.converter != types.NIL) {
                     new_val = try self.callWithArgs(param.converter, &[_]Value{new_val});
                 }
-                self.setParameterValue(param, new_val);
+                try self.setParameterValue(param, new_val);
                 return types.VOID;
             }
         }

@@ -21,7 +21,7 @@ fn importBinding(vm: *VM, target: *std.StringHashMap(Value), name: []const u8, v
             var it = env.iterator();
             while (it.next()) |entry| {
                 if (!target.contains(entry.key_ptr.*)) {
-                    target.put(entry.key_ptr.*, entry.value_ptr.*) catch {};
+                    target.put(entry.key_ptr.*, entry.value_ptr.*) catch return error.OutOfMemory;
                     if (target == &vm.globals) vm.global_version +%= 1;
                 }
             }
@@ -1028,7 +1028,7 @@ fn compileLibExpr(vm: *VM, lib_env: *std.StringHashMap(Value), expr: Value) VMEr
 
     const func = compiler_mod.compileExpressionInEnv(vm.gc, expr, &vm.macros, lib_env) catch return VMError.CompileError;
     if (vm.lib_compile_collect) |collect| {
-        collect.append(vm.gc.allocator, func) catch {};
+        collect.append(vm.gc.allocator, func) catch return VMError.OutOfMemory;
     }
     var func_val = types.makePointer(@ptrCast(func));
     vm.gc.pushRoot(&func_val) catch return VMError.OutOfMemory;
