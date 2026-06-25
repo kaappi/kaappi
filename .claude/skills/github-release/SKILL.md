@@ -86,7 +86,7 @@ const version = "X.Y.Z";
 .version = "X.Y.Z",
 ```
 
-**`../kaappi.github.io/docs/downloads.md` line 1:**
+**`../kaappi.github.io/docs/download.md` line 1:**
 ```markdown
 # Download Kaappi vX.Y.Z
 ```
@@ -144,7 +144,7 @@ tour, and downloads page:
 ```bash
 cd ../kaappi.github.io
 cp ../kaappi/zig-out/bin/kaappi.wasm docs/wasm/kaappi.wasm
-git add docs/wasm/kaappi.wasm docs/downloads.md
+git add docs/wasm/kaappi.wasm docs/download.md
 git commit -m "Update playground WASM binary and downloads page to vX.Y.Z"
 git push
 ```
