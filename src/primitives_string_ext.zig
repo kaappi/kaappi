@@ -309,31 +309,31 @@ fn stringSplitFn(args: []const Value) PrimitiveError!Value {
         return result;
     }
 
-    // Collect parts
-    var parts: std.ArrayList(Value) = .empty;
-    defer parts.deinit(gc.allocator);
+    var splits: std.ArrayList([2]usize) = .empty;
+    defer splits.deinit(gc.allocator);
 
     var pos: usize = 0;
     while (pos <= data.len) {
         if (std.mem.indexOfPos(u8, data, pos, delim)) |found| {
-            const s = gc.allocString(data[pos..found]) catch return PrimitiveError.OutOfMemory;
-            parts.append(gc.allocator, s) catch return PrimitiveError.OutOfMemory;
+            splits.append(gc.allocator, .{ pos, found }) catch return PrimitiveError.OutOfMemory;
             pos = found + delim.len;
         } else {
-            const s = gc.allocString(data[pos..]) catch return PrimitiveError.OutOfMemory;
-            parts.append(gc.allocator, s) catch return PrimitiveError.OutOfMemory;
+            splits.append(gc.allocator, .{ pos, data.len }) catch return PrimitiveError.OutOfMemory;
             break;
         }
     }
 
-    // Build result list
+    var str_val: Value = types.NIL;
+    gc.pushRoot(&str_val) catch return PrimitiveError.OutOfMemory;
+    defer gc.popRoot();
     var result: Value = types.NIL;
     gc.pushRoot(&result) catch return PrimitiveError.OutOfMemory;
     defer gc.popRoot();
-    var i = parts.items.len;
+    var i = splits.items.len;
     while (i > 0) {
         i -= 1;
-        result = gc.allocPair(parts.items[i], result) catch return PrimitiveError.OutOfMemory;
+        str_val = gc.allocString(data[splits.items[i][0]..splits.items[i][1]]) catch return PrimitiveError.OutOfMemory;
+        result = gc.allocPair(str_val, result) catch return PrimitiveError.OutOfMemory;
     }
     return result;
 }

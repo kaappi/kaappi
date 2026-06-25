@@ -972,6 +972,8 @@ pub const GC = struct {
     // -- Convenience: build a proper list from a slice
     pub fn makeList(self: *GC, items: []const Value) !Value {
         var result: Value = types.NIL;
+        try self.pushRoot(&result);
+        defer self.popRoot();
         var i = items.len;
         while (i > 0) {
             i -= 1;

@@ -253,11 +253,12 @@ fn append(args: []const Value) PrimitiveError!Value {
     if (args.len == 1) return args[0];
 
     var result = args[args.len - 1];
+    gc.pushRoot(&result) catch return PrimitiveError.OutOfMemory;
+    defer gc.popRoot();
     var i = args.len - 1;
     while (i > 0) {
         i -= 1;
         var lst = args[i];
-        // Collect elements of this list
         var elems: std.ArrayList(Value) = .empty;
         defer elems.deinit(gc.allocator);
         while (lst != types.NIL) {

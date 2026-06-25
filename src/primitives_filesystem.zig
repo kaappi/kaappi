@@ -200,6 +200,9 @@ fn directoryFiles(args: []const Value) PrimitiveError!Value {
     };
     defer _ = std.c.closedir(dir);
 
+    var str_val: Value = types.NIL;
+    gc.pushRoot(&str_val) catch return PrimitiveError.OutOfMemory;
+    defer gc.popRoot();
     var result: Value = types.NIL;
     gc.pushRoot(&result) catch return PrimitiveError.OutOfMemory;
     defer gc.popRoot();
@@ -211,7 +214,7 @@ fn directoryFiles(args: []const Value) PrimitiveError!Value {
         if (std.mem.eql(u8, name, ".") or std.mem.eql(u8, name, "..")) continue;
         if (!include_dotfiles and name.len > 0 and name[0] == '.') continue;
 
-        const str_val = gc.allocString(name) catch return PrimitiveError.OutOfMemory;
+        str_val = gc.allocString(name) catch return PrimitiveError.OutOfMemory;
         result = gc.allocPair(str_val, result) catch return PrimitiveError.OutOfMemory;
     }
 
