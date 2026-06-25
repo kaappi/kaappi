@@ -75,6 +75,7 @@ pub fn callFfi(ffi_fn: *types.FfiFunction, args: []const Value, gc: *memory.GC) 
         2 => callFfi2(ffi_fn, args, gc),
         3 => callFfi3(ffi_fn, args, gc),
         4 => callFfi4(ffi_fn, args, gc),
+        5 => callFfi5(ffi_fn, args, gc),
         else => error.TypeError,
     };
 }
@@ -736,5 +737,122 @@ fn callFfi4(ffi_fn: *types.FfiFunction, args: []const Value, gc: *memory.GC) !Va
     }
 
     _ = gc;
+    return error.TypeError;
+}
+
+// ---------------------------------------------------------------------------
+// 5-arg dispatcher
+// ---------------------------------------------------------------------------
+
+fn callFfi5(ffi_fn: *types.FfiFunction, args: []const Value, gc: *memory.GC) !Value {
+    const p0 = normalizeType(ffi_fn.param_types[0]);
+    const p1 = normalizeType(ffi_fn.param_types[1]);
+    const p2 = normalizeType(ffi_fn.param_types[2]);
+    const p3 = normalizeType(ffi_fn.param_types[3]);
+    const p4 = normalizeType(ffi_fn.param_types[4]);
+    const rt = normalizeType(ffi_fn.return_type);
+
+    // (double, double, double, double, double) -> double
+    if (p0 == .double and p1 == .double and p2 == .double and p3 == .double and p4 == .double and rt == .double) {
+        const f: *const fn (f64, f64, f64, f64, f64) callconv(.c) f64 = @ptrCast(@alignCast(ffi_fn.symbol));
+        const result = f(types.toF64(args[0]), types.toF64(args[1]), types.toF64(args[2]), types.toF64(args[3]), types.toF64(args[4]));
+        return gc.allocFlonum(result) catch return error.OutOfMemory;
+    }
+
+    // (double, double, double, double, double) -> void
+    if (p0 == .double and p1 == .double and p2 == .double and p3 == .double and p4 == .double and rt == .void_type) {
+        const f: *const fn (f64, f64, f64, f64, f64) callconv(.c) void = @ptrCast(@alignCast(ffi_fn.symbol));
+        f(types.toF64(args[0]), types.toF64(args[1]), types.toF64(args[2]), types.toF64(args[3]), types.toF64(args[4]));
+        return types.VOID;
+    }
+
+    // (int, int, int, int, int) -> int
+    if (p0 == .int and p1 == .int and p2 == .int and p3 == .int and p4 == .int and rt == .int) {
+        const f: *const fn (c_int, c_int, c_int, c_int, c_int) callconv(.c) c_int = @ptrCast(@alignCast(ffi_fn.symbol));
+        const result = f(@intCast(types.toFixnum(args[0])), @intCast(types.toFixnum(args[1])), @intCast(types.toFixnum(args[2])), @intCast(types.toFixnum(args[3])), @intCast(types.toFixnum(args[4])));
+        return types.makeFixnum(@intCast(result));
+    }
+
+    // (int, int, int, int, int) -> void
+    if (p0 == .int and p1 == .int and p2 == .int and p3 == .int and p4 == .int and rt == .void_type) {
+        const f: *const fn (c_int, c_int, c_int, c_int, c_int) callconv(.c) void = @ptrCast(@alignCast(ffi_fn.symbol));
+        f(@intCast(types.toFixnum(args[0])), @intCast(types.toFixnum(args[1])), @intCast(types.toFixnum(args[2])), @intCast(types.toFixnum(args[3])), @intCast(types.toFixnum(args[4])));
+        return types.VOID;
+    }
+
+    // (int, int, int, pointer, int) -> int — setsockopt
+    if (p0 == .int and p1 == .int and p2 == .int and p3 == .pointer and p4 == .int and rt == .int) {
+        const f: *const fn (c_int, c_int, c_int, ?*anyopaque, c_int) callconv(.c) c_int = @ptrCast(@alignCast(ffi_fn.symbol));
+        const result = f(@intCast(types.toFixnum(args[0])), @intCast(types.toFixnum(args[1])), @intCast(types.toFixnum(args[2])), marshalToPointer(args[3]), @intCast(types.toFixnum(args[4])));
+        return types.makeFixnum(@intCast(result));
+    }
+
+    // (pointer, pointer, long, int, pointer) -> int — sendto
+    if (p0 == .pointer and p1 == .pointer and p2 == .long and p3 == .int and p4 == .pointer and rt == .int) {
+        const f: *const fn (?*anyopaque, ?*anyopaque, c_long, c_int, ?*anyopaque) callconv(.c) c_int = @ptrCast(@alignCast(ffi_fn.symbol));
+        const result = f(marshalToPointer(args[0]), marshalToPointer(args[1]), @intCast(types.toFixnum(args[2])), @intCast(types.toFixnum(args[3])), marshalToPointer(args[4]));
+        return types.makeFixnum(@intCast(result));
+    }
+
+    // (pointer, int, int, int, int) -> int — socket/IO ops
+    if (p0 == .pointer and p1 == .int and p2 == .int and p3 == .int and p4 == .int and rt == .int) {
+        const f: *const fn (?*anyopaque, c_int, c_int, c_int, c_int) callconv(.c) c_int = @ptrCast(@alignCast(ffi_fn.symbol));
+        const result = f(marshalToPointer(args[0]), @intCast(types.toFixnum(args[1])), @intCast(types.toFixnum(args[2])), @intCast(types.toFixnum(args[3])), @intCast(types.toFixnum(args[4])));
+        return types.makeFixnum(@intCast(result));
+    }
+
+    // (string, string, string, string, string) -> int
+    if (p0 == .string and p1 == .string and p2 == .string and p3 == .string and p4 == .string and rt == .int) {
+        const f: *const fn ([*:0]const u8, [*:0]const u8, [*:0]const u8, [*:0]const u8, [*:0]const u8) callconv(.c) c_int = @ptrCast(@alignCast(ffi_fn.symbol));
+        var buf0: [4096]u8 = undefined;
+        var buf1: [4096]u8 = undefined;
+        var buf2: [4096]u8 = undefined;
+        var buf3: [4096]u8 = undefined;
+        var buf4: [4096]u8 = undefined;
+        const result = f(toCString(args[0], &buf0) orelse return error.TypeError, toCString(args[1], &buf1) orelse return error.TypeError, toCString(args[2], &buf2) orelse return error.TypeError, toCString(args[3], &buf3) orelse return error.TypeError, toCString(args[4], &buf4) orelse return error.TypeError);
+        return types.makeFixnum(@intCast(result));
+    }
+
+    // (string, string, string, string, string) -> string
+    if (p0 == .string and p1 == .string and p2 == .string and p3 == .string and p4 == .string and rt == .string) {
+        const f: *const fn ([*:0]const u8, [*:0]const u8, [*:0]const u8, [*:0]const u8, [*:0]const u8) callconv(.c) ?[*:0]const u8 = @ptrCast(@alignCast(ffi_fn.symbol));
+        var buf0: [4096]u8 = undefined;
+        var buf1: [4096]u8 = undefined;
+        var buf2: [4096]u8 = undefined;
+        var buf3: [4096]u8 = undefined;
+        var buf4: [4096]u8 = undefined;
+        const result = f(toCString(args[0], &buf0) orelse return error.TypeError, toCString(args[1], &buf1) orelse return error.TypeError, toCString(args[2], &buf2) orelse return error.TypeError, toCString(args[3], &buf3) orelse return error.TypeError, toCString(args[4], &buf4) orelse return error.TypeError) orelse return types.FALSE;
+        return marshalCStringReturn(result, gc);
+    }
+
+    // (string, int, int, int, int) -> int
+    if (p0 == .string and p1 == .int and p2 == .int and p3 == .int and p4 == .int and rt == .int) {
+        const f: *const fn ([*:0]const u8, c_int, c_int, c_int, c_int) callconv(.c) c_int = @ptrCast(@alignCast(ffi_fn.symbol));
+        var buf0: [4096]u8 = undefined;
+        const result = f(toCString(args[0], &buf0) orelse return error.TypeError, @intCast(types.toFixnum(args[1])), @intCast(types.toFixnum(args[2])), @intCast(types.toFixnum(args[3])), @intCast(types.toFixnum(args[4])));
+        return types.makeFixnum(@intCast(result));
+    }
+
+    // (pointer, pointer, pointer, pointer, pointer) -> int
+    if (p0 == .pointer and p1 == .pointer and p2 == .pointer and p3 == .pointer and p4 == .pointer and rt == .int) {
+        const f: *const fn (?*anyopaque, ?*anyopaque, ?*anyopaque, ?*anyopaque, ?*anyopaque) callconv(.c) c_int = @ptrCast(@alignCast(ffi_fn.symbol));
+        const result = f(marshalToPointer(args[0]), marshalToPointer(args[1]), marshalToPointer(args[2]), marshalToPointer(args[3]), marshalToPointer(args[4]));
+        return types.makeFixnum(@intCast(result));
+    }
+
+    // (pointer, pointer, pointer, pointer, pointer) -> void
+    if (p0 == .pointer and p1 == .pointer and p2 == .pointer and p3 == .pointer and p4 == .pointer and rt == .void_type) {
+        const f: *const fn (?*anyopaque, ?*anyopaque, ?*anyopaque, ?*anyopaque, ?*anyopaque) callconv(.c) void = @ptrCast(@alignCast(ffi_fn.symbol));
+        f(marshalToPointer(args[0]), marshalToPointer(args[1]), marshalToPointer(args[2]), marshalToPointer(args[3]), marshalToPointer(args[4]));
+        return types.VOID;
+    }
+
+    // (pointer, pointer, pointer, pointer, pointer) -> pointer
+    if (p0 == .pointer and p1 == .pointer and p2 == .pointer and p3 == .pointer and p4 == .pointer and rt == .pointer) {
+        const f: *const fn (?*anyopaque, ?*anyopaque, ?*anyopaque, ?*anyopaque, ?*anyopaque) callconv(.c) ?*anyopaque = @ptrCast(@alignCast(ffi_fn.symbol));
+        const result = f(marshalToPointer(args[0]), marshalToPointer(args[1]), marshalToPointer(args[2]), marshalToPointer(args[3]), marshalToPointer(args[4]));
+        return marshalPointerReturn(result);
+    }
+
     return error.TypeError;
 }
