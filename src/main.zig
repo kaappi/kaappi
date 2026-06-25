@@ -138,6 +138,22 @@ fn readFileContents(allocator: std.mem.Allocator, path: []const u8) ![]u8 {
     return result.toOwnedSlice(allocator);
 }
 
+fn readAllStdin(allocator: std.mem.Allocator) ![]u8 {
+    const max_size: usize = 10 * 1024 * 1024;
+    var result: std.ArrayList(u8) = .empty;
+    defer result.deinit(allocator);
+
+    var tmp: [4096]u8 = undefined;
+    while (true) {
+        const raw = std.c.read(0, &tmp, tmp.len);
+        if (raw <= 0) break;
+        const bytes_read: usize = @intCast(raw);
+        if (result.items.len + bytes_read > max_size) return error.StreamTooLong;
+        result.appendSlice(allocator, tmp[0..bytes_read]) catch |err| return err;
+    }
+    return result.toOwnedSlice(allocator);
+}
+
 pub fn main(init: std.process.Init.Minimal) !void {
     const is_debug = @import("builtin").mode == .Debug;
     var da = if (is_debug) std.heap.DebugAllocator(.{}).init;
@@ -482,7 +498,11 @@ pub fn main(init: std.process.Init.Minimal) !void {
             writeStderr("kaappi-wasm: no file specified\n");
             return;
         }
-        try repl(&vm);
+        if (!is_wasm and std.c.isatty(0) == 0) {
+            try runStdin(&vm);
+        } else {
+            try repl(&vm);
+        }
     }
 }
 
@@ -668,6 +688,100 @@ fn runFile(vm: *vm_mod.VM, path: []const u8) !void {
     if (!has_imports and compiled_funcs.items.len > 0) {
         if (sbc_path) |sp| {
             bytecode_file.writeFileWithTopLevel(allocator, compiled_funcs.items, source_hash, sp) catch {};
+        }
+    }
+}
+
+fn runStdin(vm: *vm_mod.VM) !void {
+    const allocator = vm.gc.allocator;
+    const source = readAllStdin(allocator) catch {
+        writeStderr("error: failed to read stdin\n");
+        return;
+    };
+    defer allocator.free(source);
+
+    var r = reader.Reader.initWithName(vm.gc, source, "<stdin>");
+    defer r.deinit();
+
+    while (r.hasMore()) {
+        const expr = r.readDatum() catch |err| {
+            const lc = r.getLineCol();
+            var errbuf: [256]u8 = undefined;
+            const s = std.fmt.bufPrint(&errbuf, "<stdin>:{d}:{d}: read error: {}\n", .{ lc.line, lc.col, err }) catch "read error\n";
+            writeStderr(s);
+            return;
+        };
+
+        if (vm.handleTopLevelForm(expr)) |top_result| {
+            const result = top_result catch |err| {
+                const detail = vm.getErrorDetail();
+                if (detail.len > 0) {
+                    writeStderr("error: ");
+                    writeStderr(detail);
+                    writeStderr("\n");
+                } else {
+                    var errbuf: [256]u8 = undefined;
+                    const s = std.fmt.bufPrint(&errbuf, "runtime error: {}\n", .{err}) catch "runtime error\n";
+                    writeStderr(s);
+                }
+                vm.last_error_detail_len = 0;
+                continue;
+            };
+            var dr = result;
+            if (types.isMultipleValues(dr)) {
+                const mv = types.toObject(dr).as(types.MultipleValues);
+                dr = if (mv.values.len > 0) mv.values[0] else types.VOID;
+            }
+            if (dr != types.VOID) {
+                const s = printer.valueToString(allocator, dr, .write) catch continue;
+                defer allocator.free(s);
+                writeStdout(s);
+                writeStdout("\n");
+            }
+            continue;
+        }
+
+        const func = compiler.compileExpressionWithMacrosAt(vm.gc, expr, &vm.macros, &vm.globals, 0, "<stdin>") catch |err| {
+            const lc = r.getLineCol();
+            var errbuf: [256]u8 = undefined;
+            const s = std.fmt.bufPrint(&errbuf, "<stdin>:{d}: compile error: {}\n", .{ lc.line, err }) catch "compile error\n";
+            writeStderr(s);
+            return;
+        };
+
+        var func_val = types.makePointer(@ptrCast(func));
+        vm.gc.pushRoot(&func_val) catch {
+            writeStderr("error: out of memory while rooting function\n");
+            return;
+        };
+
+        const result = vm.execute(func) catch |err| {
+            vm.gc.popRoot();
+            const detail = vm.getErrorDetail();
+            if (detail.len > 0) {
+                writeStderr("error: ");
+                writeStderr(detail);
+                writeStderr("\n");
+            } else {
+                var errbuf: [256]u8 = undefined;
+                const s = std.fmt.bufPrint(&errbuf, "runtime error: {}\n", .{err}) catch "runtime error\n";
+                writeStderr(s);
+            }
+            vm.last_error_detail_len = 0;
+            continue;
+        };
+        vm.gc.popRoot();
+
+        var display_result = result;
+        if (types.isMultipleValues(display_result)) {
+            const mv = types.toObject(display_result).as(types.MultipleValues);
+            display_result = if (mv.values.len > 0) mv.values[0] else types.VOID;
+        }
+        if (display_result != types.VOID) {
+            const s = printer.valueToString(allocator, display_result, .write) catch continue;
+            defer allocator.free(s);
+            writeStdout(s);
+            writeStdout("\n");
         }
     }
 }
