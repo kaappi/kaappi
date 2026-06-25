@@ -1,58 +1,67 @@
 const std = @import("std");
 
-/// A Scheme value packed into a 64-bit word.
+/// A Scheme value packed into a 64-bit word (NaN-boxing).
 ///
-/// Encoding (low bits):
-///   bit 0 = 1:       fixnum, value = arithmetic shift right by 1
-///   bits 0-2 = 000:  pointer to heap Object (8-byte aligned)
-///   bits 0-1 = 10:   immediate (nil, bool, void, eof, char)
+/// Encoding:
+///   v < NANBOX_THRESHOLD:          flonum (raw IEEE 754 f64 bits)
+///   (v >> 48) == 0xFFFC:           pointer to heap Object (48-bit address)
+///   (v >> 48) == 0xFFFD:           fixnum (i48, sign-extended)
+///   (v >> 48) == 0xFFFE:           immediate (nil, bool, void, eof, char)
+///
+/// NaN values from f64 are canonicalized to 0x7FF8000000000000.
 pub const Value = u64;
+
+// NaN-boxing tag constants
+const NANBOX_PTR: u64 = 0xFFFC000000000000;
+const NANBOX_FIX: u64 = 0xFFFD000000000000;
+const NANBOX_IMM: u64 = 0xFFFE000000000000;
+const NANBOX_THRESHOLD: u64 = 0xFFFC000000000000;
+const NANBOX_PAYLOAD: u64 = 0x0000FFFFFFFFFFFF;
+const CANONICAL_NAN: u64 = 0x7FF8000000000000;
 
 // ---------------------------------------------------------------------------
 // Immediate constants
 // ---------------------------------------------------------------------------
 
-// Immediate layout: [payload:56][subtype:5][10]
-// Subtypes: 0=nil, 1=bool, 2=void, 3=eof, 4=undefined, 5=char
-pub const NIL: Value = 0b0_00000_10; // subtype 0, payload 0
-pub const FALSE: Value = 0b0_00001_10; // subtype 1, payload 0
-pub const TRUE: Value = 0b1_00001_10; // subtype 1, payload 1
-pub const VOID: Value = 0b0_00010_10; // subtype 2
-pub const EOF: Value = 0b0_00011_10; // subtype 3
-pub const UNDEFINED: Value = 0b0_00100_10; // subtype 4
+pub const NIL: Value = NANBOX_IMM | 0;
+pub const FALSE: Value = NANBOX_IMM | 1;
+pub const TRUE: Value = NANBOX_IMM | 2;
+pub const VOID: Value = NANBOX_IMM | 3;
+pub const EOF: Value = NANBOX_IMM | 4;
+pub const UNDEFINED: Value = NANBOX_IMM | 5;
 
 // ---------------------------------------------------------------------------
-// Fixnum operations
+// Fixnum operations (i48: ±140 trillion)
 // ---------------------------------------------------------------------------
 
 pub fn makeFixnum(n: i64) Value {
     const unsigned: u64 = @bitCast(n);
-    return (unsigned << 1) | 1;
+    return NANBOX_FIX | (unsigned & NANBOX_PAYLOAD);
 }
 
 pub fn toFixnum(v: Value) i64 {
-    const signed: i64 = @bitCast(v);
-    return signed >> 1;
+    const payload: u48 = @truncate(v);
+    return @as(i64, @as(i48, @bitCast(payload)));
 }
 
 pub fn isFixnum(v: Value) bool {
-    return (v & 1) != 0;
+    return (v >> 48) == 0xFFFD;
 }
 
 // ---------------------------------------------------------------------------
-// Pointer operations
+// Pointer operations (48-bit address)
 // ---------------------------------------------------------------------------
 
 pub fn isPointer(v: Value) bool {
-    return (v & 0b111) == 0 and v != 0;
+    return (v >> 48) == 0xFFFC;
 }
 
 pub fn makePointer(ptr: *anyopaque) Value {
-    return @as(Value, @intFromPtr(ptr));
+    return NANBOX_PTR | @as(u64, @intFromPtr(ptr));
 }
 
 pub fn toObject(v: Value) *Object {
-    return @ptrFromInt(@as(usize, @truncate(v)));
+    return @ptrFromInt(@as(usize, v & NANBOX_PAYLOAD));
 }
 
 // ---------------------------------------------------------------------------
@@ -60,7 +69,7 @@ pub fn toObject(v: Value) *Object {
 // ---------------------------------------------------------------------------
 
 pub fn isImmediate(v: Value) bool {
-    return (v & 0b11) == 0b10;
+    return (v >> 48) == 0xFFFE;
 }
 
 pub fn isBool(v: Value) bool {
@@ -72,15 +81,15 @@ pub fn isNil(v: Value) bool {
 }
 
 pub fn makeChar(codepoint: u21) Value {
-    return (@as(Value, codepoint) << 7) | 0b00101_10;
+    return NANBOX_IMM | 0x100 | @as(Value, codepoint);
 }
 
 pub fn toChar(v: Value) u21 {
-    return @truncate(v >> 7);
+    return @truncate(v & 0x1FFFFF);
 }
 
 pub fn isChar(v: Value) bool {
-    return (v & 0b1111111) == 0b00101_10;
+    return (v >> 48) == 0xFFFE and (v & 0x100) != 0;
 }
 
 pub fn isTruthy(v: Value) bool {
@@ -605,7 +614,12 @@ pub fn isMultipleValues(v: Value) bool {
 }
 
 pub fn isFlonum(v: Value) bool {
-    return isPointer(v) and toObject(v).tag == .flonum;
+    return v < NANBOX_THRESHOLD;
+}
+
+pub fn makeFlonum(f: f64) Value {
+    if (std.math.isNan(f)) return CANONICAL_NAN;
+    return @bitCast(f);
 }
 
 pub fn isTransformer(v: Value) bool {
@@ -782,7 +796,7 @@ pub fn isNumber(v: Value) bool {
 }
 
 pub fn toFlonum(v: Value) f64 {
-    return toObject(v).as(Flonum).value;
+    return @bitCast(v);
 }
 
 pub fn toF64(v: Value) f64 {
