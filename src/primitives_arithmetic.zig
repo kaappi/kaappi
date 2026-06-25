@@ -18,7 +18,7 @@ fn reg(vm: *vm_mod.VM, name: []const u8, func: types.NativeFnType, arity: Native
     return primitives.reg(vm, name, func, arity);
 }
 
-fn makeFixnumChecked(n: i64) PrimitiveError!Value {
+pub fn makeFixnumChecked(n: i64) PrimitiveError!Value {
     if (n >= std.math.minInt(i48) and n <= std.math.maxInt(i48))
         return types.makeFixnum(n);
     const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
@@ -603,6 +603,16 @@ fn divFn(args: []const Value) PrimitiveError!Value {
         if (n == 0) return types.makeFixnum(0);
         if (d == 1) return makeFixnumChecked(n);
         return gc.allocRational(try makeFixnumChecked(n), try makeFixnumChecked(d)) catch return PrimitiveError.OutOfMemory;
+    }
+    // Exact integer division with bignums: try quotient to preserve exactness
+    if (anyBignum(args) and !anyFlonum(args) and !anyRational(args) and args.len == 2) {
+        const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+        if (bignum_mod.isZero(args[1])) return raiseDivByZero();
+        const rem = bignum_mod.remainder(gc, args[0], args[1]) catch return PrimitiveError.OutOfMemory;
+        if (bignum_mod.isZero(rem)) {
+            const q = bignum_mod.quotient(gc, args[0], args[1]) catch return PrimitiveError.OutOfMemory;
+            return bignum_mod.demote(q);
+        }
     }
     // At least one flonum or bignum — convert to float
     var result = try toF64Ext(args[0]);

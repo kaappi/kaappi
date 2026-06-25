@@ -185,13 +185,12 @@ fn exactFn(args: []const Value) PrimitiveError!Value {
         if (f == @trunc(f)) {
             return types.makeFixnum(@intFromFloat(f));
         }
-        // Convert float to exact rational using 2^52 scaling
+        // Convert float to exact rational using 2^46 scaling (fits in i48 fixnum)
         const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
-        const scale: f64 = 4503599627370496.0; // 2^52
+        const scale: f64 = 70368744177664.0; // 2^46
         const n_f = f * scale;
         if (n_f > @as(f64, @floatFromInt(std.math.maxInt(i48))) or n_f < @as(f64, @floatFromInt(std.math.minInt(i48)))) {
-            // Too large for fixnum rational, just truncate
-            return types.makeFixnum(@intFromFloat(f));
+            return try arith.makeFixnumChecked(@intFromFloat(f));
         }
         var n: i64 = @intFromFloat(n_f);
         var d: i64 = @intFromFloat(scale);
