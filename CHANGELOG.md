@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.6.1] - 2026-06-25
+
+### Fixed
+- Root intermediate heap values in multi-allocation GC loops
+- Root remaining unrooted heap intermediates across the runtime
+- Propagate errors from silent `catch {}` discards instead of swallowing them
+- Complete error type coverage in remaining dispatch paths
+- Convert `readListTail` to iterative to prevent stack overflow on long lists
+- Add FFI argument type validation and sandbox defense-in-depth
+
+### Added
+- Vision and philosophy document for contributors (`docs/dev/vision.md`)
+- Developer guide for GC safety and error handling (`docs/dev/gc-safety-and-error-handling.md`)
+- Downloads page at kaappi-lang.org/download/
+- GPG signature verification instructions in installation guide
+
 ## [0.6.0] - 2026-06-25
 
 ### Added
