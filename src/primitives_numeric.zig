@@ -391,15 +391,15 @@ fn exactIntegerSqrt(args: []const Value) PrimitiveError!Value {
         // Newton's method with bignum arithmetic
         // Start from float approximation, clamped to fixnum range
         const approx = @sqrt(bignum_mod.toF64(n));
-        const approx_i: i64 = if (approx >= @as(f64, @floatFromInt(std.math.maxInt(i64))))
-            std.math.maxInt(i64)
+        const approx_i: i64 = if (approx >= @as(f64, @floatFromInt(std.math.maxInt(i48))))
+            std.math.maxInt(i48)
         else if (approx < 1.0)
             1
         else
             @intFromFloat(approx);
         var s: Value = types.makeFixnum(approx_i);
         // If approx overflowed fixnum, promote to bignum
-        if (approx >= @as(f64, @floatFromInt(std.math.maxInt(i64)))) {
+        if (approx >= @as(f64, @floatFromInt(std.math.maxInt(i48)))) {
             // Use n as initial guess (will converge quickly)
             s = n;
         }
