@@ -119,40 +119,54 @@ fn readList(self: *Reader) ReadError!Value {
 }
 
 fn readListTail(self: *Reader) ReadError!Value {
-    try self.skipWhitespaceAndCommentsChecked();
-    if (self.pos >= self.source.len) return ReadError.UnexpectedEof;
-    if (self.source[self.pos] == ')') {
-        self.pos += 1;
-        return types.NIL;
-    }
+    var result: Value = types.NIL;
+    try self.gc.pushRoot(&result);
+    defer self.gc.popRoot();
+    var elem: Value = types.NIL;
+    try self.gc.pushRoot(&elem);
+    defer self.gc.popRoot();
 
-    if (self.source[self.pos] == '.' and
-        self.pos + 1 < self.source.len and
-        Reader.isDelimiter(self.source[self.pos + 1]))
-    {
-        self.pos += 1;
-        const rest = try readDatum(self);
+    var tail: Value = types.NIL;
+
+    while (true) {
         try self.skipWhitespaceAndCommentsChecked();
-        if (self.pos >= self.source.len or self.source[self.pos] != ')') {
-            return ReadError.UnexpectedChar;
+        if (self.pos >= self.source.len) return ReadError.UnexpectedEof;
+        if (self.source[self.pos] == ')') {
+            self.pos += 1;
+            return result;
         }
-        self.pos += 1;
-        return rest;
+
+        if (self.source[self.pos] == '.' and
+            self.pos + 1 < self.source.len and
+            Reader.isDelimiter(self.source[self.pos + 1]))
+        {
+            self.pos += 1;
+            const rest = try readDatum(self);
+            if (tail == types.NIL) {
+                result = rest;
+            } else {
+                types.setCdr(tail, rest);
+            }
+            try self.skipWhitespaceAndCommentsChecked();
+            if (self.pos >= self.source.len or self.source[self.pos] != ')') {
+                return ReadError.UnexpectedChar;
+            }
+            self.pos += 1;
+            return result;
+        }
+
+        const elem_line = self.getLineCol().line;
+        elem = try readDatum(self);
+        const pair = self.gc.allocPair(elem, types.NIL) catch return ReadError.OutOfMemory;
+        self.gc.source_lines.put(pair, elem_line) catch {};
+
+        if (result == types.NIL) {
+            result = pair;
+        } else {
+            types.setCdr(tail, pair);
+        }
+        tail = pair;
     }
-
-    const elem_line = self.getLineCol().line;
-    const elem = try readDatum(self);
-    var elem_root = elem;
-    try self.gc.pushRoot(&elem_root);
-    defer self.gc.popRoot();
-
-    const rest = try readListTail(self);
-    var rest_root = rest;
-    try self.gc.pushRoot(&rest_root);
-    defer self.gc.popRoot();
-    const pair = self.gc.allocPair(elem_root, rest_root) catch return ReadError.OutOfMemory;
-    self.gc.source_lines.put(pair, elem_line) catch {};
-    return pair;
 }
 
 fn readAbbreviation(self: *Reader, keyword: []const u8) ReadError!Value {

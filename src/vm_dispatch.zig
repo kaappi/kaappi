@@ -863,9 +863,21 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                                         self.setErrorDetail("type error in '{s}'", .{native.name});
                                     break :b2 VMError.TypeError;
                                 },
+                                error.DivisionByZero => VMError.DivisionByZero,
+                                error.IndexOutOfBounds => b_iob: {
+                                    if (self.last_error_detail_len == 0)
+                                        self.setErrorDetail("index out of bounds in '{s}'", .{native.name});
+                                    break :b_iob VMError.IndexOutOfBounds;
+                                },
+                                error.InvalidArgument => b_ia: {
+                                    if (self.last_error_detail_len == 0)
+                                        self.setErrorDetail("invalid argument in '{s}'", .{native.name});
+                                    break :b_ia VMError.InvalidArgument;
+                                },
                                 error.OutOfMemory => VMError.OutOfMemory,
                                 error.ExceptionRaised => VMError.ExceptionRaised,
                                 error.ContinuationInvoked => VMError.ContinuationInvoked,
+                                error.Yielded => VMError.Yielded,
                                 else => VMError.InvalidBytecode,
                             };
                         };

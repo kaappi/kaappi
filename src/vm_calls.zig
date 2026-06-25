@@ -201,18 +201,17 @@ pub fn restoreContinuation(self: *VM, cont: *types.Continuation, value: Value) V
     try vm_continuations.restoreContinuation(self, cont, value);
 }
 
-pub fn handleNativeError(vm: *VM, err: anyerror, base: u16, nargs: u8) VMError {
-    _ = base;
-    _ = nargs;
+pub fn handleNativeError(_: *VM, err: anyerror, _: u16, _: u8) VMError {
     return switch (err) {
         error.TypeError => VMError.TypeError,
+        error.DivisionByZero => VMError.DivisionByZero,
+        error.IndexOutOfBounds => VMError.IndexOutOfBounds,
+        error.InvalidArgument => VMError.InvalidArgument,
         error.OutOfMemory => VMError.OutOfMemory,
         error.ExceptionRaised => VMError.ExceptionRaised,
         error.ContinuationInvoked => VMError.ContinuationInvoked,
-        else => blk: {
-            vm.setErrorDetail("native function error", .{});
-            break :blk VMError.TypeError;
-        },
+        error.Yielded => VMError.Yielded,
+        else => VMError.InvalidBytecode,
     };
 }
 
