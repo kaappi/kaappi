@@ -322,10 +322,14 @@ Only files under `src/` are included in the report (standard library and vendore
 
 ## Documentation
 
-End-user docs (guide, procedures, libraries, benchmarks) live in the
+**End-user docs** (guide, procedures, libraries, benchmarks) live in the
 [kaappi/kaappi.github.io](https://github.com/kaappi/kaappi.github.io) repo
-and are served at **https://kaappi.github.io/**. Built with MkDocs Material.
-Dev docs (architecture, testing, adding-features) remain in `docs/dev/` here.
+and are served at **https://kaappi-lang.org/**. Built with MkDocs Material.
+That repo is exclusively for end-user documentation — no dev docs there.
+
+**Developer/contributor docs** (architecture, testing, adding-features,
+postmortems) live in `docs/dev/` in this repo. This is the single source
+of truth for contributor documentation.
 
 ## Package manager (thottam)
 
