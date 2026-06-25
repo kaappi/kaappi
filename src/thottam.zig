@@ -32,12 +32,14 @@ const Config = struct {
 const PkgSpec = struct {
     name: []const u8,
     ver: ?[]const u8,
+    source: ?[]const u8,
 };
 
 const PkgManifest = struct {
     name: ?[]const u8 = null,
     depends: ?[]const u8 = null,
     build_cmd: ?[]const u8 = null,
+    source: ?[]const u8 = null,
 };
 
 fn writeToFd(fd: std.posix.fd_t, bytes: []const u8) void {
@@ -69,10 +71,16 @@ fn fatal(msg: []const u8) noreturn {
 }
 
 fn parsePkgSpec(spec: []const u8) PkgSpec {
-    if (std.mem.indexOfScalar(u8, spec, '@')) |at| {
-        return .{ .name = spec[0..at], .ver = spec[at + 1 ..] };
+    var name_ver = spec;
+    var source: ?[]const u8 = null;
+    if (std.mem.indexOf(u8, spec, "::")) |sep| {
+        name_ver = spec[0..sep];
+        source = spec[sep + 2 ..];
     }
-    return .{ .name = spec, .ver = null };
+    if (std.mem.indexOfScalar(u8, name_ver, '@')) |at| {
+        return .{ .name = name_ver[0..at], .ver = name_ver[at + 1 ..], .source = source };
+    }
+    return .{ .name = name_ver, .ver = null, .source = source };
 }
 
 fn parseField(line: []const u8, prefix: []const u8) ?[]const u8 {
@@ -92,6 +100,8 @@ fn parsePkgManifest(content: []const u8) PkgManifest {
             result.depends = val;
         } else if (parseField(line, "build:")) |val| {
             result.build_cmd = val;
+        } else if (parseField(line, "source:")) |val| {
+            result.source = val;
         }
     }
     return result;
@@ -305,19 +315,51 @@ fn isInstalled(allocator: std.mem.Allocator, installed_path: []const u8, pkg: []
     return false;
 }
 
-fn getLockedSha(allocator: std.mem.Allocator, lockfile_path: []const u8, pkg: []const u8) ?[]const u8 {
+const LockEntry = struct {
+    sha: []const u8,
+    source: ?[]const u8,
+};
+
+fn getLockedEntry(allocator: std.mem.Allocator, lockfile_path: []const u8, pkg: []const u8) ?LockEntry {
     const content = readFile(allocator, lockfile_path) catch return null;
     defer allocator.free(content);
     var lines = std.mem.splitScalar(u8, content, '\n');
     while (lines.next()) |line| {
         if (std.mem.startsWith(u8, line, pkg) and line.len > pkg.len and line[pkg.len] == ' ') {
-            return allocator.dupe(u8, line[pkg.len + 1 ..]) catch null;
+            const rest = line[pkg.len + 1 ..];
+            if (std.mem.indexOfScalar(u8, rest, ' ')) |sp| {
+                return .{
+                    .sha = allocator.dupe(u8, rest[0..sp]) catch return null,
+                    .source = allocator.dupe(u8, rest[sp + 1 ..]) catch null,
+                };
+            }
+            return .{
+                .sha = allocator.dupe(u8, rest) catch return null,
+                .source = null,
+            };
         }
     }
     return null;
 }
 
-fn updateLockfile(allocator: std.mem.Allocator, lockfile_path: []const u8, pkg: []const u8, sha: []const u8) !void {
+fn getLockedSha(allocator: std.mem.Allocator, lockfile_path: []const u8, pkg: []const u8) ?[]const u8 {
+    const entry = getLockedEntry(allocator, lockfile_path, pkg) orelse return null;
+    if (entry.source) |s| allocator.free(s);
+    return entry.sha;
+}
+
+fn appendLockEntry(output: *std.ArrayList(u8), allocator: std.mem.Allocator, pkg: []const u8, sha: []const u8, source: ?[]const u8) !void {
+    output.appendSlice(allocator, pkg) catch return error.OutOfMemory;
+    output.append(allocator, ' ') catch return error.OutOfMemory;
+    output.appendSlice(allocator, sha) catch return error.OutOfMemory;
+    if (source) |s| {
+        output.append(allocator, ' ') catch return error.OutOfMemory;
+        output.appendSlice(allocator, s) catch return error.OutOfMemory;
+    }
+    output.append(allocator, '\n') catch return error.OutOfMemory;
+}
+
+fn updateLockfile(allocator: std.mem.Allocator, lockfile_path: []const u8, pkg: []const u8, sha: []const u8, source: ?[]const u8) !void {
     var output: std.ArrayList(u8) = .empty;
     defer output.deinit(allocator);
     var found = false;
@@ -328,10 +370,7 @@ fn updateLockfile(allocator: std.mem.Allocator, lockfile_path: []const u8, pkg: 
         while (lines.next()) |line| {
             if (line.len == 0) continue;
             if (std.mem.startsWith(u8, line, pkg) and line.len > pkg.len and line[pkg.len] == ' ') {
-                output.appendSlice(allocator, pkg) catch return error.OutOfMemory;
-                output.append(allocator, ' ') catch return error.OutOfMemory;
-                output.appendSlice(allocator, sha) catch return error.OutOfMemory;
-                output.append(allocator, '\n') catch return error.OutOfMemory;
+                try appendLockEntry(&output, allocator, pkg, sha, source);
                 found = true;
             } else {
                 output.appendSlice(allocator, line) catch return error.OutOfMemory;
@@ -341,10 +380,7 @@ fn updateLockfile(allocator: std.mem.Allocator, lockfile_path: []const u8, pkg: 
     } else |_| {}
 
     if (!found) {
-        output.appendSlice(allocator, pkg) catch return error.OutOfMemory;
-        output.append(allocator, ' ') catch return error.OutOfMemory;
-        output.appendSlice(allocator, sha) catch return error.OutOfMemory;
-        output.append(allocator, '\n') catch return error.OutOfMemory;
+        try appendLockEntry(&output, allocator, pkg, sha, source);
     }
 
     try writeFile(allocator, lockfile_path, output.items);
@@ -530,10 +566,15 @@ fn doInstall(
     const pkg_dir = try joinPath(allocator, config.src_dir, pkg);
     defer allocator.free(pkg_dir);
 
+    const clone_url = if (parsed.source) |s| s else blk: {
+        break :blk std.fmt.bufPrint(&buf, "{s}/{s}.git", .{ config.org, pkg }) catch return error.OutOfMemory;
+    };
+
     if (!dirExists(allocator, pkg_dir)) {
-        printBuf(&buf, "  Cloning {s}/{s}...\n", .{ config.org, pkg });
-        const url = std.fmt.bufPrint(&buf, "{s}/{s}.git", .{ config.org, pkg }) catch return error.OutOfMemory;
-        const url_copy = try allocator.dupe(u8, url);
+        writeStdout("  Cloning ");
+        writeStdout(clone_url);
+        writeStdout("...\n");
+        const url_copy = try allocator.dupe(u8, clone_url);
         defer allocator.free(url_copy);
         runGit(allocator, &.{ "clone", "--quiet", url_copy, pkg_dir }) catch {
             printErrColor(Color.red, "  Failed to clone repository\n");
@@ -604,7 +645,7 @@ fn doInstall(
     }
 
     try appendFile(allocator, config.installed, pkg);
-    try updateLockfile(allocator, config.lockfile, pkg, resolved_sha);
+    try updateLockfile(allocator, config.lockfile, pkg, resolved_sha, parsed.source);
     writeStdout("  ");
     printColor(Color.green, pkg);
     printBuf(&buf, " installed (locked at {s})\n", .{resolved_sha});
@@ -657,17 +698,30 @@ fn doList(allocator: std.mem.Allocator, config: Config) !void {
     var lines = std.mem.splitScalar(u8, content, '\n');
     while (lines.next()) |pkg| {
         if (pkg.len == 0) continue;
-        const sha = getLockedSha(allocator, config.lockfile, pkg);
-        const sha_short = if (sha) |s| s[0..@min(12, s.len)] else "unknown";
-        defer if (sha) |s| allocator.free(s);
+        const entry = getLockedEntry(allocator, config.lockfile, pkg);
+        const sha_short = if (entry) |e| e.sha[0..@min(12, e.sha.len)] else "unknown";
+        const source = if (entry) |e| e.source else null;
+        defer if (entry) |e| {
+            allocator.free(e.sha);
+            if (e.source) |s| allocator.free(s);
+        };
+
+        writeStdout("  ");
+        writeStdout(pkg);
+        writeStdout("  ");
+        writeStdout(sha_short);
 
         if (getPkgManifest(allocator, config.src_dir, pkg)) |manifest| {
             if (manifest.depends) |deps| {
-                printBuf(&buf, "  {s}  {s} (depends: {s})\n", .{ pkg, sha_short, deps });
-                continue;
+                printBuf(&buf, " (depends: {s})", .{deps});
             }
         }
-        printBuf(&buf, "  {s}  {s}\n", .{ pkg, sha_short });
+        if (source) |s| {
+            writeStdout(" (from: ");
+            writeStdout(s);
+            writeStdout(")");
+        }
+        writeStdout("\n");
     }
 }
 
@@ -686,6 +740,26 @@ fn doUpdate(allocator: std.mem.Allocator, config: Config, pkg: ?[]const u8) !voi
 
         const pkg_dir = try joinPath(allocator, config.src_dir, p);
         defer allocator.free(pkg_dir);
+
+        const locked_entry = getLockedEntry(allocator, config.lockfile, p);
+        const expected_source = if (locked_entry) |e| e.source else null;
+        defer if (locked_entry) |e| {
+            allocator.free(e.sha);
+            if (e.source) |s| allocator.free(s);
+        };
+
+        var url_buf: [512]u8 = undefined;
+        const expected_url = expected_source orelse
+            (std.fmt.bufPrint(&url_buf, "{s}/{s}.git", .{ config.org, p }) catch p);
+
+        if (runGitCapture(allocator, &.{ "-C", pkg_dir, "config", "remote.origin.url" })) |current_origin| {
+            defer allocator.free(current_origin);
+            const trimmed = std.mem.trim(u8, current_origin, " \t\r\n");
+            if (!std.mem.eql(u8, trimmed, expected_url)) {
+                writeStdout("  Updating remote origin...\n");
+                runGit(allocator, &.{ "-C", pkg_dir, "remote", "set-url", "origin", expected_url }) catch {};
+            }
+        } else |_| {}
 
         runGit(allocator, &.{ "-C", pkg_dir, "pull", "--quiet" }) catch {
             printErrColor(Color.red, "  Failed to pull\n");
@@ -713,7 +787,7 @@ fn doUpdate(allocator: std.mem.Allocator, config: Config, pkg: ?[]const u8) !voi
         _ = try copyDylibsFromPkg(allocator, pkg_dir, config.lib_dir);
 
         const new_sha = getPkgSha(allocator, config.src_dir, p) orelse "unknown";
-        try updateLockfile(allocator, config.lockfile, p, new_sha);
+        try updateLockfile(allocator, config.lockfile, p, new_sha, expected_source);
         writeStdout("  ");
         printColor(Color.green, p);
         printBuf(&buf, " updated (now at {s})\n", .{new_sha});
@@ -798,7 +872,7 @@ fn printUsage() void {
             "Usage: thottam [--locked] <command> [args]\n" ++
             "\n" ++
             "Commands:\n" ++
-            "  install <package>[@<tag|commit>]   Install a package (optionally pinned)\n" ++
+            "  install <pkg>[@<ver>][::url]        Install a package (optionally pinned/sourced)\n" ++
             "  remove <package>                   Remove a package\n" ++
             "  list                               List installed packages with commit SHAs\n" ++
             "  update [package]                   Update one or all packages\n" ++
@@ -893,7 +967,7 @@ pub fn main(init: std.process.Init.Minimal) !void {
 
     if (std.mem.eql(u8, cmd, "install")) {
         const spec = sub_arg orelse {
-            writeStderr("Usage: thottam install <package>[@<version>]\n");
+            writeStderr("Usage: thottam install <package>[@<version>][::url]\n");
             std.process.exit(1);
         };
         var visited = std.StringHashMap(void).init(allocator);
@@ -932,18 +1006,35 @@ test "parsePkgSpec — no version" {
     const spec = parsePkgSpec("kaappi-json");
     try std.testing.expectEqualStrings("kaappi-json", spec.name);
     try std.testing.expect(spec.ver == null);
+    try std.testing.expect(spec.source == null);
 }
 
 test "parsePkgSpec — with version" {
     const spec = parsePkgSpec("kaappi-web@v1.0.0");
     try std.testing.expectEqualStrings("kaappi-web", spec.name);
     try std.testing.expectEqualStrings("v1.0.0", spec.ver.?);
+    try std.testing.expect(spec.source == null);
 }
 
 test "parsePkgSpec — with SHA" {
     const spec = parsePkgSpec("foo@abc123");
     try std.testing.expectEqualStrings("foo", spec.name);
     try std.testing.expectEqualStrings("abc123", spec.ver.?);
+    try std.testing.expect(spec.source == null);
+}
+
+test "parsePkgSpec — with source URL" {
+    const spec = parsePkgSpec("kaappi-auth::https://github.com/bob/kaappi-auth");
+    try std.testing.expectEqualStrings("kaappi-auth", spec.name);
+    try std.testing.expect(spec.ver == null);
+    try std.testing.expectEqualStrings("https://github.com/bob/kaappi-auth", spec.source.?);
+}
+
+test "parsePkgSpec — version and source URL" {
+    const spec = parsePkgSpec("pkg@v1.0::https://github.com/a/b");
+    try std.testing.expectEqualStrings("pkg", spec.name);
+    try std.testing.expectEqualStrings("v1.0", spec.ver.?);
+    try std.testing.expectEqualStrings("https://github.com/a/b", spec.source.?);
 }
 
 test "parsePkgManifest — full" {
@@ -952,6 +1043,7 @@ test "parsePkgManifest — full" {
     try std.testing.expectEqualStrings("kaappi-web", m.name.?);
     try std.testing.expectEqualStrings("kaappi-http kaappi-json", m.depends.?);
     try std.testing.expectEqualStrings("make", m.build_cmd.?);
+    try std.testing.expect(m.source == null);
 }
 
 test "parsePkgManifest — minimal" {
@@ -960,6 +1052,15 @@ test "parsePkgManifest — minimal" {
     try std.testing.expectEqualStrings("kaappi-json", m.name.?);
     try std.testing.expect(m.depends == null);
     try std.testing.expect(m.build_cmd == null);
+    try std.testing.expect(m.source == null);
+}
+
+test "parsePkgManifest — with source" {
+    const content = "name: kaappi-matrix\ndepends: kaappi-net\nsource: https://github.com/alice/kaappi-matrix\n";
+    const m = parsePkgManifest(content);
+    try std.testing.expectEqualStrings("kaappi-matrix", m.name.?);
+    try std.testing.expectEqualStrings("kaappi-net", m.depends.?);
+    try std.testing.expectEqualStrings("https://github.com/alice/kaappi-matrix", m.source.?);
 }
 
 test "parseField" {
