@@ -1,5 +1,5 @@
 ---
-description: Cut a GitHub release for Kaappi — bumps version strings, updates CHANGELOG.md, commits, tags, pushes, and verifies the release workflow. Use when the user asks to make a release, cut a release, publish a version, tag a release, ship a version, or prepare a release.
+description: Cut a GitHub release for Kaappi — bumps version strings, updates CHANGELOG.md and the downloads page, commits, tags, pushes, and verifies the release workflow. Use when the user asks to make a release, cut a release, publish a version, tag a release, ship a version, or prepare a release.
 ---
 
 # GitHub Release
@@ -86,6 +86,11 @@ const version = "X.Y.Z";
 .version = "X.Y.Z",
 ```
 
+**`../kaappi.github.io/docs/downloads.md` line 1:**
+```markdown
+# Download Kaappi vX.Y.Z
+```
+
 ## Step 5: Build verification
 
 ```bash
@@ -131,22 +136,22 @@ Show the workflow URL. After it completes:
 gh release view vX.Y.Z
 ```
 
-## Step 9: Update playground WASM binary
+## Step 9: Update docs site (playground WASM + downloads page)
 
-After the release workflow completes, update the docs site's playground
-and tour with the new binary:
+After the release workflow completes, update the docs site's playground,
+tour, and downloads page:
 
 ```bash
 cd ../kaappi.github.io
 cp ../kaappi/zig-out/bin/kaappi.wasm docs/wasm/kaappi.wasm
-git add docs/wasm/kaappi.wasm
-git commit -m "Update playground WASM binary to vX.Y.Z"
+git add docs/wasm/kaappi.wasm docs/downloads.md
+git commit -m "Update playground WASM binary and downloads page to vX.Y.Z"
 git push
 ```
 
-This updates both `/playground/` and `/tour/` since they share the same
-`kaappi.wasm` file. Verify at `kaappi-lang.org/playground/` after
-GitHub Pages deploys.
+This updates `/playground/`, `/tour/` (shared WASM binary), and
+`/download/` (version in heading). Verify at `kaappi-lang.org/playground/`
+and `kaappi-lang.org/download/` after GitHub Pages deploys.
 
 ## Error recovery
 
