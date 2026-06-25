@@ -206,6 +206,13 @@ zig build test         # Run all unit tests (~150 tests)
 
 The executable is placed in `zig-out/bin/kaappi`.
 
+### Verifying releases
+
+GitHub releases include `SHA256SUMS` and a GPG-signed `SHA256SUMS.asc`. The
+maintainer's public key is at [keybase.io/baijum](https://keybase.io/baijum).
+See the [installation guide](https://kaappi-lang.org/guide/installation/)
+for full verification steps.
+
 ### Running Scheme files
 
 ```bash
