@@ -189,7 +189,7 @@ fn exactFn(args: []const Value) PrimitiveError!Value {
         const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
         const scale: f64 = 4503599627370496.0; // 2^52
         const n_f = f * scale;
-        if (n_f > @as(f64, @floatFromInt(std.math.maxInt(i63))) or n_f < @as(f64, @floatFromInt(std.math.minInt(i63)))) {
+        if (n_f > @as(f64, @floatFromInt(std.math.maxInt(i48))) or n_f < @as(f64, @floatFromInt(std.math.minInt(i48)))) {
             // Too large for fixnum rational, just truncate
             return types.makeFixnum(@intFromFloat(f));
         }
@@ -207,9 +207,9 @@ fn exactFn(args: []const Value) PrimitiveError!Value {
         const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
         const c = types.toComplex(args[0]);
         // Convert each part to exact using flonum→exact conversion
-        const real_flo = gc.allocFlonum(c.real) catch return PrimitiveError.OutOfMemory;
+        const real_flo = types.makeFlonum(c.real);
         const real_exact = try exactFn(&[1]Value{real_flo});
-        const imag_flo = gc.allocFlonum(c.imag) catch return PrimitiveError.OutOfMemory;
+        const imag_flo = types.makeFlonum(c.imag);
         const imag_exact = try exactFn(&[1]Value{imag_flo});
         // If imaginary part is 0, return just the real part
         if (types.isFixnum(imag_exact) and types.toFixnum(imag_exact) == 0) return real_exact;
@@ -297,7 +297,7 @@ fn exptFn(args: []const Value) PrimitiveError!Value {
             }
             if (@abs(ri) < 1e-15) ri = 0.0;
             if (@abs(rr) < 1e-15) rr = 0.0;
-            if (ri == 0.0) return gc.allocFlonum(rr) catch return PrimitiveError.OutOfMemory;
+            if (ri == 0.0) return types.makeFlonum(rr);
             return gc.allocComplex(rr, ri) catch return PrimitiveError.OutOfMemory;
         }
         // General: z^w = e^(w * ln(z))
@@ -632,7 +632,7 @@ pub fn makeComplexOrRealEx(real: f64, imag: f64, exact_real: bool, exact_imag: b
         if (exact_real and real == @trunc(real) and @abs(real) < 4.5e18) {
             return types.makeFixnum(@intFromFloat(real));
         }
-        return gc.allocFlonum(real) catch return PrimitiveError.OutOfMemory;
+        return types.makeFlonum(real);
     }
     return gc.allocComplexEx(real, imag, exact_real, exact_imag) catch return PrimitiveError.OutOfMemory;
 }
@@ -651,10 +651,10 @@ fn stringToNumber(args: []const Value) PrimitiveError!Value {
         radix = @intCast(@as(u64, @bitCast(r)));
     }
 
-    if (std.mem.eql(u8, s, "+inf.0")) return gc.allocFlonum(std.math.inf(f64)) catch return PrimitiveError.OutOfMemory;
-    if (std.mem.eql(u8, s, "-inf.0")) return gc.allocFlonum(-std.math.inf(f64)) catch return PrimitiveError.OutOfMemory;
-    if (std.mem.eql(u8, s, "+nan.0")) return gc.allocFlonum(std.math.nan(f64)) catch return PrimitiveError.OutOfMemory;
-    if (std.mem.eql(u8, s, "-nan.0")) return gc.allocFlonum(std.math.nan(f64)) catch return PrimitiveError.OutOfMemory;
+    if (std.mem.eql(u8, s, "+inf.0")) return types.makeFlonum(std.math.inf(f64));
+    if (std.mem.eql(u8, s, "-inf.0")) return types.makeFlonum(-std.math.inf(f64));
+    if (std.mem.eql(u8, s, "+nan.0")) return types.makeFlonum(std.math.nan(f64));
+    if (std.mem.eql(u8, s, "-nan.0")) return types.makeFlonum(std.math.nan(f64));
 
     if (radix == 10) {
         if (std.mem.indexOfScalar(u8, s, '/')) |slash_pos| {
@@ -681,7 +681,7 @@ fn stringToNumber(args: []const Value) PrimitiveError!Value {
 
     if (radix == 10) {
         if (std.fmt.parseFloat(f64, s)) |f| {
-            return gc.allocFlonum(f) catch return PrimitiveError.OutOfMemory;
+            return types.makeFlonum(f);
         } else |_| {}
 
         // Try parsing as complex: a+bi, a-bi, +bi, -bi, +i, -i

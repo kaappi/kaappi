@@ -67,12 +67,12 @@ fn disassembleFn(args: []const Value) PrimitiveError!Value {
 
 fn currentSecond(args: []const Value) PrimitiveError!Value {
     _ = args;
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+
     var ts: std.c.timespec = undefined;
     _ = std.c.clock_gettime(.REALTIME, &ts);
     const secs: f64 = @as(f64, @floatFromInt(ts.sec)) +
         @as(f64, @floatFromInt(ts.nsec)) / 1e9;
-    return gc.allocFlonum(secs) catch return PrimitiveError.OutOfMemory;
+    return types.makeFlonum(secs);
 }
 
 fn currentJiffy(args: []const Value) PrimitiveError!Value {

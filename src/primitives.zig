@@ -167,8 +167,7 @@ pub fn toF64(v: Value) PrimitiveError!f64 {
 }
 
 pub fn makeFlonumVal(f: f64) PrimitiveError!Value {
-    const gc = gc_instance orelse return PrimitiveError.OutOfMemory;
-    return gc.allocFlonum(f) catch return PrimitiveError.OutOfMemory;
+    return types.makeFlonum(f);
 }
 
 pub fn isNum(v: Value) bool {

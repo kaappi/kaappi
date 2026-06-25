@@ -1029,7 +1029,7 @@ pub const Compiler = struct {
             else if (std.mem.eql(u8, name, "-") and types.isFixnum(a)) blk: {
                 const neg = @subWithOverflow(@as(i64, 0), types.toFixnum(a));
                 if (neg[1] != 0) break :blk null;
-                if (neg[0] < std.math.minInt(i63) or neg[0] > std.math.maxInt(i63)) break :blk null;
+                if (neg[0] < std.math.minInt(i48) or neg[0] > std.math.maxInt(i48)) break :blk null;
                 break :blk types.makeFixnum(neg[0]);
             } else null;
             if (result) |val| {
@@ -1052,17 +1052,17 @@ pub const Compiler = struct {
             if (std.mem.eql(u8, name, "+")) blk: {
                 const r = @addWithOverflow(va, vb);
                 if (r[1] != 0) break :blk null;
-                if (r[0] < std.math.minInt(i63) or r[0] > std.math.maxInt(i63)) break :blk null;
+                if (r[0] < std.math.minInt(i48) or r[0] > std.math.maxInt(i48)) break :blk null;
                 break :blk types.makeFixnum(r[0]);
             } else if (std.mem.eql(u8, name, "-")) blk: {
                 const r = @subWithOverflow(va, vb);
                 if (r[1] != 0) break :blk null;
-                if (r[0] < std.math.minInt(i63) or r[0] > std.math.maxInt(i63)) break :blk null;
+                if (r[0] < std.math.minInt(i48) or r[0] > std.math.maxInt(i48)) break :blk null;
                 break :blk types.makeFixnum(r[0]);
             } else if (std.mem.eql(u8, name, "*")) blk: {
                 const r = @mulWithOverflow(va, vb);
                 if (r[1] != 0) break :blk null;
-                if (r[0] < std.math.minInt(i63) or r[0] > std.math.maxInt(i63)) break :blk null;
+                if (r[0] < std.math.minInt(i48) or r[0] > std.math.maxInt(i48)) break :blk null;
                 break :blk types.makeFixnum(r[0]);
             } else if (std.mem.eql(u8, name, "<"))
                 (if (va < vb) types.TRUE else types.FALSE)

@@ -421,6 +421,9 @@ pub fn printValue(writer: anytype, value: Value, mode: PrintMode) anyerror!void 
             const len = std.unicode.utf8Encode(cp, &buf) catch 0;
             try writer.writeAll(buf[0..len]);
         }
+    } else if (types.isFlonum(value)) {
+        var buf: [64]u8 = undefined;
+        try writer.writeAll(formatFlonum(&buf, types.toFlonum(value)));
     } else if (types.isPointer(value)) {
         const obj = types.toObject(value);
         switch (obj.tag) {
@@ -761,6 +764,7 @@ fn ppValue(writer: anytype, value: Value, indent: u16, width: u16) anyerror!void
 
 fn estimateLen(value: Value) u16 {
     if (types.isFixnum(value)) return if (types.toFixnum(value) < 0) 5 else 3;
+    if (types.isFlonum(value)) return 10;
     if (types.isSymbol(value)) {
         const name = types.symbolName(value);
         return @intCast(@min(name.len, 60));

@@ -18,8 +18,9 @@ fn toCString(v: Value, buf: *[4096]u8) ?[*:0]const u8 {
 /// Convert a C return value to a Scheme Value based on return type.
 fn marshalReturn(comptime T: type, result: T, rt: FfiType, gc: *memory.GC) !Value {
     _ = rt;
+    _ = gc;
     if (T == f64) {
-        return gc.allocFlonum(result);
+        return types.makeFlonum(result);
     } else if (T == c_int) {
         return types.makeFixnum(@intCast(result));
     } else if (T == c_long) {
@@ -105,12 +106,12 @@ fn callFfi0(ffi_fn: *types.FfiFunction, gc: *memory.GC) !Value {
     if (rt == .double) {
         const f: *const fn () callconv(.c) f64 = @ptrCast(@alignCast(ffi_fn.symbol));
         const result = f();
-        return gc.allocFlonum(result);
+        return types.makeFlonum(result);
     }
     if (rt == .float) {
         const f: *const fn () callconv(.c) f32 = @ptrCast(@alignCast(ffi_fn.symbol));
         const result = f();
-        return gc.allocFlonum(@floatCast(result));
+        return types.makeFlonum(@floatCast(result));
     }
     if (rt == .pointer) {
         const f: *const fn () callconv(.c) ?*anyopaque = @ptrCast(@alignCast(ffi_fn.symbol));
@@ -138,14 +139,14 @@ fn callFfi1(ffi_fn: *types.FfiFunction, args: []const Value, gc: *memory.GC) !Va
     if (p0 == .double and rt == .double) {
         const f: *const fn (f64) callconv(.c) f64 = @ptrCast(@alignCast(ffi_fn.symbol));
         const result = f(types.toF64(args[0]));
-        return gc.allocFlonum(result);
+        return types.makeFlonum(result);
     }
 
     // double -> float
     if (p0 == .double and rt == .float) {
         const f: *const fn (f64) callconv(.c) f32 = @ptrCast(@alignCast(ffi_fn.symbol));
         const result = f(types.toF64(args[0]));
-        return gc.allocFlonum(@floatCast(result));
+        return types.makeFlonum(@floatCast(result));
     }
 
     // float -> float
@@ -153,7 +154,7 @@ fn callFfi1(ffi_fn: *types.FfiFunction, args: []const Value, gc: *memory.GC) !Va
         const f: *const fn (f32) callconv(.c) f32 = @ptrCast(@alignCast(ffi_fn.symbol));
         const arg: f32 = @floatCast(types.toF64(args[0]));
         const result = f(arg);
-        return gc.allocFlonum(@floatCast(result));
+        return types.makeFlonum(@floatCast(result));
     }
 
     // int -> int (abs, etc.)
@@ -210,7 +211,7 @@ fn callFfi1(ffi_fn: *types.FfiFunction, args: []const Value, gc: *memory.GC) !Va
         var buf: [4096]u8 = undefined;
         const cstr = toCString(args[0], &buf) orelse return error.TypeError;
         const result = f(cstr);
-        return gc.allocFlonum(result);
+        return types.makeFlonum(result);
     }
 
     // int -> void
@@ -266,7 +267,7 @@ fn callFfi1(ffi_fn: *types.FfiFunction, args: []const Value, gc: *memory.GC) !Va
     if (p0 == .pointer and rt == .double) {
         const f: *const fn (?*anyopaque) callconv(.c) f64 = @ptrCast(@alignCast(ffi_fn.symbol));
         const result = f(marshalToPointer(args[0]));
-        return gc.allocFlonum(result);
+        return types.makeFlonum(result);
     }
 
     // int -> pointer (malloc, etc.)
@@ -331,7 +332,7 @@ fn callFfi2(ffi_fn: *types.FfiFunction, args: []const Value, gc: *memory.GC) !Va
     if (p0 == .double and p1 == .double and rt == .double) {
         const f: *const fn (f64, f64) callconv(.c) f64 = @ptrCast(@alignCast(ffi_fn.symbol));
         const result = f(types.toF64(args[0]), types.toF64(args[1]));
-        return gc.allocFlonum(result);
+        return types.makeFlonum(result);
     }
 
     // (double, double) -> int
@@ -539,6 +540,7 @@ fn callFfi2(ffi_fn: *types.FfiFunction, args: []const Value, gc: *memory.GC) !Va
 // ---------------------------------------------------------------------------
 
 fn callFfi3(ffi_fn: *types.FfiFunction, args: []const Value, gc: *memory.GC) !Value {
+    _ = gc;
     const p0 = normalizeType(ffi_fn.param_types[0]);
     const p1 = normalizeType(ffi_fn.param_types[1]);
     const p2 = normalizeType(ffi_fn.param_types[2]);
@@ -557,7 +559,7 @@ fn callFfi3(ffi_fn: *types.FfiFunction, args: []const Value, gc: *memory.GC) !Va
     if (p0 == .double and p1 == .double and p2 == .double and rt == .double) {
         const f: *const fn (f64, f64, f64) callconv(.c) f64 = @ptrCast(@alignCast(ffi_fn.symbol));
         const result = f(types.toF64(args[0]), types.toF64(args[1]), types.toF64(args[2]));
-        return gc.allocFlonum(result);
+        return types.makeFlonum(result);
     }
 
     // (int, int, int) -> int
@@ -756,7 +758,7 @@ fn callFfi5(ffi_fn: *types.FfiFunction, args: []const Value, gc: *memory.GC) !Va
     if (p0 == .double and p1 == .double and p2 == .double and p3 == .double and p4 == .double and rt == .double) {
         const f: *const fn (f64, f64, f64, f64, f64) callconv(.c) f64 = @ptrCast(@alignCast(ffi_fn.symbol));
         const result = f(types.toF64(args[0]), types.toF64(args[1]), types.toF64(args[2]), types.toF64(args[3]), types.toF64(args[4]));
-        return gc.allocFlonum(result) catch return error.OutOfMemory;
+        return types.makeFlonum(result);
     }
 
     // (double, double, double, double, double) -> void

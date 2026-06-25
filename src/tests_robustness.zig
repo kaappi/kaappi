@@ -108,7 +108,7 @@ test "fixnum overflow promotes to bignum: addition" {
     var vm = try th.makeTestVM(&gc);
     defer vm.deinit();
 
-    const result = try vm.eval("(+ 4611686018427387903 1)");
+    const result = try vm.eval("(+ 140737488355327 1)");
     try std.testing.expect(types.isBignum(result));
 }
 
@@ -118,7 +118,7 @@ test "fixnum overflow promotes to bignum: multiplication" {
     var vm = try th.makeTestVM(&gc);
     defer vm.deinit();
 
-    const result = try vm.eval("(* 4611686018427387903 2)");
+    const result = try vm.eval("(* 140737488355327 2)");
     try std.testing.expect(types.isBignum(result));
 }
 
@@ -128,7 +128,7 @@ test "fixnum underflow promotes to bignum: subtraction" {
     var vm = try th.makeTestVM(&gc);
     defer vm.deinit();
 
-    const result = try vm.eval("(- -4611686018427387904 1)");
+    const result = try vm.eval("(- -140737488355328 1)");
     try std.testing.expect(types.isBignum(result));
 }
 

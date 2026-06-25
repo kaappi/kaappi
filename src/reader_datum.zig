@@ -17,12 +17,12 @@ pub fn readDatum(self: *Reader) ReadError!Value {
 fn tokenToValue(self: *Reader, tok: Token) ReadError!Value {
     switch (tok) {
         .fixnum => |n| {
-            if (n > std.math.maxInt(i63) or n < std.math.minInt(i63)) {
+            if (n > std.math.maxInt(i48) or n < std.math.minInt(i48)) {
                 return self.gc.allocBignumFromI64(n) catch return ReadError.OutOfMemory;
             }
             return types.makeFixnum(n);
         },
-        .flonum => |f| return self.gc.allocFlonum(f) catch return ReadError.OutOfMemory,
+        .flonum => |f| return types.makeFlonum(f),
         .bignum_str => |digits| {
             const bignum_mod = @import("bignum.zig");
             return bignum_mod.parseBignumString(self.gc, digits) catch return ReadError.OutOfMemory;

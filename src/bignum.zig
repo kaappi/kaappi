@@ -644,7 +644,7 @@ pub fn parseBignumString(gc: *memory.GC, digits: []const u8) !Value {
 
     // Check if it fits in a fixnum
     if (len == 0) return types.makeFixnum(0);
-    if (len == 1 and limbs[0] <= @as(u64, @intCast(std.math.maxInt(i63)))) {
+    if (len == 1 and limbs[0] <= @as(u64, @intCast(std.math.maxInt(i48)))) {
         const n: i64 = @intCast(limbs[0]);
         gc.allocator.free(limbs);
         return types.makeFixnum(if (positive) n else -n);
@@ -675,10 +675,10 @@ pub fn fitsFixnum(v: Value) bool {
     if (bn.len == 0) return true;
     if (bn.len > 1) return false;
     if (bn.positive) {
-        return bn.limbs[0] <= @as(u64, @intCast(std.math.maxInt(i63)));
+        return bn.limbs[0] <= @as(u64, @intCast(std.math.maxInt(i48)));
     } else {
-        // minInt(i63) = -(2^62) = 4611686018427387904
-        return bn.limbs[0] <= @as(u64, @intCast(-@as(i64, std.math.minInt(i63))));
+        // minInt(i48) = -(2^62) = 4611686018427387904
+        return bn.limbs[0] <= @as(u64, @intCast(-@as(i64, std.math.minInt(i48))));
     }
 }
 
@@ -687,13 +687,13 @@ pub fn demote(v: Value) Value {
     if (!types.isBignum(v)) return v;
     const bn = types.toBignum(v);
     if (bn.len == 0) return types.makeFixnum(0);
-    if (bn.len == 1 and bn.limbs[0] <= @as(u64, @intCast(std.math.maxInt(i63)))) {
+    if (bn.len == 1 and bn.limbs[0] <= @as(u64, @intCast(std.math.maxInt(i48)))) {
         const n: i64 = @intCast(bn.limbs[0]);
         return types.makeFixnum(if (bn.positive) n else -n);
     }
-    // Check negative case: minInt(i63)
-    if (bn.len == 1 and !bn.positive and bn.limbs[0] == @as(u64, @intCast(-@as(i64, std.math.minInt(i63))))) {
-        return types.makeFixnum(std.math.minInt(i63));
+    // Check negative case: minInt(i48)
+    if (bn.len == 1 and !bn.positive and bn.limbs[0] == @as(u64, @intCast(-@as(i64, std.math.minInt(i48))))) {
+        return types.makeFixnum(std.math.minInt(i48));
     }
     return v;
 }
@@ -702,10 +702,10 @@ pub fn demote(v: Value) Value {
 fn makeBignumValue(gc: *memory.GC, limbs: []const u64, len: usize, positive: bool) !Value {
     if (len == 0) return types.makeFixnum(0);
     if (len == 1) {
-        if (positive and limbs[0] <= @as(u64, @intCast(std.math.maxInt(i63)))) {
+        if (positive and limbs[0] <= @as(u64, @intCast(std.math.maxInt(i48)))) {
             return types.makeFixnum(@intCast(limbs[0]));
         }
-        if (!positive and limbs[0] <= @as(u64, @intCast(-@as(i64, std.math.minInt(i63))))) {
+        if (!positive and limbs[0] <= @as(u64, @intCast(-@as(i64, std.math.minInt(i48))))) {
             const n: i64 = @intCast(limbs[0]);
             return types.makeFixnum(-n);
         }
@@ -788,15 +788,14 @@ test "bignum multiply overflow" {
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
 
-    // 2^62 * 2 should overflow fixnum and produce bignum
-    const large = types.makeFixnum(std.math.maxInt(i63));
+    // maxInt(i48) * 2 should overflow fixnum and produce bignum
+    const large = types.makeFixnum(std.math.maxInt(i48));
     const two = types.makeFixnum(2);
     const result = try mul(&gc, large, two);
     // Should be a bignum (too large for fixnum)
     try std.testing.expect(types.isBignum(result));
-    // Value should be 2 * maxInt(i63) = 2 * 4611686018427387903 = 9223372036854775806
     const f = toF64(result);
-    try std.testing.expect(f > 9e18);
+    try std.testing.expect(f > 2.8e14);
 }
 
 test "bignum toString" {

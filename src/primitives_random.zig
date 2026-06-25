@@ -61,10 +61,9 @@ fn randomIntegerFn(args: []const Value) PrimitiveError!Value {
 
 fn randomRealFn(args: []const Value) PrimitiveError!Value {
     _ = args;
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
     const rs = try getRS("random-real", default_rs_val);
     const r = rs.prng.random();
-    return gc.allocFlonum(r.float(f64)) catch return PrimitiveError.OutOfMemory;
+    return types.makeFlonum(r.float(f64));
 }
 
 fn defaultRandomSourceFn(args: []const Value) PrimitiveError!Value {
@@ -139,8 +138,7 @@ fn rsNextIntFn(args: []const Value) PrimitiveError!Value {
 
 // (%rs-next-real rs) — used by random-source-make-reals closure
 fn rsNextRealFn(args: []const Value) PrimitiveError!Value {
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
     const rs = try getRS("%rs-next-real", args[0]);
     const r = rs.prng.random();
-    return gc.allocFlonum(r.float(f64)) catch return PrimitiveError.OutOfMemory;
+    return types.makeFlonum(r.float(f64));
 }

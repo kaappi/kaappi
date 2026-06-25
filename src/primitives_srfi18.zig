@@ -725,8 +725,7 @@ fn timePredFn(args: []const Value) PrimitiveError!Value {
 fn timeToSecondsFn(args: []const Value) PrimitiveError!Value {
     if (!types.isSrfi18Time(args[0]))
         return primitives.typeError("time->seconds", "time", args[0]);
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
-    return gc.allocFlonum(types.toSrfi18Time(args[0]).seconds) catch return PrimitiveError.OutOfMemory;
+    return types.makeFlonum(types.toSrfi18Time(args[0]).seconds);
 }
 
 fn secondsToTimeFn(args: []const Value) PrimitiveError!Value {

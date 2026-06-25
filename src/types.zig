@@ -81,15 +81,15 @@ pub fn isNil(v: Value) bool {
 }
 
 pub fn makeChar(codepoint: u21) Value {
-    return NANBOX_IMM | 0x100 | @as(Value, codepoint);
+    return NANBOX_IMM | (@as(Value, codepoint) << 8) | 0x80;
 }
 
 pub fn toChar(v: Value) u21 {
-    return @truncate(v & 0x1FFFFF);
+    return @truncate((v >> 8) & 0x1FFFFF);
 }
 
 pub fn isChar(v: Value) bool {
-    return (v >> 48) == 0xFFFE and (v & 0x100) != 0;
+    return (v >> 48) == 0xFFFE and (v & 0x80) != 0;
 }
 
 pub fn isTruthy(v: Value) bool {
@@ -895,7 +895,7 @@ pub fn listLength(v: Value) ?usize {
 // ---------------------------------------------------------------------------
 
 test "fixnum round-trip" {
-    const values = [_]i64{ 0, 1, -1, 42, -42, 1000000, -1000000, std.math.maxInt(i63), std.math.minInt(i63) };
+    const values = [_]i64{ 0, 1, -1, 42, -42, 1000000, -1000000, std.math.maxInt(i48), std.math.minInt(i48) };
     for (values) |n| {
         const v = makeFixnum(n);
         try std.testing.expect(isFixnum(v));

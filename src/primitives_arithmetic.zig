@@ -19,7 +19,7 @@ fn reg(vm: *vm_mod.VM, name: []const u8, func: types.NativeFnType, arity: Native
 }
 
 fn makeFixnumChecked(n: i64) PrimitiveError!Value {
-    if (n >= std.math.minInt(i63) and n <= std.math.maxInt(i63))
+    if (n >= std.math.minInt(i48) and n <= std.math.maxInt(i48))
         return types.makeFixnum(n);
     const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
     return gc.allocBignumFromI64(n) catch return PrimitiveError.OutOfMemory;

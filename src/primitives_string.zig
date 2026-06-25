@@ -699,10 +699,10 @@ fn stringToNumberFn(args: []const Value) PrimitiveError!Value {
     const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
     const s = try getStringSlice(args[0]);
 
-    if (std.mem.eql(u8, s, "+inf.0")) return gc.allocFlonum(std.math.inf(f64)) catch return PrimitiveError.OutOfMemory;
-    if (std.mem.eql(u8, s, "-inf.0")) return gc.allocFlonum(-std.math.inf(f64)) catch return PrimitiveError.OutOfMemory;
-    if (std.mem.eql(u8, s, "+nan.0")) return gc.allocFlonum(std.math.nan(f64)) catch return PrimitiveError.OutOfMemory;
-    if (std.mem.eql(u8, s, "-nan.0")) return gc.allocFlonum(std.math.nan(f64)) catch return PrimitiveError.OutOfMemory;
+    if (std.mem.eql(u8, s, "+inf.0")) return types.makeFlonum(std.math.inf(f64));
+    if (std.mem.eql(u8, s, "-inf.0")) return types.makeFlonum(-std.math.inf(f64));
+    if (std.mem.eql(u8, s, "+nan.0")) return types.makeFlonum(std.math.nan(f64));
+    if (std.mem.eql(u8, s, "-nan.0")) return types.makeFlonum(std.math.nan(f64));
 
     // Try rational N/D
     if (std.mem.indexOfScalar(u8, s, '/')) |slash_pos| {
@@ -724,7 +724,7 @@ fn stringToNumberFn(args: []const Value) PrimitiveError!Value {
     } else |_| {}
 
     if (std.fmt.parseFloat(f64, s)) |f| {
-        return gc.allocFlonum(f) catch return PrimitiveError.OutOfMemory;
+        return types.makeFlonum(f);
     } else |_| {}
 
     return types.FALSE;

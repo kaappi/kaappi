@@ -73,7 +73,6 @@ pub const GC = struct {
     memory_limit: ?usize = null,
     profile_alloc_target: ?*u64 = null,
     root_marker: ?*const fn (*GC) void = null,
-    flonum_cache: [16]?Value = .{null} ** 16,
     source_lines: std.AutoHashMap(Value, u32) = undefined,
     stats: GcStats = .{},
 
@@ -233,29 +232,8 @@ pub const GC = struct {
     }
 
     pub fn allocFlonum(self: *GC, value: f64) !Value {
-        // Check cache for exact match (bitwise, handles -0.0 vs 0.0)
-        const bits: u64 = @bitCast(value);
-        const cache_idx = @as(usize, @truncate(bits *% 0x9E3779B97F4A7C15)) % 16;
-        if (self.flonum_cache[cache_idx]) |cached| {
-            const cached_flo = types.toObject(cached).as(Flonum);
-            if (@as(u64, @bitCast(cached_flo.value)) == bits) {
-                return cached;
-            }
-        }
-
-        try self.maybeCollect();
-        const flo = try self.allocator.create(Flonum);
-        flo.* = .{
-            .header = .{ .tag = .flonum },
-            .value = value,
-        };
-        self.bytes_allocated += @sizeOf(Flonum);
-
-        self.profileAlloc(@sizeOf(Flonum));
-        self.trackObject(&flo.header);
-        const result = types.makePointer(@ptrCast(flo));
-        self.flonum_cache[cache_idx] = result;
-        return result;
+        _ = self;
+        return types.makeFlonum(value);
     }
 
     pub fn allocVector(self: *GC, data: []const Value) !Value {
@@ -1269,10 +1247,6 @@ pub const GC = struct {
         // Mark active FFI callback closures
         const ffi_cb = @import("ffi_callback.zig");
         ffi_cb.markCallbackRoots(self);
-        // Mark cached flonums
-        for (self.flonum_cache) |entry| {
-            if (entry) |v| self.markValue(v);
-        }
         // Mark interned symbols
         var it = self.symbols.valueIterator();
         while (it.next()) |v| {

@@ -172,8 +172,8 @@ pub fn compile(func: *types.Function, vm: *VM, allocator: std.mem.Allocator) !*J
                 const target_ip: usize = @intCast(target_signed);
                 // ldr x0, [x23, #test_reg*8]
                 try asm_ctx.emitLdrImm(.x0, FRAME_PTR, @as(u16, test_reg) * 8);
-                // cmp x0, #FALSE (6)
-                try asm_ctx.emitCmpImm(.x0, @intCast(types.FALSE));
+                try asm_ctx.emitLoadImm64(.x9, types.FALSE);
+                try asm_ctx.emitCmpReg(.x0, .x9);
                 // b.eq target
                 const patch_idx = asm_ctx.pos();
                 try asm_ctx.emit(0); // placeholder
@@ -193,8 +193,8 @@ pub fn compile(func: *types.Function, vm: *VM, allocator: std.mem.Allocator) !*J
                 const target_ip: usize = @intCast(target_signed);
                 // ldr x0, [x23, #test_reg*8]
                 try asm_ctx.emitLdrImm(.x0, FRAME_PTR, @as(u16, test_reg) * 8);
-                // cmp x0, #FALSE (6)
-                try asm_ctx.emitCmpImm(.x0, @intCast(types.FALSE));
+                try asm_ctx.emitLoadImm64(.x9, types.FALSE);
+                try asm_ctx.emitCmpReg(.x0, .x9);
                 // b.ne target (anything not #f is truthy)
                 const patch_idx = asm_ctx.pos();
                 try asm_ctx.emit(0); // placeholder
@@ -612,7 +612,8 @@ fn emitGetGlobal(asm_ctx: *a64.Assembler, dst: u8, sym_idx: u16, pending_exits: 
         try asm_ctx.emit(a64.Assembler.ldrImm(.x4, .x4, 0));
     }
     // Check != VOID
-    try asm_ctx.emitCmpImm(.x4, @intCast(types.VOID));
+    try asm_ctx.emitLoadImm64(.x9, types.VOID);
+    try asm_ctx.emitCmpReg(.x4, .x9);
     const exit4 = asm_ctx.pos();
     try asm_ctx.emit(0); // b.eq side-exit
     exit_count += 1;
@@ -699,7 +700,7 @@ fn emitSpecializedArith(asm_ctx: *a64.Assembler, base_reg: u8, spec: Specialized
         .lt, .gt, .le, .ge, .eq => {
             // Tagged fixnum comparison preserves ordering — compare directly
             try asm_ctx.emitCmpReg(.x0, .x1);
-            try asm_ctx.emitMovz(.x4, @intCast(types.FALSE), 0);
+            try asm_ctx.emitLoadImm64(.x4, types.FALSE);
             try asm_ctx.emitLoadImm64(.x5, types.TRUE);
             const cond: Cond = switch (spec) {
                 .lt => .lt,
@@ -744,7 +745,7 @@ fn emitSpecializedPredicate(asm_ctx: *a64.Assembler, base_reg: u8, spec: Special
     switch (spec) {
         .zero_p => {
             try asm_ctx.emitCmpImm(.x0, 1); // tagged 0
-            try asm_ctx.emitMovz(.x1, @intCast(types.FALSE), 0);
+            try asm_ctx.emitLoadImm64(.x1, types.FALSE);
             try asm_ctx.emitLoadImm64(.x2, types.TRUE);
             try asm_ctx.emitCsel(.x3, .x2, .x1, .eq);
             try asm_ctx.emitStrImm(.x3, FRAME_PTR, dst_off);
@@ -752,7 +753,7 @@ fn emitSpecializedPredicate(asm_ctx: *a64.Assembler, base_reg: u8, spec: Special
         .null_p => {
             try asm_ctx.emitLoadImm64(.x1, types.NIL);
             try asm_ctx.emitCmpReg(.x0, .x1);
-            try asm_ctx.emitMovz(.x2, @intCast(types.FALSE), 0);
+            try asm_ctx.emitLoadImm64(.x2, types.FALSE);
             try asm_ctx.emitLoadImm64(.x3, types.TRUE);
             try asm_ctx.emitCsel(.x4, .x3, .x2, .eq);
             try asm_ctx.emitStrImm(.x4, FRAME_PTR, dst_off);
@@ -761,7 +762,7 @@ fn emitSpecializedPredicate(asm_ctx: *a64.Assembler, base_reg: u8, spec: Special
             // Check pointer (low 3 bits = 0) AND tag == pair (0)
             try asm_ctx.emitMovz(.x1, 7, 0);
             try asm_ctx.emitAndReg(.x1, .x0, .x1);
-            try asm_ctx.emitMovz(.x4, @intCast(types.FALSE), 0);
+            try asm_ctx.emitLoadImm64(.x4, types.FALSE);
             try asm_ctx.emitCmpImm(.x1, 0);
             // Not a pointer → #f
             try asm_ctx.emit(a64.Assembler.bCond(.ne, 6)); // skip to store #f
@@ -775,7 +776,7 @@ fn emitSpecializedPredicate(asm_ctx: *a64.Assembler, base_reg: u8, spec: Special
             try asm_ctx.emitStrImm(.x4, FRAME_PTR, dst_off);
         },
         .not_op => {
-            try asm_ctx.emitMovz(.x1, @intCast(types.FALSE), 0);
+            try asm_ctx.emitLoadImm64(.x1, types.FALSE);
             try asm_ctx.emitCmpReg(.x0, .x1);
             try asm_ctx.emitLoadImm64(.x2, types.TRUE);
             try asm_ctx.emitCsel(.x3, .x2, .x1, .eq);

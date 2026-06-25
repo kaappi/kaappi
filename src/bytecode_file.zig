@@ -250,14 +250,15 @@ fn writeConstant(w: *Writer, allocator: std.mem.Allocator, val: Value, all_funcs
         return;
     }
 
+    if (types.isFlonum(val)) {
+        try w.writeU8(allocator, TAG_FLONUM);
+        try w.writeF64(allocator, types.toFlonum(val));
+        return;
+    }
+
     if (types.isPointer(val)) {
         const obj = types.toObject(val);
         switch (obj.tag) {
-            .flonum => {
-                const flo = obj.as(types.Flonum);
-                try w.writeU8(allocator, TAG_FLONUM);
-                try w.writeF64(allocator, flo.value);
-            },
             .symbol => {
                 const sym = obj.as(types.Symbol);
                 try w.writeU8(allocator, TAG_SYMBOL);
@@ -343,7 +344,7 @@ fn readConstant(r: *Reader, gc: *GC, all_funcs: []*Function, depth: u32) !Value 
         },
         TAG_FLONUM => {
             const f = try r.readF64();
-            return gc.allocFlonum(f) catch return BytecodeError.OutOfMemory;
+            return types.makeFlonum(f);
         },
         TAG_SYMBOL => {
             const name_len = try r.readU16();
@@ -970,7 +971,7 @@ test "bytecode round-trip: various constant types" {
     const str = try gc.allocString("world");
     func.constants.append(allocator, str) catch unreachable;
 
-    const flo = try gc.allocFlonum(3.14);
+    const flo = types.makeFlonum(3.14);
     func.constants.append(allocator, flo) catch unreachable;
 
     const bv_data = [_]u8{ 1, 2, 3 };

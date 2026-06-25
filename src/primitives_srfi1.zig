@@ -582,7 +582,7 @@ fn iotaFn(args: []const Value) PrimitiveError!Value {
         while (i > 0) {
             i -= 1;
             const v = start + @as(f64, @floatFromInt(i)) * step;
-            var fval = gc.allocFlonum(v) catch return PrimitiveError.OutOfMemory;
+            var fval = types.makeFlonum(v);
             gc.pushRoot(&fval) catch return PrimitiveError.OutOfMemory;
             result = gc.allocPair(fval, result) catch {
                 gc.popRoot();
