@@ -68,8 +68,29 @@ fn normalizeType(t: FfiType) FfiType {
     };
 }
 
+fn validateArg(v: Value, t: FfiType) bool {
+    const nt = normalizeType(t);
+    return switch (nt) {
+        .int, .long => types.isFixnum(v),
+        .double, .float => types.isFixnum(v) or types.isFlonum(v) or types.isRationalObj(v),
+        .string => types.isString(v),
+        .pointer => types.isFixnum(v) or types.isFfiCallback(v) or types.isBytevector(v),
+        .void_type => true,
+        else => false,
+    };
+}
+
+fn validateArgs(ffi_fn: *types.FfiFunction, args: []const Value) !void {
+    for (0..ffi_fn.param_count) |i| {
+        if (!validateArg(args[i], ffi_fn.param_types[i])) {
+            return error.TypeError;
+        }
+    }
+}
+
 /// Main FFI call dispatcher. Routes to arity-specific handlers.
 pub fn callFfi(ffi_fn: *types.FfiFunction, args: []const Value, gc: *memory.GC) !Value {
+    try validateArgs(ffi_fn, args);
     return switch (ffi_fn.param_count) {
         0 => callFfi0(ffi_fn, gc),
         1 => callFfi1(ffi_fn, args, gc),

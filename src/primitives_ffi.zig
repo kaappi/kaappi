@@ -17,9 +17,18 @@ pub fn registerFfi(vm: *vm_mod.VM) !void {
     try primitives.reg(vm, "ffi-bytevector-ptr", &ffiBytevectorPtr, .{ .exact = 1 });
 }
 
+fn checkSandbox(comptime name: []const u8) PrimitiveError!void {
+    const vm = vm_mod.vm_instance orelse return;
+    if (vm.sandbox_mode) {
+        vm.setErrorDetail(name ++ ": not allowed in sandbox mode", .{});
+        return PrimitiveError.TypeError;
+    }
+}
+
 /// (ffi-open path-or-#f)
 /// Opens a shared library. Pass #f for the default process (all linked symbols).
 fn ffiOpen(args: []const Value) PrimitiveError!Value {
+    try checkSandbox("ffi-open");
     const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
 
     if (args[0] == types.FALSE) {
@@ -89,6 +98,7 @@ fn ffiOpen(args: []const Value) PrimitiveError!Value {
 /// (ffi-fn lib "name" '(param-types...) 'return-type)
 /// Looks up a symbol in the library and creates an FfiFunction.
 fn ffiFn(args: []const Value) PrimitiveError!Value {
+    try checkSandbox("ffi-fn");
     const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
 
     // arg0: library
@@ -149,6 +159,7 @@ fn ffiFn(args: []const Value) PrimitiveError!Value {
 /// (ffi-close lib)
 /// Closes a previously opened FFI library.
 fn ffiClose(args: []const Value) PrimitiveError!Value {
+    try checkSandbox("ffi-close");
     if (!types.isFfiLibrary(args[0])) return PrimitiveError.TypeError;
     const lib = types.toObject(args[0]).as(types.FfiLibrary);
     if (lib.handle) |handle| {
@@ -160,6 +171,7 @@ fn ffiClose(args: []const Value) PrimitiveError!Value {
 
 /// (ffi-callback proc '(param-types) 'return-type)
 fn ffiCallbackFn(args: []const Value) PrimitiveError!Value {
+    try checkSandbox("ffi-callback");
     const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
     const proc = args[0];
     if (!types.isClosure(proc) and !types.isNativeFn(proc))
@@ -212,6 +224,7 @@ fn ffiCallbackPred(args: []const Value) PrimitiveError!Value {
 
 /// (ffi-bytevector-ptr bv) — returns data pointer as fixnum
 fn ffiBytevectorPtr(args: []const Value) PrimitiveError!Value {
+    try checkSandbox("ffi-bytevector-ptr");
     if (!types.isBytevector(args[0]))
         return primitives.typeError("ffi-bytevector-ptr", "bytevector", args[0]);
     const bv = types.toObject(args[0]).as(types.Bytevector);
