@@ -61,7 +61,7 @@ pub fn makePointer(ptr: *anyopaque) Value {
 }
 
 pub fn toObject(v: Value) *Object {
-    return @ptrFromInt(@as(usize, v & NANBOX_PAYLOAD));
+    return @ptrFromInt(@as(usize, @truncate(v & NANBOX_PAYLOAD)));
 }
 
 // ---------------------------------------------------------------------------
