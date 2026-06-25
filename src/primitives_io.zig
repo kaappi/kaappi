@@ -149,7 +149,7 @@ fn getOutputPort(args: []const Value, arg_idx: usize, proc: []const u8) Primitiv
         return port;
     }
     // Use current-output-port from VM
-    const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError;
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError; // bare-ok: no VM
     if (!types.isPort(vm.stdout_port)) return PrimitiveError.TypeError;
     return types.toObject(vm.stdout_port).as(types.Port);
 }
@@ -163,7 +163,7 @@ fn getInputPort(args: []const Value, arg_idx: usize, proc: []const u8) Primitive
         if (!port.is_open) return primitives.typeError(proc, "open input port", args[arg_idx]);
         return port;
     }
-    const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError;
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError; // bare-ok: no VM
     if (!types.isPort(vm.stdin_port)) return PrimitiveError.TypeError;
     return types.toObject(vm.stdin_port).as(types.Port);
 }
@@ -235,19 +235,19 @@ fn newline(args: []const Value) PrimitiveError!Value {
 
 fn currentInputPort(args: []const Value) PrimitiveError!Value {
     _ = args;
-    const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError;
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError; // bare-ok: no VM
     return vm.stdin_port;
 }
 
 fn currentOutputPort(args: []const Value) PrimitiveError!Value {
     _ = args;
-    const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError;
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError; // bare-ok: no VM
     return vm.stdout_port;
 }
 
 fn currentErrorPort(args: []const Value) PrimitiveError!Value {
     _ = args;
-    const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError;
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError; // bare-ok: no VM
     return vm.stderr_port;
 }
 
@@ -292,7 +292,7 @@ fn outputPortOpenP(args: []const Value) PrimitiveError!Value {
 }
 
 fn raiseFileError(gc: *@import("memory.zig").GC, msg_text: []const u8, irritant: Value) PrimitiveError!Value {
-    const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError;
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError; // bare-ok: no VM
     var msg = gc.allocString(msg_text) catch return PrimitiveError.OutOfMemory;
     gc.pushRoot(&msg) catch return PrimitiveError.OutOfMemory;
     defer gc.popRoot();
@@ -763,7 +763,7 @@ fn deleteFile(args: []const Value) PrimitiveError!Value {
 
 /// (call-with-input-file string proc)
 fn callWithInputFile(args: []const Value) PrimitiveError!Value {
-    const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError;
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError; // bare-ok: no VM
     // Open file
     const port_val = try openInputFile(&[_]Value{args[0]});
     // Call proc with port
@@ -774,7 +774,7 @@ fn callWithInputFile(args: []const Value) PrimitiveError!Value {
             vm_mod.VMError.ContinuationInvoked => PrimitiveError.ContinuationInvoked,
             vm_mod.VMError.ExceptionRaised => PrimitiveError.ExceptionRaised,
             vm_mod.VMError.OutOfMemory => PrimitiveError.OutOfMemory,
-            else => PrimitiveError.TypeError,
+            else => PrimitiveError.TypeError, // bare-ok: catch fallback
         };
     };
     // Close port
@@ -784,7 +784,7 @@ fn callWithInputFile(args: []const Value) PrimitiveError!Value {
 
 /// (call-with-output-file string proc)
 fn callWithOutputFile(args: []const Value) PrimitiveError!Value {
-    const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError;
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError; // bare-ok: no VM
     const port_val = try openOutputFile(&[_]Value{args[0]});
     const result = vm.callWithArgs(args[1], &[_]Value{port_val}) catch |err| {
         _ = closePort(&[_]Value{port_val}) catch {};
@@ -792,7 +792,7 @@ fn callWithOutputFile(args: []const Value) PrimitiveError!Value {
             vm_mod.VMError.ContinuationInvoked => PrimitiveError.ContinuationInvoked,
             vm_mod.VMError.ExceptionRaised => PrimitiveError.ExceptionRaised,
             vm_mod.VMError.OutOfMemory => PrimitiveError.OutOfMemory,
-            else => PrimitiveError.TypeError,
+            else => PrimitiveError.TypeError, // bare-ok: catch fallback
         };
     };
     _ = try closePort(&[_]Value{port_val});
@@ -802,14 +802,14 @@ fn callWithOutputFile(args: []const Value) PrimitiveError!Value {
 /// (call-with-port port proc)
 fn callWithPort(args: []const Value) PrimitiveError!Value {
     if (!types.isPort(args[0])) return primitives.typeError("call-with-port", "port", args[0]);
-    const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError;
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError; // bare-ok: no VM
     const result = vm.callWithArgs(args[1], &[_]Value{args[0]}) catch |err| {
         _ = closePort(&[_]Value{args[0]}) catch {};
         return switch (err) {
             vm_mod.VMError.ContinuationInvoked => PrimitiveError.ContinuationInvoked,
             vm_mod.VMError.ExceptionRaised => PrimitiveError.ExceptionRaised,
             vm_mod.VMError.OutOfMemory => PrimitiveError.OutOfMemory,
-            else => PrimitiveError.TypeError,
+            else => PrimitiveError.TypeError, // bare-ok: catch fallback
         };
     };
     _ = try closePort(&[_]Value{args[0]});
@@ -818,7 +818,7 @@ fn callWithPort(args: []const Value) PrimitiveError!Value {
 
 /// (with-input-from-file string thunk)
 fn withInputFromFile(args: []const Value) PrimitiveError!Value {
-    const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError;
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError; // bare-ok: no VM
     const port_val = try openInputFile(&[_]Value{args[0]});
     // Save current input port
     const saved = vm.stdin_port;
@@ -830,7 +830,7 @@ fn withInputFromFile(args: []const Value) PrimitiveError!Value {
             vm_mod.VMError.ContinuationInvoked => PrimitiveError.ContinuationInvoked,
             vm_mod.VMError.ExceptionRaised => PrimitiveError.ExceptionRaised,
             vm_mod.VMError.OutOfMemory => PrimitiveError.OutOfMemory,
-            else => PrimitiveError.TypeError,
+            else => PrimitiveError.TypeError, // bare-ok: catch fallback
         };
     };
     vm.stdin_port = saved;
@@ -840,7 +840,7 @@ fn withInputFromFile(args: []const Value) PrimitiveError!Value {
 
 /// (with-output-to-file string thunk)
 fn withOutputToFile(args: []const Value) PrimitiveError!Value {
-    const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError;
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError; // bare-ok: no VM
     const port_val = try openOutputFile(&[_]Value{args[0]});
     const saved = vm.stdout_port;
     vm.stdout_port = port_val;
@@ -851,7 +851,7 @@ fn withOutputToFile(args: []const Value) PrimitiveError!Value {
             vm_mod.VMError.ContinuationInvoked => PrimitiveError.ContinuationInvoked,
             vm_mod.VMError.ExceptionRaised => PrimitiveError.ExceptionRaised,
             vm_mod.VMError.OutOfMemory => PrimitiveError.OutOfMemory,
-            else => PrimitiveError.TypeError,
+            else => PrimitiveError.TypeError, // bare-ok: catch fallback
         };
     };
     vm.stdout_port = saved;

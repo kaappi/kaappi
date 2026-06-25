@@ -100,6 +100,22 @@ See [docs/dev/testing.md](docs/dev/testing.md) for the complete testing guide.
 - Scheme integration tests live in `tests/scheme/`
 - Both types of tests must pass
 
+## Error messages in primitives
+
+Type errors in `primitives_*.zig` must include the procedure name,
+expected type, and actual value. Use the `primitives.typeError()` helper:
+
+```zig
+if (!types.isPair(args[0])) return primitives.typeError("car", "pair", args[0]);
+```
+
+**Do not** add bare `return PrimitiveError.TypeError` for user-facing type
+checks. CI enforces this — new bare returns without a `// bare-ok` annotation
+will fail the build.
+
+Only use `// bare-ok: <reason>` for infrastructure guards where no user value
+is available (e.g., `vm_instance orelse`, `catch` switch fallbacks).
+
 ## Code style
 
 Run `zig fmt src/` before committing. CI enforces `zig fmt --check src/`.
@@ -117,7 +133,7 @@ All jobs must pass before merging.
 
 | Job | Runner | What it does |
 |-----|--------|--------------|
-| **format** | ubuntu-latest | `zig fmt --check src/` — formatting gate |
+| **format** | ubuntu-latest | `zig fmt --check src/`, bare TypeError regression check |
 | **test** (matrix) | ubuntu-latest (x86_64), ubuntu-24.04-arm (aarch64), macos-latest (aarch64) | Build, unit tests, Scheme suites, sandbox/robustness tests, thottam integration. Runs in Debug, ReleaseSafe, and ReleaseFast optimize modes on x86_64; ReleaseSafe only on ARM and macOS. |
 | **riscv64-test** | ubuntu-latest + QEMU | Cross-compiles with `-Dtarget=riscv64-linux` and runs unit tests + R7RS suite under QEMU emulation. Separate from the matrix because it needs QEMU setup. |
 | **coverage** | ubuntu-22.04 | Unit test + R7RS suite coverage via kcov (push only). Pinned to 22.04 because kcov is not in Ubuntu 24.04 apt repos. |

@@ -163,7 +163,7 @@ pub fn registerFilesystem(vm: *vm_mod.VM) !void {
 }
 
 fn raiseFileError(gc: *GC, msg_text: []const u8, irritant: Value) PrimitiveError!Value {
-    const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError;
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError; // bare-ok: no VM
     var msg = gc.allocString(msg_text) catch return PrimitiveError.OutOfMemory;
     gc.pushRoot(&msg) catch return PrimitiveError.OutOfMemory;
     defer gc.popRoot();

@@ -251,7 +251,7 @@ fn getInputPort(args: []const Value, arg_idx: usize) PrimitiveError!*types.Port 
         if (!port.is_open) return primitives.typeError("read-u8", "open port", args[arg_idx]);
         return port;
     }
-    const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError;
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError; // bare-ok: no VM
     if (!types.isPort(vm.stdin_port)) return primitives.typeError("read-u8", "input port", vm.stdin_port);
     return types.toObject(vm.stdin_port).as(types.Port);
 }
@@ -264,7 +264,7 @@ fn getOutputPort(args: []const Value, arg_idx: usize) PrimitiveError!*types.Port
         if (!port.is_open) return primitives.typeError("write-u8", "open port", args[arg_idx]);
         return port;
     }
-    const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError;
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError; // bare-ok: no VM
     if (!types.isPort(vm.stdout_port)) return primitives.typeError("write-u8", "output port", vm.stdout_port);
     return types.toObject(vm.stdout_port).as(types.Port);
 }

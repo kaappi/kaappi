@@ -532,7 +532,7 @@ fn utf8ToStringFn(args: []const Value) PrimitiveError!Value {
 // ---------------------------------------------------------------------------
 
 fn stringForEachFn(args: []const Value) PrimitiveError!Value {
-    const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError;
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError; // bare-ok: no VM
     const proc = args[0];
     if (!types.isProcedure(proc) and !types.isNativeFn(proc)) return primitives.typeError("string-for-each", "procedure", proc);
 
@@ -579,7 +579,7 @@ fn stringForEachFn(args: []const Value) PrimitiveError!Value {
 // ---------------------------------------------------------------------------
 
 fn stringMapFn(args: []const Value) PrimitiveError!Value {
-    const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError;
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError; // bare-ok: no VM
     const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
     const proc = args[0];
     if (!types.isProcedure(proc) and !types.isNativeFn(proc)) return primitives.typeError("string-map", "procedure", proc);

@@ -40,12 +40,12 @@ pub fn toF64Ext(v: Value) PrimitiveError!f64 {
 }
 
 fn numberTypeError(v: Value) PrimitiveError {
-    const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError;
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError; // bare-ok: no VM
     const p = @import("printer.zig");
     const s = p.valueToString(vm.gc.allocator, v, .write) catch "";
     defer if (s.len > 0) vm.gc.allocator.free(s);
     vm.setErrorDetail("expected number, got {s}", .{s});
-    return PrimitiveError.TypeError;
+    return PrimitiveError.TypeError; // bare-ok: helper fallback
 }
 
 // ---------------------------------------------------------------------------

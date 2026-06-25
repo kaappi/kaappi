@@ -25,6 +25,18 @@ jobs:
       - name: Format check
         run: zig fmt --check src/
 
+      - name: Check bare TypeError regression
+        run: |
+          count=$(grep -r 'return PrimitiveError\.TypeError' src/primitives*.zig | grep -v 'bare-ok' | wc -l | tr -d ' ')
+          echo "Unannotated bare TypeErrors: $count (baseline: 91)"
+          if [ "$count" -gt 91 ]; then
+            echo "::error::New bare PrimitiveError.TypeError without 'bare-ok' annotation."
+            echo "Use primitives.typeError(proc, expected, got) for type checks."
+            echo "Only add '// bare-ok: <reason>' for infrastructure guards."
+            grep -rn 'return PrimitiveError\.TypeError' src/primitives*.zig | grep -v 'bare-ok'
+            exit 1
+          fi
+
   test:
     needs: format
     runs-on: ${{ matrix.os }}

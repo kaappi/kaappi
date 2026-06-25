@@ -97,7 +97,7 @@ fn isWhitespace(c: u8) bool {
 /// Call a predicate or char-set-contains? with a character.
 /// Handles both procedure arguments and SRFI-14 char-set record arguments.
 fn callPredOrCharset(pred: Value, cp: u21) PrimitiveError!bool {
-    const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError;
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError; // bare-ok: no VM
     const char_val = types.makeChar(cp);
 
     // If pred is a procedure, call it directly
@@ -107,7 +107,7 @@ fn callPredOrCharset(pred: Value, cp: u21) PrimitiveError!bool {
                 vm_mod.VMError.ContinuationInvoked => PrimitiveError.ContinuationInvoked,
                 vm_mod.VMError.ExceptionRaised => PrimitiveError.ExceptionRaised,
                 vm_mod.VMError.OutOfMemory => PrimitiveError.OutOfMemory,
-                else => PrimitiveError.TypeError,
+                else => PrimitiveError.TypeError, // bare-ok: catch fallback
             };
         };
         return types.isTruthy(result);
@@ -121,7 +121,7 @@ fn callPredOrCharset(pred: Value, cp: u21) PrimitiveError!bool {
                 vm_mod.VMError.ContinuationInvoked => PrimitiveError.ContinuationInvoked,
                 vm_mod.VMError.ExceptionRaised => PrimitiveError.ExceptionRaised,
                 vm_mod.VMError.OutOfMemory => PrimitiveError.OutOfMemory,
-                else => PrimitiveError.TypeError,
+                else => PrimitiveError.TypeError, // bare-ok: catch fallback
             };
         };
         return types.isTruthy(result);
@@ -415,7 +415,7 @@ fn callVM(proc: Value, call_args: []const Value) PrimitiveError!Value {
         vm_mod.VMError.ContinuationInvoked => PrimitiveError.ContinuationInvoked,
         vm_mod.VMError.ExceptionRaised => PrimitiveError.ExceptionRaised,
         vm_mod.VMError.OutOfMemory => PrimitiveError.OutOfMemory,
-        else => PrimitiveError.TypeError,
+        else => PrimitiveError.TypeError, // bare-ok: catch fallback
     };
 }
 

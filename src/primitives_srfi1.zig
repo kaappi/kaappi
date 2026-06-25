@@ -126,7 +126,7 @@ fn callVM(proc: Value, call_args: []const Value) PrimitiveError!Value {
             vm_mod.VMError.ContinuationInvoked => PrimitiveError.ContinuationInvoked,
             vm_mod.VMError.ExceptionRaised => PrimitiveError.ExceptionRaised,
             vm_mod.VMError.OutOfMemory => PrimitiveError.OutOfMemory,
-            else => PrimitiveError.TypeError,
+            else => PrimitiveError.TypeError, // bare-ok: catch fallback
         };
     };
 }

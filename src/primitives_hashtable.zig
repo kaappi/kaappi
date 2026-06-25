@@ -168,13 +168,13 @@ fn hashTableRefFn(args: []const Value) PrimitiveError!Value {
     // Key not found — call thunk if provided
     if (args.len > 2) {
         if (types.isProcedure(args[2])) {
-            const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError;
+            const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError; // bare-ok: no VM
             return vm.callWithArgs(args[2], &[_]Value{}) catch |err| {
                 return switch (err) {
                     vm_mod.VMError.ContinuationInvoked => PrimitiveError.ContinuationInvoked,
                     vm_mod.VMError.ExceptionRaised => PrimitiveError.ExceptionRaised,
                     vm_mod.VMError.OutOfMemory => PrimitiveError.OutOfMemory,
-                    else => PrimitiveError.TypeError,
+                    else => PrimitiveError.TypeError, // bare-ok: catch fallback
                 };
             };
         }
@@ -264,7 +264,7 @@ fn hashTableWalkFn(args: []const Value) PrimitiveError!Value {
                     vm_mod.VMError.ContinuationInvoked => PrimitiveError.ContinuationInvoked,
                     vm_mod.VMError.ExceptionRaised => PrimitiveError.ExceptionRaised,
                     vm_mod.VMError.OutOfMemory => PrimitiveError.OutOfMemory,
-                    else => PrimitiveError.TypeError,
+                    else => PrimitiveError.TypeError, // bare-ok: catch fallback
                 };
             };
         }
@@ -358,7 +358,7 @@ fn hashTableUpdateDefaultFn(args: []const Value) PrimitiveError!Value {
             vm_mod.VMError.ContinuationInvoked => PrimitiveError.ContinuationInvoked,
             vm_mod.VMError.ExceptionRaised => PrimitiveError.ExceptionRaised,
             vm_mod.VMError.OutOfMemory => PrimitiveError.OutOfMemory,
-            else => PrimitiveError.TypeError,
+            else => PrimitiveError.TypeError, // bare-ok: catch fallback
         };
     };
 
@@ -472,7 +472,7 @@ fn hashTableFoldFn(args: []const Value) PrimitiveError!Value {
                     vm_mod.VMError.ContinuationInvoked => PrimitiveError.ContinuationInvoked,
                     vm_mod.VMError.ExceptionRaised => PrimitiveError.ExceptionRaised,
                     vm_mod.VMError.OutOfMemory => PrimitiveError.OutOfMemory,
-                    else => PrimitiveError.TypeError,
+                    else => PrimitiveError.TypeError, // bare-ok: catch fallback
                 };
             };
         }

@@ -33,7 +33,7 @@ fn makePromiseLazy(args: []const Value) PrimitiveError!Value {
 }
 
 fn forceFn(args: []const Value) PrimitiveError!Value {
-    const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError;
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError; // bare-ok: no VM
 
     var current = args[0];
 
@@ -57,7 +57,7 @@ fn forceFn(args: []const Value) PrimitiveError!Value {
                 vm_mod.VMError.ContinuationInvoked => PrimitiveError.ContinuationInvoked,
                 vm_mod.VMError.ExceptionRaised => PrimitiveError.ExceptionRaised,
                 vm_mod.VMError.OutOfMemory => PrimitiveError.OutOfMemory,
-                else => PrimitiveError.TypeError,
+                else => PrimitiveError.TypeError, // bare-ok: catch fallback
             };
         };
 

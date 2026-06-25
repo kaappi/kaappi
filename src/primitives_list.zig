@@ -136,13 +136,13 @@ fn memberFn(args: []const Value) PrimitiveError!Value {
     while (current != types.NIL) {
         if (!types.isPair(current)) return primitives.typeError("member", "proper list", current);
         if (has_compare) {
-            const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError;
+            const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError; // bare-ok: no VM
             const call_args = [2]Value{ args[0], types.car(current) };
             const result = vm.callWithArgs(compare, &call_args) catch |err| {
                 return switch (err) {
                     vm_mod.VMError.ContinuationInvoked => PrimitiveError.ContinuationInvoked,
                     vm_mod.VMError.ExceptionRaised => PrimitiveError.ExceptionRaised,
-                    else => PrimitiveError.TypeError,
+                    else => PrimitiveError.TypeError, // bare-ok: catch fallback
                 };
             };
             if (result != types.FALSE) return current;
@@ -191,13 +191,13 @@ fn assocFn(args: []const Value) PrimitiveError!Value {
         const pair = types.car(current);
         if (!types.isPair(pair)) return primitives.typeError("assoc", "pair", pair);
         if (has_compare) {
-            const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError;
+            const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError; // bare-ok: no VM
             const call_args = [2]Value{ args[0], types.car(pair) };
             const result = vm.callWithArgs(compare, &call_args) catch |err| {
                 return switch (err) {
                     vm_mod.VMError.ContinuationInvoked => PrimitiveError.ContinuationInvoked,
                     vm_mod.VMError.ExceptionRaised => PrimitiveError.ExceptionRaised,
-                    else => PrimitiveError.TypeError,
+                    else => PrimitiveError.TypeError, // bare-ok: catch fallback
                 };
             };
             if (result != types.FALSE) return pair;
@@ -266,7 +266,7 @@ fn symbolEqP(args: []const Value) PrimitiveError!Value {
 // ---------------------------------------------------------------------------
 
 fn mapFn(args: []const Value) PrimitiveError!Value {
-    const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError;
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError; // bare-ok: no VM
     const gc = getGC() orelse return PrimitiveError.OutOfMemory;
     const proc = args[0];
     if (!types.isProcedure(proc) and !types.isNativeFn(proc)) return primitives.typeError("map", "procedure", proc);
@@ -309,7 +309,7 @@ fn mapFn(args: []const Value) PrimitiveError!Value {
                 vm_mod.VMError.ContinuationInvoked => PrimitiveError.ContinuationInvoked,
                 vm_mod.VMError.ExceptionRaised => PrimitiveError.ExceptionRaised,
                 vm_mod.VMError.OutOfMemory => PrimitiveError.OutOfMemory,
-                else => PrimitiveError.TypeError,
+                else => PrimitiveError.TypeError, // bare-ok: catch fallback
             };
         };
 
@@ -334,7 +334,7 @@ fn mapFn(args: []const Value) PrimitiveError!Value {
 }
 
 fn forEachFn(args: []const Value) PrimitiveError!Value {
-    const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError;
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError; // bare-ok: no VM
     const proc = args[0];
     if (!types.isProcedure(proc) and !types.isNativeFn(proc)) return primitives.typeError("for-each", "procedure", proc);
 
@@ -372,7 +372,7 @@ fn forEachFn(args: []const Value) PrimitiveError!Value {
                 vm_mod.VMError.ContinuationInvoked => PrimitiveError.ContinuationInvoked,
                 vm_mod.VMError.ExceptionRaised => PrimitiveError.ExceptionRaised,
                 vm_mod.VMError.OutOfMemory => PrimitiveError.OutOfMemory,
-                else => PrimitiveError.TypeError,
+                else => PrimitiveError.TypeError, // bare-ok: catch fallback
             };
         };
 

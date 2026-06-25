@@ -76,7 +76,7 @@ fn ffiOpen(args: []const Value) PrimitiveError!Value {
         }
     }
 
-    const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError;
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError; // bare-ok: no VM
     if (std.c.dlerror()) |err_msg| {
         const msg = std.mem.span(err_msg);
         vm.setErrorDetail("ffi-open: {s}", .{msg});
@@ -108,7 +108,7 @@ fn ffiFn(args: []const Value) PrimitiveError!Value {
     const cname: [*:0]const u8 = @ptrCast(name_buf[0..name_str.len :0]);
 
     const symbol = std.c.dlsym(handle, cname) orelse {
-        const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError;
+        const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError; // bare-ok: no VM
         if (std.c.dlerror()) |err_msg| {
             const msg = std.mem.span(err_msg);
             vm.setErrorDetail("ffi-fn: {s}", .{msg});
@@ -125,7 +125,7 @@ fn ffiFn(args: []const Value) PrimitiveError!Value {
     while (param_list != types.NIL) {
         if (!types.isPair(param_list)) return PrimitiveError.TypeError;
         if (param_count >= 16) {
-            const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError;
+            const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError; // bare-ok: no VM
             vm.setErrorDetail("ffi-fn: too many parameters (max 16)", .{});
             return PrimitiveError.TypeError;
         }
@@ -179,7 +179,7 @@ fn ffiCallbackFn(args: []const Value) PrimitiveError!Value {
     const ret_type = parseType(args[2]) orelse return PrimitiveError.TypeError;
 
     const sig = matchCallbackSig(param_types[0..param_count], ret_type) orelse {
-        const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError;
+        const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError; // bare-ok: no VM
         vm.setErrorDetail("ffi-callback: unsupported callback signature", .{});
         return PrimitiveError.TypeError;
     };

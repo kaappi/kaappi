@@ -95,7 +95,7 @@ fn jiffiesPerSecond(args: []const Value) PrimitiveError!Value {
 fn commandLine(args: []const Value) PrimitiveError!Value {
     _ = args;
     const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
-    const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError;
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError; // bare-ok: no VM
 
     var result: Value = types.NIL;
     gc.pushRoot(&result) catch return PrimitiveError.OutOfMemory;
@@ -153,7 +153,7 @@ fn getEnvVars(args: []const Value) PrimitiveError!Value {
 // ---------------------------------------------------------------------------
 
 fn evalFn(args: []const Value) PrimitiveError!Value {
-    const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError;
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError; // bare-ok: no VM
     const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
     // args[0] = expression, args[1] = environment (optional, ignored)
     const expr = args[0];
@@ -170,7 +170,7 @@ fn evalFn(args: []const Value) PrimitiveError!Value {
             vm_mod.VMError.ContinuationInvoked => PrimitiveError.ContinuationInvoked,
             vm_mod.VMError.ExceptionRaised => PrimitiveError.ExceptionRaised,
             vm_mod.VMError.OutOfMemory => PrimitiveError.OutOfMemory,
-            else => PrimitiveError.TypeError,
+            else => PrimitiveError.TypeError, // bare-ok: catch fallback
         };
     };
     return result;
@@ -189,7 +189,7 @@ fn environmentFn(args: []const Value) PrimitiveError!Value {
 
 fn loadFn(args: []const Value) PrimitiveError!Value {
     if (!types.isString(args[0])) return primitives.typeError("load", "string", args[0]);
-    const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError;
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError; // bare-ok: no VM
     const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
     const str = types.toObject(args[0]).as(types.SchemeString);
     const path = str.data[0..str.len];
@@ -246,7 +246,7 @@ fn loadFn(args: []const Value) PrimitiveError!Value {
                     vm_mod.VMError.ContinuationInvoked => PrimitiveError.ContinuationInvoked,
                     vm_mod.VMError.ExceptionRaised => PrimitiveError.ExceptionRaised,
                     vm_mod.VMError.OutOfMemory => PrimitiveError.OutOfMemory,
-                    else => PrimitiveError.TypeError,
+                    else => PrimitiveError.TypeError, // bare-ok: catch fallback
                 };
             };
         }
@@ -266,13 +266,13 @@ fn makeParameterFn(args: []const Value) PrimitiveError!Value {
     // If converter provided, apply it to initial value
     var val = init;
     if (converter != types.NIL) {
-        const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError;
+        const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError; // bare-ok: no VM
         val = vm.callWithArgs(converter, &[_]Value{init}) catch |err| {
             return switch (err) {
                 vm_mod.VMError.ContinuationInvoked => PrimitiveError.ContinuationInvoked,
                 vm_mod.VMError.ExceptionRaised => PrimitiveError.ExceptionRaised,
                 vm_mod.VMError.OutOfMemory => PrimitiveError.OutOfMemory,
-                else => PrimitiveError.TypeError,
+                else => PrimitiveError.TypeError, // bare-ok: catch fallback
             };
         };
     }

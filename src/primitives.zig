@@ -163,7 +163,7 @@ pub fn toF64(v: Value) PrimitiveError!f64 {
         const d = try toF64(r.denominator);
         return n / d;
     }
-    return PrimitiveError.TypeError;
+    return PrimitiveError.TypeError; // bare-ok: numeric coercion fallback
 }
 
 pub fn makeFlonumVal(f: f64) PrimitiveError!Value {
@@ -186,7 +186,7 @@ pub fn setGCInstance(gc: *@import("memory.zig").GC) void {
 }
 
 pub fn typeError(proc: []const u8, expected: []const u8, got: Value) PrimitiveError {
-    const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError;
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError; // bare-ok: no VM
     const p = @import("printer.zig");
     const s = p.valueToString(vm.gc.allocator, got, .write) catch "";
     defer if (s.len > 0) vm.gc.allocator.free(s);
@@ -578,7 +578,7 @@ fn symbolToString(args: []const Value) PrimitiveError!Value {
 // ---------------------------------------------------------------------------
 
 fn applyFn(args: []const Value) PrimitiveError!Value {
-    const vm = @import("vm.zig").vm_instance orelse return PrimitiveError.TypeError;
+    const vm = @import("vm.zig").vm_instance orelse return PrimitiveError.TypeError; // bare-ok: no VM
     const proc = args[0];
     if (!types.isProcedure(proc) and !types.isNativeFn(proc)) return PrimitiveError.TypeError;
 
@@ -608,7 +608,7 @@ fn applyFn(args: []const Value) PrimitiveError!Value {
             @import("vm.zig").VMError.ContinuationInvoked => PrimitiveError.ContinuationInvoked,
             @import("vm.zig").VMError.ExceptionRaised => PrimitiveError.ExceptionRaised,
             @import("vm.zig").VMError.OutOfMemory => PrimitiveError.OutOfMemory,
-            else => PrimitiveError.TypeError,
+            else => PrimitiveError.TypeError, // bare-ok: catch fallback
         };
     };
 }
