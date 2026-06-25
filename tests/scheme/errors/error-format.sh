@@ -44,7 +44,7 @@ echo
 # --- Reader errors include file:line:col ---
 echo "-- Reader errors --"
 assert_output_contains "reader error has location" \
-    '(define x #\invalid-char)' '<repl>:1:'
+    '(define x #\invalid-char)' '<stdin>:1:'
 
 assert_output_contains "reader error has 'read error'" \
     '(define x #\invalid-char)' 'read error'
@@ -53,7 +53,7 @@ assert_output_contains "reader error has 'read error'" \
 echo
 echo "-- Compile errors --"
 assert_output_contains "compile error has location" \
-    '(if)' '<repl>:1:'
+    '(if)' '<stdin>:1:'
 
 assert_output_contains "compile error has 'compile error'" \
     '(if)' 'compile error'
