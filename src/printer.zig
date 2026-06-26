@@ -185,7 +185,7 @@ fn markCycles(allocator: std.mem.Allocator, value: Value, state: *SharedState) v
     defer on_stack.deinit();
     var done = std.AutoHashMap(Value, void).init(allocator);
     defer done.deinit();
-    markCyclesRec(allocator, value, state, &on_stack, &done);
+    markCyclesRec(allocator, value, state, &on_stack, &done, 0);
 }
 
 fn markCyclesRec(
@@ -194,7 +194,9 @@ fn markCyclesRec(
     state: *SharedState,
     on_stack: *std.AutoHashMap(Value, void),
     done: *std.AutoHashMap(Value, void),
+    depth: u32,
 ) void {
+    if (depth >= MAX_PRINT_DEPTH) return;
     if (!types.isPointer(value)) return;
     const obj = types.toObject(value);
 
@@ -203,7 +205,7 @@ fn markCyclesRec(
         if (done.contains(value)) return;
         on_stack.put(value, {}) catch return;
         const vec = obj.as(types.Vector);
-        for (vec.data) |elem| markCyclesRec(allocator, elem, state, on_stack, done);
+        for (vec.data) |elem| markCyclesRec(allocator, elem, state, on_stack, done, depth + 1);
         _ = on_stack.remove(value);
         done.put(value, {}) catch {};
         return;
@@ -220,8 +222,7 @@ fn markCyclesRec(
     while (types.isPointer(cur)) {
         const o = types.toObject(cur);
         if (o.tag != .pair) {
-            // Dotted tail that is itself a heap object (e.g. vector).
-            markCyclesRec(allocator, cur, state, on_stack, done);
+            markCyclesRec(allocator, cur, state, on_stack, done, depth + 1);
             break;
         }
         if (on_stack.contains(cur)) {
@@ -231,7 +232,7 @@ fn markCyclesRec(
         if (done.contains(cur)) break;
         on_stack.put(cur, {}) catch break;
         spine.append(allocator, cur) catch {};
-        markCyclesRec(allocator, types.car(cur), state, on_stack, done);
+        markCyclesRec(allocator, types.car(cur), state, on_stack, done, depth + 1);
         cur = types.cdr(cur);
     }
 
@@ -373,13 +374,18 @@ pub fn formatFlonum(buf: []u8, f: f64) []const u8 {
 }
 
 pub fn printValue(writer: anytype, value: Value, mode: PrintMode) anyerror!void {
+    return printValueWithDepth(writer, value, mode, 0);
+}
+
+fn printValueWithDepth(writer: anytype, value: Value, mode: PrintMode, depth: u32) anyerror!void {
     if (mode == .shared) {
-        // Two-pass shared printing
         var state = SharedState{};
-        // Pass 1: detect shared structure
         markShared(value, &state);
-        // Pass 2: print with labels
         try printValueShared(writer, value, &state, .write);
+        return;
+    }
+    if (depth >= MAX_PRINT_DEPTH) {
+        try writer.writeAll("...");
         return;
     }
     if (types.isFixnum(value)) {
@@ -427,7 +433,7 @@ pub fn printValue(writer: anytype, value: Value, mode: PrintMode) anyerror!void 
     } else if (types.isPointer(value)) {
         const obj = types.toObject(value);
         switch (obj.tag) {
-            .pair => try printList(writer, value, mode),
+            .pair => try printListWithDepth(writer, value, mode, depth),
             .symbol => {
                 const sym = obj.as(types.Symbol);
                 if (mode != .display and symbolNeedsBars(sym.name)) {
@@ -488,18 +494,17 @@ pub fn printValue(writer: anytype, value: Value, mode: PrintMode) anyerror!void 
             .error_object => {
                 const err = obj.as(types.ErrorObject);
                 try writer.writeAll("#<error ");
-                try printValue(writer, err.message, mode);
-                // Print irritants if non-empty
+                try printValueWithDepth(writer, err.message, mode, depth + 1);
                 if (err.irritants != types.NIL) {
                     try writer.writeByte(' ');
                     var irr = err.irritants;
                     while (irr != types.NIL) {
                         if (types.isPair(irr)) {
-                            try printValue(writer, types.car(irr), mode);
+                            try printValueWithDepth(writer, types.car(irr), mode, depth + 1);
                             irr = types.cdr(irr);
                             if (irr != types.NIL) try writer.writeByte(' ');
                         } else {
-                            try printValue(writer, irr, mode);
+                            try printValueWithDepth(writer, irr, mode, depth + 1);
                             break;
                         }
                     }
@@ -523,10 +528,9 @@ pub fn printValue(writer: anytype, value: Value, mode: PrintMode) anyerror!void 
             .record_instance => {
                 const ri = obj.as(types.RecordInstance);
                 try writer.print("#<{s}", .{ri.record_type.name});
-                for (ri.fields, 0..) |field, i| {
-                    _ = i;
+                for (ri.fields) |field| {
                     try writer.writeByte(' ');
-                    try printValue(writer, field, mode);
+                    try printValueWithDepth(writer, field, mode, depth + 1);
                 }
                 try writer.writeByte('>');
             },
@@ -556,7 +560,7 @@ pub fn printValue(writer: anytype, value: Value, mode: PrintMode) anyerror!void 
                 try writer.writeAll("#(");
                 for (vec.data, 0..) |elem, i| {
                     if (i > 0) try writer.writeByte(' ');
-                    try printValue(writer, elem, mode);
+                    try printValueWithDepth(writer, elem, mode, depth + 1);
                 }
                 try writer.writeByte(')');
             },
@@ -583,7 +587,7 @@ pub fn printValue(writer: anytype, value: Value, mode: PrintMode) anyerror!void 
                 try writer.writeAll("#<values");
                 for (mv.values) |val| {
                     try writer.writeByte(' ');
-                    try printValue(writer, val, mode);
+                    try printValueWithDepth(writer, val, mode, depth + 1);
                 }
                 try writer.writeByte('>');
             },
@@ -628,7 +632,7 @@ pub fn printValue(writer: anytype, value: Value, mode: PrintMode) anyerror!void 
                 try writer.writeAll("#<mutex");
                 if (m.name != types.VOID) {
                     try writer.writeAll(" ");
-                    try printValue(writer, m.name, mode);
+                    try printValueWithDepth(writer, m.name, mode, depth + 1);
                 }
                 try writer.writeAll(">");
             },
@@ -637,7 +641,7 @@ pub fn printValue(writer: anytype, value: Value, mode: PrintMode) anyerror!void 
                 try writer.writeAll("#<condition-variable");
                 if (cv.name != types.VOID) {
                     try writer.writeAll(" ");
-                    try printValue(writer, cv.name, mode);
+                    try printValueWithDepth(writer, cv.name, mode, depth + 1);
                 }
                 try writer.writeAll(">");
             },
@@ -654,9 +658,9 @@ pub fn printValue(writer: anytype, value: Value, mode: PrintMode) anyerror!void 
             },
             .rational => {
                 const rat = obj.as(types.Rational);
-                try printValue(writer, rat.numerator, mode);
+                try printValueWithDepth(writer, rat.numerator, mode, depth + 1);
                 try writer.writeByte('/');
-                try printValue(writer, rat.denominator, mode);
+                try printValueWithDepth(writer, rat.denominator, mode, depth + 1);
             },
             .file_info => {
                 const fi = obj.as(types.FileInfo);
@@ -692,18 +696,22 @@ pub fn printValue(writer: anytype, value: Value, mode: PrintMode) anyerror!void 
 }
 
 fn printList(writer: anytype, value: Value, mode: PrintMode) anyerror!void {
+    return printListWithDepth(writer, value, mode, 0);
+}
+
+fn printListWithDepth(writer: anytype, value: Value, mode: PrintMode, depth: u32) anyerror!void {
     try writer.writeByte('(');
-    try printValue(writer, types.car(value), mode);
+    try printValueWithDepth(writer, types.car(value), mode, depth + 1);
 
     var rest = types.cdr(value);
     while (rest != types.NIL) {
         if (types.isPair(rest)) {
             try writer.writeByte(' ');
-            try printValue(writer, types.car(rest), mode);
+            try printValueWithDepth(writer, types.car(rest), mode, depth + 1);
             rest = types.cdr(rest);
         } else {
             try writer.writeAll(" . ");
-            try printValue(writer, rest, mode);
+            try printValueWithDepth(writer, rest, mode, depth + 1);
             break;
         }
     }
