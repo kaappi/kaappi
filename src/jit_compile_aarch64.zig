@@ -323,25 +323,8 @@ pub fn compile(func: *types.Function, vm: *VM, allocator: std.mem.Allocator) !*J
                 ip += 3;
                 try emitSetGlobal(&asm_ctx, src, sym_idx, &pending_exits, allocator, ip - 4);
             },
-            .box_local => {
-                const reg = code[ip];
-                ip += 1;
-                // box_local is a no-op in our register VM — values are already in registers
-                // The box concept exists for closure capture; here just skip
-                _ = reg;
-            },
-            .get_box_local => {
-                const dst = code[ip];
-                const src = code[ip + 1];
-                ip += 2;
-                try emitRegCopy(&asm_ctx, dst, src);
-            },
-            .set_box_local => {
-                const dst = code[ip];
-                const src = code[ip + 1];
-                ip += 2;
-                try emitRegCopy(&asm_ctx, dst, src);
-            },
+            // box_local, get_box_local, set_box_local: side-exit to interpreter
+            // (handled by the else case below)
             .self_tail_call => {
                 const base_reg = code[ip];
                 const stc_nargs = code[ip + 1];
