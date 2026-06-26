@@ -124,7 +124,10 @@ pub fn compileCase(self: *Compiler, args: Value, dst: u8, is_tail: bool) Compile
             // (else => proc): apply proc to the key value.
             if (types.isPair(clause_body)) {
                 const maybe_arrow = types.car(clause_body);
-                if (types.isSymbol(maybe_arrow) and std.mem.eql(u8, types.symbolName(maybe_arrow), "=>")) {
+                if (types.isSymbol(maybe_arrow) and std.mem.eql(u8, types.symbolName(maybe_arrow), "=>") and
+                    self.resolveLocal("=>") == null and
+                    (try self.resolveUpvalue("=>")) == null)
+                {
                     const arrow_rest = types.cdr(clause_body);
                     if (!types.isPair(arrow_rest)) return CompileError.InvalidSyntax;
                     const proc_expr = types.car(arrow_rest);
@@ -237,7 +240,10 @@ pub fn compileCase(self: *Compiler, args: Value, dst: u8, is_tail: bool) Compile
         // Check for => form: ((datum ...) => proc)
         if (clause_body != types.NIL and types.isPair(clause_body)) {
             const maybe_arrow = types.car(clause_body);
-            if (types.isSymbol(maybe_arrow) and std.mem.eql(u8, types.symbolName(maybe_arrow), "=>")) {
+            if (types.isSymbol(maybe_arrow) and std.mem.eql(u8, types.symbolName(maybe_arrow), "=>") and
+                self.resolveLocal("=>") == null and
+                (try self.resolveUpvalue("=>")) == null)
+            {
                 // Arrow form: compile proc, call with key value
                 const arrow_rest = types.cdr(clause_body);
                 if (arrow_rest == types.NIL or !types.isPair(arrow_rest)) return CompileError.InvalidSyntax;
