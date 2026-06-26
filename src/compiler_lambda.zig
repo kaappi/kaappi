@@ -5,7 +5,7 @@ const compiler_mod = @import("compiler.zig");
 const Compiler = compiler_mod.Compiler;
 const CompileError = compiler_mod.CompileError;
 const Value = types.Value;
-pub fn compileLambda(self: *Compiler, args: Value, dst: u8, name: ?[]const u8) CompileError!void {
+pub fn compileLambda(self: *Compiler, args: Value, dst: u16, name: ?[]const u8) CompileError!void {
     if (args == types.NIL) return CompileError.InvalidSyntax;
     const formals = types.car(args);
     const body = types.cdr(args);
@@ -87,13 +87,13 @@ pub fn compileLambda(self: *Compiler, args: Value, dst: u8, name: ?[]const u8) C
     const func_val = types.makePointer(@ptrCast(child.func));
     const idx = try self.addConstant(func_val);
     try self.emitOp(.closure);
-    try self.emit(dst);
+    try self.emitU16(dst);
     try self.emitU16(idx);
 
     // Emit upvalue descriptors
     for (child.upvalues.items) |uv| {
         try self.emit(if (uv.is_local) 1 else 0);
-        try self.emit(uv.index);
+        try self.emitU16(uv.index);
     }
 }
 
@@ -151,7 +151,7 @@ pub fn compileBody(self: *Compiler, body: Value) CompileError!void {
     }
 
     var current = body;
-    var last_dst: u8 = 0;
+    var last_dst: u16 = 0;
 
     while (current != types.NIL) {
         if (!types.isPair(current)) return CompileError.InvalidSyntax;
@@ -172,10 +172,10 @@ pub fn compileBody(self: *Compiler, body: Value) CompileError!void {
 
     self.in_body_scope = saved_body_scope;
     try self.emitOp(.@"return");
-    try self.emit(last_dst);
+    try self.emitU16(last_dst);
 }
 
-pub fn compileDefine(self: *Compiler, args: Value, dst: u8) CompileError!void {
+pub fn compileDefine(self: *Compiler, args: Value, dst: u16) CompileError!void {
     if (args == types.NIL) return CompileError.InvalidSyntax;
     const target = types.car(args);
     const rest = types.cdr(args);
@@ -200,23 +200,23 @@ pub fn compileDefine(self: *Compiler, args: Value, dst: u8) CompileError!void {
         if (self.in_body_scope) {
             const slot = try self.allocReg();
             try self.emitOp(.move);
-            try self.emit(slot);
-            try self.emit(dst);
+            try self.emitU16(slot);
+            try self.emitU16(dst);
             self.locals.append(self.gc.allocator, .{
                 .name = types.symbolName(target),
                 .depth = self.scope_depth,
                 .slot = slot,
             }) catch return CompileError.OutOfMemory;
             try self.emitOp(.load_void);
-            try self.emit(dst);
+            try self.emitU16(dst);
             return;
         }
         const sym_idx = try self.addConstant(target);
         try self.emitOp(.define_global);
         try self.emitU16(sym_idx);
-        try self.emit(dst);
+        try self.emitU16(dst);
         try self.emitOp(.load_void);
-        try self.emit(dst);
+        try self.emitU16(dst);
         return;
     }
 
@@ -234,16 +234,16 @@ pub fn compileDefine(self: *Compiler, args: Value, dst: u8) CompileError!void {
         const sym_idx = try self.addConstant(name);
         try self.emitOp(.define_global);
         try self.emitU16(sym_idx);
-        try self.emit(dst);
+        try self.emitU16(dst);
         try self.emitOp(.load_void);
-        try self.emit(dst);
+        try self.emitU16(dst);
         return;
     }
 
     return CompileError.InvalidSyntax;
 }
 
-pub fn compileDefineValues(self: *Compiler, args: Value, dst: u8) CompileError!void {
+pub fn compileDefineValues(self: *Compiler, args: Value, dst: u16) CompileError!void {
     if (args == types.NIL) return CompileError.InvalidSyntax;
     const formals = types.car(args);
     const rest = types.cdr(args);
@@ -260,7 +260,7 @@ pub fn compileDefineValues(self: *Compiler, args: Value, dst: u8) CompileError!v
         // (define-values () expr) — no bindings, just evaluate for side effects
         try self.compileExpr(expr, dst, false);
         try self.emitOp(.load_void);
-        try self.emit(dst);
+        try self.emitU16(dst);
         return;
     }
 
@@ -410,10 +410,10 @@ pub fn compileDefineValues(self: *Compiler, args: Value, dst: u8) CompileError!v
     // Compile the call-with-values expression
     try self.compileExpr(cwv_form, dst, false);
     try self.emitOp(.load_void);
-    try self.emit(dst);
+    try self.emitU16(dst);
 }
 
-pub fn compileSet(self: *Compiler, args: Value, dst: u8) CompileError!void {
+pub fn compileSet(self: *Compiler, args: Value, dst: u16) CompileError!void {
     if (args == types.NIL) return CompileError.InvalidSyntax;
     const target = types.car(args);
     const rest = types.cdr(args);
@@ -427,29 +427,29 @@ pub fn compileSet(self: *Compiler, args: Value, dst: u8) CompileError!void {
     if (self.resolveLocal(name)) |slot| {
         if (self.isLocalBoxed(name)) {
             try self.emitOp(.set_box_local);
-            try self.emit(slot);
-            try self.emit(dst);
+            try self.emitU16(slot);
+            try self.emitU16(dst);
         } else {
             try self.emitOp(.move);
-            try self.emit(slot);
-            try self.emit(dst);
+            try self.emitU16(slot);
+            try self.emitU16(dst);
         }
     } else if (try self.resolveUpvalue(name)) |idx| {
         try self.emitOp(.set_upvalue);
-        try self.emit(idx);
-        try self.emit(dst);
+        try self.emitU16(idx);
+        try self.emitU16(dst);
     } else {
         const sym_idx = try self.addConstant(target);
         try self.emitOp(.set_global);
         try self.emitU16(sym_idx);
-        try self.emit(dst);
+        try self.emitU16(dst);
     }
     try self.emitOp(.load_void);
-    try self.emit(dst);
+    try self.emitU16(dst);
 }
 
 /// Compile (delay expr) as: create a promise wrapping (lambda () expr)
-pub fn compileDelay(self: *Compiler, args: Value, dst: u8) CompileError!void {
+pub fn compileDelay(self: *Compiler, args: Value, dst: u16) CompileError!void {
     if (args == types.NIL) return CompileError.InvalidSyntax;
     const expr = types.car(args);
 
@@ -462,52 +462,52 @@ pub fn compileDelay(self: *Compiler, args: Value, dst: u8) CompileError!void {
     const body_dst = child.allocReg() catch return CompileError.TooManyLocals;
     try child.compileExpr(expr, body_dst, true);
     try child.emitOp(.@"return");
-    try child.emit(body_dst);
+    try child.emitU16(body_dst);
 
     // Store the lambda as a closure constant and emit closure + upvalue descriptors
     const func_val = types.makePointer(@ptrCast(child.func));
     const closure_idx = try self.addConstant(func_val);
     const thunk_reg = try self.allocReg();
     try self.emitOp(.closure);
-    try self.emit(thunk_reg);
+    try self.emitU16(thunk_reg);
     try self.emitU16(closure_idx);
 
     // Emit upvalue descriptors (critical for capturing variables)
     for (child.upvalues.items) |uv| {
         try self.emit(if (uv.is_local) 1 else 0);
-        try self.emit(uv.index);
+        try self.emitU16(uv.index);
     }
 
     // Call %make-promise-lazy(thunk) to create an unforced promise
     const sym = self.gc.allocSymbol("%make-promise-lazy") catch return CompileError.OutOfMemory;
     const sym_idx = try self.addConstant(sym);
     try self.emitOp(.get_global);
-    try self.emit(dst);
+    try self.emitU16(dst);
     try self.emitU16(sym_idx);
 
     // Set up the call: dst=func, dst+1=arg
     try self.emitOp(.move);
-    try self.emit(dst + 1);
-    try self.emit(thunk_reg);
+    try self.emitU16(dst + 1);
+    try self.emitU16(thunk_reg);
 
     try self.emitOp(.call);
-    try self.emit(dst);
+    try self.emitU16(dst);
     try self.emit(1);
 
     self.freeReg(); // free thunk_reg
 }
 
 /// Compile (delay-force expr) — like delay but the result is itself forced iteratively
-pub fn compileDelayForce(self: *Compiler, args: Value, dst: u8) CompileError!void {
+pub fn compileDelayForce(self: *Compiler, args: Value, dst: u16) CompileError!void {
     // delay-force is the same as delay for our purposes —
     // the iterative forcing in forceFn handles this correctly
     return compileDelay(self, args, dst);
 }
 
-pub fn compileBegin(self: *Compiler, args: Value, dst: u8, is_tail: bool) CompileError!void {
+pub fn compileBegin(self: *Compiler, args: Value, dst: u16, is_tail: bool) CompileError!void {
     if (args == types.NIL) {
         try self.emitOp(.load_void);
-        try self.emit(dst);
+        try self.emitU16(dst);
         return;
     }
 

@@ -132,23 +132,27 @@ pub fn compile(func: *types.Function, vm: *VM, allocator: std.mem.Allocator) !*J
                     try branch_targets.put(target, {});
                 },
                 .jump_false, .jump_true => {
-                    scan_ip += 1;
+                    scan_ip += 2;
                     const off = readI16(code, scan_ip);
                     scan_ip += 2;
                     const target = safeJumpTarget(scan_ip, off, code.len) orelse return error.InvalidBytecode;
                     try branch_targets.put(target, {});
                 },
                 .self_tail_call => {
-                    scan_ip += 2;
+                    scan_ip += 3;
                     try branch_targets.put(0, {});
                 },
                 else => {
                     const skip: usize = switch (scan_op) {
-                        .load_const, .get_global, .jump_false, .jump_true => 3,
-                        .set_global, .define_global, .cons => 3,
-                        .move, .get_local, .set_local, .get_upvalue, .set_upvalue, .call, .tail_call, .get_box_local, .set_box_local, .self_tail_call => 2,
-                        .call_global, .tail_call_global => 4,
-                        .load_nil, .load_true, .load_false, .load_void, .box_local, .@"return" => 1,
+                        .load_const, .get_global, .jump_false, .jump_true => 4,
+                        .set_global, .define_global => 4,
+                        .cons => 6,
+                        .move, .get_local, .set_local, .get_upvalue, .set_upvalue, .get_box_local, .set_box_local => 4,
+                        .call, .tail_call, .self_tail_call => 3,
+                        .call_global, .tail_call_global => 5,
+                        .load_nil, .load_true, .load_false, .load_void => 2,
+                        .box_local => 2,
+                        .@"return" => 2,
                         .jump => 2,
                         else => 0,
                     };
@@ -174,33 +178,33 @@ pub fn compile(func: *types.Function, vm: *VM, allocator: std.mem.Allocator) !*J
 
         switch (op) {
             .load_nil => {
-                const dst = code[ip];
-                ip += 1;
+                const dst = readU16(code, ip);
+                ip += 2;
                 try asm_ctx.emitLoadImm64(.rax, types.NIL);
                 try cachedStore(&asm_ctx, &cache, dst, .rax);
             },
             .load_true => {
-                const dst = code[ip];
-                ip += 1;
+                const dst = readU16(code, ip);
+                ip += 2;
                 try asm_ctx.emitLoadImm64(.rax, types.TRUE);
                 try cachedStore(&asm_ctx, &cache, dst, .rax);
             },
             .load_false => {
-                const dst = code[ip];
-                ip += 1;
+                const dst = readU16(code, ip);
+                ip += 2;
                 try asm_ctx.emitLoadImm64(.rax, types.FALSE);
                 try cachedStore(&asm_ctx, &cache, dst, .rax);
             },
             .load_void => {
-                const dst = code[ip];
-                ip += 1;
+                const dst = readU16(code, ip);
+                ip += 2;
                 try asm_ctx.emitLoadImm64(.rax, types.VOID);
                 try cachedStore(&asm_ctx, &cache, dst, .rax);
             },
             .load_const => {
-                const dst = code[ip];
-                const idx = readU16(code, ip + 1);
-                ip += 3;
+                const dst = readU16(code, ip);
+                const idx = readU16(code, ip + 2);
+                ip += 4;
                 const offset: u32 = @as(u32, idx) * 8;
                 if (offset <= 32760) {
                     try asm_ctx.emitLdrImm(.rax, X_CONST_PTR, @intCast(offset));
@@ -212,18 +216,18 @@ pub fn compile(func: *types.Function, vm: *VM, allocator: std.mem.Allocator) !*J
                 try cachedStore(&asm_ctx, &cache, dst, .rax);
             },
             .move, .get_local, .set_local => {
-                const dst = code[ip];
-                const src = code[ip + 1];
-                ip += 2;
+                const dst = readU16(code, ip);
+                const src = readU16(code, ip + 2);
+                ip += 4;
                 try cachedLoad(&asm_ctx, &cache, .rax, src);
                 try cachedStore(&asm_ctx, &cache, dst, .rax);
             },
             // box_local, get_box_local, set_box_local: side-exit to interpreter
             // (handled by the else case below)
             .@"return" => {
-                const src = code[ip];
-                ip += 1;
-                const ret_bc_ip = ip - 2;
+                const src = readU16(code, ip);
+                ip += 2;
+                const ret_bc_ip = ip - 3;
                 // Flush cache before return sequence
                 try cache.flushAll(&asm_ctx);
                 // Guard: wind_count must be 0
@@ -247,14 +251,14 @@ pub fn compile(func: *types.Function, vm: *VM, allocator: std.mem.Allocator) !*J
                 try pending_returns.append(allocator, patch_idx + 1);
             },
             .self_tail_call => {
-                const base_reg = code[ip];
-                const stc_nargs = code[ip + 1];
-                ip += 2;
+                const base_reg = readU16(code, ip);
+                const stc_nargs = code[ip + 2];
+                ip += 3;
                 try cache.invalidateAll(&asm_ctx);
-                var i: u8 = 0;
+                var i: u16 = 0;
                 while (i < stc_nargs) : (i += 1) {
-                    const src_off: u16 = (@as(u16, base_reg) + 1 + i) * 8;
-                    const dst_off: u16 = @as(u16, i) * 8;
+                    const src_off: u16 = (base_reg + 1 + i) * 8;
+                    const dst_off: u16 = i * 8;
                     try asm_ctx.emitLdrImm(.rax, X_FRAME_PTR, src_off);
                     try asm_ctx.emitStrImm(.rax, X_FRAME_PTR, dst_off);
                 }
@@ -268,46 +272,46 @@ pub fn compile(func: *types.Function, vm: *VM, allocator: std.mem.Allocator) !*J
                 });
             },
             .get_global => {
-                const dst_g = code[ip];
-                const sym_idx_g = readU16(code, ip + 1);
-                ip += 3;
-                try x64EmitGetGlobal(&asm_ctx, dst_g, sym_idx_g, &pending_exits, allocator, ip - 4, &cache);
-                reg_global_sym[dst_g] = sym_idx_g;
+                const dst_g = readU16(code, ip);
+                const sym_idx_g = readU16(code, ip + 2);
+                ip += 4;
+                try x64EmitGetGlobal(&asm_ctx, dst_g, sym_idx_g, &pending_exits, allocator, ip - 5, &cache);
+                if (dst_g < 256) reg_global_sym[dst_g] = sym_idx_g;
             },
             .set_global, .define_global => {
                 const sym_idx_s = readU16(code, ip);
-                const src_s = code[ip + 2];
-                ip += 3;
-                try x64EmitSetGlobal(&asm_ctx, src_s, sym_idx_s, &pending_exits, allocator, ip - 4, &cache);
+                const src_s = readU16(code, ip + 2);
+                ip += 4;
+                try x64EmitSetGlobal(&asm_ctx, src_s, sym_idx_s, &pending_exits, allocator, ip - 5, &cache);
             },
             .get_upvalue => {
-                const dst_uv = code[ip];
-                const idx_uv = code[ip + 1];
-                ip += 2;
-                try x64EmitGetUpvalue(&asm_ctx, dst_uv, idx_uv, &pending_exits, allocator, ip - 3, &cache);
+                const dst_uv = readU16(code, ip);
+                const idx_uv = readU16(code, ip + 2);
+                ip += 4;
+                try x64EmitGetUpvalue(&asm_ctx, dst_uv, idx_uv, &pending_exits, allocator, ip - 5, &cache);
             },
             .set_upvalue => {
-                const idx_uv2 = code[ip];
-                const src_uv = code[ip + 1];
-                ip += 2;
-                try x64EmitSetUpvalue(&asm_ctx, src_uv, idx_uv2, &pending_exits, allocator, ip - 3, &cache);
+                const idx_uv2 = readU16(code, ip);
+                const src_uv = readU16(code, ip + 2);
+                ip += 4;
+                try x64EmitSetUpvalue(&asm_ctx, src_uv, idx_uv2, &pending_exits, allocator, ip - 5, &cache);
             },
             .cons => {
-                const dst_c = code[ip];
-                const car_reg = code[ip + 1];
-                const cdr_reg = code[ip + 2];
-                ip += 3;
-                try x64EmitCons(&asm_ctx, dst_c, car_reg, cdr_reg, &pending_exits, allocator, ip - 4, &cache);
+                const dst_c = readU16(code, ip);
+                const car_reg = readU16(code, ip + 2);
+                const cdr_reg = readU16(code, ip + 4);
+                ip += 6;
+                try x64EmitCons(&asm_ctx, dst_c, car_reg, cdr_reg, &pending_exits, allocator, ip - 7, &cache);
             },
             .closure => {
-                const dst_cl = code[ip];
-                const sym_idx_cl = readU16(code, ip + 1);
-                ip += 3;
-                const bc_ip_cl = ip - 4;
+                const dst_cl = readU16(code, ip);
+                const sym_idx_cl = readU16(code, ip + 2);
+                ip += 4;
+                const bc_ip_cl = ip - 5;
                 const inner_func = types.toObject(func.constants.items[sym_idx_cl]).as(types.Function);
                 const n_upvalues: usize = inner_func.upvalue_count;
                 const descs_ptr = @intFromPtr(code.ptr) + ip;
-                ip += n_upvalues * 2;
+                ip += n_upvalues * 3;
                 try cache.invalidateAll(&asm_ctx);
                 // Load func value from constants
                 const const_off: u32 = @as(u32, sym_idx_cl) * 8;
@@ -325,17 +329,17 @@ pub fn compile(func: *types.Function, vm: *VM, allocator: std.mem.Allocator) !*J
                 try asm_ctx.emitBlr(.rax);
                 try asm_ctx.emitCmpImm(.rax, 0);
                 try x64EmitCondSideExit(&asm_ctx, &pending_exits, allocator, bc_ip_cl, x64.Cond.eq, &cache);
-                try asm_ctx.emitStrImm(.rax, X_FRAME_PTR, @as(u16, dst_cl) * 8);
+                try asm_ctx.emitStrImm(.rax, X_FRAME_PTR, dst_cl * 8);
             },
             .close_upvalue => {
-                ip += 1;
+                ip += 2;
             },
             .call_global => {
-                const base_reg_cg = code[ip];
-                const sym_idx_cg = readU16(code, ip + 1);
-                const nargs_cg = code[ip + 3];
-                ip += 4;
-                const bc_ip_cg = ip - 5;
+                const base_reg_cg = readU16(code, ip);
+                const sym_idx_cg = readU16(code, ip + 2);
+                const nargs_cg = code[ip + 4];
+                ip += 5;
+                const bc_ip_cg = ip - 6;
                 const spec = recognizeArithPrimitive(func, sym_idx_cg, vm);
                 if (spec != .none and nargs_cg == 2 and (spec == .add or spec == .sub or spec == .mul or spec == .lt or spec == .gt or spec == .le or spec == .ge or spec == .eq)) {
                     try x64EmitSpecializedArith(&asm_ctx, base_reg_cg, spec, &pending_exits, allocator, bc_ip_cg, &cache);
@@ -348,11 +352,11 @@ pub fn compile(func: *types.Function, vm: *VM, allocator: std.mem.Allocator) !*J
                 }
             },
             .tail_call_global => {
-                const base_reg_tcg = code[ip];
-                const sym_idx_tcg = readU16(code, ip + 1);
-                const nargs_tcg = code[ip + 3];
-                ip += 4;
-                const bc_ip_tcg = ip - 5;
+                const base_reg_tcg = readU16(code, ip);
+                const sym_idx_tcg = readU16(code, ip + 2);
+                const nargs_tcg = code[ip + 4];
+                ip += 5;
+                const bc_ip_tcg = ip - 6;
                 const spec_t = recognizeArithPrimitive(func, sym_idx_tcg, vm);
                 if (spec_t != .none and nargs_tcg == 2 and (spec_t == .add or spec_t == .sub or spec_t == .mul or spec_t == .lt or spec_t == .gt or spec_t == .le or spec_t == .ge or spec_t == .eq)) {
                     try x64EmitSpecializedArith(&asm_ctx, base_reg_tcg, spec_t, &pending_exits, allocator, bc_ip_tcg, &cache);
@@ -364,16 +368,16 @@ pub fn compile(func: *types.Function, vm: *VM, allocator: std.mem.Allocator) !*J
                 }
             },
             .call => {
-                const base_reg_c = code[ip];
-                const nargs_c = code[ip + 1];
-                ip += 2;
-                try x64EmitCall(&asm_ctx, base_reg_c, nargs_c, &pending_exits, &pending_returns, &pending_quick_exits, allocator, ip - 3, ip, &cache);
+                const base_reg_c = readU16(code, ip);
+                const nargs_c = code[ip + 2];
+                ip += 3;
+                try x64EmitCall(&asm_ctx, base_reg_c, nargs_c, &pending_exits, &pending_returns, &pending_quick_exits, allocator, ip - 4, ip, &cache);
             },
             .tail_call => {
-                const base_reg_tc = code[ip];
-                const nargs_tc = code[ip + 1];
-                ip += 2;
-                try x64EmitTailCall(&asm_ctx, base_reg_tc, nargs_tc, &pending_exits, &pending_returns, allocator, ip - 3, reg_global_sym[base_reg_tc], func, vm, &cache);
+                const base_reg_tc = readU16(code, ip);
+                const nargs_tc = code[ip + 2];
+                ip += 3;
+                try x64EmitTailCall(&asm_ctx, base_reg_tc, nargs_tc, &pending_exits, &pending_returns, allocator, ip - 4, if (base_reg_tc < 256) reg_global_sym[base_reg_tc] else null, func, vm, &cache);
             },
             .jump => {
                 const off = readI16(code, ip);
@@ -390,9 +394,9 @@ pub fn compile(func: *types.Function, vm: *VM, allocator: std.mem.Allocator) !*J
                 });
             },
             .jump_false => {
-                const cond_reg = code[ip];
-                const off = readI16(code, ip + 1);
-                ip += 3;
+                const cond_reg = readU16(code, ip);
+                const off = readI16(code, ip + 2);
+                ip += 4;
                 const target = safeJumpTarget(ip, off, code.len) orelse return error.InvalidBytecode;
                 try cachedLoad(&asm_ctx, &cache, .rax, cond_reg);
                 try cache.flushAll(&asm_ctx);
@@ -409,9 +413,9 @@ pub fn compile(func: *types.Function, vm: *VM, allocator: std.mem.Allocator) !*J
                 });
             },
             .jump_true => {
-                const cond_reg = code[ip];
-                const off = readI16(code, ip + 1);
-                ip += 3;
+                const cond_reg = readU16(code, ip);
+                const off = readI16(code, ip + 2);
+                ip += 4;
                 const target = safeJumpTarget(ip, off, code.len) orelse return error.InvalidBytecode;
                 try cachedLoad(&asm_ctx, &cache, .rax, cond_reg);
                 try cache.flushAll(&asm_ctx);
@@ -430,8 +434,8 @@ pub fn compile(func: *types.Function, vm: *VM, allocator: std.mem.Allocator) !*J
             else => {
                 // Side-exit for unhandled opcodes
                 const operand_bytes: usize = switch (op) {
-                    .box_local => 1,
-                    .get_box_local, .set_box_local => 2,
+                    .box_local => 2,
+                    .get_box_local, .set_box_local => 4,
                     else => 0,
                 };
                 const side_exit_ip = ip - 1;
@@ -506,7 +510,7 @@ pub fn compile(func: *types.Function, vm: *VM, allocator: std.mem.Allocator) !*J
         for (pe.cache_snapshot.entries, 0..) |entry_opt, i| {
             if (entry_opt) |entry| {
                 if (entry.dirty) {
-                    try asm_ctx.emitStrImm(CACHE_REGS[i], X_FRAME_PTR, @as(u16, entry.slot) * 8);
+                    try asm_ctx.emitStrImm(CACHE_REGS[i], X_FRAME_PTR, entry.slot * 8);
                 }
             }
         }
@@ -536,18 +540,18 @@ fn x64PatchJmp(asm_ctx: *x64.Assembler, patch_offset: u32, target: u32) void {
     asm_ctx.patchAt(patch_offset, @bitCast(rel));
 }
 
-fn x64EmitLoadImmediate(asm_ctx: *x64.Assembler, dst: u8, value: u64) !void {
+fn x64EmitLoadImmediate(asm_ctx: *x64.Assembler, dst: u16, value: u64) !void {
     try asm_ctx.emitLoadImm64(.rax, value);
     try x64EmitStoreReg(asm_ctx, dst, .rax);
 }
 
-fn x64EmitLoadReg(asm_ctx: *x64.Assembler, rd: X64, src_slot: u8) !void {
-    const offset: u16 = @as(u16, src_slot) * 8;
+fn x64EmitLoadReg(asm_ctx: *x64.Assembler, rd: X64, src_slot: u16) !void {
+    const offset: u16 = src_slot * 8;
     try asm_ctx.emitLdrImm(rd, X_FRAME_PTR, offset);
 }
 
-fn x64EmitStoreReg(asm_ctx: *x64.Assembler, dst_slot: u8, rs: X64) !void {
-    const offset: u16 = @as(u16, dst_slot) * 8;
+fn x64EmitStoreReg(asm_ctx: *x64.Assembler, dst_slot: u16, rs: X64) !void {
+    const offset: u16 = dst_slot * 8;
     try asm_ctx.emitStrImm(rs, X_FRAME_PTR, offset);
 }
 
@@ -640,7 +644,7 @@ fn x64EmitMulConst(asm_ctx: *x64.Assembler, rd: X64, rn: X64, constant: usize) !
     try asm_ctx.emitImulReg(rd, .r11);
 }
 
-fn x64EmitTailCall(asm_ctx: *x64.Assembler, base_reg: u8, nargs: u8, pending_exits: *std.ArrayList(PendingSideExit), pending_returns: *std.ArrayList(u32), allocator: std.mem.Allocator, bc_ip: usize, sym_idx: ?u16, func_ctx: *const types.Function, vm_ctx: *const VM, cache: *RegCache) !void {
+fn x64EmitTailCall(asm_ctx: *x64.Assembler, base_reg: u16, nargs: u8, pending_exits: *std.ArrayList(PendingSideExit), pending_returns: *std.ArrayList(u32), allocator: std.mem.Allocator, bc_ip: usize, sym_idx: ?u16, func_ctx: *const types.Function, vm_ctx: *const VM, cache: *RegCache) !void {
     // Peephole: if base_reg was loaded via get_global for a known primitive,
     // emit specialized inline arithmetic/predicate + tail-return.
     if (sym_idx) |si| {
@@ -658,7 +662,7 @@ fn x64EmitTailCall(asm_ctx: *x64.Assembler, base_reg: u8, nargs: u8, pending_exi
     }
     // Fallback: call helper — flush cache before C call
     try cache.invalidateAll(asm_ctx);
-    try asm_ctx.emitLdrImm(.rsi, X_FRAME_PTR, @as(u16, base_reg) * 8);
+    try asm_ctx.emitLdrImm(.rsi, X_FRAME_PTR, base_reg * 8);
     try asm_ctx.emitMovReg(.rdi, X_VM_PTR);
     try asm_ctx.emitLoadImm64(.rdx, base_reg);
     try asm_ctx.emitLoadImm64(.rcx, nargs);
@@ -674,20 +678,20 @@ fn x64EmitTailCall(asm_ctx: *x64.Assembler, base_reg: u8, nargs: u8, pending_exi
     try pending_returns.append(allocator, ok_patch);
 }
 
-fn x64EmitCall(asm_ctx: *x64.Assembler, base_reg: u8, nargs: u8, pending_exits: *std.ArrayList(PendingSideExit), pending_returns: *std.ArrayList(u32), pending_quick_exits: *std.ArrayList(u32), allocator: std.mem.Allocator, bc_ip: usize, ip_after: usize, cache: *RegCache) !void {
+fn x64EmitCall(asm_ctx: *x64.Assembler, base_reg: u16, nargs: u8, pending_exits: *std.ArrayList(PendingSideExit), pending_returns: *std.ArrayList(u32), pending_quick_exits: *std.ArrayList(u32), allocator: std.mem.Allocator, bc_ip: usize, ip_after: usize, cache: *RegCache) !void {
     try cache.invalidateAll(asm_ctx);
-    try asm_ctx.emitLdrImm(.rax, X_FRAME_PTR, @as(u16, base_reg) * 8);
+    try asm_ctx.emitLdrImm(.rax, X_FRAME_PTR, base_reg * 8);
     try x64EmitCallSequence(asm_ctx, base_reg, nargs, pending_exits, pending_returns, pending_quick_exits, allocator, bc_ip, ip_after, cache);
 }
 
-fn x64EmitCallGlobal(asm_ctx: *x64.Assembler, base_reg: u8, sym_idx: u16, nargs: u8, pending_exits: *std.ArrayList(PendingSideExit), pending_returns: *std.ArrayList(u32), pending_quick_exits: *std.ArrayList(u32), allocator: std.mem.Allocator, bc_ip: usize, ip_after: usize, cache: *RegCache) !void {
+fn x64EmitCallGlobal(asm_ctx: *x64.Assembler, base_reg: u16, sym_idx: u16, nargs: u8, pending_exits: *std.ArrayList(PendingSideExit), pending_returns: *std.ArrayList(u32), pending_quick_exits: *std.ArrayList(u32), allocator: std.mem.Allocator, bc_ip: usize, ip_after: usize, cache: *RegCache) !void {
     try cache.invalidateAll(asm_ctx);
     try x64EmitGetGlobal(asm_ctx, base_reg, sym_idx, pending_exits, allocator, bc_ip, cache);
-    try asm_ctx.emitLdrImm(.rax, X_FRAME_PTR, @as(u16, base_reg) * 8);
+    try asm_ctx.emitLdrImm(.rax, X_FRAME_PTR, base_reg * 8);
     try x64EmitCallSequence(asm_ctx, base_reg, nargs, pending_exits, pending_returns, pending_quick_exits, allocator, bc_ip, ip_after, cache);
 }
 
-fn x64EmitCallSequence(asm_ctx: *x64.Assembler, base_reg: u8, nargs: u8, pending_exits: *std.ArrayList(PendingSideExit), pending_returns: *std.ArrayList(u32), pending_quick_exits: *std.ArrayList(u32), allocator: std.mem.Allocator, bc_ip: usize, ip_after: usize, cache: *RegCache) !void {
+fn x64EmitCallSequence(asm_ctx: *x64.Assembler, base_reg: u16, nargs: u8, pending_exits: *std.ArrayList(PendingSideExit), pending_returns: *std.ArrayList(u32), pending_quick_exits: *std.ArrayList(u32), allocator: std.mem.Allocator, bc_ip: usize, ip_after: usize, cache: *RegCache) !void {
     _ = pending_quick_exits;
     // rax = callee value
 
@@ -737,7 +741,8 @@ fn x64EmitCallSequence(asm_ctx: *x64.Assembler, base_reg: u8, nargs: u8, pending
 
     // new_base = BASE_OFF/8 + base_reg + 1
     try asm_ctx.emitAsrImm(.rdi, X_BASE_OFF, 3); // rdi = frame.base
-    try asm_ctx.emitAddImm(.rdi, .rdi, @as(u12, base_reg) + 1); // rdi = new_base
+    try asm_ctx.emitLoadImm64(.r11, @as(u64, base_reg) + 1);
+    try asm_ctx.emitAddReg(.rdi, .rdi, .r11); // rdi = new_base
 
     // Store frame fields
     try x64EmitStoreAtOffset(asm_ctx, .rax, .rsi, OFF_FRAME_CLOSURE); // closure
@@ -758,7 +763,8 @@ fn x64EmitCallSequence(asm_ctx: *x64.Assembler, base_reg: u8, nargs: u8, pending
     try x64EmitStoreHalfAtOffset(asm_ctx, .rdi, .rsi, OFF_FRAME_BASE);
 
     // dst = base_reg (u8)
-    try x64EmitStoreByteValue(asm_ctx, base_reg, .rsi, OFF_FRAME_DST);
+    try asm_ctx.emitLoadImm64(.r11, base_reg);
+    try x64EmitStoreHalfAtOffset(asm_ctx, .r11, .rsi, OFF_FRAME_DST);
 
     // saved_wind_count
     try x64EmitLoadFromVmField(asm_ctx, .rcx, OFF_WIND_COUNT);
@@ -793,7 +799,8 @@ fn x64EmitCallSequence(asm_ctx: *x64.Assembler, base_reg: u8, nargs: u8, pending
 
     // Callee side-exited: call jitFinishCallee(VM*, 0, dst_abs_idx)
     try asm_ctx.emitAsrImm(.rdx, X_BASE_OFF, 3); // rdx = frame.base
-    try asm_ctx.emitAddImm(.rdx, .rdx, base_reg); // rdx = dst_abs_idx
+    try asm_ctx.emitLoadImm64(.r11, base_reg);
+    try asm_ctx.emitAddReg(.rdx, .rdx, .r11); // rdx = dst_abs_idx
     try asm_ctx.emitLoadImm64(.rsi, 0); // unused arg
     try asm_ctx.emitMovReg(.rdi, X_VM_PTR);
     try asm_ctx.emitLoadImm64(.rax, @intFromPtr(&jitFinishCallee));
@@ -813,7 +820,7 @@ fn x64EmitCallSequence(asm_ctx: *x64.Assembler, base_reg: u8, nargs: u8, pending
     x64PatchJmp(asm_ctx, ok_patch, final_ok);
 }
 
-fn x64EmitSelfCallSequence(asm_ctx: *x64.Assembler, base_reg: u8, nargs: u8, pending_exits: *std.ArrayList(PendingSideExit), pending_returns: *std.ArrayList(u32), pending_quick_exits: *std.ArrayList(u32), allocator: std.mem.Allocator, bc_ip: usize, ip_after: usize, cache: *RegCache) !void {
+fn x64EmitSelfCallSequence(asm_ctx: *x64.Assembler, base_reg: u16, nargs: u8, pending_exits: *std.ArrayList(PendingSideExit), pending_returns: *std.ArrayList(u32), pending_quick_exits: *std.ArrayList(u32), allocator: std.mem.Allocator, bc_ip: usize, ip_after: usize, cache: *RegCache) !void {
     _ = nargs;
     _ = pending_quick_exits;
     try cache.invalidateAll(asm_ctx);
@@ -839,7 +846,8 @@ fn x64EmitSelfCallSequence(asm_ctx: *x64.Assembler, base_reg: u8, nargs: u8, pen
 
     // new_base
     try asm_ctx.emitAsrImm(.rdi, X_BASE_OFF, 3);
-    try asm_ctx.emitAddImm(.rdi, .rdi, @as(u12, base_reg) + 1);
+    try asm_ctx.emitLoadImm64(.r11, @as(u64, base_reg) + 1);
+    try asm_ctx.emitAddReg(.rdi, .rdi, .r11);
 
     // Load func once
     try x64EmitLoadFromField(asm_ctx, .r8, X_CLOSURE_PTR, OFF_CLOSURE_FUNC);
@@ -857,7 +865,8 @@ fn x64EmitSelfCallSequence(asm_ctx: *x64.Assembler, base_reg: u8, nargs: u8, pen
     try asm_ctx.emitLoadImm64(.rcx, 0);
     try x64EmitStoreAtOffset(asm_ctx, .rcx, .rsi, OFF_FRAME_IP);
     try x64EmitStoreHalfAtOffset(asm_ctx, .rdi, .rsi, OFF_FRAME_BASE);
-    try x64EmitStoreByteValue(asm_ctx, base_reg, .rsi, OFF_FRAME_DST);
+    try asm_ctx.emitLoadImm64(.r11, base_reg);
+    try x64EmitStoreHalfAtOffset(asm_ctx, .r11, .rsi, OFF_FRAME_DST);
     try x64EmitLoadFromVmField(asm_ctx, .rcx, OFF_WIND_COUNT);
     try x64EmitStoreHalfAtOffset(asm_ctx, .rcx, .rsi, OFF_FRAME_SAVED_WIND);
 
@@ -883,7 +892,8 @@ fn x64EmitSelfCallSequence(asm_ctx: *x64.Assembler, base_reg: u8, nargs: u8, pen
 
     // Side-exited: call jitFinishCallee
     try asm_ctx.emitAsrImm(.rdx, X_BASE_OFF, 3);
-    try asm_ctx.emitAddImm(.rdx, .rdx, base_reg);
+    try asm_ctx.emitLoadImm64(.r11, base_reg);
+    try asm_ctx.emitAddReg(.rdx, .rdx, .r11);
     try asm_ctx.emitLoadImm64(.rsi, 0);
     try asm_ctx.emitMovReg(.rdi, X_VM_PTR);
     try asm_ctx.emitLoadImm64(.rax, @intFromPtr(&jitFinishCallee));
@@ -899,7 +909,7 @@ fn x64EmitSelfCallSequence(asm_ctx: *x64.Assembler, base_reg: u8, nargs: u8, pen
     x64PatchJmp(asm_ctx, ok_patch, final_ok);
 }
 
-fn x64EmitGetUpvalue(asm_ctx: *x64.Assembler, dst: u8, idx: u8, pending_exits: *std.ArrayList(PendingSideExit), allocator: std.mem.Allocator, bc_ip: usize, cache: *RegCache) !void {
+fn x64EmitGetUpvalue(asm_ctx: *x64.Assembler, dst: u16, idx: u16, pending_exits: *std.ArrayList(PendingSideExit), allocator: std.mem.Allocator, bc_ip: usize, cache: *RegCache) !void {
     try x64EmitLoadFromField(asm_ctx, .rax, X_CLOSURE_PTR, OFF_CLOSURE_UPVALUES);
     const uv_offset: u32 = @as(u32, idx) * 8;
     if (uv_offset <= 32760) {
@@ -918,7 +928,7 @@ fn x64EmitGetUpvalue(asm_ctx: *x64.Assembler, dst: u8, idx: u8, pending_exits: *
     try cachedStore(asm_ctx, cache, dst, .rax);
 }
 
-fn x64EmitSetUpvalue(asm_ctx: *x64.Assembler, src: u8, idx: u8, pending_exits: *std.ArrayList(PendingSideExit), allocator: std.mem.Allocator, bc_ip: usize, cache: *RegCache) !void {
+fn x64EmitSetUpvalue(asm_ctx: *x64.Assembler, src: u16, idx: u16, pending_exits: *std.ArrayList(PendingSideExit), allocator: std.mem.Allocator, bc_ip: usize, cache: *RegCache) !void {
     try x64EmitLoadFromField(asm_ctx, .rax, X_CLOSURE_PTR, OFF_CLOSURE_UPVALUES);
     const uv_offset: u32 = @as(u32, idx) * 8;
     // Load current upvalue value to check type
@@ -990,7 +1000,7 @@ fn x64EmitPointerGuard(asm_ctx: *x64.Assembler, reg: x64.Reg, pending_exits: *st
     try x64EmitCondSideExit(asm_ctx, pending_exits, allocator, bc_ip, x64.Cond.ne, cache);
 }
 
-fn x64EmitSpecializedArith(asm_ctx: *x64.Assembler, base_reg: u8, spec: SpecializedOp, pending_exits: *std.ArrayList(PendingSideExit), allocator: std.mem.Allocator, bc_ip: usize, cache: *RegCache) !void {
+fn x64EmitSpecializedArith(asm_ctx: *x64.Assembler, base_reg: u16, spec: SpecializedOp, pending_exits: *std.ArrayList(PendingSideExit), allocator: std.mem.Allocator, bc_ip: usize, cache: *RegCache) !void {
     try cachedLoad(asm_ctx, cache, .rax, base_reg + 1);
     try cachedLoad(asm_ctx, cache, .rcx, base_reg + 2);
 
@@ -1050,7 +1060,7 @@ fn x64EmitSpecializedArith(asm_ctx: *x64.Assembler, base_reg: u8, spec: Speciali
     }
 }
 
-fn x64EmitSpecializedPredicate(asm_ctx: *x64.Assembler, base_reg: u8, spec: SpecializedOp, pending_exits: *std.ArrayList(PendingSideExit), allocator: std.mem.Allocator, bc_ip: usize, cache: *RegCache) !void {
+fn x64EmitSpecializedPredicate(asm_ctx: *x64.Assembler, base_reg: u16, spec: SpecializedOp, pending_exits: *std.ArrayList(PendingSideExit), allocator: std.mem.Allocator, bc_ip: usize, cache: *RegCache) !void {
     try cachedLoad(asm_ctx, cache, .rax, base_reg + 1);
 
     switch (spec) {
@@ -1122,11 +1132,11 @@ fn x64EmitPairGuard(asm_ctx: *x64.Assembler, val_reg: X64, pending_exits: *std.A
     try x64EmitCondSideExit(asm_ctx, pending_exits, allocator, bc_ip, x64.Cond.ne, cache);
 }
 
-fn x64EmitCons(asm_ctx: *x64.Assembler, dst: u8, car_reg: u8, cdr_reg: u8, pending_exits: *std.ArrayList(PendingSideExit), allocator: std.mem.Allocator, bc_ip: usize, cache: *RegCache) !void {
+fn x64EmitCons(asm_ctx: *x64.Assembler, dst: u16, car_reg: u16, cdr_reg: u16, pending_exits: *std.ArrayList(PendingSideExit), allocator: std.mem.Allocator, bc_ip: usize, cache: *RegCache) !void {
     try cache.invalidateAll(asm_ctx);
     // System V ABI: rdi=VM*, rsi=car, rdx=cdr
-    try asm_ctx.emitLdrImm(.rsi, X_FRAME_PTR, @as(u16, car_reg) * 8);
-    try asm_ctx.emitLdrImm(.rdx, X_FRAME_PTR, @as(u16, cdr_reg) * 8);
+    try asm_ctx.emitLdrImm(.rsi, X_FRAME_PTR, car_reg * 8);
+    try asm_ctx.emitLdrImm(.rdx, X_FRAME_PTR, cdr_reg * 8);
     try asm_ctx.emitMovReg(.rdi, X_VM_PTR);
     try asm_ctx.emitLoadImm64(.rax, @intFromPtr(&jitAllocPair));
     try asm_ctx.emitBlr(.rax);
@@ -1135,7 +1145,7 @@ fn x64EmitCons(asm_ctx: *x64.Assembler, dst: u8, car_reg: u8, cdr_reg: u8, pendi
     try x64EmitStoreReg(asm_ctx, dst, .rax);
 }
 
-fn x64EmitGetGlobal(asm_ctx: *x64.Assembler, dst: u8, sym_idx: u16, pending_exits: *std.ArrayList(PendingSideExit), allocator: std.mem.Allocator, bc_ip: usize, cache: *RegCache) !void {
+fn x64EmitGetGlobal(asm_ctx: *x64.Assembler, dst: u16, sym_idx: u16, pending_exits: *std.ArrayList(PendingSideExit), allocator: std.mem.Allocator, bc_ip: usize, cache: *RegCache) !void {
     // Load func from closure
     try x64EmitLoadFromField(asm_ctx, .rax, X_CLOSURE_PTR, OFF_CLOSURE_FUNC);
     // Load global_cache.ptr (first word of ?[]Value)
@@ -1170,7 +1180,7 @@ fn x64EmitGetGlobal(asm_ctx: *x64.Assembler, dst: u8, sym_idx: u16, pending_exit
     try cachedStore(asm_ctx, cache, dst, .rdx);
 }
 
-fn x64EmitSetGlobal(asm_ctx: *x64.Assembler, src: u8, sym_idx: u16, pending_exits: *std.ArrayList(PendingSideExit), allocator: std.mem.Allocator, bc_ip: usize, cache: *RegCache) !void {
+fn x64EmitSetGlobal(asm_ctx: *x64.Assembler, src: u16, sym_idx: u16, pending_exits: *std.ArrayList(PendingSideExit), allocator: std.mem.Allocator, bc_ip: usize, cache: *RegCache) !void {
     try cache.invalidateAll(asm_ctx);
     // System V ABI: rdi=VM*, rsi=symbol, rdx=value
     const sym_offset: u32 = @as(u32, sym_idx) * 8;
@@ -1190,7 +1200,7 @@ fn x64EmitSetGlobal(asm_ctx: *x64.Assembler, src: u8, sym_idx: u16, pending_exit
     try x64EmitCondSideExit(asm_ctx, pending_exits, allocator, bc_ip, x64.Cond.eq, cache);
 }
 
-fn x64EmitTailReturn(asm_ctx: *x64.Assembler, base_reg: u8, pending_returns: *std.ArrayList(u32), allocator: std.mem.Allocator, cache: *RegCache) !void {
+fn x64EmitTailReturn(asm_ctx: *x64.Assembler, base_reg: u16, pending_returns: *std.ArrayList(u32), allocator: std.mem.Allocator, cache: *RegCache) !void {
     // Result is at frame[base_reg]; store at FRAME_PTR[-8], decrement frame_count, return
     try cachedLoad(asm_ctx, cache, .rax, base_reg);
     // MOV [rbx-8], rax
@@ -1206,16 +1216,16 @@ fn x64EmitTailReturn(asm_ctx: *x64.Assembler, base_reg: u8, pending_returns: *st
     try pending_returns.append(allocator, ret_patch);
 }
 
-fn cachedLoad(asm_ctx: *x64.Assembler, cache: *RegCache, rd: X64, slot: u8) !void {
+fn cachedLoad(asm_ctx: *x64.Assembler, cache: *RegCache, rd: X64, slot: u16) !void {
     if (cache.find(slot)) |i| {
         const mreg = CACHE_REGS[i];
         if (rd != mreg) try asm_ctx.emitMovReg(rd, mreg);
         return;
     }
-    try asm_ctx.emitLdrImm(rd, X_FRAME_PTR, @as(u16, slot) * 8);
+    try asm_ctx.emitLdrImm(rd, X_FRAME_PTR, slot * 8);
 }
 
-fn cachedStore(asm_ctx: *x64.Assembler, cache: *RegCache, slot: u8, rs: X64) !void {
+fn cachedStore(asm_ctx: *x64.Assembler, cache: *RegCache, slot: u16, rs: X64) !void {
     const i = try cache.allocate(asm_ctx, slot);
     const mreg = CACHE_REGS[i];
     if (rs != mreg) try asm_ctx.emitMovReg(mreg, rs);

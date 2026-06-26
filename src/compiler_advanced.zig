@@ -14,7 +14,7 @@ const CompileError = compiler_mod.CompileError;
 ///   (with-exception-handler
 ///     (lambda (var) (cond clause ... [else (raise var)]))
 ///     (lambda () body ...))
-pub fn compileGuard(self: *Compiler, args: Value, dst: u8, is_tail: bool) CompileError!void {
+pub fn compileGuard(self: *Compiler, args: Value, dst: u16, is_tail: bool) CompileError!void {
     if (args == types.NIL) return CompileError.InvalidSyntax;
     const guard_clause = types.car(args);
     const body = types.cdr(args);
@@ -96,7 +96,7 @@ pub fn appendToList(self: *Compiler, lst: Value, elem: Value) !Value {
 /// Strategy: compile key to a temp register, then for each clause
 /// compare key against each datum using eqv?, jumping to the clause body
 /// on match. After each clause body, jump to end. else clause is unconditional.
-pub fn compileCase(self: *Compiler, args: Value, dst: u8, is_tail: bool) CompileError!void {
+pub fn compileCase(self: *Compiler, args: Value, dst: u16, is_tail: bool) CompileError!void {
     if (args == types.NIL) return CompileError.InvalidSyntax;
     const key_expr = types.car(args);
     const clauses = types.cdr(args);
@@ -134,17 +134,17 @@ pub fn compileCase(self: *Compiler, args: Value, dst: u8, is_tail: bool) Compile
                     const proc_reg = try self.allocReg();
                     const arg_reg = try self.allocReg();
                     try self.emitOp(.move);
-                    try self.emit(arg_reg);
-                    try self.emit(key_reg);
+                    try self.emitU16(arg_reg);
+                    try self.emitU16(key_reg);
                     try self.compileExpr(proc_expr, proc_reg, false);
                     try self.emitOp(.move);
-                    try self.emit(dst);
-                    try self.emit(proc_reg);
+                    try self.emitU16(dst);
+                    try self.emitU16(proc_reg);
                     try self.emitOp(.move);
-                    try self.emit(@as(u8, dst) + 1);
-                    try self.emit(arg_reg);
+                    try self.emitU16(dst + 1);
+                    try self.emitU16(arg_reg);
                     if (is_tail) try self.emitOp(.tail_call) else try self.emitOp(.call);
-                    try self.emit(dst);
+                    try self.emitU16(dst);
                     try self.emit(1);
                     self.freeReg(); // arg_reg
                     self.freeReg(); // proc_reg
@@ -178,7 +178,7 @@ pub fn compileCase(self: *Compiler, args: Value, dst: u8, is_tail: bool) Compile
             const datum_idx = try self.addConstant(datum);
             const datum_reg = try self.allocReg();
             try self.emitOp(.load_const);
-            try self.emit(datum_reg);
+            try self.emitU16(datum_reg);
             try self.emitU16(datum_idx);
 
             // Load eqv? procedure
@@ -186,7 +186,7 @@ pub fn compileCase(self: *Compiler, args: Value, dst: u8, is_tail: bool) Compile
             const eqv_idx = try self.addConstant(eqv_sym);
             const eqv_reg = try self.allocReg();
             try self.emitOp(.get_global);
-            try self.emit(eqv_reg);
+            try self.emitU16(eqv_reg);
             try self.emitU16(eqv_idx);
 
             // Set up call: eqv?(key, datum) in fresh contiguous registers
@@ -195,23 +195,23 @@ pub fn compileCase(self: *Compiler, args: Value, dst: u8, is_tail: bool) Compile
             const arg1_pos = try self.allocReg();
             const arg2_pos = try self.allocReg();
             try self.emitOp(.move);
-            try self.emit(call_base);
-            try self.emit(eqv_reg);
+            try self.emitU16(call_base);
+            try self.emitU16(eqv_reg);
             try self.emitOp(.move);
-            try self.emit(arg1_pos);
-            try self.emit(key_reg);
+            try self.emitU16(arg1_pos);
+            try self.emitU16(key_reg);
             try self.emitOp(.move);
-            try self.emit(arg2_pos);
-            try self.emit(datum_reg);
+            try self.emitU16(arg2_pos);
+            try self.emitU16(datum_reg);
 
             try self.emitOp(.call);
-            try self.emit(call_base);
+            try self.emitU16(call_base);
             try self.emit(2);
 
             // Move result to dst
             try self.emitOp(.move);
-            try self.emit(dst);
-            try self.emit(call_base);
+            try self.emitU16(dst);
+            try self.emitU16(call_base);
 
             // Free temp regs
             self.freeReg(); // arg2_pos
@@ -222,7 +222,7 @@ pub fn compileCase(self: *Compiler, args: Value, dst: u8, is_tail: bool) Compile
 
             // jump_true to clause body
             try self.emitOp(.jump_true);
-            try self.emit(dst);
+            try self.emitU16(dst);
             body_jumps.append(self.gc.allocator, self.currentOffset()) catch return CompileError.TooManyLocals;
             try self.emitI16(0);
         }
@@ -252,24 +252,24 @@ pub fn compileCase(self: *Compiler, args: Value, dst: u8, is_tail: bool) Compile
                 // Move key value to arg position
                 const arg_reg = try self.allocReg();
                 try self.emitOp(.move);
-                try self.emit(arg_reg);
-                try self.emit(key_reg);
+                try self.emitU16(arg_reg);
+                try self.emitU16(key_reg);
                 // Compile proc
                 try self.compileExpr(proc_expr, proc_reg, false);
                 // Move proc to dst (for call base)
                 try self.emitOp(.move);
-                try self.emit(dst);
-                try self.emit(proc_reg);
+                try self.emitU16(dst);
+                try self.emitU16(proc_reg);
                 // Move arg after dst
                 try self.emitOp(.move);
-                try self.emit(@as(u8, dst) + 1);
-                try self.emit(arg_reg);
+                try self.emitU16(dst + 1);
+                try self.emitU16(arg_reg);
                 if (is_tail) {
                     try self.emitOp(.tail_call);
                 } else {
                     try self.emitOp(.call);
                 }
-                try self.emit(dst);
+                try self.emitU16(dst);
                 try self.emit(1);
                 self.freeReg(); // arg_reg
                 self.freeReg(); // proc_reg
@@ -300,7 +300,7 @@ pub fn compileCase(self: *Compiler, args: Value, dst: u8, is_tail: bool) Compile
     // If no else clause, result is void
     if (!had_else) {
         try self.emitOp(.load_void);
-        try self.emit(dst);
+        try self.emitU16(dst);
     }
 
     // Patch all end jumps
@@ -319,13 +319,13 @@ pub fn compileCase(self: *Compiler, args: Value, dst: u8, is_tail: bool) Compile
 /// - (unquote expr): compile expr normally
 /// - (unquote-splicing expr) within a list: build segments, call append
 /// - Otherwise: recursively process car/cdr, emit cons
-pub fn compileQuasiquote(self: *Compiler, args: Value, dst: u8) CompileError!void {
+pub fn compileQuasiquote(self: *Compiler, args: Value, dst: u16) CompileError!void {
     if (args == types.NIL) return CompileError.InvalidSyntax;
     const template = types.car(args);
     try compileQQ(self, template, dst, 0);
 }
 
-fn compileQQ(self: *Compiler, tmpl: Value, dst: u8, depth: u8) CompileError!void {
+fn compileQQ(self: *Compiler, tmpl: Value, dst: u16, depth: u8) CompileError!void {
     if (types.isVector(tmpl)) {
         // Vector quasiquote: desugar #(a ,b ,@c d) to (list->vector `(a ,b ,@c d))
         const gc = self.gc;
@@ -349,7 +349,7 @@ fn compileQQ(self: *Compiler, tmpl: Value, dst: u8, depth: u8) CompileError!void
         // Atom: treat as quoted constant
         const idx = try self.addConstant(tmpl);
         try self.emitOp(.load_const);
-        try self.emit(dst);
+        try self.emitU16(dst);
         try self.emitU16(idx);
         return;
     }
@@ -372,7 +372,7 @@ fn compileQQ(self: *Compiler, tmpl: Value, dst: u8, depth: u8) CompileError!void
             const unquote_sym_idx = try self.addConstant(head);
             const sym_reg = try self.allocReg();
             try self.emitOp(.load_const);
-            try self.emit(sym_reg);
+            try self.emitU16(sym_reg);
             try self.emitU16(unquote_sym_idx);
 
             const inner_reg = try self.allocReg();
@@ -381,19 +381,19 @@ fn compileQQ(self: *Compiler, tmpl: Value, dst: u8, depth: u8) CompileError!void
             // Build (inner . ())
             const nil_reg = try self.allocReg();
             try self.emitOp(.load_nil);
-            try self.emit(nil_reg);
+            try self.emitU16(nil_reg);
             const inner_pair_reg = try self.allocReg();
             try self.emitOp(.cons);
-            try self.emit(inner_pair_reg);
-            try self.emit(inner_reg);
-            try self.emit(nil_reg);
+            try self.emitU16(inner_pair_reg);
+            try self.emitU16(inner_reg);
+            try self.emitU16(nil_reg);
             self.freeReg(); // nil_reg
 
             // Build (unquote inner . ())
             try self.emitOp(.cons);
-            try self.emit(dst);
-            try self.emit(sym_reg);
-            try self.emit(inner_pair_reg);
+            try self.emitU16(dst);
+            try self.emitU16(sym_reg);
+            try self.emitU16(inner_pair_reg);
 
             self.freeReg(); // inner_pair_reg
             self.freeReg(); // inner_reg
@@ -411,7 +411,7 @@ fn compileQQ(self: *Compiler, tmpl: Value, dst: u8, depth: u8) CompileError!void
         const qq_sym_idx = try self.addConstant(head);
         const sym_reg = try self.allocReg();
         try self.emitOp(.load_const);
-        try self.emit(sym_reg);
+        try self.emitU16(sym_reg);
         try self.emitU16(qq_sym_idx);
 
         const inner_reg = try self.allocReg();
@@ -419,18 +419,18 @@ fn compileQQ(self: *Compiler, tmpl: Value, dst: u8, depth: u8) CompileError!void
 
         const nil_reg = try self.allocReg();
         try self.emitOp(.load_nil);
-        try self.emit(nil_reg);
+        try self.emitU16(nil_reg);
         const inner_pair_reg = try self.allocReg();
         try self.emitOp(.cons);
-        try self.emit(inner_pair_reg);
-        try self.emit(inner_reg);
-        try self.emit(nil_reg);
+        try self.emitU16(inner_pair_reg);
+        try self.emitU16(inner_reg);
+        try self.emitU16(nil_reg);
         self.freeReg(); // nil_reg
 
         try self.emitOp(.cons);
-        try self.emit(dst);
-        try self.emit(sym_reg);
-        try self.emit(inner_pair_reg);
+        try self.emitU16(dst);
+        try self.emitU16(sym_reg);
+        try self.emitU16(inner_pair_reg);
 
         self.freeReg(); // inner_pair_reg
         self.freeReg(); // inner_reg
@@ -452,9 +452,9 @@ fn compileQQ(self: *Compiler, tmpl: Value, dst: u8, depth: u8) CompileError!void
     try compileQQ(self, types.cdr(tmpl), cdr_reg, depth);
 
     try self.emitOp(.cons);
-    try self.emit(dst);
-    try self.emit(car_reg);
-    try self.emit(cdr_reg);
+    try self.emitU16(dst);
+    try self.emitU16(car_reg);
+    try self.emitU16(cdr_reg);
 
     self.freeReg(); // cdr_reg
     self.freeReg(); // car_reg
@@ -485,7 +485,7 @@ fn hasUnquoteSplicing(tmpl: Value, depth: u8) bool {
 ///
 /// `(a ,@(list 1 2) b) desugars to:
 ///   (append (list (quote a)) (list 1 2) (list (quote b)))
-fn compileQQSplicing(self: *Compiler, tmpl: Value, dst: u8, depth: u8) CompileError!void {
+fn compileQQSplicing(self: *Compiler, tmpl: Value, dst: u16, depth: u8) CompileError!void {
     const gc = self.gc;
     gc.no_collect += 1;
     const quote_sym = gc.allocSymbol("quote") catch return CompileError.OutOfMemory;
@@ -568,7 +568,7 @@ fn compileQQSplicing(self: *Compiler, tmpl: Value, dst: u8, depth: u8) CompileEr
     if (seg_count == 0) {
         gc.no_collect -= 1;
         try self.emitOp(.load_nil);
-        try self.emit(dst);
+        try self.emitU16(dst);
         return;
     }
     if (seg_count == 1) {
@@ -636,7 +636,7 @@ fn buildQQListExpr(gc: *@import("memory.zig").GC, quote_sym: Value, list_sym: Va
 /// Value expressions are evaluated once (in the let bindings) with converter
 /// applied. The before-thunk uses %parameter-set! to avoid re-evaluating
 /// expressions or re-applying the converter on continuation re-entry.
-pub fn compileParameterize(self: *Compiler, args: Value, dst: u8, is_tail: bool) CompileError!void {
+pub fn compileParameterize(self: *Compiler, args: Value, dst: u16, is_tail: bool) CompileError!void {
     if (args == types.NIL) return CompileError.InvalidSyntax;
     const bindings = types.car(args);
     const body = types.cdr(args);
@@ -758,7 +758,7 @@ pub fn compileParameterize(self: *Compiler, args: Value, dst: u8, is_tail: bool)
 ///       ((= n arity2) (apply (lambda formals2 body2...) args))
 ///       ...
 ///       (else (error "wrong number of arguments")))))
-pub fn compileCaseLambda(self: *Compiler, args: Value, dst: u8) CompileError!void {
+pub fn compileCaseLambda(self: *Compiler, args: Value, dst: u16) CompileError!void {
     const gc = self.gc;
     gc.no_collect += 1;
 

@@ -7,10 +7,10 @@ const CompileError = compiler_mod.CompileError;
 
 // -- Conditional expression forms --
 
-pub fn compileAnd(self: *Compiler, args: Value, dst: u8, is_tail: bool) CompileError!void {
+pub fn compileAnd(self: *Compiler, args: Value, dst: u16, is_tail: bool) CompileError!void {
     if (args == types.NIL) {
         try self.emitOp(.load_true);
-        try self.emit(dst);
+        try self.emitU16(dst);
         return;
     }
 
@@ -28,7 +28,7 @@ pub fn compileAnd(self: *Compiler, args: Value, dst: u8, is_tail: bool) CompileE
         } else {
             try self.compileExpr(expr, dst, false);
             try self.emitOp(.jump_false);
-            try self.emit(dst);
+            try self.emitU16(dst);
             end_jumps.append(self.gc.allocator, self.currentOffset()) catch return CompileError.TooManyLocals;
             try self.emitI16(0);
         }
@@ -40,10 +40,10 @@ pub fn compileAnd(self: *Compiler, args: Value, dst: u8, is_tail: bool) CompileE
     }
 }
 
-pub fn compileOr(self: *Compiler, args: Value, dst: u8, is_tail: bool) CompileError!void {
+pub fn compileOr(self: *Compiler, args: Value, dst: u16, is_tail: bool) CompileError!void {
     if (args == types.NIL) {
         try self.emitOp(.load_false);
-        try self.emit(dst);
+        try self.emitU16(dst);
         return;
     }
 
@@ -61,7 +61,7 @@ pub fn compileOr(self: *Compiler, args: Value, dst: u8, is_tail: bool) CompileEr
         } else {
             try self.compileExpr(expr, dst, false);
             try self.emitOp(.jump_true);
-            try self.emit(dst);
+            try self.emitU16(dst);
             end_jumps.append(self.gc.allocator, self.currentOffset()) catch return CompileError.TooManyLocals;
             try self.emitI16(0);
         }
@@ -73,14 +73,14 @@ pub fn compileOr(self: *Compiler, args: Value, dst: u8, is_tail: bool) CompileEr
     }
 }
 
-pub fn compileWhen(self: *Compiler, args: Value, dst: u8, is_tail: bool) CompileError!void {
+pub fn compileWhen(self: *Compiler, args: Value, dst: u16, is_tail: bool) CompileError!void {
     if (args == types.NIL) return CompileError.InvalidSyntax;
     const test_expr = types.car(args);
     const body = types.cdr(args);
 
     try self.compileExpr(test_expr, dst, false);
     try self.emitOp(.jump_false);
-    try self.emit(dst);
+    try self.emitU16(dst);
     const false_jump = self.currentOffset();
     try self.emitI16(0);
 
@@ -99,19 +99,19 @@ pub fn compileWhen(self: *Compiler, args: Value, dst: u8, is_tail: bool) Compile
 
     try self.patchJump(false_jump);
     try self.emitOp(.load_void);
-    try self.emit(dst);
+    try self.emitU16(dst);
 
     try self.patchJump(end_jump);
 }
 
-pub fn compileUnless(self: *Compiler, args: Value, dst: u8, is_tail: bool) CompileError!void {
+pub fn compileUnless(self: *Compiler, args: Value, dst: u16, is_tail: bool) CompileError!void {
     if (args == types.NIL) return CompileError.InvalidSyntax;
     const test_expr = types.car(args);
     const body = types.cdr(args);
 
     try self.compileExpr(test_expr, dst, false);
     try self.emitOp(.jump_true);
-    try self.emit(dst);
+    try self.emitU16(dst);
     const true_jump = self.currentOffset();
     try self.emitI16(0);
 
@@ -130,15 +130,15 @@ pub fn compileUnless(self: *Compiler, args: Value, dst: u8, is_tail: bool) Compi
 
     try self.patchJump(true_jump);
     try self.emitOp(.load_void);
-    try self.emit(dst);
+    try self.emitU16(dst);
 
     try self.patchJump(end_jump);
 }
 
-pub fn compileCond(self: *Compiler, args: Value, dst: u8, is_tail: bool) CompileError!void {
+pub fn compileCond(self: *Compiler, args: Value, dst: u16, is_tail: bool) CompileError!void {
     if (args == types.NIL) {
         try self.emitOp(.load_void);
-        try self.emit(dst);
+        try self.emitU16(dst);
         return;
     }
 
@@ -175,7 +175,7 @@ pub fn compileCond(self: *Compiler, args: Value, dst: u8, is_tail: bool) Compile
             {
                 // (test => proc) -- call proc with test value
                 try self.emitOp(.jump_false);
-                try self.emit(dst);
+                try self.emitU16(dst);
                 const next_clause = self.currentOffset();
                 try self.emitI16(0);
 
@@ -185,24 +185,24 @@ pub fn compileCond(self: *Compiler, args: Value, dst: u8, is_tail: bool) Compile
                 // Move test value to arg position
                 const arg_reg = try self.allocReg();
                 try self.emitOp(.move);
-                try self.emit(arg_reg);
-                try self.emit(dst);
+                try self.emitU16(arg_reg);
+                try self.emitU16(dst);
                 // Compile proc
                 try self.compileExpr(proc_expr, proc_reg, false);
                 // Move proc to dst (for call base)
                 try self.emitOp(.move);
-                try self.emit(dst);
-                try self.emit(proc_reg);
+                try self.emitU16(dst);
+                try self.emitU16(proc_reg);
                 // Move arg after dst
                 try self.emitOp(.move);
-                try self.emit(@as(u8, dst) + 1);
-                try self.emit(arg_reg);
+                try self.emitU16(dst + 1);
+                try self.emitU16(arg_reg);
                 if (is_tail) {
                     try self.emitOp(.tail_call);
                 } else {
                     try self.emitOp(.call);
                 }
-                try self.emit(dst);
+                try self.emitU16(dst);
                 try self.emit(1);
                 self.freeReg(); // arg_reg
                 self.freeReg(); // proc_reg
@@ -218,7 +218,7 @@ pub fn compileCond(self: *Compiler, args: Value, dst: u8, is_tail: bool) Compile
 
         // Regular clause (test expr ...)
         try self.emitOp(.jump_false);
-        try self.emit(dst);
+        try self.emitU16(dst);
         const next_clause = self.currentOffset();
         try self.emitI16(0);
 
@@ -238,7 +238,7 @@ pub fn compileCond(self: *Compiler, args: Value, dst: u8, is_tail: bool) Compile
     // If no else clause, result is void when nothing matched
     if (!had_else) {
         try self.emitOp(.load_void);
-        try self.emit(dst);
+        try self.emitU16(dst);
     }
 
     for (end_jumps.items) |j| {
@@ -246,7 +246,7 @@ pub fn compileCond(self: *Compiler, args: Value, dst: u8, is_tail: bool) Compile
     }
 }
 
-pub fn compileCondBody(self: *Compiler, body: Value, dst: u8, is_tail: bool) CompileError!void {
+pub fn compileCondBody(self: *Compiler, body: Value, dst: u16, is_tail: bool) CompileError!void {
     var current = body;
     while (current != types.NIL) {
         if (!types.isPair(current)) return CompileError.InvalidSyntax;
@@ -262,7 +262,7 @@ pub fn compileCondBody(self: *Compiler, body: Value, dst: u8, is_tail: bool) Com
 /// Evaluates feature requirements at compile time and compiles the body
 /// of the first matching clause. Features are checked against a hardcoded
 /// list and the library registry.
-pub fn compileCondExpand(self: *Compiler, args: Value, dst: u8, is_tail: bool) CompileError!void {
+pub fn compileCondExpand(self: *Compiler, args: Value, dst: u16, is_tail: bool) CompileError!void {
     var current = args;
     while (current != types.NIL) {
         if (!types.isPair(current)) return CompileError.InvalidSyntax;
@@ -286,7 +286,7 @@ pub fn compileCondExpand(self: *Compiler, args: Value, dst: u8, is_tail: bool) C
 
     // No clause matched — void
     try self.emitOp(.load_void);
-    try self.emit(dst);
+    try self.emitU16(dst);
 }
 
 /// Evaluate a feature requirement at compile time.

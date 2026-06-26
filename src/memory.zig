@@ -474,7 +474,7 @@ pub const GC = struct {
         handler_count: usize,
         wind_records: []const WindRecord,
         wind_count: usize,
-        dst_reg: u8,
+        dst_reg: u16,
         dst_base: u16,
     ) !Value {
         try self.maybeCollect();
@@ -547,7 +547,7 @@ pub const GC = struct {
         target_frame_count: usize,
         target_wind_count: usize,
         target_handler_count: usize,
-        dst_reg: u8,
+        dst_reg: u16,
         dst_base: u16,
     ) !Value {
         try self.maybeCollect();

@@ -9,7 +9,7 @@ const GC = memory.GC;
 
 // File format constants
 const MAGIC = [4]u8{ 'K', 'P', 'B', 'C' };
-const VERSION: u16 = 3;
+const VERSION: u16 = 4;
 const MAX_FUNCTIONS: u32 = 16_384;
 const MAX_TOP_LEVEL_FUNCTIONS: u32 = 4_096;
 const MAX_CODE_BYTES: u32 = 4_194_304;
@@ -462,31 +462,38 @@ fn validateFunctionBytecode(func: *Function) BytecodeError!void {
 
         switch (op) {
             .load_const => {
-                if (ip + 3 > code.len) return BytecodeError.CorruptedFile;
-                ip += 1; // dst
+                if (ip + 4 > code.len) return BytecodeError.CorruptedFile;
+                ip += 2; // dst
                 const idx = try readU16FromCode(code, &ip);
                 if (idx >= func.constants.items.len) return BytecodeError.CorruptedFile;
             },
             .load_nil, .load_true, .load_false, .load_void, .@"return", .close_upvalue, .push_handler, .box_local => {
-                if (ip + 1 > code.len) return BytecodeError.CorruptedFile;
-                ip += 1;
-            },
-            .move, .get_upvalue, .set_upvalue, .call, .tail_call, .tail_apply, .get_box_local, .set_box_local, .self_tail_call => {
                 if (ip + 2 > code.len) return BytecodeError.CorruptedFile;
                 ip += 2;
             },
-            .get_local, .set_local => return BytecodeError.CorruptedFile,
-            .get_global => {
+            .move, .get_upvalue, .set_upvalue, .get_box_local, .set_box_local => {
+                if (ip + 4 > code.len) return BytecodeError.CorruptedFile;
+                ip += 4;
+            },
+            .call, .tail_call, .tail_apply, .self_tail_call => {
                 if (ip + 3 > code.len) return BytecodeError.CorruptedFile;
-                ip += 1; // dst
+                ip += 3;
+            },
+            .get_local, .set_local => {
+                if (ip + 4 > code.len) return BytecodeError.CorruptedFile;
+                ip += 4;
+            },
+            .get_global => {
+                if (ip + 4 > code.len) return BytecodeError.CorruptedFile;
+                ip += 2; // dst
                 const idx = try readU16FromCode(code, &ip);
                 try validateSymbolConstant(func, idx);
             },
             .set_global, .define_global => {
-                if (ip + 3 > code.len) return BytecodeError.CorruptedFile;
+                if (ip + 4 > code.len) return BytecodeError.CorruptedFile;
                 const idx = try readU16FromCode(code, &ip);
                 try validateSymbolConstant(func, idx);
-                ip += 1; // src
+                ip += 2; // src
             },
             .jump => {
                 if (ip + 2 > code.len) return BytecodeError.CorruptedFile;
@@ -495,32 +502,32 @@ fn validateFunctionBytecode(func: *Function) BytecodeError!void {
                 if (target < 0 or target > code.len) return BytecodeError.CorruptedFile;
             },
             .jump_false, .jump_true => {
-                if (ip + 3 > code.len) return BytecodeError.CorruptedFile;
-                ip += 1; // test register
+                if (ip + 4 > code.len) return BytecodeError.CorruptedFile;
+                ip += 2; // test register
                 const off = try readI16FromCode(code, &ip);
                 const target = @as(i64, @intCast(ip)) + @as(i64, off);
                 if (target < 0 or target > code.len) return BytecodeError.CorruptedFile;
             },
             .closure => {
-                if (ip + 3 > code.len) return BytecodeError.CorruptedFile;
-                ip += 1; // dst
+                if (ip + 4 > code.len) return BytecodeError.CorruptedFile;
+                ip += 2; // dst
                 const idx = try readU16FromCode(code, &ip);
                 if (idx >= func.constants.items.len) return BytecodeError.CorruptedFile;
                 const func_val = func.constants.items[idx];
                 if (!types.isFunction(func_val)) return BytecodeError.CorruptedFile;
                 const inner = types.toObject(func_val).as(Function);
-                const capture_bytes = @as(usize, inner.upvalue_count) * 2;
+                const capture_bytes = @as(usize, inner.upvalue_count) * 3;
                 if (ip + capture_bytes > code.len) return BytecodeError.CorruptedFile;
                 ip += capture_bytes;
             },
             .cons => {
-                if (ip + 3 > code.len) return BytecodeError.CorruptedFile;
-                ip += 3;
+                if (ip + 6 > code.len) return BytecodeError.CorruptedFile;
+                ip += 6;
             },
             .pop_handler, .halt => {},
             .call_global, .tail_call_global => {
-                if (ip + 4 > code.len) return BytecodeError.CorruptedFile;
-                ip += 1; // base register
+                if (ip + 5 > code.len) return BytecodeError.CorruptedFile;
+                ip += 2; // base register
                 const idx = try readU16FromCode(code, &ip);
                 try validateSymbolConstant(func, idx);
                 ip += 1; // nargs
@@ -571,7 +578,7 @@ fn writeFunctionsToBuffer(w: *Writer, allocator: std.mem.Allocator, top_level_fu
 
     for (all_funcs) |func| {
         try w.writeU8(allocator, func.arity);
-        try w.writeU8(allocator, func.locals_count);
+        try w.writeU16(allocator, func.locals_count);
         try w.writeU8(allocator, func.upvalue_count);
         try w.writeU8(allocator, if (func.is_variadic) @as(u8, 1) else @as(u8, 0));
 
@@ -708,9 +715,8 @@ fn deserializeFromBuffer(gc: *GC, data: []const u8, expected_hash: ?u64) !?Deser
         const func = all_funcs[i];
 
         func.arity = r.readU8() catch return null;
-        func.locals_count = r.readU8() catch return null;
+        func.locals_count = r.readU16() catch return null;
         func.upvalue_count = r.readU8() catch return null;
-        if (func.locals_count > 250) return null;
         const variadic_byte = r.readU8() catch return null;
         func.is_variadic = variadic_byte != 0;
 
@@ -892,11 +898,13 @@ test "bytecode round-trip: simple function" {
     const func = try gc.allocFunction();
     // Add some bytecode
     func.code.append(allocator, @intFromEnum(types.OpCode.load_const)) catch unreachable;
-    func.code.append(allocator, 0) catch unreachable; // dst
+    func.code.append(allocator, 0) catch unreachable; // dst high
+    func.code.append(allocator, 0) catch unreachable; // dst low
     func.code.append(allocator, 0) catch unreachable; // idx high
     func.code.append(allocator, 0) catch unreachable; // idx low
     func.code.append(allocator, @intFromEnum(types.OpCode.@"return")) catch unreachable;
-    func.code.append(allocator, 0) catch unreachable; // src
+    func.code.append(allocator, 0) catch unreachable; // src high
+    func.code.append(allocator, 0) catch unreachable; // src low
 
     // Add a fixnum constant
     func.constants.append(allocator, types.makeFixnum(42)) catch unreachable;
@@ -926,8 +934,8 @@ test "bytecode round-trip: simple function" {
 
     const loaded_func = loaded.funcs[0];
     try std.testing.expectEqual(@as(u8, 0), loaded_func.arity);
-    try std.testing.expectEqual(@as(u8, 1), loaded_func.locals_count);
-    try std.testing.expectEqual(@as(usize, 6), loaded_func.code.items.len);
+    try std.testing.expectEqual(@as(u16, 1), loaded_func.locals_count);
+    try std.testing.expectEqual(@as(usize, 8), loaded_func.code.items.len);
     try std.testing.expectEqual(@as(usize, 1), loaded_func.constants.items.len);
     try std.testing.expect(types.isFixnum(loaded_func.constants.items[0]));
     try std.testing.expectEqual(@as(i64, 42), types.toFixnum(loaded_func.constants.items[0]));
@@ -940,9 +948,11 @@ test "bytecode round-trip: hash mismatch returns null" {
 
     const func = try gc.allocFunction();
     func.code.append(allocator, @intFromEnum(types.OpCode.load_void)) catch unreachable;
-    func.code.append(allocator, 0) catch unreachable;
+    func.code.append(allocator, 0) catch unreachable; // dst high
+    func.code.append(allocator, 0) catch unreachable; // dst low
     func.code.append(allocator, @intFromEnum(types.OpCode.@"return")) catch unreachable;
-    func.code.append(allocator, 0) catch unreachable;
+    func.code.append(allocator, 0) catch unreachable; // src high
+    func.code.append(allocator, 0) catch unreachable; // src low
 
     var funcs_arr = [_]*Function{func};
     const path = "/tmp/kaappi_test_mismatch.sbc";
@@ -964,9 +974,11 @@ test "bytecode round-trip: various constant types" {
 
     const func = try gc.allocFunction();
     func.code.append(allocator, @intFromEnum(types.OpCode.load_void)) catch unreachable;
-    func.code.append(allocator, 0) catch unreachable;
+    func.code.append(allocator, 0) catch unreachable; // dst high
+    func.code.append(allocator, 0) catch unreachable; // dst low
     func.code.append(allocator, @intFromEnum(types.OpCode.@"return")) catch unreachable;
-    func.code.append(allocator, 0) catch unreachable;
+    func.code.append(allocator, 0) catch unreachable; // src high
+    func.code.append(allocator, 0) catch unreachable; // src low
 
     // Add various constant types
     func.constants.append(allocator, types.makeFixnum(-100)) catch unreachable;
@@ -1034,11 +1046,13 @@ test "bytecode round-trip: nested functions" {
     // Create a child function
     const child_func = try gc.allocFunction();
     child_func.code.append(allocator, @intFromEnum(types.OpCode.load_const)) catch unreachable;
-    child_func.code.append(allocator, 0) catch unreachable;
-    child_func.code.append(allocator, 0) catch unreachable;
-    child_func.code.append(allocator, 0) catch unreachable;
+    child_func.code.append(allocator, 0) catch unreachable; // dst high
+    child_func.code.append(allocator, 0) catch unreachable; // dst low
+    child_func.code.append(allocator, 0) catch unreachable; // idx high
+    child_func.code.append(allocator, 0) catch unreachable; // idx low
     child_func.code.append(allocator, @intFromEnum(types.OpCode.@"return")) catch unreachable;
-    child_func.code.append(allocator, 0) catch unreachable;
+    child_func.code.append(allocator, 0) catch unreachable; // src high
+    child_func.code.append(allocator, 0) catch unreachable; // src low
     child_func.constants.append(allocator, types.makeFixnum(99)) catch unreachable;
     child_func.arity = 1;
     child_func.locals_count = 1;
@@ -1046,11 +1060,13 @@ test "bytecode round-trip: nested functions" {
     // Create parent function that references child
     const parent_func = try gc.allocFunction();
     parent_func.code.append(allocator, @intFromEnum(types.OpCode.closure)) catch unreachable;
-    parent_func.code.append(allocator, 0) catch unreachable;
-    parent_func.code.append(allocator, 0) catch unreachable;
-    parent_func.code.append(allocator, 0) catch unreachable;
+    parent_func.code.append(allocator, 0) catch unreachable; // dst high
+    parent_func.code.append(allocator, 0) catch unreachable; // dst low
+    parent_func.code.append(allocator, 0) catch unreachable; // idx high
+    parent_func.code.append(allocator, 0) catch unreachable; // idx low
     parent_func.code.append(allocator, @intFromEnum(types.OpCode.@"return")) catch unreachable;
-    parent_func.code.append(allocator, 0) catch unreachable;
+    parent_func.code.append(allocator, 0) catch unreachable; // src high
+    parent_func.code.append(allocator, 0) catch unreachable; // src low
     parent_func.constants.append(allocator, types.makePointer(@ptrCast(child_func))) catch unreachable;
     parent_func.arity = 0;
     parent_func.locals_count = 1;
@@ -1135,9 +1151,11 @@ test "bytecode round-trip: vector pair bignum rational complex constants" {
 
     const func = try gc.allocFunction();
     func.code.append(allocator, @intFromEnum(types.OpCode.load_void)) catch unreachable;
-    func.code.append(allocator, 0) catch unreachable;
+    func.code.append(allocator, 0) catch unreachable; // dst high
+    func.code.append(allocator, 0) catch unreachable; // dst low
     func.code.append(allocator, @intFromEnum(types.OpCode.@"return")) catch unreachable;
-    func.code.append(allocator, 0) catch unreachable;
+    func.code.append(allocator, 0) catch unreachable; // src high
+    func.code.append(allocator, 0) catch unreachable; // src low
 
     const vec_data = [_]Value{ types.makeFixnum(10), types.makeFixnum(20), types.makeFixnum(30) };
     const vec = try gc.allocVector(&vec_data);
