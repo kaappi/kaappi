@@ -464,17 +464,22 @@ fn stringPadFn(args: []const Value) PrimitiveError!Value {
     const data = try getStringSlice(args[0]);
     if (!types.isFixnum(args[1])) return primitives.typeError("string-pad", "integer", args[1]);
     const target_len: usize = @intCast(types.toFixnum(args[1]));
-    const pad_char: u8 = if (args.len > 2 and types.isChar(args[2])) @intCast(types.toChar(args[2])) else ' ';
+    var pad_buf: [4]u8 = undefined;
+    const pad_cp: u21 = if (args.len > 2 and types.isChar(args[2])) types.toChar(args[2]) else ' ';
+    const pad_len = std.unicode.utf8Encode(pad_cp, &pad_buf) catch
+        return primitives.typeError("string-pad", "valid character", args[2]);
     const current_len = utf8CodepointCount(data);
     if (current_len >= target_len) {
         const byte_start = pstr.utf8IndexToByteOffset(data, current_len - target_len) orelse data.len;
         return gc.allocString(data[byte_start..]) catch return PrimitiveError.OutOfMemory;
     }
     const pad_count = target_len - current_len;
-    const alloc_buf = gc.allocator.alloc(u8, pad_count + data.len) catch return PrimitiveError.OutOfMemory;
+    const alloc_buf = gc.allocator.alloc(u8, pad_count * pad_len + data.len) catch return PrimitiveError.OutOfMemory;
     defer gc.allocator.free(alloc_buf);
-    @memset(alloc_buf[0..pad_count], pad_char);
-    @memcpy(alloc_buf[pad_count..], data);
+    for (0..pad_count) |i| {
+        @memcpy(alloc_buf[i * pad_len ..][0..pad_len], pad_buf[0..pad_len]);
+    }
+    @memcpy(alloc_buf[pad_count * pad_len ..], data);
     return gc.allocString(alloc_buf) catch return PrimitiveError.OutOfMemory;
 }
 
@@ -483,17 +488,22 @@ fn stringPadRightFn(args: []const Value) PrimitiveError!Value {
     const data = try getStringSlice(args[0]);
     if (!types.isFixnum(args[1])) return primitives.typeError("string-pad-right", "integer", args[1]);
     const target_len: usize = @intCast(types.toFixnum(args[1]));
-    const pad_char: u8 = if (args.len > 2 and types.isChar(args[2])) @intCast(types.toChar(args[2])) else ' ';
+    var pad_buf: [4]u8 = undefined;
+    const pad_cp: u21 = if (args.len > 2 and types.isChar(args[2])) types.toChar(args[2]) else ' ';
+    const pad_len = std.unicode.utf8Encode(pad_cp, &pad_buf) catch
+        return primitives.typeError("string-pad-right", "valid character", args[2]);
     const current_len = utf8CodepointCount(data);
     if (current_len >= target_len) {
         const byte_end = pstr.utf8IndexToByteOffset(data, target_len) orelse data.len;
         return gc.allocString(data[0..byte_end]) catch return PrimitiveError.OutOfMemory;
     }
     const pad_count = target_len - current_len;
-    const alloc_buf = gc.allocator.alloc(u8, data.len + pad_count) catch return PrimitiveError.OutOfMemory;
+    const alloc_buf = gc.allocator.alloc(u8, data.len + pad_count * pad_len) catch return PrimitiveError.OutOfMemory;
     defer gc.allocator.free(alloc_buf);
     @memcpy(alloc_buf[0..data.len], data);
-    @memset(alloc_buf[data.len..], pad_char);
+    for (0..pad_count) |i| {
+        @memcpy(alloc_buf[data.len + i * pad_len ..][0..pad_len], pad_buf[0..pad_len]);
+    }
     return gc.allocString(alloc_buf) catch return PrimitiveError.OutOfMemory;
 }
 
