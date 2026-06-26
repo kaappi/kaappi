@@ -703,16 +703,21 @@ fn readFileContents(allocator: std.mem.Allocator, path: []const u8) ![]u8 {
     return result.toOwnedSlice(allocator);
 }
 
+fn resolveImportBindings(vm: *VM, import_set: Value) anyerror!std.StringHashMap(Value) {
+    var bindings = std.StringHashMap(Value).init(vm.gc.allocator);
+    errdefer bindings.deinit();
+    try processImportSet(vm, &bindings, import_set);
+    return bindings;
+}
+
 fn processImportOnly(vm: *VM, target: *std.StringHashMap(Value), args: Value) !void {
-    // (only (lib-name) id ...)
+    // (only <import-set> id ...)
     if (!types.isPair(args)) return error.InvalidSyntax;
-    const lib_spec = types.car(args);
+    const inner_set = types.car(args);
     const ids = types.cdr(args);
 
-    const lib_name = library_mod.libraryNameToString(vm.gc.allocator, lib_spec) catch return error.InvalidSyntax;
-    defer vm.gc.allocator.free(lib_name);
-
-    const lib = vm.libraries.get(lib_name) orelse return error.UndefinedVariable;
+    var source = try resolveImportBindings(vm, inner_set);
+    defer source.deinit();
 
     var id_list = ids;
     while (id_list != types.NIL) {
@@ -720,7 +725,7 @@ fn processImportOnly(vm: *VM, target: *std.StringHashMap(Value), args: Value) !v
         const id = types.car(id_list);
         if (!types.isSymbol(id)) return error.InvalidSyntax;
         const id_name = types.symbolName(id);
-        if (lib.exports.get(id_name)) |val| {
+        if (source.get(id_name)) |val| {
             importBinding(vm, target, id_name, val) catch return error.OutOfMemory;
         }
         id_list = types.cdr(id_list);
@@ -728,17 +733,14 @@ fn processImportOnly(vm: *VM, target: *std.StringHashMap(Value), args: Value) !v
 }
 
 fn processImportExcept(vm: *VM, target: *std.StringHashMap(Value), args: Value) !void {
-    // (except (lib-name) id ...)
+    // (except <import-set> id ...)
     if (!types.isPair(args)) return error.InvalidSyntax;
-    const lib_spec = types.car(args);
+    const inner_set = types.car(args);
     const ids = types.cdr(args);
 
-    const lib_name = library_mod.libraryNameToString(vm.gc.allocator, lib_spec) catch return error.InvalidSyntax;
-    defer vm.gc.allocator.free(lib_name);
+    var source = try resolveImportBindings(vm, inner_set);
+    defer source.deinit();
 
-    const lib = vm.libraries.get(lib_name) orelse return error.UndefinedVariable;
-
-    // Collect excluded names
     var excluded: [64][]const u8 = undefined;
     var excluded_count: usize = 0;
     var id_list = ids;
@@ -753,8 +755,7 @@ fn processImportExcept(vm: *VM, target: *std.StringHashMap(Value), args: Value) 
         id_list = types.cdr(id_list);
     }
 
-    // Import all except excluded
-    var it = lib.exports.iterator();
+    var it = source.iterator();
     while (it.next()) |entry| {
         var is_excluded = false;
         for (excluded[0..excluded_count]) |exc| {
@@ -770,21 +771,19 @@ fn processImportExcept(vm: *VM, target: *std.StringHashMap(Value), args: Value) 
 }
 
 fn processImportPrefix(vm: *VM, target: *std.StringHashMap(Value), args: Value) !void {
-    // (prefix (lib-name) prefix-id)
+    // (prefix <import-set> prefix-id)
     if (!types.isPair(args)) return error.InvalidSyntax;
-    const lib_spec = types.car(args);
+    const inner_set = types.car(args);
     const rest = types.cdr(args);
     if (!types.isPair(rest)) return error.InvalidSyntax;
     const prefix_sym = types.car(rest);
     if (!types.isSymbol(prefix_sym)) return error.InvalidSyntax;
     const prefix = types.symbolName(prefix_sym);
 
-    const lib_name = library_mod.libraryNameToString(vm.gc.allocator, lib_spec) catch return error.InvalidSyntax;
-    defer vm.gc.allocator.free(lib_name);
+    var source = try resolveImportBindings(vm, inner_set);
+    defer source.deinit();
 
-    const lib = vm.libraries.get(lib_name) orelse return error.UndefinedVariable;
-
-    var it = lib.exports.iterator();
+    var it = source.iterator();
     while (it.next()) |entry| {
         const prefixed_buf = std.fmt.allocPrint(vm.gc.allocator, "{s}{s}", .{ prefix, entry.key_ptr.* }) catch return error.OutOfMemory;
         defer vm.gc.allocator.free(prefixed_buf);
@@ -795,17 +794,14 @@ fn processImportPrefix(vm: *VM, target: *std.StringHashMap(Value), args: Value) 
 }
 
 fn processImportRename(vm: *VM, target: *std.StringHashMap(Value), args: Value) !void {
-    // (rename (lib-name) (old new) ...)
+    // (rename <import-set> (old new) ...)
     if (!types.isPair(args)) return error.InvalidSyntax;
-    const lib_spec = types.car(args);
+    const inner_set = types.car(args);
     const renames = types.cdr(args);
 
-    const lib_name = library_mod.libraryNameToString(vm.gc.allocator, lib_spec) catch return error.InvalidSyntax;
-    defer vm.gc.allocator.free(lib_name);
+    var source = try resolveImportBindings(vm, inner_set);
+    defer source.deinit();
 
-    const lib = vm.libraries.get(lib_name) orelse return error.UndefinedVariable;
-
-    // Collect rename mappings
     var rename_old: [32][]const u8 = undefined;
     var rename_new: [32][]const u8 = undefined;
     var rename_count: usize = 0;
@@ -827,8 +823,7 @@ fn processImportRename(vm: *VM, target: *std.StringHashMap(Value), args: Value) 
         rename_list = types.cdr(rename_list);
     }
 
-    // Import all exports, applying renames
-    var it = lib.exports.iterator();
+    var it = source.iterator();
     while (it.next()) |entry| {
         var imported_name = entry.key_ptr.*;
         for (0..rename_count) |i| {
