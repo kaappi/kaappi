@@ -137,7 +137,21 @@ Show the workflow URL. After it completes:
 gh release view vX.Y.Z
 ```
 
-## Step 9: Update docs site (playground WASM + downloads page)
+## Step 9: Verify post-release acceptance tests
+
+The `post-release.yml` workflow triggers automatically when the release is
+published. It downloads the release artifacts and runs acceptance tests on
+macOS, Linux x86/ARM, WASM, plus checksum and install script verification.
+
+```bash
+gh run list --workflow=post-release.yml --limit=1
+```
+
+Show the workflow URL and wait for it to complete. If it fails, investigate
+before updating the docs site — a failure means the release artifacts have
+a problem (e.g. missing entitlement, broken binary, bad checksum).
+
+## Step 10: Update docs site (playground WASM + downloads page)
 
 After the release workflow completes, update the docs site's playground,
 tour, and downloads page:
