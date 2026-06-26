@@ -94,8 +94,10 @@ pub fn makeRationalReduced(gc: *@import("memory.zig").GC, num_val: Value, den_va
         const g = gcdTwo(if (n < 0) -n else n, d);
         n = @divExact(n, g);
         d = @divExact(d, g);
-        if (d == 1) return types.makeFixnum(n);
-        return gc.allocRational(types.makeFixnum(n), types.makeFixnum(d)) catch return PrimitiveError.OutOfMemory;
+        if (d == 1) return try makeFixnumChecked(n);
+        const num = try makeFixnumChecked(n);
+        const den = try makeFixnumChecked(d);
+        return gc.allocRational(num, den) catch return PrimitiveError.OutOfMemory;
     }
     // Bignum-containing case: check for zero denominator
     if (bignum_mod.isZero(den_val)) return raiseDivByZero();
@@ -301,12 +303,14 @@ fn add(args: []const Value) PrimitiveError!Value {
                 d = @divExact(d, g);
             }
         }
-        if (d == 1) return types.makeFixnum(n);
+        if (d == 1) return try makeFixnumChecked(n);
         if (d < 0) {
             n = -n;
             d = -d;
         }
-        return gc.allocRational(types.makeFixnum(n), types.makeFixnum(d)) catch return PrimitiveError.OutOfMemory;
+        const num = try makeFixnumChecked(n);
+        const den = try makeFixnumChecked(d);
+        return gc.allocRational(num, den) catch return PrimitiveError.OutOfMemory;
     }
     if (anyBignum(args)) return bignumAddAll(args);
     // Fixnum path with overflow detection
@@ -388,12 +392,14 @@ fn sub(args: []const Value) PrimitiveError!Value {
             }
         }
         if (n == 0) return types.makeFixnum(0);
-        if (d == 1) return types.makeFixnum(n);
+        if (d == 1) return try makeFixnumChecked(n);
         if (d < 0) {
             n = -n;
             d = -d;
         }
-        return gc.allocRational(types.makeFixnum(n), types.makeFixnum(d)) catch return PrimitiveError.OutOfMemory;
+        const num = try makeFixnumChecked(n);
+        const den = try makeFixnumChecked(d);
+        return gc.allocRational(num, den) catch return PrimitiveError.OutOfMemory;
     }
     if (anyBignum(args)) return bignumSubAll(args);
     if (!types.isFixnum(args[0]) and !types.isRationalObj(args[0])) return numberTypeError(args[0]);
@@ -475,8 +481,10 @@ fn mul(args: []const Value) PrimitiveError!Value {
             n = -n;
             d = -d;
         }
-        if (d == 1) return types.makeFixnum(n);
-        return gc.allocRational(types.makeFixnum(n), types.makeFixnum(d)) catch return PrimitiveError.OutOfMemory;
+        if (d == 1) return try makeFixnumChecked(n);
+        const num = try makeFixnumChecked(n);
+        const den = try makeFixnumChecked(d);
+        return gc.allocRational(num, den) catch return PrimitiveError.OutOfMemory;
     }
     if (anyBignum(args)) return bignumMulAll(args);
     var product: i64 = 1;
@@ -565,8 +573,10 @@ fn divFn(args: []const Value) PrimitiveError!Value {
             }
         }
         if (n == 0) return types.makeFixnum(0);
-        if (d == 1) return types.makeFixnum(n);
-        return gc.allocRational(types.makeFixnum(n), types.makeFixnum(d)) catch return PrimitiveError.OutOfMemory;
+        if (d == 1) return try makeFixnumChecked(n);
+        const num = try makeFixnumChecked(n);
+        const den = try makeFixnumChecked(d);
+        return gc.allocRational(num, den) catch return PrimitiveError.OutOfMemory;
     }
     // All exact integers (fixnum or bignum) — try exact division, produce rational if needed
     if (!anyFlonum(args) and !anyBignum(args) and !anyRational(args)) {
@@ -1061,7 +1071,7 @@ fn gcdFn(args: []const Value) PrimitiveError!Value {
         if (!types.isFixnum(a)) return PrimitiveError.TypeError;
         result = gcdTwo(result, types.toFixnum(a));
     }
-    return types.makeFixnum(result);
+    return try makeFixnumChecked(result);
 }
 
 fn lcmFn(args: []const Value) PrimitiveError!Value {
@@ -1099,15 +1109,36 @@ fn lcmFn(args: []const Value) PrimitiveError!Value {
     if (!types.isFixnum(args[0])) return PrimitiveError.TypeError;
     var result = types.toFixnum(args[0]);
     if (result < 0) result = -result;
-    for (args[1..]) |a| {
-        if (!types.isFixnum(a)) return PrimitiveError.TypeError;
-        const b = types.toFixnum(a);
+    var idx: usize = 1;
+    while (idx < args.len) : (idx += 1) {
+        if (!types.isFixnum(args[idx])) return PrimitiveError.TypeError;
+        const b = types.toFixnum(args[idx]);
         const g = gcdTwo(result, b);
         if (g == 0) {
             result = 0;
         } else {
-            result = @divExact(result, g) * (if (b < 0) -b else b);
+            const partial = @divExact(result, g);
+            const abs_b: i64 = if (b < 0) -b else b;
+            const ov = @mulWithOverflow(partial, abs_b);
+            if (ov[1] != 0) {
+                const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+                var big_result = bignum_mod.mul(gc, try makeFixnumChecked(partial), try makeFixnumChecked(abs_b)) catch return PrimitiveError.OutOfMemory;
+                idx += 1;
+                while (idx < args.len) : (idx += 1) {
+                    const b_abs = bignum_mod.absVal(gc, args[idx]) catch return PrimitiveError.OutOfMemory;
+                    const gcd_pair = [_]Value{ big_result, b_abs };
+                    const g2 = try gcdFn(&gcd_pair);
+                    if (bignum_mod.isZero(g2)) {
+                        big_result = types.makeFixnum(0);
+                    } else {
+                        const q = bignum_mod.quotient(gc, big_result, g2) catch return PrimitiveError.OutOfMemory;
+                        big_result = bignum_mod.mul(gc, q, b_abs) catch return PrimitiveError.OutOfMemory;
+                    }
+                }
+                return big_result;
+            }
+            result = ov[0];
         }
     }
-    return types.makeFixnum(result);
+    return try makeFixnumChecked(result);
 }
