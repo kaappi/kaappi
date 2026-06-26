@@ -35,7 +35,7 @@ pub const primitives_fiber = @import("primitives_fiber.zig");
 pub const reporting = @import("reporting.zig");
 pub const vm_library = @import("vm_library.zig");
 
-pub const version = "0.6.2";
+pub const version = "0.6.3";
 
 var repl_vm: ?*vm_mod.VM = null;
 
