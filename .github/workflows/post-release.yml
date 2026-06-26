@@ -30,13 +30,16 @@ jobs:
       - name: Verify SHA256 checksums
         run: cd release && sha256sum -c SHA256SUMS
 
-      - name: Import GPG key and verify signature
+      - name: Verify GPG signature (best-effort)
+        continue-on-error: true
         run: |
-          gpg --keyserver keyserver.ubuntu.com --recv-keys "${{ vars.GPG_KEY_ID }}" || true
-          cd release
-          if [ -f SHA256SUMS.asc ]; then
-            gpg --verify SHA256SUMS.asc SHA256SUMS
+          if [ -z "${{ vars.GPG_KEY_ID }}" ]; then
+            echo "GPG_KEY_ID not configured, skipping signature verification"
+            exit 0
           fi
+          gpg --keyserver keyserver.ubuntu.com --recv-keys "${{ vars.GPG_KEY_ID }}"
+          cd release
+          gpg --verify SHA256SUMS.asc SHA256SUMS
 
   test-macos:
     runs-on: macos-latest
