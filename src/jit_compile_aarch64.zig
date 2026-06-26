@@ -798,8 +798,9 @@ fn emitSpecializedPredicate(asm_ctx: *a64.Assembler, base_reg: u8, spec: Special
             try asm_ctx.emitMovz(.x2, 0xFFFC, 0);
             try asm_ctx.emitLoadImm64(.x4, types.FALSE);
             try asm_ctx.emitCmpReg(.x1, .x2);
-            // Not a pointer → store #f
-            try asm_ctx.emit(a64.Assembler.bCond(.ne, 7)); // skip to store #f
+            // Not a pointer → skip to store result
+            const not_ptr_br = asm_ctx.pos();
+            try asm_ctx.emit(0); // placeholder, patched below
             // Extract raw pointer and check object tag
             try asm_ctx.emit(ubfx48(.x1, .x0));
             try asm_ctx.emitLdrbImm(.x1, .x1, @intCast(OFF_OBJECT_TAG));
@@ -808,6 +809,9 @@ fn emitSpecializedPredicate(asm_ctx: *a64.Assembler, base_reg: u8, spec: Special
             try asm_ctx.emitCmpImm(.x1, @intFromEnum(types.ObjectTag.pair));
             try asm_ctx.emitLoadImm64(.x5, types.TRUE);
             try asm_ctx.emitCsel(.x4, .x5, .x4, .eq);
+            const store_pos = asm_ctx.pos();
+            const br_off: i32 = @as(i32, @intCast(store_pos)) - @as(i32, @intCast(not_ptr_br));
+            asm_ctx.patchAt(not_ptr_br, a64.Assembler.bCond(.ne, @intCast(br_off)));
             try asm_ctx.emitStrImm(.x4, FRAME_PTR, dst_off);
         },
         .not_op => {
