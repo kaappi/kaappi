@@ -5,6 +5,7 @@ const vm_mod = @import("vm.zig");
 const Value = types.Value;
 const PrimitiveError = primitives.PrimitiveError;
 const GC = @import("memory.zig").GC;
+const arith = @import("primitives_arithmetic.zig");
 
 extern fn mkstemp(template: [*:0]u8) c_int;
 
@@ -296,12 +297,12 @@ fn fileInfoSymlinkP(args: []const Value) PrimitiveError!Value {
 
 fn fileInfoSize(args: []const Value) PrimitiveError!Value {
     if (!types.isFileInfo(args[0])) return primitives.typeError("file-info:size", "file-info", args[0]);
-    return types.makeFixnum(types.toFileInfo(args[0]).size);
+    return try arith.makeFixnumChecked(types.toFileInfo(args[0]).size);
 }
 
 fn fileInfoMtime(args: []const Value) PrimitiveError!Value {
     if (!types.isFileInfo(args[0])) return primitives.typeError("file-info:mtime", "file-info", args[0]);
-    return types.makeFixnum(types.toFileInfo(args[0]).mtime);
+    return try arith.makeFixnumChecked(types.toFileInfo(args[0]).mtime);
 }
 
 fn fileInfoMode(args: []const Value) PrimitiveError!Value {
@@ -311,17 +312,17 @@ fn fileInfoMode(args: []const Value) PrimitiveError!Value {
 
 fn fileInfoDevice(args: []const Value) PrimitiveError!Value {
     if (!types.isFileInfo(args[0])) return primitives.typeError("file-info:device", "file-info", args[0]);
-    return types.makeFixnum(types.toFileInfo(args[0]).dev);
+    return try arith.makeFixnumChecked(types.toFileInfo(args[0]).dev);
 }
 
 fn fileInfoInode(args: []const Value) PrimitiveError!Value {
     if (!types.isFileInfo(args[0])) return primitives.typeError("file-info:inode", "file-info", args[0]);
-    return types.makeFixnum(types.toFileInfo(args[0]).ino);
+    return try arith.makeFixnumChecked(types.toFileInfo(args[0]).ino);
 }
 
 fn fileInfoNlinks(args: []const Value) PrimitiveError!Value {
     if (!types.isFileInfo(args[0])) return primitives.typeError("file-info:nlinks", "file-info", args[0]);
-    return types.makeFixnum(types.toFileInfo(args[0]).nlinks);
+    return try arith.makeFixnumChecked(types.toFileInfo(args[0]).nlinks);
 }
 
 fn fileInfoUid(args: []const Value) PrimitiveError!Value {
@@ -336,27 +337,27 @@ fn fileInfoGid(args: []const Value) PrimitiveError!Value {
 
 fn fileInfoRdev(args: []const Value) PrimitiveError!Value {
     if (!types.isFileInfo(args[0])) return primitives.typeError("file-info:rdev", "file-info", args[0]);
-    return types.makeFixnum(types.toFileInfo(args[0]).rdev);
+    return try arith.makeFixnumChecked(types.toFileInfo(args[0]).rdev);
 }
 
 fn fileInfoBlksize(args: []const Value) PrimitiveError!Value {
     if (!types.isFileInfo(args[0])) return primitives.typeError("file-info:blksize", "file-info", args[0]);
-    return types.makeFixnum(types.toFileInfo(args[0]).blksize);
+    return try arith.makeFixnumChecked(types.toFileInfo(args[0]).blksize);
 }
 
 fn fileInfoBlocks(args: []const Value) PrimitiveError!Value {
     if (!types.isFileInfo(args[0])) return primitives.typeError("file-info:blocks", "file-info", args[0]);
-    return types.makeFixnum(types.toFileInfo(args[0]).blocks);
+    return try arith.makeFixnumChecked(types.toFileInfo(args[0]).blocks);
 }
 
 fn fileInfoAtime(args: []const Value) PrimitiveError!Value {
     if (!types.isFileInfo(args[0])) return primitives.typeError("file-info:atime", "file-info", args[0]);
-    return types.makeFixnum(types.toFileInfo(args[0]).atime);
+    return try arith.makeFixnumChecked(types.toFileInfo(args[0]).atime);
 }
 
 fn fileInfoCtime(args: []const Value) PrimitiveError!Value {
     if (!types.isFileInfo(args[0])) return primitives.typeError("file-info:ctime", "file-info", args[0]);
-    return types.makeFixnum(types.toFileInfo(args[0]).ctime);
+    return try arith.makeFixnumChecked(types.toFileInfo(args[0]).ctime);
 }
 
 fn fileInfoFifoP(args: []const Value) PrimitiveError!Value {
