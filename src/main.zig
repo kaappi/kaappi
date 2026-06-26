@@ -147,16 +147,11 @@ const DESIRED_STACK: usize = 64 * 1024 * 1024; // 64 MB
 pub fn main(init: std.process.Init.Minimal) !void {
     if (comptime !is_wasm) {
         // The compiler's recursive descent needs more than the default 8 MB
-        // Linux stack for deeply nested Scheme forms (e.g. cond chains that
-        // desugar to nested if/let). Spawn the real entry point on a thread
-        // with a 16 MB stack.
-        var lim: std.c.rlimit = undefined;
-        const need_worker = std.c.getrlimit(.STACK, &lim) == 0 and lim.cur < DESIRED_STACK;
-        if (need_worker) {
-            const t = std.Thread.spawn(.{ .stack_size = DESIRED_STACK }, mainInner, .{init}) catch return mainInner(init);
-            t.join();
-            return;
-        }
+        // stack for deeply nested Scheme forms (e.g. cond chains that desugar
+        // to nested if/let). Always run on a worker thread with a 64 MB stack.
+        const t = std.Thread.spawn(.{ .stack_size = DESIRED_STACK }, mainInner, .{init}) catch return mainInner(init);
+        t.join();
+        return;
     }
     return mainInner(init);
 }
