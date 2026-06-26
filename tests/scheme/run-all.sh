@@ -82,6 +82,7 @@ run_suite "Audit tests" tests/scheme/audit/*.scm
 
 echo "=== R7RS test suite ==="
 set +e
+# If JIT R7RS fails, also try --no-jit to isolate JIT crashes
 R7RS_OUTPUT="$("$KAAPPI" tests/scheme/r7rs/r7rs-tests.scm 2>&1)"
 R7RS_STATUS=$?
 set -e
@@ -91,9 +92,18 @@ R7RS_FAIL=$(printf "%s\n" "$R7RS_OUTPUT" | awk '{for (i = 1; i < NF; i++) { w=$(
 echo "  $R7RS_PASS pass, $R7RS_FAIL fail"
 if [[ $R7RS_STATUS -ne 0 ]]; then
     echo "  FAIL  tests/scheme/r7rs/r7rs-tests.scm (exit $R7RS_STATUS)"
-    # Print lines around the crash (panic messages, stack traces)
-    printf "%s\n" "$R7RS_OUTPUT" | grep -E 'panic|thread.*panic|error:.*0x|integer|overflow|bounds|unreachable|does not fit|expected type|^==' | head -30
+    # Print full crash output (not just grepped)
+    printf "%s\n" "$R7RS_OUTPUT" | tail -40
     echo "--- end crash context ---"
+    # Retry without JIT to isolate JIT-related crashes
+    echo "  Retrying with --no-jit..."
+    R7RS_NOJIT="$("$KAAPPI" --no-jit tests/scheme/r7rs/r7rs-tests.scm 2>&1)"
+    R7RS_NOJIT_STATUS=$?
+    R7RS_NOJIT_PASS=$(printf "%s\n" "$R7RS_NOJIT" | awk '{for (i = 1; i < NF; i++) { w=$(i+1); gsub(",", "", w); if ($i ~ /^[0-9]+$/ && w == "pass") s += $i }} END {print s + 0}')
+    echo "  --no-jit: $R7RS_NOJIT_PASS pass (exit $R7RS_NOJIT_STATUS)"
+    if [[ $R7RS_NOJIT_STATUS -ne 0 ]]; then
+        printf "%s\n" "$R7RS_NOJIT" | tail -40
+    fi
     R7RS_STATUS_FAIL=1
 fi
 
