@@ -90,7 +90,9 @@ R7RS_PASS=$(printf "%s\n" "$R7RS_OUTPUT" | awk '{for (i = 1; i < NF; i++) { w=$(
 R7RS_FAIL=$(printf "%s\n" "$R7RS_OUTPUT" | awk '{for (i = 1; i < NF; i++) { w=$(i+1); gsub(",", "", w); if ($i ~ /^[0-9]+$/ && w == "fail") s += $i }} END {print s + 0}')
 echo "  $R7RS_PASS pass, $R7RS_FAIL fail"
 if [[ $R7RS_STATUS -ne 0 ]]; then
-    echo "  FAIL  tests/scheme/r7rs/r7rs-tests.scm (non-zero exit)"
+    echo "  FAIL  tests/scheme/r7rs/r7rs-tests.scm (exit $R7RS_STATUS)"
+    # Print last 20 lines of output to help diagnose the crash
+    printf "%s\n" "$R7RS_OUTPUT" | tail -20
     R7RS_STATUS_FAIL=1
 fi
 
