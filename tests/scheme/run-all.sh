@@ -91,8 +91,9 @@ R7RS_FAIL=$(printf "%s\n" "$R7RS_OUTPUT" | awk '{for (i = 1; i < NF; i++) { w=$(
 echo "  $R7RS_PASS pass, $R7RS_FAIL fail"
 if [[ $R7RS_STATUS -ne 0 ]]; then
     echo "  FAIL  tests/scheme/r7rs/r7rs-tests.scm (exit $R7RS_STATUS)"
-    # Print last 20 lines of output to help diagnose the crash
-    printf "%s\n" "$R7RS_OUTPUT" | tail -20
+    # Print lines around the crash (panic messages, stack traces)
+    printf "%s\n" "$R7RS_OUTPUT" | grep -E 'panic|thread.*panic|error:.*0x|integer|overflow|bounds|unreachable|does not fit|expected type|^==' | head -30
+    echo "--- end crash context ---"
     R7RS_STATUS_FAIL=1
 fi
 
