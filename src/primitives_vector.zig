@@ -649,11 +649,15 @@ fn vectorReverseBangFn(args: []const Value) PrimitiveError!Value {
     var end: usize = vec.data.len;
     if (args.len > 1) {
         if (!types.isFixnum(args[1])) return primitives.typeError("vector-reverse!", "exact non-negative integer", args[1]);
-        start = @intCast(types.toFixnum(args[1]));
+        const s = types.toFixnum(args[1]);
+        if (s < 0) return primitives.typeError("vector-reverse!", "exact non-negative integer", args[1]);
+        start = @intCast(s);
     }
     if (args.len > 2) {
         if (!types.isFixnum(args[2])) return primitives.typeError("vector-reverse!", "exact non-negative integer", args[2]);
-        end = @intCast(types.toFixnum(args[2]));
+        const e = types.toFixnum(args[2]);
+        if (e < 0) return primitives.typeError("vector-reverse!", "exact non-negative integer", args[2]);
+        end = @intCast(e);
     }
     if (start > end or end > vec.data.len) return primitives.typeError("vector-reverse!", "valid index range", args[0]);
     var lo = start;
@@ -677,11 +681,15 @@ fn vectorReverseCopyFn(args: []const Value) PrimitiveError!Value {
     var end: usize = vec.data.len;
     if (args.len > 1) {
         if (!types.isFixnum(args[1])) return primitives.typeError("vector-reverse-copy", "exact non-negative integer", args[1]);
-        start = @intCast(types.toFixnum(args[1]));
+        const s = types.toFixnum(args[1]);
+        if (s < 0) return primitives.typeError("vector-reverse-copy", "exact non-negative integer", args[1]);
+        start = @intCast(s);
     }
     if (args.len > 2) {
         if (!types.isFixnum(args[2])) return primitives.typeError("vector-reverse-copy", "exact non-negative integer", args[2]);
-        end = @intCast(types.toFixnum(args[2]));
+        const e = types.toFixnum(args[2]);
+        if (e < 0) return primitives.typeError("vector-reverse-copy", "exact non-negative integer", args[2]);
+        end = @intCast(e);
     }
     if (start > end or end > vec.data.len) return primitives.typeError("vector-reverse-copy", "valid index range", args[0]);
     const len = end - start;
@@ -698,7 +706,9 @@ fn vectorUnfoldFn(args: []const Value) PrimitiveError!Value {
     const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
     const f = args[0];
     if (!types.isFixnum(args[1])) return primitives.typeError("vector-unfold", "exact non-negative integer", args[1]);
-    const length: usize = @intCast(types.toFixnum(args[1]));
+    const len_val = types.toFixnum(args[1]);
+    if (len_val < 0) return primitives.typeError("vector-unfold", "exact non-negative integer", args[1]);
+    const length: usize = @intCast(len_val);
 
     var seeds: std.ArrayList(Value) = .empty;
     defer seeds.deinit(gc.allocator);
