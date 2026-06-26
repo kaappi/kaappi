@@ -466,7 +466,8 @@ fn stringPadFn(args: []const Value) PrimitiveError!Value {
     const target_len: usize = @intCast(types.toFixnum(args[1]));
     var pad_buf: [4]u8 = undefined;
     const pad_cp: u21 = if (args.len > 2 and types.isChar(args[2])) types.toChar(args[2]) else ' ';
-    const pad_len = std.unicode.utf8Encode(pad_cp, &pad_buf) catch return PrimitiveError.TypeError;
+    const pad_len = std.unicode.utf8Encode(pad_cp, &pad_buf) catch
+        return primitives.typeError("string-pad", "valid character", args[2]);
     const current_len = utf8CodepointCount(data);
     if (current_len >= target_len) {
         const byte_start = pstr.utf8IndexToByteOffset(data, current_len - target_len) orelse data.len;
@@ -489,7 +490,8 @@ fn stringPadRightFn(args: []const Value) PrimitiveError!Value {
     const target_len: usize = @intCast(types.toFixnum(args[1]));
     var pad_buf: [4]u8 = undefined;
     const pad_cp: u21 = if (args.len > 2 and types.isChar(args[2])) types.toChar(args[2]) else ' ';
-    const pad_len = std.unicode.utf8Encode(pad_cp, &pad_buf) catch return PrimitiveError.TypeError;
+    const pad_len = std.unicode.utf8Encode(pad_cp, &pad_buf) catch
+        return primitives.typeError("string-pad-right", "valid character", args[2]);
     const current_len = utf8CodepointCount(data);
     if (current_len >= target_len) {
         const byte_end = pstr.utf8IndexToByteOffset(data, target_len) orelse data.len;
