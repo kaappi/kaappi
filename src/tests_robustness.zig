@@ -373,6 +373,110 @@ test "root stack symmetry after raised exceptions" {
     }
 }
 
+// ---------------------------------------------------------------------------
+// GC memory_limit must respect no_collect guard (issue #7)
+// ---------------------------------------------------------------------------
+
+test "memory_limit defers collection inside no_collect section" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+
+    const a = try gc.allocPair(types.NIL, types.NIL);
+    const b = try gc.allocPair(types.NIL, types.NIL);
+
+    gc.no_collect += 1;
+
+    // Set limit below current bytes so the memory_limit branch fires
+    gc.memory_limit = gc.bytes_allocated - 1;
+
+    const collections_before = gc.stats.collections;
+
+    const c = try gc.allocPair(a, b);
+
+    try std.testing.expectEqual(collections_before, gc.stats.collections);
+    try std.testing.expect(gc.stats.no_collect_deferred > 0);
+    try std.testing.expect(types.isPair(c));
+    const pair = types.toObject(c).as(types.Pair);
+    try std.testing.expect(types.isPair(pair.car));
+    try std.testing.expect(types.isPair(pair.cdr));
+
+    gc.no_collect -= 1;
+    gc.memory_limit = null;
+}
+
+test "memory_limit collects when no_collect is zero" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+
+    _ = try gc.allocPair(types.NIL, types.NIL);
+    _ = try gc.allocPair(types.NIL, types.NIL);
+    _ = try gc.allocPair(types.NIL, types.NIL);
+
+    gc.memory_limit = gc.bytes_allocated - 1;
+
+    const collections_before = gc.stats.collections;
+
+    _ = try gc.allocPair(types.NIL, types.NIL);
+
+    try std.testing.expect(gc.stats.collections > collections_before);
+    gc.memory_limit = null;
+}
+
+test "memory_limit respects enabled flag" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+
+    _ = try gc.allocPair(types.NIL, types.NIL);
+
+    gc.memory_limit = gc.bytes_allocated - 1;
+    gc.enabled = false;
+
+    const collections_before = gc.stats.collections;
+
+    _ = try gc.allocPair(types.NIL, types.NIL);
+
+    try std.testing.expectEqual(collections_before, gc.stats.collections);
+
+    gc.enabled = true;
+    gc.memory_limit = null;
+}
+
+test "memory_limit with record-type no_collect" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    gc.memory_limit = gc.bytes_allocated * 8;
+
+    _ = try vm.eval(
+        \\(define-record-type point
+        \\  (make-point x y)
+        \\  point?
+        \\  (x point-x)
+        \\  (y point-y))
+    );
+    const result = try vm.eval("(point-x (make-point 3 4))");
+    try std.testing.expectEqual(@as(i64, 3), types.toFixnum(result));
+    gc.memory_limit = null;
+}
+
+test "memory_limit with quasiquote no_collect" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    gc.memory_limit = gc.bytes_allocated * 8;
+
+    const result = try vm.eval(
+        \\(let ((x 1) (y 2))
+        \\  (length `(,x ,y ,@(list 3 4 5))))
+    );
+    try std.testing.expectEqual(@as(i64, 5), types.toFixnum(result));
+    gc.memory_limit = null;
+}
+
 test "macro expansion limit returns compile error deterministically" {
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();

@@ -1215,8 +1215,12 @@ pub const GC = struct {
         }
         if (self.memory_limit) |limit| {
             if (self.bytes_allocated > limit) {
-                self.collect();
-                if (self.bytes_allocated > limit) return error.OutOfMemory;
+                if (!self.enabled or self.no_collect > 0) {
+                    self.stats.no_collect_deferred += 1;
+                } else {
+                    self.collect();
+                    if (self.bytes_allocated > limit) return error.OutOfMemory;
+                }
             }
         }
     }
