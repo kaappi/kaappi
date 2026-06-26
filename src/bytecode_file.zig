@@ -12,7 +12,7 @@ const MAGIC = [4]u8{ 'K', 'P', 'B', 'C' };
 const VERSION: u16 = 3;
 const MAX_FUNCTIONS: u32 = 16_384;
 const MAX_TOP_LEVEL_FUNCTIONS: u32 = 4_096;
-const MAX_CODE_BYTES: u32 = 1_048_576;
+const MAX_CODE_BYTES: u32 = 4_194_304;
 const MAX_CONSTANTS_PER_FUNCTION: u32 = 65_535;
 const MAX_SYMBOL_BYTES: u16 = 4_096;
 const MAX_STRING_BYTES: u32 = 1_048_576;
@@ -719,7 +719,14 @@ fn deserializeFromBuffer(gc: *GC, data: []const u8, expected_hash: ?u64) !?Deser
         }
 
         const code_len = r.readU32() catch return null;
-        if (code_len > MAX_CODE_BYTES) return null;
+        if (code_len > MAX_CODE_BYTES) {
+            var buf: [128]u8 = undefined;
+            var w: std.Io.Writer = .fixed(&buf);
+            w.print("error: bytecode too large ({d} bytes, max {d})\n", .{ code_len, MAX_CODE_BYTES }) catch {};
+            const msg = w.buffered();
+            _ = std.posix.system.write(2, msg.ptr, msg.len);
+            return null;
+        }
         const code_bytes = r.readBytes(code_len) catch return null;
         func.code.appendSlice(allocator, code_bytes) catch return BytecodeError.OutOfMemory;
 
