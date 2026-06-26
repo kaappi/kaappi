@@ -315,7 +315,9 @@ pub const Port = struct {
     is_open: bool,
     name: []const u8,
     owns_name: bool, // if true, name is heap-allocated and must be freed
-    peek_byte: ?u8, // 1-byte lookahead buffer for peek-char
+    peek_byte: ?u8, // lead byte lookahead for peek-char
+    peek_extra: [3]u8 = .{ 0, 0, 0 }, // UTF-8 continuation bytes from peek-char
+    peek_extra_len: u2 = 0,
     // String port fields:
     is_string_port: bool = false,
     string_data: ?[]const u8 = null, // for input string ports (owned copy)
