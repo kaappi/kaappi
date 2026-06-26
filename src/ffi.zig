@@ -15,16 +15,24 @@ fn toCString(v: Value, buf: *[4096]u8) ?[*:0]const u8 {
     return @ptrCast(buf[0..str.len :0]);
 }
 
+const MAX_FIXNUM: i64 = 0x7FFF_FFFF_FFFF; // 2^47 - 1
+const MIN_FIXNUM: i64 = -0x8000_0000_0000; // -2^47
+
+fn marshalLongReturn(result: c_long, gc: *memory.GC) !Value {
+    if (result >= MIN_FIXNUM and result <= MAX_FIXNUM)
+        return types.makeFixnum(@intCast(result));
+    return gc.allocBignumFromI64(result) catch return error.OutOfMemory;
+}
+
 /// Convert a C return value to a Scheme Value based on return type.
 fn marshalReturn(comptime T: type, result: T, rt: FfiType, gc: *memory.GC) !Value {
     _ = rt;
-    _ = gc;
     if (T == f64) {
         return types.makeFlonum(result);
     } else if (T == c_int) {
         return types.makeFixnum(@intCast(result));
     } else if (T == c_long) {
-        return types.makeFixnum(@intCast(result));
+        return marshalLongReturn(result, gc);
     } else if (T == void) {
         return types.VOID;
     }
@@ -36,9 +44,13 @@ fn marshalCStringReturn(cstr: [*:0]const u8, gc: *memory.GC) !Value {
     return gc.allocString(cstr[0..len]) catch return error.OutOfMemory;
 }
 
-fn marshalPointerReturn(ptr: ?*anyopaque) Value {
+fn marshalPointerReturn(ptr: ?*anyopaque, gc: *memory.GC) !Value {
     const addr: usize = if (ptr) |p| @intFromPtr(p) else 0;
-    return types.makeFixnum(@intCast(addr));
+    const signed: i64 = @bitCast(@as(u64, addr));
+    if (signed >= 0 and signed <= MAX_FIXNUM)
+        return types.makeFixnum(signed);
+    const limbs_buf = [1]u64{addr};
+    return gc.allocBignumFromLimbs(&limbs_buf, 1, true) catch return error.OutOfMemory;
 }
 
 fn marshalToPointer(v: Value) ?*anyopaque {
@@ -50,7 +62,16 @@ fn marshalToPointer(v: Value) ?*anyopaque {
     if (types.isFixnum(v)) {
         const n = types.toFixnum(v);
         if (n == 0) return null;
+        if (n < 0) return null;
         return @ptrFromInt(@as(usize, @intCast(n)));
+    }
+    if (types.isBignum(v)) {
+        const bn = types.toBignum(v);
+        if (bn.len == 0) return null;
+        if (!bn.positive) return null;
+        const limb = bn.limbs[0];
+        if (limb > std.math.maxInt(usize)) return null;
+        return @ptrFromInt(@as(usize, @intCast(limb)));
     }
     if (types.isBytevector(v)) {
         const bv = types.toObject(v).as(types.Bytevector);
@@ -71,10 +92,10 @@ fn normalizeType(t: FfiType) FfiType {
 fn validateArg(v: Value, t: FfiType) bool {
     const nt = normalizeType(t);
     return switch (nt) {
-        .int, .long => types.isFixnum(v),
+        .int, .long => types.isFixnum(v) or types.isBignum(v),
         .double, .float => types.isFixnum(v) or types.isFlonum(v) or types.isRationalObj(v),
         .string => types.isString(v),
-        .pointer => types.isFixnum(v) or types.isFfiCallback(v) or types.isBytevector(v),
+        .pointer => types.isFixnum(v) or types.isBignum(v) or types.isFfiCallback(v) or types.isBytevector(v),
         .void_type => true,
         else => false,
     };
@@ -122,7 +143,7 @@ fn callFfi0(ffi_fn: *types.FfiFunction, gc: *memory.GC) !Value {
     if (rt == .long) {
         const f: *const fn () callconv(.c) c_long = @ptrCast(@alignCast(ffi_fn.symbol));
         const result = f();
-        return types.makeFixnum(@intCast(result));
+        return marshalLongReturn(result, gc);
     }
     if (rt == .double) {
         const f: *const fn () callconv(.c) f64 = @ptrCast(@alignCast(ffi_fn.symbol));
@@ -137,7 +158,7 @@ fn callFfi0(ffi_fn: *types.FfiFunction, gc: *memory.GC) !Value {
     if (rt == .pointer) {
         const f: *const fn () callconv(.c) ?*anyopaque = @ptrCast(@alignCast(ffi_fn.symbol));
         const result = f();
-        return marshalPointerReturn(result);
+        return marshalPointerReturn(result, gc);
     }
     if (rt == .string) {
         const f: *const fn () callconv(.c) ?[*:0]const u8 = @ptrCast(@alignCast(ffi_fn.symbol));
@@ -189,14 +210,14 @@ fn callFfi1(ffi_fn: *types.FfiFunction, args: []const Value, gc: *memory.GC) !Va
     if (p0 == .int and rt == .long) {
         const f: *const fn (c_int) callconv(.c) c_long = @ptrCast(@alignCast(ffi_fn.symbol));
         const result = f(@intCast(types.toFixnum(args[0])));
-        return types.makeFixnum(@intCast(result));
+        return marshalLongReturn(result, gc);
     }
 
     // long -> long
     if (p0 == .long and rt == .long) {
         const f: *const fn (c_long) callconv(.c) c_long = @ptrCast(@alignCast(ffi_fn.symbol));
         const result = f(@intCast(types.toFixnum(args[0])));
-        return types.makeFixnum(@intCast(result));
+        return marshalLongReturn(result, gc);
     }
 
     // string -> int (atoi, etc.)
@@ -214,7 +235,7 @@ fn callFfi1(ffi_fn: *types.FfiFunction, args: []const Value, gc: *memory.GC) !Va
         var buf: [4096]u8 = undefined;
         const cstr = toCString(args[0], &buf) orelse return error.TypeError;
         const result = f(cstr);
-        return types.makeFixnum(@intCast(result));
+        return marshalLongReturn(result, gc);
     }
 
     // string -> void (puts, etc.)
@@ -274,14 +295,14 @@ fn callFfi1(ffi_fn: *types.FfiFunction, args: []const Value, gc: *memory.GC) !Va
     if (p0 == .pointer and rt == .long) {
         const f: *const fn (?*anyopaque) callconv(.c) c_long = @ptrCast(@alignCast(ffi_fn.symbol));
         const result = f(marshalToPointer(args[0]));
-        return types.makeFixnum(@intCast(result));
+        return marshalLongReturn(result, gc);
     }
 
     // pointer -> pointer
     if (p0 == .pointer and rt == .pointer) {
         const f: *const fn (?*anyopaque) callconv(.c) ?*anyopaque = @ptrCast(@alignCast(ffi_fn.symbol));
         const result = f(marshalToPointer(args[0]));
-        return marshalPointerReturn(result);
+        return marshalPointerReturn(result, gc);
     }
 
     // pointer -> double
@@ -295,14 +316,14 @@ fn callFfi1(ffi_fn: *types.FfiFunction, args: []const Value, gc: *memory.GC) !Va
     if (p0 == .int and rt == .pointer) {
         const f: *const fn (c_int) callconv(.c) ?*anyopaque = @ptrCast(@alignCast(ffi_fn.symbol));
         const result = f(@intCast(types.toFixnum(args[0])));
-        return marshalPointerReturn(result);
+        return marshalPointerReturn(result, gc);
     }
 
     // long -> pointer
     if (p0 == .long and rt == .pointer) {
         const f: *const fn (c_long) callconv(.c) ?*anyopaque = @ptrCast(@alignCast(ffi_fn.symbol));
         const result = f(@intCast(types.toFixnum(args[0])));
-        return marshalPointerReturn(result);
+        return marshalPointerReturn(result, gc);
     }
 
     // long -> void
@@ -318,7 +339,7 @@ fn callFfi1(ffi_fn: *types.FfiFunction, args: []const Value, gc: *memory.GC) !Va
         var buf: [4096]u8 = undefined;
         const cstr = toCString(args[0], &buf) orelse return error.TypeError;
         const result = f(cstr);
-        return marshalPointerReturn(result);
+        return marshalPointerReturn(result, gc);
     }
 
     // string -> string
@@ -374,14 +395,14 @@ fn callFfi2(ffi_fn: *types.FfiFunction, args: []const Value, gc: *memory.GC) !Va
     if (p0 == .int and p1 == .int and rt == .long) {
         const f: *const fn (c_int, c_int) callconv(.c) c_long = @ptrCast(@alignCast(ffi_fn.symbol));
         const result = f(@intCast(types.toFixnum(args[0])), @intCast(types.toFixnum(args[1])));
-        return types.makeFixnum(@intCast(result));
+        return marshalLongReturn(result, gc);
     }
 
     // (long, long) -> long
     if (p0 == .long and p1 == .long and rt == .long) {
         const f: *const fn (c_long, c_long) callconv(.c) c_long = @ptrCast(@alignCast(ffi_fn.symbol));
         const result = f(@intCast(types.toFixnum(args[0])), @intCast(types.toFixnum(args[1])));
-        return types.makeFixnum(@intCast(result));
+        return marshalLongReturn(result, gc);
     }
 
     // (string, string) -> int (strcmp, etc.)
@@ -403,7 +424,7 @@ fn callFfi2(ffi_fn: *types.FfiFunction, args: []const Value, gc: *memory.GC) !Va
         const cs0 = toCString(args[0], &buf0) orelse return error.TypeError;
         const cs1 = toCString(args[1], &buf1) orelse return error.TypeError;
         const result = f(cs0, cs1);
-        return types.makeFixnum(@intCast(result));
+        return marshalLongReturn(result, gc);
     }
 
     // (string, string) -> void
@@ -435,7 +456,7 @@ fn callFfi2(ffi_fn: *types.FfiFunction, args: []const Value, gc: *memory.GC) !Va
     if (p0 == .pointer and p1 == .pointer and rt == .pointer) {
         const f: *const fn (?*anyopaque, ?*anyopaque) callconv(.c) ?*anyopaque = @ptrCast(@alignCast(ffi_fn.symbol));
         const result = f(marshalToPointer(args[0]), marshalToPointer(args[1]));
-        return marshalPointerReturn(result);
+        return marshalPointerReturn(result, gc);
     }
 
     // (pointer, pointer) -> int
@@ -470,14 +491,14 @@ fn callFfi2(ffi_fn: *types.FfiFunction, args: []const Value, gc: *memory.GC) !Va
     if (p0 == .pointer and p1 == .int and rt == .pointer) {
         const f: *const fn (?*anyopaque, c_int) callconv(.c) ?*anyopaque = @ptrCast(@alignCast(ffi_fn.symbol));
         const result = f(marshalToPointer(args[0]), @intCast(types.toFixnum(args[1])));
-        return marshalPointerReturn(result);
+        return marshalPointerReturn(result, gc);
     }
 
     // (pointer, long) -> pointer (realloc, etc.)
     if (p0 == .pointer and p1 == .long and rt == .pointer) {
         const f: *const fn (?*anyopaque, c_long) callconv(.c) ?*anyopaque = @ptrCast(@alignCast(ffi_fn.symbol));
         const result = f(marshalToPointer(args[0]), @intCast(types.toFixnum(args[1])));
-        return marshalPointerReturn(result);
+        return marshalPointerReturn(result, gc);
     }
 
     // (pointer, long) -> int
@@ -498,7 +519,7 @@ fn callFfi2(ffi_fn: *types.FfiFunction, args: []const Value, gc: *memory.GC) !Va
     if (p0 == .pointer and p1 == .long and rt == .long) {
         const f: *const fn (?*anyopaque, c_long) callconv(.c) c_long = @ptrCast(@alignCast(ffi_fn.symbol));
         const result = f(marshalToPointer(args[0]), @intCast(types.toFixnum(args[1])));
-        return types.makeFixnum(@intCast(result));
+        return marshalLongReturn(result, gc);
     }
 
     // (int, pointer) -> int
@@ -521,7 +542,7 @@ fn callFfi2(ffi_fn: *types.FfiFunction, args: []const Value, gc: *memory.GC) !Va
         var buf0: [4096]u8 = undefined;
         const cs0 = toCString(args[0], &buf0) orelse return error.TypeError;
         const result = f(cs0, @intCast(types.toFixnum(args[1])));
-        return marshalPointerReturn(result);
+        return marshalPointerReturn(result, gc);
     }
 
     // (string, string) -> pointer
@@ -532,7 +553,7 @@ fn callFfi2(ffi_fn: *types.FfiFunction, args: []const Value, gc: *memory.GC) !Va
         const cs0 = toCString(args[0], &buf0) orelse return error.TypeError;
         const cs1 = toCString(args[1], &buf1) orelse return error.TypeError;
         const result = f(cs0, cs1);
-        return marshalPointerReturn(result);
+        return marshalPointerReturn(result, gc);
     }
 
     // (string, string) -> string
@@ -550,7 +571,7 @@ fn callFfi2(ffi_fn: *types.FfiFunction, args: []const Value, gc: *memory.GC) !Va
     if (p0 == .long and p1 == .long and rt == .pointer) {
         const f: *const fn (c_long, c_long) callconv(.c) ?*anyopaque = @ptrCast(@alignCast(ffi_fn.symbol));
         const result = f(@intCast(types.toFixnum(args[0])), @intCast(types.toFixnum(args[1])));
-        return marshalPointerReturn(result);
+        return marshalPointerReturn(result, gc);
     }
 
     return error.TypeError;
@@ -561,7 +582,6 @@ fn callFfi2(ffi_fn: *types.FfiFunction, args: []const Value, gc: *memory.GC) !Va
 // ---------------------------------------------------------------------------
 
 fn callFfi3(ffi_fn: *types.FfiFunction, args: []const Value, gc: *memory.GC) !Value {
-    _ = gc;
     const p0 = normalizeType(ffi_fn.param_types[0]);
     const p1 = normalizeType(ffi_fn.param_types[1]);
     const p2 = normalizeType(ffi_fn.param_types[2]);
@@ -605,21 +625,21 @@ fn callFfi3(ffi_fn: *types.FfiFunction, args: []const Value, gc: *memory.GC) !Va
     if (p0 == .pointer and p1 == .pointer and p2 == .long and rt == .pointer) {
         const f: *const fn (?*anyopaque, ?*anyopaque, c_long) callconv(.c) ?*anyopaque = @ptrCast(@alignCast(ffi_fn.symbol));
         const result = f(marshalToPointer(args[0]), marshalToPointer(args[1]), @intCast(types.toFixnum(args[2])));
-        return marshalPointerReturn(result);
+        return marshalPointerReturn(result, gc);
     }
 
     // (pointer, int, long) -> pointer (memset, etc.)
     if (p0 == .pointer and p1 == .int and p2 == .long and rt == .pointer) {
         const f: *const fn (?*anyopaque, c_int, c_long) callconv(.c) ?*anyopaque = @ptrCast(@alignCast(ffi_fn.symbol));
         const result = f(marshalToPointer(args[0]), @intCast(types.toFixnum(args[1])), @intCast(types.toFixnum(args[2])));
-        return marshalPointerReturn(result);
+        return marshalPointerReturn(result, gc);
     }
 
     // (pointer, long, pointer) -> long (fread/fwrite patterns)
     if (p0 == .pointer and p1 == .long and p2 == .pointer and rt == .long) {
         const f: *const fn (?*anyopaque, c_long, ?*anyopaque) callconv(.c) c_long = @ptrCast(@alignCast(ffi_fn.symbol));
         const result = f(marshalToPointer(args[0]), @intCast(types.toFixnum(args[1])), marshalToPointer(args[2]));
-        return types.makeFixnum(@intCast(result));
+        return marshalLongReturn(result, gc);
     }
 
     // (pointer, pointer, pointer) -> int
@@ -633,7 +653,7 @@ fn callFfi3(ffi_fn: *types.FfiFunction, args: []const Value, gc: *memory.GC) !Va
     if (p0 == .pointer and p1 == .pointer and p2 == .pointer and rt == .pointer) {
         const f: *const fn (?*anyopaque, ?*anyopaque, ?*anyopaque) callconv(.c) ?*anyopaque = @ptrCast(@alignCast(ffi_fn.symbol));
         const result = f(marshalToPointer(args[0]), marshalToPointer(args[1]), marshalToPointer(args[2]));
-        return marshalPointerReturn(result);
+        return marshalPointerReturn(result, gc);
     }
 
     // (pointer, pointer, pointer) -> void
@@ -696,8 +716,11 @@ fn callFfi4(ffi_fn: *types.FfiFunction, args: []const Value, gc: *memory.GC) !Va
         const f: *const fn (?*anyopaque, usize, usize, *const fn (?*anyopaque, ?*anyopaque) callconv(.c) c_int) callconv(.c) void =
             @ptrCast(@alignCast(ffi_fn.symbol));
         const ptr0 = marshalToPointer(args[0]) orelse return error.TypeError;
-        const n: usize = @intCast(types.toFixnum(args[1]));
-        const sz: usize = @intCast(types.toFixnum(args[2]));
+        const n_signed = types.toFixnum(args[1]);
+        const sz_signed = types.toFixnum(args[2]);
+        if (n_signed < 0 or sz_signed < 0) return error.TypeError;
+        const n: usize = @intCast(n_signed);
+        const sz: usize = @intCast(sz_signed);
         const cmp_ptr = marshalToPointer(args[3]) orelse return error.TypeError;
         const cmp: *const fn (?*anyopaque, ?*anyopaque) callconv(.c) c_int = @ptrCast(@alignCast(cmp_ptr));
         f(ptr0, n, sz, cmp);
@@ -732,7 +755,7 @@ fn callFfi4(ffi_fn: *types.FfiFunction, args: []const Value, gc: *memory.GC) !Va
         const f: *const fn (?*anyopaque, ?*anyopaque, c_long, c_long) callconv(.c) ?*anyopaque =
             @ptrCast(@alignCast(ffi_fn.symbol));
         const result = f(marshalToPointer(args[0]), marshalToPointer(args[1]), @intCast(types.toFixnum(args[2])), @intCast(types.toFixnum(args[3])));
-        return marshalPointerReturn(result);
+        return marshalPointerReturn(result, gc);
     }
 
     // (pointer, long, long, long) -> int
@@ -756,10 +779,9 @@ fn callFfi4(ffi_fn: *types.FfiFunction, args: []const Value, gc: *memory.GC) !Va
         const f: *const fn (?*anyopaque, ?*anyopaque, ?*anyopaque, ?*anyopaque) callconv(.c) ?*anyopaque =
             @ptrCast(@alignCast(ffi_fn.symbol));
         const result = f(marshalToPointer(args[0]), marshalToPointer(args[1]), marshalToPointer(args[2]), marshalToPointer(args[3]));
-        return marshalPointerReturn(result);
+        return marshalPointerReturn(result, gc);
     }
 
-    _ = gc;
     return error.TypeError;
 }
 
@@ -874,8 +896,159 @@ fn callFfi5(ffi_fn: *types.FfiFunction, args: []const Value, gc: *memory.GC) !Va
     if (p0 == .pointer and p1 == .pointer and p2 == .pointer and p3 == .pointer and p4 == .pointer and rt == .pointer) {
         const f: *const fn (?*anyopaque, ?*anyopaque, ?*anyopaque, ?*anyopaque, ?*anyopaque) callconv(.c) ?*anyopaque = @ptrCast(@alignCast(ffi_fn.symbol));
         const result = f(marshalToPointer(args[0]), marshalToPointer(args[1]), marshalToPointer(args[2]), marshalToPointer(args[3]), marshalToPointer(args[4]));
-        return marshalPointerReturn(result);
+        return marshalPointerReturn(result, gc);
     }
 
     return error.TypeError;
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+test "marshalLongReturn: fixnum range preserved" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+
+    const val = try marshalLongReturn(42, &gc);
+    try std.testing.expect(types.isFixnum(val));
+    try std.testing.expectEqual(@as(i64, 42), types.toFixnum(val));
+
+    const neg = try marshalLongReturn(-100, &gc);
+    try std.testing.expect(types.isFixnum(neg));
+    try std.testing.expectEqual(@as(i64, -100), types.toFixnum(neg));
+
+    const zero = try marshalLongReturn(0, &gc);
+    try std.testing.expect(types.isFixnum(zero));
+    try std.testing.expectEqual(@as(i64, 0), types.toFixnum(zero));
+}
+
+test "marshalLongReturn: boundary values" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+
+    const max = try marshalLongReturn(MAX_FIXNUM, &gc);
+    try std.testing.expect(types.isFixnum(max));
+    try std.testing.expectEqual(MAX_FIXNUM, types.toFixnum(max));
+
+    const min = try marshalLongReturn(MIN_FIXNUM, &gc);
+    try std.testing.expect(types.isFixnum(min));
+    try std.testing.expectEqual(MIN_FIXNUM, types.toFixnum(min));
+}
+
+test "marshalLongReturn: above fixnum range promotes to bignum" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+
+    const above = try marshalLongReturn(MAX_FIXNUM + 1, &gc);
+    try std.testing.expect(types.isBignum(above));
+    const bn = types.toBignum(above);
+    try std.testing.expect(bn.positive);
+    try std.testing.expectEqual(@as(u64, @intCast(MAX_FIXNUM + 1)), bn.limbs[0]);
+}
+
+test "marshalLongReturn: below fixnum range promotes to bignum" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+
+    const below = try marshalLongReturn(MIN_FIXNUM - 1, &gc);
+    try std.testing.expect(types.isBignum(below));
+    const bn = types.toBignum(below);
+    try std.testing.expect(!bn.positive);
+    const expected_mag: u64 = @intCast(-@as(i128, MIN_FIXNUM - 1));
+    try std.testing.expectEqual(expected_mag, bn.limbs[0]);
+}
+
+test "marshalLongReturn: large positive 64-bit value" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+
+    const large: c_long = std.math.maxInt(i64);
+    const val = try marshalLongReturn(large, &gc);
+    try std.testing.expect(types.isBignum(val));
+    const bn = types.toBignum(val);
+    try std.testing.expect(bn.positive);
+    try std.testing.expectEqual(@as(u64, @intCast(large)), bn.limbs[0]);
+}
+
+test "marshalLongReturn: large negative 64-bit value" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+
+    const large: c_long = std.math.minInt(i64);
+    const val = try marshalLongReturn(large, &gc);
+    try std.testing.expect(types.isBignum(val));
+    const bn = types.toBignum(val);
+    try std.testing.expect(!bn.positive);
+}
+
+test "marshalPointerReturn: null returns fixnum zero" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+
+    const val = try marshalPointerReturn(null, &gc);
+    try std.testing.expect(types.isFixnum(val));
+    try std.testing.expectEqual(@as(i64, 0), types.toFixnum(val));
+}
+
+test "marshalPointerReturn: small address returns fixnum" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+
+    var dummy: u8 = 0;
+    const ptr: ?*anyopaque = @ptrCast(&dummy);
+    const val = try marshalPointerReturn(ptr, &gc);
+    const addr = @intFromPtr(&dummy);
+    if (addr <= @as(usize, @intCast(MAX_FIXNUM))) {
+        try std.testing.expect(types.isFixnum(val));
+    }
+}
+
+test "marshalToPointer: round-trips fixnum pointer" {
+    const addr: usize = 0x1000;
+    const v = types.makeFixnum(@intCast(addr));
+    const ptr = marshalToPointer(v);
+    try std.testing.expectEqual(addr, @intFromPtr(ptr.?));
+}
+
+test "marshalToPointer: round-trips bignum pointer" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+
+    const addr: usize = 0x1234_5678_9ABC;
+    const limbs_buf = [1]u64{addr};
+    const v = try gc.allocBignumFromLimbs(&limbs_buf, 1, true);
+    const ptr = marshalToPointer(v);
+    try std.testing.expectEqual(addr, @intFromPtr(ptr.?));
+}
+
+test "marshalToPointer: negative fixnum returns null" {
+    const v = types.makeFixnum(-1);
+    try std.testing.expectEqual(@as(?*anyopaque, null), marshalToPointer(v));
+}
+
+test "marshalToPointer: negative bignum returns null" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+
+    const v = try gc.allocBignumFromI64(-42);
+    try std.testing.expectEqual(@as(?*anyopaque, null), marshalToPointer(v));
+}
+
+test "validateArg: accepts bignum for long type" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+
+    const big = try gc.allocBignumFromI64(std.math.maxInt(i64));
+    try std.testing.expect(validateArg(big, .long));
+    try std.testing.expect(validateArg(big, .int64));
+    try std.testing.expect(validateArg(big, .size_type));
+}
+
+test "validateArg: accepts bignum for pointer type" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+
+    const big = try gc.allocBignumFromI64(0x1000);
+    try std.testing.expect(validateArg(big, .pointer));
 }
