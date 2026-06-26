@@ -241,8 +241,10 @@ fn runCapture(allocator: std.mem.Allocator, argv: []const []const u8, cwd: ?[]co
 
     var status: c_int = 0;
     _ = std.c.waitpid(pid, &status, 0);
-    const exit_code: u8 = @intCast(@as(c_uint, @bitCast(status)) >> 8 & 0xff);
-    if (exit_code != 0) {
+    const raw: c_uint = @bitCast(status);
+    const wifexited = (raw & 0x7f) == 0;
+    const exit_code: u8 = @intCast((raw >> 8) & 0xff);
+    if (!wifexited or exit_code != 0) {
         output.deinit(allocator);
         return error.CommandFailed;
     }
@@ -280,7 +282,10 @@ fn runPassthrough(allocator: std.mem.Allocator, argv: []const []const u8, cwd: ?
 
     var status: c_int = 0;
     _ = std.c.waitpid(pid, &status, 0);
-    return @intCast(@as(c_uint, @bitCast(status)) >> 8 & 0xff);
+    const raw: c_uint = @bitCast(status);
+    const wifexited = (raw & 0x7f) == 0;
+    if (!wifexited) return 128 + @as(u8, @intCast(raw & 0x7f));
+    return @intCast((raw >> 8) & 0xff);
 }
 
 fn runGit(allocator: std.mem.Allocator, args: []const []const u8) !void {
