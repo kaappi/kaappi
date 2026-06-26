@@ -18,7 +18,7 @@ pub fn build(b: *std.Build) void {
     // Single-step: compile and embed in one build
     const bundle_src = b.option([]const u8, "bundle-src", "Path to .scm source file to compile and embed for standalone binary");
 
-    const max_frames = b.option(u32, "max-frames", "Maximum call frame depth (default: 512)") orelse 512;
+    const max_frames = b.option(u32, "max-frames", "Maximum call frame depth (default: 480)") orelse 480;
     const max_registers = b.option(u32, "max-registers", "Maximum register count (default: 2048)") orelse 2048;
 
     const gc_threshold = b.option(u32, "gc-threshold", "Initial GC object threshold (default: 8192)") orelse 8192;
@@ -123,14 +123,6 @@ pub fn build(b: *std.Build) void {
         .name = "kaappi",
         .root_module = main_mod,
     });
-    // The VM re-enters runUntil for exception handlers (guard, call/ec,
-    // with-exception-handler, dynamic-wind). In Debug mode each native
-    // frame is much larger, so the default 8 MB thread stack can overflow
-    // before the VM's own frame-limit check fires. 16 MB gives enough
-    // headroom for MAX_FRAMES=512 with nested handler re-entry.
-    if (optimize == .Debug) {
-        exe.stack_size = 16 * 1024 * 1024;
-    }
     b.installArtifact(exe);
 
     const run_cmd = b.addRunArtifact(exe);

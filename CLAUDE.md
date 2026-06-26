@@ -16,7 +16,7 @@ zig build coverage                 # unit test code coverage (requires kcov)
 zig build coverage-scheme -- f.scm # Scheme file code coverage (requires kcov)
 zig build -Dbundle-src=program.scm # standalone binary (compile + embed in one step)
 zig build -Dbundle=program.sbc     # standalone binary from pre-compiled .sbc
-zig build -Dmax-frames=1024        # custom max call depth (default: 512)
+zig build -Dmax-frames=1024        # custom max call depth (default: 480)
 zig build -Dmax-registers=4096     # custom register count (default: 2048)
 zig build -Dgc-threshold=16384     # custom initial GC threshold (default: 8192)
 ```

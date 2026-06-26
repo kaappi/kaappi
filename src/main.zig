@@ -153,13 +153,17 @@ pub fn main(init: std.process.Init.Minimal) !void {
     var gc = memory.GC.init(allocator);
     defer gc.deinit();
 
-    var vm = try vm_mod.VM.init(&gc);
-    defer vm.deinit();
-    vm_mod.setVMInstance(&vm);
+    const vm = try allocator.create(vm_mod.VM);
+    vm.* = try vm_mod.VM.init(&gc);
+    defer {
+        vm.deinit();
+        allocator.destroy(vm);
+    }
+    vm_mod.setVMInstance(vm);
 
     // WASM: simplified entry — just run the file specified as argv[1]
     if (comptime is_wasm) {
-        try primitives.registerAll(&vm);
+        try primitives.registerAll(vm);
         primitives.setGCInstance(&gc);
         try library.registerStandardLibraries(&vm.libraries, &vm.globals);
 
@@ -170,7 +174,7 @@ pub fn main(init: std.process.Init.Minimal) !void {
             writeStderr("kaappi-wasm: no file specified\n");
             return;
         };
-        try runFile(&vm, file_path);
+        try runFile(vm, file_path);
         return;
     }
 
@@ -184,12 +188,12 @@ pub fn main(init: std.process.Init.Minimal) !void {
     }
 
     if (is_sandboxed) {
-        try primitives.registerSandboxed(&vm);
+        try primitives.registerSandboxed(vm);
         primitives.setGCInstance(&gc);
         try library.registerSandboxedLibraries(&vm.libraries, &vm.globals);
         vm.sandbox_mode = true;
     } else {
-        try primitives.registerAll(&vm);
+        try primitives.registerAll(vm);
         primitives.setGCInstance(&gc);
         try library.registerStandardLibraries(&vm.libraries, &vm.globals);
     }
@@ -239,8 +243,8 @@ pub fn main(init: std.process.Init.Minimal) !void {
             vm.coverage_mode = true;
         }
         defer if (sa_coverage) {
-            reporting.printCoverageReport(&vm);
-            if (vm.coverage_xml_path) |p| reporting.writeCoverageXml(&vm, p);
+            reporting.printCoverageReport(vm);
+            if (vm.coverage_xml_path) |p| reporting.writeCoverageXml(vm, p);
         };
 
         const loaded = bytecode_file.readFromBuffer(&gc, bytecode_data) catch {
@@ -463,33 +467,33 @@ pub fn main(init: std.process.Init.Minimal) !void {
         vm.coverage_mode = true;
     }
     defer if (coverage_mode) {
-        reporting.printCoverageReport(&vm);
-        if (vm.coverage_xml_path) |p| reporting.writeCoverageXml(&vm, p);
+        reporting.printCoverageReport(vm);
+        if (vm.coverage_xml_path) |p| reporting.writeCoverageXml(vm, p);
     };
 
     if (disassemble_mode) {
         if (file_path) |fp| {
-            try disassembleFile(&vm, fp);
+            try disassembleFile(vm, fp);
         } else {
             writeStdout("Usage: kaappi --disassemble <file.scm>\n");
         }
     } else if (compile_mode) {
         if (file_path) |fp| {
-            try compileFile(&vm, fp, compile_output);
+            try compileFile(vm, fp, compile_output);
         } else {
             writeStdout("Usage: kaappi --compile <file.scm> [-o output.sbc]\n");
         }
     } else if (file_path) |fp| {
-        try runFile(&vm, fp);
+        try runFile(vm, fp);
     } else {
         if (is_wasm) {
             writeStderr("kaappi-wasm: no file specified\n");
             return;
         }
         if (!is_wasm and std.c.isatty(0) == 0) {
-            try runStdin(&vm);
+            try runStdin(vm);
         } else {
-            try repl(&vm);
+            try repl(vm);
         }
     }
 }
