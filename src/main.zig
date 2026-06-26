@@ -43,8 +43,11 @@ fn writeToFd(fd: std.posix.fd_t, bytes: []const u8) void {
     var total: usize = 0;
     while (total < bytes.len) {
         const result = std.posix.system.write(fd, bytes.ptr + total, bytes.len - total);
+        if (result <= 0) {
+            if (result < 0 and std.posix.errno(result) == .INTR) continue;
+            break;
+        }
         const written: usize = @intCast(result);
-        if (written == 0) break;
         total += written;
     }
 }
@@ -81,22 +84,6 @@ fn printUsage() void {
 
 fn writeStderr(bytes: []const u8) void {
     writeToFd(2, bytes);
-}
-
-fn readLine(buf: []u8) ?[]const u8 {
-    const fd: std.posix.fd_t = 0;
-    var i: usize = 0;
-    while (i < buf.len) {
-        const result = std.posix.system.read(fd, buf.ptr + i, 1);
-        const n: usize = @intCast(result);
-        if (n == 0) {
-            if (i == 0) return null;
-            return buf[0..i];
-        }
-        if (buf[i] == '\n') return buf[0..i];
-        i += 1;
-    }
-    return buf[0..i];
 }
 
 fn readFileContents(allocator: std.mem.Allocator, path: []const u8) ![]u8 {

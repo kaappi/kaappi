@@ -605,9 +605,8 @@ fn writeBufferToFile(w: *Writer, path: []const u8) !void {
     var total: usize = 0;
     while (total < w.buf.items.len) {
         const result = std.posix.system.write(fd, w.buf.items.ptr + total, w.buf.items.len - total);
-        const written: usize = @intCast(result);
-        if (written == 0) return BytecodeError.WriteError;
-        total += written;
+        if (result <= 0) return BytecodeError.WriteError;
+        total += @as(usize, @intCast(result));
     }
 }
 

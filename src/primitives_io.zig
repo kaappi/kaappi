@@ -125,9 +125,8 @@ pub fn writeToFd(fd: std.posix.fd_t, bytes: []const u8) void {
     var total: usize = 0;
     while (total < bytes.len) {
         const result = std.posix.system.write(fd, bytes.ptr + total, bytes.len - total);
-        const written: usize = @intCast(result);
-        if (written == 0) break;
-        total += written;
+        if (result <= 0) break;
+        total += @as(usize, @intCast(result));
     }
 }
 
@@ -413,9 +412,8 @@ fn readOneByte(port: *types.Port) ?u8 {
         return byte;
     }
     var buf: [1]u8 = undefined;
-    const n: usize = @intCast(std.posix.system.read(port.fd, &buf, buf.len));
-    if (n == 0 or n > buf.len) return null;
-    if (n == 0) return null; // EOF
+    const raw = std.posix.system.read(port.fd, &buf, buf.len);
+    if (raw <= 0) return null;
     return buf[0];
 }
 

@@ -284,8 +284,6 @@ fn portReadOneByte(port: *types.Port) ?u8 {
     var buf: [1]u8 = undefined;
     const raw = std.posix.system.read(port.fd, &buf, buf.len);
     if (raw <= 0) return null;
-    const n: usize = @intCast(raw);
-    if (n == 0) return null;
     return buf[0];
 }
 

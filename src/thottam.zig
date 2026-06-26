@@ -46,9 +46,8 @@ fn writeToFd(fd: std.posix.fd_t, bytes: []const u8) void {
     var total: usize = 0;
     while (total < bytes.len) {
         const result = std.posix.system.write(fd, bytes.ptr + total, bytes.len - total);
-        const written: usize = @intCast(result);
-        if (written == 0) break;
-        total += written;
+        if (result <= 0) break;
+        total += @as(usize, @intCast(result));
     }
 }
 
@@ -134,9 +133,8 @@ fn writeFile(allocator: std.mem.Allocator, path: []const u8, content: []const u8
     var total: usize = 0;
     while (total < content.len) {
         const result = std.posix.system.write(fd, content.ptr + total, content.len - total);
-        const n: usize = @intCast(result);
-        if (n == 0) return error.WriteFailed;
-        total += n;
+        if (result <= 0) return error.WriteFailed;
+        total += @as(usize, @intCast(result));
     }
 }
 
