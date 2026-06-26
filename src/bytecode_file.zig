@@ -696,6 +696,9 @@ fn deserializeFromBuffer(gc: *GC, data: []const u8, expected_hash: ?u64) !?Deser
     const all_funcs = allocator.alloc(*Function, func_count) catch return BytecodeError.OutOfMemory;
     defer allocator.free(all_funcs);
 
+    const roots_base = gc.extra_roots.items.len;
+    var deser_ok = false;
+    defer if (!deser_ok) gc.extra_roots.shrinkRetainingCapacity(roots_base);
     for (0..func_count) |i| {
         all_funcs[i] = gc.allocFunction() catch return BytecodeError.OutOfMemory;
         gc.extra_roots.append(allocator, types.makePointer(@ptrCast(all_funcs[i]))) catch return BytecodeError.OutOfMemory;
@@ -837,6 +840,7 @@ fn deserializeFromBuffer(gc: *GC, data: []const u8, expected_hash: ?u64) !?Deser
 
     const result = allocator.alloc(*Function, func_count) catch return BytecodeError.OutOfMemory;
     @memcpy(result, all_funcs);
+    deser_ok = true;
     return .{ .funcs = result, .top_level_count = top_level_count, .bundled_files = bundled_files, .preamble = preamble };
 }
 
