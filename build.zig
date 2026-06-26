@@ -123,6 +123,7 @@ pub fn build(b: *std.Build) void {
         .name = "kaappi",
         .root_module = main_mod,
     });
+    exe.stack_size = 64 * 1024 * 1024; // 16 MB — u16 register widening increases compiler frame sizes
     b.installArtifact(exe);
 
     const run_cmd = b.addRunArtifact(exe);
@@ -182,6 +183,7 @@ pub fn build(b: *std.Build) void {
         .name = "thottam",
         .root_module = thottam_mod,
     });
+    thottam_exe.stack_size = 64 * 1024 * 1024;
     b.installArtifact(thottam_exe);
 
     // Language server (kaappi-lsp)
@@ -201,6 +203,7 @@ pub fn build(b: *std.Build) void {
         .name = "kaappi-lsp",
         .root_module = lsp_mod,
     });
+    lsp_exe.stack_size = 64 * 1024 * 1024;
     b.installArtifact(lsp_exe);
 
     // Unit tests
