@@ -60,8 +60,8 @@ jobs:
           security list-keychain -d user -s "$KEYCHAIN_PATH"
 
           # Sign with Developer ID and hardened runtime
-          codesign --force --sign "$APPLE_SIGNING_IDENTITY" --options runtime zig-out/bin/kaappi
-          codesign --force --sign "$APPLE_SIGNING_IDENTITY" --options runtime zig-out/bin/thottam
+          codesign --force --sign "$APPLE_SIGNING_IDENTITY" --options runtime --entitlements kaappi.entitlements zig-out/bin/kaappi
+          codesign --force --sign "$APPLE_SIGNING_IDENTITY" --options runtime --entitlements kaappi.entitlements zig-out/bin/thottam
 
           # Notarize both binaries
           zip notarize.zip zig-out/bin/kaappi zig-out/bin/thottam
