@@ -29,7 +29,7 @@ Source code
 | **Reader** | `reader.zig` | Tokenizer + recursive descent parser. Handles full R7RS lexical syntax including Unicode identifiers, `#\lambda` character literals, `#(...)` vectors, `#u8(...)` bytevectors, datum labels. |
 | **Expander** | `expander.zig` | `syntax-rules` pattern matching with ellipsis, literal identifiers, and underscore wildcards. Template instantiation with hygienic renaming (gensym-based). |
 | **Compiler** | `compiler.zig` + 5 sub-modules | Compiles S-expressions to register-based bytecode. Detects tail positions for proper tail call optimization. Dispatches 32 syntax forms across 6 files. |
-| **VM** | `vm.zig` + 5 sub-modules | Executes bytecode with a register file, call frame stack, exception handler stack, and dynamic-wind stack. First-class continuations via stack copying, plus a stepping debugger. |
+| **VM** | `vm.zig` + 7 sub-modules | Executes bytecode with a register file, call frame stack, exception handler stack, and dynamic-wind stack. First-class continuations via stack copying, plus a stepping debugger. |
 | **GC** | `memory.zig` | Mark-and-sweep collector with intrusive linked list. Root tracking via `pushRoot`/`popRoot`. Triggered after N allocations. |
 | **Primitives** | 21 `primitives_*.zig` files | 554 built-in procedures organized by domain. |
 
@@ -60,11 +60,13 @@ Source code
 | `compiler_advanced.zig` | case, case-lambda, guard, quasiquote |
 | `compiler_forms.zig` | Re-export hub (thin file that exposes all form compilers) |
 
-### VM (6 files)
+### VM (8 files)
 
 | File | Responsibility |
 |------|---------------|
-| `vm.zig` | Core: execute loop, runUntil, callValue, instruction dispatch |
+| `vm.zig` | VM struct, init/deinit, error handling, delegation wrappers |
+| `vm_dispatch.zig` | runUntil bytecode dispatch loop, opcode handlers |
+| `vm_calls.zig` | execute, run, callValue, callClosure, callNative, profile helpers |
 | `vm_eval.zig` | eval, handleTopLevelForm dispatcher |
 | `vm_library.zig` | handleImport (with only/except/rename/prefix), handleDefineLibrary, .sld file loading |
 | `vm_records.zig` | handleDefineRecordType desugaring |
@@ -94,6 +96,7 @@ Source code
 | `primitives_cxr.zig` | 24 car/cdr compositions (caaaar through cddddr) |
 | `primitives_ffi.zig` | FFI procedure registration (ffi-open, ffi-fn, ffi-close, ffi-callback). 18 FFI types. |
 | `primitives_r7rs.zig` | Time, process-context, eval, load, make-parameter |
+| `primitives_srfi18.zig` | SRFI-18: threads, mutexes, condition variables, time objects |
 
 ### Other
 
@@ -102,14 +105,18 @@ Source code
 | `library.zig` | Library registry, standard library registration |
 | `linenoise.zig` | Zig FFI wrapper for vendored linenoise C library |
 | `main.zig` | Entry point, REPL loop, file execution, CLI flags (`--help`, `--version`, etc.) |
+| `thottam.zig` | Package manager binary: install, remove, list, update, verify |
+| `kaappi_lsp.zig` | Language server (LSP) for IDE integration |
 | `ffi.zig` | FFI call dispatcher (type marshaling, arity routing, `normalizeType`) |
-| `jit.zig` | JIT orchestration: eligibility, bytecode → native, side exits. Comptime arch dispatch. |
+| `jit.zig` | JIT orchestration: eligibility, compile dispatch, C-ABI helpers, shared utilities |
+| `jit_compile_aarch64.zig` | AArch64 bytecode → native compiler: NaN-boxed value encoding, frame/call sequences |
+| `jit_compile_x86_64.zig` | x86_64 bytecode → native compiler: register cache, NaN-boxed value encoding |
 | `jit_aarch64.zig` | AArch64 assembler (fixed 4-byte instruction encoding) |
 | `jit_x86_64.zig` | x86_64 assembler (variable-length encoding, REX prefixes) |
-| `jit_mem.zig` | Executable memory allocation (mmap RWX, macOS JIT protection) |
+| `jit_mem.zig` | Executable memory allocation (mmap RWX, macOS JIT protection + entitlements) |
 | `bignum.zig` | Arbitrary-precision integer arithmetic |
 | `bytecode_file.zig` | Bytecode serialization/deserialization (.sbc format) |
-| `bench.zig` | Micro-benchmarks |
+| `disassembler.zig` | Bytecode disassembler for `(disassemble proc)` |
 | `testing_helpers.zig` | Shared `makeTestVM` helper for unit tests |
 | `tests_*.zig` | Unit tests by feature (core_eval, tail_calls, macros, etc.) |
 
@@ -153,7 +160,7 @@ Every heap object starts with an `Object` header:
 
 ```zig
 pub const Object = struct {
-    tag: ObjectTag,      // u5 -- which type
+    tag: ObjectTag,      // u6 -- which type (64 slots)
     marked: bool = false, // GC mark bit
     next: ?*Object,      // intrusive linked list for GC
 };
@@ -191,6 +198,13 @@ pub const Object = struct {
 | `user_info` | 25 | SRFI-170 user database entry |
 | `group_info` | 26 | SRFI-170 group database entry |
 | `directory_object` | 27 | SRFI-170 open directory stream |
+| `random_source` | 28 | SRFI-27 random number generator |
+| `ffi_callback` | 29 | FFI callback (Scheme → C function pointer) |
+| `fiber` | 30 | Green fiber (cooperative thread) |
+| `channel` | 31 | Fiber communication channel |
+| `mutex` | 32 | SRFI-18 mutex |
+| `condition_variable` | 33 | SRFI-18 condition variable |
+| `srfi18_time` | 34 | SRFI-18 time object |
 
 ---
 

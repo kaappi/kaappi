@@ -1,7 +1,7 @@
 # Testing Guide
 
-Kaappi uses two layers of testing: Zig unit tests for internal correctness
-and Scheme integration tests for end-to-end behavior.
+Kaappi has four layers of testing: Zig unit tests, Scheme integration tests,
+shell-based regression suites, and post-release acceptance tests.
 
 ---
 
@@ -10,9 +10,10 @@ and Scheme integration tests for end-to-end behavior.
 ```bash
 zig build test                                    # All Zig unit tests
 zig build run -- tests/scheme/compliance/vectors.scm  # One Scheme test
+bash tests/scheme/run-all.sh                      # All Scheme test suites
 ```
 
-Both must pass before any change is considered complete.
+All must pass before any change is considered complete.
 
 ---
 
@@ -90,7 +91,7 @@ Scheme tests live in `tests/scheme/`, organized by purpose:
 
 ```
 tests/scheme/
-  r7rs/             R7RS test suite (1,380 tests via chibi test)
+  r7rs/             R7RS test suite (1,391 tests via chibi test)
     r7rs-tests.scm  Canonical suite — imports (chibi test)
   smoke/            Quick sanity checks
     basic.scm       Arithmetic, if, define, lambda, pairs
@@ -105,13 +106,17 @@ tests/scheme/
   hygiene/          Macro hygiene edge cases
   srfi/             SRFI library tests
   ffi/              C FFI tests
+  audit/            Primitives correctness audits
+  errors/           Error message format regression tests
+  robustness/       Malformed and adversarial input handling
+  sandbox/          Sandbox escape prevention tests
   run-all.sh        Run all suites with summary
 ```
 
 ### Running
 
 ```bash
-# Run the full R7RS suite (1,380 tests)
+# Run the full R7RS suite (1,391 tests)
 zig build run -- tests/scheme/r7rs/r7rs-tests.scm
 
 # Run a specific test file
@@ -160,6 +165,94 @@ zig build run -- tests/scheme/compliance/my-feature.scm
 - Use `display` and `newline` for output.
 - Test both normal cases and edge cases.
 - Include comments showing expected output.
+
+---
+
+## Shell-Based Test Suites
+
+Three shell scripts test behaviors that are easier to verify from outside
+the interpreter:
+
+### Robustness (`tests/scheme/robustness/robustness.sh`)
+
+Tests that malformed, adversarial, or extreme inputs produce clean errors
+rather than panics or crashes. Uses `assert_error` (must produce `error:`)
+and `assert_no_crash` (must not exit by signal) helpers.
+
+```bash
+bash tests/scheme/robustness/robustness.sh
+```
+
+### Sandbox escape (`tests/scheme/sandbox/sandbox-escape.sh`)
+
+Verifies that `--sandbox` mode blocks all restricted operations (FFI,
+file I/O, eval, load, environment access) while allowing safe operations
+(arithmetic, string ports, hash tables). Uses `assert_blocked` and
+`assert_works` helpers.
+
+```bash
+bash tests/scheme/sandbox/sandbox-escape.sh
+```
+
+### Error format (`tests/scheme/errors/error-format.sh`)
+
+Checks that error messages include proper `file:line` location info for
+reader, compile, and runtime errors.
+
+```bash
+bash tests/scheme/errors/error-format.sh
+```
+
+All three are run by CI on every push and pull request.
+
+---
+
+## Post-Release Acceptance Tests
+
+After a release is published, a separate workflow downloads the actual
+release artifacts and tests them as an end user would experience them.
+This catches issues invisible to CI, such as code signing problems or
+missing entitlements on macOS.
+
+### Location
+
+Tests live in `tests/acceptance/`:
+
+| File | Purpose |
+|------|---------|
+| `acceptance.sh` | 34 tests: version, arithmetic/JIT, data structures, Unicode, library imports, file execution, tail calls, closures, continuations, error handling, sandbox, thottam |
+| `test-wasm.sh` | 14 WASM-specific tests via wasmtime (no JIT, no FFI) |
+| `hello.scm` | Minimal test program for file execution |
+
+### Running locally
+
+```bash
+KAAPPI=./zig-out/bin/kaappi THOTTAM=./zig-out/bin/thottam \
+  bash tests/acceptance/acceptance.sh 0.6.3
+
+KAAPPI_WASM=./zig-out/bin/kaappi.wasm \
+  bash tests/acceptance/test-wasm.sh
+```
+
+### CI workflow
+
+The `post-release.yml` workflow triggers automatically on `release: published`
+events. It runs 6 jobs in parallel:
+
+| Job | What it tests |
+|-----|--------------|
+| `test-macos` | macOS ARM release binary |
+| `test-linux-x86` | Linux x86_64 release binary |
+| `test-linux-arm` | Linux ARM release binary |
+| `test-wasm` | WASM binary via wasmtime |
+| `test-checksums` | SHA256SUMS verification + GPG signature |
+| `test-install-script` | Full install script end-to-end |
+
+To trigger manually against an existing release:
+
+```bash
+gh workflow run post-release.yml -f tag=v0.6.3
+```
 
 ---
 
@@ -233,11 +326,20 @@ Delete `coverage/` to start fresh.
 
 ## CI
 
-GitHub Actions runs on every push and pull request. The CI matrix covers:
+GitHub Actions runs on every push and pull request (`ci.yml`). The CI
+matrix covers:
 
-- **Ubuntu** and **macOS**
-- `zig build test` (all unit tests)
-- Scheme test suite execution
+| Job | Platforms | What it runs |
+|-----|-----------|-------------|
+| `format` | Ubuntu | `zig fmt --check`, TypeError regression baseline |
+| `test` | Ubuntu (x86, ARM), macOS | Unit tests, all Scheme suites, robustness, sandbox, error format, thottam integration |
+| `riscv64-test` | Ubuntu (QEMU) | Cross-compiled unit tests + R7RS suite |
+| `wasm` | Ubuntu | WASM build + wasmtime smoke test |
+| `coverage` | Ubuntu (push to main only) | kcov unit + Scheme coverage, Codecov upload |
+| `benchmark` | Ubuntu (push to main only) | Performance benchmarks |
+
+Post-release: `post-release.yml` runs automatically after each release,
+testing the actual published artifacts on all platforms.
 
 A pull request will not be merged if CI fails.
 
@@ -251,5 +353,7 @@ When making changes, verify:
 2. `zig build test` passes all unit tests
 3. Relevant Scheme tests pass (e.g., `tests/scheme/compliance/strings.scm`
    for string changes)
-4. New features have both Zig unit tests and Scheme integration tests
-5. No regressions in related areas
+4. `bash tests/scheme/run-all.sh` passes all suites
+5. New features have both Zig unit tests and Scheme integration tests
+6. Bug fixes include a regression test that fails without the fix
+7. No regressions in related areas
