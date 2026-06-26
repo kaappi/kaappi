@@ -123,6 +123,14 @@ pub fn build(b: *std.Build) void {
         .name = "kaappi",
         .root_module = main_mod,
     });
+    // The VM re-enters runUntil for exception handlers (guard, call/ec,
+    // with-exception-handler, dynamic-wind). In Debug mode each native
+    // frame is much larger, so the default 8 MB thread stack can overflow
+    // before the VM's own frame-limit check fires. 16 MB gives enough
+    // headroom for MAX_FRAMES=512 with nested handler re-entry.
+    if (optimize == .Debug) {
+        exe.stack_size = 16 * 1024 * 1024;
+    }
     b.installArtifact(exe);
 
     const run_cmd = b.addRunArtifact(exe);
