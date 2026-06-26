@@ -1,6 +1,6 @@
 .{
     .name = .kaappi,
-    .version = "0.6.1",
+    .version = "0.6.2",
     .fingerprint = 0xbb9958fb8fc2f323,
     .minimum_zig_version = "0.15.0",
     .paths = .{

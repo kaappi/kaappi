@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.6.2] - 2026-06-26
+
+### Fixed
+- JIT NaN-boxing encoding mismatch causing arithmetic crashes on both AArch64 and x86_64 backends
+- Verification link in README now points to download page
+
 ## [0.6.1] - 2026-06-25
 
 ### Fixed
