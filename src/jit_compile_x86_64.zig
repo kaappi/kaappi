@@ -211,18 +211,15 @@ pub fn compile(func: *types.Function, vm: *VM, allocator: std.mem.Allocator) !*J
                 }
                 try cachedStore(&asm_ctx, &cache, dst, .rax);
             },
-            .move, .get_local, .set_local, .get_box_local, .set_box_local => {
+            .move, .get_local, .set_local => {
                 const dst = code[ip];
                 const src = code[ip + 1];
                 ip += 2;
                 try cachedLoad(&asm_ctx, &cache, .rax, src);
                 try cachedStore(&asm_ctx, &cache, dst, .rax);
             },
-            .box_local => {
-                const reg = code[ip];
-                ip += 1;
-                cache.invalidateSlot(reg);
-            },
+            // box_local, get_box_local, set_box_local: side-exit to interpreter
+            // (handled by the else case below)
             .@"return" => {
                 const src = code[ip];
                 ip += 1;
@@ -433,6 +430,8 @@ pub fn compile(func: *types.Function, vm: *VM, allocator: std.mem.Allocator) !*J
             else => {
                 // Side-exit for unhandled opcodes
                 const operand_bytes: usize = switch (op) {
+                    .box_local => 1,
+                    .get_box_local, .set_box_local => 2,
                     else => 0,
                 };
                 const side_exit_ip = ip - 1;
