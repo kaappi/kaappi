@@ -18,6 +18,15 @@ fn anyBignum(args: []const Value) bool {
 const makeFlonumVal = primitives.makeFlonumVal;
 const toF64Ext = arith.toF64Ext;
 const gcdTwo = arith.gcdTwo;
+
+fn safeFloatToExactInt(f: f64) PrimitiveError!Value {
+    const min_i64: f64 = @floatFromInt(std.math.minInt(i64));
+    const max_i64_f: f64 = @floatFromInt(std.math.maxInt(i64));
+    if (f >= min_i64 and f <= max_i64_f) {
+        return try arith.makeFixnumChecked(@intFromFloat(f));
+    }
+    return makeFlonumVal(f);
+}
 const raiseDivByZero = arith.raiseDivByZero;
 
 fn reg(vm: *vm_mod.VM, name: []const u8, func: types.NativeFnType, arity: NativeFn.Arity) !void {
@@ -99,7 +108,7 @@ fn floorFn(args: []const Value) PrimitiveError!Value {
     if (types.isBignum(args[0])) return args[0];
     if (types.isRationalObj(args[0])) {
         const f = try toF64Ext(args[0]);
-        return types.makeFixnum(@intFromFloat(@floor(f)));
+        return try safeFloatToExactInt(@floor(f));
     }
     if (types.isFlonum(args[0])) return makeFlonumVal(@floor(types.toFlonum(args[0])));
     return primitives.typeError("floor", "number", args[0]);
@@ -110,7 +119,7 @@ fn ceilingFn(args: []const Value) PrimitiveError!Value {
     if (types.isBignum(args[0])) return args[0];
     if (types.isRationalObj(args[0])) {
         const f = try toF64Ext(args[0]);
-        return types.makeFixnum(@intFromFloat(@ceil(f)));
+        return try safeFloatToExactInt(@ceil(f));
     }
     if (types.isFlonum(args[0])) return makeFlonumVal(@ceil(types.toFlonum(args[0])));
     return primitives.typeError("ceiling", "number", args[0]);
@@ -121,7 +130,7 @@ fn truncateFn(args: []const Value) PrimitiveError!Value {
     if (types.isBignum(args[0])) return args[0];
     if (types.isRationalObj(args[0])) {
         const f = try toF64Ext(args[0]);
-        return types.makeFixnum(@intFromFloat(@trunc(f)));
+        return try safeFloatToExactInt(@trunc(f));
     }
     if (types.isFlonum(args[0])) return makeFlonumVal(@trunc(types.toFlonum(args[0])));
     return primitives.typeError("truncate", "number", args[0]);
@@ -131,8 +140,13 @@ fn bankersRound(f: f64) f64 {
     const floored = @floor(f);
     const frac = @abs(f - floored);
     if (frac == 0.5) {
-        const i: i64 = @intFromFloat(floored);
-        return if (@mod(i, @as(i64, 2)) != 0) @ceil(f) else floored;
+        const min_i64: f64 = @floatFromInt(std.math.minInt(i64));
+        const max_i64_f: f64 = @floatFromInt(std.math.maxInt(i64));
+        if (floored >= min_i64 and floored <= max_i64_f) {
+            const i: i64 = @intFromFloat(floored);
+            return if (@mod(i, @as(i64, 2)) != 0) @ceil(f) else floored;
+        }
+        return @round(f);
     }
     return @round(f);
 }
@@ -142,7 +156,7 @@ fn roundFn(args: []const Value) PrimitiveError!Value {
     if (types.isBignum(args[0])) return args[0];
     if (types.isRationalObj(args[0])) {
         const f = try toF64Ext(args[0]);
-        return types.makeFixnum(@intFromFloat(bankersRound(f)));
+        return try safeFloatToExactInt(bankersRound(f));
     }
     if (types.isFlonum(args[0])) return makeFlonumVal(bankersRound(types.toFlonum(args[0])));
     return primitives.typeError("round", "number", args[0]);
@@ -183,14 +197,14 @@ fn exactFn(args: []const Value) PrimitiveError!Value {
         if (std.math.isNan(f) or std.math.isInf(f)) return primitives.typeError("exact", "finite number", args[0]);
         // Check if it's an integer-valued float
         if (f == @trunc(f)) {
-            return types.makeFixnum(@intFromFloat(f));
+            return try safeFloatToExactInt(f);
         }
         // Convert float to exact rational using 2^46 scaling (fits in i48 fixnum)
         const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
         const scale: f64 = 70368744177664.0; // 2^46
         const n_f = f * scale;
         if (n_f > @as(f64, @floatFromInt(std.math.maxInt(i48))) or n_f < @as(f64, @floatFromInt(std.math.minInt(i48)))) {
-            return try arith.makeFixnumChecked(@intFromFloat(f));
+            return try safeFloatToExactInt(f);
         }
         var n: i64 = @intFromFloat(n_f);
         var d: i64 = @intFromFloat(scale);
@@ -199,8 +213,10 @@ fn exactFn(args: []const Value) PrimitiveError!Value {
             n = @divExact(n, g);
             d = @divExact(d, g);
         }
-        if (d == 1) return types.makeFixnum(n);
-        return gc.allocRational(types.makeFixnum(n), types.makeFixnum(d)) catch return PrimitiveError.OutOfMemory;
+        if (d == 1) return try arith.makeFixnumChecked(n);
+        const num = try arith.makeFixnumChecked(n);
+        const den = try arith.makeFixnumChecked(d);
+        return gc.allocRational(num, den) catch return PrimitiveError.OutOfMemory;
     }
     if (types.isComplex(args[0])) {
         const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
@@ -629,7 +645,7 @@ pub fn makeComplexOrRealEx(real: f64, imag: f64, exact_real: bool, exact_imag: b
     const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
     if (imag == 0.0) {
         if (exact_real and real == @trunc(real) and @abs(real) < 4.5e18) {
-            return types.makeFixnum(@intFromFloat(real));
+            return try safeFloatToExactInt(real);
         }
         return types.makeFlonum(real);
     }
@@ -671,7 +687,7 @@ fn stringToNumber(args: []const Value) PrimitiveError!Value {
     }
 
     if (std.fmt.parseInt(i64, s, radix)) |n| {
-        return types.makeFixnum(n);
+        return try arith.makeFixnumChecked(n);
     } else |err| {
         if (err == error.Overflow and radix == 10) {
             return bignum_mod.parseBignumString(gc, s) catch return PrimitiveError.OutOfMemory;
@@ -761,7 +777,7 @@ fn realPart(args: []const Value) PrimitiveError!Value {
     if (types.isComplex(args[0])) {
         const c = types.toComplex(args[0]);
         if (c.exact_real and c.real == @trunc(c.real) and @abs(c.real) < 4.5e18) {
-            return types.makeFixnum(@intFromFloat(c.real));
+            return try safeFloatToExactInt(c.real);
         }
         return makeFlonumVal(c.real);
     }
@@ -773,7 +789,7 @@ fn imagPart(args: []const Value) PrimitiveError!Value {
     if (types.isComplex(args[0])) {
         const c = types.toComplex(args[0]);
         if (c.exact_imag and c.imag == @trunc(c.imag) and @abs(c.imag) < 4.5e18) {
-            return types.makeFixnum(@intFromFloat(c.imag));
+            return try safeFloatToExactInt(c.imag);
         }
         return makeFlonumVal(c.imag);
     }
@@ -923,10 +939,16 @@ fn truncateDivide(args: []const Value) PrimitiveError!Value {
 // ---------------------------------------------------------------------------
 
 pub fn floatToRational(f: f64) struct { num: i64, den: i64 } {
-    if (f == @trunc(f)) return .{ .num = @intFromFloat(f), .den = 1 };
+    const min_i64: f64 = @floatFromInt(std.math.minInt(i64));
+    const max_i64_f: f64 = @floatFromInt(std.math.maxInt(i64));
+    if (f == @trunc(f)) {
+        if (f >= min_i64 and f <= max_i64_f) return .{ .num = @intFromFloat(f), .den = 1 };
+        return .{ .num = 0, .den = 0 };
+    }
     const sign: i64 = if (f < 0) -1 else 1;
     const abs_f = @abs(f);
-    var best_num: i64 = @intFromFloat(@round(abs_f));
+    const rounded = @round(abs_f);
+    var best_num: i64 = if (rounded >= 0 and rounded <= max_i64_f) @intFromFloat(rounded) else std.math.maxInt(i64);
     var best_den: i64 = 1;
     var best_err: f64 = @abs(abs_f - @as(f64, @floatFromInt(best_num)));
     var den: i64 = 2;
@@ -959,6 +981,7 @@ fn numeratorFn(args: []const Value) PrimitiveError!Value {
         const f = types.toFlonum(args[0]);
         if (!std.math.isFinite(f)) return args[0];
         const rat = floatToRational(f);
+        if (rat.den == 0) return args[0];
         return makeFlonumVal(@floatFromInt(rat.num));
     }
     return primitives.typeError("numerator", "number", args[0]);
@@ -975,6 +998,7 @@ fn denominatorFn(args: []const Value) PrimitiveError!Value {
         const f = types.toFlonum(args[0]);
         if (!std.math.isFinite(f)) return makeFlonumVal(1.0);
         const rat = floatToRational(f);
+        if (rat.den == 0) return makeFlonumVal(1.0);
         return makeFlonumVal(@floatFromInt(rat.den));
     }
     return primitives.typeError("denominator", "number", args[0]);
