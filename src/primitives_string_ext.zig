@@ -144,13 +144,17 @@ fn parseStartEnd(data: []const u8, args: []const Value, start_arg_idx: usize) Pr
 
     if (args.len > start_arg_idx) {
         if (!types.isFixnum(args[start_arg_idx])) return PrimitiveError.TypeError;
-        const start_cp: usize = @intCast(types.toFixnum(args[start_arg_idx]));
+        const sv = types.toFixnum(args[start_arg_idx]);
+        if (sv < 0) return PrimitiveError.TypeError;
+        const start_cp: usize = @intCast(sv);
         byte_start = pstr.utf8IndexToByteOffset(data, start_cp) orelse data.len;
         cp_offset = start_cp;
     }
     if (args.len > start_arg_idx + 1) {
         if (!types.isFixnum(args[start_arg_idx + 1])) return PrimitiveError.TypeError;
-        const end_cp: usize = @intCast(types.toFixnum(args[start_arg_idx + 1]));
+        const ev = types.toFixnum(args[start_arg_idx + 1]);
+        if (ev < 0) return PrimitiveError.TypeError;
+        const end_cp: usize = @intCast(ev);
         byte_end = pstr.utf8IndexToByteOffset(data, end_cp) orelse data.len;
     }
     if (byte_start > byte_end) return PrimitiveError.TypeError;
@@ -423,7 +427,9 @@ fn stringTakeFn(args: []const Value) PrimitiveError!Value {
     const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
     const data = try getStringSlice(args[0]);
     if (!types.isFixnum(args[1])) return primitives.typeError("string-take", "integer", args[1]);
-    const n: usize = @intCast(types.toFixnum(args[1]));
+    const nv = types.toFixnum(args[1]);
+    if (nv < 0) return primitives.typeError("string-take", "non-negative integer", args[1]);
+    const n: usize = @intCast(nv);
     const byte_end = pstr.utf8IndexToByteOffset(data, n) orelse data.len;
     return gc.allocString(data[0..byte_end]) catch return PrimitiveError.OutOfMemory;
 }
@@ -432,7 +438,9 @@ fn stringDropFn(args: []const Value) PrimitiveError!Value {
     const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
     const data = try getStringSlice(args[0]);
     if (!types.isFixnum(args[1])) return primitives.typeError("string-drop", "integer", args[1]);
-    const n: usize = @intCast(types.toFixnum(args[1]));
+    const nv = types.toFixnum(args[1]);
+    if (nv < 0) return primitives.typeError("string-drop", "non-negative integer", args[1]);
+    const n: usize = @intCast(nv);
     const byte_start = pstr.utf8IndexToByteOffset(data, n) orelse data.len;
     return gc.allocString(data[byte_start..]) catch return PrimitiveError.OutOfMemory;
 }
@@ -441,7 +449,9 @@ fn stringTakeRightFn(args: []const Value) PrimitiveError!Value {
     const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
     const data = try getStringSlice(args[0]);
     if (!types.isFixnum(args[1])) return primitives.typeError("string-take-right", "integer", args[1]);
-    const n: usize = @intCast(types.toFixnum(args[1]));
+    const nv = types.toFixnum(args[1]);
+    if (nv < 0) return primitives.typeError("string-take-right", "non-negative integer", args[1]);
+    const n: usize = @intCast(nv);
     const total_cp = utf8CodepointCount(data);
     if (n >= total_cp) return gc.allocString(data) catch return PrimitiveError.OutOfMemory;
     const byte_start = pstr.utf8IndexToByteOffset(data, total_cp - n) orelse data.len;
@@ -452,7 +462,9 @@ fn stringDropRightFn(args: []const Value) PrimitiveError!Value {
     const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
     const data = try getStringSlice(args[0]);
     if (!types.isFixnum(args[1])) return primitives.typeError("string-drop-right", "integer", args[1]);
-    const n: usize = @intCast(types.toFixnum(args[1]));
+    const nv = types.toFixnum(args[1]);
+    if (nv < 0) return primitives.typeError("string-drop-right", "non-negative integer", args[1]);
+    const n: usize = @intCast(nv);
     const total_cp = utf8CodepointCount(data);
     if (n >= total_cp) return gc.allocString("") catch return PrimitiveError.OutOfMemory;
     const byte_end = pstr.utf8IndexToByteOffset(data, total_cp - n) orelse data.len;
@@ -463,7 +475,9 @@ fn stringPadFn(args: []const Value) PrimitiveError!Value {
     const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
     const data = try getStringSlice(args[0]);
     if (!types.isFixnum(args[1])) return primitives.typeError("string-pad", "integer", args[1]);
-    const target_len: usize = @intCast(types.toFixnum(args[1]));
+    const tlv = types.toFixnum(args[1]);
+    if (tlv < 0) return primitives.typeError("string-pad", "non-negative integer", args[1]);
+    const target_len: usize = @intCast(tlv);
     var pad_buf: [4]u8 = undefined;
     const pad_cp: u21 = if (args.len > 2 and types.isChar(args[2])) types.toChar(args[2]) else ' ';
     const pad_len = std.unicode.utf8Encode(pad_cp, &pad_buf) catch
@@ -487,7 +501,9 @@ fn stringPadRightFn(args: []const Value) PrimitiveError!Value {
     const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
     const data = try getStringSlice(args[0]);
     if (!types.isFixnum(args[1])) return primitives.typeError("string-pad-right", "integer", args[1]);
-    const target_len: usize = @intCast(types.toFixnum(args[1]));
+    const tlv = types.toFixnum(args[1]);
+    if (tlv < 0) return primitives.typeError("string-pad-right", "non-negative integer", args[1]);
+    const target_len: usize = @intCast(tlv);
     var pad_buf: [4]u8 = undefined;
     const pad_cp: u21 = if (args.len > 2 and types.isChar(args[2])) types.toChar(args[2]) else ' ';
     const pad_len = std.unicode.utf8Encode(pad_cp, &pad_buf) catch
@@ -585,8 +601,12 @@ fn stringReplaceFn(args: []const Value) PrimitiveError!Value {
     const data1 = try getStringSlice(args[0]);
     const data2 = try getStringSlice(args[1]);
     if (!types.isFixnum(args[2]) or !types.isFixnum(args[3])) return primitives.typeError("string-replace", "integer", if (!types.isFixnum(args[2])) args[2] else args[3]);
-    const start: usize = @intCast(types.toFixnum(args[2]));
-    const end: usize = @intCast(types.toFixnum(args[3]));
+    const sv = types.toFixnum(args[2]);
+    const ev = types.toFixnum(args[3]);
+    if (sv < 0) return primitives.typeError("string-replace", "non-negative integer", args[2]);
+    if (ev < 0) return primitives.typeError("string-replace", "non-negative integer", args[3]);
+    const start: usize = @intCast(sv);
+    const end: usize = @intCast(ev);
     const byte_start = pstr.utf8IndexToByteOffset(data1, start) orelse data1.len;
     const byte_end = pstr.utf8IndexToByteOffset(data1, end) orelse data1.len;
     const new_len = byte_start + data2.len + (data1.len - byte_end);
@@ -674,7 +694,9 @@ fn stringTabulateFn(args: []const Value) PrimitiveError!Value {
     const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
     const proc = args[0];
     if (!types.isFixnum(args[1])) return primitives.typeError("string-tabulate", "integer", args[1]);
-    const length: usize = @intCast(types.toFixnum(args[1]));
+    const lv = types.toFixnum(args[1]);
+    if (lv < 0) return primitives.typeError("string-tabulate", "non-negative integer", args[1]);
+    const length: usize = @intCast(lv);
     var result: std.ArrayList(u8) = .empty;
     defer result.deinit(gc.allocator);
     for (0..length) |i| {
