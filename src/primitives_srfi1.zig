@@ -1214,6 +1214,8 @@ fn circularListFn(args: []const Value) PrimitiveError!Value {
     var first: Value = undefined;
     var last_pair: Value = undefined;
     first = gc.allocPair(args[0], types.NIL) catch return PrimitiveError.OutOfMemory;
+    gc.pushRoot(&first) catch return PrimitiveError.OutOfMemory;
+    defer gc.popRoot();
     last_pair = first;
     for (args[1..]) |a| {
         const new_pair = gc.allocPair(a, types.NIL) catch return PrimitiveError.OutOfMemory;
@@ -1722,6 +1724,8 @@ fn lsetAdjoinFn(args: []const Value) PrimitiveError!Value {
     const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
     const pred = args[0];
     var result = args[1];
+    gc.pushRoot(&result) catch return PrimitiveError.OutOfMemory;
+    defer gc.popRoot();
 
     for (args[2..]) |elt| {
         if (!try memberByPred(pred, elt, result)) {
@@ -1739,6 +1743,8 @@ fn lsetUnionFn(args: []const Value) PrimitiveError!Value {
     if (list_count == 0) return types.NIL;
 
     var result = args[1];
+    gc.pushRoot(&result) catch return PrimitiveError.OutOfMemory;
+    defer gc.popRoot();
 
     for (args[2..]) |lst| {
         var current = lst;
@@ -1763,6 +1769,8 @@ fn lsetXorFn(args: []const Value) PrimitiveError!Value {
     if (list_count == 1) return args[1];
 
     var result = args[1];
+    gc.pushRoot(&result) catch return PrimitiveError.OutOfMemory;
+    defer gc.popRoot();
 
     for (args[2..]) |lst| {
         // XOR of result and lst:
@@ -1884,6 +1892,8 @@ fn appendReverseFn(args: []const Value) PrimitiveError!Value {
     const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
     var current = args[0];
     var result = args[1];
+    gc.pushRoot(&result) catch return PrimitiveError.OutOfMemory;
+    defer gc.popRoot();
     while (current != types.NIL) {
         if (!types.isPair(current)) return primitives.typeError("append-reverse", "pair", current);
         result = gc.allocPair(types.car(current), result) catch return PrimitiveError.OutOfMemory;
