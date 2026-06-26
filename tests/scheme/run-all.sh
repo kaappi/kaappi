@@ -82,9 +82,10 @@ run_suite "Audit tests" tests/scheme/audit/*.scm
 
 echo "=== R7RS test suite ==="
 set +e
-# If JIT R7RS fails, also try --no-jit to isolate JIT crashes
-R7RS_OUTPUT="$("$KAAPPI" tests/scheme/r7rs/r7rs-tests.scm 2>&1)"
+# Capture stdout and stderr separately to preserve panic messages
+"$KAAPPI" tests/scheme/r7rs/r7rs-tests.scm > /tmp/kaappi-r7rs-stdout 2> /tmp/kaappi-r7rs-stderr
 R7RS_STATUS=$?
+R7RS_OUTPUT="$(cat /tmp/kaappi-r7rs-stdout /tmp/kaappi-r7rs-stderr)"
 set -e
 
 R7RS_PASS=$(printf "%s\n" "$R7RS_OUTPUT" | awk '{for (i = 1; i < NF; i++) { w=$(i+1); gsub(",", "", w); if ($i ~ /^[0-9]+$/ && w == "pass") s += $i }} END {print s + 0}')
@@ -92,8 +93,10 @@ R7RS_FAIL=$(printf "%s\n" "$R7RS_OUTPUT" | awk '{for (i = 1; i < NF; i++) { w=$(
 echo "  $R7RS_PASS pass, $R7RS_FAIL fail"
 if [[ $R7RS_STATUS -ne 0 ]]; then
     echo "  FAIL  tests/scheme/r7rs/r7rs-tests.scm (exit $R7RS_STATUS)"
-    # Print full crash output (not just grepped)
-    printf "%s\n" "$R7RS_OUTPUT" | tail -40
+    echo "--- stderr output ---"
+    cat /tmp/kaappi-r7rs-stderr 2>/dev/null || true
+    echo "--- last 20 lines stdout ---"
+    tail -20 /tmp/kaappi-r7rs-stdout 2>/dev/null || true
     echo "--- end crash context ---"
     # Retry without JIT to isolate JIT-related crashes
     echo "  Retrying with --no-jit..."
