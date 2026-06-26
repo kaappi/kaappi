@@ -388,6 +388,14 @@ fn readOneByte(port: *types.Port) ?u8 {
         port.peek_byte = null;
         return b;
     }
+    // Check peek continuation bytes (from multi-byte peek-char)
+    if (port.peek_extra_len > 0) {
+        const b = port.peek_extra[0];
+        port.peek_extra[0] = port.peek_extra[1];
+        port.peek_extra[1] = port.peek_extra[2];
+        port.peek_extra_len -= 1;
+        return b;
+    }
     // Check read buffer (from prior (read) that buffered excess)
     if (port.read_buf) |rb| {
         if (port.read_buf_len > 0) {
@@ -453,6 +461,15 @@ fn peekCharFn(args: []const Value) PrimitiveError!Value {
                     return types.makeChar(cp);
                 }
             }
+        } else if (port.peek_extra_len > 0) {
+            var utf8_buf: [4]u8 = undefined;
+            utf8_buf[0] = b;
+            const avail: usize = @intCast(port.peek_extra_len);
+            for (0..avail) |i| utf8_buf[i + 1] = port.peek_extra[i];
+            if (avail >= seq_len - 1) {
+                const cp = std.unicode.utf8Decode(utf8_buf[0..seq_len]) catch return types.makeChar(@intCast(b));
+                return types.makeChar(cp);
+            }
         }
         return types.makeChar(@intCast(b));
     }
@@ -467,10 +484,10 @@ fn peekCharFn(args: []const Value) PrimitiveError!Value {
     } else {
         var buf: [4]u8 = undefined;
         const len = std.unicode.utf8Encode(cp, &buf) catch 1;
-        if (len == 1) {
-            port2.peek_byte = buf[0];
-        } else {
-            port2.peek_byte = buf[0];
+        port2.peek_byte = buf[0];
+        if (len > 1) {
+            for (1..len) |i| port2.peek_extra[i - 1] = buf[i];
+            port2.peek_extra_len = @intCast(len - 1);
         }
     }
     return types.makeChar(cp);
@@ -508,7 +525,7 @@ fn readLineFn(args: []const Value) PrimitiveError!Value {
 
 fn charReadyP(args: []const Value) PrimitiveError!Value {
     const port = try getInputPort(args, 0, "char-ready?");
-    if (port.peek_byte != null) return types.TRUE;
+    if (port.peek_byte != null or port.peek_extra_len > 0) return types.TRUE;
     // For simplicity, always return #t (non-blocking check not worth the complexity)
     return types.TRUE;
 }
@@ -603,10 +620,16 @@ fn readDatumFn(args: []const Value) PrimitiveError!Value {
         port.read_buf_len = 0;
     }
 
-    // Consume any peeked byte
+    // Consume any peeked bytes
     if (port.peek_byte) |b| {
         buf.append(gc.allocator, b) catch return PrimitiveError.OutOfMemory;
         port.peek_byte = null;
+    }
+    while (port.peek_extra_len > 0) {
+        buf.append(gc.allocator, port.peek_extra[0]) catch return PrimitiveError.OutOfMemory;
+        port.peek_extra[0] = port.peek_extra[1];
+        port.peek_extra[1] = port.peek_extra[2];
+        port.peek_extra_len -= 1;
     }
 
     // Read from fd (appends after any buffered data)
