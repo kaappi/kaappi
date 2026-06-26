@@ -614,15 +614,23 @@ pub const Compiler = struct {
                         }
                     }
                 };
-                const expanded = expander.expandMacro(self.gc, expr, transformer, self.globals, &merged_macros) catch |err| switch (err) {
-                    error.OutOfMemory => return CompileError.OutOfMemory,
-                    error.ScopeTableFull => return CompileError.InternalLimit,
-                    error.PatternTooComplex => return CompileError.InternalLimit,
-                    error.NoMatchingPattern => return CompileError.InvalidSyntax,
+                // Suppress GC during expansion: the expanded form isn't
+                // rooted until pushRoot below, so a collection triggered
+                // by allocPair inside expandMacro could free AST nodes
+                // that the partially-built result references.
+                self.gc.no_collect += 1;
+                const expanded = expander.expandMacro(self.gc, expr, transformer, self.globals, &merged_macros) catch |err| {
+                    self.gc.no_collect -= 1;
+                    return switch (err) {
+                        error.OutOfMemory => CompileError.OutOfMemory,
+                        error.ScopeTableFull, error.PatternTooComplex => CompileError.InternalLimit,
+                        error.NoMatchingPattern => CompileError.InvalidSyntax,
+                    };
                 };
                 var expanded_root = expanded;
                 try self.gc.pushRoot(&expanded_root);
                 defer self.gc.popRoot();
+                self.gc.no_collect -= 1;
                 // Inject captured locals from the macro definition site
                 const saved_locals_len = self.locals.items.len;
                 for (tx.captured_locals) |cap| {
