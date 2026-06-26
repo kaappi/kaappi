@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.6.4] - 2026-06-26
+
+### Added
+- Nested/composed import sets: `(prefix (only (scheme base) car cdr) s:)` now works per R7RS §5.6
+
+### Fixed
+- **GC safety:** Root accumulators in SRFI-1 `circular-list`, `lset-adjoin`, `lset-union`, `lset-xor`, `append-reverse`, `concatenate`, `cons*`, `unfold`
+- **GC safety:** Root return value across dynamic-wind after-thunks in `.return` handler
+- **GC safety:** Root vector elements during bytecode cache deserialization
+- **GC safety:** Clean up `extra_roots` on bytecode deserialize error paths (memory leak)
+- **JIT aarch64:** Fix `pair?` predicate branch offset (7→9) with patch-based approach
+- **JIT x86_64:** Shrink register cache to {r8, r9} to avoid r10/r11 scratch conflict
+- **JIT both:** Make `box_local`/`get_box_local`/`set_box_local` side-exit to interpreter (was miscompiled as plain copies)
+- **Arithmetic:** Fix silent fixnum truncation in `gcd`, `lcm`, and rational `+`/`-`/`*`/`/` for results exceeding ±2^47
+- **Arithmetic:** Fix `lcm` i64 multiply panic with overflow-checked bignum promotion
+- **Numeric:** Fix `exact`, `string->number`, `real-part`, `floor`/`ceiling`/`truncate`/`round`, and `numerator`/`denominator` overflow/panic for large values
+- **Filesystem:** Fix `file-info` field truncation for inode/device/size/time values over 2^47
+- **Filesystem:** Fix `file-info:device`/`rdev` dropping device minor number on Linux
+- **I/O:** Fix `peek-char` corrupting multi-byte UTF-8 characters on file ports
+- **Library:** Fix use-after-free crash on library redefinition (dangling registry key)
+- **Package manager:** Fix invalid free of trimmed sub-slice in `runCapture`
+- **Package manager:** Fix subprocess exit-status decode treating signal-killed processes as success
+- **Bytecode:** Raise `MAX_CODE_BYTES` from 1MB to 4MB with diagnostic on limit hit
+- **VM:** Fix `guard` + deep recursion crash by reducing max-frames and heap-allocating VM
+- **VM:** Fix `memory_limit` collection bypassing `no_collect` guard
+- **Compiler:** Fix constant folding ignoring local/upvalue shadowing of operators
+- **VM:** Fix `write`/`read` syscall results cast to `usize` before error check
+
 ## [0.6.3] - 2026-06-26
 
 ### Fixed
