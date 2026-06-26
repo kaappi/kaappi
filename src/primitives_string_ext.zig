@@ -607,6 +607,7 @@ fn stringReplaceFn(args: []const Value) PrimitiveError!Value {
     if (ev < 0) return primitives.typeError("string-replace", "non-negative integer", args[3]);
     const start: usize = @intCast(sv);
     const end: usize = @intCast(ev);
+    if (start > end) return primitives.typeError("string-replace", "valid index range (start <= end)", args[2]);
     const byte_start = pstr.utf8IndexToByteOffset(data1, start) orelse data1.len;
     const byte_end = pstr.utf8IndexToByteOffset(data1, end) orelse data1.len;
     const new_len = byte_start + data2.len + (data1.len - byte_end);
