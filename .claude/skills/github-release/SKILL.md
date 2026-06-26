@@ -18,30 +18,31 @@ gh auth status      # must be authenticated
 
 If dirty, ask the user to commit or stash. If not on `main`, ask to switch.
 
-## Step 1: Determine version
+## Step 1: Analyze changes and determine version
 
 ```bash
 grep 'pub const version' src/main.zig
 git tag -l 'v*' --sort=-v:refname | head -1
+git log $(git tag -l 'v*' --sort=-v:refname | head -1)..HEAD --oneline --no-merges
+git log $(git tag -l 'v*' --sort=-v:refname | head -1)..HEAD --stat --no-merges
 ```
 
-Show the current version and ask what the new version should be:
+If no tags exist yet, use `git log --oneline --no-merges`.
+
+Analyze the commits since the last release. Summarize the changes (features,
+fixes, breaking changes, docs) and recommend a version bump:
 
 - **patch** (0.1.0 -> 0.1.1): bug fixes only
 - **minor** (0.1.0 -> 0.2.0): new features, no breaking changes
 - **major** (0.1.0 -> 1.0.0): breaking changes
 
-Wait for confirmation before continuing.
+Present the analysis and recommendation, then ask for confirmation before continuing.
 
 ## Step 2: Generate release notes
 
-```bash
-git log $(git tag -l 'v*' --sort=-v:refname | head -1)..HEAD --oneline --no-merges
-```
-
-If no tags exist yet, use `git log --oneline --no-merges`.
-
-Combine the `[Unreleased]` section from `CHANGELOG.md` (primary source) with any commits not already reflected. Present draft notes to the user for review. Wait for confirmation.
+Combine the `[Unreleased]` section from `CHANGELOG.md` (primary source) with any
+commits not already reflected in it. Present draft notes to the user for review.
+Wait for confirmation.
 
 ## Step 3: Update CHANGELOG.md
 
