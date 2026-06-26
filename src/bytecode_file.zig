@@ -388,13 +388,14 @@ fn readConstant(r: *Reader, gc: *GC, all_funcs: []*Function, depth: u32) !Value 
         TAG_VECTOR => {
             const len = try r.readU32();
             if (len > MAX_VECTOR_LEN) return BytecodeError.CorruptedFile;
-            const allocator = gc.allocator;
-            const elems = allocator.alloc(Value, len) catch return BytecodeError.OutOfMemory;
-            defer allocator.free(elems);
+            var vec_val = gc.allocVectorFill(len, types.NIL) catch return BytecodeError.OutOfMemory;
+            try gc.pushRoot(&vec_val);
+            defer gc.popRoot();
+            const vec = types.toVector(vec_val);
             for (0..len) |i| {
-                elems[i] = try readConstant(r, gc, all_funcs, depth + 1);
+                vec.data[i] = try readConstant(r, gc, all_funcs, depth + 1);
             }
-            return gc.allocVector(elems) catch return BytecodeError.OutOfMemory;
+            return vec_val;
         },
         TAG_BYTEVECTOR => {
             const len = try r.readU32();
