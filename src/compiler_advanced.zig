@@ -590,13 +590,12 @@ fn compileQQSplicing(self: *Compiler, tmpl: Value, dst: u8, depth: u8) CompileEr
 /// Build an S-expression (list expr1 expr2 ...) where each expr is either
 /// (quote elem) for plain data, or the unquote expression for ,expr.
 fn buildQQListExpr(gc: *@import("memory.zig").GC, quote_sym: Value, list_sym: Value, elems: []const Value) CompileError!Value {
-    // Build args list backwards
+    const qq_sym = gc.allocSymbol("quasiquote") catch return CompileError.OutOfMemory;
     var args: Value = types.NIL;
     var i = elems.len;
     while (i > 0) {
         i -= 1;
         const elem = elems[i];
-        // Check if this is an (unquote expr) form -- if so, use expr directly
         if (types.isPair(elem)) {
             const elem_head = types.car(elem);
             if (types.isSymbol(elem_head) and std.mem.eql(u8, types.symbolName(elem_head), "unquote")) {
@@ -606,8 +605,12 @@ fn buildQQListExpr(gc: *@import("memory.zig").GC, quote_sym: Value, list_sym: Va
                     continue;
                 }
             }
+            // Compound element: wrap in (quasiquote elem) so nested unquotes are processed
+            const wrapped = gc.allocPair(qq_sym, gc.allocPair(elem, types.NIL) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory;
+            args = gc.allocPair(wrapped, args) catch return CompileError.OutOfMemory;
+            continue;
         }
-        // Wrap in (quote elem)
+        // Atom: wrap in (quote elem)
         const quoted = gc.allocPair(quote_sym, gc.allocPair(elem, types.NIL) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory;
         args = gc.allocPair(quoted, args) catch return CompileError.OutOfMemory;
     }
