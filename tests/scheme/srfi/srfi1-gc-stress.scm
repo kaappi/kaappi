@@ -53,6 +53,29 @@
     ;; xor = {0..49} union {100..149} = 100 elements
     (check "lset-xor size" (length result) 100)))
 
+;; concatenate: flatten 50 ten-element sublists
+(let ((sublists (list-tabulate 50 (lambda (i)
+                  (list-tabulate 10 (lambda (j) (+ (* i 10) j)))))))
+  (let ((result (concatenate sublists)))
+    (check "concatenate length" (length result) 500)
+    (check "concatenate first" (car result) 0)
+    (check "concatenate last" (list-ref result 499) 499)))
+
+;; cons*: build a long dotted spine
+(let ((result (apply cons* (list-tabulate 300 values))))
+  (check "cons* first" (car result) 0)
+  (check "cons* second" (cadr result) 1)
+  (check "cons* tail" (list-ref result 298) 298))
+
+;; unfold: generate a 500-element list
+(let ((result (unfold (lambda (i) (= i 500))
+                      values
+                      (lambda (i) (+ i 1))
+                      0)))
+  (check "unfold length" (length result) 500)
+  (check "unfold first" (car result) 0)
+  (check "unfold last" (list-ref result 499) 499))
+
 (display pass) (display " passed, ") (display fail) (display " failed")
 (newline)
 (if (> fail 0) (error "SRFI-1 GC stress tests failed" fail))

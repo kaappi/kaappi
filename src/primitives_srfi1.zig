@@ -687,6 +687,8 @@ fn concatenateFn(args: []const Value) PrimitiveError!Value {
 
     // Append them all: result starts as last sublist, then prepend in reverse
     var result = sublists.items[sublists.items.len - 1];
+    gc.pushRoot(&result) catch return PrimitiveError.OutOfMemory;
+    defer gc.popRoot();
     var idx = sublists.items.len - 1;
     while (idx > 0) {
         idx -= 1;
@@ -1170,6 +1172,8 @@ fn consStarFn(args: []const Value) PrimitiveError!Value {
     if (args.len == 0) return PrimitiveError.ArityMismatch;
     if (args.len == 1) return args[0];
     var result = args[args.len - 1];
+    gc.pushRoot(&result) catch return PrimitiveError.OutOfMemory;
+    defer gc.popRoot();
     var i = args.len - 1;
     while (i > 0) {
         i -= 1;
@@ -1848,6 +1852,8 @@ fn unfoldFn(args: []const Value) PrimitiveError!Value {
     } else {
         result = types.NIL;
     }
+    gc.pushRoot(&result) catch return PrimitiveError.OutOfMemory;
+    defer gc.popRoot();
 
     var i = elems.items.len;
     while (i > 0) {
