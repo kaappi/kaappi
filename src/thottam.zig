@@ -248,8 +248,9 @@ fn runCapture(allocator: std.mem.Allocator, argv: []const []const u8, cwd: ?[]co
     }
 
     const slice = output.toOwnedSlice(allocator) catch return error.OutOfMemory;
+    defer allocator.free(slice);
     const trimmed = std.mem.trim(u8, slice, "\n\r");
-    return @constCast(trimmed);
+    return allocator.dupe(u8, trimmed) catch return error.OutOfMemory;
 }
 
 fn runPassthrough(allocator: std.mem.Allocator, argv: []const []const u8, cwd: ?[]const u8) !u8 {
