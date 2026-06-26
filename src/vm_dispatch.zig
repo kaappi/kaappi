@@ -573,7 +573,9 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
             .@"return" => {
                 const src = readU8(self, frame);
                 const src_idx = try registerIndex(self, frame.base, src);
-                const result = self.registers[src_idx];
+                var result = self.registers[src_idx];
+                self.gc.pushRoot(&result) catch return VMError.OutOfMemory;
+                defer self.gc.popRoot();
                 const return_dst = frame.dst;
                 const frame_wind = frame.saved_wind_count;
                 self.frame_count -= 1;
