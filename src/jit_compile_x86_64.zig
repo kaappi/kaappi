@@ -692,41 +692,10 @@ fn x64EmitCallSequence(asm_ctx: *x64.Assembler, base_reg: u8, nargs: u8, pending
     _ = pending_quick_exits;
     // rax = callee value
 
-    // --- Pointer check: bits 0-1 must be 0, non-null ---
-    try asm_ctx.emitTbnz(.rax, 0, 0); // fixnum → side-exit
-    const fix_exit = asm_ctx.pos() - 4;
-    try asm_ctx.emitTbnz(.rax, 1, 0); // immediate → side-exit
-    const imm_exit = asm_ctx.pos() - 4;
-    try asm_ctx.emitCmpImm(.rax, 0); // null check
-    try x64EmitCondSideExit(asm_ctx, pending_exits, allocator, bc_ip, x64.Cond.eq, cache);
-    // Patch fixnum/immediate exits to a shared side-exit
-    const ptr_se_pos = asm_ctx.pos();
-    // The fixnum/imm exits should jump PAST the null check to a side-exit.
-    // But they already emitted TEST+JNE — if bit is set, they jump forward.
-    // We need them to go to a side-exit stub. Let's patch them to jump to a
-    // shared unconditional side-exit.
-    // Actually: tbnz emits TEST+JNE rel32(0). If the test passes (bit set),
-    // JNE jumps forward 0 bytes — to the next instruction. That's wrong.
-    // We need them to jump to a side-exit. Let's fix: emit the side-exit AFTER
-    // the null check and patch the tbnz JNE targets there.
-    // But we already emitted the null check conditional exit. The cleanest approach:
-    // check all three conditions and branch to a single side-exit.
-
-    // Let me redo this more cleanly: use AND to check both bits at once.
-    // Actually the tbnz stubs emit TEST+JNE with a rel32(0) placeholder.
-    // We can patch those to jump to the same side-exit stub.
-    // But we already used x64EmitCondSideExit for the null check which emits
-    // its own Jcc that gets patched during the final side-exit patching.
-    // The tbnz JNE targets need to be patched NOW (forward jump within the function).
-    // Let's emit an unconditional JMP to a side-exit stub and patch the tbnz to it.
-    _ = ptr_se_pos;
-
-    // Actually, let's simplify: emit separate side exits for each check.
-    // The tbnz JNE placeholders are at fix_exit and imm_exit.
-    // We need to redirect them to side-exit stubs. But our side-exit mechanism
-    // patches them at the end. So let's just add them to pending_exits.
-    try pending_exits.append(allocator, .{ .native_idx = fix_exit, .bc_ip = bc_ip });
-    try pending_exits.append(allocator, .{ .native_idx = imm_exit, .bc_ip = bc_ip });
+    // --- Pointer check: upper 16 bits must be 0xFFFC (NaN-boxed pointer) ---
+    try x64EmitPointerGuard(asm_ctx, .rax, pending_exits, allocator, bc_ip, cache);
+    // Extract raw pointer for subsequent dereferences
+    try x64EmitExtractPointer(asm_ctx, .rax, .rax);
 
     // --- Tag check: object tag must be closure (3) ---
     try asm_ctx.emitLdrbImm(.rcx, .rax, @intCast(OFF_OBJECT_TAG));
@@ -941,21 +910,13 @@ fn x64EmitGetUpvalue(asm_ctx: *x64.Assembler, dst: u8, idx: u8, pending_exits: *
         try asm_ctx.emitAddReg(.rax, .rax, .rcx);
         try asm_ctx.emitLdrImm(.rax, .rax, 0);
     }
-    // Fixnum (bit 0) or immediate (bit 1) → safe; pointer → side-exit
-    // TEST rax, 1; JNE .store
-    try asm_ctx.emitTbnz(.rax, 0, 0); // emits TEST+JNE with placeholder
-    const fix_patch = asm_ctx.pos() - 4; // patch position is last 4 bytes
-    // TEST rax, 2; JNE .store
-    try asm_ctx.emitTbnz(.rax, 1, 0);
-    const imm_patch = asm_ctx.pos() - 4;
-    // Pointer → side-exit
-    try x64EmitUnconditionalSideExit(asm_ctx, pending_exits, allocator, bc_ip, cache);
-    // .store:
-    const store_pos = asm_ctx.pos();
+    // If value is a pointer (upper 16 bits == 0xFFFC), side-exit
+    try asm_ctx.emitMovReg(.r11, .rax);
+    try asm_ctx.emitLsrImm(.r11, .r11, 48);
+    try asm_ctx.emitLoadImm64(.r10, 0xFFFC);
+    try asm_ctx.emitCmpReg(.r11, .r10);
+    try x64EmitCondSideExit(asm_ctx, pending_exits, allocator, bc_ip, x64.Cond.eq, cache);
     try cachedStore(asm_ctx, cache, dst, .rax);
-    // Patch the two JNE to jump to store_pos
-    x64PatchJmp(asm_ctx, fix_patch, store_pos);
-    x64PatchJmp(asm_ctx, imm_patch, store_pos);
 }
 
 fn x64EmitSetUpvalue(asm_ctx: *x64.Assembler, src: u8, idx: u8, pending_exits: *std.ArrayList(PendingSideExit), allocator: std.mem.Allocator, bc_ip: usize, cache: *RegCache) !void {
@@ -969,15 +930,13 @@ fn x64EmitSetUpvalue(asm_ctx: *x64.Assembler, src: u8, idx: u8, pending_exits: *
         try asm_ctx.emitAddReg(.rcx, .rax, .rcx);
         try asm_ctx.emitLdrImm(.rcx, .rcx, 0);
     }
-    // Non-pointer → direct store; pointer → side-exit
-    try asm_ctx.emitTbnz(.rcx, 0, 0); // TEST rcx, 1; JNE .store
-    const fix_patch = asm_ctx.pos() - 4;
-    try asm_ctx.emitTbnz(.rcx, 1, 0); // TEST rcx, 2; JNE .store
-    const imm_patch = asm_ctx.pos() - 4;
-    // Pointer → side-exit
-    try x64EmitUnconditionalSideExit(asm_ctx, pending_exits, allocator, bc_ip, cache);
-    // .direct_store:
-    const store_pos = asm_ctx.pos();
+    // If current value is a pointer (upper 16 bits == 0xFFFC), side-exit for write barrier
+    try asm_ctx.emitMovReg(.r11, .rcx);
+    try asm_ctx.emitLsrImm(.r11, .r11, 48);
+    try asm_ctx.emitLoadImm64(.r10, 0xFFFC);
+    try asm_ctx.emitCmpReg(.r11, .r10);
+    try x64EmitCondSideExit(asm_ctx, pending_exits, allocator, bc_ip, x64.Cond.eq, cache);
+    // Non-pointer → direct store
     try cachedLoad(asm_ctx, cache, .rcx, src);
     try x64EmitLoadFromField(asm_ctx, .rax, X_CLOSURE_PTR, OFF_CLOSURE_UPVALUES);
     if (uv_offset <= 32760) {
@@ -987,60 +946,94 @@ fn x64EmitSetUpvalue(asm_ctx: *x64.Assembler, src: u8, idx: u8, pending_exits: *
         try asm_ctx.emitAddReg(.rax, .rax, .rdx);
         try asm_ctx.emitStrImm(.rcx, .rax, 0);
     }
-    x64PatchJmp(asm_ctx, fix_patch, store_pos);
-    x64PatchJmp(asm_ctx, imm_patch, store_pos);
+}
+
+fn x64EmitFixnumGuard(asm_ctx: *x64.Assembler, reg: x64.Reg, pending_exits: *std.ArrayList(PendingSideExit), allocator: std.mem.Allocator, bc_ip: usize, cache: *const RegCache) !void {
+    try asm_ctx.emitMovReg(.r11, reg);
+    try asm_ctx.emitLsrImm(.r11, .r11, 48);
+    try asm_ctx.emitLoadImm64(.r10, 0xFFFD);
+    try asm_ctx.emitCmpReg(.r11, .r10);
+    try x64EmitCondSideExit(asm_ctx, pending_exits, allocator, bc_ip, x64.Cond.ne, cache);
+}
+
+fn x64EmitUntagFixnum(asm_ctx: *x64.Assembler, dst: x64.Reg, src: x64.Reg) !void {
+    if (dst != src) try asm_ctx.emitMovReg(dst, src);
+    try asm_ctx.emitLslImm(dst, dst, 16);
+    try asm_ctx.emitAsrImm(dst, dst, 16);
+}
+
+fn x64EmitTagFixnum(asm_ctx: *x64.Assembler, dst: x64.Reg, src: x64.Reg) !void {
+    if (dst != src) try asm_ctx.emitMovReg(dst, src);
+    try asm_ctx.emitLslImm(dst, dst, 16);
+    try asm_ctx.emitLsrImm(dst, dst, 16);
+    try asm_ctx.emitLoadImm64(.r11, 0xFFFD000000000000);
+    try asm_ctx.emitOrrReg(dst, dst, .r11);
+}
+
+fn x64EmitI48OverflowCheck(asm_ctx: *x64.Assembler, reg: x64.Reg, pending_exits: *std.ArrayList(PendingSideExit), allocator: std.mem.Allocator, bc_ip: usize, cache: *const RegCache) !void {
+    try asm_ctx.emitAsrImm(.r11, reg, 47);
+    try asm_ctx.emitAddImm(.r11, .r11, 1);
+    try asm_ctx.emitCmpImm(.r11, 2);
+    try x64EmitCondSideExit(asm_ctx, pending_exits, allocator, bc_ip, x64.Cond.ae, cache);
+}
+
+fn x64EmitExtractPointer(asm_ctx: *x64.Assembler, dst: x64.Reg, src: x64.Reg) !void {
+    if (dst != src) try asm_ctx.emitMovReg(dst, src);
+    try asm_ctx.emitLslImm(dst, dst, 16);
+    try asm_ctx.emitLsrImm(dst, dst, 16);
+}
+
+fn x64EmitPointerGuard(asm_ctx: *x64.Assembler, reg: x64.Reg, pending_exits: *std.ArrayList(PendingSideExit), allocator: std.mem.Allocator, bc_ip: usize, cache: *const RegCache) !void {
+    try asm_ctx.emitMovReg(.r11, reg);
+    try asm_ctx.emitLsrImm(.r11, .r11, 48);
+    try asm_ctx.emitLoadImm64(.r10, 0xFFFC);
+    try asm_ctx.emitCmpReg(.r11, .r10);
+    try x64EmitCondSideExit(asm_ctx, pending_exits, allocator, bc_ip, x64.Cond.ne, cache);
 }
 
 fn x64EmitSpecializedArith(asm_ctx: *x64.Assembler, base_reg: u8, spec: SpecializedOp, pending_exits: *std.ArrayList(PendingSideExit), allocator: std.mem.Allocator, bc_ip: usize, cache: *RegCache) !void {
     try cachedLoad(asm_ctx, cache, .rax, base_reg + 1);
     try cachedLoad(asm_ctx, cache, .rcx, base_reg + 2);
 
-    // Type guard: both must be fixnums (bit 0 = 1)
-    try asm_ctx.emitAndReg(.rdx, .rax, .rcx);
-    try asm_ctx.emitLoadImm64(.rsi, 1);
-    try asm_ctx.emitAndReg(.rdx, .rdx, .rsi);
-    try asm_ctx.emitCmpImm(.rdx, 0);
-    try x64EmitCondSideExit(asm_ctx, pending_exits, allocator, bc_ip, x64.Cond.eq, cache);
+    // Type guard: both must be NaN-boxed fixnums (upper 16 bits == 0xFFFD)
+    try x64EmitFixnumGuard(asm_ctx, .rax, pending_exits, allocator, bc_ip, cache);
+    try x64EmitFixnumGuard(asm_ctx, .rcx, pending_exits, allocator, bc_ip, cache);
 
     switch (spec) {
         .add => {
-            try asm_ctx.emitAsrImm(.rdi, .rax, 1);
-            try asm_ctx.emitAsrImm(.rsi, .rcx, 1);
+            try x64EmitUntagFixnum(asm_ctx, .rdi, .rax);
+            try x64EmitUntagFixnum(asm_ctx, .rsi, .rcx);
             try asm_ctx.emitAddReg(.rdi, .rdi, .rsi);
-            try x64EmitCondSideExit(asm_ctx, pending_exits, allocator, bc_ip, x64.Cond.o, cache);
-            try asm_ctx.emitLslImm(.rdi, .rdi, 1);
-            try asm_ctx.emitOrrImm(.rdi, .rdi, 1);
+            try x64EmitI48OverflowCheck(asm_ctx, .rdi, pending_exits, allocator, bc_ip, cache);
+            try x64EmitTagFixnum(asm_ctx, .rdi, .rdi);
             try cachedStore(asm_ctx, cache, base_reg, .rdi);
         },
         .sub => {
-            try asm_ctx.emitAsrImm(.rdi, .rax, 1);
-            try asm_ctx.emitAsrImm(.rsi, .rcx, 1);
+            try x64EmitUntagFixnum(asm_ctx, .rdi, .rax);
+            try x64EmitUntagFixnum(asm_ctx, .rsi, .rcx);
             try asm_ctx.emitSubReg(.rdi, .rdi, .rsi);
-            try x64EmitCondSideExit(asm_ctx, pending_exits, allocator, bc_ip, x64.Cond.o, cache);
-            try asm_ctx.emitLslImm(.rdi, .rdi, 1);
-            try asm_ctx.emitOrrImm(.rdi, .rdi, 1);
+            try x64EmitI48OverflowCheck(asm_ctx, .rdi, pending_exits, allocator, bc_ip, cache);
+            try x64EmitTagFixnum(asm_ctx, .rdi, .rdi);
             try cachedStore(asm_ctx, cache, base_reg, .rdi);
         },
         .mul => {
-            try asm_ctx.emitAsrImm(.rax, .rax, 1);
-            try asm_ctx.emitAsrImm(.rcx, .rcx, 1);
-            // IMUL r/m64: RDX:RAX = RAX * RCX
+            try x64EmitUntagFixnum(asm_ctx, .rax, .rax);
+            try x64EmitUntagFixnum(asm_ctx, .rcx, .rcx);
             try asm_ctx.emitImulOneOp(.rcx);
-            // Overflow check: RDX must be sign-extension of RAX
+            // i64 overflow: RDX must be sign-extension of RAX
             try asm_ctx.emitAsrImm(.rsi, .rax, 63);
             try asm_ctx.emitCmpReg(.rdx, .rsi);
             try x64EmitCondSideExit(asm_ctx, pending_exits, allocator, bc_ip, x64.Cond.ne, cache);
-            // Range check: result fits in 63-bit signed fixnum
-            try asm_ctx.emitLoadImm64(.rsi, 0x4000_0000_0000_0000);
-            try asm_ctx.emitCmpReg(.rax, .rsi);
-            try x64EmitCondSideExit(asm_ctx, pending_exits, allocator, bc_ip, x64.Cond.ge, cache);
-            // Retag
-            try asm_ctx.emitLslImm(.rax, .rax, 1);
-            try asm_ctx.emitOrrImm(.rax, .rax, 1);
+            // i48 range check
+            try x64EmitI48OverflowCheck(asm_ctx, .rax, pending_exits, allocator, bc_ip, cache);
+            try x64EmitTagFixnum(asm_ctx, .rax, .rax);
             try cachedStore(asm_ctx, cache, base_reg, .rax);
         },
         .lt, .gt, .le, .ge, .eq => {
-            try asm_ctx.emitCmpReg(.rax, .rcx);
+            // Untag both for correct signed comparison
+            try x64EmitUntagFixnum(asm_ctx, .rdi, .rax);
+            try x64EmitUntagFixnum(asm_ctx, .rsi, .rcx);
+            try asm_ctx.emitCmpReg(.rdi, .rsi);
             try asm_ctx.emitLoadImm64(.rdx, types.FALSE);
             try asm_ctx.emitLoadImm64(.rsi, types.TRUE);
             const cond: x64.Cond = switch (spec) {
@@ -1063,7 +1056,8 @@ fn x64EmitSpecializedPredicate(asm_ctx: *x64.Assembler, base_reg: u8, spec: Spec
 
     switch (spec) {
         .zero_p => {
-            try asm_ctx.emitCmpImm(.rax, 1); // tagged 0
+            try asm_ctx.emitLoadImm64(.rcx, types.makeFixnum(0));
+            try asm_ctx.emitCmpReg(.rax, .rcx);
             try asm_ctx.emitLoadImm64(.rcx, types.FALSE);
             try asm_ctx.emitLoadImm64(.rdx, types.TRUE);
             try asm_ctx.emitCsel(.rsi, .rdx, .rcx, x64.Cond.eq);
@@ -1078,18 +1072,20 @@ fn x64EmitSpecializedPredicate(asm_ctx: *x64.Assembler, base_reg: u8, spec: Spec
             try cachedStore(asm_ctx, cache, base_reg, .rdi);
         },
         .pair_p => {
-            try asm_ctx.emitAndImm(.rcx, .rax, 7);
+            // Check upper 16 bits == 0xFFFC (NaN-boxed pointer)
+            try asm_ctx.emitMovReg(.rcx, .rax);
+            try asm_ctx.emitLsrImm(.rcx, .rcx, 48);
+            try asm_ctx.emitLoadImm64(.rdx, 0xFFFC);
             try asm_ctx.emitLoadImm64(.rdi, types.FALSE);
-            try asm_ctx.emitCmpImm(.rcx, 0);
-            // Not a pointer → store FALSE and skip tag check
+            try asm_ctx.emitCmpReg(.rcx, .rdx);
             const not_ptr_patch = try asm_ctx.emitJccRel32(x64.Cond.ne);
-            // Pointer — check tag byte
-            try asm_ctx.emitLdrbImm(.rcx, .rax, @intCast(OFF_OBJECT_TAG));
+            // Extract raw pointer and check object tag
+            try x64EmitExtractPointer(asm_ctx, .rcx, .rax);
+            try asm_ctx.emitLdrbImm(.rcx, .rcx, @intCast(OFF_OBJECT_TAG));
             try asm_ctx.emitAndImm(.rcx, .rcx, 0x3F);
             try asm_ctx.emitCmpImm(.rcx, @intFromEnum(types.ObjectTag.pair));
             try asm_ctx.emitLoadImm64(.rsi, types.TRUE);
             try asm_ctx.emitCsel(.rdi, .rsi, .rdi, x64.Cond.eq);
-            // .store:
             const store_pos = asm_ctx.pos();
             try cachedStore(asm_ctx, cache, base_reg, .rdi);
             x64PatchJmp(asm_ctx, not_ptr_patch, store_pos);
@@ -1116,9 +1112,11 @@ fn x64EmitSpecializedPredicate(asm_ctx: *x64.Assembler, base_reg: u8, spec: Spec
 }
 
 fn x64EmitPairGuard(asm_ctx: *x64.Assembler, val_reg: X64, pending_exits: *std.ArrayList(PendingSideExit), allocator: std.mem.Allocator, bc_ip: usize, cache: *const RegCache) !void {
-    try asm_ctx.emitAndImm(.rcx, val_reg, 7);
-    try asm_ctx.emitCmpImm(.rcx, 0);
-    try x64EmitCondSideExit(asm_ctx, pending_exits, allocator, bc_ip, x64.Cond.ne, cache);
+    // Check NaN-boxed pointer (upper 16 bits == 0xFFFC)
+    try x64EmitPointerGuard(asm_ctx, val_reg, pending_exits, allocator, bc_ip, cache);
+    // Extract raw pointer in-place
+    try x64EmitExtractPointer(asm_ctx, val_reg, val_reg);
+    // Check object tag == pair
     try asm_ctx.emitLdrbImm(.rcx, val_reg, @intCast(OFF_OBJECT_TAG));
     try asm_ctx.emitAndImm(.rcx, .rcx, 0x3F);
     try asm_ctx.emitCmpImm(.rcx, @intFromEnum(types.ObjectTag.pair));

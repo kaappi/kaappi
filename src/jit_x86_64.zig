@@ -497,6 +497,15 @@ pub const Assembler = struct {
         try self.emit(@as(u8, shift));
     }
 
+    // SHR r64, imm8
+    pub fn emitLsrImm(self: *Assembler, rd: Reg, rn: Reg, shift: u6) !void {
+        if (rd != rn) try self.emitMovReg(rd, rn);
+        try self.emit(rexW(.rax, rd));
+        try self.emit(0xC1);
+        try self.emit(modRM(0b11, 5, regLow3(rd)));
+        try self.emit(@as(u8, shift));
+    }
+
     // SAR r64, imm8
     pub fn emitAsrImm(self: *Assembler, rd: Reg, rn: Reg, shift: u6) !void {
         if (rd != rn) try self.emitMovReg(rd, rn);

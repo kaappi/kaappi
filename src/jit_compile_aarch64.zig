@@ -530,17 +530,13 @@ fn emitGetUpvalue(asm_ctx: *a64.Assembler, dst: u8, idx: u8, pending_exits: *std
         try asm_ctx.emit(a64.Assembler.addReg(.x0, .x0, .x4));
         try asm_ctx.emit(a64.Assembler.ldrImm(.x0, .x0, 0));
     }
-    // Fast path: non-pointer values (fixnum bit 0=1, immediate bit 1=1)
-    // Skip over the side-exit branch
-    const store_pos = asm_ctx.pos() + 3; // tbnz, tbnz, b(side-exit) = 3 instructions ahead
-    try asm_ctx.emit(a64.Assembler.tbnz(.x0, 0, 3)); // fixnum → skip to store
-    try asm_ctx.emit(a64.Assembler.tbnz(.x0, 1, 2)); // immediate → skip to store
-    // Pointer → side-exit
+    // Fast path: if value is NOT a pointer (upper 16 bits != 0xFFFC), store directly
+    try asm_ctx.emit(lsrImm64(.x9, .x0, 48));
+    try asm_ctx.emitMovz(.x10, 0xFFFC, 0);
+    try asm_ctx.emitCmpReg(.x9, .x10);
     const exit_idx = asm_ctx.pos();
-    try asm_ctx.emit(0); // placeholder B to side-exit stub
-    try pending_exits.append(allocator, .{ .native_idx = exit_idx, .bc_ip = bc_ip });
-    // .store:
-    std.debug.assert(asm_ctx.pos() == store_pos);
+    try asm_ctx.emit(0); // b.eq side-exit (is a pointer)
+    try pending_exits.append(allocator, .{ .native_idx = exit_idx, .bc_ip = bc_ip, .cond = .eq });
     try asm_ctx.emitStrImm(.x0, FRAME_PTR, @as(u16, dst) * 8);
 }
 
@@ -556,15 +552,13 @@ fn emitSetUpvalue(asm_ctx: *a64.Assembler, src: u8, idx: u8, pending_exits: *std
         try asm_ctx.emit(a64.Assembler.addReg(.x4, .x0, .x4));
         try asm_ctx.emit(a64.Assembler.ldrImm(.x4, .x4, 0));
     }
-    // Non-pointer → direct store; pointer → side-exit
-    const store_pos = asm_ctx.pos() + 3;
-    try asm_ctx.emit(a64.Assembler.tbnz(.x4, 0, 3)); // fixnum → direct
-    try asm_ctx.emit(a64.Assembler.tbnz(.x4, 1, 2)); // immediate → direct
+    // If current value is a pointer (upper 16 bits == 0xFFFC), side-exit for write barrier
+    try asm_ctx.emit(lsrImm64(.x9, .x4, 48));
+    try asm_ctx.emitMovz(.x10, 0xFFFC, 0);
+    try asm_ctx.emitCmpReg(.x9, .x10);
     const exit_idx = asm_ctx.pos();
-    try asm_ctx.emit(0); // placeholder B to side-exit
-    try pending_exits.append(allocator, .{ .native_idx = exit_idx, .bc_ip = bc_ip });
-    // .direct_store:
-    std.debug.assert(asm_ctx.pos() == store_pos);
+    try asm_ctx.emit(0); // b.eq side-exit
+    try pending_exits.append(allocator, .{ .native_idx = exit_idx, .bc_ip = bc_ip, .cond = .eq });
     try asm_ctx.emitLdrImm(.x1, FRAME_PTR, @as(u16, src) * 8);
     // Write to upvalue slot (need the base pointer again)
     try emitLoadFromField(asm_ctx, .x0, CLOSURE_PTR, OFF_CLOSURE_UPVALUES);
@@ -626,6 +620,71 @@ fn emitGetGlobal(asm_ctx: *a64.Assembler, dst: u8, sym_idx: u16, pending_exits: 
     try pending_exits.append(allocator, .{ .native_idx = exit4, .bc_ip = bc_ip, .cond = .eq }); // == VOID
 }
 
+// -----------------------------------------------------------------------
+// NaN-boxing helpers
+// -----------------------------------------------------------------------
+
+fn lsrImm64(rd: Reg, rn: Reg, shift: u6) u32 {
+    // UBFM Xd, Xn, #shift, #63 — logical (unsigned) shift right
+    return @as(u32, 0xD3400000) |
+        (@as(u32, shift) << 16) |
+        (@as(u32, 63) << 10) |
+        (@as(u32, @intFromEnum(rn)) << 5) |
+        @intFromEnum(rd);
+}
+
+fn sbfx48(rd: Reg, rn: Reg) u32 {
+    // SBFM Xd, Xn, #0, #47 — sign-extend lower 48 bits to i64
+    return @as(u32, 0x93400000) |
+        (@as(u32, 0) << 16) |
+        (@as(u32, 47) << 10) |
+        (@as(u32, @intFromEnum(rn)) << 5) |
+        @intFromEnum(rd);
+}
+
+fn ubfx48(rd: Reg, rn: Reg) u32 {
+    // UBFM Xd, Xn, #0, #47 — extract lower 48 bits (zero-extend)
+    return @as(u32, 0xD3400000) |
+        (@as(u32, 0) << 16) |
+        (@as(u32, 47) << 10) |
+        (@as(u32, @intFromEnum(rn)) << 5) |
+        @intFromEnum(rd);
+}
+
+fn emitFixnumGuard(asm_ctx: *a64.Assembler, reg: Reg, pending_exits: *std.ArrayList(PendingSideExit), allocator: std.mem.Allocator, bc_ip: usize) !void {
+    try asm_ctx.emit(lsrImm64(.x9, reg, 48));
+    try asm_ctx.emitMovz(.x10, 0xFFFD, 0);
+    try asm_ctx.emitCmpReg(.x9, .x10);
+    const exit_idx = asm_ctx.pos();
+    try asm_ctx.emit(0);
+    try pending_exits.append(allocator, .{ .native_idx = exit_idx, .bc_ip = bc_ip, .cond = .ne });
+}
+
+fn emitTagFixnum(asm_ctx: *a64.Assembler, dst: Reg, src: Reg) !void {
+    try asm_ctx.emit(ubfx48(dst, src));
+    try asm_ctx.emitMovz(.x9, 0xFFFD, 3); // x9 = 0xFFFD000000000000
+    try asm_ctx.emitOrrReg(dst, dst, .x9);
+}
+
+fn emitI48OverflowCheck(asm_ctx: *a64.Assembler, reg: Reg, pending_exits: *std.ArrayList(PendingSideExit), allocator: std.mem.Allocator, bc_ip: usize) !void {
+    // Check (reg >> 47) + 1 <= 1 (unsigned) — i.e. bits [47..63] are all 0s or all 1s
+    try asm_ctx.emitAsrImm(.x9, reg, 47);
+    try asm_ctx.emitAddImm(.x9, .x9, 1);
+    try asm_ctx.emitCmpImm(.x9, 2);
+    const exit_idx = asm_ctx.pos();
+    try asm_ctx.emit(0);
+    try pending_exits.append(allocator, .{ .native_idx = exit_idx, .bc_ip = bc_ip, .cond = .hs });
+}
+
+fn emitPointerGuard(asm_ctx: *a64.Assembler, reg: Reg, pending_exits: *std.ArrayList(PendingSideExit), allocator: std.mem.Allocator, bc_ip: usize) !void {
+    try asm_ctx.emit(lsrImm64(.x9, reg, 48));
+    try asm_ctx.emitMovz(.x10, 0xFFFC, 0);
+    try asm_ctx.emitCmpReg(.x9, .x10);
+    const exit_idx = asm_ctx.pos();
+    try asm_ctx.emit(0);
+    try pending_exits.append(allocator, .{ .native_idx = exit_idx, .bc_ip = bc_ip, .cond = .ne });
+}
+
 fn emitSpecializedArith(asm_ctx: *a64.Assembler, base_reg: u8, spec: SpecializedOp, pending_exits: *std.ArrayList(PendingSideExit), allocator: std.mem.Allocator, bc_ip: usize) !void {
     const arg1_off: u16 = (@as(u16, base_reg) + 1) * 8;
     const arg2_off: u16 = (@as(u16, base_reg) + 2) * 8;
@@ -635,71 +694,49 @@ fn emitSpecializedArith(asm_ctx: *a64.Assembler, base_reg: u8, spec: Specialized
     try asm_ctx.emitLdrImm(.x0, FRAME_PTR, arg1_off);
     try asm_ctx.emitLdrImm(.x1, FRAME_PTR, arg2_off);
 
-    // Type guard: both must be fixnums (bit 0 = 1)
-    // AND x2, x0, x1 — if both have bit 0 set, result bit 0 is set
-    try asm_ctx.emitAndReg(.x2, .x0, .x1);
-    try asm_ctx.emit(a64.Assembler.tbnz(.x2, 0, 2)); // bit 0 set → skip exit
-    const type_exit = asm_ctx.pos();
-    try asm_ctx.emit(0); // B side-exit (unconditional, patched later)
-    try pending_exits.append(allocator, .{ .native_idx = type_exit, .bc_ip = bc_ip });
+    // Type guard: both must be NaN-boxed fixnums (upper 16 bits == 0xFFFD)
+    try emitFixnumGuard(asm_ctx, .x0, pending_exits, allocator, bc_ip);
+    try emitFixnumGuard(asm_ctx, .x1, pending_exits, allocator, bc_ip);
 
     switch (spec) {
         .add => {
-            try asm_ctx.emitAsrImm(.x3, .x0, 1); // untag a
-            try asm_ctx.emitAsrImm(.x4, .x1, 1); // untag b
-            try asm_ctx.emitAddsReg(.x5, .x3, .x4); // a + b with overflow
-            const ov_exit = asm_ctx.pos();
-            try asm_ctx.emit(0); // b.vs side-exit (placeholder)
-            try pending_exits.append(allocator, .{ .native_idx = ov_exit, .bc_ip = bc_ip, .cond = .vs });
-            try asm_ctx.emitLslImm(.x5, .x5, 1); // retag: result << 1
+            try asm_ctx.emit(sbfx48(.x3, .x0)); // untag a (sign-extend lower 48 bits)
+            try asm_ctx.emit(sbfx48(.x4, .x1)); // untag b
+            try asm_ctx.emitAddReg(.x5, .x3, .x4); // a + b
+            try emitI48OverflowCheck(asm_ctx, .x5, pending_exits, allocator, bc_ip);
+            try emitTagFixnum(asm_ctx, .x5, .x5);
+            try asm_ctx.emitStrImm(.x5, FRAME_PTR, dst_off);
         },
         .sub => {
-            try asm_ctx.emitAsrImm(.x3, .x0, 1);
-            try asm_ctx.emitAsrImm(.x4, .x1, 1);
+            try asm_ctx.emit(sbfx48(.x3, .x0));
+            try asm_ctx.emit(sbfx48(.x4, .x1));
             try asm_ctx.emitSubsReg(.x5, .x3, .x4); // a - b
-            const ov_exit = asm_ctx.pos();
-            try asm_ctx.emit(0);
-            try pending_exits.append(allocator, .{ .native_idx = ov_exit, .bc_ip = bc_ip, .cond = .vs });
-            try asm_ctx.emitLslImm(.x5, .x5, 1);
+            try emitI48OverflowCheck(asm_ctx, .x5, pending_exits, allocator, bc_ip);
+            try emitTagFixnum(asm_ctx, .x5, .x5);
+            try asm_ctx.emitStrImm(.x5, FRAME_PTR, dst_off);
         },
         .mul => {
-            // Untag both: a >> 1, b >> 1, then multiply
-            try asm_ctx.emitAsrImm(.x3, .x0, 1); // untag a
-            try asm_ctx.emitAsrImm(.x4, .x1, 1); // untag b
-            // SMULH x5, x3, x4 — high 64 bits of signed 64×64 multiply
+            try asm_ctx.emit(sbfx48(.x3, .x0)); // untag a
+            try asm_ctx.emit(sbfx48(.x4, .x1)); // untag b
             try asm_ctx.emit(a64.Assembler.smulh(.x5, .x3, .x4));
-            // MUL x6, x3, x4 — low 64 bits
             try asm_ctx.emit(a64.Assembler.mul(.x6, .x3, .x4));
-            // Overflow check: SMULH result must be sign-extension of MUL result
-            // CMP x5, x6, ASR #63
+            // i64 overflow: SMULH must be sign-extension of MUL
             try asm_ctx.emitAsrImm(.x7, .x6, 63);
             try asm_ctx.emitCmpReg(.x5, .x7);
             const ov_exit = asm_ctx.pos();
-            try asm_ctx.emit(0); // b.ne side-exit
+            try asm_ctx.emit(0);
             try pending_exits.append(allocator, .{ .native_idx = ov_exit, .bc_ip = bc_ip, .cond = .ne });
-            // Also check result fits in 63-bit signed (fixnum range)
-            try asm_ctx.emitMovz(.x5, 0, 0); // clear x5
-            try asm_ctx.emitMovk(.x5, 0x4000, 3); // x5 = 0x4000_0000_0000_0000 = 2^62
-            try asm_ctx.emitCmpReg(.x6, .x5);
-            const range_exit = asm_ctx.pos();
-            try asm_ctx.emit(0); // b.ge side-exit
-            try pending_exits.append(allocator, .{ .native_idx = range_exit, .bc_ip = bc_ip, .cond = .ge });
-            // Retag: result << 1
-            try asm_ctx.emitLslImm(.x5, .x6, 1);
-        },
-        .lt, .gt, .le, .ge, .eq => {},
-        .zero_p, .null_p, .pair_p, .not_op, .car, .cdr, .none => unreachable,
-    }
-
-    switch (spec) {
-        .add, .sub, .mul => {
-            // Retag: (result << 1) | 1 — use ADD to set bit 0
-            try asm_ctx.emitAddImm(.x5, .x5, 1);
+            // i48 range check
+            try asm_ctx.emitMovReg(.x5, .x6);
+            try emitI48OverflowCheck(asm_ctx, .x5, pending_exits, allocator, bc_ip);
+            try emitTagFixnum(asm_ctx, .x5, .x5);
             try asm_ctx.emitStrImm(.x5, FRAME_PTR, dst_off);
         },
         .lt, .gt, .le, .ge, .eq => {
-            // Tagged fixnum comparison preserves ordering — compare directly
-            try asm_ctx.emitCmpReg(.x0, .x1);
+            // Untag both operands for correct signed comparison
+            try asm_ctx.emit(sbfx48(.x3, .x0));
+            try asm_ctx.emit(sbfx48(.x4, .x1));
+            try asm_ctx.emitCmpReg(.x3, .x4);
             try asm_ctx.emitLoadImm64(.x4, types.FALSE);
             try asm_ctx.emitLoadImm64(.x5, types.TRUE);
             const cond: Cond = switch (spec) {
@@ -713,19 +750,15 @@ fn emitSpecializedArith(asm_ctx: *a64.Assembler, base_reg: u8, spec: Specialized
             try asm_ctx.emitCsel(.x6, .x5, .x4, cond);
             try asm_ctx.emitStrImm(.x6, FRAME_PTR, dst_off);
         },
-        .zero_p, .null_p, .pair_p, .not_op, .car, .cdr => unreachable,
-        .none => unreachable,
+        .zero_p, .null_p, .pair_p, .not_op, .car, .cdr, .none => unreachable,
     }
 }
 
 fn emitPairGuard(asm_ctx: *a64.Assembler, val_reg: Reg, pending_exits: *std.ArrayList(PendingSideExit), allocator: std.mem.Allocator, bc_ip: usize) !void {
-    // Check val_reg is a pointer (bits 0-2 = 000) and non-null
-    try asm_ctx.emitMovz(.x9, 7, 0);
-    try asm_ctx.emitAndReg(.x9, val_reg, .x9);
-    try asm_ctx.emitCmpImm(.x9, 0);
-    const ptr_exit = asm_ctx.pos();
-    try asm_ctx.emit(0); // b.ne side-exit
-    try pending_exits.append(allocator, .{ .native_idx = ptr_exit, .bc_ip = bc_ip, .cond = .ne });
+    // Check val_reg is a NaN-boxed pointer (upper 16 bits == 0xFFFC)
+    try emitPointerGuard(asm_ctx, val_reg, pending_exits, allocator, bc_ip);
+    // Extract raw pointer in-place for subsequent field access
+    try asm_ctx.emit(ubfx48(val_reg, val_reg));
     // Check tag == pair (0)
     try asm_ctx.emitLdrbImm(.x9, val_reg, @intCast(OFF_OBJECT_TAG));
     try asm_ctx.emitMovz(.x10, 0x3F, 0);
@@ -744,7 +777,8 @@ fn emitSpecializedPredicate(asm_ctx: *a64.Assembler, base_reg: u8, spec: Special
 
     switch (spec) {
         .zero_p => {
-            try asm_ctx.emitCmpImm(.x0, 1); // tagged 0
+            try asm_ctx.emitLoadImm64(.x1, types.makeFixnum(0));
+            try asm_ctx.emitCmpReg(.x0, .x1);
             try asm_ctx.emitLoadImm64(.x1, types.FALSE);
             try asm_ctx.emitLoadImm64(.x2, types.TRUE);
             try asm_ctx.emitCsel(.x3, .x2, .x1, .eq);
@@ -759,20 +793,21 @@ fn emitSpecializedPredicate(asm_ctx: *a64.Assembler, base_reg: u8, spec: Special
             try asm_ctx.emitStrImm(.x4, FRAME_PTR, dst_off);
         },
         .pair_p => {
-            // Check pointer (low 3 bits = 0) AND tag == pair (0)
-            try asm_ctx.emitMovz(.x1, 7, 0);
-            try asm_ctx.emitAndReg(.x1, .x0, .x1);
+            // Check if value is a NaN-boxed pointer (upper 16 bits == 0xFFFC)
+            try asm_ctx.emit(lsrImm64(.x1, .x0, 48));
+            try asm_ctx.emitMovz(.x2, 0xFFFC, 0);
             try asm_ctx.emitLoadImm64(.x4, types.FALSE);
-            try asm_ctx.emitCmpImm(.x1, 0);
-            // Not a pointer → #f
-            try asm_ctx.emit(a64.Assembler.bCond(.ne, 6)); // skip to store #f
-            // Is a pointer — check tag byte
-            try asm_ctx.emitLdrbImm(.x1, .x0, @intCast(OFF_OBJECT_TAG));
+            try asm_ctx.emitCmpReg(.x1, .x2);
+            // Not a pointer → store #f
+            try asm_ctx.emit(a64.Assembler.bCond(.ne, 7)); // skip to store #f
+            // Extract raw pointer and check object tag
+            try asm_ctx.emit(ubfx48(.x1, .x0));
+            try asm_ctx.emitLdrbImm(.x1, .x1, @intCast(OFF_OBJECT_TAG));
             try asm_ctx.emitMovz(.x2, 0x3F, 0);
             try asm_ctx.emitAndReg(.x1, .x1, .x2);
             try asm_ctx.emitCmpImm(.x1, @intFromEnum(types.ObjectTag.pair));
             try asm_ctx.emitLoadImm64(.x5, types.TRUE);
-            try asm_ctx.emitCsel(.x4, .x5, .x4, .eq); // tag==pair → TRUE, else FALSE
+            try asm_ctx.emitCsel(.x4, .x5, .x4, .eq);
             try asm_ctx.emitStrImm(.x4, FRAME_PTR, dst_off);
         },
         .not_op => {
@@ -930,19 +965,18 @@ fn emitCallSequence(asm_ctx: *a64.Assembler, base_reg: u8, nargs: u8, callee_reg
     _ = callee_reg; // always .x0
     _ = pending_quick_exits;
 
-    // --- Pointer check: bits 0-1 must be 0 and value must be non-zero ---
-    // Layout: [0]tbnz, [1]tbnz, [2]cmp, [3]b.eq, [4]b(skip), [5]side_exit_B, [6]...
-    try asm_ctx.emit(a64.Assembler.tbnz(.x0, 0, 5)); // fixnum → side-exit at [5]
-    try asm_ctx.emit(a64.Assembler.tbnz(.x0, 1, 4)); // immediate → side-exit at [5]
-    try asm_ctx.emitCmpImm(.x0, 0);
-    try asm_ctx.emit(a64.Assembler.bCond(.eq, 2)); // null → side-exit at [5]
-    try asm_ctx.emit(a64.Assembler.b(2)); // success → skip to [6]
+    // --- Pointer check: upper 16 bits must be 0xFFFC (NaN-boxed pointer) ---
+    try asm_ctx.emit(lsrImm64(.x9, .x0, 48));
+    try asm_ctx.emitMovz(.x10, 0xFFFC, 0);
+    try asm_ctx.emitCmpReg(.x9, .x10);
     const se_b = asm_ctx.pos();
     try asm_ctx.emit(0);
-    try pending_exits.append(allocator, .{ .native_idx = se_b, .bc_ip = bc_ip });
+    try pending_exits.append(allocator, .{ .native_idx = se_b, .bc_ip = bc_ip, .cond = .ne });
+    // Extract raw pointer for subsequent dereferences
+    try asm_ctx.emit(ubfx48(.x0, .x0));
 
     // --- Tag check: object tag must be closure (3) ---
-    // x0 is a valid pointer to a heap Object
+    // x0 is now a raw pointer to a heap Object
     try asm_ctx.emitLdrbImm(.x1, .x0, @intCast(OFF_OBJECT_TAG));
     // Mask to 6 bits (ObjectTag is u6, might share byte with marked bit)
     try asm_ctx.emitMovz(.x2, 0x3F, 0);
