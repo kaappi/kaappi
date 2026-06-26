@@ -69,7 +69,9 @@ fn marshalToPointer(v: Value) ?*anyopaque {
         const bn = types.toBignum(v);
         if (bn.len == 0) return null;
         if (!bn.positive) return null;
-        return @ptrFromInt(bn.limbs[0]);
+        const limb = bn.limbs[0];
+        if (limb > std.math.maxInt(usize)) return null;
+        return @ptrFromInt(@as(usize, @intCast(limb)));
     }
     if (types.isBytevector(v)) {
         const bv = types.toObject(v).as(types.Bytevector);
