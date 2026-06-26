@@ -1,0 +1,243 @@
+name: Post-Release Acceptance Tests
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag to test (e.g. v0.6.3)'
+        required: true
+
+jobs:
+  test-checksums:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Determine tag
+        id: tag
+        run: |
+          if [ "${{ github.event_name }}" = "release" ]; then
+            echo "tag=${{ github.event.release.tag_name }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Download release assets
+        run: gh release download "${{ steps.tag.outputs.tag }}" --repo "${{ github.repository }}" --dir release
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Verify SHA256 checksums
+        run: cd release && sha256sum -c SHA256SUMS
+
+      - name: Import GPG key and verify signature
+        run: |
+          gpg --keyserver keyserver.ubuntu.com --recv-keys "${{ vars.GPG_KEY_ID }}" || true
+          cd release
+          if [ -f SHA256SUMS.asc ]; then
+            gpg --verify SHA256SUMS.asc SHA256SUMS
+          fi
+
+  test-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Determine tag
+        id: tag
+        run: |
+          if [ "${{ github.event_name }}" = "release" ]; then
+            echo "tag=${{ github.event.release.tag_name }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Download release assets
+        run: |
+          gh release download "${{ steps.tag.outputs.tag }}" \
+            --repo "${{ github.repository }}" \
+            --pattern 'kaappi-aarch64-macos' \
+            --pattern 'thottam-aarch64-macos' \
+            --pattern 'kaappi-lib.tar.gz' \
+            --pattern 'SHA256SUMS' \
+            --dir release
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Verify checksum
+        run: cd release && grep 'kaappi-aarch64-macos' SHA256SUMS | shasum -a 256 -c
+
+      - name: Install binary and libraries
+        run: |
+          chmod +x release/kaappi-aarch64-macos release/thottam-aarch64-macos
+          mkdir -p "$HOME/.kaappi/lib"
+          tar xzf release/kaappi-lib.tar.gz -C /tmp/libextract --strip-components=0 || \
+            (mkdir -p /tmp/libextract && tar xzf release/kaappi-lib.tar.gz -C /tmp/libextract)
+          cp -r /tmp/libextract/lib/* "$HOME/.kaappi/lib/" 2>/dev/null || true
+
+      - name: Run acceptance tests
+        run: |
+          TAG="${{ steps.tag.outputs.tag }}"
+          KAAPPI=release/kaappi-aarch64-macos \
+          THOTTAM=release/thottam-aarch64-macos \
+          bash tests/acceptance/acceptance.sh "${TAG#v}"
+
+  test-linux-x86:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Determine tag
+        id: tag
+        run: |
+          if [ "${{ github.event_name }}" = "release" ]; then
+            echo "tag=${{ github.event.release.tag_name }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Download release assets
+        run: |
+          gh release download "${{ steps.tag.outputs.tag }}" \
+            --repo "${{ github.repository }}" \
+            --pattern 'kaappi-x86_64-linux' \
+            --pattern 'thottam-x86_64-linux' \
+            --pattern 'kaappi-lib.tar.gz' \
+            --pattern 'SHA256SUMS' \
+            --dir release
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Verify checksum
+        run: cd release && grep 'kaappi-x86_64-linux' SHA256SUMS | sha256sum -c
+
+      - name: Install binary and libraries
+        run: |
+          chmod +x release/kaappi-x86_64-linux release/thottam-x86_64-linux
+          mkdir -p "$HOME/.kaappi/lib"
+          tar xzf release/kaappi-lib.tar.gz -C /tmp/libextract --strip-components=0 || \
+            (mkdir -p /tmp/libextract && tar xzf release/kaappi-lib.tar.gz -C /tmp/libextract)
+          cp -r /tmp/libextract/lib/* "$HOME/.kaappi/lib/" 2>/dev/null || true
+
+      - name: Run acceptance tests
+        run: |
+          TAG="${{ steps.tag.outputs.tag }}"
+          KAAPPI=release/kaappi-x86_64-linux \
+          THOTTAM=release/thottam-x86_64-linux \
+          bash tests/acceptance/acceptance.sh "${TAG#v}"
+
+  test-linux-arm:
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Determine tag
+        id: tag
+        run: |
+          if [ "${{ github.event_name }}" = "release" ]; then
+            echo "tag=${{ github.event.release.tag_name }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Download release assets
+        run: |
+          gh release download "${{ steps.tag.outputs.tag }}" \
+            --repo "${{ github.repository }}" \
+            --pattern 'kaappi-aarch64-linux' \
+            --pattern 'thottam-aarch64-linux' \
+            --pattern 'kaappi-lib.tar.gz' \
+            --pattern 'SHA256SUMS' \
+            --dir release
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Verify checksum
+        run: cd release && grep 'kaappi-aarch64-linux' SHA256SUMS | sha256sum -c
+
+      - name: Install binary and libraries
+        run: |
+          chmod +x release/kaappi-aarch64-linux release/thottam-aarch64-linux
+          mkdir -p "$HOME/.kaappi/lib"
+          tar xzf release/kaappi-lib.tar.gz -C /tmp/libextract --strip-components=0 || \
+            (mkdir -p /tmp/libextract && tar xzf release/kaappi-lib.tar.gz -C /tmp/libextract)
+          cp -r /tmp/libextract/lib/* "$HOME/.kaappi/lib/" 2>/dev/null || true
+
+      - name: Run acceptance tests
+        run: |
+          TAG="${{ steps.tag.outputs.tag }}"
+          KAAPPI=release/kaappi-aarch64-linux \
+          THOTTAM=release/thottam-aarch64-linux \
+          bash tests/acceptance/acceptance.sh "${TAG#v}"
+
+  test-wasm:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Determine tag
+        id: tag
+        run: |
+          if [ "${{ github.event_name }}" = "release" ]; then
+            echo "tag=${{ github.event.release.tag_name }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Download WASM binary
+        run: |
+          gh release download "${{ steps.tag.outputs.tag }}" \
+            --repo "${{ github.repository }}" \
+            --pattern 'kaappi.wasm' \
+            --dir release
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Install wasmtime
+        run: curl https://wasmtime.dev/install.sh -sSf | bash && echo "$HOME/.wasmtime/bin" >> "$GITHUB_PATH"
+
+      - name: Run WASM acceptance tests
+        run: KAAPPI_WASM=release/kaappi.wasm bash tests/acceptance/test-wasm.sh
+
+  test-install-script:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Determine tag
+        id: tag
+        run: |
+          if [ "${{ github.event_name }}" = "release" ]; then
+            echo "tag=${{ github.event.release.tag_name }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Run install script
+        run: |
+          export INSTALL_DIR="$HOME/.local/bin"
+          mkdir -p "$INSTALL_DIR"
+          curl -fsSL https://kaappi-lang.org/install.sh | bash
+
+      - name: Verify installation
+        run: |
+          export PATH="$HOME/.local/bin:$PATH"
+          TAG="${{ steps.tag.outputs.tag }}"
+          kaappi --version | grep -F "${TAG#v}"
+          thottam --version | grep -F "${TAG#v}"
+          echo '(display (+ 1 2))' | kaappi | grep -F '3'
+
+  summary:
+    needs: [test-checksums, test-macos, test-linux-x86, test-linux-arm, test-wasm, test-install-script]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check results
+        run: |
+          results="${{ needs.test-checksums.result }} ${{ needs.test-macos.result }} ${{ needs.test-linux-x86.result }} ${{ needs.test-linux-arm.result }} ${{ needs.test-wasm.result }} ${{ needs.test-install-script.result }}"
+          echo "Job results: $results"
+          if echo "$results" | grep -q "failure"; then
+            echo "One or more acceptance tests failed"
+            exit 1
+          fi
+          echo "All acceptance tests passed"
