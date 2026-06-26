@@ -33,6 +33,11 @@ const StatResult = struct {
     gid: u32,
 };
 
+fn makedev(major: u64, minor: u64) u64 {
+    return ((major & 0xfff) << 8) | (minor & 0xff) |
+        ((minor & ~@as(u64, 0xff)) << 12) | ((major & ~@as(u64, 0xfff)) << 32);
+}
+
 fn doStat(path: [*:0]const u8, follow: bool) ?StatResult {
     if (is_linux) {
         const linux = std.os.linux;
@@ -47,10 +52,10 @@ fn doStat(path: [*:0]const u8, follow: bool) ?StatResult {
             .mtime_sec = sx.mtime.sec,
             .atime_sec = sx.atime.sec,
             .ctime_sec = sx.ctime.sec,
-            .dev = @intCast(sx.dev_major),
+            .dev = makedev(sx.dev_major, sx.dev_minor),
             .ino = sx.ino,
             .nlinks = sx.nlink,
-            .rdev = @intCast(sx.rdev_major),
+            .rdev = makedev(sx.rdev_major, sx.rdev_minor),
             .blksize = @intCast(sx.blksize),
             .uid = sx.uid,
             .gid = sx.gid,
