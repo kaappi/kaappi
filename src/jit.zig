@@ -195,8 +195,9 @@ pub fn isEligible(func: *const types.Function) bool {
     if (code.len == 0) return false;
     // No bytecode size limit — large functions are JIT-eligible
     if (func.constants.items.len * 8 > 32760) return false;
-    // JIT disabled pending u16 register operand support (#60 follow-up)
-    return false;
+    if (func.locals_count > 255) return false;
+    if (func.is_variadic) return false;
+    return true;
 }
 
 const a64_compile = @import("jit_compile_aarch64.zig");
