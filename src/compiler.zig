@@ -1014,6 +1014,10 @@ pub const Compiler = struct {
         if (!types.isSymbol(operator)) return false;
         const name = types.symbolName(operator);
 
+        // Don't fold if the operator is shadowed by a local or upvalue binding
+        if (self.resolveLocal(name) != null) return false;
+        if ((self.resolveUpvalue(name) catch null) != null) return false;
+
         const args_pair = types.cdr(expr);
         if (!types.isPair(args_pair)) return false;
         const a = types.car(args_pair);
