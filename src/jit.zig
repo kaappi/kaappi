@@ -75,7 +75,7 @@ pub const PendingBranch = struct {
     cond: ?Cond,
 };
 
-const CacheEntry = struct { slot: u8, dirty: bool };
+const CacheEntry = struct { slot: u16, dirty: bool };
 const CacheSnapshot = struct {
     entries: [2]?CacheEntry = .{null} ** 2,
 };
@@ -85,7 +85,7 @@ pub const RegCache = struct {
     entries: [2]?CacheEntry = .{null} ** 2,
     next_evict: u1 = 0,
 
-    pub fn find(self: *const RegCache, slot: u8) ?usize {
+    pub fn find(self: *const RegCache, slot: u16) ?usize {
         for (self.entries, 0..) |entry_opt, i| {
             if (entry_opt) |entry| {
                 if (entry.slot == slot) return i;
@@ -94,7 +94,7 @@ pub const RegCache = struct {
         return null;
     }
 
-    pub fn allocate(self: *RegCache, asm_ctx: *x64.Assembler, slot: u8) !usize {
+    pub fn allocate(self: *RegCache, asm_ctx: *x64.Assembler, slot: u16) !usize {
         if (self.find(slot)) |i| return i;
         for (self.entries, 0..) |entry_opt, i| {
             if (entry_opt == null) {
@@ -105,7 +105,7 @@ pub const RegCache = struct {
         const evict_idx: usize = self.next_evict;
         if (self.entries[evict_idx]) |entry| {
             if (entry.dirty) {
-                try asm_ctx.emitStrImm(CACHE_REGS[evict_idx], x64.Reg.rbx, @as(u16, entry.slot) * 8);
+                try asm_ctx.emitStrImm(CACHE_REGS[evict_idx], x64.Reg.rbx, entry.slot * 8);
             }
         }
         self.entries[evict_idx] = .{ .slot = slot, .dirty = false };
@@ -117,7 +117,7 @@ pub const RegCache = struct {
         for (self.entries, 0..) |entry_opt, i| {
             if (entry_opt) |entry| {
                 if (entry.dirty) {
-                    try asm_ctx.emitStrImm(CACHE_REGS[i], x64.Reg.rbx, @as(u16, entry.slot) * 8);
+                    try asm_ctx.emitStrImm(CACHE_REGS[i], x64.Reg.rbx, entry.slot * 8);
                     self.entries[i] = .{ .slot = entry.slot, .dirty = false };
                 }
             }
@@ -129,7 +129,7 @@ pub const RegCache = struct {
         self.entries = .{null} ** 2;
     }
 
-    pub fn invalidateSlot(self: *RegCache, slot: u8) void {
+    pub fn invalidateSlot(self: *RegCache, slot: u16) void {
         if (self.find(slot)) |i| {
             self.entries[i] = null;
         }
@@ -156,36 +156,39 @@ pub fn isEligible(func: *const types.Function) bool {
         const op: types.OpCode = @enumFromInt(raw);
         ip += 1;
         const operand_bytes: usize = switch (op) {
-            .load_const => 3,
-            .load_nil, .load_true, .load_false, .load_void => 1,
-            .move => 2,
-            .get_global => 3,
-            .set_global, .define_global => 3,
+            .load_const => 4, // dst(u16) + idx(u16)
+            .load_nil, .load_true, .load_false, .load_void => 2, // dst(u16)
+            .move => 4, // dst(u16) + src(u16)
+            .get_global => 4, // dst(u16) + sym(u16)
+            .set_global, .define_global => 4, // sym(u16) + src(u16)
             .tail_apply => return false,
-            .get_local, .set_local => 2,
-            .get_upvalue, .set_upvalue => 2,
-            .call, .tail_call => 2,
-            .@"return" => 1,
-            .jump => 2,
-            .jump_false, .jump_true => 3,
+            .get_local, .set_local => 4, // dst/slot(u16) + slot/src(u16)
+            .get_upvalue, .set_upvalue => 4, // dst/idx(u16) + idx/src(u16)
+            .call, .tail_call => 3, // dst(u16) + nargs(u8)
+            .@"return" => 2, // src(u16)
+            .jump => 2, // offset(i16)
+            .jump_false, .jump_true => 4, // src(u16) + offset(i16)
             .closure => {
                 if (ip + 2 >= code.len) return false;
-                const sym_idx = (@as(u16, code[ip + 1]) << 8) | code[ip + 2];
-                if (sym_idx >= func.constants.items.len) return false;
-                const fv = func.constants.items[sym_idx];
+                const sym_idx = (@as(u16, code[ip]) << 8) | code[ip + 1];
+                if (ip + 2 + 2 > code.len) return false;
+                _ = sym_idx;
+                const ci = (@as(u16, code[ip + 2]) << 8) | code[ip + 3];
+                if (ci >= func.constants.items.len) return false;
+                const fv = func.constants.items[ci];
                 if (!types.isFunction(fv)) return false;
                 const inner = types.toObject(fv).as(types.Function);
-                ip += 3 + @as(usize, inner.upvalue_count) * 2;
+                ip += 4 + @as(usize, inner.upvalue_count) * 3;
                 continue;
             },
-            .close_upvalue => 1,
-            .cons => 3,
+            .close_upvalue => 2, // slot(u16)
+            .cons => 6, // dst(u16) + car(u16) + cdr(u16)
             .push_handler, .pop_handler => return false,
             .halt => return false,
-            .call_global, .tail_call_global => 4,
-            .box_local => 1,
-            .get_box_local, .set_box_local => 2,
-            .self_tail_call => 2,
+            .call_global, .tail_call_global => 5, // dst(u16) + sym(u16) + nargs(u8)
+            .box_local => 2, // slot(u16)
+            .get_box_local, .set_box_local => 4, // dst/slot(u16) + slot/src(u16)
+            .self_tail_call => 3, // base(u16) + nargs(u8)
         };
         ip += operand_bytes;
     }
@@ -231,11 +234,11 @@ pub fn jitAllocPair(vm_ptr: *VM, car: u64, cdr: u64) callconv(.c) u64 {
 
 pub fn jitTailCallNative(vm_ptr: *VM, callee_val: u64, base_reg_val: u64, nargs_val: u64) callconv(.c) u64 {
     const callee: types.Value = @bitCast(callee_val);
-    const base_reg: u8 = @intCast(base_reg_val);
+    const base_reg: u16 = @intCast(base_reg_val);
     const nargs: u8 = @intCast(nargs_val);
 
     const frame = &vm_ptr.frames[vm_ptr.frame_count - 1];
-    const abs_base: u16 = frame.base + @as(u16, base_reg);
+    const abs_base: u16 = frame.base + base_reg;
 
     if (types.isClosure(callee)) {
         const closure = types.toObject(callee).as(types.Closure);
@@ -393,11 +396,11 @@ test "isEligible rejects closure opcode" {
     defer gc.deinit();
 
     const f = try gc.allocFunction();
-    // Write a bytecode with closure opcode
     try f.code.append(gc.allocator, @intFromEnum(types.OpCode.closure));
-    try f.code.append(gc.allocator, 0); // dst
-    try f.code.append(gc.allocator, 0); // idx lo
+    try f.code.append(gc.allocator, 0); // dst hi
+    try f.code.append(gc.allocator, 0); // dst lo
     try f.code.append(gc.allocator, 0); // idx hi
+    try f.code.append(gc.allocator, 0); // idx lo
 
     try std.testing.expect(!isEligible(f));
 }
@@ -408,11 +411,13 @@ test "isEligible accepts simple bytecode" {
     defer gc.deinit();
 
     const f = try gc.allocFunction();
-    // load_nil r0; return r0
+    // load_nil r0; return r0  (u16 register operands)
     try f.code.append(gc.allocator, @intFromEnum(types.OpCode.load_nil));
-    try f.code.append(gc.allocator, 0);
+    try f.code.append(gc.allocator, 0); // dst hi
+    try f.code.append(gc.allocator, 0); // dst lo
     try f.code.append(gc.allocator, @intFromEnum(types.OpCode.@"return"));
-    try f.code.append(gc.allocator, 0);
+    try f.code.append(gc.allocator, 0); // src hi
+    try f.code.append(gc.allocator, 0); // src lo
 
     try std.testing.expect(isEligible(f));
 }
@@ -428,9 +433,11 @@ test "compile trivial function" {
 
     const f = try gc.allocFunction();
     try f.code.append(gc.allocator, @intFromEnum(types.OpCode.load_nil));
-    try f.code.append(gc.allocator, 0);
+    try f.code.append(gc.allocator, 0); // dst hi
+    try f.code.append(gc.allocator, 0); // dst lo
     try f.code.append(gc.allocator, @intFromEnum(types.OpCode.@"return"));
-    try f.code.append(gc.allocator, 0);
+    try f.code.append(gc.allocator, 0); // src hi
+    try f.code.append(gc.allocator, 0); // src lo
 
     const jit_code = try compile(f, &vm, std.testing.allocator);
     defer freeJitCode(jit_code, std.testing.allocator);
@@ -508,11 +515,13 @@ test "compile and execute load_nil" {
     defer vm_val.deinit();
 
     const f = try gc.allocFunction();
-    // load_nil r0; return r0
+    // load_nil r0; return r0 (u16 register operands)
     try f.code.append(gc.allocator, @intFromEnum(types.OpCode.load_nil));
-    try f.code.append(gc.allocator, 0);
+    try f.code.append(gc.allocator, 0); // dst hi
+    try f.code.append(gc.allocator, 0); // dst lo
     try f.code.append(gc.allocator, @intFromEnum(types.OpCode.@"return"));
-    try f.code.append(gc.allocator, 0);
+    try f.code.append(gc.allocator, 0); // src hi
+    try f.code.append(gc.allocator, 0); // src lo
     f.locals_count = 1;
 
     const jit_code = try compile(f, &vm_val, std.testing.allocator);
@@ -550,13 +559,15 @@ test "compile and execute load_const" {
     // Add a constant: fixnum 42
     try f.constants.append(gc.allocator, types.makeFixnum(42));
 
-    // load_const r0, 0; return r0
+    // load_const r0, 0; return r0 (u16 register operands)
     try f.code.append(gc.allocator, @intFromEnum(types.OpCode.load_const));
-    try f.code.append(gc.allocator, 0); // dst
-    try f.code.append(gc.allocator, 0); // idx lo
+    try f.code.append(gc.allocator, 0); // dst hi
+    try f.code.append(gc.allocator, 0); // dst lo
     try f.code.append(gc.allocator, 0); // idx hi
+    try f.code.append(gc.allocator, 0); // idx lo
     try f.code.append(gc.allocator, @intFromEnum(types.OpCode.@"return"));
-    try f.code.append(gc.allocator, 0);
+    try f.code.append(gc.allocator, 0); // src hi
+    try f.code.append(gc.allocator, 0); // src lo
     f.locals_count = 1;
 
     const jit_code = try compile(f, &vm, std.testing.allocator);
@@ -583,13 +594,18 @@ test "compile and execute move" {
     defer vm.deinit();
 
     const f = try gc.allocFunction();
+    // load_true r0; move r1, r0; return r1 (u16 register operands)
     try f.code.append(gc.allocator, @intFromEnum(types.OpCode.load_true));
-    try f.code.append(gc.allocator, 0);
+    try f.code.append(gc.allocator, 0); // dst hi
+    try f.code.append(gc.allocator, 0); // dst lo
     try f.code.append(gc.allocator, @intFromEnum(types.OpCode.move));
-    try f.code.append(gc.allocator, 1);
-    try f.code.append(gc.allocator, 0);
+    try f.code.append(gc.allocator, 0); // dst hi
+    try f.code.append(gc.allocator, 1); // dst lo
+    try f.code.append(gc.allocator, 0); // src hi
+    try f.code.append(gc.allocator, 0); // src lo
     try f.code.append(gc.allocator, @intFromEnum(types.OpCode.@"return"));
-    try f.code.append(gc.allocator, 1);
+    try f.code.append(gc.allocator, 0); // src hi
+    try f.code.append(gc.allocator, 1); // src lo
     f.locals_count = 2;
 
     const jit_code = try compile(f, &vm, std.testing.allocator);
@@ -616,22 +632,30 @@ test "compile and execute jump_false" {
     defer vm.deinit();
 
     const f = try gc.allocFunction();
+    // load_false r0; jump_false r0, +6; load_true r1; return r1; load_nil r1; return r1
+    // (u16 register operands)
     try f.code.append(gc.allocator, @intFromEnum(types.OpCode.load_false));
-    try f.code.append(gc.allocator, 0);
+    try f.code.append(gc.allocator, 0); // dst hi
+    try f.code.append(gc.allocator, 0); // dst lo
     try f.code.append(gc.allocator, @intFromEnum(types.OpCode.jump_false));
-    try f.code.append(gc.allocator, 0);
-    const offset: i16 = 4;
+    try f.code.append(gc.allocator, 0); // test_reg hi
+    try f.code.append(gc.allocator, 0); // test_reg lo
+    const offset: i16 = 6; // skip load_true(3)+return(3)
     const offset_u16: u16 = @bitCast(offset);
     try f.code.append(gc.allocator, @truncate(offset_u16 >> 8));
     try f.code.append(gc.allocator, @truncate(offset_u16 & 0xFF));
     try f.code.append(gc.allocator, @intFromEnum(types.OpCode.load_true));
-    try f.code.append(gc.allocator, 1);
+    try f.code.append(gc.allocator, 0); // dst hi
+    try f.code.append(gc.allocator, 1); // dst lo
     try f.code.append(gc.allocator, @intFromEnum(types.OpCode.@"return"));
-    try f.code.append(gc.allocator, 1);
+    try f.code.append(gc.allocator, 0); // src hi
+    try f.code.append(gc.allocator, 1); // src lo
     try f.code.append(gc.allocator, @intFromEnum(types.OpCode.load_nil));
-    try f.code.append(gc.allocator, 1);
+    try f.code.append(gc.allocator, 0); // dst hi
+    try f.code.append(gc.allocator, 1); // dst lo
     try f.code.append(gc.allocator, @intFromEnum(types.OpCode.@"return"));
-    try f.code.append(gc.allocator, 1);
+    try f.code.append(gc.allocator, 0); // src hi
+    try f.code.append(gc.allocator, 1); // src lo
     f.locals_count = 2;
 
     const jit_code = try compile(f, &vm, std.testing.allocator);
@@ -658,14 +682,16 @@ test "native return stores result and pops frame" {
     defer vm.deinit();
 
     const f = try gc.allocFunction();
-    // load_const r0, 0; return r0
+    // load_const r0, 0; return r0 (u16 register operands)
     try f.constants.append(gc.allocator, types.makeFixnum(99));
     try f.code.append(gc.allocator, @intFromEnum(types.OpCode.load_const));
-    try f.code.append(gc.allocator, 0); // dst r0
-    try f.code.append(gc.allocator, 0); // idx lo
+    try f.code.append(gc.allocator, 0); // dst hi
+    try f.code.append(gc.allocator, 0); // dst lo
     try f.code.append(gc.allocator, 0); // idx hi
+    try f.code.append(gc.allocator, 0); // idx lo
     try f.code.append(gc.allocator, @intFromEnum(types.OpCode.@"return"));
-    try f.code.append(gc.allocator, 0); // src r0
+    try f.code.append(gc.allocator, 0); // src hi
+    try f.code.append(gc.allocator, 0); // src lo
     f.locals_count = 1;
 
     const jit_code = try compile(f, &vm, std.testing.allocator);
@@ -713,14 +739,16 @@ test "compile call_global with multiply" {
     // Constants: symbol "*"
     const sym = try gc.allocSymbol("*");
     try f.constants.append(gc.allocator, sym);
-    // Bytecode: call_global r0, const[0]("*"), 2; return r0
+    // Bytecode: call_global r0, const[0]("*"), 2; return r0 (u16 register operands)
     try f.code.append(gc.allocator, @intFromEnum(types.OpCode.call_global));
-    try f.code.append(gc.allocator, 0); // base r0
-    try f.code.append(gc.allocator, 0); // sym idx high
-    try f.code.append(gc.allocator, 0); // sym idx low
-    try f.code.append(gc.allocator, 2); // nargs
+    try f.code.append(gc.allocator, 0); // base hi
+    try f.code.append(gc.allocator, 0); // base lo
+    try f.code.append(gc.allocator, 0); // sym idx hi
+    try f.code.append(gc.allocator, 0); // sym idx lo
+    try f.code.append(gc.allocator, 2); // nargs (u8)
     try f.code.append(gc.allocator, @intFromEnum(types.OpCode.@"return"));
-    try f.code.append(gc.allocator, 0); // src r0
+    try f.code.append(gc.allocator, 0); // src hi
+    try f.code.append(gc.allocator, 0); // src lo
     f.arity = 2;
     f.locals_count = 3;
 
@@ -742,13 +770,16 @@ test "compile call_global with zero? predicate" {
     const f = try gc.allocFunction();
     const sym = try gc.allocSymbol("zero?");
     try f.constants.append(gc.allocator, sym);
+    // call_global r0, const[0]("zero?"), 1; return r0 (u16 register operands)
     try f.code.append(gc.allocator, @intFromEnum(types.OpCode.call_global));
-    try f.code.append(gc.allocator, 0);
-    try f.code.append(gc.allocator, 0);
-    try f.code.append(gc.allocator, 0);
-    try f.code.append(gc.allocator, 1); // 1 arg
+    try f.code.append(gc.allocator, 0); // base hi
+    try f.code.append(gc.allocator, 0); // base lo
+    try f.code.append(gc.allocator, 0); // sym idx hi
+    try f.code.append(gc.allocator, 0); // sym idx lo
+    try f.code.append(gc.allocator, 1); // nargs (u8)
     try f.code.append(gc.allocator, @intFromEnum(types.OpCode.@"return"));
-    try f.code.append(gc.allocator, 0);
+    try f.code.append(gc.allocator, 0); // src hi
+    try f.code.append(gc.allocator, 0); // src lo
     f.arity = 1;
     f.locals_count = 2;
 
@@ -770,13 +801,16 @@ test "compile tail_call_global with add" {
     const f = try gc.allocFunction();
     const sym = try gc.allocSymbol("+");
     try f.constants.append(gc.allocator, sym);
+    // tail_call_global r0, const[0]("+"), 2; return r0 (u16 register operands)
     try f.code.append(gc.allocator, @intFromEnum(types.OpCode.tail_call_global));
-    try f.code.append(gc.allocator, 0);
-    try f.code.append(gc.allocator, 0);
-    try f.code.append(gc.allocator, 0);
-    try f.code.append(gc.allocator, 2);
+    try f.code.append(gc.allocator, 0); // base hi
+    try f.code.append(gc.allocator, 0); // base lo
+    try f.code.append(gc.allocator, 0); // sym idx hi
+    try f.code.append(gc.allocator, 0); // sym idx lo
+    try f.code.append(gc.allocator, 2); // nargs (u8)
     try f.code.append(gc.allocator, @intFromEnum(types.OpCode.@"return"));
-    try f.code.append(gc.allocator, 0);
+    try f.code.append(gc.allocator, 0); // src hi
+    try f.code.append(gc.allocator, 0); // src lo
     f.arity = 2;
     f.locals_count = 3;
 

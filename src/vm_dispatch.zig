@@ -43,28 +43,28 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
         frame.ip += 1;
 
         const fixed_operand_bytes: usize = switch (op) {
-            .load_const => 3,
-            .load_nil, .load_true, .load_false, .load_void => 1,
-            .move => 2,
-            .get_global => 3,
-            .set_global => 3,
-            .define_global => 3,
-            .tail_apply => 2,
-            .get_local, .set_local => 2,
-            .get_upvalue, .set_upvalue => 2,
-            .call, .tail_call => 2,
-            .@"return" => 1,
+            .load_const => 4,
+            .load_nil, .load_true, .load_false, .load_void => 2,
+            .move => 4,
+            .get_global => 4,
+            .set_global => 4,
+            .define_global => 4,
+            .tail_apply => 3,
+            .get_local, .set_local => 4,
+            .get_upvalue, .set_upvalue => 4,
+            .call, .tail_call => 3,
+            .@"return" => 2,
             .jump => 2,
-            .jump_false, .jump_true => 3,
-            .closure => 3,
-            .close_upvalue => 1,
-            .cons => 3,
-            .push_handler => 1,
+            .jump_false, .jump_true => 4,
+            .closure => 4,
+            .close_upvalue => 2,
+            .cons => 6,
+            .push_handler => 2,
             .pop_handler, .halt => 0,
-            .call_global, .tail_call_global => 4,
-            .box_local => 1,
-            .get_box_local, .set_box_local => 2,
-            .self_tail_call => 2,
+            .call_global, .tail_call_global => 5,
+            .box_local => 2,
+            .get_box_local, .set_box_local => 4,
+            .self_tail_call => 3,
         };
         try ensureOperands(self, frame, fixed_operand_bytes);
 
@@ -83,41 +83,41 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
 
         switch (op) {
             .load_const => {
-                const dst = readU8(self, frame);
+                const dst = readU16(self, frame);
                 const idx = readU16(self, frame);
                 const closure = frame.closure orelse return VMError.InvalidBytecode;
                 const dst_idx = try registerIndex(self, frame.base, dst);
                 self.registers[dst_idx] = try constantAt(self, closure.func, idx);
             },
             .load_nil => {
-                const dst = readU8(self, frame);
+                const dst = readU16(self, frame);
                 const dst_idx = try registerIndex(self, frame.base, dst);
                 self.registers[dst_idx] = types.NIL;
             },
             .load_true => {
-                const dst = readU8(self, frame);
+                const dst = readU16(self, frame);
                 const dst_idx = try registerIndex(self, frame.base, dst);
                 self.registers[dst_idx] = types.TRUE;
             },
             .load_false => {
-                const dst = readU8(self, frame);
+                const dst = readU16(self, frame);
                 const dst_idx = try registerIndex(self, frame.base, dst);
                 self.registers[dst_idx] = types.FALSE;
             },
             .load_void => {
-                const dst = readU8(self, frame);
+                const dst = readU16(self, frame);
                 const dst_idx = try registerIndex(self, frame.base, dst);
                 self.registers[dst_idx] = types.VOID;
             },
             .move => {
-                const dst = readU8(self, frame);
-                const src = readU8(self, frame);
+                const dst = readU16(self, frame);
+                const src = readU16(self, frame);
                 const dst_idx = try registerIndex(self, frame.base, dst);
                 const src_idx = try registerIndex(self, frame.base, src);
                 self.registers[dst_idx] = self.registers[src_idx];
             },
             .get_global => {
-                const dst = readU8(self, frame);
+                const dst = readU16(self, frame);
                 const sym_idx = readU16(self, frame);
                 const closure = frame.closure orelse return VMError.InvalidBytecode;
                 const func = closure.func;
@@ -162,7 +162,7 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
             },
             .set_global => {
                 const sym_idx = readU16(self, frame);
-                const src = readU8(self, frame);
+                const src = readU16(self, frame);
                 const closure = frame.closure orelse return VMError.InvalidBytecode;
                 const func = closure.func;
                 const src_idx = try registerIndex(self, frame.base, src);
@@ -187,7 +187,7 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
             },
             .define_global => {
                 const sym_idx = readU16(self, frame);
-                const src = readU8(self, frame);
+                const src = readU16(self, frame);
                 const closure = frame.closure orelse return VMError.InvalidBytecode;
                 const func = closure.func;
                 const src_idx = try registerIndex(self, frame.base, src);
@@ -206,8 +206,8 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                 }
             },
             .get_upvalue => {
-                const dst = readU8(self, frame);
-                const idx = readU8(self, frame);
+                const dst = readU16(self, frame);
+                const idx = readU16(self, frame);
                 const closure = frame.closure orelse return VMError.InvalidBytecode;
                 if (idx >= closure.upvalues.len) return VMError.InvalidBytecode;
                 const uv = closure.upvalues[idx];
@@ -218,8 +218,8 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                     uv;
             },
             .set_upvalue => {
-                const idx = readU8(self, frame);
-                const src = readU8(self, frame);
+                const idx = readU16(self, frame);
+                const src = readU16(self, frame);
                 const closure = frame.closure orelse return VMError.InvalidBytecode;
                 if (idx >= closure.upvalues.len) return VMError.InvalidBytecode;
                 const src_idx = try registerIndex(self, frame.base, src);
@@ -239,7 +239,7 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                 frame.ip = target;
             },
             .jump_false => {
-                const test_reg = readU8(self, frame);
+                const test_reg = readU16(self, frame);
                 const offset = readI16(self, frame);
                 const test_idx = try registerIndex(self, frame.base, test_reg);
                 if (!types.isTruthy(self.registers[test_idx])) {
@@ -251,7 +251,7 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                 }
             },
             .jump_true => {
-                const test_reg = readU8(self, frame);
+                const test_reg = readU16(self, frame);
                 const offset = readI16(self, frame);
                 const test_idx = try registerIndex(self, frame.base, test_reg);
                 if (types.isTruthy(self.registers[test_idx])) {
@@ -263,7 +263,7 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                 }
             },
             .call => {
-                const base_reg = readU8(self, frame);
+                const base_reg = readU16(self, frame);
                 const nargs = readU8(self, frame);
                 const base = frame.base + base_reg;
                 try ensureCallWindow(self, base, nargs);
@@ -283,7 +283,7 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                 }
             },
             .tail_call => {
-                const base_reg = readU8(self, frame);
+                const base_reg = readU16(self, frame);
                 const nargs = readU8(self, frame);
                 const abs_base = frame.base + base_reg;
                 try ensureCallWindow(self, abs_base, nargs);
@@ -461,10 +461,10 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                 }
             },
             .tail_apply => {
-                const base_reg = readU8(self, frame);
+                const base_reg = readU16(self, frame);
                 const nargs = readU8(self, frame);
                 if (nargs == 0) return VMError.InvalidBytecode;
-                const abs_base = frame.base + @as(u16, base_reg);
+                const abs_base = frame.base + base_reg;
                 try ensureCallWindow(self, abs_base, nargs);
                 const proc = self.registers[abs_base];
 
@@ -482,7 +482,7 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                 }
 
                 // Unpack trailing list
-                var rest = self.registers[abs_base + @as(u16, nargs)];
+                var rest = self.registers[abs_base + nargs];
                 while (rest != types.NIL) {
                     if (!types.isPair(rest)) {
                         self.setErrorDetail("apply: last argument must be a list", .{});
@@ -571,7 +571,7 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                 }
             },
             .@"return" => {
-                const src = readU8(self, frame);
+                const src = readU16(self, frame);
                 const src_idx = try registerIndex(self, frame.base, src);
                 var result = self.registers[src_idx];
                 self.gc.pushRoot(&result) catch return VMError.OutOfMemory;
@@ -607,7 +607,7 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                 self.registers[ret_idx] = result;
             },
             .closure => {
-                const dst = readU8(self, frame);
+                const dst = readU16(self, frame);
                 const idx = readU16(self, frame);
                 const parent_closure = frame.closure orelse return VMError.InvalidBytecode;
                 const func_val = try constantAt(self, parent_closure.func, idx);
@@ -618,11 +618,10 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                 const cls = types.toObject(cls_val).as(types.Closure);
 
                 for (cls.upvalues, 0..) |_, i| {
-                    try ensureOperands(self, frame, 2);
+                    try ensureOperands(self, frame, 3);
                     const is_local = frame.code[frame.ip] == 1;
                     frame.ip += 1;
-                    const index = frame.code[frame.ip];
-                    frame.ip += 1;
+                    const index = readU16(self, frame);
 
                     if (is_local) {
                         const local_idx = try registerIndex(self, frame.base, index);
@@ -644,12 +643,12 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                 self.registers[dst_idx] = cls_val;
             },
             .close_upvalue => {
-                _ = readU8(self, frame);
+                _ = readU16(self, frame);
             },
             .cons => {
-                const dst = readU8(self, frame);
-                const car_reg = readU8(self, frame);
-                const cdr_reg = readU8(self, frame);
+                const dst = readU16(self, frame);
+                const car_reg = readU16(self, frame);
+                const cdr_reg = readU16(self, frame);
                 const dst_idx = try registerIndex(self, frame.base, dst);
                 const car_idx = try registerIndex(self, frame.base, car_reg);
                 const cdr_idx = try registerIndex(self, frame.base, cdr_reg);
@@ -660,7 +659,7 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                 self.registers[dst_idx] = pair;
             },
             .push_handler => {
-                const handler_reg = readU8(self, frame);
+                const handler_reg = readU16(self, frame);
                 const handler_idx = try registerIndex(self, frame.base, handler_reg);
                 const handler_val = self.registers[handler_idx];
                 try self.pushHandler(handler_val);
@@ -672,7 +671,7 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                 return types.VOID;
             },
             .call_global => {
-                const base_reg = readU8(self, frame);
+                const base_reg = readU16(self, frame);
                 const sym_idx = readU16(self, frame);
                 const nargs = readU8(self, frame);
                 const the_closure = frame.closure orelse return VMError.InvalidBytecode;
@@ -771,7 +770,7 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                 }
             },
             .tail_call_global => {
-                const base_reg = readU8(self, frame);
+                const base_reg = readU16(self, frame);
                 const sym_idx = readU16(self, frame);
                 const nargs = readU8(self, frame);
                 const closure = frame.closure orelse return VMError.InvalidBytecode;
@@ -916,15 +915,15 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                 }
             },
             .box_local => {
-                const reg = readU8(self, frame);
+                const reg = readU16(self, frame);
                 const reg_idx = try registerIndex(self, frame.base, reg);
                 const val = self.registers[reg_idx];
                 const box = self.gc.allocPair(val, types.VOID) catch return VMError.OutOfMemory;
                 self.registers[reg_idx] = box;
             },
             .get_box_local => {
-                const dst_r = readU8(self, frame);
-                const reg = readU8(self, frame);
+                const dst_r = readU16(self, frame);
+                const reg = readU16(self, frame);
                 const dst_idx = try registerIndex(self, frame.base, dst_r);
                 const reg_idx = try registerIndex(self, frame.base, reg);
                 const val = self.registers[reg_idx];
@@ -937,8 +936,8 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                 }
             },
             .set_box_local => {
-                const reg = readU8(self, frame);
-                const src = readU8(self, frame);
+                const reg = readU16(self, frame);
+                const src = readU16(self, frame);
                 const reg_idx = try registerIndex(self, frame.base, reg);
                 const src_idx = try registerIndex(self, frame.base, src);
                 const val = self.registers[reg_idx];
@@ -950,7 +949,7 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                 }
             },
             .self_tail_call => {
-                const base_reg = readU8(self, frame);
+                const base_reg = readU16(self, frame);
                 const nargs = readU8(self, frame);
                 const abs_base = frame.base + base_reg;
                 try ensureCallWindow(self, abs_base, nargs);
@@ -999,7 +998,7 @@ pub fn ensureOperands(vm: *VM, frame: *CallFrame, operand_bytes: usize) VMError!
     if (frame.ip + operand_bytes > frame.code.len) return VMError.InvalidBytecode;
 }
 
-pub fn registerIndex(vm: *VM, base: u16, reg: u8) VMError!usize {
+pub fn registerIndex(vm: *VM, base: u16, reg: u16) VMError!usize {
     _ = vm;
     const idx = @as(usize, base) + @as(usize, reg);
     if (idx >= MAX_REGISTERS) return VMError.InvalidBytecode;

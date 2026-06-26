@@ -191,7 +191,7 @@ pub const NativeFn = struct {
 
 pub const DebugLocal = struct {
     name: []const u8,
-    slot: u8,
+    slot: u16,
 };
 
 pub const LineEntry = struct {
@@ -204,7 +204,7 @@ pub const Function = struct {
     code: std.ArrayList(u8),
     constants: std.ArrayList(Value),
     arity: u8,
-    locals_count: u8 = 0,
+    locals_count: u16 = 0,
     upvalue_count: u8 = 0,
     is_variadic: bool = false,
     name: ?[]const u8 = null,
@@ -246,7 +246,7 @@ pub const Flonum = struct {
 
 pub const CapturedLocal = struct {
     name: []const u8,
-    slot: u8,
+    slot: u16,
 };
 
 pub const Transformer = struct {
@@ -341,7 +341,7 @@ pub const SavedFrame = struct {
     code: []const u8,
     ip: usize,
     base: u16,
-    dst: u8,
+    dst: u16,
     saved_wind_count: u16,
     // On wasm32, pointer-sized fields shrink from 8 to 4 bytes, making the
     // struct 28 bytes — not a multiple of @sizeOf(Value) (8). Pad to 32.
@@ -371,7 +371,7 @@ pub const Continuation = struct {
     handler_count: usize,
     wind_records: []WindRecord,
     wind_count: usize,
-    dst_reg: u8, // register offset within frame where result goes
+    dst_reg: u16, // register offset within frame where result goes
     dst_base: u16, // base register of the return frame
     // Single backing allocation holding registers, frames, handlers and winds
     // contiguously. The four slices above are views into this buffer; it is

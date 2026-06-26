@@ -135,7 +135,7 @@ pub const CallFrame = struct {
     code: []const u8,
     ip: usize,
     base: u16,
-    dst: u8,
+    dst: u16,
     saved_wind_count: u16 = 0,
 };
 

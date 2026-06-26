@@ -35,7 +35,7 @@ fn renameInBody(gc: *memory.GC, expr: Value, old_name: []const u8, new_sym: Valu
 
 // -- Binding and iteration forms --
 
-pub fn compileLet(self: *Compiler, args: Value, dst: u8, is_tail: bool) CompileError!void {
+pub fn compileLet(self: *Compiler, args: Value, dst: u16, is_tail: bool) CompileError!void {
     if (args == types.NIL) return CompileError.InvalidSyntax;
     const first = types.car(args);
 
@@ -69,7 +69,7 @@ pub fn compileLet(self: *Compiler, args: Value, dst: u8, is_tail: bool) CompileE
     }
 
     // Phase 1: evaluate all inits (no new locals visible yet)
-    var slots: [32]u8 = undefined;
+    var slots: [32]u16 = undefined;
     var names: [32][]const u8 = undefined;
     var count: usize = 0;
 
@@ -102,7 +102,7 @@ pub fn compileLet(self: *Compiler, args: Value, dst: u8, is_tail: bool) CompileE
     self.endScope();
 }
 
-pub fn compileLetStar(self: *Compiler, args: Value, dst: u8, is_tail: bool) CompileError!void {
+pub fn compileLetStar(self: *Compiler, args: Value, dst: u16, is_tail: bool) CompileError!void {
     if (args == types.NIL) return CompileError.InvalidSyntax;
     const bindings = types.car(args);
     const body = types.cdr(args);
@@ -131,11 +131,11 @@ pub fn compileLetStar(self: *Compiler, args: Value, dst: u8, is_tail: bool) Comp
     self.endScope();
 }
 
-pub fn compileLetrec(self: *Compiler, args: Value, dst: u8, is_tail: bool) CompileError!void {
+pub fn compileLetrec(self: *Compiler, args: Value, dst: u16, is_tail: bool) CompileError!void {
     return compileLetrecImpl(self, args, dst, is_tail, false);
 }
 
-fn compileLetrecImpl(self: *Compiler, args: Value, dst: u8, is_tail: bool, is_star: bool) CompileError!void {
+fn compileLetrecImpl(self: *Compiler, args: Value, dst: u16, is_tail: bool, is_star: bool) CompileError!void {
     if (args == types.NIL) return CompileError.InvalidSyntax;
     const bindings = types.car(args);
     var body = types.cdr(args);
@@ -175,11 +175,11 @@ fn compileLetrecImpl(self: *Compiler, args: Value, dst: u8, is_tail: bool, is_st
     // Phase 1: set all gensym'd variables to void
     for (0..count) |i| {
         try self.emitOp(.load_void);
-        try self.emit(dst);
+        try self.emitU16(dst);
         const sym_idx = try self.addConstant(unique_syms[i]);
         try self.emitOp(.define_global);
         try self.emitU16(sym_idx);
-        try self.emit(dst);
+        try self.emitU16(dst);
     }
 
     // Phase 2: evaluate inits and assign to gensym'd globals
@@ -200,18 +200,18 @@ fn compileLetrecImpl(self: *Compiler, args: Value, dst: u8, is_tail: bool, is_st
         const sym_idx = try self.addConstant(unique_syms[i]);
         try self.emitOp(.define_global);
         try self.emitU16(sym_idx);
-        try self.emit(dst);
+        try self.emitU16(dst);
     }
 
     // Phase 3: compile body
     try compileLetBody(self, body, dst, is_tail);
 }
 
-pub fn compileLetrecStar(self: *Compiler, args: Value, dst: u8, is_tail: bool) CompileError!void {
+pub fn compileLetrecStar(self: *Compiler, args: Value, dst: u16, is_tail: bool) CompileError!void {
     return compileLetrecImpl(self, args, dst, is_tail, true);
 }
 
-pub fn compileNamedLet(self: *Compiler, args: Value, dst: u8, is_tail: bool) CompileError!void {
+pub fn compileNamedLet(self: *Compiler, args: Value, dst: u16, is_tail: bool) CompileError!void {
     const loop_name = types.car(args);
     const rest = types.cdr(args);
     if (rest == types.NIL) return CompileError.InvalidSyntax;
@@ -255,17 +255,17 @@ pub fn compileNamedLet(self: *Compiler, args: Value, dst: u8, is_tail: bool) Com
     const loop_reg = try self.allocReg();
 
     try self.emitOp(.load_void);
-    try self.emit(loop_reg);
+    try self.emitU16(loop_reg);
     const name_sym_idx = try self.addConstant(unique_sym);
     try self.emitOp(.define_global);
     try self.emitU16(name_sym_idx);
-    try self.emit(loop_reg);
+    try self.emitU16(loop_reg);
 
     try self.compileLambda(renamed_lambda_args, loop_reg, types.symbolName(unique_sym));
 
     try self.emitOp(.define_global);
     try self.emitU16(name_sym_idx);
-    try self.emit(loop_reg);
+    try self.emitU16(loop_reg);
 
     // Compile the initial call
     const call_base = try self.allocReg();
@@ -273,15 +273,15 @@ pub fn compileNamedLet(self: *Compiler, args: Value, dst: u8, is_tail: bool) Com
 
     if (call_base != loop_reg) {
         try self.emitOp(.move);
-        try self.emit(call_base);
-        try self.emit(loop_reg);
+        try self.emitU16(call_base);
+        try self.emitU16(loop_reg);
     }
 
     var nargs: u8 = 0;
     for (0..param_count) |j| {
         const arg_reg = try self.allocReg();
         _ = arg_reg;
-        try self.compileExpr(init_exprs[j], call_base + 1 + @as(u8, @intCast(j)), false);
+        try self.compileExpr(init_exprs[j], call_base + 1 + @as(u16, @intCast(j)), false);
         nargs += 1;
     }
 
@@ -290,14 +290,14 @@ pub fn compileNamedLet(self: *Compiler, args: Value, dst: u8, is_tail: bool) Com
     } else {
         try self.emitOp(.call);
     }
-    try self.emit(call_base);
+    try self.emitU16(call_base);
     try self.emit(nargs);
 
     // Result goes to dst
     if (call_base != dst) {
         try self.emitOp(.move);
-        try self.emit(dst);
-        try self.emit(call_base);
+        try self.emitU16(dst);
+        try self.emitU16(call_base);
     }
 
     var k: u8 = 0;
@@ -307,7 +307,7 @@ pub fn compileNamedLet(self: *Compiler, args: Value, dst: u8, is_tail: bool) Com
     self.freeReg(); // free loop_reg
 }
 
-pub fn compileDo(self: *Compiler, args: Value, dst: u8, is_tail: bool) CompileError!void {
+pub fn compileDo(self: *Compiler, args: Value, dst: u16, is_tail: bool) CompileError!void {
     if (args == types.NIL) return CompileError.InvalidSyntax;
     const var_specs = types.car(args);
     const rest = types.cdr(args);
@@ -322,7 +322,7 @@ pub fn compileDo(self: *Compiler, args: Value, dst: u8, is_tail: bool) CompileEr
     self.beginScope();
 
     // Parse var specs and evaluate inits
-    var var_slots: [32]u8 = undefined;
+    var var_slots: [32]u16 = undefined;
     var step_exprs: [32]Value = undefined;
     var has_step: [32]bool = undefined;
     var var_count: usize = 0;
@@ -361,7 +361,7 @@ pub fn compileDo(self: *Compiler, args: Value, dst: u8, is_tail: bool) CompileEr
     // Test
     try self.compileExpr(test_expr, dst, false);
     try self.emitOp(.jump_true);
-    try self.emit(dst);
+    try self.emitU16(dst);
     const exit_jump = self.currentOffset();
     try self.emitI16(0);
 
@@ -374,7 +374,7 @@ pub fn compileDo(self: *Compiler, args: Value, dst: u8, is_tail: bool) CompileEr
     }
 
     // Step: evaluate all steps to temp registers, then assign back
-    var temp_slots: [32]u8 = undefined;
+    var temp_slots: [32]u16 = undefined;
     var step_count: usize = 0;
     for (0..var_count) |j| {
         if (has_step[j]) {
@@ -389,8 +389,8 @@ pub fn compileDo(self: *Compiler, args: Value, dst: u8, is_tail: bool) CompileEr
     for (0..var_count) |j| {
         if (has_step[j]) {
             try self.emitOp(.move);
-            try self.emit(var_slots[j]);
-            try self.emit(temp_slots[step_idx]);
+            try self.emitU16(var_slots[j]);
+            try self.emitU16(temp_slots[step_idx]);
             step_idx += 1;
         }
     }
@@ -408,7 +408,7 @@ pub fn compileDo(self: *Compiler, args: Value, dst: u8, is_tail: bool) CompileEr
     try self.patchJump(exit_jump);
     if (result_exprs == types.NIL) {
         try self.emitOp(.load_void);
-        try self.emit(dst);
+        try self.emitU16(dst);
     } else {
         var result = result_exprs;
         while (result != types.NIL) {
@@ -423,7 +423,7 @@ pub fn compileDo(self: *Compiler, args: Value, dst: u8, is_tail: bool) CompileEr
     self.endScope();
 }
 
-pub fn compileLetBody(self: *Compiler, body: Value, dst: u8, is_tail: bool) CompileError!void {
+pub fn compileLetBody(self: *Compiler, body: Value, dst: u16, is_tail: bool) CompileError!void {
     // Pre-scan: register define names so macro expansion can see sibling
     // defs. Track which names we add so we can remove them after compilation
     // to avoid polluting the globals map for subsequent expressions.
@@ -489,7 +489,7 @@ pub fn compileLetBody(self: *Compiler, body: Value, dst: u8, is_tail: bool) Comp
 
 /// Compile (let-values (((a b) expr) ...) body ...)
 /// Desugars to nested call-with-values forms.
-pub fn compileLetValues(self: *Compiler, args: Value, dst: u8, is_tail: bool) CompileError!void {
+pub fn compileLetValues(self: *Compiler, args: Value, dst: u16, is_tail: bool) CompileError!void {
     if (args == types.NIL) return CompileError.InvalidSyntax;
     const bindings = types.car(args);
     const body = types.cdr(args);
@@ -503,7 +503,7 @@ pub fn compileLetValues(self: *Compiler, args: Value, dst: u8, is_tail: bool) Co
 
 /// Compile (let*-values (((a b) expr) ...) body ...)
 /// Same as let-values since the nesting is inherently sequential.
-pub fn compileLetStarValues(self: *Compiler, args: Value, dst: u8, is_tail: bool) CompileError!void {
+pub fn compileLetStarValues(self: *Compiler, args: Value, dst: u16, is_tail: bool) CompileError!void {
     return compileLetValues(self, args, dst, is_tail);
 }
 

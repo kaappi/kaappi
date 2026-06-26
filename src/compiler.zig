@@ -22,15 +22,17 @@ pub const CompileError = error{
 const Local = struct {
     name: []const u8,
     depth: u16,
-    slot: u8,
+    slot: u16,
     is_boxed: bool = false,
 };
 
 const Upvalue = struct {
-    index: u8,
+    index: u16,
     is_local: bool,
 };
 
+const build_options = @import("build_options");
+const MAX_COMPILER_REGISTERS: u16 = @min(std.math.maxInt(u16), build_options.max_registers);
 const MAX_MACRO_EXPANSION_DEPTH: u16 = 256;
 const MAX_MACRO_EXPANSION_STEPS: u32 = 10_000;
 
@@ -43,7 +45,7 @@ pub const Compiler = struct {
     globals: ?*std.StringHashMap(Value) = null,
     lib_env: ?*std.StringHashMap(Value) = null,
     scope_depth: u16 = 0,
-    next_register: u8 = 0,
+    next_register: u16 = 0,
     parent: ?*Compiler = null,
     in_body_scope: bool = false,
     current_line: u32 = 0,
@@ -151,8 +153,8 @@ pub const Compiler = struct {
         self.func.code.items[offset + 1] = @truncate(unsigned & 0xFF);
     }
 
-    pub fn allocReg(self: *Compiler) CompileError!u8 {
-        if (self.next_register >= 250) return CompileError.TooManyLocals;
+    pub fn allocReg(self: *Compiler) CompileError!u16 {
+        if (self.next_register >= MAX_COMPILER_REGISTERS) return CompileError.TooManyLocals;
         const reg = self.next_register;
         self.next_register += 1;
         // Record the high-water mark of register usage for this function.
@@ -170,7 +172,7 @@ pub const Compiler = struct {
         if (self.next_register > 0) self.next_register -= 1;
     }
 
-    pub fn resolveLocal(self: *Compiler, name: []const u8) ?u8 {
+    pub fn resolveLocal(self: *Compiler, name: []const u8) ?u16 {
         var i: usize = self.locals.items.len;
         while (i > 0) {
             i -= 1;
@@ -192,18 +194,18 @@ pub const Compiler = struct {
         return false;
     }
 
-    pub fn markLocalBoxedBySlot(self: *Compiler, slot: u8) CompileError!void {
+    pub fn markLocalBoxedBySlot(self: *Compiler, slot: u16) CompileError!void {
         for (self.locals.items) |*local| {
             if (local.slot == slot and !local.is_boxed) {
                 local.is_boxed = true;
                 try self.emitOp(.box_local);
-                try self.emit(slot);
+                try self.emitU16(slot);
                 return;
             }
         }
     }
 
-    pub fn resolveUpvalue(self: *Compiler, name: []const u8) CompileError!?u8 {
+    pub fn resolveUpvalue(self: *Compiler, name: []const u8) CompileError!?u16 {
         if (self.parent) |parent| {
             if (parent.resolveLocal(name)) |local_slot| {
                 return try self.addUpvalue(local_slot, true);
@@ -215,7 +217,7 @@ pub const Compiler = struct {
         return null;
     }
 
-    fn addUpvalue(self: *Compiler, index: u8, is_local: bool) CompileError!u8 {
+    fn addUpvalue(self: *Compiler, index: u16, is_local: bool) CompileError!u16 {
         for (self.upvalues.items, 0..) |uv, i| {
             if (uv.index == index and uv.is_local == is_local) {
                 return @intCast(i);
@@ -242,7 +244,7 @@ pub const Compiler = struct {
         self.scope_depth -= 1;
     }
 
-    pub fn addLocal(self: *Compiler, name: []const u8, slot: u8) CompileError!void {
+    pub fn addLocal(self: *Compiler, name: []const u8, slot: u16) CompileError!void {
         self.locals.append(self.gc.allocator, .{
             .name = name,
             .depth = self.scope_depth,
@@ -265,7 +267,7 @@ pub const Compiler = struct {
         const dst = try self.allocReg();
         try self.compileExpr(expr_root, dst, false);
         try self.emitOp(.@"return");
-        try self.emit(dst);
+        try self.emitU16(dst);
 
         // Populate debug_locals for the debugger
         if (self.locals.items.len > 0) {
@@ -288,13 +290,13 @@ pub const Compiler = struct {
         if (exprs.len == 0) {
             const dst = try self.allocReg();
             try self.emitOp(.load_void);
-            try self.emit(dst);
+            try self.emitU16(dst);
             try self.emitOp(.@"return");
-            try self.emit(dst);
+            try self.emitU16(dst);
             return;
         }
 
-        var dst: u8 = 0;
+        var dst: u16 = 0;
         for (exprs, 0..) |expr, i| {
             dst = try self.allocReg();
             try self.compileExpr(expr, dst, false);
@@ -303,7 +305,7 @@ pub const Compiler = struct {
             }
         }
         try self.emitOp(.@"return");
-        try self.emit(dst);
+        try self.emitU16(dst);
 
         // Populate debug_locals for the debugger
         if (self.locals.items.len > 0) {
@@ -317,28 +319,28 @@ pub const Compiler = struct {
         }
     }
 
-    pub fn compileExpr(self: *Compiler, expr: Value, dst: u8, is_tail: bool) CompileError!void {
+    pub fn compileExpr(self: *Compiler, expr: Value, dst: u16, is_tail: bool) CompileError!void {
         if (types.isFixnum(expr)) {
             const idx = try self.addConstant(expr);
             try self.emitOp(.load_const);
-            try self.emit(dst);
+            try self.emitU16(dst);
             try self.emitU16(idx);
             return;
         }
 
         if (expr == types.TRUE) {
             try self.emitOp(.load_true);
-            try self.emit(dst);
+            try self.emitU16(dst);
             return;
         }
         if (expr == types.FALSE) {
             try self.emitOp(.load_false);
-            try self.emit(dst);
+            try self.emitU16(dst);
             return;
         }
         if (expr == types.NIL) {
             try self.emitOp(.load_nil);
-            try self.emit(dst);
+            try self.emitU16(dst);
             return;
         }
 
@@ -349,7 +351,7 @@ pub const Compiler = struct {
         if (types.isString(expr)) {
             const idx = try self.addConstant(expr);
             try self.emitOp(.load_const);
-            try self.emit(dst);
+            try self.emitU16(dst);
             try self.emitU16(idx);
             return;
         }
@@ -357,7 +359,7 @@ pub const Compiler = struct {
         if (types.isChar(expr)) {
             const idx = try self.addConstant(expr);
             try self.emitOp(.load_const);
-            try self.emit(dst);
+            try self.emitU16(dst);
             try self.emitU16(idx);
             return;
         }
@@ -365,7 +367,7 @@ pub const Compiler = struct {
         if (types.isFlonum(expr)) {
             const idx = try self.addConstant(expr);
             try self.emitOp(.load_const);
-            try self.emit(dst);
+            try self.emitU16(dst);
             try self.emitU16(idx);
             return;
         }
@@ -373,7 +375,7 @@ pub const Compiler = struct {
         if (types.isBignum(expr)) {
             const idx = try self.addConstant(expr);
             try self.emitOp(.load_const);
-            try self.emit(dst);
+            try self.emitU16(dst);
             try self.emitU16(idx);
             return;
         }
@@ -381,7 +383,7 @@ pub const Compiler = struct {
         if (types.isComplex(expr)) {
             const idx = try self.addConstant(expr);
             try self.emitOp(.load_const);
-            try self.emit(dst);
+            try self.emitU16(dst);
             try self.emitU16(idx);
             return;
         }
@@ -389,7 +391,7 @@ pub const Compiler = struct {
         if (types.isRationalObj(expr)) {
             const idx = try self.addConstant(expr);
             try self.emitOp(.load_const);
-            try self.emit(dst);
+            try self.emitU16(dst);
             try self.emitU16(idx);
             return;
         }
@@ -397,7 +399,7 @@ pub const Compiler = struct {
         if (types.isVector(expr)) {
             const idx = try self.addConstant(expr);
             try self.emitOp(.load_const);
-            try self.emit(dst);
+            try self.emitU16(dst);
             try self.emitU16(idx);
             return;
         }
@@ -405,7 +407,7 @@ pub const Compiler = struct {
         if (types.isBytevector(expr)) {
             const idx = try self.addConstant(expr);
             try self.emitOp(.load_const);
-            try self.emit(dst);
+            try self.emitU16(dst);
             try self.emitU16(idx);
             return;
         }
@@ -426,36 +428,36 @@ pub const Compiler = struct {
         return CompileError.InvalidSyntax;
     }
 
-    fn compileVariable(self: *Compiler, sym: Value, dst: u8) CompileError!void {
+    fn compileVariable(self: *Compiler, sym: Value, dst: u16) CompileError!void {
         const name = types.symbolName(sym);
 
         if (self.resolveLocal(name)) |slot| {
             if (self.isLocalBoxed(name)) {
                 try self.emitOp(.get_box_local);
-                try self.emit(dst);
-                try self.emit(slot);
+                try self.emitU16(dst);
+                try self.emitU16(slot);
             } else if (slot != dst) {
                 try self.emitOp(.move);
-                try self.emit(dst);
-                try self.emit(slot);
+                try self.emitU16(dst);
+                try self.emitU16(slot);
             }
             return;
         }
 
         if (try self.resolveUpvalue(name)) |idx| {
             try self.emitOp(.get_upvalue);
-            try self.emit(dst);
-            try self.emit(idx);
+            try self.emitU16(dst);
+            try self.emitU16(idx);
             return;
         }
 
         const sym_idx = try self.addConstant(sym);
         try self.emitOp(.get_global);
-        try self.emit(dst);
+        try self.emitU16(dst);
         try self.emitU16(sym_idx);
     }
 
-    fn compileForm(self: *Compiler, expr: Value, dst: u8, is_tail: bool) CompileError!void {
+    fn compileForm(self: *Compiler, expr: Value, dst: u16, is_tail: bool) CompileError!void {
         const head = types.car(expr);
         const args = types.cdr(expr);
 
@@ -646,16 +648,16 @@ pub const Compiler = struct {
         return self.compileCall(expr, dst, is_tail);
     }
 
-    fn compileQuote(self: *Compiler, args: Value, dst: u8) CompileError!void {
+    fn compileQuote(self: *Compiler, args: Value, dst: u16) CompileError!void {
         if (args == types.NIL) return CompileError.InvalidSyntax;
         const datum = types.car(args);
         const idx = try self.addConstant(datum);
         try self.emitOp(.load_const);
-        try self.emit(dst);
+        try self.emitU16(dst);
         try self.emitU16(idx);
     }
 
-    fn compileIf(self: *Compiler, args: Value, dst: u8, is_tail: bool) CompileError!void {
+    fn compileIf(self: *Compiler, args: Value, dst: u16, is_tail: bool) CompileError!void {
         if (args == types.NIL) return CompileError.InvalidSyntax;
         const test_expr = types.car(args);
         const rest = types.cdr(args);
@@ -668,7 +670,7 @@ pub const Compiler = struct {
 
         // Jump to else if false
         try self.emitOp(.jump_false);
-        try self.emit(dst);
+        try self.emitU16(dst);
         const else_jump = self.currentOffset();
         try self.emitI16(0); // placeholder
 
@@ -698,7 +700,7 @@ pub const Compiler = struct {
 
             try self.patchJump(else_jump);
             try self.emitOp(.load_void);
-            try self.emit(dst);
+            try self.emitU16(dst);
 
             try self.patchJump(end_jump);
         }
@@ -706,7 +708,7 @@ pub const Compiler = struct {
 
     const compiler_lambda = @import("compiler_lambda.zig");
 
-    pub fn compileLambda(self: *Compiler, args: Value, dst: u8, name: ?[]const u8) CompileError!void {
+    pub fn compileLambda(self: *Compiler, args: Value, dst: u16, name: ?[]const u8) CompileError!void {
         return compiler_lambda.compileLambda(self, args, dst, name);
     }
 
@@ -714,33 +716,33 @@ pub const Compiler = struct {
         return compiler_lambda.compileBody(self, body);
     }
 
-    fn compileDefine(self: *Compiler, args: Value, dst: u8) CompileError!void {
+    fn compileDefine(self: *Compiler, args: Value, dst: u16) CompileError!void {
         return compiler_lambda.compileDefine(self, args, dst);
     }
 
-    fn compileDefineValues(self: *Compiler, args: Value, dst: u8) CompileError!void {
+    fn compileDefineValues(self: *Compiler, args: Value, dst: u16) CompileError!void {
         return compiler_lambda.compileDefineValues(self, args, dst);
     }
 
-    fn compileSet(self: *Compiler, args: Value, dst: u8) CompileError!void {
+    fn compileSet(self: *Compiler, args: Value, dst: u16) CompileError!void {
         return compiler_lambda.compileSet(self, args, dst);
     }
 
-    fn compileBegin(self: *Compiler, args: Value, dst: u8, is_tail: bool) CompileError!void {
+    fn compileBegin(self: *Compiler, args: Value, dst: u16, is_tail: bool) CompileError!void {
         return compiler_lambda.compileBegin(self, args, dst, is_tail);
     }
 
-    fn compileDelay(self: *Compiler, args: Value, dst: u8) CompileError!void {
+    fn compileDelay(self: *Compiler, args: Value, dst: u16) CompileError!void {
         return compiler_lambda.compileDelay(self, args, dst);
     }
 
-    fn compileDelayForce(self: *Compiler, args: Value, dst: u8) CompileError!void {
+    fn compileDelayForce(self: *Compiler, args: Value, dst: u16) CompileError!void {
         return compiler_lambda.compileDelayForce(self, args, dst);
     }
 
     // -- Macro forms --
 
-    fn compileDefineSyntax(self: *Compiler, args: Value, dst: u8) CompileError!void {
+    fn compileDefineSyntax(self: *Compiler, args: Value, dst: u16) CompileError!void {
         if (args == types.NIL) return CompileError.InvalidSyntax;
         const keyword = types.car(args);
         if (!types.isSymbol(keyword)) return CompileError.InvalidSyntax;
@@ -761,7 +763,7 @@ pub const Compiler = struct {
 
         // define-syntax returns void
         try self.emitOp(.load_void);
-        try self.emit(dst);
+        try self.emitU16(dst);
     }
 
     fn parseSyntaxRules(self: *Compiler, spec: Value) CompileError!Value {
@@ -834,7 +836,7 @@ pub const Compiler = struct {
         return tx_val;
     }
 
-    fn compileLetSyntax(self: *Compiler, args: Value, dst: u8, is_tail: bool) CompileError!void {
+    fn compileLetSyntax(self: *Compiler, args: Value, dst: u16, is_tail: bool) CompileError!void {
         if (args == types.NIL) return CompileError.InvalidSyntax;
         const bindings = types.car(args);
         const body = types.cdr(args);
@@ -907,14 +909,14 @@ pub const Compiler = struct {
         }
     }
 
-    fn compileLetrecSyntax(self: *Compiler, args: Value, dst: u8, is_tail: bool) CompileError!void {
+    fn compileLetrecSyntax(self: *Compiler, args: Value, dst: u16, is_tail: bool) CompileError!void {
         // letrec-syntax is the same as let-syntax for our purposes since we
         // process all bindings before compiling the body, and the transformer
         // specs can reference each other through the macro table.
         return self.compileLetSyntax(args, dst, is_tail);
     }
 
-    fn compileCall(self: *Compiler, expr: Value, dst: u8, is_tail: bool) CompileError!void {
+    fn compileCall(self: *Compiler, expr: Value, dst: u16, is_tail: bool) CompileError!void {
         const operator = types.car(expr);
 
         // --- Constant folding: evaluate (op lit ...) at compile time ---
@@ -993,7 +995,7 @@ pub const Compiler = struct {
         } else {
             try self.emitOp(.call);
         }
-        try self.emit(base);
+        try self.emitU16(base);
         try self.emit(nargs);
 
         var i: u8 = 0;
@@ -1003,13 +1005,13 @@ pub const Compiler = struct {
 
         if (needs_rebase) {
             try self.emitOp(.move);
-            try self.emit(dst);
-            try self.emit(base);
+            try self.emitU16(dst);
+            try self.emitU16(base);
             self.freeReg();
         }
     }
 
-    fn tryConstantFold(self: *Compiler, expr: Value, dst: u8) bool {
+    fn tryConstantFold(self: *Compiler, expr: Value, dst: u16) bool {
         const operator = types.car(expr);
         if (!types.isSymbol(operator)) return false;
         const name = types.symbolName(operator);
@@ -1088,25 +1090,25 @@ pub const Compiler = struct {
         return false;
     }
 
-    fn emitLoadValue(self: *Compiler, dst: u8, val: Value) CompileError!void {
+    fn emitLoadValue(self: *Compiler, dst: u16, val: Value) CompileError!void {
         if (val == types.NIL) {
             try self.emitOp(.load_nil);
-            try self.emit(dst);
+            try self.emitU16(dst);
         } else if (val == types.TRUE) {
             try self.emitOp(.load_true);
-            try self.emit(dst);
+            try self.emitU16(dst);
         } else if (val == types.FALSE) {
             try self.emitOp(.load_false);
-            try self.emit(dst);
+            try self.emitU16(dst);
         } else {
             const idx = try self.addConstant(val);
             try self.emitOp(.load_const);
-            try self.emit(dst);
+            try self.emitU16(dst);
             try self.emitU16(idx);
         }
     }
 
-    fn compileSelfTailCall(self: *Compiler, expr: Value, dst: u8, nargs: u8) CompileError!void {
+    fn compileSelfTailCall(self: *Compiler, expr: Value, dst: u16, nargs: u8) CompileError!void {
         const needs_rebase = (dst + 1 != self.next_register);
         const base = if (needs_rebase) try self.allocReg() else dst;
 
@@ -1119,7 +1121,7 @@ pub const Compiler = struct {
         }
 
         try self.emitOp(.self_tail_call);
-        try self.emit(base);
+        try self.emitU16(base);
         try self.emit(nargs);
 
         var i: u8 = 0;
@@ -1132,7 +1134,7 @@ pub const Compiler = struct {
         }
     }
 
-    fn compileApplyTail(self: *Compiler, expr: Value, dst: u8) CompileError!void {
+    fn compileApplyTail(self: *Compiler, expr: Value, dst: u16) CompileError!void {
         var arg_list = types.cdr(expr);
         if (arg_list == types.NIL) return CompileError.InvalidSyntax;
 
@@ -1154,7 +1156,7 @@ pub const Compiler = struct {
         if (nargs < 1) return CompileError.InvalidSyntax;
 
         try self.emitOp(.tail_apply);
-        try self.emit(base);
+        try self.emitU16(base);
         try self.emit(nargs);
 
         var i: u8 = 0;
@@ -1166,7 +1168,7 @@ pub const Compiler = struct {
         }
     }
 
-    fn compileCallGlobal(self: *Compiler, expr: Value, operator: Value, dst: u8, is_tail: bool) CompileError!void {
+    fn compileCallGlobal(self: *Compiler, expr: Value, operator: Value, dst: u16, is_tail: bool) CompileError!void {
         const sym_idx = try self.addConstant(operator);
 
         // Reserve base register for callee (call_global fills it at runtime)
@@ -1196,7 +1198,7 @@ pub const Compiler = struct {
         } else {
             try self.emitOp(.call_global);
         }
-        try self.emit(base);
+        try self.emitU16(base);
         try self.emitU16(sym_idx);
         try self.emit(nargs);
 
@@ -1207,8 +1209,8 @@ pub const Compiler = struct {
 
         if (needs_rebase) {
             try self.emitOp(.move);
-            try self.emit(dst);
-            try self.emit(base);
+            try self.emitU16(dst);
+            try self.emitU16(base);
             self.freeReg();
         }
     }

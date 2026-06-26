@@ -13,7 +13,7 @@ const MAX_WINDS = vm_mod.MAX_WINDS;
 /// Capture the current continuation state.
 /// dst_reg is the register offset within the caller's frame where the result of call/cc will go.
 /// dst_base is the base register of the caller's frame.
-pub fn captureContinuation(vm: *VM, dst_reg: u8, dst_base: u16) VMError!Value {
+pub fn captureContinuation(vm: *VM, dst_reg: u16, dst_base: u16) VMError!Value {
     // Determine how many registers are actually in use. Each frame's live
     // register window is [base, base + locals_count): locals_count is the
     // compiler-recorded high-water mark of registers the function can touch.
@@ -79,7 +79,7 @@ pub fn callWithCC(vm: *VM, proc: Value, base: u16) VMError!void {
     // The caller's frame is at vm.frame_count - 1.
     // After call/cc returns, the result goes into base (relative to caller's frame).
     const caller_frame = &vm.frames[vm.frame_count - 1];
-    const dst_reg: u8 = @intCast(base - caller_frame.base);
+    const dst_reg: u16 = @intCast(base - caller_frame.base);
 
     // Capture the continuation. The continuation, when invoked,
     // will restore state and place the value at base (which is
@@ -96,7 +96,7 @@ pub fn callWithCC(vm: *VM, proc: Value, base: u16) VMError!void {
 
 /// Capture an escape continuation (call/ec). Records only the stack depths to
 /// unwind back to — no register/frame snapshot — so capture is O(1).
-pub fn captureEscape(vm: *VM, dst_reg: u8, dst_base: u16) VMError!Value {
+pub fn captureEscape(vm: *VM, dst_reg: u16, dst_base: u16) VMError!Value {
     return vm.gc.allocEscapeContinuation(
         vm.frame_count,
         vm.wind_count,
