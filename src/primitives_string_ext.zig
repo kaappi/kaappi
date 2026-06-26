@@ -145,7 +145,7 @@ fn parseStartEnd(data: []const u8, args: []const Value, start_arg_idx: usize) Pr
     if (args.len > start_arg_idx) {
         if (!types.isFixnum(args[start_arg_idx])) return PrimitiveError.TypeError;
         const sv = types.toFixnum(args[start_arg_idx]);
-        if (sv < 0) return PrimitiveError.TypeError;
+        if (sv < 0) return PrimitiveError.TypeError; // bare-ok: generic helper, no proc name
         const start_cp: usize = @intCast(sv);
         byte_start = pstr.utf8IndexToByteOffset(data, start_cp) orelse data.len;
         cp_offset = start_cp;
@@ -153,7 +153,7 @@ fn parseStartEnd(data: []const u8, args: []const Value, start_arg_idx: usize) Pr
     if (args.len > start_arg_idx + 1) {
         if (!types.isFixnum(args[start_arg_idx + 1])) return PrimitiveError.TypeError;
         const ev = types.toFixnum(args[start_arg_idx + 1]);
-        if (ev < 0) return PrimitiveError.TypeError;
+        if (ev < 0) return PrimitiveError.TypeError; // bare-ok: generic helper, no proc name
         const end_cp: usize = @intCast(ev);
         byte_end = pstr.utf8IndexToByteOffset(data, end_cp) orelse data.len;
     }
