@@ -69,11 +69,12 @@ pub const LibraryRegistry = struct {
 
     /// Register a new library (or replace an existing one).
     pub fn register(self: *LibraryRegistry, lib: Library) !void {
-        // If a library with this name already exists, deinit it first
-        if (self.libraries.getPtr(lib.name)) |existing| {
-            existing.deinit();
+        const gop = try self.libraries.getOrPut(lib.name);
+        if (gop.found_existing) {
+            gop.value_ptr.deinit();
+            gop.key_ptr.* = lib.name;
         }
-        try self.libraries.put(lib.name, lib);
+        gop.value_ptr.* = lib;
     }
 
     /// Look up a library by canonical name.
