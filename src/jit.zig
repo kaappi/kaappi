@@ -77,13 +77,13 @@ pub const PendingBranch = struct {
 
 const CacheEntry = struct { slot: u8, dirty: bool };
 const CacheSnapshot = struct {
-    entries: [4]?CacheEntry = .{null} ** 4,
+    entries: [2]?CacheEntry = .{null} ** 2,
 };
-pub const CACHE_REGS: [4]x64.Reg = .{ .r8, .r9, .r10, .r11 };
+pub const CACHE_REGS: [2]x64.Reg = .{ .r8, .r9 };
 
 pub const RegCache = struct {
-    entries: [4]?CacheEntry = .{null} ** 4,
-    next_evict: u2 = 0,
+    entries: [2]?CacheEntry = .{null} ** 2,
+    next_evict: u1 = 0,
 
     pub fn find(self: *const RegCache, slot: u8) ?usize {
         for (self.entries, 0..) |entry_opt, i| {
@@ -126,7 +126,7 @@ pub const RegCache = struct {
 
     pub fn invalidateAll(self: *RegCache, asm_ctx: *x64.Assembler) !void {
         try self.flushAll(asm_ctx);
-        self.entries = .{null} ** 4;
+        self.entries = .{null} ** 2;
     }
 
     pub fn invalidateSlot(self: *RegCache, slot: u8) void {
