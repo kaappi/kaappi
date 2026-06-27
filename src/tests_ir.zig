@@ -125,3 +125,87 @@ test "IR parity: unary constant fold (zero?)" {
 test "IR parity: constant fold multiplication" {
     try expectBytecodeParity("(* 6 7)");
 }
+
+test "IR behavioral: and with true" {
+    try expectBehavioralParity("(and 1 2 3)");
+}
+
+test "IR behavioral: and short-circuit" {
+    try expectBehavioralParity("(and 1 #f 3)");
+}
+
+test "IR behavioral: and empty" {
+    try expectBehavioralParity("(and)");
+}
+
+test "IR behavioral: or with false" {
+    try expectBehavioralParity("(or #f #f 3)");
+}
+
+test "IR behavioral: or short-circuit" {
+    try expectBehavioralParity("(or 1 2 3)");
+}
+
+test "IR behavioral: or empty" {
+    try expectBehavioralParity("(or)");
+}
+
+test "IR behavioral: when true" {
+    try expectBehavioralParity("(when #t 42)");
+}
+
+test "IR behavioral: when false" {
+    try expectBehavioralParity("(when #f 42)");
+}
+
+test "IR behavioral: unless true" {
+    try expectBehavioralParity("(unless #t 42)");
+}
+
+test "IR behavioral: unless false" {
+    try expectBehavioralParity("(unless #f 42)");
+}
+
+test "IR behavioral: begin with define" {
+    try expectBehavioralParity("(begin (define x 1) (define y 2) (+ x y))");
+}
+
+test "IR behavioral: lambda and call" {
+    try expectBehavioralParity("((lambda (x) (+ x 1)) 41)");
+}
+
+test "IR behavioral: let binding" {
+    try expectBehavioralParity("(let ((x 10) (y 20)) (+ x y))");
+}
+
+test "IR behavioral: define and call" {
+    try expectBehavioralParity("(define (f x) (* x x)) (f 7)");
+}
+
+test "IR behavioral: set!" {
+    try expectBehavioralParity("(define x 1) (set! x 42) x");
+}
+
+test "IR behavioral: cond" {
+    try expectBehavioralParity("(cond (#f 1) (#t 2) (else 3))");
+}
+
+test "IR behavioral: case" {
+    try expectBehavioralParity("(case (+ 1 1) ((1) 10) ((2) 20) (else 30))");
+}
+
+test "IR behavioral: do loop" {
+    try expectBehavioralParity("(do ((i 0 (+ i 1))) ((= i 5) i))");
+}
+
+test "IR behavioral: guard" {
+    try expectBehavioralParity("(guard (e (#t 42)) (error \"test\"))");
+}
+
+test "IR behavioral: quasiquote" {
+    try expectBehavioralParity("(let ((x 5)) `(a ,x b))");
+}
+
+test "IR behavioral: macros" {
+    try expectBehavioralParity("(define-syntax my-add (syntax-rules () ((my-add a b) (+ a b)))) (my-add 3 4)");
+}

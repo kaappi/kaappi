@@ -294,6 +294,10 @@ pub const Compiler = struct {
             .call => try self.compileCallFromIR(node.data.call, dst, is_tail),
             .@"if" => try self.compileIfFromIR(node.data.@"if", dst, is_tail),
             .begin => try self.compileBeginFromIR(node.data.begin, dst, is_tail),
+            .and_form => try self.compileAndFromIR(node.data.and_form, dst, is_tail),
+            .or_form => try self.compileOrFromIR(node.data.or_form, dst, is_tail),
+            .when_form => try self.compileWhenFromIR(node.data.when_form, dst, is_tail),
+            .unless_form => try self.compileUnlessFromIR(node.data.unless_form, dst, is_tail),
             .passthrough => try self.compileExpr(node.data.passthrough, dst, is_tail),
         }
     }
@@ -426,6 +430,96 @@ pub const Compiler = struct {
             try self.emitU16(base);
             self.freeReg();
         }
+    }
+
+    fn compileAndFromIR(self: *Compiler, exprs: []const *ir_mod.Node, dst: u16, is_tail: bool) CompileError!void {
+        if (exprs.len == 0) {
+            try self.emitOp(.load_true);
+            try self.emitU16(dst);
+            return;
+        }
+        var end_jumps: std.ArrayList(usize) = .empty;
+        defer end_jumps.deinit(self.gc.allocator);
+        for (exprs, 0..) |expr, i| {
+            if (i == exprs.len - 1) {
+                try self.compileFromNode(expr, dst, is_tail);
+            } else {
+                try self.compileFromNode(expr, dst, false);
+                try self.emitOp(.jump_false);
+                try self.emitU16(dst);
+                end_jumps.append(self.gc.allocator, self.currentOffset()) catch return CompileError.TooManyLocals;
+                try self.emitI16(0);
+            }
+        }
+        for (end_jumps.items) |j| {
+            try self.patchJump(j);
+        }
+    }
+
+    fn compileOrFromIR(self: *Compiler, exprs: []const *ir_mod.Node, dst: u16, is_tail: bool) CompileError!void {
+        if (exprs.len == 0) {
+            try self.emitOp(.load_false);
+            try self.emitU16(dst);
+            return;
+        }
+        var end_jumps: std.ArrayList(usize) = .empty;
+        defer end_jumps.deinit(self.gc.allocator);
+        for (exprs, 0..) |expr, i| {
+            if (i == exprs.len - 1) {
+                try self.compileFromNode(expr, dst, is_tail);
+            } else {
+                try self.compileFromNode(expr, dst, false);
+                try self.emitOp(.jump_true);
+                try self.emitU16(dst);
+                end_jumps.append(self.gc.allocator, self.currentOffset()) catch return CompileError.TooManyLocals;
+                try self.emitI16(0);
+            }
+        }
+        for (end_jumps.items) |j| {
+            try self.patchJump(j);
+        }
+    }
+
+    fn compileWhenFromIR(self: *Compiler, data: ir_mod.CondBodyData, dst: u16, is_tail: bool) CompileError!void {
+        try self.compileFromNode(data.test_expr, dst, false);
+        try self.emitOp(.jump_false);
+        try self.emitU16(dst);
+        const false_jump = self.currentOffset();
+        try self.emitI16(0);
+
+        for (data.body, 0..) |expr, i| {
+            const tail = is_tail and i == data.body.len - 1;
+            try self.compileFromNode(expr, dst, tail);
+        }
+
+        try self.emitOp(.jump);
+        const end_jump = self.currentOffset();
+        try self.emitI16(0);
+        try self.patchJump(false_jump);
+        try self.emitOp(.load_void);
+        try self.emitU16(dst);
+        try self.patchJump(end_jump);
+    }
+
+    fn compileUnlessFromIR(self: *Compiler, data: ir_mod.CondBodyData, dst: u16, is_tail: bool) CompileError!void {
+        try self.compileFromNode(data.test_expr, dst, false);
+        try self.emitOp(.jump_true);
+        try self.emitU16(dst);
+        const true_jump = self.currentOffset();
+        try self.emitI16(0);
+
+        for (data.body, 0..) |expr, i| {
+            const tail = is_tail and i == data.body.len - 1;
+            try self.compileFromNode(expr, dst, tail);
+        }
+
+        try self.emitOp(.jump);
+        const end_jump = self.currentOffset();
+        try self.emitI16(0);
+        try self.patchJump(true_jump);
+        try self.emitOp(.load_void);
+        try self.emitU16(dst);
+        try self.patchJump(end_jump);
     }
 
     pub fn compileMultiple(self: *Compiler, exprs: []const Value) CompileError!void {

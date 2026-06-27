@@ -13,6 +13,10 @@ pub const NodeTag = enum {
     call,
     @"if",
     begin,
+    and_form,
+    or_form,
+    when_form,
+    unless_form,
     passthrough,
 };
 
@@ -26,8 +30,17 @@ pub const Node = struct {
         call: CallData,
         @"if": IfData,
         begin: []const *Node,
+        and_form: []const *Node,
+        or_form: []const *Node,
+        when_form: CondBodyData,
+        unless_form: CondBodyData,
         passthrough: Value,
     };
+};
+
+pub const CondBodyData = struct {
+    test_expr: *Node,
+    body: []const *Node,
 };
 
 pub const CallData = struct {
@@ -63,6 +76,10 @@ pub const IR = struct {
         switch (node.tag) {
             .call => self.allocator.free(node.data.call.args),
             .begin => self.allocator.free(node.data.begin),
+            .and_form => self.allocator.free(node.data.and_form),
+            .or_form => self.allocator.free(node.data.or_form),
+            .when_form => self.allocator.free(node.data.when_form.body),
+            .unless_form => self.allocator.free(node.data.unless_form.body),
             .constant, .global_ref, .@"if", .passthrough => {},
         }
         self.allocator.destroy(node);
@@ -97,6 +114,30 @@ pub const IR = struct {
         const copy = self.allocator.alloc(*Node, exprs.len) catch return CompileError.OutOfMemory;
         @memcpy(copy, exprs);
         return self.allocNode(.begin, .{ .begin = copy });
+    }
+
+    pub fn makeAnd(self: *IR, exprs: []const *Node) CompileError!*Node {
+        const copy = self.allocator.alloc(*Node, exprs.len) catch return CompileError.OutOfMemory;
+        @memcpy(copy, exprs);
+        return self.allocNode(.and_form, .{ .and_form = copy });
+    }
+
+    pub fn makeOr(self: *IR, exprs: []const *Node) CompileError!*Node {
+        const copy = self.allocator.alloc(*Node, exprs.len) catch return CompileError.OutOfMemory;
+        @memcpy(copy, exprs);
+        return self.allocNode(.or_form, .{ .or_form = copy });
+    }
+
+    pub fn makeWhen(self: *IR, test_expr: *Node, body: []const *Node) CompileError!*Node {
+        const copy = self.allocator.alloc(*Node, body.len) catch return CompileError.OutOfMemory;
+        @memcpy(copy, body);
+        return self.allocNode(.when_form, .{ .when_form = .{ .test_expr = test_expr, .body = copy } });
+    }
+
+    pub fn makeUnless(self: *IR, test_expr: *Node, body: []const *Node) CompileError!*Node {
+        const copy = self.allocator.alloc(*Node, body.len) catch return CompileError.OutOfMemory;
+        @memcpy(copy, body);
+        return self.allocNode(.unless_form, .{ .unless_form = .{ .test_expr = test_expr, .body = copy } });
     }
 
     pub fn makePassthrough(self: *IR, expr: Value) CompileError!*Node {
@@ -166,6 +207,10 @@ fn lowerForm(ir: *IR, expr: Value) CompileError!*Node {
         if (std.mem.eql(u8, effective_name, "if")) return lowerIf(ir, types.cdr(expr));
         if (std.mem.eql(u8, effective_name, "quote")) return lowerQuote(ir, types.cdr(expr));
         if (std.mem.eql(u8, effective_name, "begin")) return lowerBegin(ir, types.cdr(expr));
+        if (std.mem.eql(u8, effective_name, "and")) return lowerList(ir, types.cdr(expr), .and_form);
+        if (std.mem.eql(u8, effective_name, "or")) return lowerList(ir, types.cdr(expr), .or_form);
+        if (std.mem.eql(u8, effective_name, "when")) return lowerCondBody(ir, types.cdr(expr), .when_form);
+        if (std.mem.eql(u8, effective_name, "unless")) return lowerCondBody(ir, types.cdr(expr), .unless_form);
 
         // All other named forms (special forms, macros, user-defined) use
         // passthrough — the compiler handles macro expansion, local-variable
@@ -218,6 +263,45 @@ fn lowerBegin(ir: *IR, args: Value) CompileError!*Node {
         current = types.cdr(current);
     }
     return ir.makeBegin(buf[0..count]);
+}
+
+fn lowerList(ir: *IR, args: Value, tag: NodeTag) CompileError!*Node {
+    var buf: [256]*Node = undefined;
+    var count: usize = 0;
+    var current = args;
+    while (current != types.NIL) {
+        if (!types.isPair(current)) return CompileError.InvalidSyntax;
+        if (count >= 256) return CompileError.InternalLimit;
+        buf[count] = try lower(ir, types.car(current));
+        count += 1;
+        current = types.cdr(current);
+    }
+    return switch (tag) {
+        .and_form => ir.makeAnd(buf[0..count]),
+        .or_form => ir.makeOr(buf[0..count]),
+        else => ir.makeBegin(buf[0..count]),
+    };
+}
+
+fn lowerCondBody(ir: *IR, args: Value, tag: NodeTag) CompileError!*Node {
+    if (args == types.NIL) return CompileError.InvalidSyntax;
+    const test_expr = try lower(ir, types.car(args));
+
+    var buf: [256]*Node = undefined;
+    var count: usize = 0;
+    var current = types.cdr(args);
+    while (current != types.NIL) {
+        if (!types.isPair(current)) return CompileError.InvalidSyntax;
+        if (count >= 256) return CompileError.InternalLimit;
+        buf[count] = try lower(ir, types.car(current));
+        count += 1;
+        current = types.cdr(current);
+    }
+    return switch (tag) {
+        .when_form => ir.makeWhen(test_expr, buf[0..count]),
+        .unless_form => ir.makeUnless(test_expr, buf[0..count]),
+        else => unreachable,
+    };
 }
 
 fn lowerCall(ir: *IR, expr: Value) CompileError!*Node {
@@ -337,6 +421,7 @@ pub const Emitter = struct {
             .call => try self.emitCall(node.data.call, dst, is_tail),
             .@"if" => try self.emitIf(node.data.@"if", dst, is_tail),
             .begin => try self.emitBegin(node.data.begin, dst, is_tail),
+            .and_form, .or_form, .when_form, .unless_form => return CompileError.NotImplemented,
             .passthrough => return CompileError.NotImplemented,
         }
     }
