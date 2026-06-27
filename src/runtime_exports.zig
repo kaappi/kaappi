@@ -77,6 +77,17 @@ export fn kaappi_make_string(vm: ?*vm_mod.VM, str_ptr: [*]const u8, str_len: u64
     return result;
 }
 
+export fn kaappi_intern_symbol(vm: ?*vm_mod.VM, name_ptr: [*]const u8, name_len: u64) callconv(.c) u64 {
+    const v = vm orelse return 0;
+    const len: usize = @intCast(name_len);
+    const name = name_ptr[0..len];
+    const result = v.gc.allocSymbol(name) catch {
+        _ = std.posix.system.write(2, "failed to intern symbol\n", 24);
+        std.process.exit(1);
+    };
+    return result;
+}
+
 export fn kaappi_eval(vm: ?*vm_mod.VM, src_ptr: [*]const u8, src_len: u64) callconv(.c) u64 {
     const v = vm orelse return 0;
     const len: usize = @intCast(src_len);

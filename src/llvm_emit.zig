@@ -102,6 +102,16 @@ pub const LLVMEmitter = struct {
             try self.print("  {s} = call i64 @kaappi_make_string(ptr %vm, ptr {s}, i64 {d})\n", .{ tmp, str_name, str_data.len });
             return tmp;
         }
+        if (types.isSymbol(value)) {
+            const sym_data = types.symbolName(value);
+            const str_name = try self.internString(sym_data);
+            const tmp = try self.freshTemp();
+            try self.print("  {s} = call i64 @kaappi_intern_symbol(ptr %vm, ptr {s}, i64 {d})\n", .{ tmp, str_name, sym_data.len });
+            return tmp;
+        }
+        if (types.isPointer(value)) {
+            return self.emitEvalExpr(value);
+        }
         const tmp = try self.freshTemp();
         const signed: i64 = @bitCast(value);
         try self.print("  {s} = add i64 0, {d}\n", .{ tmp, signed });
@@ -545,6 +555,7 @@ pub const LLVMEmitter = struct {
         try self.write("declare i64 @kaappi_call_scheme(ptr, i64, ptr, i64)\n");
         try self.write("declare void @kaappi_define_global(ptr, ptr, i64, i64)\n");
         try self.write("declare i64 @kaappi_make_string(ptr, ptr, i64)\n");
+        try self.write("declare i64 @kaappi_intern_symbol(ptr, ptr, i64)\n");
         try self.write("declare i64 @kaappi_eval(ptr, ptr, i64)\n");
     }
 
