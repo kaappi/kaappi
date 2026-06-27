@@ -264,6 +264,39 @@ test "IR analysis: tail position in and/or" {
     try std.testing.expect(root.data.and_form[2].ann.is_tail);
 }
 
+test "IR analysis: primitive identification on Call node" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var ir = ir_mod.IR.init(std.testing.allocator);
+    defer ir.deinit();
+
+    const plus_sym = try gc.allocSymbol("+");
+    const op = try ir.makeGlobalRef(plus_sym);
+    const arg1 = try ir.makeConst(types.makeFixnum(1));
+    const arg2 = try ir.makeConst(types.makeFixnum(2));
+    const call = try ir.makeCall(op, &.{ arg1, arg2 });
+
+    ir_mod.identifyPrimitives(call);
+    try std.testing.expect(call.ann.is_primitive_call);
+    try std.testing.expect(std.mem.eql(u8, call.ann.primitive_name.?, "+"));
+}
+
+test "IR analysis: non-primitive not marked" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var ir = ir_mod.IR.init(std.testing.allocator);
+    defer ir.deinit();
+
+    const my_fn = try gc.allocSymbol("my-function");
+    const op = try ir.makeGlobalRef(my_fn);
+    const arg = try ir.makeConst(types.makeFixnum(1));
+    const call = try ir.makeCall(op, &.{arg});
+
+    ir_mod.identifyPrimitives(call);
+    try std.testing.expect(!call.ann.is_primitive_call);
+    try std.testing.expect(call.ann.primitive_name == null);
+}
+
 fn readExpr(gc: *memory.GC, source: []const u8) !types.Value {
     var reader = reader_mod.Reader.init(gc, source);
     defer reader.deinit();
