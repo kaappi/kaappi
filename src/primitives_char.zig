@@ -333,8 +333,8 @@ fn foldCompareStrings(a: []const u8, b: []const u8) std.math.Order {
             (std.unicode.utf8Decode(b[bi .. bi + b_len]) catch @as(u21, b[bi]))
         else
             @as(u21, b[bi]);
-        const fa = unicodeDowncase(a_cp);
-        const fb = unicodeDowncase(b_cp);
+        const fa = foldChar(a_cp);
+        const fb = foldChar(b_cp);
         if (fa < fb) return .lt;
         if (fa > fb) return .gt;
         ai += a_len;
