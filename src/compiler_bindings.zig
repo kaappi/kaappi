@@ -6,6 +6,8 @@ const Value = types.Value;
 const Compiler = compiler_mod.Compiler;
 const CompileError = compiler_mod.CompileError;
 
+const MAX_LET_BINDINGS = 256;
+
 var named_let_counter: u32 = 0;
 
 fn makeUniqueLoopName(gc: *memory.GC, original: []const u8) CompileError!Value {
@@ -53,7 +55,7 @@ pub fn compileLet(self: *Compiler, args: Value, dst: u16, is_tail: bool) Compile
     // is just a reference to that binding, the init IS the tail expression.
     if (is_tail and types.isPair(bindings) and types.cdr(bindings) == types.NIL) {
         const binding = types.car(bindings);
-        if (types.isPair(binding)) {
+        if (types.isPair(binding) and types.isPair(types.cdr(binding))) {
             const var_name = types.car(binding);
             if (types.isSymbol(var_name) and types.isPair(body) and types.cdr(body) == types.NIL) {
                 const body_expr = types.car(body);
@@ -69,8 +71,8 @@ pub fn compileLet(self: *Compiler, args: Value, dst: u16, is_tail: bool) Compile
     }
 
     // Phase 1: evaluate all inits (no new locals visible yet)
-    var slots: [32]u16 = undefined;
-    var names: [32][]const u8 = undefined;
+    var slots: [MAX_LET_BINDINGS]u16 = undefined;
+    var names: [MAX_LET_BINDINGS][]const u8 = undefined;
     var count: usize = 0;
 
     var binding_list = bindings;
@@ -81,8 +83,10 @@ pub fn compileLet(self: *Compiler, args: Value, dst: u16, is_tail: bool) Compile
 
         const var_name = types.car(binding);
         if (!types.isSymbol(var_name)) return CompileError.InvalidSyntax;
+        if (!types.isPair(types.cdr(binding))) return CompileError.InvalidSyntax;
         const init_expr = types.car(types.cdr(binding));
 
+        if (count >= MAX_LET_BINDINGS) return CompileError.TooManyLocals;
         const slot = try self.allocReg();
         try self.compileExpr(init_expr, slot, false);
         slots[count] = slot;
@@ -118,6 +122,7 @@ pub fn compileLetStar(self: *Compiler, args: Value, dst: u16, is_tail: bool) Com
 
         const var_name = types.car(binding);
         if (!types.isSymbol(var_name)) return CompileError.InvalidSyntax;
+        if (!types.isPair(types.cdr(binding))) return CompileError.InvalidSyntax;
         const init_expr = types.car(types.cdr(binding));
 
         const slot = try self.allocReg();
@@ -141,10 +146,9 @@ fn compileLetrecImpl(self: *Compiler, args: Value, dst: u16, is_tail: bool, _: b
     const body = types.cdr(args);
     if (body == types.NIL) return CompileError.InvalidSyntax;
 
-    const MAX = 256;
-    var names: [MAX][]const u8 = undefined;
-    var inits: [MAX]Value = undefined;
-    var slots: [MAX]u16 = undefined;
+    var names: [MAX_LET_BINDINGS][]const u8 = undefined;
+    var inits: [MAX_LET_BINDINGS]Value = undefined;
+    var slots: [MAX_LET_BINDINGS]u16 = undefined;
     var count: usize = 0;
 
     // Parse bindings
@@ -157,7 +161,7 @@ fn compileLetrecImpl(self: *Compiler, args: Value, dst: u16, is_tail: bool, _: b
         if (!types.isSymbol(var_name)) return CompileError.InvalidSyntax;
         if (!types.isPair(types.cdr(binding))) return CompileError.InvalidSyntax;
 
-        if (count >= MAX) return CompileError.TooManyLocals;
+        if (count >= MAX_LET_BINDINGS) return CompileError.TooManyLocals;
         names[count] = types.symbolName(var_name);
         inits[count] = types.car(types.cdr(binding));
         count += 1;
@@ -202,8 +206,8 @@ pub fn compileNamedLet(self: *Compiler, args: Value, dst: u16, is_tail: bool) Co
     if (body == types.NIL) return CompileError.InvalidSyntax;
 
     // Collect var names and init expressions
-    var var_names: [32]Value = undefined;
-    var init_exprs: [32]Value = undefined;
+    var var_names: [MAX_LET_BINDINGS]Value = undefined;
+    var init_exprs: [MAX_LET_BINDINGS]Value = undefined;
     var param_count: usize = 0;
 
     var binding_list = bindings;
@@ -211,7 +215,9 @@ pub fn compileNamedLet(self: *Compiler, args: Value, dst: u16, is_tail: bool) Co
         if (!types.isPair(binding_list)) return CompileError.InvalidSyntax;
         const binding = types.car(binding_list);
         if (!types.isPair(binding)) return CompileError.InvalidSyntax;
+        if (!types.isPair(types.cdr(binding))) return CompileError.InvalidSyntax;
 
+        if (param_count >= MAX_LET_BINDINGS) return CompileError.TooManyLocals;
         var_names[param_count] = types.car(binding);
         init_exprs[param_count] = types.car(types.cdr(binding));
         param_count += 1;
@@ -304,9 +310,9 @@ pub fn compileDo(self: *Compiler, args: Value, dst: u16, is_tail: bool) CompileE
     self.beginScope();
 
     // Parse var specs and evaluate inits
-    var var_slots: [32]u16 = undefined;
-    var step_exprs: [32]Value = undefined;
-    var has_step: [32]bool = undefined;
+    var var_slots: [MAX_LET_BINDINGS]u16 = undefined;
+    var step_exprs: [MAX_LET_BINDINGS]Value = undefined;
+    var has_step: [MAX_LET_BINDINGS]bool = undefined;
     var var_count: usize = 0;
 
     var spec_list = var_specs;
@@ -317,8 +323,10 @@ pub fn compileDo(self: *Compiler, args: Value, dst: u16, is_tail: bool) CompileE
 
         const var_name = types.car(spec);
         if (!types.isSymbol(var_name)) return CompileError.InvalidSyntax;
+        if (!types.isPair(types.cdr(spec))) return CompileError.InvalidSyntax;
         const init_expr = types.car(types.cdr(spec));
 
+        if (var_count >= MAX_LET_BINDINGS) return CompileError.TooManyLocals;
         const slot = try self.allocReg();
         try self.compileExpr(init_expr, slot, false);
         try self.addLocal(types.symbolName(var_name), slot);
@@ -496,14 +504,13 @@ pub fn compileLetStarValues(self: *Compiler, args: Value, dst: u16, is_tail: boo
 pub fn buildLetValues(self: *Compiler, bindings: Value, body: Value) !Value {
     const gc = self.gc;
     gc.no_collect += 1;
+    defer gc.no_collect -= 1;
     const lambda_sym = try gc.allocSymbol("lambda");
     const cwv_sym = try gc.allocSymbol("call-with-values");
 
     if (bindings == types.NIL) {
         const begin_sym = try gc.allocSymbol("begin");
-        const result = try gc.allocPair(begin_sym, body);
-        gc.no_collect -= 1;
-        return result;
+        return try gc.allocPair(begin_sym, body);
     }
 
     if (!types.isPair(bindings)) return error.InvalidSyntax;
@@ -528,7 +535,5 @@ pub fn buildLetValues(self: *Compiler, bindings: Value, body: Value) !Value {
     const consumer_lambda = try gc.allocPair(lambda_sym, try gc.allocPair(formals, consumer_body));
 
     // Build (call-with-values producer consumer)
-    const result = try gc.allocPair(cwv_sym, try gc.allocPair(producer_lambda, try gc.allocPair(consumer_lambda, types.NIL)));
-    gc.no_collect -= 1;
-    return result;
+    return try gc.allocPair(cwv_sym, try gc.allocPair(producer_lambda, try gc.allocPair(consumer_lambda, types.NIL)));
 }
