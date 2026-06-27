@@ -278,6 +278,7 @@ pub const Compiler = struct {
         // Optimization passes
         root = ir_mod.foldConstants(&ir, root);
         root = ir_mod.eliminateDeadBranches(&ir, root);
+        root = ir_mod.simplifyBooleans(&ir, root);
 
         const dst = try self.allocReg();
         try self.compileFromNode(root, dst, false);
@@ -644,6 +645,7 @@ pub const Compiler = struct {
             ir_mod.markConstants(root);
             root = ir_mod.foldConstants(&ir, root);
             root = ir_mod.eliminateDeadBranches(&ir, root);
+            root = ir_mod.simplifyBooleans(&ir, root);
 
             dst = try self.allocReg();
             try self.compileFromNode(root, dst, false);

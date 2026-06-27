@@ -1055,6 +1055,69 @@ pub fn eliminateDeadBranches(ir: *IR, node: *Node) *Node {
 }
 
 // ---------------------------------------------------------------------------
+// Optimization: boolean simplification
+// ---------------------------------------------------------------------------
+
+pub fn simplifyBooleans(ir: *IR, node: *Node) *Node {
+    switch (node.tag) {
+        .@"if" => {
+            const data = node.data.@"if";
+            var new_test = simplifyBooleans(ir, data.test_expr);
+            const new_cons = simplifyBooleans(ir, data.consequent);
+            const new_alt = if (data.alternate) |alt| simplifyBooleans(ir, alt) else null;
+
+            // (if (not X) A B) → (if X B A)
+            if (new_test.tag == .call and new_test.data.call.args.len == 1 and
+                new_test.data.call.operator.tag == .global_ref)
+            {
+                const sym = new_test.data.call.operator.data.global_ref;
+                if (types.isSymbol(sym) and std.mem.eql(u8, types.symbolName(sym), "not")) {
+                    new_test = new_test.data.call.args[0];
+                    return ir.makeIf(new_test, new_alt orelse (ir.makeConst(types.VOID) catch return node), new_cons) catch return node;
+                }
+            }
+
+            if (new_test != data.test_expr or new_cons != data.consequent or
+                (data.alternate != null and new_alt != data.alternate.?))
+            {
+                return ir.makeIf(new_test, new_cons, new_alt) catch return node;
+            }
+            return node;
+        },
+        .begin => {
+            var changed = false;
+            var buf: [256]*Node = undefined;
+            for (node.data.begin, 0..) |expr, i| {
+                buf[i] = simplifyBooleans(ir, expr);
+                if (buf[i] != expr) changed = true;
+            }
+            if (changed) return ir.makeBegin(buf[0..node.data.begin.len]) catch return node;
+            return node;
+        },
+        .call => {
+            const call = node.data.call;
+            // (not (not X)) → X
+            if (call.args.len == 1 and call.operator.tag == .global_ref) {
+                const sym = call.operator.data.global_ref;
+                if (types.isSymbol(sym) and std.mem.eql(u8, types.symbolName(sym), "not")) {
+                    const inner = call.args[0];
+                    if (inner.tag == .call and inner.data.call.args.len == 1 and
+                        inner.data.call.operator.tag == .global_ref)
+                    {
+                        const inner_sym = inner.data.call.operator.data.global_ref;
+                        if (types.isSymbol(inner_sym) and std.mem.eql(u8, types.symbolName(inner_sym), "not")) {
+                            return inner.data.call.args[0];
+                        }
+                    }
+                }
+            }
+            return node;
+        },
+        else => return node,
+    }
+}
+
+// ---------------------------------------------------------------------------
 // IR → bytecode emission (standalone, used by Stage 1 parity tests)
 // ---------------------------------------------------------------------------
 
