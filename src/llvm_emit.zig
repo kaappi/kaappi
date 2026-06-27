@@ -6,21 +6,23 @@ const Value = types.Value;
 
 pub const LLVMEmitter = struct {
     buf: std.ArrayList(u8),
-    symbols: std.StringHashMap(void),
+    symbols: std.StringHashMap(u32),
     string_decls: std.ArrayList([]const u8),
     tmp_counter: u32,
     label_counter: u32,
     string_counter: u32,
+    sym_counter: u32,
     allocator: std.mem.Allocator,
 
     pub fn init(allocator: std.mem.Allocator) LLVMEmitter {
         return .{
             .buf = .empty,
-            .symbols = std.StringHashMap(void).init(allocator),
+            .symbols = std.StringHashMap(u32).init(allocator),
             .string_decls = .empty,
             .tmp_counter = 0,
             .label_counter = 0,
             .string_counter = 0,
+            .sym_counter = 0,
             .allocator = allocator,
         };
     }
@@ -50,10 +52,12 @@ pub const LLVMEmitter = struct {
         try self.emitPreamble();
 
         // Emit all symbol constants collected during body emission
-        var sym_iter = self.symbols.keyIterator();
+        var sym_iter = self.symbols.iterator();
         try self.write("\n");
-        while (sym_iter.next()) |key| {
-            try self.print("@.sym.{s} = private unnamed_addr constant [{d} x i8] c\"{s}\"\n", .{ key.*, key.len, key.* });
+        while (sym_iter.next()) |entry| {
+            const name = entry.key_ptr.*;
+            const id = entry.value_ptr.*;
+            try self.print("@.sym.{d} = private unnamed_addr constant [{d} x i8] c\"{s}\"\n", .{ id, name.len, name });
         }
 
         for (self.string_decls.items) |decl| {
@@ -205,9 +209,12 @@ pub const LLVMEmitter = struct {
 
     fn internSymbol(self: *LLVMEmitter, name: []const u8) EmitError![]const u8 {
         if (!self.symbols.contains(name)) {
-            self.symbols.put(name, {}) catch return error.OutOfMemory;
+            const id = self.sym_counter;
+            self.sym_counter += 1;
+            self.symbols.put(name, id) catch return error.OutOfMemory;
         }
-        return std.fmt.allocPrint(self.allocator, "@.sym.{s}", .{name}) catch return error.OutOfMemory;
+        const id = self.symbols.get(name).?;
+        return std.fmt.allocPrint(self.allocator, "@.sym.{d}", .{id}) catch return error.OutOfMemory;
     }
 
     fn internString(self: *LLVMEmitter, data: []const u8) EmitError![]const u8 {

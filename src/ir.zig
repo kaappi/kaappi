@@ -362,9 +362,9 @@ fn lowerFormWithMacros(ir: *IR, expr: Value, macros: ?*std.StringHashMap(Value))
             } else break;
         }
 
-        if (std.mem.eql(u8, effective_name, "if")) return lowerIf(ir, types.cdr(expr));
+        if (std.mem.eql(u8, effective_name, "if")) return lowerIf(ir, types.cdr(expr), macros);
         if (std.mem.eql(u8, effective_name, "quote")) return lowerQuote(ir, types.cdr(expr));
-        if (std.mem.eql(u8, effective_name, "begin")) return lowerBegin(ir, types.cdr(expr));
+        if (std.mem.eql(u8, effective_name, "begin")) return lowerBegin(ir, types.cdr(expr), macros);
         if (std.mem.eql(u8, effective_name, "lambda")) return ir.makeLambda(types.cdr(expr), null);
         if (std.mem.eql(u8, effective_name, "let")) return lowerLet(ir, expr);
         if (std.mem.eql(u8, effective_name, "let*")) return ir.makeLetStar(types.cdr(expr));
@@ -373,10 +373,10 @@ fn lowerFormWithMacros(ir: *IR, expr: Value, macros: ?*std.StringHashMap(Value))
         if (std.mem.eql(u8, effective_name, "define")) return lowerDefine(ir, expr);
         if (std.mem.eql(u8, effective_name, "define-values")) return ir.makeSexprNode(.define_values, types.cdr(expr));
         if (std.mem.eql(u8, effective_name, "set!")) return lowerSet(ir, types.cdr(expr));
-        if (std.mem.eql(u8, effective_name, "and")) return lowerList(ir, types.cdr(expr), .and_form);
-        if (std.mem.eql(u8, effective_name, "or")) return lowerList(ir, types.cdr(expr), .or_form);
-        if (std.mem.eql(u8, effective_name, "when")) return lowerCondBody(ir, types.cdr(expr), .when_form);
-        if (std.mem.eql(u8, effective_name, "unless")) return lowerCondBody(ir, types.cdr(expr), .unless_form);
+        if (std.mem.eql(u8, effective_name, "and")) return lowerList(ir, types.cdr(expr), .and_form, macros);
+        if (std.mem.eql(u8, effective_name, "or")) return lowerList(ir, types.cdr(expr), .or_form, macros);
+        if (std.mem.eql(u8, effective_name, "when")) return lowerCondBody(ir, types.cdr(expr), .when_form, macros);
+        if (std.mem.eql(u8, effective_name, "unless")) return lowerCondBody(ir, types.cdr(expr), .unless_form, macros);
         if (std.mem.eql(u8, effective_name, "cond")) return ir.makeSexprNode(.cond, types.cdr(expr));
         if (std.mem.eql(u8, effective_name, "case")) return ir.makeSexprNode(.case_form, types.cdr(expr));
         if (std.mem.eql(u8, effective_name, "case-lambda")) return ir.makeSexprNode(.case_lambda, types.cdr(expr));
@@ -400,95 +400,18 @@ fn lowerFormWithMacros(ir: *IR, expr: Value, macros: ?*std.StringHashMap(Value))
         }
 
         if (tryFoldFromAST(ir, expr)) |folded| return folded;
-        return lowerCall(ir, expr);
+        return lowerCall(ir, expr, macros);
     }
 
     if (tryFoldFromAST(ir, expr)) |folded| return folded;
-    return lowerCall(ir, expr);
+    return lowerCall(ir, expr, macros);
 }
 
 pub fn lower(ir: *IR, expr: Value) CompileError!*Node {
-    if (types.isFixnum(expr) or types.isFlonum(expr) or types.isBignum(expr) or
-        types.isComplex(expr) or types.isRationalObj(expr) or types.isString(expr) or
-        types.isChar(expr) or types.isVector(expr) or types.isBytevector(expr))
-    {
-        return ir.makeConst(expr);
-    }
-
-    if (expr == types.TRUE or expr == types.FALSE or expr == types.NIL) {
-        return ir.makeConst(expr);
-    }
-
-    if (types.isSymbol(expr)) {
-        return ir.makeGlobalRef(expr);
-    }
-
-    if (types.isPair(expr)) {
-        return lowerForm(ir, expr);
-    }
-
-    return CompileError.InvalidSyntax;
+    return lowerWithMacros(ir, expr, null);
 }
 
-fn lowerForm(ir: *IR, expr: Value) CompileError!*Node {
-    const head = types.car(expr);
-
-    if (types.isSymbol(head)) {
-        const name = types.symbolName(head);
-
-        var effective_name = name;
-        while (std.mem.startsWith(u8, effective_name, "__hyg_")) {
-            if (std.mem.indexOfScalar(u8, effective_name[6..], '_')) |sep| {
-                effective_name = effective_name[6 + sep + 1 ..];
-            } else break;
-        }
-
-        if (std.mem.eql(u8, effective_name, "if")) return lowerIf(ir, types.cdr(expr));
-        if (std.mem.eql(u8, effective_name, "quote")) return lowerQuote(ir, types.cdr(expr));
-        if (std.mem.eql(u8, effective_name, "begin")) return lowerBegin(ir, types.cdr(expr));
-        if (std.mem.eql(u8, effective_name, "lambda")) return ir.makeLambda(types.cdr(expr), null);
-        if (std.mem.eql(u8, effective_name, "let")) return lowerLet(ir, expr);
-        if (std.mem.eql(u8, effective_name, "let*")) return ir.makeLetStar(types.cdr(expr));
-        if (std.mem.eql(u8, effective_name, "letrec")) return ir.makeLetrec(types.cdr(expr));
-        if (std.mem.eql(u8, effective_name, "letrec*")) return ir.makeLetrecStar(types.cdr(expr));
-        if (std.mem.eql(u8, effective_name, "define")) return lowerDefine(ir, expr);
-        if (std.mem.eql(u8, effective_name, "define-values")) return ir.makeSexprNode(.define_values, types.cdr(expr));
-        if (std.mem.eql(u8, effective_name, "set!")) return lowerSet(ir, types.cdr(expr));
-        if (std.mem.eql(u8, effective_name, "and")) return lowerList(ir, types.cdr(expr), .and_form);
-        if (std.mem.eql(u8, effective_name, "or")) return lowerList(ir, types.cdr(expr), .or_form);
-        if (std.mem.eql(u8, effective_name, "when")) return lowerCondBody(ir, types.cdr(expr), .when_form);
-        if (std.mem.eql(u8, effective_name, "unless")) return lowerCondBody(ir, types.cdr(expr), .unless_form);
-        if (std.mem.eql(u8, effective_name, "cond")) return ir.makeSexprNode(.cond, types.cdr(expr));
-        if (std.mem.eql(u8, effective_name, "case")) return ir.makeSexprNode(.case_form, types.cdr(expr));
-        if (std.mem.eql(u8, effective_name, "case-lambda")) return ir.makeSexprNode(.case_lambda, types.cdr(expr));
-        if (std.mem.eql(u8, effective_name, "do")) return ir.makeSexprNode(.do_form, types.cdr(expr));
-        if (std.mem.eql(u8, effective_name, "guard")) return ir.makeSexprNode(.guard, types.cdr(expr));
-        if (std.mem.eql(u8, effective_name, "delay")) return ir.makeSexprNode(.delay, types.cdr(expr));
-        if (std.mem.eql(u8, effective_name, "delay-force")) return ir.makeSexprNode(.delay_force, types.cdr(expr));
-        if (std.mem.eql(u8, effective_name, "quasiquote")) return ir.makeSexprNode(.quasiquote, types.cdr(expr));
-        if (std.mem.eql(u8, effective_name, "parameterize")) return ir.makeSexprNode(.parameterize, types.cdr(expr));
-        if (std.mem.eql(u8, effective_name, "let-values")) return ir.makeSexprNode(.let_values, types.cdr(expr));
-        if (std.mem.eql(u8, effective_name, "let*-values")) return ir.makeSexprNode(.let_star_values, types.cdr(expr));
-        if (std.mem.eql(u8, effective_name, "define-syntax")) return ir.makeSexprNode(.define_syntax, types.cdr(expr));
-        if (std.mem.eql(u8, effective_name, "let-syntax")) return ir.makeSexprNode(.let_syntax, types.cdr(expr));
-        if (std.mem.eql(u8, effective_name, "letrec-syntax")) return ir.makeSexprNode(.letrec_syntax, types.cdr(expr));
-        if (std.mem.eql(u8, effective_name, "cond-expand")) return ir.makeSexprNode(.cond_expand, types.cdr(expr));
-
-        // Remaining: syntax-rules (error), syntax-error (error), apply (tail)
-        if (isSpecialForm(effective_name)) return ir.makePassthrough(expr);
-    }
-
-    // For calls where the operator is NOT a known special-form keyword,
-    // check if constant folding applies. If not, passthrough to the
-    // compiler which handles macro expansion and local shadowing.
-    if (types.isSymbol(head)) {
-        if (tryFoldFromAST(ir, expr)) |folded| return folded;
-    }
-
-    return ir.makePassthrough(expr);
-}
-
-fn lowerIf(ir: *IR, args: Value) CompileError!*Node {
+fn lowerIf(ir: *IR, args: Value, macros: ?*std.StringHashMap(Value)) CompileError!*Node {
     if (args == types.NIL) return CompileError.InvalidSyntax;
     const test_expr = types.car(args);
     const rest = types.cdr(args);
@@ -496,10 +419,10 @@ fn lowerIf(ir: *IR, args: Value) CompileError!*Node {
     const consequent = types.car(rest);
     const rest2 = types.cdr(rest);
 
-    const test_node = try lower(ir, test_expr);
-    const cons_node = try lower(ir, consequent);
+    const test_node = try lowerWithMacros(ir, test_expr, macros);
+    const cons_node = try lowerWithMacros(ir, consequent, macros);
     const alt_node: ?*Node = if (rest2 != types.NIL)
-        try lower(ir, types.car(rest2))
+        try lowerWithMacros(ir, types.car(rest2), macros)
     else
         null;
 
@@ -511,14 +434,14 @@ fn lowerQuote(ir: *IR, args: Value) CompileError!*Node {
     return ir.makeConst(types.car(args));
 }
 
-fn lowerBegin(ir: *IR, args: Value) CompileError!*Node {
+fn lowerBegin(ir: *IR, args: Value, macros: ?*std.StringHashMap(Value)) CompileError!*Node {
     var buf: [256]*Node = undefined;
     var count: usize = 0;
     var current = args;
     while (current != types.NIL) {
         if (!types.isPair(current)) return CompileError.InvalidSyntax;
         if (count >= 256) return CompileError.InternalLimit;
-        buf[count] = try lower(ir, types.car(current));
+        buf[count] = try lowerWithMacros(ir, types.car(current), macros);
         count += 1;
         current = types.cdr(current);
     }
@@ -553,14 +476,14 @@ fn lowerSet(ir: *IR, args: Value) CompileError!*Node {
     return ir.makeSet(name, types.car(rest));
 }
 
-fn lowerList(ir: *IR, args: Value, tag: NodeTag) CompileError!*Node {
+fn lowerList(ir: *IR, args: Value, tag: NodeTag, macros: ?*std.StringHashMap(Value)) CompileError!*Node {
     var buf: [256]*Node = undefined;
     var count: usize = 0;
     var current = args;
     while (current != types.NIL) {
         if (!types.isPair(current)) return CompileError.InvalidSyntax;
         if (count >= 256) return CompileError.InternalLimit;
-        buf[count] = try lower(ir, types.car(current));
+        buf[count] = try lowerWithMacros(ir, types.car(current), macros);
         count += 1;
         current = types.cdr(current);
     }
@@ -571,9 +494,9 @@ fn lowerList(ir: *IR, args: Value, tag: NodeTag) CompileError!*Node {
     };
 }
 
-fn lowerCondBody(ir: *IR, args: Value, tag: NodeTag) CompileError!*Node {
+fn lowerCondBody(ir: *IR, args: Value, tag: NodeTag, macros: ?*std.StringHashMap(Value)) CompileError!*Node {
     if (args == types.NIL) return CompileError.InvalidSyntax;
-    const test_expr = try lower(ir, types.car(args));
+    const test_expr = try lowerWithMacros(ir, types.car(args), macros);
 
     var buf: [256]*Node = undefined;
     var count: usize = 0;
@@ -581,7 +504,7 @@ fn lowerCondBody(ir: *IR, args: Value, tag: NodeTag) CompileError!*Node {
     while (current != types.NIL) {
         if (!types.isPair(current)) return CompileError.InvalidSyntax;
         if (count >= 256) return CompileError.InternalLimit;
-        buf[count] = try lower(ir, types.car(current));
+        buf[count] = try lowerWithMacros(ir, types.car(current), macros);
         count += 1;
         current = types.cdr(current);
     }
@@ -592,11 +515,11 @@ fn lowerCondBody(ir: *IR, args: Value, tag: NodeTag) CompileError!*Node {
     };
 }
 
-fn lowerCall(ir: *IR, expr: Value) CompileError!*Node {
+fn lowerCall(ir: *IR, expr: Value, macros: ?*std.StringHashMap(Value)) CompileError!*Node {
     if (tryFoldFromAST(ir, expr)) |folded| return folded;
 
     const operator = types.car(expr);
-    const op_node = try lower(ir, operator);
+    const op_node = try lowerWithMacros(ir, operator, macros);
 
     var arg_buf: [256]*Node = undefined;
     var nargs: usize = 0;
@@ -604,7 +527,7 @@ fn lowerCall(ir: *IR, expr: Value) CompileError!*Node {
     while (arg_list != types.NIL) {
         if (!types.isPair(arg_list)) return CompileError.InvalidSyntax;
         if (nargs >= 256) return CompileError.InternalLimit;
-        arg_buf[nargs] = try lower(ir, types.car(arg_list));
+        arg_buf[nargs] = try lowerWithMacros(ir, types.car(arg_list), macros);
         nargs += 1;
         arg_list = types.cdr(arg_list);
     }
