@@ -1,6 +1,7 @@
 const std = @import("std");
 const ir = @import("ir.zig");
 const types = @import("types.zig");
+const printer = @import("printer.zig");
 
 const Value = types.Value;
 
@@ -79,6 +80,7 @@ pub const LLVMEmitter = struct {
             .begin => try self.emitBegin(node.data.begin),
             .@"if" => try self.emitIf(node.data.@"if"),
             .define => try self.emitDefine(node.data.define),
+            .lambda => try self.emitLambda(node.data.lambda),
             .passthrough => return error.UnsupportedNodeType,
             else => error.UnsupportedNodeType,
         };
@@ -195,9 +197,10 @@ pub const LLVMEmitter = struct {
         const name = types.symbolName(data.name);
         const sym_name = try self.internSymbol(name);
 
-        // DefineData.value is a raw S-expression Value, not an IR node.
-        // Handle literal constants directly.
-        const val = try self.emitConstant(data.value);
+        const val = if (types.isPair(data.value))
+            try self.emitEvalExpr(data.value)
+        else
+            try self.emitConstant(data.value);
 
         try self.print("  call void @kaappi_define_global(ptr %vm, ptr {s}, i64 {d}, i64 {s})\n", .{ sym_name, name.len, val });
 
@@ -205,6 +208,39 @@ pub const LLVMEmitter = struct {
         const void_val: i64 = @bitCast(types.VOID);
         try self.print("  {s} = add i64 0, {d}\n", .{ result, void_val });
         return result;
+    }
+
+    fn emitLambda(self: *LLVMEmitter, data: ir.LambdaData) EmitError![]const u8 {
+        var source_buf: std.ArrayList(u8) = .empty;
+        defer source_buf.deinit(self.allocator);
+        source_buf.appendSlice(self.allocator, "(lambda ") catch return error.OutOfMemory;
+
+        var current = data.args;
+        var first = true;
+        while (current != types.NIL and types.isPair(current)) {
+            if (!first) source_buf.append(self.allocator, ' ') catch return error.OutOfMemory;
+            first = false;
+            const elem = types.car(current);
+            const elem_str = printer.valueToString(self.allocator, elem, .write) catch return error.OutOfMemory;
+            defer self.allocator.free(elem_str);
+            source_buf.appendSlice(self.allocator, elem_str) catch return error.OutOfMemory;
+            current = types.cdr(current);
+        }
+        source_buf.append(self.allocator, ')') catch return error.OutOfMemory;
+
+        const str_name = try self.internString(source_buf.items);
+        const tmp = try self.freshTemp();
+        try self.print("  {s} = call i64 @kaappi_eval(ptr %vm, ptr {s}, i64 {d})\n", .{ tmp, str_name, source_buf.items.len });
+        return tmp;
+    }
+
+    fn emitEvalExpr(self: *LLVMEmitter, value: Value) EmitError![]const u8 {
+        const source = printer.valueToString(self.allocator, value, .write) catch return error.OutOfMemory;
+        defer self.allocator.free(source);
+        const str_name = try self.internString(source);
+        const tmp = try self.freshTemp();
+        try self.print("  {s} = call i64 @kaappi_eval(ptr %vm, ptr {s}, i64 {d})\n", .{ tmp, str_name, source.len });
+        return tmp;
     }
 
     fn internSymbol(self: *LLVMEmitter, name: []const u8) EmitError![]const u8 {
@@ -264,6 +300,7 @@ pub const LLVMEmitter = struct {
         try self.write("declare i64 @kaappi_call_scheme(ptr, i64, ptr, i64)\n");
         try self.write("declare void @kaappi_define_global(ptr, ptr, i64, i64)\n");
         try self.write("declare i64 @kaappi_make_string(ptr, ptr, i64)\n");
+        try self.write("declare i64 @kaappi_eval(ptr, ptr, i64)\n");
     }
 
     fn freshTemp(self: *LLVMEmitter) EmitError![]const u8 {

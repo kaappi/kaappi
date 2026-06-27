@@ -77,23 +77,26 @@ export fn kaappi_make_string(vm: ?*vm_mod.VM, str_ptr: [*]const u8, str_len: u64
     return result;
 }
 
+export fn kaappi_eval(vm: ?*vm_mod.VM, src_ptr: [*]const u8, src_len: u64) callconv(.c) u64 {
+    const v = vm orelse return 0;
+    const len: usize = @intCast(src_len);
+    const source = src_ptr[0..len];
+    const result = v.eval(source) catch {
+        _ = std.posix.system.write(2, "eval error\n", 11);
+        std.process.exit(1);
+    };
+    return result;
+}
+
 export fn kaappi_call_scheme(vm: ?*vm_mod.VM, callee: u64, args_ptr: ?[*]const u64, nargs: u64) callconv(.c) u64 {
-    _ = vm;
+    const v = vm orelse {
+        _ = std.posix.system.write(2, "null vm\n", 8);
+        std.process.exit(1);
+    };
     const n: usize = @intCast(nargs);
     const args: []const Value = if (n > 0 and args_ptr != null) args_ptr.?[0..n] else &.{};
-
-    if (!types.isPointer(callee)) {
-        _ = std.posix.system.write(2, "not a procedure\n", 16);
-        std.process.exit(1);
-    }
-    const obj = types.toObject(callee);
-    if (obj.tag != .native_fn) {
-        _ = std.posix.system.write(2, "not a procedure\n", 16);
-        std.process.exit(1);
-    }
-    const native = obj.as(types.NativeFn);
-    const result = native.func(args) catch {
-        _ = std.posix.system.write(2, "runtime error\n", 14);
+    const result = v.callWithArgs(callee, args) catch {
+        _ = std.posix.system.write(2, "runtime error in call\n", 22);
         std.process.exit(1);
     };
     return result;
