@@ -18,6 +18,9 @@ pub fn build(b: *std.Build) void {
     // Single-step: compile and embed in one build
     const bundle_src = b.option([]const u8, "bundle-src", "Path to .scm source file to compile and embed for standalone binary");
 
+    const do_strip = b.option(bool, "strip", "Strip debug info from binaries (for release builds)") orelse false;
+    const strip: ?bool = if (do_strip) true else null;
+
     const max_frames = b.option(u32, "max-frames", "Maximum call frame depth (default: 480)") orelse 480;
     const max_registers = b.option(u32, "max-registers", "Maximum register count (default: 2048)") orelse 2048;
 
@@ -39,6 +42,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
         .link_libc = true,
+        .strip = strip,
         .single_threaded = if (is_wasm_target) true else null,
     });
     main_mod.addImport("build_options", options.createModule());
@@ -178,6 +182,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
         .link_libc = true,
+        .strip = strip,
     });
     const thottam_exe = b.addExecutable(.{
         .name = "thottam",
@@ -192,6 +197,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
         .link_libc = true,
+        .strip = strip,
     });
     lsp_mod.addImport("build_options", options.createModule());
     lsp_mod.addAnonymousImport("embedded_bytecode", .{
