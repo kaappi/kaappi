@@ -79,6 +79,12 @@ jobs:
       - name: Error format tests
         run: bash tests/scheme/errors/error-format.sh
 
+      - name: E2E tests (LLVM native backend)
+        if: matrix.optimize == 'ReleaseSafe' && matrix.os != 'macos-latest'
+        run: |
+          git clone --depth 1 https://github.com/kaappi/kaappi-bdd.git ../kaappi-bdd
+          bash tests/e2e/run-e2e.sh
+
       - name: thottam integration test
         if: matrix.optimize == 'ReleaseSafe'
         run: |
