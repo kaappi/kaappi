@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.6.6] - 2026-06-27
+
+### Fixed
+- **Expander:** Mismatched-length ellipsis template variables read uninitialized memory; now returns clean error
+- **Reader:** Datum-label placeholder (`#N=`/`#N#`) not GC-rooted — use-after-free during nested read
+- **Reader:** Malformed `#`-prefixed numeric literals (`#d` at EOF, `#e1e19`) panicked instead of clean error
+- **String:** `string-fill!` lacked start/end validation — out-of-range or non-fixnum args aborted the interpreter
+- **String:** `string-ci=?` and friends used downcase instead of case-folding (wrong for long-s, micro sign)
+- **Compiler:** Binding forms (`let`, `let*`, `letrec`, `do`) panicked on malformed or >32-element bindings
+- **Compiler:** `no_collect` leaked on `let-values` error paths, permanently disabling GC in the REPL
+- **Compiler:** `letrec`/`letrec*` stored bindings in shared globals — closures didn't get fresh per-activation state
+- **Compiler:** `let-values` used sequential scoping instead of evaluating all producers in the outer scope (R7RS §4.2.2)
+- **SRFI-18:** `thread-join!` never freed the child VM/GC/heap (memory leak per thread)
+- **SRFI-18:** Child thread data races — globals marking wrote cross-heap mark bits, `markRoots` deadlocked on symbol mutex, fiber result stored child-heap pointers visible to parent GC
+
+### Changed
+- **Build:** Release binaries now stripped (`-Dstrip` option) — Linux x86_64 drops from 9.6 MB to 1.7 MB
+
 ## [0.6.5] - 2026-06-27
 
 ### Changed
