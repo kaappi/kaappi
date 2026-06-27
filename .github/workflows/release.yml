@@ -35,7 +35,7 @@ jobs:
           version: 0.16.0
 
       - name: Build release binaries
-        run: zig build -Doptimize=ReleaseSafe -Dtarget=${{ matrix.target }}
+        run: zig build -Doptimize=ReleaseSafe -Dtarget=${{ matrix.target }} -Dstrip=true
 
       - name: Sign and notarize macOS binaries
         if: matrix.target == 'aarch64-macos'
