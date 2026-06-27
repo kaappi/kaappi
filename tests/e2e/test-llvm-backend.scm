@@ -49,6 +49,16 @@
       (expect "hello" to-equal "hello"))
 
     (it "measures string length"
-      (expect (string-length "world") to-equal 5))))
+      (expect (string-length "world") to-equal 5)))
+
+  (describe "lambda"
+    (it "applies inline lambda"
+      (expect ((lambda (x) (+ x 1)) 41) to-equal 42))
+
+    (it "applies lambda with multiple args"
+      (expect ((lambda (a b) (+ a b)) 3 7) to-equal 10))
+
+    (it "supports nested lambda (closure)"
+      (expect (((lambda (n) (lambda (x) (+ n x))) 10) 5) to-equal 15))))
 
 (run-specs)
