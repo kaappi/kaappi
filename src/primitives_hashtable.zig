@@ -34,6 +34,8 @@ pub fn registerHashTable(vm: *vm_mod.VM) !void {
     try reg(vm, "hash-table-ref/default", &hashTableRefDefaultFn, .{ .exact = 3 });
     try reg(vm, "hash-table-fold", &hashTableFoldFn, .{ .exact = 3 });
     try reg(vm, "hash-table-merge!", &hashTableMergeFn, .{ .exact = 2 });
+    try reg(vm, "hash-table-equivalence-function", &hashTableEquivFn, .{ .exact = 1 });
+    try reg(vm, "hash-table-hash-function", &hashTableHashFn, .{ .exact = 1 });
 }
 
 // ---------------------------------------------------------------------------
@@ -498,4 +500,16 @@ fn hashTableMergeFn(args: []const Value) PrimitiveError!Value {
         }
     }
     return args[0];
+}
+
+fn hashTableEquivFn(args: []const Value) PrimitiveError!Value {
+    _ = getHashTable("hash-table-equivalence-function", args[0]) catch return PrimitiveError.TypeError;
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError;
+    return vm.globals.get("equal?") orelse return PrimitiveError.TypeError;
+}
+
+fn hashTableHashFn(args: []const Value) PrimitiveError!Value {
+    _ = getHashTable("hash-table-hash-function", args[0]) catch return PrimitiveError.TypeError;
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError;
+    return vm.globals.get("hash") orelse return PrimitiveError.TypeError;
 }

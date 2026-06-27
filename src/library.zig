@@ -542,17 +542,18 @@ pub fn registerStandardLibraries(registry: *LibraryRegistry, globals: *std.Strin
 
     // SRFI-69: Hash Tables
     const srfi69_names = [_][]const u8{
-        "make-hash-table",        "hash-table?",
-        "hash-table-ref",         "hash-table-set!",
-        "hash-table-delete!",     "hash-table-exists?",
-        "hash-table-size",        "hash-table-keys",
-        "hash-table-values",      "hash-table-walk",
-        "hash-table->alist",      "alist->hash-table",
-        "hash-table-copy",        "hash-table-update!/default",
-        "hash",                   "string-hash",
-        "string-ci-hash",         "hash-by-identity",
-        "hash-table-ref/default", "hash-table-fold",
-        "hash-table-merge!",
+        "make-hash-table",          "hash-table?",
+        "hash-table-ref",           "hash-table-set!",
+        "hash-table-delete!",       "hash-table-exists?",
+        "hash-table-size",          "hash-table-keys",
+        "hash-table-values",        "hash-table-walk",
+        "hash-table->alist",        "alist->hash-table",
+        "hash-table-copy",          "hash-table-update!/default",
+        "hash",                     "string-hash",
+        "string-ci-hash",           "hash-by-identity",
+        "hash-table-ref/default",   "hash-table-fold",
+        "hash-table-merge!",        "hash-table-equivalence-function",
+        "hash-table-hash-function",
     };
     var srfi69_lib = Library.init(allocator, "srfi.69");
     for (srfi69_names) |name| {
@@ -893,17 +894,18 @@ pub fn registerSandboxedLibraries(registry: *LibraryRegistry, globals: *std.Stri
 
     // SRFI-69
     const srfi69_names = [_][]const u8{
-        "make-hash-table",        "hash-table?",
-        "hash-table-ref",         "hash-table-set!",
-        "hash-table-delete!",     "hash-table-exists?",
-        "hash-table-size",        "hash-table-keys",
-        "hash-table-values",      "hash-table-walk",
-        "hash-table->alist",      "alist->hash-table",
-        "hash-table-copy",        "hash-table-update!/default",
-        "hash",                   "string-hash",
-        "string-ci-hash",         "hash-by-identity",
-        "hash-table-ref/default", "hash-table-fold",
-        "hash-table-merge!",
+        "make-hash-table",          "hash-table?",
+        "hash-table-ref",           "hash-table-set!",
+        "hash-table-delete!",       "hash-table-exists?",
+        "hash-table-size",          "hash-table-keys",
+        "hash-table-values",        "hash-table-walk",
+        "hash-table->alist",        "alist->hash-table",
+        "hash-table-copy",          "hash-table-update!/default",
+        "hash",                     "string-hash",
+        "string-ci-hash",           "hash-by-identity",
+        "hash-table-ref/default",   "hash-table-fold",
+        "hash-table-merge!",        "hash-table-equivalence-function",
+        "hash-table-hash-function",
     };
     var srfi69_lib = Library.init(allocator, "srfi.69");
     for (srfi69_names) |name| {
