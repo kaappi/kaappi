@@ -1253,11 +1253,14 @@ pub const GC = struct {
         // Mark active FFI callback closures
         const ffi_cb = @import("ffi_callback.zig");
         ffi_cb.markCallbackRoots(self);
-        // Mark interned symbols
+        // Mark interned symbols (take mutex when the table may be shared
+        // with a child thread that concurrently interns symbols)
+        spinLock(&symbol_mutex);
         var it = self.symbols.valueIterator();
         while (it.next()) |v| {
             self.markValue(v.*);
         }
+        spinUnlock(&symbol_mutex);
         // Mark VM-owned roots (live registers, call frames, handlers, winds).
         if (self.root_marker) |mark| mark(self);
     }

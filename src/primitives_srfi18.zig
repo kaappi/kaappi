@@ -374,8 +374,16 @@ fn threadJoinFn(args: []const Value) PrimitiveError!Value {
 
 fn freeChildResources(fiber_key: usize) void {
     while (!child_resources_mutex.tryLock()) {}
-    _ = child_resources.fetchRemove(fiber_key);
+    const entry = child_resources.fetchRemove(fiber_key);
     child_resources_mutex.unlock();
+
+    if (entry) |kv| {
+        const allocator = kv.value.child_gc.allocator;
+        kv.value.child_vm.deinit();
+        allocator.destroy(kv.value.child_vm);
+        kv.value.child_gc.deinit();
+        allocator.destroy(kv.value.child_gc);
+    }
 }
 
 fn threadJoinResult(target: *fiber_mod.Fiber) PrimitiveError!Value {
