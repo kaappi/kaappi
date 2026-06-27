@@ -268,7 +268,7 @@ pub const Compiler = struct {
         // Lower AST to IR, run analysis and optimizations, then emit bytecode.
         var ir = ir_mod.IR.init(self.gc.allocator);
         defer ir.deinit();
-        var root = try ir_mod.lower(&ir, expr_root);
+        var root = try ir_mod.lowerWithMacros(&ir, expr_root, &self.macros);
 
         // Analysis passes
         ir_mod.markTailPositions(root, false);
@@ -638,7 +638,7 @@ pub const Compiler = struct {
             // Lower each expression through the IR pipeline.
             var ir = ir_mod.IR.init(self.gc.allocator);
             defer ir.deinit();
-            var root = try ir_mod.lower(&ir, expr);
+            var root = try ir_mod.lowerWithMacros(&ir, expr, &self.macros);
             ir_mod.markTailPositions(root, false);
             ir_mod.identifyPrimitives(root);
             ir_mod.markConstants(root);
