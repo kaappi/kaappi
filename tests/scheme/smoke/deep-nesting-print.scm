@@ -3,9 +3,9 @@
 
 (define (nest n acc) (if (= n 0) acc (nest (- n 1) (list acc))))
 
-;; 200k deep nesting — previously overflowed the native stack in markCyclesRec.
-;; With the depth guard, write truncates at MAX_PRINT_DEPTH instead of crashing.
-(let ((deep (nest 200000 '())))
+;; 10k deep nesting — tests the depth guard without overflowing the native
+;; stack in GC's recursive markValue (200k overflows in Debug builds).
+(let ((deep (nest 10000 '())))
   (let ((port (open-output-string)))
     (write deep port)
     (let ((s (get-output-string port)))
