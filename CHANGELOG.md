@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.6.5] - 2026-06-27
+
+### Changed
+- **Bytecode:** Register operands widened from u8 to u16 (format version 3→4), raising the per-function register limit from 250 to 2048 for large library modules
+- **Runtime:** Main entry point runs on a worker thread with 64 MB stack to prevent stack overflow from deeply nested `cond`/`if` chains in the compiler's recursive descent
+
+### Fixed
+- **FFI:** 64-bit integer returns (c_long) silently truncated to 48-bit fixnums; now promotes to bignum for values exceeding ±2^47
+- **FFI:** Pointer returns promote to bignum for addresses ≥ 2^47; `marshalToPointer` handles bignum round-trips
+- **FFI:** qsort-shaped handler `(pointer, long, long, pointer) -> void` panicked on negative count/size
+- **FFI:** `validateArg` accepts bignums for `long` and `pointer` FFI types
+- **Printer:** Stack overflow on deeply nested structures (200k+ levels); `markCyclesRec` and `printValue` now enforce `MAX_PRINT_DEPTH`
+- **Vector:** `vector-reverse!`, `vector-reverse-copy`, `vector-unfold` panicked on negative index args (unchecked `@intCast` to `usize`)
+- **String:** `string-take`, `string-drop`, `string-take-right`, `string-drop-right`, `string-pad`, `string-pad-right`, `string-replace`, `string-tabulate`, and `parseStartEnd` panicked on negative index args
+- **String:** `string-pad`/`string-pad-right` crashed on multi-byte pad characters (>255 codepoint)
+- **String:** `string-replace` with `start > end` silently produced corrupted output instead of erroring
+- **Compiler:** `case` treated `=>` as the arrow keyword even when `=>` was lexically bound; `cond` upvalue check also added
+- **Compiler:** Quasiquote with `unquote-splicing` dropped nested `unquote` in sibling elements
+- **GC:** `markValue` overflowed the native stack on deeply nested pair chains; now iterates whichever branch (car or cdr) is deeper instead of recursing on both
+- **GC:** AST nodes collected during macro expansion before the expanded form was rooted; `expandMacro` now suppresses GC until the result is rooted
+- **Runtime:** `typeError` crashed when trying to display GC-corrupted values; now uses safe tag-only description
+- **CI:** `fail-fast: false` in test matrix; R7RS crash diagnostics with stderr capture and `--no-jit` retry
+- **CI:** `run-all.sh` `wait "$pid" || true` masked non-zero exit status, hiding crashed tests
+
 ## [0.6.4] - 2026-06-26
 
 ### Added
