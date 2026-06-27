@@ -19,6 +19,28 @@ pub const NodeTag = enum {
     unless_form,
     define,
     set_form,
+    lambda,
+    let_form,
+    let_star,
+    letrec,
+    letrec_star,
+    do_form,
+    delay,
+    delay_force,
+    cond,
+    case_form,
+    case_lambda,
+    guard,
+    quasiquote,
+    parameterize,
+    define_values,
+    let_values,
+    let_star_values,
+    define_syntax,
+    named_let,
+    let_syntax,
+    letrec_syntax,
+    cond_expand,
     passthrough,
 };
 
@@ -38,6 +60,28 @@ pub const Node = struct {
         unless_form: CondBodyData,
         define: DefineData,
         set_form: SetData,
+        lambda: LambdaData,
+        let_form: LetData,
+        let_star: LetData,
+        letrec: LetData,
+        letrec_star: LetData,
+        do_form: SexprArgs,
+        delay: SexprArgs,
+        delay_force: SexprArgs,
+        cond: SexprArgs,
+        case_form: SexprArgs,
+        case_lambda: SexprArgs,
+        guard: SexprArgs,
+        quasiquote: SexprArgs,
+        parameterize: SexprArgs,
+        define_values: SexprArgs,
+        let_values: SexprArgs,
+        let_star_values: SexprArgs,
+        define_syntax: SexprArgs,
+        named_let: SexprArgs,
+        let_syntax: SexprArgs,
+        letrec_syntax: SexprArgs,
+        cond_expand: SexprArgs,
         passthrough: Value,
     };
 };
@@ -50,6 +94,19 @@ pub const DefineData = struct {
 pub const SetData = struct {
     name: Value,
     value: Value,
+};
+
+pub const LambdaData = struct {
+    args: Value,
+    name: ?[]const u8,
+};
+
+pub const LetData = struct {
+    args: Value,
+};
+
+pub const SexprArgs = struct {
+    args: Value,
 };
 
 pub const CondBodyData = struct {
@@ -94,7 +151,35 @@ pub const IR = struct {
             .or_form => self.allocator.free(node.data.or_form),
             .when_form => self.allocator.free(node.data.when_form.body),
             .unless_form => self.allocator.free(node.data.unless_form.body),
-            .constant, .global_ref, .@"if", .define, .set_form, .passthrough => {},
+            .constant,
+            .global_ref,
+            .@"if",
+            .define,
+            .set_form,
+            .lambda,
+            .let_form,
+            .let_star,
+            .letrec,
+            .letrec_star,
+            .do_form,
+            .delay,
+            .delay_force,
+            .cond,
+            .case_form,
+            .case_lambda,
+            .guard,
+            .quasiquote,
+            .parameterize,
+            .define_values,
+            .let_values,
+            .let_star_values,
+            .define_syntax,
+            .named_let,
+            .let_syntax,
+            .letrec_syntax,
+            .cond_expand,
+            .passthrough,
+            => {},
         }
         self.allocator.destroy(node);
     }
@@ -152,6 +237,49 @@ pub const IR = struct {
         const copy = self.allocator.alloc(*Node, body.len) catch return CompileError.OutOfMemory;
         @memcpy(copy, body);
         return self.allocNode(.unless_form, .{ .unless_form = .{ .test_expr = test_expr, .body = copy } });
+    }
+
+    pub fn makeLambda(self: *IR, args: Value, name: ?[]const u8) CompileError!*Node {
+        return self.allocNode(.lambda, .{ .lambda = .{ .args = args, .name = name } });
+    }
+
+    pub fn makeLet(self: *IR, args: Value) CompileError!*Node {
+        return self.allocNode(.let_form, .{ .let_form = .{ .args = args } });
+    }
+
+    pub fn makeLetStar(self: *IR, args: Value) CompileError!*Node {
+        return self.allocNode(.let_star, .{ .let_star = .{ .args = args } });
+    }
+
+    pub fn makeLetrec(self: *IR, args: Value) CompileError!*Node {
+        return self.allocNode(.letrec, .{ .letrec = .{ .args = args } });
+    }
+
+    pub fn makeLetrecStar(self: *IR, args: Value) CompileError!*Node {
+        return self.allocNode(.letrec_star, .{ .letrec_star = .{ .args = args } });
+    }
+
+    pub fn makeSexprNode(self: *IR, tag: NodeTag, args: Value) CompileError!*Node {
+        return switch (tag) {
+            .do_form => self.allocNode(.do_form, .{ .do_form = .{ .args = args } }),
+            .delay => self.allocNode(.delay, .{ .delay = .{ .args = args } }),
+            .delay_force => self.allocNode(.delay_force, .{ .delay_force = .{ .args = args } }),
+            .cond => self.allocNode(.cond, .{ .cond = .{ .args = args } }),
+            .case_form => self.allocNode(.case_form, .{ .case_form = .{ .args = args } }),
+            .case_lambda => self.allocNode(.case_lambda, .{ .case_lambda = .{ .args = args } }),
+            .guard => self.allocNode(.guard, .{ .guard = .{ .args = args } }),
+            .quasiquote => self.allocNode(.quasiquote, .{ .quasiquote = .{ .args = args } }),
+            .parameterize => self.allocNode(.parameterize, .{ .parameterize = .{ .args = args } }),
+            .define_values => self.allocNode(.define_values, .{ .define_values = .{ .args = args } }),
+            .let_values => self.allocNode(.let_values, .{ .let_values = .{ .args = args } }),
+            .let_star_values => self.allocNode(.let_star_values, .{ .let_star_values = .{ .args = args } }),
+            .define_syntax => self.allocNode(.define_syntax, .{ .define_syntax = .{ .args = args } }),
+            .named_let => self.allocNode(.named_let, .{ .named_let = .{ .args = args } }),
+            .let_syntax => self.allocNode(.let_syntax, .{ .let_syntax = .{ .args = args } }),
+            .letrec_syntax => self.allocNode(.letrec_syntax, .{ .letrec_syntax = .{ .args = args } }),
+            .cond_expand => self.allocNode(.cond_expand, .{ .cond_expand = .{ .args = args } }),
+            else => unreachable,
+        };
     }
 
     pub fn makeDefine(self: *IR, name: Value, value: Value) CompileError!*Node {
@@ -229,16 +357,35 @@ fn lowerForm(ir: *IR, expr: Value) CompileError!*Node {
         if (std.mem.eql(u8, effective_name, "if")) return lowerIf(ir, types.cdr(expr));
         if (std.mem.eql(u8, effective_name, "quote")) return lowerQuote(ir, types.cdr(expr));
         if (std.mem.eql(u8, effective_name, "begin")) return lowerBegin(ir, types.cdr(expr));
+        if (std.mem.eql(u8, effective_name, "lambda")) return ir.makeLambda(types.cdr(expr), null);
+        if (std.mem.eql(u8, effective_name, "let")) return lowerLet(ir, expr);
+        if (std.mem.eql(u8, effective_name, "let*")) return ir.makeLetStar(types.cdr(expr));
+        if (std.mem.eql(u8, effective_name, "letrec")) return ir.makeLetrec(types.cdr(expr));
+        if (std.mem.eql(u8, effective_name, "letrec*")) return ir.makeLetrecStar(types.cdr(expr));
         if (std.mem.eql(u8, effective_name, "define")) return lowerDefine(ir, expr);
+        if (std.mem.eql(u8, effective_name, "define-values")) return ir.makeSexprNode(.define_values, types.cdr(expr));
         if (std.mem.eql(u8, effective_name, "set!")) return lowerSet(ir, types.cdr(expr));
         if (std.mem.eql(u8, effective_name, "and")) return lowerList(ir, types.cdr(expr), .and_form);
         if (std.mem.eql(u8, effective_name, "or")) return lowerList(ir, types.cdr(expr), .or_form);
         if (std.mem.eql(u8, effective_name, "when")) return lowerCondBody(ir, types.cdr(expr), .when_form);
         if (std.mem.eql(u8, effective_name, "unless")) return lowerCondBody(ir, types.cdr(expr), .unless_form);
+        if (std.mem.eql(u8, effective_name, "cond")) return ir.makeSexprNode(.cond, types.cdr(expr));
+        if (std.mem.eql(u8, effective_name, "case")) return ir.makeSexprNode(.case_form, types.cdr(expr));
+        if (std.mem.eql(u8, effective_name, "case-lambda")) return ir.makeSexprNode(.case_lambda, types.cdr(expr));
+        if (std.mem.eql(u8, effective_name, "do")) return ir.makeSexprNode(.do_form, types.cdr(expr));
+        if (std.mem.eql(u8, effective_name, "guard")) return ir.makeSexprNode(.guard, types.cdr(expr));
+        if (std.mem.eql(u8, effective_name, "delay")) return ir.makeSexprNode(.delay, types.cdr(expr));
+        if (std.mem.eql(u8, effective_name, "delay-force")) return ir.makeSexprNode(.delay_force, types.cdr(expr));
+        if (std.mem.eql(u8, effective_name, "quasiquote")) return ir.makeSexprNode(.quasiquote, types.cdr(expr));
+        if (std.mem.eql(u8, effective_name, "parameterize")) return ir.makeSexprNode(.parameterize, types.cdr(expr));
+        if (std.mem.eql(u8, effective_name, "let-values")) return ir.makeSexprNode(.let_values, types.cdr(expr));
+        if (std.mem.eql(u8, effective_name, "let*-values")) return ir.makeSexprNode(.let_star_values, types.cdr(expr));
+        if (std.mem.eql(u8, effective_name, "define-syntax")) return ir.makeSexprNode(.define_syntax, types.cdr(expr));
+        if (std.mem.eql(u8, effective_name, "let-syntax")) return ir.makeSexprNode(.let_syntax, types.cdr(expr));
+        if (std.mem.eql(u8, effective_name, "letrec-syntax")) return ir.makeSexprNode(.letrec_syntax, types.cdr(expr));
+        if (std.mem.eql(u8, effective_name, "cond-expand")) return ir.makeSexprNode(.cond_expand, types.cdr(expr));
 
-        // All other named forms (special forms, macros, user-defined) use
-        // passthrough — the compiler handles macro expansion, local-variable
-        // shadowing, and dispatch for these.
+        // Remaining: syntax-rules (error), syntax-error (error), apply (tail)
         if (isSpecialForm(effective_name)) return ir.makePassthrough(expr);
     }
 
@@ -287,6 +434,14 @@ fn lowerBegin(ir: *IR, args: Value) CompileError!*Node {
         current = types.cdr(current);
     }
     return ir.makeBegin(buf[0..count]);
+}
+
+fn lowerLet(ir: *IR, expr: Value) CompileError!*Node {
+    const args = types.cdr(expr);
+    if (args == types.NIL) return CompileError.InvalidSyntax;
+    const first = types.car(args);
+    if (types.isSymbol(first)) return ir.makeSexprNode(.named_let, args);
+    return ir.makeLet(args);
 }
 
 fn lowerDefine(ir: *IR, expr: Value) CompileError!*Node {
@@ -465,7 +620,35 @@ pub const Emitter = struct {
             .call => try self.emitCall(node.data.call, dst, is_tail),
             .@"if" => try self.emitIf(node.data.@"if", dst, is_tail),
             .begin => try self.emitBegin(node.data.begin, dst, is_tail),
-            .and_form, .or_form, .when_form, .unless_form, .define, .set_form => return CompileError.NotImplemented,
+            .and_form,
+            .or_form,
+            .when_form,
+            .unless_form,
+            .define,
+            .set_form,
+            .lambda,
+            .let_form,
+            .let_star,
+            .letrec,
+            .letrec_star,
+            .do_form,
+            .delay,
+            .delay_force,
+            .cond,
+            .case_form,
+            .case_lambda,
+            .guard,
+            .quasiquote,
+            .parameterize,
+            .define_values,
+            .let_values,
+            .let_star_values,
+            .define_syntax,
+            .named_let,
+            .let_syntax,
+            .letrec_syntax,
+            .cond_expand,
+            => return CompileError.NotImplemented,
             .passthrough => return CompileError.NotImplemented,
         }
     }
