@@ -17,6 +17,8 @@ pub const NodeTag = enum {
     or_form,
     when_form,
     unless_form,
+    define,
+    set_form,
     passthrough,
 };
 
@@ -34,8 +36,20 @@ pub const Node = struct {
         or_form: []const *Node,
         when_form: CondBodyData,
         unless_form: CondBodyData,
+        define: DefineData,
+        set_form: SetData,
         passthrough: Value,
     };
+};
+
+pub const DefineData = struct {
+    name: Value,
+    value: Value,
+};
+
+pub const SetData = struct {
+    name: Value,
+    value: Value,
 };
 
 pub const CondBodyData = struct {
@@ -80,7 +94,7 @@ pub const IR = struct {
             .or_form => self.allocator.free(node.data.or_form),
             .when_form => self.allocator.free(node.data.when_form.body),
             .unless_form => self.allocator.free(node.data.unless_form.body),
-            .constant, .global_ref, .@"if", .passthrough => {},
+            .constant, .global_ref, .@"if", .define, .set_form, .passthrough => {},
         }
         self.allocator.destroy(node);
     }
@@ -138,6 +152,14 @@ pub const IR = struct {
         const copy = self.allocator.alloc(*Node, body.len) catch return CompileError.OutOfMemory;
         @memcpy(copy, body);
         return self.allocNode(.unless_form, .{ .unless_form = .{ .test_expr = test_expr, .body = copy } });
+    }
+
+    pub fn makeDefine(self: *IR, name: Value, value: Value) CompileError!*Node {
+        return self.allocNode(.define, .{ .define = .{ .name = name, .value = value } });
+    }
+
+    pub fn makeSet(self: *IR, name: Value, value: Value) CompileError!*Node {
+        return self.allocNode(.set_form, .{ .set_form = .{ .name = name, .value = value } });
     }
 
     pub fn makePassthrough(self: *IR, expr: Value) CompileError!*Node {
@@ -207,6 +229,8 @@ fn lowerForm(ir: *IR, expr: Value) CompileError!*Node {
         if (std.mem.eql(u8, effective_name, "if")) return lowerIf(ir, types.cdr(expr));
         if (std.mem.eql(u8, effective_name, "quote")) return lowerQuote(ir, types.cdr(expr));
         if (std.mem.eql(u8, effective_name, "begin")) return lowerBegin(ir, types.cdr(expr));
+        if (std.mem.eql(u8, effective_name, "define")) return lowerDefine(ir, expr);
+        if (std.mem.eql(u8, effective_name, "set!")) return lowerSet(ir, types.cdr(expr));
         if (std.mem.eql(u8, effective_name, "and")) return lowerList(ir, types.cdr(expr), .and_form);
         if (std.mem.eql(u8, effective_name, "or")) return lowerList(ir, types.cdr(expr), .or_form);
         if (std.mem.eql(u8, effective_name, "when")) return lowerCondBody(ir, types.cdr(expr), .when_form);
@@ -263,6 +287,26 @@ fn lowerBegin(ir: *IR, args: Value) CompileError!*Node {
         current = types.cdr(current);
     }
     return ir.makeBegin(buf[0..count]);
+}
+
+fn lowerDefine(ir: *IR, expr: Value) CompileError!*Node {
+    const args = types.cdr(expr);
+    if (args == types.NIL) return CompileError.InvalidSyntax;
+    const target = types.car(args);
+    if (types.isPair(target)) return ir.makePassthrough(expr);
+    if (!types.isSymbol(target)) return CompileError.InvalidSyntax;
+    const rest = types.cdr(args);
+    if (rest == types.NIL) return CompileError.InvalidSyntax;
+    return ir.makeDefine(target, types.car(rest));
+}
+
+fn lowerSet(ir: *IR, args: Value) CompileError!*Node {
+    if (args == types.NIL) return CompileError.InvalidSyntax;
+    const name = types.car(args);
+    if (!types.isSymbol(name)) return CompileError.InvalidSyntax;
+    const rest = types.cdr(args);
+    if (rest == types.NIL) return CompileError.InvalidSyntax;
+    return ir.makeSet(name, types.car(rest));
 }
 
 fn lowerList(ir: *IR, args: Value, tag: NodeTag) CompileError!*Node {
@@ -421,7 +465,7 @@ pub const Emitter = struct {
             .call => try self.emitCall(node.data.call, dst, is_tail),
             .@"if" => try self.emitIf(node.data.@"if", dst, is_tail),
             .begin => try self.emitBegin(node.data.begin, dst, is_tail),
-            .and_form, .or_form, .when_form, .unless_form => return CompileError.NotImplemented,
+            .and_form, .or_form, .when_form, .unless_form, .define, .set_form => return CompileError.NotImplemented,
             .passthrough => return CompileError.NotImplemented,
         }
     }
