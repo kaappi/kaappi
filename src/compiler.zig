@@ -298,6 +298,8 @@ pub const Compiler = struct {
             .or_form => try self.compileOrFromIR(node.data.or_form, dst, is_tail),
             .when_form => try self.compileWhenFromIR(node.data.when_form, dst, is_tail),
             .unless_form => try self.compileUnlessFromIR(node.data.unless_form, dst, is_tail),
+            .define => try self.compileDefineFromIR(node.data.define, dst),
+            .set_form => try self.compileSetFromIR(node.data.set_form, dst),
             .passthrough => try self.compileExpr(node.data.passthrough, dst, is_tail),
         }
     }
@@ -430,6 +432,69 @@ pub const Compiler = struct {
             try self.emitU16(base);
             self.freeReg();
         }
+    }
+
+    fn compileDefineFromIR(self: *Compiler, data: ir_mod.DefineData, dst: u16) CompileError!void {
+        try self.compileExpr(data.value, dst, false);
+
+        if (self.func.constants.items.len > 0) {
+            const last_const = self.func.constants.items[self.func.constants.items.len - 1];
+            if (types.isFunction(last_const)) {
+                const child_func = types.toObject(last_const).as(types.Function);
+                if (child_func.name == null) {
+                    child_func.name = types.symbolName(data.name);
+                }
+            }
+        }
+
+        if (self.in_body_scope) {
+            const slot = try self.allocReg();
+            try self.emitOp(.move);
+            try self.emitU16(slot);
+            try self.emitU16(dst);
+            self.locals.append(self.gc.allocator, .{
+                .name = types.symbolName(data.name),
+                .depth = self.scope_depth,
+                .slot = slot,
+            }) catch return CompileError.OutOfMemory;
+            try self.emitOp(.load_void);
+            try self.emitU16(dst);
+            return;
+        }
+        const sym_idx = try self.addConstant(data.name);
+        try self.emitOp(.define_global);
+        try self.emitU16(sym_idx);
+        try self.emitU16(dst);
+        try self.emitOp(.load_void);
+        try self.emitU16(dst);
+    }
+
+    fn compileSetFromIR(self: *Compiler, data: ir_mod.SetData, dst: u16) CompileError!void {
+        const name = types.symbolName(data.name);
+        try self.compileExpr(data.value, dst, false);
+
+        if (self.resolveLocal(name)) |slot| {
+            if (self.isLocalBoxed(name)) {
+                try self.emitOp(.set_box_local);
+                try self.emitU16(slot);
+                try self.emitU16(dst);
+            } else {
+                try self.emitOp(.move);
+                try self.emitU16(slot);
+                try self.emitU16(dst);
+            }
+        } else if (try self.resolveUpvalue(name)) |idx| {
+            try self.emitOp(.set_upvalue);
+            try self.emitU16(idx);
+            try self.emitU16(dst);
+        } else {
+            const sym_idx = try self.addConstant(data.name);
+            try self.emitOp(.set_global);
+            try self.emitU16(sym_idx);
+            try self.emitU16(dst);
+        }
+        try self.emitOp(.load_void);
+        try self.emitU16(dst);
     }
 
     fn compileAndFromIR(self: *Compiler, exprs: []const *ir_mod.Node, dst: u16, is_tail: bool) CompileError!void {
