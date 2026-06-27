@@ -265,10 +265,11 @@ pub const Compiler = struct {
         try self.gc.pushRoot(&expr_root);
         defer self.gc.popRoot();
 
-        // Lower AST to IR, then emit bytecode from the IR tree.
+        // Lower AST to IR, run analysis, then emit bytecode.
         var ir = ir_mod.IR.init(self.gc.allocator);
         defer ir.deinit();
         const root = try ir_mod.lower(&ir, expr_root);
+        ir_mod.markTailPositions(root, false);
 
         const dst = try self.allocReg();
         try self.compileFromNode(root, dst, false);

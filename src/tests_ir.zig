@@ -209,3 +209,63 @@ test "IR behavioral: quasiquote" {
 test "IR behavioral: macros" {
     try expectBehavioralParity("(define-syntax my-add (syntax-rules () ((my-add a b) (+ a b)))) (my-add 3 4)");
 }
+
+// --- Semantic analysis tests ---
+
+test "IR analysis: tail position in if" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var ir = ir_mod.IR.init(std.testing.allocator);
+    defer ir.deinit();
+    const root = try ir_mod.lower(&ir, try readExpr(&gc, "(if #t 1 2)"));
+    ir_mod.markTailPositions(root, false);
+    try std.testing.expect(!root.ann.is_tail);
+    try std.testing.expect(root.tag == .@"if");
+    try std.testing.expect(!root.data.@"if".test_expr.ann.is_tail);
+    try std.testing.expect(!root.data.@"if".consequent.ann.is_tail);
+    try std.testing.expect(!root.data.@"if".alternate.?.ann.is_tail);
+}
+
+test "IR analysis: tail position propagates through if" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var ir = ir_mod.IR.init(std.testing.allocator);
+    defer ir.deinit();
+    const root = try ir_mod.lower(&ir, try readExpr(&gc, "(if #t 1 2)"));
+    ir_mod.markTailPositions(root, true);
+    try std.testing.expect(root.ann.is_tail);
+    try std.testing.expect(!root.data.@"if".test_expr.ann.is_tail);
+    try std.testing.expect(root.data.@"if".consequent.ann.is_tail);
+    try std.testing.expect(root.data.@"if".alternate.?.ann.is_tail);
+}
+
+test "IR analysis: tail position in begin" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var ir = ir_mod.IR.init(std.testing.allocator);
+    defer ir.deinit();
+    const root = try ir_mod.lower(&ir, try readExpr(&gc, "(begin 1 2 3)"));
+    ir_mod.markTailPositions(root, true);
+    try std.testing.expect(root.ann.is_tail);
+    try std.testing.expect(!root.data.begin[0].ann.is_tail);
+    try std.testing.expect(!root.data.begin[1].ann.is_tail);
+    try std.testing.expect(root.data.begin[2].ann.is_tail);
+}
+
+test "IR analysis: tail position in and/or" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var ir = ir_mod.IR.init(std.testing.allocator);
+    defer ir.deinit();
+    const root = try ir_mod.lower(&ir, try readExpr(&gc, "(and 1 2 3)"));
+    ir_mod.markTailPositions(root, true);
+    try std.testing.expect(!root.data.and_form[0].ann.is_tail);
+    try std.testing.expect(!root.data.and_form[1].ann.is_tail);
+    try std.testing.expect(root.data.and_form[2].ann.is_tail);
+}
+
+fn readExpr(gc: *memory.GC, source: []const u8) !types.Value {
+    var reader = reader_mod.Reader.init(gc, source);
+    defer reader.deinit();
+    return reader.readDatum();
+}
