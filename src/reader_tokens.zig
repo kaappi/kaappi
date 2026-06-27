@@ -45,6 +45,7 @@ fn parseDecimalReal(s: []const u8) ?f64 {
 }
 
 pub fn readNumber(self: *Reader) ReadError!Token {
+    if (self.pos >= self.source.len) return ReadError.InvalidNumber;
     const start = self.pos;
     if (self.source[self.pos] == '+' or self.source[self.pos] == '-') {
         self.pos += 1;
@@ -310,6 +311,9 @@ fn applyExactness(tok: Token, exact: ?bool) ReadError!Token {
             .fixnum, .rational, .bignum_str => tok,
             .flonum => |f| blk: {
                 if (!std.math.isFinite(f)) break :blk Token{ .flonum = f };
+                const max_i64_f: f64 = @floatFromInt(@as(i64, std.math.maxInt(i64)));
+                const min_i64_f: f64 = @floatFromInt(@as(i64, std.math.minInt(i64)));
+                if (f > max_i64_f or f < min_i64_f) break :blk Token{ .flonum = f };
                 const trunc: i64 = @intFromFloat(f);
                 if (@as(f64, @floatFromInt(trunc)) == f) break :blk Token{ .fixnum = trunc };
                 // Non-integer float: convert to rational via continued fraction
@@ -320,13 +324,20 @@ fn applyExactness(tok: Token, exact: ?bool) ReadError!Token {
                 var x = @abs(f);
                 var iters: u32 = 0;
                 while (iters < 64) : (iters += 1) {
+                    if (x > max_i64_f) break;
                     const a: i64 = @intFromFloat(x);
-                    const new_num = a * num + prev_num;
-                    const new_den = a * den + prev_den;
+                    const new_num = @mulWithOverflow(a, num);
+                    if (new_num[1] != 0) break;
+                    const final_num = @addWithOverflow(new_num[0], prev_num);
+                    if (final_num[1] != 0) break;
+                    const new_den = @mulWithOverflow(a, den);
+                    if (new_den[1] != 0) break;
+                    const final_den = @addWithOverflow(new_den[0], prev_den);
+                    if (final_den[1] != 0) break;
                     prev_num = num;
                     prev_den = den;
-                    num = new_num;
-                    den = new_den;
+                    num = final_num[0];
+                    den = final_den[0];
                     const approx = @as(f64, @floatFromInt(num)) / @as(f64, @floatFromInt(den));
                     if (@abs(approx - @abs(f)) < 1e-15) break;
                     const frac = x - @as(f64, @floatFromInt(a));
