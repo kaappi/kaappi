@@ -622,3 +622,57 @@ pub fn printCoverageReport(vm: *vm_mod.VM) void {
         writeStderr(summary);
     }
 }
+
+pub fn writeProfileJson(gc: *memory.GC, path: []const u8) void {
+    const fd = std.posix.openat(std.posix.AT.FDCWD, path, .{
+        .ACCMODE = .WRONLY,
+        .CREAT = true,
+        .TRUNC = true,
+    }, 0o644) catch return;
+    defer _ = std.posix.system.close(fd);
+
+    writeToFd(fd, "[");
+    var first = true;
+    var obj = gc.objects;
+    while (obj) |o| {
+        if (o.tag == .function) {
+            const func = o.as(types.Function);
+            if (func.profile_calls > 0) {
+                if (!first) writeToFd(fd, ",");
+                first = false;
+                var buf: [512]u8 = undefined;
+                const s = std.fmt.bufPrint(&buf,
+                    \\{{"name":"{s}","source":"{s}","line":{d},"calls":{d},"self_ns":{d},"total_ns":{d},"alloc_bytes":{d}}}
+                , .{
+                    func.name orelse "(lambda)",
+                    func.source_name orelse "?",
+                    func.source_line,
+                    func.profile_calls,
+                    func.profile_time_ns,
+                    func.profile_inclusive_ns,
+                    func.profile_alloc_bytes,
+                }) catch continue;
+                writeToFd(fd, s);
+            }
+        } else if (o.tag == .native_fn) {
+            const native = o.as(types.NativeFn);
+            if (native.profile_calls > 0) {
+                if (!first) writeToFd(fd, ",");
+                first = false;
+                var buf: [512]u8 = undefined;
+                const s = std.fmt.bufPrint(&buf,
+                    \\{{"name":"{s}","source":"built-in","line":0,"calls":{d},"self_ns":{d},"total_ns":{d},"alloc_bytes":{d}}}
+                , .{
+                    native.name,
+                    native.profile_calls,
+                    native.profile_time_ns,
+                    native.profile_time_ns,
+                    native.profile_alloc_bytes,
+                }) catch continue;
+                writeToFd(fd, s);
+            }
+        }
+        obj = o.next;
+    }
+    writeToFd(fd, "]\n");
+}
