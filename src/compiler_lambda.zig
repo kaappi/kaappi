@@ -229,7 +229,7 @@ pub fn compileDefine(self: *Compiler, args: Value, dst: u16) CompileError!void {
         // Build lambda body list. compileLambda sets the function's name (used
         // for debugging and for self-tail-call detection in the body).
         const lambda_args = self.gc.allocPair(param_formals, rest) catch return CompileError.OutOfMemory;
-        try self.compileLambdaWithIR(lambda_args, dst, types.symbolName(name));
+        try compileLambda(self, lambda_args, dst, types.symbolName(name));
 
         const sym_idx = try self.addConstant(name);
         try self.emitOp(.define_global);
