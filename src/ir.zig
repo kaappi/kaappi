@@ -44,9 +44,14 @@ pub const NodeTag = enum {
     passthrough,
 };
 
+pub const Annotations = struct {
+    is_tail: bool = false,
+};
+
 pub const Node = struct {
     tag: NodeTag,
     data: Data,
+    ann: Annotations = .{},
 
     const Data = union {
         constant: Value,
@@ -590,6 +595,78 @@ fn tryFoldFromAST(ir: *IR, expr: Value) ?*Node {
 
     if (result) |val| return ir.makeConst(val) catch null;
     return null;
+}
+
+// ---------------------------------------------------------------------------
+// Semantic analysis: tail-position marking
+// ---------------------------------------------------------------------------
+
+pub fn markTailPositions(node: *Node, is_tail: bool) void {
+    node.ann.is_tail = is_tail;
+    switch (node.tag) {
+        .@"if" => {
+            markTailPositions(node.data.@"if".test_expr, false);
+            markTailPositions(node.data.@"if".consequent, is_tail);
+            if (node.data.@"if".alternate) |alt| markTailPositions(alt, is_tail);
+        },
+        .begin => {
+            for (node.data.begin, 0..) |expr, i| {
+                markTailPositions(expr, is_tail and i == node.data.begin.len - 1);
+            }
+        },
+        .and_form => {
+            for (node.data.and_form, 0..) |expr, i| {
+                markTailPositions(expr, is_tail and i == node.data.and_form.len - 1);
+            }
+        },
+        .or_form => {
+            for (node.data.or_form, 0..) |expr, i| {
+                markTailPositions(expr, is_tail and i == node.data.or_form.len - 1);
+            }
+        },
+        .when_form => {
+            markTailPositions(node.data.when_form.test_expr, false);
+            for (node.data.when_form.body, 0..) |expr, i| {
+                markTailPositions(expr, is_tail and i == node.data.when_form.body.len - 1);
+            }
+        },
+        .unless_form => {
+            markTailPositions(node.data.unless_form.test_expr, false);
+            for (node.data.unless_form.body, 0..) |expr, i| {
+                markTailPositions(expr, is_tail and i == node.data.unless_form.body.len - 1);
+            }
+        },
+        .call => {
+            markTailPositions(node.data.call.operator, false);
+            for (node.data.call.args) |arg| markTailPositions(arg, false);
+        },
+        .constant, .global_ref, .passthrough => {},
+        .define,
+        .set_form,
+        .lambda,
+        .let_form,
+        .let_star,
+        .letrec,
+        .letrec_star,
+        .do_form,
+        .delay,
+        .delay_force,
+        .cond,
+        .case_form,
+        .case_lambda,
+        .guard,
+        .quasiquote,
+        .parameterize,
+        .define_values,
+        .let_values,
+        .let_star_values,
+        .define_syntax,
+        .named_let,
+        .let_syntax,
+        .letrec_syntax,
+        .cond_expand,
+        => {},
+    }
 }
 
 // ---------------------------------------------------------------------------
