@@ -308,7 +308,7 @@ pub const Compiler = struct {
         switch (node.tag) {
             .constant => try self.emitLoadValue(dst, node.data.constant),
             .global_ref => try self.compileVariable(node.data.global_ref, dst),
-            .call => try self.compileCallFromIR(node.data.call, dst, tail),
+            .call => try self.compileCallFromIR(node.data.call, dst, tail, node.ann.is_primitive_call),
             .@"if" => try self.compileIfFromIR(node.data.@"if", dst, tail),
             .begin => try self.compileBeginFromIR(node.data.begin, dst, tail),
             .and_form => try self.compileAndFromIR(node.data.and_form, dst, tail),
@@ -380,7 +380,8 @@ pub const Compiler = struct {
         }
     }
 
-    fn compileCallFromIR(self: *Compiler, call: ir_mod.CallData, dst: u16, is_tail: bool) CompileError!void {
+    fn compileCallFromIR(self: *Compiler, call: ir_mod.CallData, dst: u16, is_tail: bool, is_primitive: bool) CompileError!void {
+        _ = is_primitive;
         const nargs: u8 = @intCast(call.args.len);
 
         if (!is_tail and call.operator.tag == .global_ref) {
