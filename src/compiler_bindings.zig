@@ -478,8 +478,92 @@ pub fn compileLetBody(self: *Compiler, body: Value, dst: u16, is_tail: bool) Com
 }
 
 /// Compile (let-values (((a b) expr) ...) body ...)
-/// Desugars to nested call-with-values forms.
+/// All producers are evaluated in the outer scope (R7RS §4.2.2).
+/// Desugars to: evaluate all producers into temp lists, then apply consumers.
 pub fn compileLetValues(self: *Compiler, args: Value, dst: u16, is_tail: bool) CompileError!void {
+    if (args == types.NIL) return CompileError.InvalidSyntax;
+    const bindings = types.car(args);
+    const body = types.cdr(args);
+    if (body == types.NIL) return CompileError.InvalidSyntax;
+
+    const gc = self.gc;
+    gc.no_collect += 1;
+    defer gc.no_collect -= 1;
+
+    // Collect all (formals expr) pairs
+    const MAX = 64;
+    var formals_arr: [MAX]Value = undefined;
+    var exprs: [MAX]Value = undefined;
+    var count: usize = 0;
+
+    var bl = bindings;
+    while (bl != types.NIL) {
+        if (!types.isPair(bl)) return CompileError.InvalidSyntax;
+        const binding = types.car(bl);
+        if (!types.isPair(binding)) return CompileError.InvalidSyntax;
+        const expr_rest = types.cdr(binding);
+        if (!types.isPair(expr_rest)) return CompileError.InvalidSyntax;
+        if (count >= MAX) return CompileError.TooManyLocals;
+        formals_arr[count] = types.car(binding);
+        exprs[count] = types.car(expr_rest);
+        count += 1;
+        bl = types.cdr(bl);
+    }
+
+    // Evaluate all producers in outer scope into temp list registers
+    var temp_slots: [MAX]u16 = undefined;
+    const list_sym = gc.allocSymbol("list") catch return CompileError.OutOfMemory;
+    const cwv_sym = gc.allocSymbol("call-with-values") catch return CompileError.OutOfMemory;
+    const lambda_sym = gc.allocSymbol("lambda") catch return CompileError.OutOfMemory;
+
+    for (0..count) |i| {
+        // Build (call-with-values (lambda () expr) list) and compile it
+        const producer_body = gc.allocPair(exprs[i], types.NIL) catch return CompileError.OutOfMemory;
+        const producer_lambda = gc.allocPair(lambda_sym, gc.allocPair(types.NIL, producer_body) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory;
+        var cwv_expr = gc.allocPair(cwv_sym, gc.allocPair(producer_lambda, gc.allocPair(list_sym, types.NIL) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory;
+        try gc.pushRoot(&cwv_expr);
+        const slot = try self.allocReg();
+        temp_slots[i] = slot;
+        try self.compileExpr(cwv_expr, slot, false);
+        gc.popRoot();
+    }
+
+    // Now build nested (apply (lambda (formals) ...) temp) from inside out
+    self.beginScope();
+    var temp_syms: [MAX]Value = undefined;
+    for (0..count) |i| {
+        named_let_counter +%= 1;
+        var buf: [128]u8 = undefined;
+        const temp_name = std.fmt.bufPrint(&buf, "__lv_temp_{d}", .{named_let_counter}) catch
+            return CompileError.OutOfMemory;
+        temp_syms[i] = gc.allocSymbol(temp_name) catch return CompileError.OutOfMemory;
+        try self.addLocal(types.symbolName(temp_syms[i]), temp_slots[i]);
+    }
+
+    var inner = body;
+    const begin_sym = gc.allocSymbol("begin") catch return CompileError.OutOfMemory;
+    inner = gc.allocPair(begin_sym, inner) catch return CompileError.OutOfMemory;
+
+    var j = count;
+    while (j > 0) {
+        j -= 1;
+        const apply_sym = gc.allocSymbol("apply") catch return CompileError.OutOfMemory;
+        const inner_body = gc.allocPair(inner, types.NIL) catch return CompileError.OutOfMemory;
+        const consumer = gc.allocPair(lambda_sym, gc.allocPair(formals_arr[j], inner_body) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory;
+        const temp_sym = temp_syms[j];
+        inner = gc.allocPair(apply_sym, gc.allocPair(consumer, gc.allocPair(temp_sym, types.NIL) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory;
+    }
+
+    var desugared = inner;
+    try gc.pushRoot(&desugared);
+    defer gc.popRoot();
+    try self.compileExpr(desugared, dst, is_tail);
+    self.endScope();
+}
+
+/// Compile (let*-values (((a b) expr) ...) body ...)
+/// Sequential: each producer sees previous bindings (R7RS §4.2.2).
+pub fn compileLetStarValues(self: *Compiler, args: Value, dst: u16, is_tail: bool) CompileError!void {
     if (args == types.NIL) return CompileError.InvalidSyntax;
     const bindings = types.car(args);
     const body = types.cdr(args);
@@ -489,12 +573,6 @@ pub fn compileLetValues(self: *Compiler, args: Value, dst: u16, is_tail: bool) C
     try self.gc.pushRoot(&desugared);
     defer self.gc.popRoot();
     return self.compileExpr(desugared, dst, is_tail);
-}
-
-/// Compile (let*-values (((a b) expr) ...) body ...)
-/// Same as let-values since the nesting is inherently sequential.
-pub fn compileLetStarValues(self: *Compiler, args: Value, dst: u16, is_tail: bool) CompileError!void {
-    return compileLetValues(self, args, dst, is_tail);
 }
 
 /// Build nested call-with-values for a list of bindings.
