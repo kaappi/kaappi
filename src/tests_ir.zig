@@ -401,6 +401,42 @@ test "IR optimization: dead branch elimination — non-constant test unchanged" 
     try std.testing.expect(result.tag == .@"if");
 }
 
+test "IR analysis: constant detection — literal is constant" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var ir = ir_mod.IR.init(std.testing.allocator);
+    defer ir.deinit();
+    const node = try ir.makeConst(types.makeFixnum(42));
+    ir_mod.markConstants(node);
+    try std.testing.expect(node.ann.is_constant);
+}
+
+test "IR analysis: constant detection — primitive call with const args" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var ir = ir_mod.IR.init(std.testing.allocator);
+    defer ir.deinit();
+    const plus_sym = try gc.allocSymbol("+");
+    const op = try ir.makeGlobalRef(plus_sym);
+    const a = try ir.makeConst(types.makeFixnum(1));
+    const b = try ir.makeConst(types.makeFixnum(2));
+    const call = try ir.makeCall(op, &.{ a, b });
+    ir_mod.identifyPrimitives(call);
+    ir_mod.markConstants(call);
+    try std.testing.expect(call.ann.is_constant);
+}
+
+test "IR analysis: constant detection — variable ref is not constant" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var ir = ir_mod.IR.init(std.testing.allocator);
+    defer ir.deinit();
+    const x_sym = try gc.allocSymbol("x");
+    const node = try ir.makeGlobalRef(x_sym);
+    ir_mod.markConstants(node);
+    try std.testing.expect(!node.ann.is_constant);
+}
+
 fn readExpr(gc: *memory.GC, source: []const u8) !types.Value {
     var reader = reader_mod.Reader.init(gc, source);
     defer reader.deinit();

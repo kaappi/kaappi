@@ -271,6 +271,7 @@ pub const Compiler = struct {
         const root = try ir_mod.lower(&ir, expr_root);
         ir_mod.markTailPositions(root, false);
         ir_mod.identifyPrimitives(root);
+        ir_mod.markConstants(root);
 
         const dst = try self.allocReg();
         try self.compileFromNode(root, dst, false);
