@@ -1672,6 +1672,26 @@ fn emitLlvmFile(vm: *vm_mod.VM, path: []const u8, output_path: ?[]const u8) !voi
             return;
         };
 
+        // Handle top-level forms (import, define-library) at compile time
+        // so subsequent expressions can reference imported bindings.
+        // Also emit them as kaappi_eval calls for runtime execution.
+        if (types.isPair(expr)) {
+            const head = types.car(expr);
+            if (types.isSymbol(head)) {
+                const form_name = types.symbolName(head);
+                if (std.mem.eql(u8, form_name, "import") or
+                    std.mem.eql(u8, form_name, "define-library"))
+                {
+                    if (vm.handleTopLevelForm(expr)) |result| {
+                        _ = result catch {};
+                    }
+                    const passthrough_node = ir_instance.makePassthrough(expr) catch continue;
+                    ir_nodes.append(allocator, passthrough_node) catch continue;
+                    continue;
+                }
+            }
+        }
+
         var root = ir_mod.lowerWithMacros(&ir_instance, expr, &vm.macros) catch |err| {
             var errbuf: [256]u8 = undefined;
             const s = std.fmt.bufPrint(&errbuf, "IR lowering error: {}\n", .{err}) catch "IR error\n";
