@@ -1263,17 +1263,39 @@ pub const GC = struct {
     }
 
     pub fn markValue(self: *GC, v: Value) void {
-        if (!types.isPointer(v)) return;
-        const obj = types.toObject(v);
-        if (obj.marked) return;
-        obj.marked = true;
+        var cur = v;
+        while (true) {
+            if (!types.isPointer(cur)) return;
+            const obj = types.toObject(cur);
+            if (obj.marked) return;
+            obj.marked = true;
 
-        switch (obj.tag) {
-            .pair => {
+            if (obj.tag == .pair) {
                 const pair = obj.as(Pair);
-                self.markValue(pair.car);
-                self.markValue(pair.cdr);
-            },
+                const car = pair.car;
+                const cdr = pair.cdr;
+                // Iterate into whichever child is a pair; recurse on the other.
+                // For proper lists (cdr is pair, car is atom): iterate cdr.
+                // For nested lists like (((...))): iterate car (the deep branch).
+                const car_is_ptr = types.isPointer(car);
+                const cdr_is_ptr = types.isPointer(cdr);
+                if (car_is_ptr and cdr_is_ptr) {
+                    self.markValue(car);
+                    cur = cdr;
+                } else if (cdr_is_ptr) {
+                    cur = cdr;
+                } else {
+                    cur = car;
+                }
+                continue;
+            }
+            break;
+        }
+
+        // Non-pair heap object — already marked above, now trace its fields.
+        const obj = types.toObject(cur);
+        switch (obj.tag) {
+            .pair => unreachable,
             .closure => {
                 const cls = obj.as(Closure);
                 self.markValue(types.makePointer(@ptrCast(cls.func)));
