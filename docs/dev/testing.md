@@ -37,6 +37,7 @@ Unit tests live in `src/tests_*.zig`, organized by feature:
 | `tests_continuations.zig` | Continuations (call/cc, dynamic-wind) |
 | `tests_advanced.zig` | Advanced R7RS features |
 | `tests_filesystem.zig` | SRFI-170 filesystem operations |
+| `tests_ir.zig` | IR lowering, analysis passes, optimization passes, bytecode parity |
 | `tests_robustness.zig` | Edge cases and stress tests |
 
 ### Helper: makeTestVM

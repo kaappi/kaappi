@@ -12,23 +12,24 @@ fit together.
 Source code
     |
     v
-+--------+     +----------+     +----------+     +----------+     +----+
-| Reader | --> | Expander | --> | Compiler | --> | Bytecode | --> | VM |
-| (UTF-8 |     | (syntax- |     | (register|     |          |     |    |
-|  lexer)|     |  rules)  |     |  -based) |     |          |     |    |
-+--------+     +----------+     +----------+     +----------+     +----+
-                                                                    |
-                                                              +-----+-----+
-                                                              | GC (mark  |
-                                                              | & sweep)  |
-                                                              +-----------+
++--------+     +----------+     +------+     +----------+     +----------+     +----------+     +----+
+| Reader | --> | Expander | --> |  IR  | --> | Analysis | --> |  Optim.  | --> | Bytecode | --> | VM |
+| (UTF-8 |     | (syntax- |     |      |     |  Passes  |     |  Passes  |     | Emission |     |    |
+|  lexer)|     |  rules)  |     |      |     |          |     |          |     |          |     |    |
++--------+     +----------+     +------+     +----------+     +----------+     +----------+     +----+
+                                                                                                  |
+                                                                                            +-----+-----+
+                                                                                            | GC (mark  |
+                                                                                            | & sweep)  |
+                                                                                            +-----------+
 ```
 
 | Stage | File(s) | Role |
 |-------|---------|------|
 | **Reader** | `reader.zig` | Tokenizer + recursive descent parser. Handles full R7RS lexical syntax including Unicode identifiers, `#\lambda` character literals, `#(...)` vectors, `#u8(...)` bytevectors, datum labels. |
 | **Expander** | `expander.zig` | `syntax-rules` pattern matching with ellipsis, literal identifiers, and underscore wildcards. Template instantiation with hygienic renaming (gensym-based). |
-| **Compiler** | `compiler.zig` + 5 sub-modules | Compiles S-expressions to register-based bytecode. Detects tail positions for proper tail call optimization. Dispatches 32 syntax forms across 6 files. |
+| **IR** | `ir.zig` | Lowers S-expressions to a tree-structured IR (33 node types). Runs 3 analysis passes (tail positions, primitive identification, constant detection) and 5 optimization passes (constant folding, dead branch elimination, boolean simplification, identity elimination, begin simplification). See [ir.md](ir.md) for details. |
+| **Compiler** | `compiler.zig` + 5 sub-modules | Emits register-based bytecode from IR nodes via `compileFromNode()`. Retains `compileExpr()` for forms delegated via `passthrough`. Dispatches 32 syntax forms across 6 files. |
 | **VM** | `vm.zig` + 7 sub-modules | Executes bytecode with a register file, call frame stack, exception handler stack, and dynamic-wind stack. First-class continuations via stack copying, plus a stepping debugger. |
 | **GC** | `memory.zig` | Mark-and-sweep collector with intrusive linked list. Root tracking via `pushRoot`/`popRoot`. Triggered after N allocations. |
 | **Primitives** | 21 `primitives_*.zig` files | 554 built-in procedures organized by domain. |
@@ -49,11 +50,12 @@ Source code
 | `expander.zig` | 320 | Macro expansion engine (syntax-rules) |
 | `printer.zig` | 300 | Value-to-string (write mode and display mode) |
 
-### Compiler (6 files)
+### Compiler & IR (7 files)
 
 | File | Responsibility |
 |------|---------------|
-| `compiler.zig` | Core: expression dispatch, primitive forms (quote, if, call), macro handling, scope/register management |
+| `ir.zig` | IR node types (33), AST→IR lowering, 3 analysis passes, 5 optimization passes, standalone Emitter for parity testing |
+| `compiler.zig` | Core: IR pipeline orchestration (`compile()` lowers to IR, runs passes, emits via `compileFromNode()`), also retains `compileExpr()` for passthrough forms, scope/register management |
 | `compiler_lambda.zig` | lambda, define, set!, begin, delay, delay-force, body compilation |
 | `compiler_conditionals.zig` | and, or, when, unless, cond, cond-expand |
 | `compiler_bindings.zig` | let, let*, letrec, letrec*, named let, do, let-values, let*-values |
@@ -118,6 +120,7 @@ Source code
 | `bytecode_file.zig` | Bytecode serialization/deserialization (.sbc format) |
 | `disassembler.zig` | Bytecode disassembler for `(disassemble proc)` |
 | `testing_helpers.zig` | Shared `makeTestVM` helper for unit tests |
+| `tests_ir.zig` | IR unit tests: bytecode parity, behavioral correctness, analysis passes, optimizations |
 | `tests_*.zig` | Unit tests by feature (core_eval, tail_calls, macros, etc.) |
 
 ---

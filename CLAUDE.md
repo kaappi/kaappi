@@ -73,9 +73,10 @@ and continuation-heavy workloads — only use it when debugging:
 ## Architecture
 
 ```
-Source → Reader → Expander → Compiler → Bytecode → VM
-         (UTF-8    (syntax-    (register-   (mark-and-
-          lexer)    rules)      based)       sweep GC)
+Source → Reader → Expander → IR → Analysis → Optimization → Bytecode Emission → VM
+         (UTF-8    (syntax-    (33 node  (tail pos,    (const fold,     (register-   (mark-and-
+          lexer)    rules)      types)    primitives,   dead branch,      based)       sweep GC)
+                                          constants)    boolean, etc.)
 ```
 
 ### Pipeline stages
@@ -84,7 +85,8 @@ Source → Reader → Expander → Compiler → Bytecode → VM
 |-------|------|------|
 | Reader | `reader.zig` (+ `reader_tokens.zig`, `reader_datum.zig`) | Tokenizer + recursive descent parser. Handles R7RS lexical syntax including Unicode identifiers and `#\λ` character literals. |
 | Expander | `expander.zig` | `syntax-rules` pattern matching and template instantiation. Called by the compiler when a macro keyword is encountered. |
-| Compiler | `compiler.zig` | S-expressions → register-based bytecode. Detects tail positions for TCO. Dispatches derived forms to sub-modules. |
+| IR | `ir.zig` | Lowers S-expressions to tree-structured IR (33 node types). Runs 3 analysis passes (tail positions, primitive identification, constant detection) and 5 optimization passes (constant folding, dead branch elimination, boolean simplification, identity elimination, begin simplification). See `docs/dev/ir.md`. |
+| Compiler | `compiler.zig` | IR nodes → register-based bytecode via `compileFromNode()`. Retains `compileExpr()` for forms delegated via `passthrough`. Dispatches derived forms to sub-modules. |
 | VM | `vm.zig` | Executes bytecode. Register file + call frame stack. Handles continuations (stack-copying), exception handler stack, dynamic-wind stack, stepping debugger. |
 | GC | `memory.zig` | Mark-and-sweep with intrusive linked list. Roots tracked via `gc.pushRoot`/`gc.popRoot`. Triggered after N allocations. |
 
@@ -123,10 +125,11 @@ Exceptions: auto-generated data files (`unicode_tables.zig`) are exempt.
 | `expander.zig` | ~320 | Macro expansion engine (syntax-rules) |
 | `printer.zig` | ~300 | Value → string (write mode and display mode) |
 
-### Compiler (split into 6 files)
+### Compiler & IR (7 files)
 | File | Responsibility |
 |------|---------------|
-| `compiler.zig` | Core: compileExpr dispatch, primitive forms (quote, if, call), macro handling, scope/register management |
+| `ir.zig` | IR node types (33), AST→IR lowering, 3 analysis passes, 5 optimization passes |
+| `compiler.zig` | Core: IR pipeline orchestration (`compile()` lowers to IR, runs passes, emits via `compileFromNode()`), retains `compileExpr()` for passthrough forms, scope/register management |
 | `compiler_lambda.zig` | lambda, define, set!, begin, delay, delay-force, body compilation |
 | `compiler_conditionals.zig` | and, or, when, unless, cond, cond-expand |
 | `compiler_bindings.zig` | let, let*, letrec, letrec*, named let, do, let-values, let*-values |
@@ -187,6 +190,7 @@ Exceptions: auto-generated data files (`unicode_tables.zig`) are exempt.
 | `main.zig` | Entry point, REPL loop with linenoise, file execution, CLI flags, `pub const version` |
 | `thottam.zig` | Package manager binary (thottam): install, remove, list, update, verify |
 | `testing_helpers.zig` | Shared `makeTestVM` helper for unit tests |
+| `tests_ir.zig` | IR tests: bytecode parity, behavioral correctness, analysis, optimizations |
 | `tests_*.zig` | Unit tests by feature (core_eval, tail_calls, macros, io, etc.) |
 
 ### SRFI libraries (in `lib/srfi/`)
@@ -249,14 +253,21 @@ map.deinit();  // no allocator arg needed
 
 ## How to add a new compiler form
 
-1. Add the string match in `compileForm` in `src/compiler.zig`:
+1. Add an IR node type in `src/ir.zig`: add variant to `NodeTag`, add `Data`
+   union variant (use `SexprArgs` for forms that delegate to existing compilers),
+   add lowering in `lowerFormWithMacros()`/`lowerForm()`, handle in the analysis
+   pass switch arms.
+
+2. Add dispatch in `compileFromNode()` in `src/compiler.zig`:
    ```zig
-   if (std.mem.eql(u8, name, "my-form")) return forms.compileMyForm(self, args, dst, is_tail);
+   .my_form => try forms.compileMyForm(self, node.data.my_form.args, dst, tail),
    ```
 
-2. Implement in the appropriate `compiler_*.zig` file.
+3. Implement in the appropriate `compiler_*.zig` file.
 
-3. Add re-export in `compiler_forms.zig`.
+4. Add re-export in `compiler_forms.zig`.
+
+5. Add IR tests in `src/tests_ir.zig` (behavioral parity at minimum).
 
 ## How to add a new heap type
 

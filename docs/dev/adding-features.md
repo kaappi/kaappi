@@ -92,18 +92,49 @@ test in `tests/scheme/`.
 When you need a new special form that the compiler must handle directly
 (not a procedure and not a macro).
 
-### 1. Add the string match
+### 1. Add an IR node type
 
-In `src/compiler.zig`, in the `compileForm` function, add a match for your
-form name:
+In `src/ir.zig`:
+
+a. Add a variant to `NodeTag`:
 
 ```zig
-if (std.mem.eql(u8, name, "my-form")) {
-    return forms.compileMyForm(self, args, dst, is_tail);
-}
+pub const NodeTag = enum {
+    // ... existing tags ...
+    my_form,
+};
 ```
 
-### 2. Implement the compilation
+b. Add the corresponding `Data` union variant. For simple forms with
+sub-expressions that should be analyzed/optimized, define a custom data
+struct and lower recursively. For complex forms, use `SexprArgs` to defer
+to the existing compiler path:
+
+```zig
+// In Node.Data union:
+my_form: SexprArgs,   // delegates body to existing compiler
+```
+
+c. Add lowering in `lowerFormWithMacros()` and `lowerForm()`:
+
+```zig
+if (std.mem.eql(u8, effective_name, "my-form"))
+    return ir.makeSexprNode(.my_form, types.cdr(expr));
+```
+
+d. Handle the new tag in `freeNode`, `markTailPositions`, `identifyPrimitives`,
+and `markConstants` (add to the appropriate switch arms -- usually the
+no-op catch-all arm for `SexprArgs`-based forms).
+
+### 2. Add compilation dispatch
+
+In `src/compiler.zig`, add a case in `compileFromNode()`:
+
+```zig
+.my_form => try forms.compileMyForm(self, node.data.my_form.args, dst, tail),
+```
+
+### 3. Implement the compilation
 
 Choose the appropriate `compiler_*.zig` file based on category:
 
@@ -128,7 +159,7 @@ pub fn compileMyForm(
 }
 ```
 
-### 3. Add the re-export
+### 4. Add the re-export
 
 In `src/compiler_forms.zig`, add a re-export for the new function so the main
 compiler can find it:
@@ -137,10 +168,11 @@ compiler can find it:
 pub const compileMyForm = @import("compiler_advanced.zig").compileMyForm;
 ```
 
-### 4. Test
+### 5. Test
 
 Test both at the Zig level (compile and check emitted bytecode) and at the
-Scheme level (run expressions using the new form).
+Scheme level (run expressions using the new form). Add IR-specific tests
+in `src/tests_ir.zig` -- at minimum a behavioral parity test.
 
 ---
 
