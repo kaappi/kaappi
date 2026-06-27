@@ -932,6 +932,8 @@ pub fn handleDefineLibrary(vm: *VM, args: Value) VMError!Value {
             try compileLibBeginBlock(vm, lib_env, types.cdr(declaration));
         } else if (std.mem.eql(u8, decl_name, "include") or std.mem.eql(u8, decl_name, "include-ci")) {
             try compileLibInclude(vm, lib_env, types.cdr(declaration));
+        } else if (std.mem.eql(u8, decl_name, "include-library-declarations")) {
+            try includeLibraryDeclarations(vm, lib_env, types.cdr(declaration), &export_names, &export_renames, &export_count);
         } else if (std.mem.eql(u8, decl_name, "cond-expand")) {
             var clauses = types.cdr(declaration);
             var matched = false;
@@ -1075,6 +1077,93 @@ fn compileLibInclude(vm: *VM, lib_env: *std.StringHashMap(Value), file_list_val:
         while (file_reader.hasMore()) {
             const inc_expr = file_reader.readDatum() catch return VMError.CompileError;
             try compileLibExpr(vm, lib_env, inc_expr);
+        }
+
+        file_list = types.cdr(file_list);
+    }
+}
+
+fn includeLibraryDeclarations(
+    vm: *VM,
+    lib_env: *std.StringHashMap(Value),
+    file_list_val: Value,
+    export_names: *[128][]const u8,
+    export_renames: *[128]?[]const u8,
+    export_count: *usize,
+) VMError!void {
+    var file_list = file_list_val;
+    while (file_list != types.NIL) {
+        if (!types.isPair(file_list)) return VMError.CompileError;
+        const file_val = types.car(file_list);
+        if (!types.isString(file_val)) return VMError.CompileError;
+        const file_str = types.toObject(file_val).as(types.SchemeString);
+        const file_path = file_str.data[0..file_str.len];
+
+        var resolved_path: ?[]u8 = null;
+        if (vm.current_lib_dir) |dir| {
+            if (dir.len > 0 and file_path.len > 0 and file_path[0] != '/') {
+                resolved_path = std.fmt.allocPrint(vm.gc.allocator, "{s}{s}", .{ dir, file_path }) catch null;
+            }
+        }
+        defer if (resolved_path) |rp| vm.gc.allocator.free(rp);
+
+        const file_source = blk: {
+            if (resolved_path) |rp| {
+                if (readFileOrBundled(vm.gc.allocator, rp, vm.bundled_files)) |src| break :blk src else |_| {}
+            }
+            break :blk readFileOrBundled(vm.gc.allocator, file_path, vm.bundled_files) catch return VMError.CompileError;
+        };
+        defer vm.gc.allocator.free(file_source);
+
+        const reader_mod = @import("reader.zig");
+        var file_reader = reader_mod.Reader.init(vm.gc, file_source);
+        defer file_reader.deinit();
+
+        while (file_reader.hasMore()) {
+            const declaration = file_reader.readDatum() catch return VMError.CompileError;
+            if (!types.isPair(declaration)) return VMError.CompileError;
+            const decl_head = types.car(declaration);
+            if (!types.isSymbol(decl_head)) return VMError.CompileError;
+            const decl_name = types.symbolName(decl_head);
+
+            if (std.mem.eql(u8, decl_name, "export")) {
+                var id_list = types.cdr(declaration);
+                while (id_list != types.NIL) {
+                    if (!types.isPair(id_list)) return VMError.CompileError;
+                    const id = types.car(id_list);
+                    if (types.isSymbol(id)) {
+                        if (export_count.* < 128) {
+                            export_names[export_count.*] = types.symbolName(id);
+                            export_renames[export_count.*] = null;
+                            export_count.* += 1;
+                        }
+                    } else if (types.isPair(id)) {
+                        const rename_head = types.car(id);
+                        if (types.isSymbol(rename_head) and std.mem.eql(u8, types.symbolName(rename_head), "rename")) {
+                            const rename_args = types.cdr(id);
+                            if (types.isPair(rename_args)) {
+                                const internal = types.car(rename_args);
+                                const rest = types.cdr(rename_args);
+                                if (types.isPair(rest) and types.isSymbol(internal)) {
+                                    const external = types.car(rest);
+                                    if (types.isSymbol(external) and export_count.* < 128) {
+                                        export_names[export_count.*] = types.symbolName(internal);
+                                        export_renames[export_count.*] = types.symbolName(external);
+                                        export_count.* += 1;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    id_list = types.cdr(id_list);
+                }
+            } else if (std.mem.eql(u8, decl_name, "import")) {
+                _ = handleImportInto(vm, lib_env, types.cdr(declaration)) catch return VMError.CompileError;
+            } else if (std.mem.eql(u8, decl_name, "begin")) {
+                try compileLibBeginBlock(vm, lib_env, types.cdr(declaration));
+            } else if (std.mem.eql(u8, decl_name, "include") or std.mem.eql(u8, decl_name, "include-ci")) {
+                try compileLibInclude(vm, lib_env, types.cdr(declaration));
+            }
         }
 
         file_list = types.cdr(file_list);
