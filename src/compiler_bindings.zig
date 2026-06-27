@@ -135,76 +135,58 @@ pub fn compileLetrec(self: *Compiler, args: Value, dst: u16, is_tail: bool) Comp
     return compileLetrecImpl(self, args, dst, is_tail, false);
 }
 
-fn compileLetrecImpl(self: *Compiler, args: Value, dst: u16, is_tail: bool, is_star: bool) CompileError!void {
+fn compileLetrecImpl(self: *Compiler, args: Value, dst: u16, is_tail: bool, _: bool) CompileError!void {
     if (args == types.NIL) return CompileError.InvalidSyntax;
     const bindings = types.car(args);
-    var body = types.cdr(args);
+    const body = types.cdr(args);
     if (body == types.NIL) return CompileError.InvalidSyntax;
 
-    // letrec uses globals for mutually recursive closures. Use gensym'd
-    // names to avoid overwriting user-visible globals like even?/odd?.
-    var syms: [32]Value = undefined;
-    var unique_syms: [32]Value = undefined;
-    var inits: [32]Value = undefined;
+    const MAX = 256;
+    var names: [MAX][]const u8 = undefined;
+    var inits: [MAX]Value = undefined;
+    var slots: [MAX]u16 = undefined;
     var count: usize = 0;
 
+    // Parse bindings
     var binding_list = bindings;
     while (binding_list != types.NIL) {
         if (!types.isPair(binding_list)) return CompileError.InvalidSyntax;
         const binding = types.car(binding_list);
         if (!types.isPair(binding)) return CompileError.InvalidSyntax;
-
         const var_name = types.car(binding);
         if (!types.isSymbol(var_name)) return CompileError.InvalidSyntax;
+        if (!types.isPair(types.cdr(binding))) return CompileError.InvalidSyntax;
 
-        syms[count] = var_name;
-        unique_syms[count] = try makeUniqueLoopName(self.gc, types.symbolName(var_name));
+        if (count >= MAX) return CompileError.TooManyLocals;
+        names[count] = types.symbolName(var_name);
         inits[count] = types.car(types.cdr(binding));
         count += 1;
         binding_list = types.cdr(binding_list);
     }
 
-    // Rename all letrec variables in inits and body to gensym'd names
-    for (0..count) |i| {
-        for (0..count) |j| {
-            inits[j] = try renameInBody(self.gc, inits[j], types.symbolName(syms[i]), unique_syms[i]);
-        }
-        body = try renameInBody(self.gc, body, types.symbolName(syms[i]), unique_syms[i]);
-    }
+    self.beginScope();
 
-    // Phase 1: set all gensym'd variables to void
+    // Phase 1: allocate locals initialized to void, box them for closure capture
     for (0..count) |i| {
+        const slot = try self.allocReg();
+        slots[i] = slot;
         try self.emitOp(.load_void);
-        try self.emitU16(dst);
-        const sym_idx = try self.addConstant(unique_syms[i]);
-        try self.emitOp(.define_global);
-        try self.emitU16(sym_idx);
-        try self.emitU16(dst);
+        try self.emitU16(slot);
+        try self.addLocal(names[i], slot);
+        try self.markLocalBoxedBySlot(slot);
     }
 
-    // Phase 2: evaluate inits and assign to gensym'd globals
-    // Check for bare references to uninitialized bindings:
-    // letrec: any reference to another binding is an error (none initialized yet)
-    // letrec*: only forward references (to bindings not yet evaluated) are errors
+    // Phase 2: evaluate inits and assign to boxed locals
     for (0..count) |i| {
-        if (types.isSymbol(inits[i])) {
-            const init_name = types.symbolName(inits[i]);
-            const start_j: usize = if (is_star) i else 0;
-            for (start_j..count) |j| {
-                if (std.mem.eql(u8, init_name, types.symbolName(unique_syms[j]))) {
-                    return CompileError.InvalidSyntax;
-                }
-            }
-        }
         try self.compileExpr(inits[i], dst, false);
-        const sym_idx = try self.addConstant(unique_syms[i]);
-        try self.emitOp(.define_global);
-        try self.emitU16(sym_idx);
+        try self.emitOp(.set_box_local);
+        try self.emitU16(slots[i]);
         try self.emitU16(dst);
     }
 
     // Phase 3: compile body
     try compileLetBody(self, body, dst, is_tail);
+    self.endScope();
 }
 
 pub fn compileLetrecStar(self: *Compiler, args: Value, dst: u16, is_tail: bool) CompileError!void {
