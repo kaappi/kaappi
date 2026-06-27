@@ -67,7 +67,7 @@ assert_native_parity() {
     fi
 
     local clang_output
-    local cc="${CC:-zig cc}"
+    local cc="${KAAPPI_CC:-zig cc}"
     if ! clang_output=$($cc -w "$ll_file" -o "$native_bin" -L"$LIBDIR" -lkaappi_rt -lc -lm -lpthread 2>&1); then
         echo "  cc: $clang_output"
         echo "FAIL: $label — clang linking failed"

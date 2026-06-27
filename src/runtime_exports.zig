@@ -56,6 +56,27 @@ export fn kaappi_global_lookup(vm: ?*vm_mod.VM, name_ptr: [*]const u8, name_len:
     };
 }
 
+export fn kaappi_define_global(vm: ?*vm_mod.VM, name_ptr: [*]const u8, name_len: u64, val: u64) callconv(.c) void {
+    const v = vm orelse return;
+    const len: usize = @intCast(name_len);
+    const name = name_ptr[0..len];
+    v.defineGlobal(name, val) catch {
+        _ = std.posix.system.write(2, "failed to define global\n", 24);
+        std.process.exit(1);
+    };
+}
+
+export fn kaappi_make_string(vm: ?*vm_mod.VM, str_ptr: [*]const u8, str_len: u64) callconv(.c) u64 {
+    const v = vm orelse return 0;
+    const len: usize = @intCast(str_len);
+    const data = str_ptr[0..len];
+    const result = v.gc.allocString(data) catch {
+        _ = std.posix.system.write(2, "failed to allocate string\n", 26);
+        std.process.exit(1);
+    };
+    return result;
+}
+
 export fn kaappi_call_scheme(vm: ?*vm_mod.VM, callee: u64, args_ptr: ?[*]const u64, nargs: u64) callconv(.c) u64 {
     _ = vm;
     const n: usize = @intCast(nargs);
