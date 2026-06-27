@@ -512,6 +512,19 @@ test "IR optimization: identity elimination — multiply by zero" {
     try std.testing.expectEqual(@as(i64, 0), types.toFixnum(result.data.constant));
 }
 
+test "IR optimization: begin simplification — single expr" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var ir = ir_mod.IR.init(std.testing.allocator);
+    defer ir.deinit();
+
+    const val = try ir.makeConst(types.makeFixnum(42));
+    const begin = try ir.makeBegin(&.{val});
+    const result = ir_mod.simplifyBegin(&ir, begin);
+    try std.testing.expect(result.tag == .constant);
+    try std.testing.expectEqual(@as(i64, 42), types.toFixnum(result.data.constant));
+}
+
 fn readExpr(gc: *memory.GC, source: []const u8) !types.Value {
     var reader = reader_mod.Reader.init(gc, source);
     defer reader.deinit();
