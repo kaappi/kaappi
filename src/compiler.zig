@@ -276,6 +276,7 @@ pub const Compiler = struct {
         ir_mod.markConstants(root);
 
         // Optimization passes
+        // Optimization passes
         root = ir_mod.foldConstants(&ir, root);
         root = ir_mod.eliminateDeadBranches(&ir, root);
         root = ir_mod.simplifyBooleans(&ir, root);
@@ -312,7 +313,7 @@ pub const Compiler = struct {
             .unless_form => try self.compileUnlessFromIR(node.data.unless_form, dst, is_tail),
             .define => try self.compileDefineFromIR(node.data.define, dst),
             .set_form => try self.compileSetFromIR(node.data.set_form, dst),
-            .lambda => try self.compileLambda(node.data.lambda.args, dst, node.data.lambda.name),
+            .lambda => try self.compileLambdaWithIR(node.data.lambda.args, dst, node.data.lambda.name),
             .let_form => try forms.compileLet(self, node.data.let_form.args, dst, is_tail),
             .let_star => try forms.compileLetStar(self, node.data.let_star.args, dst, is_tail),
             .letrec => try forms.compileLetrec(self, node.data.letrec.args, dst, is_tail),
@@ -465,6 +466,125 @@ pub const Compiler = struct {
             try self.emitU16(dst);
             try self.emitU16(base);
             self.freeReg();
+        }
+    }
+
+    fn compileLambdaWithIR(self: *Compiler, args: Value, dst: u16, name: ?[]const u8) CompileError!void {
+        if (args == types.NIL) return CompileError.InvalidSyntax;
+        const formals = types.car(args);
+        const body = types.cdr(args);
+        if (body == types.NIL) return CompileError.InvalidSyntax;
+
+        var child = try Compiler.initChild(self);
+        defer child.deinit();
+
+        var arity: u8 = 0;
+        var is_variadic = false;
+        var param_list = formals;
+
+        if (types.isSymbol(formals)) {
+            is_variadic = true;
+            arity = 0;
+            const slot = child.allocReg() catch return CompileError.TooManyLocals;
+            child.locals.append(child.gc.allocator, .{
+                .name = types.symbolName(formals),
+                .depth = 1,
+                .slot = slot,
+            }) catch return CompileError.OutOfMemory;
+        } else {
+            while (param_list != types.NIL) {
+                if (types.isSymbol(param_list)) {
+                    is_variadic = true;
+                    const slot = child.allocReg() catch return CompileError.TooManyLocals;
+                    child.locals.append(child.gc.allocator, .{
+                        .name = types.symbolName(param_list),
+                        .depth = 1,
+                        .slot = slot,
+                    }) catch return CompileError.OutOfMemory;
+                    break;
+                }
+                if (!types.isPair(param_list)) return CompileError.InvalidSyntax;
+                const param = types.car(param_list);
+                if (!types.isSymbol(param)) return CompileError.InvalidSyntax;
+                const slot = child.allocReg() catch return CompileError.TooManyLocals;
+                child.locals.append(child.gc.allocator, .{
+                    .name = types.symbolName(param),
+                    .depth = 1,
+                    .slot = slot,
+                }) catch return CompileError.OutOfMemory;
+                arity += 1;
+                param_list = types.cdr(param_list);
+            }
+        }
+
+        child.func.arity = arity;
+        child.func.is_variadic = is_variadic;
+        child.func.name = name;
+        child.scope_depth = 1;
+
+        // Compile body with IR lowering for each expression
+        const saved_body_scope = child.in_body_scope;
+        child.in_body_scope = true;
+
+        var current = body;
+        var last_dst: u16 = 0;
+        while (current != types.NIL) {
+            if (!types.isPair(current)) return CompileError.InvalidSyntax;
+            const expr = types.car(current);
+            const rest = types.cdr(current);
+            last_dst = try child.allocReg();
+
+            // Lower each body expression through IR
+            var ir = ir_mod.IR.init(child.gc.allocator);
+            defer ir.deinit();
+            var root = try ir_mod.lowerWithMacros(&ir, expr, &child.macros);
+            ir_mod.markTailPositions(root, rest == types.NIL);
+            ir_mod.identifyPrimitives(root);
+            ir_mod.markConstants(root);
+            root = ir_mod.foldConstants(&ir, root);
+            root = ir_mod.eliminateDeadBranches(&ir, root);
+            root = ir_mod.simplifyBooleans(&ir, root);
+            root = ir_mod.eliminateIdentity(&ir, root);
+            root = ir_mod.simplifyBegin(&ir, root);
+
+            if (rest == types.NIL) {
+                try child.compileFromNode(root, last_dst, true);
+            } else {
+                try child.compileFromNode(root, last_dst, false);
+                child.freeReg();
+            }
+            current = rest;
+        }
+
+        child.in_body_scope = saved_body_scope;
+        try child.emitOp(.@"return");
+        try child.emitU16(last_dst);
+
+        if (child.locals.items.len > 0) {
+            const debug = self.gc.allocator.alloc(types.DebugLocal, child.locals.items.len) catch null;
+            if (debug) |d| {
+                for (child.locals.items, 0..) |local, i| {
+                    d[i] = .{ .name = local.name, .slot = local.slot };
+                }
+                child.func.debug_locals = d;
+            }
+        }
+
+        for (child.upvalues.items) |uv| {
+            if (uv.is_local) {
+                try self.markLocalBoxedBySlot(uv.index);
+            }
+        }
+
+        const func_val = types.makePointer(@ptrCast(child.func));
+        const idx = try self.addConstant(func_val);
+        try self.emitOp(.closure);
+        try self.emitU16(dst);
+        try self.emitU16(idx);
+
+        for (child.upvalues.items) |uv| {
+            try self.emit(if (uv.is_local) 1 else 0);
+            try self.emitU16(uv.index);
         }
     }
 
