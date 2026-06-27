@@ -474,7 +474,7 @@ pub const Compiler = struct {
         }
     }
 
-    fn compileLambdaWithIR(self: *Compiler, args: Value, dst: u16, name: ?[]const u8) CompileError!void {
+    pub fn compileLambdaWithIR(self: *Compiler, args: Value, dst: u16, name: ?[]const u8) CompileError!void {
         if (args == types.NIL) return CompileError.InvalidSyntax;
         const formals = types.car(args);
         const body = types.cdr(args);
