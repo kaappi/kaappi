@@ -477,6 +477,41 @@ test "IR optimization: boolean simplification — if not test swaps branches" {
     try std.testing.expectEqual(@as(i64, 1), types.toFixnum(result.data.@"if".alternate.?.data.constant));
 }
 
+test "IR optimization: identity elimination — add zero" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var ir = ir_mod.IR.init(std.testing.allocator);
+    defer ir.deinit();
+
+    const plus_sym = try gc.allocSymbol("+");
+    const x_sym = try gc.allocSymbol("x");
+    const op = try ir.makeGlobalRef(plus_sym);
+    const x = try ir.makeGlobalRef(x_sym);
+    const zero = try ir.makeConst(types.makeFixnum(0));
+    const call = try ir.makeCall(op, &.{ x, zero });
+
+    const result = ir_mod.eliminateIdentity(&ir, call);
+    try std.testing.expect(result.tag == .global_ref);
+}
+
+test "IR optimization: identity elimination — multiply by zero" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var ir = ir_mod.IR.init(std.testing.allocator);
+    defer ir.deinit();
+
+    const mul_sym = try gc.allocSymbol("*");
+    const x_sym = try gc.allocSymbol("x");
+    const op = try ir.makeGlobalRef(mul_sym);
+    const x = try ir.makeGlobalRef(x_sym);
+    const zero = try ir.makeConst(types.makeFixnum(0));
+    const call = try ir.makeCall(op, &.{ x, zero });
+
+    const result = ir_mod.eliminateIdentity(&ir, call);
+    try std.testing.expect(result.tag == .constant);
+    try std.testing.expectEqual(@as(i64, 0), types.toFixnum(result.data.constant));
+}
+
 fn readExpr(gc: *memory.GC, source: []const u8) !types.Value {
     var reader = reader_mod.Reader.init(gc, source);
     defer reader.deinit();
