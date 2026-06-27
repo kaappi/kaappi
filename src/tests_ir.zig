@@ -525,6 +525,15 @@ test "IR optimization: begin simplification — single expr" {
     try std.testing.expectEqual(@as(i64, 42), types.toFixnum(result.data.constant));
 }
 
+test "IR analysis: emission uses tail annotation" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+    const result = try vm.eval("(define (f x) (if (< x 10) (+ x 1) (- x 1))) (f 5)");
+    try std.testing.expectEqual(@as(i64, 6), types.toFixnum(result));
+}
+
 fn readExpr(gc: *memory.GC, source: []const u8) !types.Value {
     var reader = reader_mod.Reader.init(gc, source);
     defer reader.deinit();
