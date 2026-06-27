@@ -70,6 +70,20 @@ fixnum overflow auto-promotes to bignum). Debug is ~500x slower for allocation-
 and continuation-heavy workloads — only use it when debugging:
 `zig build -Doptimize=Debug`. For maximum throughput: `-Doptimize=ReleaseFast`.
 
+### LLVM native backend
+
+```bash
+zig build lib                                    # build libkaappi_rt.a
+zig build run -- --emit-llvm program.scm -o out.ll  # emit LLVM IR
+zig cc -w out.ll -o program -Lzig-out/lib -lkaappi_rt -lc -lm -lpthread  # link
+./program                                        # run native binary
+```
+
+**Always use `zig cc` (not `clang`) for linking native binaries against
+`libkaappi_rt.a`.** The Zig-compiled static library references
+`__zig_probe_stack` and other Zig compiler-rt intrinsics that `clang`
+cannot resolve. `zig cc` includes these automatically.
+
 ## Architecture
 
 ```
