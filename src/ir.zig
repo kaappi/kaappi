@@ -761,6 +761,107 @@ pub fn identifyPrimitives(node: *Node) void {
 }
 
 // ---------------------------------------------------------------------------
+// Optimization: constant folding on the IR
+// ---------------------------------------------------------------------------
+
+pub fn foldConstants(ir: *IR, node: *Node) *Node {
+    switch (node.tag) {
+        .call => {
+            const call = node.data.call;
+            if (call.operator.tag != .global_ref) return node;
+            const sym = call.operator.data.global_ref;
+            if (!types.isSymbol(sym)) return node;
+            const name = types.symbolName(sym);
+
+            if (call.args.len == 1) {
+                const a = call.args[0];
+                if (a.tag != .constant) return node;
+                const av = a.data.constant;
+                if (!types.isFixnum(av) and av != types.TRUE and av != types.FALSE) return node;
+
+                const result: ?Value = if (std.mem.eql(u8, name, "not"))
+                    (if (av == types.FALSE) types.TRUE else types.FALSE)
+                else if (std.mem.eql(u8, name, "zero?"))
+                    (if (types.isFixnum(av) and types.toFixnum(av) == 0) types.TRUE else types.FALSE)
+                else if (std.mem.eql(u8, name, "-") and types.isFixnum(av)) blk: {
+                    const neg = @subWithOverflow(@as(i64, 0), types.toFixnum(av));
+                    if (neg[1] != 0) break :blk null;
+                    if (neg[0] < std.math.minInt(i48) or neg[0] > std.math.maxInt(i48)) break :blk null;
+                    break :blk types.makeFixnum(neg[0]);
+                } else null;
+
+                if (result) |val| return ir.makeConst(val) catch return node;
+            }
+
+            if (call.args.len == 2) {
+                const a = call.args[0];
+                const b = call.args[1];
+                if (a.tag != .constant or b.tag != .constant) return node;
+                const av = a.data.constant;
+                const bv = b.data.constant;
+                if (!types.isFixnum(av) or !types.isFixnum(bv)) return node;
+                const va = types.toFixnum(av);
+                const vb = types.toFixnum(bv);
+
+                const result: ?Value = if (std.mem.eql(u8, name, "+")) blk: {
+                    const r = @addWithOverflow(va, vb);
+                    if (r[1] != 0) break :blk null;
+                    if (r[0] < std.math.minInt(i48) or r[0] > std.math.maxInt(i48)) break :blk null;
+                    break :blk types.makeFixnum(r[0]);
+                } else if (std.mem.eql(u8, name, "-")) blk: {
+                    const r = @subWithOverflow(va, vb);
+                    if (r[1] != 0) break :blk null;
+                    if (r[0] < std.math.minInt(i48) or r[0] > std.math.maxInt(i48)) break :blk null;
+                    break :blk types.makeFixnum(r[0]);
+                } else if (std.mem.eql(u8, name, "*")) blk: {
+                    const r = @mulWithOverflow(va, vb);
+                    if (r[1] != 0) break :blk null;
+                    if (r[0] < std.math.minInt(i48) or r[0] > std.math.maxInt(i48)) break :blk null;
+                    break :blk types.makeFixnum(r[0]);
+                } else if (std.mem.eql(u8, name, "<"))
+                    (if (va < vb) types.TRUE else types.FALSE)
+                else if (std.mem.eql(u8, name, ">"))
+                    (if (va > vb) types.TRUE else types.FALSE)
+                else if (std.mem.eql(u8, name, "<="))
+                    (if (va <= vb) types.TRUE else types.FALSE)
+                else if (std.mem.eql(u8, name, ">="))
+                    (if (va >= vb) types.TRUE else types.FALSE)
+                else if (std.mem.eql(u8, name, "="))
+                    (if (va == vb) types.TRUE else types.FALSE)
+                else
+                    null;
+
+                if (result) |val| return ir.makeConst(val) catch return node;
+            }
+            return node;
+        },
+        .@"if" => {
+            const data = node.data.@"if";
+            const new_test = foldConstants(ir, data.test_expr);
+            const new_cons = foldConstants(ir, data.consequent);
+            const new_alt = if (data.alternate) |alt| foldConstants(ir, alt) else null;
+            if (new_test != data.test_expr or new_cons != data.consequent or
+                (data.alternate != null and new_alt != data.alternate.?))
+            {
+                return ir.makeIf(new_test, new_cons, new_alt) catch return node;
+            }
+            return node;
+        },
+        .begin => {
+            var changed = false;
+            var buf: [256]*Node = undefined;
+            for (node.data.begin, 0..) |expr, i| {
+                buf[i] = foldConstants(ir, expr);
+                if (buf[i] != expr) changed = true;
+            }
+            if (changed) return ir.makeBegin(buf[0..node.data.begin.len]) catch return node;
+            return node;
+        },
+        else => return node,
+    }
+}
+
+// ---------------------------------------------------------------------------
 // IR → bytecode emission (standalone, used by Stage 1 parity tests)
 // ---------------------------------------------------------------------------
 
