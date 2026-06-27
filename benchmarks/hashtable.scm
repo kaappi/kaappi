@@ -1,0 +1,37 @@
+(import (scheme base) (scheme read) (scheme write) (scheme time) (srfi 69))
+
+(define (run-r7rs-benchmark name count thunk verify)
+  (let ((start (current-jiffy)))
+    (let loop ((i count) (result #f))
+      (if (= i 0)
+          (let* ((end (current-jiffy))
+                 (jps (jiffies-per-second))
+                 (elapsed (inexact (/ (- end start) jps))))
+            (display name)
+            (display ": ")
+            (display elapsed)
+            (display "s")
+            (if (verify result)
+                (display " [OK]")
+                (display " [FAIL]"))
+            (newline))
+          (loop (- i 1) (thunk))))))
+
+(define (hashtable-bench n)
+  (let ((ht (make-hash-table)))
+    (let insert ((i 0))
+      (when (< i n)
+        (hash-table-set! ht (number->string i) i)
+        (insert (+ i 1))))
+    (let lookup ((i 0) (sum 0))
+      (if (= i n) sum
+          (lookup (+ i 1) (+ sum (hash-table-ref ht (number->string i))))))))
+
+(let* ((count (read))
+       (input (read))
+       (expected (read)))
+  (run-r7rs-benchmark
+   (string-append "hashtable(" (number->string input) ")")
+   count
+   (lambda () (hashtable-bench input))
+   (lambda (result) (= result expected))))

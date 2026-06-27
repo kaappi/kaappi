@@ -21,6 +21,10 @@ BENCHMARKS=(
     "nqueens:benchmarks/nqueens.scm:benchmarks/nqueens.input"
     "primes:benchmarks/primes.scm:benchmarks/primes.input"
     "tak:benchmarks/tak.scm:benchmarks/tak.input"
+    "string:benchmarks/string.scm:benchmarks/string.input"
+    "list:benchmarks/list.scm:benchmarks/list.input"
+    "vector:benchmarks/vector.scm:benchmarks/vector.input"
+    "hashtable:benchmarks/hashtable.scm:benchmarks/hashtable.input"
 )
 
 run_bench() {
