@@ -50,17 +50,22 @@ fn tokenToValue(self: *Reader, tok: Token) ReadError!Value {
         .hash_u8_lparen => return readBytevector(self),
         .datum_label_def => |n| {
             if (n >= self.labels.len) return ReadError.InvalidNumber;
-            // Pre-allocate a placeholder pair for circular references
-            const placeholder = self.gc.allocPair(types.VOID, types.NIL) catch return ReadError.OutOfMemory;
+            // Pre-allocate a placeholder pair for circular references.
+            // Root it so GC doesn't free it during the nested readDatum.
+            var placeholder = self.gc.allocPair(types.VOID, types.NIL) catch return ReadError.OutOfMemory;
+            self.gc.pushRoot(&placeholder) catch return ReadError.OutOfMemory;
             self.labels[n] = placeholder;
-            const datum = try readDatum(self);
+            const datum = readDatum(self) catch |err| {
+                self.gc.popRoot();
+                return err;
+            };
+            self.gc.popRoot();
+            self.labels[n] = placeholder;
             if (types.isPair(datum)) {
-                // Copy the read pair's contents into the placeholder
                 types.setCar(placeholder, types.car(datum));
                 types.setCdr(placeholder, types.cdr(datum));
                 return placeholder;
             } else {
-                // Non-pair datum: just store directly
                 self.labels[n] = datum;
                 return datum;
             }
