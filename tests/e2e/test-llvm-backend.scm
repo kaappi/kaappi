@@ -59,6 +59,30 @@
       (expect ((lambda (a b) (+ a b)) 3 7) to-equal 10))
 
     (it "supports nested lambda (closure)"
-      (expect (((lambda (n) (lambda (x) (+ n x))) 10) 5) to-equal 15))))
+      (expect (((lambda (n) (lambda (x) (+ n x))) 10) 5) to-equal 15)))
+
+  (describe "and/or"
+    (it "and returns last truthy value"
+      (expect (and 1 2 3) to-equal 3))
+
+    (it "and short-circuits on false"
+      (expect (and 1 #f 3) to-be-falsy))
+
+    (it "or returns first truthy value"
+      (expect (or #f #f 42) to-equal 42))
+
+    (it "or returns false when all false"
+      (expect (or #f #f) to-be-falsy)))
+
+  (describe "when/unless"
+    (it "when executes body on true"
+      (expect (when #t 42) to-equal 42))
+
+    (it "unless executes body on false"
+      (expect (unless #f 99) to-equal 99)))
+
+  (describe "let"
+    (it "binds local variables"
+      (expect (let ((x 5) (y 3)) (+ x y)) to-equal 8))))
 
 (run-specs)
