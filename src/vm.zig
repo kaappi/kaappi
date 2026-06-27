@@ -78,10 +78,16 @@ fn markVMRoots(gc: *memory.GC) void {
     if (vm.current_exception) |exc| gc.markValue(exc);
     gc.markValue(vm.continuation_value);
 
-    var git = vm.globals.valueIterator();
-    while (git.next()) |v| gc.markValue(v.*);
-    var mit = vm.macros.valueIterator();
-    while (mit.next()) |v| gc.markValue(v.*);
+    // Only mark globals/macros when this VM owns them. Child threads
+    // share the parent's maps — the parent GC keeps those values alive.
+    // Marking them here would write mark bits on parent-heap objects
+    // without synchronization (data race).
+    if (vm.owns_globals) {
+        var git = vm.globals.valueIterator();
+        while (git.next()) |v| gc.markValue(v.*);
+        var mit = vm.macros.valueIterator();
+        while (mit.next()) |v| gc.markValue(v.*);
+    }
 
     var pit = vm.param_overrides.valueIterator();
     while (pit.next()) |v| gc.markValue(v.*);

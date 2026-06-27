@@ -11,6 +11,8 @@ const PrimitiveError = primitives.PrimitiveError;
 const ChildThreadResources = struct {
     child_gc: *memory.GC,
     child_vm: *vm_mod.VM,
+    result: Value = types.VOID,
+    exception: ?Value = null,
 };
 
 var child_resources: std.AutoHashMap(usize, ChildThreadResources) = std.AutoHashMap(usize, ChildThreadResources).init(std.heap.page_allocator);
@@ -241,25 +243,34 @@ fn threadEntryFn(fiber: *fiber_mod.Fiber, allocator: std.mem.Allocator, parent_g
 
     const child_thunk = child_gc.deepCopy(fiber.thunk) catch |err| {
         fiber.status = .errored;
-        fiber.result = types.VOID;
         if (err == error.UncopyableType) {
-            fiber.current_exception = child_gc.allocErrorObject(
+            const exc = child_gc.allocErrorObject(
                 child_gc.allocString("thread thunk contains uncopyable type (port, continuation, etc.)") catch types.VOID,
                 types.NIL,
             ) catch null;
+            storeChildResult(@intFromPtr(fiber), types.VOID, exc);
         }
         return;
     };
 
     const result = child_vm.callWithArgs(child_thunk, &.{}) catch {
         fiber.status = .errored;
-        fiber.result = types.VOID;
-
         return;
     };
 
+    // Store result in child_resources (not on the fiber) so the parent
+    // GC never traverses a child-heap pointer (Race C).
+    storeChildResult(@intFromPtr(fiber), result, null);
     fiber.status = .completed;
-    fiber.result = result;
+}
+
+fn storeChildResult(fiber_key: usize, result: Value, exception: ?Value) void {
+    while (!child_resources_mutex.tryLock()) {}
+    defer child_resources_mutex.unlock();
+    if (child_resources.getPtr(fiber_key)) |entry| {
+        entry.result = result;
+        entry.exception = exception;
+    }
 }
 
 fn threadYieldFn(_: []const Value) PrimitiveError!Value {
@@ -312,7 +323,7 @@ fn threadJoinFn(args: []const Value) PrimitiveError!Value {
 
     const target = types.toObject(args[0]).as(fiber_mod.Fiber);
 
-    // OS thread path: join, deep-copy result, free child GC/VM
+    // OS thread path: join, deep-copy result from child heap, free child resources
     if (target.os_thread) |thread| {
         thread.join();
         target.os_thread = null;
@@ -320,19 +331,29 @@ fn threadJoinFn(args: []const Value) PrimitiveError!Value {
         const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
         const fiber_key = @intFromPtr(target);
 
-        if (target.status == .completed and target.result != types.VOID) {
-            target.result = gc.deepCopy(target.result) catch |err| {
-                target.result = types.VOID;
-                freeChildResources(fiber_key);
-                if (err == error.UncopyableType) {
-                    return raiseError(.general, "thread-join!: result contains uncopyable type (port, continuation, etc.)", types.VOID);
+        // Retrieve result/exception from child_resources (stored there to
+        // avoid the parent GC traversing child-heap pointers via the fiber).
+        {
+            while (!child_resources_mutex.tryLock()) {}
+            const entry = child_resources.get(fiber_key);
+            child_resources_mutex.unlock();
+
+            if (entry) |res| {
+                if (target.status == .completed and res.result != types.VOID) {
+                    target.result = gc.deepCopy(res.result) catch |err| {
+                        target.result = types.VOID;
+                        freeChildResources(fiber_key);
+                        if (err == error.UncopyableType) {
+                            return raiseError(.general, "thread-join!: result contains uncopyable type (port, continuation, etc.)", types.VOID);
+                        }
+                        return PrimitiveError.OutOfMemory;
+                    };
                 }
-                return PrimitiveError.OutOfMemory;
-            };
-        }
-        if (target.status == .errored) {
-            if (target.current_exception) |exc| {
-                target.current_exception = gc.deepCopy(exc) catch null;
+                if (target.status == .errored) {
+                    if (res.exception) |exc| {
+                        target.current_exception = gc.deepCopy(exc) catch null;
+                    }
+                }
             }
         }
         freeChildResources(fiber_key);
