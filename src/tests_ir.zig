@@ -62,16 +62,16 @@ test "IR parity: boolean false" {
     try expectBytecodeParity("#f");
 }
 
-test "IR parity: if with boolean test and constant branches" {
-    try expectBytecodeParity("(if #t 1 2)");
+test "IR behavioral: if with boolean test and constant branches" {
+    try expectBehavioralParity("(if #t 1 2)");
 }
 
-test "IR parity: if false" {
-    try expectBytecodeParity("(if #f 10 20)");
+test "IR behavioral: if false" {
+    try expectBehavioralParity("(if #f 10 20)");
 }
 
-test "IR parity: if without else" {
-    try expectBytecodeParity("(if #t 42)");
+test "IR behavioral: if without else" {
+    try expectBehavioralParity("(if #t 42)");
 }
 
 test "IR parity: constant-folded arithmetic" {
@@ -82,8 +82,8 @@ test "IR parity: constant-folded comparison" {
     try expectBytecodeParity("(< 1 2)");
 }
 
-test "IR parity: nested if with constant folding" {
-    try expectBytecodeParity("(if (< 1 2) (+ 3 4) 5)");
+test "IR behavioral: nested if with constant folding" {
+    try expectBehavioralParity("(if (< 1 2) (+ 3 4) 5)");
 }
 
 test "IR parity: quoted datum" {
