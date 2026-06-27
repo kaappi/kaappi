@@ -138,6 +138,35 @@ pub fn build(b: *std.Build) void {
     const run_step = b.step("run", "Run the Kaappi Scheme REPL");
     run_step.dependOn(&run_cmd.step);
 
+    // Runtime static library (for LLVM native backend)
+    const lib_step = b.step("lib", "Build libkaappi_rt.a (runtime for native backend)");
+    const lib_mod = b.createModule(.{
+        .root_source_file = b.path("src/runtime_exports.zig"),
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+    });
+    lib_mod.addImport("build_options", options.createModule());
+    if (!is_wasm_target) {
+        lib_mod.addCSourceFile(.{
+            .file = b.path("vendor/linenoise/linenoise.c"),
+            .flags = &.{"-std=gnu99"},
+        });
+        lib_mod.addIncludePath(b.path("vendor/linenoise"));
+    }
+    lib_mod.addAnonymousImport("embedded_bytecode", .{
+        .root_source_file = null_embed,
+        .target = target,
+        .optimize = optimize,
+    });
+    const lib = b.addLibrary(.{
+        .name = "kaappi_rt",
+        .root_module = lib_mod,
+        .linkage = .static,
+    });
+    const lib_install = b.addInstallArtifact(lib, .{});
+    lib_step.dependOn(&lib_install.step);
+
     // WebAssembly (WASI) build
     const wasm_step = b.step("wasm", "Build kaappi.wasm (wasm32-wasi)");
     const wasm_target = b.resolveTargetQuery(.{ .cpu_arch = .wasm32, .os_tag = .wasi });

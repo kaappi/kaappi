@@ -34,6 +34,8 @@ pub const fiber_mod = @import("fiber.zig");
 pub const primitives_fiber = @import("primitives_fiber.zig");
 pub const reporting = @import("reporting.zig");
 pub const vm_library = @import("vm_library.zig");
+pub const ir_mod = @import("ir.zig");
+pub const llvm_emit = @import("llvm_emit.zig");
 
 pub const version = "0.6.6";
 
@@ -67,7 +69,8 @@ fn printUsage() void {
             "  --version          Show version\n" ++
             "  --lib-path <path>  Add library search path (up to 16)\n" ++
             "  --compile          Compile file to bytecode\n" ++
-            "  -o <file>          Output path for --compile\n" ++
+            "  --emit-llvm        Emit LLVM IR text (.ll)\n" ++
+            "  -o <file>          Output path for --compile or --emit-llvm\n" ++
             "  --disassemble      Disassemble bytecode\n" ++
             "  --no-jit           Disable JIT compilation\n" ++
             "  --sandbox          Restrict filesystem and process access\n" ++
@@ -362,6 +365,7 @@ fn mainImpl(init: std.process.Init.Minimal) !void {
     var lib_path_count: usize = 0;
     var file_path: ?[]const u8 = null;
     var compile_mode = false;
+    var emit_llvm_mode = false;
     var compile_output: ?[]const u8 = null;
     var disassemble_mode = false;
     var gc_stats_mode = false;
@@ -390,6 +394,8 @@ fn mainImpl(init: std.process.Init.Minimal) !void {
             sandbox_mode = true;
         } else if (std.mem.eql(u8, arg, "--compile")) {
             compile_mode = true;
+        } else if (std.mem.eql(u8, arg, "--emit-llvm")) {
+            emit_llvm_mode = true;
         } else if (std.mem.eql(u8, arg, "-o")) {
             compile_output = args.next();
         } else if (std.mem.eql(u8, arg, "--disassemble")) {
@@ -500,6 +506,12 @@ fn mainImpl(init: std.process.Init.Minimal) !void {
             try compileFile(vm, fp, compile_output);
         } else {
             writeStdout("Usage: kaappi --compile <file.scm> [-o output.sbc]\n");
+        }
+    } else if (emit_llvm_mode) {
+        if (file_path) |fp| {
+            try emitLlvmFile(vm, fp, compile_output);
+        } else {
+            writeStdout("Usage: kaappi --emit-llvm <file.scm> [-o output.ll]\n");
         }
     } else if (file_path) |fp| {
         try runFile(vm, fp);
@@ -1637,6 +1649,92 @@ fn evalInputInner(vm: *vm_mod.VM, allocator: std.mem.Allocator, input: []const u
     }
 }
 
+fn emitLlvmFile(vm: *vm_mod.VM, path: []const u8, output_path: ?[]const u8) !void {
+    const allocator = vm.gc.allocator;
+    const source = readFileContents(allocator, path) catch return;
+    defer allocator.free(source);
+
+    var r = reader.Reader.initWithName(vm.gc, source, path);
+    defer r.deinit();
+
+    var ir_nodes: std.ArrayList(*ir_mod.Node) = .empty;
+    defer ir_nodes.deinit(allocator);
+
+    var ir_instance = ir_mod.IR.init(allocator);
+    defer ir_instance.deinit();
+
+    while (r.hasMore()) {
+        const expr = r.readDatum() catch |err| {
+            const lc = r.getLineCol();
+            var errbuf: [256]u8 = undefined;
+            const s = std.fmt.bufPrint(&errbuf, "{s}:{d}:{d}: read error: {}\n", .{ path, lc.line, lc.col, err }) catch "read error\n";
+            writeStderr(s);
+            return;
+        };
+
+        var root = ir_mod.lowerWithMacros(&ir_instance, expr, &vm.macros) catch |err| {
+            var errbuf: [256]u8 = undefined;
+            const s = std.fmt.bufPrint(&errbuf, "IR lowering error: {}\n", .{err}) catch "IR error\n";
+            writeStderr(s);
+            return;
+        };
+
+        ir_mod.markTailPositions(root, false);
+        ir_mod.identifyPrimitives(root);
+        ir_mod.markConstants(root);
+        root = ir_mod.foldConstants(&ir_instance, root);
+        root = ir_mod.eliminateDeadBranches(&ir_instance, root);
+        root = ir_mod.simplifyBooleans(&ir_instance, root);
+        root = ir_mod.eliminateIdentity(&ir_instance, root);
+        root = ir_mod.simplifyBegin(&ir_instance, root);
+
+        ir_nodes.append(allocator, root) catch return;
+    }
+
+    var emitter = llvm_emit.LLVMEmitter.init(allocator);
+    defer emitter.deinit();
+    emitter.emitProgram(ir_nodes.items) catch |err| {
+        var errbuf: [256]u8 = undefined;
+        const s = std.fmt.bufPrint(&errbuf, "LLVM emit error: {}\n", .{err}) catch "emit error\n";
+        writeStderr(s);
+        return;
+    };
+
+    const out_path = output_path orelse blk: {
+        if (std.mem.endsWith(u8, path, ".scm")) {
+            const base = path[0 .. path.len - 4];
+            break :blk std.fmt.allocPrint(allocator, "{s}.ll", .{base}) catch return;
+        }
+        break :blk std.fmt.allocPrint(allocator, "{s}.ll", .{path}) catch return;
+    };
+    const should_free = output_path == null;
+    defer if (should_free) allocator.free(out_path);
+
+    const fd = std.posix.openat(std.posix.AT.FDCWD, out_path, .{
+        .ACCMODE = .WRONLY,
+        .CREAT = true,
+        .TRUNC = true,
+    }, 0o644) catch {
+        writeStderr("Failed to create output file\n");
+        return;
+    };
+    defer _ = std.posix.system.close(fd);
+    const data = emitter.toSlice();
+    var total: usize = 0;
+    while (total < data.len) {
+        const result = std.posix.system.write(fd, data.ptr + total, data.len - total);
+        if (result <= 0) {
+            writeStderr("Failed to write output\n");
+            return;
+        }
+        total += @as(usize, @intCast(result));
+    }
+
+    var msgbuf: [512]u8 = undefined;
+    const msg = std.fmt.bufPrint(&msgbuf, "Wrote {s}\n", .{out_path}) catch return;
+    writeStdout(msg);
+}
+
 test {
     _ = types;
     _ = memory;
@@ -1668,4 +1766,6 @@ test {
     _ = embedded_bytecode;
     _ = fiber_mod;
     _ = primitives_fiber;
+    _ = ir_mod;
+    _ = llvm_emit;
 }
