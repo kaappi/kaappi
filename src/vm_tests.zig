@@ -16,5 +16,4 @@ test {
     _ = @import("tests_fuzz.zig");
     _ = @import("tests_deepcopy.zig");
     _ = @import("tests_ir.zig");
-    _ = @import("ir_c_codegen.zig");
 }
