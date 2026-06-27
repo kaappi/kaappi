@@ -1,0 +1,12 @@
+(define (make-counter start)
+  (let ((n start))
+    (lambda (msg)
+      (cond ((eq? msg 'get) n)
+            ((eq? msg 'inc) (set! n (+ n 1)) n)
+            (else 0)))))
+
+(define c (make-counter 0))
+(display (c 'get))
+(display (c 'inc))
+(display (c 'inc))
+(newline)
