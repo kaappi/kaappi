@@ -110,7 +110,7 @@ pub const LLVMEmitter = struct {
             return tmp;
         }
         if (types.isPointer(value)) {
-            return self.emitEvalExpr(value);
+            return self.emitQuotedEvalExpr(value);
         }
         const tmp = try self.freshTemp();
         const signed: i64 = @bitCast(value);
@@ -491,6 +491,17 @@ pub const LLVMEmitter = struct {
 
     fn emitEvalExpr(self: *LLVMEmitter, value: Value) EmitError![]const u8 {
         const source = printer.valueToString(self.allocator, value, .write) catch return error.OutOfMemory;
+        defer self.allocator.free(source);
+        const str_name = try self.internString(source);
+        const tmp = try self.freshTemp();
+        try self.print("  {s} = call i64 @kaappi_eval(ptr %vm, ptr {s}, i64 {d})\n", .{ tmp, str_name, source.len });
+        return tmp;
+    }
+
+    fn emitQuotedEvalExpr(self: *LLVMEmitter, value: Value) EmitError![]const u8 {
+        const printed = printer.valueToString(self.allocator, value, .write) catch return error.OutOfMemory;
+        defer self.allocator.free(printed);
+        const source = std.fmt.allocPrint(self.allocator, "(quote {s})", .{printed}) catch return error.OutOfMemory;
         defer self.allocator.free(source);
         const str_name = try self.internString(source);
         const tmp = try self.freshTemp();
