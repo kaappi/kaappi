@@ -437,6 +437,46 @@ test "IR analysis: constant detection — variable ref is not constant" {
     try std.testing.expect(!node.ann.is_constant);
 }
 
+test "IR optimization: boolean simplification — not not" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var ir = ir_mod.IR.init(std.testing.allocator);
+    defer ir.deinit();
+
+    const not_sym = try gc.allocSymbol("not");
+    const x_sym = try gc.allocSymbol("x");
+    const x = try ir.makeGlobalRef(x_sym);
+    const not_op = try ir.makeGlobalRef(not_sym);
+    const inner = try ir.makeCall(not_op, &.{x});
+    const not_op2 = try ir.makeGlobalRef(not_sym);
+    const outer = try ir.makeCall(not_op2, &.{inner});
+
+    const result = ir_mod.simplifyBooleans(&ir, outer);
+    try std.testing.expect(result.tag == .global_ref);
+}
+
+test "IR optimization: boolean simplification — if not test swaps branches" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var ir = ir_mod.IR.init(std.testing.allocator);
+    defer ir.deinit();
+
+    const not_sym = try gc.allocSymbol("not");
+    const x_sym = try gc.allocSymbol("x");
+    const x = try ir.makeGlobalRef(x_sym);
+    const not_op = try ir.makeGlobalRef(not_sym);
+    const test_node = try ir.makeCall(not_op, &.{x});
+    const cons = try ir.makeConst(types.makeFixnum(1));
+    const alt = try ir.makeConst(types.makeFixnum(2));
+    const if_node = try ir.makeIf(test_node, cons, alt);
+
+    const result = ir_mod.simplifyBooleans(&ir, if_node);
+    try std.testing.expect(result.tag == .@"if");
+    try std.testing.expect(result.data.@"if".test_expr.tag == .global_ref);
+    try std.testing.expectEqual(@as(i64, 2), types.toFixnum(result.data.@"if".consequent.data.constant));
+    try std.testing.expectEqual(@as(i64, 1), types.toFixnum(result.data.@"if".alternate.?.data.constant));
+}
+
 fn readExpr(gc: *memory.GC, source: []const u8) !types.Value {
     var reader = reader_mod.Reader.init(gc, source);
     defer reader.deinit();
