@@ -635,8 +635,18 @@ pub const Compiler = struct {
 
         var dst: u16 = 0;
         for (exprs, 0..) |expr, i| {
+            // Lower each expression through the IR pipeline.
+            var ir = ir_mod.IR.init(self.gc.allocator);
+            defer ir.deinit();
+            var root = try ir_mod.lower(&ir, expr);
+            ir_mod.markTailPositions(root, false);
+            ir_mod.identifyPrimitives(root);
+            ir_mod.markConstants(root);
+            root = ir_mod.foldConstants(&ir, root);
+            root = ir_mod.eliminateDeadBranches(&ir, root);
+
             dst = try self.allocReg();
-            try self.compileExpr(expr, dst, false);
+            try self.compileFromNode(root, dst, false);
             if (i < exprs.len - 1) {
                 self.freeReg();
             }
