@@ -514,14 +514,13 @@ pub fn compileLetStarValues(self: *Compiler, args: Value, dst: u16, is_tail: boo
 pub fn buildLetValues(self: *Compiler, bindings: Value, body: Value) !Value {
     const gc = self.gc;
     gc.no_collect += 1;
+    defer gc.no_collect -= 1;
     const lambda_sym = try gc.allocSymbol("lambda");
     const cwv_sym = try gc.allocSymbol("call-with-values");
 
     if (bindings == types.NIL) {
         const begin_sym = try gc.allocSymbol("begin");
-        const result = try gc.allocPair(begin_sym, body);
-        gc.no_collect -= 1;
-        return result;
+        return try gc.allocPair(begin_sym, body);
     }
 
     if (!types.isPair(bindings)) return error.InvalidSyntax;
@@ -546,7 +545,5 @@ pub fn buildLetValues(self: *Compiler, bindings: Value, body: Value) !Value {
     const consumer_lambda = try gc.allocPair(lambda_sym, try gc.allocPair(formals, consumer_body));
 
     // Build (call-with-values producer consumer)
-    const result = try gc.allocPair(cwv_sym, try gc.allocPair(producer_lambda, try gc.allocPair(consumer_lambda, types.NIL)));
-    gc.no_collect -= 1;
-    return result;
+    return try gc.allocPair(cwv_sym, try gc.allocPair(producer_lambda, try gc.allocPair(consumer_lambda, types.NIL)));
 }
