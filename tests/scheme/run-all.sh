@@ -24,8 +24,8 @@ run_file() {
     "$KAAPPI" "$file" > /tmp/kaappi-test-out 2>&1 &
     pid=$!
     if wait_with_timeout "$pid" "$TIMEOUT"; then
-        wait "$pid" || true
-        status=$?
+        status=0
+        wait "$pid" || status=$?
     else
         kill "$pid" 2>/dev/null || true
         wait "$pid" 2>/dev/null || true
