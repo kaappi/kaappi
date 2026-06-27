@@ -186,11 +186,42 @@ pub fn setGCInstance(gc: *@import("memory.zig").GC) void {
 
 pub fn typeError(proc: []const u8, expected: []const u8, got: Value) PrimitiveError {
     const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError; // bare-ok: no VM
-    const p = @import("printer.zig");
-    const s = p.valueToString(vm.gc.allocator, got, .write) catch "";
-    defer if (s.len > 0) vm.gc.allocator.free(s);
+    var buf: [128]u8 = undefined;
+    const s = safeValueDescription(&buf, got);
     vm.setErrorDetail("type error in '{s}': expected {s}, got {s}", .{ proc, expected, s });
     return PrimitiveError.TypeError;
+}
+
+fn safeValueDescription(buf: *[128]u8, value: Value) []const u8 {
+    if (types.isFixnum(value)) {
+        return std.fmt.bufPrint(buf, "{d}", .{types.toFixnum(value)}) catch "?";
+    }
+    if (value == types.NIL) return "()";
+    if (value == types.TRUE) return "#t";
+    if (value == types.FALSE) return "#f";
+    if (value == types.VOID) return "#<void>";
+    if (value == types.EOF) return "#<eof>";
+    if (types.isChar(value)) return "#<char>";
+    if (types.isFlonum(value)) {
+        return std.fmt.bufPrint(buf, "{d}", .{types.toFlonum(value)}) catch "?";
+    }
+    if (types.isPointer(value)) {
+        const addr = @as(usize, @truncate(value));
+        if (addr == 0 or addr < 4096) return "#<invalid-pointer>";
+        const obj = types.toObject(value);
+        const tag = @intFromEnum(obj.tag);
+        if (tag >= 35) return std.fmt.bufPrint(buf, "#<corrupt tag={d}>", .{tag}) catch "#<corrupt>";
+        return switch (obj.tag) {
+            .pair => "#<pair>",
+            .symbol => "#<symbol>",
+            .string => "#<string>",
+            .closure, .native_fn, .function => "#<procedure>",
+            .vector => "#<vector>",
+            .hash_table => "#<hash-table>",
+            else => std.fmt.bufPrint(buf, "#<{s}>", .{@tagName(obj.tag)}) catch "#<object>",
+        };
+    }
+    return std.fmt.bufPrint(buf, "0x{x}", .{value}) catch "?";
 }
 
 // ---------------------------------------------------------------------------
