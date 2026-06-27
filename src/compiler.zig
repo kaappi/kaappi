@@ -589,7 +589,18 @@ pub const Compiler = struct {
     }
 
     fn compileDefineFromIR(self: *Compiler, data: ir_mod.DefineData, dst: u16) CompileError!void {
-        try self.compileExpr(data.value, dst, false);
+        // Lower the value expression through IR for optimization
+        var ir = ir_mod.IR.init(self.gc.allocator);
+        defer ir.deinit();
+        var val_root = try ir_mod.lowerWithMacros(&ir, data.value, &self.macros);
+        ir_mod.identifyPrimitives(val_root);
+        ir_mod.markConstants(val_root);
+        val_root = ir_mod.foldConstants(&ir, val_root);
+        val_root = ir_mod.eliminateDeadBranches(&ir, val_root);
+        val_root = ir_mod.simplifyBooleans(&ir, val_root);
+        val_root = ir_mod.eliminateIdentity(&ir, val_root);
+        val_root = ir_mod.simplifyBegin(&ir, val_root);
+        try self.compileFromNode(val_root, dst, false);
 
         if (self.func.constants.items.len > 0) {
             const last_const = self.func.constants.items[self.func.constants.items.len - 1];
@@ -625,7 +636,19 @@ pub const Compiler = struct {
 
     fn compileSetFromIR(self: *Compiler, data: ir_mod.SetData, dst: u16) CompileError!void {
         const name = types.symbolName(data.name);
-        try self.compileExpr(data.value, dst, false);
+
+        // Lower the value expression through IR for optimization
+        var ir = ir_mod.IR.init(self.gc.allocator);
+        defer ir.deinit();
+        var val_root = try ir_mod.lowerWithMacros(&ir, data.value, &self.macros);
+        ir_mod.identifyPrimitives(val_root);
+        ir_mod.markConstants(val_root);
+        val_root = ir_mod.foldConstants(&ir, val_root);
+        val_root = ir_mod.eliminateDeadBranches(&ir, val_root);
+        val_root = ir_mod.simplifyBooleans(&ir, val_root);
+        val_root = ir_mod.eliminateIdentity(&ir, val_root);
+        val_root = ir_mod.simplifyBegin(&ir, val_root);
+        try self.compileFromNode(val_root, dst, false);
 
         if (self.resolveLocal(name)) |slot| {
             if (self.isLocalBoxed(name)) {
