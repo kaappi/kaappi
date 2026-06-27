@@ -1253,14 +1253,16 @@ pub const GC = struct {
         // Mark active FFI callback closures
         const ffi_cb = @import("ffi_callback.zig");
         ffi_cb.markCallbackRoots(self);
-        // Mark interned symbols (take mutex when the table may be shared
-        // with a child thread that concurrently interns symbols)
-        spinLock(&symbol_mutex);
+        // Mark interned symbols. Use tryLock to avoid deadlock when GC is
+        // triggered from within allocSymbol (which already holds the mutex).
+        // If we can't get the lock, symbol values are already reachable via
+        // the globals map — they won't be collected.
+        const got_sym_lock = symbol_mutex.tryLock();
         var it = self.symbols.valueIterator();
         while (it.next()) |v| {
             self.markValue(v.*);
         }
-        spinUnlock(&symbol_mutex);
+        if (got_sym_lock) symbol_mutex.unlock();
         // Mark VM-owned roots (live registers, call frames, handlers, winds).
         if (self.root_marker) |mark| mark(self);
     }
