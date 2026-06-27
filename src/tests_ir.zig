@@ -297,6 +297,62 @@ test "IR analysis: non-primitive not marked" {
     try std.testing.expect(call.ann.primitive_name == null);
 }
 
+test "IR optimization: constant folding on Call" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var ir = ir_mod.IR.init(std.testing.allocator);
+    defer ir.deinit();
+
+    const plus_sym = try gc.allocSymbol("+");
+    const op = try ir.makeGlobalRef(plus_sym);
+    const a = try ir.makeConst(types.makeFixnum(3));
+    const b = try ir.makeConst(types.makeFixnum(4));
+    const call = try ir.makeCall(op, &.{ a, b });
+
+    const folded = ir_mod.foldConstants(&ir, call);
+    try std.testing.expect(folded.tag == .constant);
+    try std.testing.expectEqual(@as(i64, 7), types.toFixnum(folded.data.constant));
+}
+
+test "IR optimization: constant folding not applied to non-constant args" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var ir = ir_mod.IR.init(std.testing.allocator);
+    defer ir.deinit();
+
+    const plus_sym = try gc.allocSymbol("+");
+    const x_sym = try gc.allocSymbol("x");
+    const op = try ir.makeGlobalRef(plus_sym);
+    const a = try ir.makeGlobalRef(x_sym);
+    const b = try ir.makeConst(types.makeFixnum(1));
+    const call = try ir.makeCall(op, &.{ a, b });
+
+    const folded = ir_mod.foldConstants(&ir, call);
+    try std.testing.expect(folded.tag == .call);
+}
+
+test "IR optimization: constant folding through if" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var ir = ir_mod.IR.init(std.testing.allocator);
+    defer ir.deinit();
+
+    const plus_sym = try gc.allocSymbol("+");
+    const op = try ir.makeGlobalRef(plus_sym);
+    const a = try ir.makeConst(types.makeFixnum(1));
+    const b = try ir.makeConst(types.makeFixnum(2));
+    const call = try ir.makeCall(op, &.{ a, b });
+
+    const test_node = try ir.makeConst(types.TRUE);
+    const alt = try ir.makeConst(types.makeFixnum(0));
+    const if_node = try ir.makeIf(test_node, call, alt);
+
+    const folded = ir_mod.foldConstants(&ir, if_node);
+    try std.testing.expect(folded.tag == .@"if");
+    try std.testing.expect(folded.data.@"if".consequent.tag == .constant);
+    try std.testing.expectEqual(@as(i64, 3), types.toFixnum(folded.data.@"if".consequent.data.constant));
+}
+
 fn readExpr(gc: *memory.GC, source: []const u8) !types.Value {
     var reader = reader_mod.Reader.init(gc, source);
     defer reader.deinit();
