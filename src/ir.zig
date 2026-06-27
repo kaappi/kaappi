@@ -5,13 +5,15 @@ const compiler_mod = @import("compiler.zig");
 
 const Value = types.Value;
 const OpCode = types.OpCode;
-const CompileError = compiler_mod.CompileError;
+pub const CompileError = compiler_mod.CompileError;
 
 pub const NodeTag = enum {
     constant,
     global_ref,
     call,
     @"if",
+    begin,
+    passthrough,
 };
 
 pub const Node = struct {
@@ -23,6 +25,8 @@ pub const Node = struct {
         global_ref: Value,
         call: CallData,
         @"if": IfData,
+        begin: []const *Node,
+        passthrough: Value,
     };
 };
 
@@ -57,10 +61,9 @@ pub const IR = struct {
 
     fn freeNode(self: *IR, node: *Node) void {
         switch (node.tag) {
-            .call => {
-                self.allocator.free(node.data.call.args);
-            },
-            .constant, .global_ref, .@"if" => {},
+            .call => self.allocator.free(node.data.call.args),
+            .begin => self.allocator.free(node.data.begin),
+            .constant, .global_ref, .@"if", .passthrough => {},
         }
         self.allocator.destroy(node);
     }
@@ -89,11 +92,40 @@ pub const IR = struct {
     pub fn makeIf(self: *IR, test_expr: *Node, consequent: *Node, alternate: ?*Node) CompileError!*Node {
         return self.allocNode(.@"if", .{ .@"if" = .{ .test_expr = test_expr, .consequent = consequent, .alternate = alternate } });
     }
+
+    pub fn makeBegin(self: *IR, exprs: []const *Node) CompileError!*Node {
+        const copy = self.allocator.alloc(*Node, exprs.len) catch return CompileError.OutOfMemory;
+        @memcpy(copy, exprs);
+        return self.allocNode(.begin, .{ .begin = copy });
+    }
+
+    pub fn makePassthrough(self: *IR, expr: Value) CompileError!*Node {
+        return self.allocNode(.passthrough, .{ .passthrough = expr });
+    }
 };
 
 // ---------------------------------------------------------------------------
 // AST (S-expression) → IR lowering
 // ---------------------------------------------------------------------------
+
+const special_forms = [_][]const u8{
+    "quote",         "if",         "lambda",        "define",
+    "define-values", "set!",       "begin",         "and",
+    "or",            "when",       "unless",        "cond",
+    "let",           "let*",       "let-values",    "let*-values",
+    "letrec",        "letrec*",    "case",          "case-lambda",
+    "cond-expand",   "do",         "guard",         "delay",
+    "delay-force",   "quasiquote", "parameterize",  "syntax-error",
+    "define-syntax", "let-syntax", "letrec-syntax", "syntax-rules",
+    "apply",
+};
+
+fn isSpecialForm(name: []const u8) bool {
+    for (special_forms) |sf| {
+        if (std.mem.eql(u8, name, sf)) return true;
+    }
+    return false;
+}
 
 pub fn lower(ir: *IR, expr: Value) CompileError!*Node {
     if (types.isFixnum(expr) or types.isFlonum(expr) or types.isBignum(expr) or
@@ -124,15 +156,31 @@ fn lowerForm(ir: *IR, expr: Value) CompileError!*Node {
     if (types.isSymbol(head)) {
         const name = types.symbolName(head);
 
-        if (std.mem.eql(u8, name, "if")) {
-            return lowerIf(ir, types.cdr(expr));
+        var effective_name = name;
+        while (std.mem.startsWith(u8, effective_name, "__hyg_")) {
+            if (std.mem.indexOfScalar(u8, effective_name[6..], '_')) |sep| {
+                effective_name = effective_name[6 + sep + 1 ..];
+            } else break;
         }
-        if (std.mem.eql(u8, name, "quote")) {
-            return lowerQuote(ir, types.cdr(expr));
-        }
+
+        if (std.mem.eql(u8, effective_name, "if")) return lowerIf(ir, types.cdr(expr));
+        if (std.mem.eql(u8, effective_name, "quote")) return lowerQuote(ir, types.cdr(expr));
+        if (std.mem.eql(u8, effective_name, "begin")) return lowerBegin(ir, types.cdr(expr));
+
+        // All other named forms (special forms, macros, user-defined) use
+        // passthrough — the compiler handles macro expansion, local-variable
+        // shadowing, and dispatch for these.
+        if (isSpecialForm(effective_name)) return ir.makePassthrough(expr);
     }
 
-    return lowerCall(ir, expr);
+    // For calls where the operator is NOT a known special-form keyword,
+    // check if constant folding applies. If not, passthrough to the
+    // compiler which handles macro expansion and local shadowing.
+    if (types.isSymbol(head)) {
+        if (tryFoldFromAST(ir, expr)) |folded| return folded;
+    }
+
+    return ir.makePassthrough(expr);
 }
 
 fn lowerIf(ir: *IR, args: Value) CompileError!*Node {
@@ -156,6 +204,20 @@ fn lowerIf(ir: *IR, args: Value) CompileError!*Node {
 fn lowerQuote(ir: *IR, args: Value) CompileError!*Node {
     if (args == types.NIL) return CompileError.InvalidSyntax;
     return ir.makeConst(types.car(args));
+}
+
+fn lowerBegin(ir: *IR, args: Value) CompileError!*Node {
+    var buf: [256]*Node = undefined;
+    var count: usize = 0;
+    var current = args;
+    while (current != types.NIL) {
+        if (!types.isPair(current)) return CompileError.InvalidSyntax;
+        if (count >= 256) return CompileError.InternalLimit;
+        buf[count] = try lower(ir, types.car(current));
+        count += 1;
+        current = types.cdr(current);
+    }
+    return ir.makeBegin(buf[0..count]);
 }
 
 fn lowerCall(ir: *IR, expr: Value) CompileError!*Node {
@@ -248,7 +310,7 @@ fn tryFoldFromAST(ir: *IR, expr: Value) ?*Node {
 }
 
 // ---------------------------------------------------------------------------
-// IR → bytecode emission
+// IR → bytecode emission (standalone, used by Stage 1 parity tests)
 // ---------------------------------------------------------------------------
 
 pub const Emitter = struct {
@@ -268,12 +330,14 @@ pub const Emitter = struct {
         try self.emitU16(dst);
     }
 
-    fn emitNode(self: *Emitter, node: *Node, dst: u16, is_tail: bool) CompileError!void {
+    pub fn emitNode(self: *Emitter, node: *Node, dst: u16, is_tail: bool) CompileError!void {
         switch (node.tag) {
             .constant => try self.emitConstant(node.data.constant, dst),
             .global_ref => try self.emitGlobalRef(node.data.global_ref, dst),
             .call => try self.emitCall(node.data.call, dst, is_tail),
             .@"if" => try self.emitIf(node.data.@"if", dst, is_tail),
+            .begin => try self.emitBegin(node.data.begin, dst, is_tail),
+            .passthrough => return CompileError.NotImplemented,
         }
     }
 
@@ -425,7 +489,19 @@ pub const Emitter = struct {
         }
     }
 
-    // -- Low-level emission helpers (mirror compiler.zig) --
+    fn emitBegin(self: *Emitter, exprs: []const *Node, dst: u16, is_tail: bool) CompileError!void {
+        if (exprs.len == 0) {
+            try self.emitOp(.load_void);
+            try self.emitU16(dst);
+            return;
+        }
+        for (exprs, 0..) |expr, i| {
+            const tail = is_tail and i == exprs.len - 1;
+            try self.emitNode(expr, dst, tail);
+        }
+    }
+
+    // -- Low-level emission helpers --
 
     fn emit(self: *Emitter, byte: u8) CompileError!void {
         self.func.code.append(self.gc.allocator, byte) catch return CompileError.OutOfMemory;

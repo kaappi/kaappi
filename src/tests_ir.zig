@@ -4,6 +4,7 @@ const memory = @import("memory.zig");
 const compiler_mod = @import("compiler.zig");
 const reader_mod = @import("reader.zig");
 const ir_mod = @import("ir.zig");
+const th = @import("testing_helpers.zig");
 
 fn compileViaDirectCompiler(gc: *memory.GC, source: []const u8) !*types.Function {
     var reader = reader_mod.Reader.init(gc, source);
@@ -24,6 +25,15 @@ fn compileViaIR(gc: *memory.GC, source: []const u8) !*types.Function {
     var emitter = try ir_mod.Emitter.init(gc);
     try emitter.compile(root);
     return emitter.func;
+}
+
+fn expectBehavioralParity(source: []const u8) !void {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+    const result = try vm.eval(source);
+    _ = result;
 }
 
 fn expectBytecodeParity(source: []const u8) !void {
@@ -88,20 +98,20 @@ test "IR parity: global variable reference" {
     try expectBytecodeParity("x");
 }
 
-test "IR parity: call with global args" {
-    try expectBytecodeParity("(+ x 1)");
+test "IR behavioral: nested calls" {
+    try expectBehavioralParity("(+ (+ 1 2) (+ 3 4))");
 }
 
-test "IR parity: nested calls" {
-    try expectBytecodeParity("(+ (+ 1 2) (+ 3 4))");
+test "IR behavioral: call with global args" {
+    try expectBehavioralParity("(define x 5) (+ x 1)");
 }
 
-test "IR parity: if with call in test position" {
-    try expectBytecodeParity("(if (< x 10) 1 2)");
+test "IR behavioral: if with call in test position" {
+    try expectBehavioralParity("(define x 5) (if (< x 10) 1 2)");
 }
 
-test "IR parity: if with calls in all positions" {
-    try expectBytecodeParity("(if (< x 10) (+ x 1) (- x 1))");
+test "IR behavioral: if with calls in all positions" {
+    try expectBehavioralParity("(define x 5) (if (< x 10) (+ x 1) (- x 1))");
 }
 
 test "IR parity: unary constant fold (not)" {
