@@ -1,0 +1,32 @@
+(import (scheme base) (scheme read) (scheme write) (scheme time))
+
+(define (run-r7rs-benchmark name count thunk verify)
+  (let ((start (current-jiffy)))
+    (let loop ((i count) (result #f))
+      (if (= i 0)
+          (let* ((end (current-jiffy))
+                 (jps (jiffies-per-second))
+                 (elapsed (inexact (/ (- end start) jps))))
+            (display name)
+            (display ": ")
+            (display elapsed)
+            (display "s")
+            (if (verify result)
+                (display " [OK]")
+                (display " [FAIL]"))
+            (newline))
+          (loop (- i 1) (thunk))))))
+
+(define (string-bench n)
+  (let loop ((i 0) (s ""))
+    (if (= i n) (string-length s)
+        (loop (+ i 1) (string-append s "x")))))
+
+(let* ((count (read))
+       (input (read))
+       (expected (read)))
+  (run-r7rs-benchmark
+   (string-append "string(" (number->string input) ")")
+   count
+   (lambda () (string-bench input))
+   (lambda (result) (= result expected))))
