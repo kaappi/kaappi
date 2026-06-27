@@ -353,6 +353,54 @@ test "IR optimization: constant folding through if" {
     try std.testing.expectEqual(@as(i64, 3), types.toFixnum(folded.data.@"if".consequent.data.constant));
 }
 
+test "IR optimization: dead branch elimination — true test" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var ir = ir_mod.IR.init(std.testing.allocator);
+    defer ir.deinit();
+
+    const test_node = try ir.makeConst(types.TRUE);
+    const cons = try ir.makeConst(types.makeFixnum(42));
+    const alt = try ir.makeConst(types.makeFixnum(0));
+    const if_node = try ir.makeIf(test_node, cons, alt);
+
+    const result = ir_mod.eliminateDeadBranches(&ir, if_node);
+    try std.testing.expect(result.tag == .constant);
+    try std.testing.expectEqual(@as(i64, 42), types.toFixnum(result.data.constant));
+}
+
+test "IR optimization: dead branch elimination — false test" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var ir = ir_mod.IR.init(std.testing.allocator);
+    defer ir.deinit();
+
+    const test_node = try ir.makeConst(types.FALSE);
+    const cons = try ir.makeConst(types.makeFixnum(42));
+    const alt = try ir.makeConst(types.makeFixnum(0));
+    const if_node = try ir.makeIf(test_node, cons, alt);
+
+    const result = ir_mod.eliminateDeadBranches(&ir, if_node);
+    try std.testing.expect(result.tag == .constant);
+    try std.testing.expectEqual(@as(i64, 0), types.toFixnum(result.data.constant));
+}
+
+test "IR optimization: dead branch elimination — non-constant test unchanged" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var ir = ir_mod.IR.init(std.testing.allocator);
+    defer ir.deinit();
+
+    const x_sym = try gc.allocSymbol("x");
+    const test_node = try ir.makeGlobalRef(x_sym);
+    const cons = try ir.makeConst(types.makeFixnum(42));
+    const alt = try ir.makeConst(types.makeFixnum(0));
+    const if_node = try ir.makeIf(test_node, cons, alt);
+
+    const result = ir_mod.eliminateDeadBranches(&ir, if_node);
+    try std.testing.expect(result.tag == .@"if");
+}
+
 fn readExpr(gc: *memory.GC, source: []const u8) !types.Value {
     var reader = reader_mod.Reader.init(gc, source);
     defer reader.deinit();
