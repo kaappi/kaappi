@@ -503,13 +503,13 @@ fn hashTableMergeFn(args: []const Value) PrimitiveError!Value {
 }
 
 fn hashTableEquivFn(args: []const Value) PrimitiveError!Value {
-    _ = getHashTable("hash-table-equivalence-function", args[0]) catch return PrimitiveError.TypeError;
-    const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError;
-    return vm.globals.get("equal?") orelse return PrimitiveError.TypeError;
+    _ = try getHashTable("hash-table-equivalence-function", args[0]);
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError; // bare-ok: infrastructure guard
+    return vm.globals.get("equal?") orelse return PrimitiveError.TypeError; // bare-ok: infrastructure guard
 }
 
 fn hashTableHashFn(args: []const Value) PrimitiveError!Value {
-    _ = getHashTable("hash-table-hash-function", args[0]) catch return PrimitiveError.TypeError;
-    const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError;
-    return vm.globals.get("hash") orelse return PrimitiveError.TypeError;
+    _ = try getHashTable("hash-table-hash-function", args[0]);
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError; // bare-ok: infrastructure guard
+    return vm.globals.get("hash") orelse return PrimitiveError.TypeError; // bare-ok: infrastructure guard
 }
