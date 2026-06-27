@@ -4,6 +4,7 @@ const memory = @import("memory.zig");
 const expander = @import("expander.zig");
 const forms = @import("compiler_forms.zig");
 const advanced = @import("compiler_advanced.zig");
+const ir_mod = @import("ir.zig");
 const Value = types.Value;
 const OpCode = types.OpCode;
 
@@ -264,8 +265,13 @@ pub const Compiler = struct {
         try self.gc.pushRoot(&expr_root);
         defer self.gc.popRoot();
 
+        // Lower AST to IR, then emit bytecode from the IR tree.
+        var ir = ir_mod.IR.init(self.gc.allocator);
+        defer ir.deinit();
+        const root = try ir_mod.lower(&ir, expr_root);
+
         const dst = try self.allocReg();
-        try self.compileExpr(expr_root, dst, false);
+        try self.compileFromNode(root, dst, false);
         try self.emitOp(.@"return");
         try self.emitU16(dst);
 
@@ -278,6 +284,147 @@ pub const Compiler = struct {
                 }
                 self.func.debug_locals = d;
             }
+        }
+    }
+
+    fn compileFromNode(self: *Compiler, node: *ir_mod.Node, dst: u16, is_tail: bool) CompileError!void {
+        switch (node.tag) {
+            .constant => try self.emitLoadValue(dst, node.data.constant),
+            .global_ref => try self.compileVariable(node.data.global_ref, dst),
+            .call => try self.compileCallFromIR(node.data.call, dst, is_tail),
+            .@"if" => try self.compileIfFromIR(node.data.@"if", dst, is_tail),
+            .begin => try self.compileBeginFromIR(node.data.begin, dst, is_tail),
+            .passthrough => try self.compileExpr(node.data.passthrough, dst, is_tail),
+        }
+    }
+
+    fn compileIfFromIR(self: *Compiler, data: ir_mod.IfData, dst: u16, is_tail: bool) CompileError!void {
+        try self.compileFromNode(data.test_expr, dst, false);
+        try self.emitOp(.jump_false);
+        try self.emitU16(dst);
+        const else_jump = self.currentOffset();
+        try self.emitI16(0);
+        try self.compileFromNode(data.consequent, dst, is_tail);
+        if (data.alternate) |alt| {
+            try self.emitOp(.jump);
+            const end_jump = self.currentOffset();
+            try self.emitI16(0);
+            try self.patchJump(else_jump);
+            try self.compileFromNode(alt, dst, is_tail);
+            try self.patchJump(end_jump);
+        } else {
+            try self.emitOp(.jump);
+            const end_jump = self.currentOffset();
+            try self.emitI16(0);
+            try self.patchJump(else_jump);
+            try self.emitOp(.load_void);
+            try self.emitU16(dst);
+            try self.patchJump(end_jump);
+        }
+    }
+
+    fn compileBeginFromIR(self: *Compiler, exprs: []const *ir_mod.Node, dst: u16, is_tail: bool) CompileError!void {
+        if (exprs.len == 0) {
+            try self.emitOp(.load_void);
+            try self.emitU16(dst);
+            return;
+        }
+        for (exprs, 0..) |expr, i| {
+            const tail = is_tail and i == exprs.len - 1;
+            try self.compileFromNode(expr, dst, tail);
+        }
+    }
+
+    fn compileCallFromIR(self: *Compiler, call: ir_mod.CallData, dst: u16, is_tail: bool) CompileError!void {
+        const nargs: u8 = @intCast(call.args.len);
+
+        if (!is_tail and call.operator.tag == .global_ref) {
+            const sym = call.operator.data.global_ref;
+            if (types.isSymbol(sym)) {
+                if (self.resolveLocal(types.symbolName(sym)) == null) {
+                    if ((try self.resolveUpvalue(types.symbolName(sym))) == null) {
+                        const op_name = types.symbolName(sym);
+                        const is_cont = std.mem.eql(u8, op_name, "call-with-current-continuation") or
+                            std.mem.eql(u8, op_name, "call/cc") or
+                            std.mem.eql(u8, op_name, "call/ec") or
+                            std.mem.eql(u8, op_name, "call-with-escape-continuation") or
+                            std.mem.eql(u8, op_name, "call-with-values") or
+                            std.mem.eql(u8, op_name, "dynamic-wind") or
+                            std.mem.eql(u8, op_name, "with-exception-handler");
+                        if (!is_cont) {
+                            return self.compileCallGlobalFromIR(sym, call.args, dst, nargs, is_tail);
+                        }
+                    }
+                }
+            }
+        }
+
+        const needs_rebase = (dst + 1 != self.next_register);
+        const base = if (needs_rebase) try self.allocReg() else dst;
+
+        try self.compileFromNode(call.operator, base, false);
+
+        for (call.args) |arg| {
+            const arg_reg = try self.allocReg();
+            try self.compileFromNode(arg, arg_reg, false);
+        }
+
+        if (is_tail) {
+            try self.emitOp(.tail_call);
+        } else {
+            try self.emitOp(.call);
+        }
+        try self.emitU16(base);
+        try self.emit(nargs);
+
+        var i: u8 = 0;
+        while (i < nargs) : (i += 1) {
+            self.freeReg();
+        }
+
+        if (needs_rebase) {
+            try self.emitOp(.move);
+            try self.emitU16(dst);
+            try self.emitU16(base);
+            self.freeReg();
+        }
+    }
+
+    fn compileCallGlobalFromIR(self: *Compiler, sym: Value, args: []const *ir_mod.Node, dst: u16, nargs: u8, is_tail: bool) CompileError!void {
+        const sym_idx = try self.addConstant(sym);
+
+        const needs_rebase = (dst + 1 != self.next_register);
+        const base = if (needs_rebase) try self.allocReg() else blk: {
+            if (self.next_register == dst) {
+                _ = try self.allocReg();
+            }
+            break :blk dst;
+        };
+
+        for (args) |arg| {
+            const arg_reg = try self.allocReg();
+            try self.compileFromNode(arg, arg_reg, false);
+        }
+
+        if (is_tail) {
+            try self.emitOp(.tail_call_global);
+        } else {
+            try self.emitOp(.call_global);
+        }
+        try self.emitU16(base);
+        try self.emitU16(sym_idx);
+        try self.emit(nargs);
+
+        var i: u8 = 0;
+        while (i < nargs) : (i += 1) {
+            self.freeReg();
+        }
+
+        if (needs_rebase) {
+            try self.emitOp(.move);
+            try self.emitU16(dst);
+            try self.emitU16(base);
+            self.freeReg();
         }
     }
 
