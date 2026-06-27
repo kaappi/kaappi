@@ -90,7 +90,7 @@ pub const LLVMEmitter = struct {
             .do_form, .delay, .delay_force, .cond, .case_form, .case_lambda, .guard => try self.emitSexprEval(node),
             .quasiquote, .parameterize, .define_values, .let_values, .let_star_values => try self.emitSexprEval(node),
             .define_syntax, .let_syntax, .letrec_syntax, .cond_expand => try self.emitSexprEval(node),
-            .passthrough => return error.UnsupportedNodeType,
+            .passthrough => try self.emitEvalExpr(node.data.passthrough),
         };
     }
 
