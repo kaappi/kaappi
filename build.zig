@@ -167,6 +167,38 @@ pub fn build(b: *std.Build) void {
     const lib_install = b.addInstallArtifact(lib, .{});
     lib_step.dependOn(&lib_install.step);
 
+    // Native compilation: compile .scm to native binary via LLVM IR
+    const native_src = b.option([]const u8, "native-src", "Path to .scm source file to compile to native binary");
+    if (native_src) |src_path| {
+        const native_step = b.step("native", "Compile Scheme source to native binary via LLVM IR");
+        native_step.dependOn(&lib_install.step);
+
+        const src_lazy: std.Build.LazyPath = if (src_path.len > 0 and src_path[0] == '/')
+            .{ .cwd_relative = src_path }
+        else
+            b.path(src_path);
+
+        const emit_run = b.addRunArtifact(exe);
+        emit_run.step.dependOn(b.getInstallStep());
+        emit_run.addArg("--emit-llvm");
+        emit_run.addArg("-o");
+        const ll_output = emit_run.addOutputFileArg("program.ll");
+        emit_run.addFileArg(src_lazy);
+
+        const cc_run = b.addSystemCommand(&.{"zig"});
+        cc_run.addArg("cc");
+        cc_run.addArg("-w");
+        cc_run.addFileArg(ll_output);
+        cc_run.addArg("-o");
+        const native_output = cc_run.addOutputFileArg("program");
+        cc_run.addPrefixedDirectoryArg("-L", lib.getEmittedBinDirectory());
+        cc_run.addArgs(&.{ "-lkaappi_rt", "-lc", "-lm", "-lpthread" });
+        cc_run.step.dependOn(&emit_run.step);
+
+        const native_install = b.addInstallBinFile(native_output, "program");
+        native_step.dependOn(&native_install.step);
+    }
+
     // WebAssembly (WASI) build
     const wasm_step = b.step("wasm", "Build kaappi.wasm (wasm32-wasi)");
     const wasm_target = b.resolveTargetQuery(.{ .cpu_arch = .wasm32, .os_tag = .wasi });
