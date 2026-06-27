@@ -32,6 +32,23 @@
       (expect #f to-be-falsy))
 
     (it "evaluates not"
-      (expect (not #f) to-be-truthy))))
+      (expect (not #f) to-be-truthy)))
+
+  (describe "if expressions"
+    (it "selects consequent when true"
+      (expect (if #t 1 2) to-equal 1))
+
+    (it "selects alternate when false"
+      (expect (if #f 1 2) to-equal 2))
+
+    (it "folds comparison in test"
+      (expect (if (< 1 2) 10 20) to-equal 10)))
+
+  (describe "string constants"
+    (it "creates strings"
+      (expect "hello" to-equal "hello"))
+
+    (it "measures string length"
+      (expect (string-length "world") to-equal 5))))
 
 (run-specs)
