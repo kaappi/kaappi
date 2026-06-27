@@ -319,6 +319,16 @@ pub fn registerStandardLibraries(registry: *LibraryRegistry, globals: *std.Strin
     }
     try registry.register(eval_lib);
 
+    // (scheme repl) — REPL support (R7RS §6.4)
+    const scheme_repl_names = [_][]const u8{"interaction-environment"};
+    var repl_lib = Library.init(allocator, "scheme.repl");
+    for (scheme_repl_names) |name| {
+        if (globals.get(name)) |val| {
+            try repl_lib.addExport(name, val);
+        }
+    }
+    try registry.register(repl_lib);
+
     // (scheme load) — load procedure
     const scheme_load_names = [_][]const u8{"load"};
     var load_lib = Library.init(allocator, "scheme.load");
@@ -814,7 +824,7 @@ pub fn registerSandboxedLibraries(registry: *LibraryRegistry, globals: *std.Stri
     const case_lambda_lib = Library.init(allocator, "scheme.case-lambda");
     try registry.register(case_lambda_lib);
 
-    // SKIP: scheme.file, scheme.load, scheme.eval, scheme.process-context, kaappi.ffi, srfi.170
+    // SKIP: scheme.file, scheme.load, scheme.eval, scheme.repl, scheme.process-context, kaappi.ffi, srfi.170
 
     // Safe built-in SRFIs
     // SRFI-1
