@@ -46,6 +46,8 @@ pub const NodeTag = enum {
 
 pub const Annotations = struct {
     is_tail: bool = false,
+    is_primitive_call: bool = false,
+    primitive_name: ?[]const u8 = null,
 };
 
 pub const Node = struct {
@@ -639,6 +641,95 @@ pub fn markTailPositions(node: *Node, is_tail: bool) void {
         .call => {
             markTailPositions(node.data.call.operator, false);
             for (node.data.call.args) |arg| markTailPositions(arg, false);
+        },
+        .constant, .global_ref, .passthrough => {},
+        .define,
+        .set_form,
+        .lambda,
+        .let_form,
+        .let_star,
+        .letrec,
+        .letrec_star,
+        .do_form,
+        .delay,
+        .delay_force,
+        .cond,
+        .case_form,
+        .case_lambda,
+        .guard,
+        .quasiquote,
+        .parameterize,
+        .define_values,
+        .let_values,
+        .let_star_values,
+        .define_syntax,
+        .named_let,
+        .let_syntax,
+        .letrec_syntax,
+        .cond_expand,
+        => {},
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Semantic analysis: primitive identification
+// ---------------------------------------------------------------------------
+
+const primitives = [_][]const u8{
+    "+",              "-",              "*",            "/",             "=",           "<",              ">",
+    "<=",             ">=",             "zero?",        "not",           "null?",       "pair?",          "car",
+    "cdr",            "cons",           "list",         "length",        "append",      "map",            "apply",
+    "values",         "vector-ref",     "vector-set!",  "vector-length", "string-ref",  "string-length",  "char->integer",
+    "integer->char",  "number?",        "string?",      "symbol?",       "boolean?",    "char?",          "vector?",
+    "procedure?",     "eq?",            "eqv?",         "equal?",        "abs",         "max",            "min",
+    "remainder",      "modulo",         "quotient",     "expt",          "sqrt",        "number->string", "string->number",
+    "exact->inexact", "inexact->exact", "floor",        "ceiling",       "truncate",    "round",          "string-append",
+    "substring",      "string-copy",    "string->list", "list->string",  "make-string", "make-vector",    "vector",
+    "display",        "write",          "newline",      "read",          "even?",       "odd?",           "positive?",
+    "negative?",      "exact?",         "inexact?",     "integer?",      "rational?",   "real?",          "complex?",
+    "gcd",            "lcm",
+};
+
+pub fn identifyPrimitives(node: *Node) void {
+    switch (node.tag) {
+        .call => {
+            if (node.data.call.operator.tag == .global_ref) {
+                const sym = node.data.call.operator.data.global_ref;
+                if (types.isSymbol(sym)) {
+                    const name = types.symbolName(sym);
+                    for (primitives) |p| {
+                        if (std.mem.eql(u8, name, p)) {
+                            node.ann.is_primitive_call = true;
+                            node.ann.primitive_name = name;
+                            break;
+                        }
+                    }
+                }
+            }
+            identifyPrimitives(node.data.call.operator);
+            for (node.data.call.args) |arg| identifyPrimitives(arg);
+        },
+        .@"if" => {
+            identifyPrimitives(node.data.@"if".test_expr);
+            identifyPrimitives(node.data.@"if".consequent);
+            if (node.data.@"if".alternate) |alt| identifyPrimitives(alt);
+        },
+        .begin => {
+            for (node.data.begin) |expr| identifyPrimitives(expr);
+        },
+        .and_form => {
+            for (node.data.and_form) |expr| identifyPrimitives(expr);
+        },
+        .or_form => {
+            for (node.data.or_form) |expr| identifyPrimitives(expr);
+        },
+        .when_form => {
+            identifyPrimitives(node.data.when_form.test_expr);
+            for (node.data.when_form.body) |expr| identifyPrimitives(expr);
+        },
+        .unless_form => {
+            identifyPrimitives(node.data.unless_form.test_expr);
+            for (node.data.unless_form.body) |expr| identifyPrimitives(expr);
         },
         .constant, .global_ref, .passthrough => {},
         .define,
