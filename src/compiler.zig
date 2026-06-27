@@ -279,6 +279,7 @@ pub const Compiler = struct {
         root = ir_mod.foldConstants(&ir, root);
         root = ir_mod.eliminateDeadBranches(&ir, root);
         root = ir_mod.simplifyBooleans(&ir, root);
+        root = ir_mod.eliminateIdentity(&ir, root);
 
         const dst = try self.allocReg();
         try self.compileFromNode(root, dst, false);
@@ -646,6 +647,7 @@ pub const Compiler = struct {
             root = ir_mod.foldConstants(&ir, root);
             root = ir_mod.eliminateDeadBranches(&ir, root);
             root = ir_mod.simplifyBooleans(&ir, root);
+            root = ir_mod.eliminateIdentity(&ir, root);
 
             dst = try self.allocReg();
             try self.compileFromNode(root, dst, false);

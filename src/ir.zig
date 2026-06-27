@@ -1118,6 +1118,76 @@ pub fn simplifyBooleans(ir: *IR, node: *Node) *Node {
 }
 
 // ---------------------------------------------------------------------------
+// Optimization: identity elimination
+// ---------------------------------------------------------------------------
+
+pub fn eliminateIdentity(ir: *IR, node: *Node) *Node {
+    switch (node.tag) {
+        .call => {
+            const call = node.data.call;
+            if (call.operator.tag != .global_ref) return node;
+            const sym = call.operator.data.global_ref;
+            if (!types.isSymbol(sym)) return node;
+            const name = types.symbolName(sym);
+
+            if (call.args.len == 2) {
+                const a = call.args[0];
+                const b = call.args[1];
+
+                // (+ x 0) → x, (+ 0 x) → x
+                if (std.mem.eql(u8, name, "+")) {
+                    if (b.tag == .constant and types.isFixnum(b.data.constant) and types.toFixnum(b.data.constant) == 0)
+                        return eliminateIdentity(ir, a);
+                    if (a.tag == .constant and types.isFixnum(a.data.constant) and types.toFixnum(a.data.constant) == 0)
+                        return eliminateIdentity(ir, b);
+                }
+                // (* x 1) → x, (* 1 x) → x
+                if (std.mem.eql(u8, name, "*")) {
+                    if (b.tag == .constant and types.isFixnum(b.data.constant) and types.toFixnum(b.data.constant) == 1)
+                        return eliminateIdentity(ir, a);
+                    if (a.tag == .constant and types.isFixnum(a.data.constant) and types.toFixnum(a.data.constant) == 1)
+                        return eliminateIdentity(ir, b);
+                    // (* x 0) → 0, (* 0 x) → 0
+                    if (b.tag == .constant and types.isFixnum(b.data.constant) and types.toFixnum(b.data.constant) == 0)
+                        return ir.makeConst(types.makeFixnum(0)) catch return node;
+                    if (a.tag == .constant and types.isFixnum(a.data.constant) and types.toFixnum(a.data.constant) == 0)
+                        return ir.makeConst(types.makeFixnum(0)) catch return node;
+                }
+                // (- x 0) → x
+                if (std.mem.eql(u8, name, "-")) {
+                    if (b.tag == .constant and types.isFixnum(b.data.constant) and types.toFixnum(b.data.constant) == 0)
+                        return eliminateIdentity(ir, a);
+                }
+            }
+            return node;
+        },
+        .@"if" => {
+            const data = node.data.@"if";
+            const new_test = eliminateIdentity(ir, data.test_expr);
+            const new_cons = eliminateIdentity(ir, data.consequent);
+            const new_alt = if (data.alternate) |alt| eliminateIdentity(ir, alt) else null;
+            if (new_test != data.test_expr or new_cons != data.consequent or
+                (data.alternate != null and new_alt != data.alternate.?))
+            {
+                return ir.makeIf(new_test, new_cons, new_alt) catch return node;
+            }
+            return node;
+        },
+        .begin => {
+            var changed = false;
+            var buf: [256]*Node = undefined;
+            for (node.data.begin, 0..) |expr, i| {
+                buf[i] = eliminateIdentity(ir, expr);
+                if (buf[i] != expr) changed = true;
+            }
+            if (changed) return ir.makeBegin(buf[0..node.data.begin.len]) catch return node;
+            return node;
+        },
+        else => return node,
+    }
+}
+
+// ---------------------------------------------------------------------------
 // IR → bytecode emission (standalone, used by Stage 1 parity tests)
 // ---------------------------------------------------------------------------
 
