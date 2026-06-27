@@ -89,6 +89,34 @@ fn writeStderr(bytes: []const u8) void {
     writeToFd(2, bytes);
 }
 
+fn printSourceSnippet(source: []const u8, line: u32) void {
+    if (line == 0 or source.len == 0) return;
+    var current_line: u32 = 1;
+    var line_start: usize = 0;
+    for (source, 0..) |c, i| {
+        if (current_line == line) {
+            var line_end = i;
+            while (line_end < source.len and source[line_end] != '\n') : (line_end += 1) {}
+            const snippet = source[line_start..line_end];
+            if (snippet.len > 0) {
+                writeStderr("    ");
+                writeStderr(snippet);
+                writeStderr("\n");
+            }
+            return;
+        }
+        if (c == '\n') {
+            current_line += 1;
+            line_start = i + 1;
+        }
+    }
+    if (current_line == line and line_start < source.len) {
+        writeStderr("    ");
+        writeStderr(source[line_start..]);
+        writeStderr("\n");
+    }
+}
+
 fn readFileContents(allocator: std.mem.Allocator, path: []const u8) ![]u8 {
     const path_z = allocator.dupeZ(u8, path) catch return error.OutOfMemory;
     defer allocator.free(path_z);
@@ -672,6 +700,7 @@ fn runFile(vm: *vm_mod.VM, path: []const u8) !void {
                 const s = std.fmt.bufPrint(&errbuf, "{s}:{d}: runtime error: {}\n", .{ err_source, err_line, err }) catch "runtime error\n";
                 writeStderr(s);
             }
+            printSourceSnippet(source, err_line);
             // Print stack trace for file execution
             const trace = vm.getLastStackTrace();
             if (trace.len > 1) {
