@@ -571,7 +571,7 @@ pub fn registerStandardLibraries(registry: *LibraryRegistry, globals: *std.Strin
         "vector-any",          "vector-every",      "vector-index",        "vector-index-right",
         "vector-skip",         "vector-skip-right", "vector-swap!",        "vector-reverse!",
         "vector-reverse-copy", "vector-unfold",     "vector-unfold-right", "vector-binary-search",
-        "vector-concatenate",  "vector-cumulate",   "vector-partition",
+        "vector-concatenate",  "vector-cumulate",   "vector-partition",    "vector-append-subvectors",
     };
     var srfi133_lib = Library.init(allocator, "srfi.133");
     for (srfi133_names) |name| {
@@ -922,7 +922,7 @@ pub fn registerSandboxedLibraries(registry: *LibraryRegistry, globals: *std.Stri
         "vector-any",          "vector-every",      "vector-index",        "vector-index-right",
         "vector-skip",         "vector-skip-right", "vector-swap!",        "vector-reverse!",
         "vector-reverse-copy", "vector-unfold",     "vector-unfold-right", "vector-binary-search",
-        "vector-concatenate",  "vector-cumulate",   "vector-partition",
+        "vector-concatenate",  "vector-cumulate",   "vector-partition",    "vector-append-subvectors",
     };
     var srfi133_lib = Library.init(allocator, "srfi.133");
     for (srfi133_names) |name| {

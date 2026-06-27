@@ -44,6 +44,7 @@ pub fn registerVector(vm: *vm_mod.VM) !void {
     try reg(vm, "vector-concatenate", &vectorConcatenateFn, .{ .exact = 1 });
     try reg(vm, "vector-cumulate", &vectorCumulateFn, .{ .exact = 3 });
     try reg(vm, "vector-partition", &vectorPartitionFn, .{ .exact = 2 });
+    try reg(vm, "vector-append-subvectors", &vectorAppendSubvectorsFn, .{ .variadic = 0 });
 }
 
 // ---------------------------------------------------------------------------
@@ -879,4 +880,34 @@ fn vectorPartitionFn(args: []const Value) PrimitiveError!Value {
 
     const vals = [2]Value{ yes_vec, count_val };
     return gc.allocMultipleValues(&vals) catch return PrimitiveError.OutOfMemory;
+}
+
+fn vectorAppendSubvectorsFn(args: []const Value) PrimitiveError!Value {
+    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    if (args.len % 3 != 0) return primitives.typeError("vector-append-subvectors", "multiple of 3 arguments", types.makeFixnum(@intCast(args.len)));
+
+    var total: usize = 0;
+    var i: usize = 0;
+    while (i < args.len) : (i += 3) {
+        if (!types.isVector(args[i])) return primitives.typeError("vector-append-subvectors", "vector", args[i]);
+        if (!types.isFixnum(args[i + 1])) return primitives.typeError("vector-append-subvectors", "integer", args[i + 1]);
+        if (!types.isFixnum(args[i + 2])) return primitives.typeError("vector-append-subvectors", "integer", args[i + 2]);
+        const start: usize = @intCast(types.toFixnum(args[i + 1]));
+        const end: usize = @intCast(types.toFixnum(args[i + 2]));
+        if (end < start) return PrimitiveError.TypeError;
+        total += end - start;
+    }
+
+    const result_data = gc.allocator.alloc(Value, total) catch return PrimitiveError.OutOfMemory;
+    var pos: usize = 0;
+    i = 0;
+    while (i < args.len) : (i += 3) {
+        const vec = types.toVector(args[i]);
+        const start: usize = @intCast(types.toFixnum(args[i + 1]));
+        const end: usize = @intCast(types.toFixnum(args[i + 2]));
+        @memcpy(result_data[pos .. pos + (end - start)], vec.data[start..end]);
+        pos += end - start;
+    }
+    defer gc.allocator.free(result_data);
+    return gc.allocVector(result_data) catch return PrimitiveError.OutOfMemory;
 }
