@@ -398,6 +398,7 @@ fn mainImpl(init: std.process.Init.Minimal) !void {
     var disassemble_mode = false;
     var gc_stats_mode = false;
     var profile_mode = false;
+    var profile_json_path: ?[]const u8 = null;
     var coverage_mode = false;
     var sandbox_mode = false;
 
@@ -413,6 +414,9 @@ fn mainImpl(init: std.process.Init.Minimal) !void {
             }
         } else if (std.mem.eql(u8, arg, "--profile")) {
             profile_mode = true;
+        } else if (std.mem.eql(u8, arg, "--profile-json")) {
+            profile_mode = true;
+            profile_json_path = args.next();
         } else if (std.mem.eql(u8, arg, "--coverage")) {
             coverage_mode = true;
         } else if (std.mem.eql(u8, arg, "--coverage-xml")) {
@@ -513,7 +517,12 @@ fn mainImpl(init: std.process.Init.Minimal) !void {
 
     defer if (gc_stats_mode) reporting.printGcStats(&gc);
     if (profile_mode) vm.profile_mode = true;
-    defer if (profile_mode) reporting.printProfileReport(&gc);
+    defer if (profile_mode) {
+        reporting.printProfileReport(&gc);
+        if (profile_json_path) |jp| {
+            reporting.writeProfileJson(&gc, jp);
+        }
+    };
     if (coverage_mode) {
         vm.profile_mode = true;
         vm.coverage_mode = true;
