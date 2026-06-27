@@ -275,7 +275,7 @@ fn getArity(val: types.Value) ?[]const u8 {
 
 fn handleInitialize(allocator: std.mem.Allocator, id: i64) void {
     sendResponse(allocator, id,
-        \\{"capabilities":{"textDocumentSync":1,"completionProvider":{"resolveProvider":false,"triggerCharacters":[]},"hoverProvider":true},"serverInfo":{"name":"kaappi-lsp","version":"0.1.0"}}
+        \\{"capabilities":{"textDocumentSync":1,"completionProvider":{"resolveProvider":false,"triggerCharacters":[]},"hoverProvider":true,"documentSymbolProvider":true},"serverInfo":{"name":"kaappi-lsp","version":"0.1.0"}}
     );
 }
 
@@ -363,6 +363,84 @@ fn handleHover(allocator: std.mem.Allocator, vm: *vm_mod.VM, id: i64, params: []
     jsonString(&buf, allocator, md.items);
     buf.appendSlice(allocator, "}}") catch {};
     sendResponse(allocator, id, buf.items);
+}
+
+fn handleDocumentSymbol(allocator: std.mem.Allocator, vm: *vm_mod.VM, id: i64, params: []const u8) void {
+    const td = jsonGetObject(params, "textDocument") orelse "";
+    const uri = jsonGetString(td, "uri") orelse "";
+    const text = getDocument(uri) orelse "";
+
+    var result: std.ArrayList(u8) = .empty;
+    defer result.deinit(allocator);
+    result.append(allocator, '[') catch return;
+    var first = true;
+
+    var r = reader.Reader.init(vm.gc, text);
+    defer r.deinit();
+
+    while (r.hasMore()) {
+        const lc = r.getLineCol();
+        const expr = r.readDatum() catch break;
+
+        if (!types.isPair(expr)) continue;
+        const head = types.car(expr);
+        if (!types.isSymbol(head)) continue;
+        const form = types.symbolName(head);
+
+        var name: ?[]const u8 = null;
+        var kind: u8 = 12; // Function
+
+        if (std.mem.eql(u8, form, "define")) {
+            const rest = types.cdr(expr);
+            if (rest == types.NIL) continue;
+            const target = types.car(rest);
+            if (types.isSymbol(target)) {
+                name = types.symbolName(target);
+                kind = 13; // Variable
+            } else if (types.isPair(target)) {
+                const fn_name = types.car(target);
+                if (types.isSymbol(fn_name)) {
+                    name = types.symbolName(fn_name);
+                    kind = 12; // Function
+                }
+            }
+        } else if (std.mem.eql(u8, form, "define-syntax")) {
+            const rest = types.cdr(expr);
+            if (rest != types.NIL and types.isPair(rest)) {
+                const syn_name = types.car(rest);
+                if (types.isSymbol(syn_name)) {
+                    name = types.symbolName(syn_name);
+                    kind = 14; // Constructor (macro)
+                }
+            }
+        } else if (std.mem.eql(u8, form, "define-record-type")) {
+            const rest = types.cdr(expr);
+            if (rest != types.NIL and types.isPair(rest)) {
+                const rec_name = types.car(rest);
+                if (types.isSymbol(rec_name)) {
+                    name = types.symbolName(rec_name);
+                    kind = 23; // Struct
+                }
+            }
+        } else if (std.mem.eql(u8, form, "define-library")) {
+            kind = 4; // Package
+            name = "(library)";
+        }
+
+        if (name) |n| {
+            if (!first) result.append(allocator, ',') catch {};
+            first = false;
+            const line: i64 = @intCast(lc.line -| 1);
+            const s = std.fmt.allocPrint(allocator,
+                \\{{"name":"{s}","kind":{d},"location":{{"uri":"{s}","range":{{"start":{{"line":{d},"character":0}},"end":{{"line":{d},"character":0}}}}}}}}
+            , .{ n, kind, uri, line, line }) catch continue;
+            defer allocator.free(s);
+            result.appendSlice(allocator, s) catch {};
+        }
+    }
+
+    result.append(allocator, ']') catch return;
+    sendResponse(allocator, id, result.items);
 }
 
 fn handleDidOpenOrChange(allocator: std.mem.Allocator, vm: *vm_mod.VM, params: []const u8) void {
@@ -545,6 +623,8 @@ pub fn main(init: std.process.Init.Minimal) !void {
             handleCompletion(allocator, &vm, id orelse 0, msg);
         } else if (std.mem.eql(u8, method, "textDocument/hover")) {
             handleHover(allocator, &vm, id orelse 0, msg);
+        } else if (std.mem.eql(u8, method, "textDocument/documentSymbol")) {
+            handleDocumentSymbol(allocator, &vm, id orelse 0, msg);
         }
     }
 
