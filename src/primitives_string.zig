@@ -350,14 +350,26 @@ fn stringFillFn(args: []const Value) PrimitiveError!Value {
     const data = str.data[0..str.len];
     const cp = types.toChar(args[1]);
     const char_count = utf8CodepointCount(data);
-    const start: usize = if (args.len > 2) @intCast(@as(u64, @bitCast(types.toFixnum(args[2])))) else 0;
-    const end: usize = if (args.len > 3) @intCast(@as(u64, @bitCast(types.toFixnum(args[3])))) else char_count;
+    var start_cp: usize = 0;
+    if (args.len > 2) {
+        if (!types.isFixnum(args[2])) return primitives.typeError("string-fill!", "exact integer", args[2]);
+        const k = types.toFixnum(args[2]);
+        if (k < 0) return primitives.typeError("string-fill!", "non-negative integer", args[2]);
+        start_cp = @intCast(@as(u64, @bitCast(k)));
+    }
+    var end_cp: usize = char_count;
+    if (args.len > 3) {
+        if (!types.isFixnum(args[3])) return primitives.typeError("string-fill!", "exact integer", args[3]);
+        const k = types.toFixnum(args[3]);
+        if (k < 0) return primitives.typeError("string-fill!", "non-negative integer", args[3]);
+        end_cp = @intCast(@as(u64, @bitCast(k)));
+    }
+    if (start_cp > end_cp) return primitives.typeError("string-fill!", "start <= end", args[2]);
+    if (end_cp > char_count) return PrimitiveError.IndexOutOfBounds;
+    const start = start_cp;
+    const end = end_cp;
     var fill_buf: [4]u8 = undefined;
     const fill_len = std.unicode.utf8Encode(cp, &fill_buf) catch return primitives.typeError("string-fill!", "valid character", args[1]);
-    const fill_count = end - start;
-    const unfilled = char_count - fill_count;
-    const new_total = unfilled * 1 + fill_count * fill_len;
-    _ = new_total;
     // Build new string: [0..start] unchanged, [start..end] filled, [end..] unchanged
     var result: std.ArrayList(u8) = .empty;
     defer result.deinit(gc.allocator);
