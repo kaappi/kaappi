@@ -192,6 +192,7 @@ pub const ExpandError = error{
     NoMatchingPattern,
     ScopeTableFull,
     PatternTooComplex,
+    EllipsisCountMismatch,
     OutOfMemory,
 };
 
@@ -565,12 +566,18 @@ fn templateReferencesVar(template: Value, name: []const u8) bool {
 }
 
 fn instantiateEllipsis(gc: *GC, elem_template: Value, rest_template: Value, bindings: []Binding, intro_scope: u32, literals: []const Value, macro_keyword: ?[]const u8, globals: ?*std.StringHashMap(Value), macros: ?*const std.StringHashMap(Value)) (std.mem.Allocator.Error || ExpandError)!Value {
-    // Find the repeat count from ellipsis bindings referenced in elem_template
+    // Find the repeat count from ellipsis bindings referenced in elem_template.
+    // All referenced list bindings must have equal counts (R7RS).
     var repeat_count: usize = 0;
+    var count_set = false;
     for (bindings) |b| {
         if (b.is_list and templateReferencesVar(elem_template, b.name)) {
-            repeat_count = b.ellipsis_count;
-            break;
+            if (!count_set) {
+                repeat_count = b.ellipsis_count;
+                count_set = true;
+            } else if (b.ellipsis_count != repeat_count) {
+                return ExpandError.EllipsisCountMismatch;
+            }
         }
     }
 
