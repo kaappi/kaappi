@@ -265,13 +265,19 @@ pub const Compiler = struct {
         try self.gc.pushRoot(&expr_root);
         defer self.gc.popRoot();
 
-        // Lower AST to IR, run analysis, then emit bytecode.
+        // Lower AST to IR, run analysis and optimizations, then emit bytecode.
         var ir = ir_mod.IR.init(self.gc.allocator);
         defer ir.deinit();
-        const root = try ir_mod.lower(&ir, expr_root);
+        var root = try ir_mod.lower(&ir, expr_root);
+
+        // Analysis passes
         ir_mod.markTailPositions(root, false);
         ir_mod.identifyPrimitives(root);
         ir_mod.markConstants(root);
+
+        // Optimization passes
+        root = ir_mod.foldConstants(&ir, root);
+        root = ir_mod.eliminateDeadBranches(&ir, root);
 
         const dst = try self.allocReg();
         try self.compileFromNode(root, dst, false);
