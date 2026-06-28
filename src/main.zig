@@ -63,14 +63,18 @@ fn printUsage() void {
         "Kaappi Scheme v" ++ version ++ "\n" ++
             "\n" ++
             "Usage: kaappi [options] [file] [script-args...]\n" ++
+            "       kaappi compile <file.scm> [-o output]\n" ++
+            "\n" ++
+            "Commands:\n" ++
+            "  compile <file>     Compile to native binary via LLVM\n" ++
             "\n" ++
             "Options:\n" ++
             "  -h, --help         Show this help message\n" ++
             "  --version          Show version\n" ++
             "  --lib-path <path>  Add library search path (up to 16)\n" ++
-            "  --compile          Compile file to bytecode\n" ++
+            "  --compile          Compile file to bytecode (.sbc)\n" ++
             "  --emit-llvm        Emit LLVM IR text (.ll)\n" ++
-            "  -o <file>          Output path for --compile or --emit-llvm\n" ++
+            "  -o <file>          Output path\n" ++
             "  --disassemble      Disassemble bytecode\n" ++
             "  --sandbox          Restrict filesystem and process access\n" ++
             "  --gc-stats         Print GC statistics on exit\n" ++
@@ -390,6 +394,7 @@ fn mainImpl(init: std.process.Init.Minimal) !void {
     var lib_path_count: usize = 0;
     var file_path: ?[]const u8 = null;
     var compile_mode = false;
+    var native_compile_mode = false;
     var emit_llvm_mode = false;
     var compile_output: ?[]const u8 = null;
     var disassemble_mode = false;
@@ -421,6 +426,8 @@ fn mainImpl(init: std.process.Init.Minimal) !void {
             if (args.next()) |p| vm.coverage_xml_path = p;
         } else if (std.mem.eql(u8, arg, "--sandbox")) {
             sandbox_mode = true;
+        } else if (std.mem.eql(u8, arg, "compile")) {
+            native_compile_mode = true;
         } else if (std.mem.eql(u8, arg, "--compile")) {
             compile_mode = true;
         } else if (std.mem.eql(u8, arg, "--emit-llvm")) {
@@ -526,6 +533,15 @@ fn mainImpl(init: std.process.Init.Minimal) !void {
         reporting.printCoverageReport(vm);
         if (vm.coverage_xml_path) |p| reporting.writeCoverageXml(vm, p);
     };
+
+    if (native_compile_mode) {
+        if (file_path) |fp| {
+            try compileNative(vm, fp, compile_output);
+        } else {
+            writeStdout("Usage: kaappi compile <file.scm> [-o output]\n");
+        }
+        return;
+    }
 
     if (disassemble_mode) {
         if (file_path) |fp| {
@@ -1795,6 +1811,150 @@ fn emitLlvmFile(vm: *vm_mod.VM, path: []const u8, output_path: ?[]const u8) !voi
     var msgbuf: [512]u8 = undefined;
     const msg = std.fmt.bufPrint(&msgbuf, "Wrote {s}\n", .{out_path}) catch return;
     writeStdout(msg);
+}
+
+fn compileNative(vm: *vm_mod.VM, path: []const u8, output_path: ?[]const u8) !void {
+    const allocator = vm.gc.allocator;
+
+    const ll_path = "/tmp/kaappi_native.ll";
+    emitLlvmFile(vm, path, ll_path) catch return;
+
+    const out_path = output_path orelse blk: {
+        if (std.mem.endsWith(u8, path, ".scm")) {
+            break :blk path[0 .. path.len - 4];
+        }
+        break :blk path;
+    };
+
+    const lib_dir = findLibDir(allocator) orelse {
+        writeStderr("Cannot find libkaappi_rt.a. Build it with: zig build lib\n");
+        return;
+    };
+
+    const lib_flag = std.fmt.allocPrint(allocator, "-L{s}", .{lib_dir}) catch return;
+    defer allocator.free(lib_flag);
+
+    const compilers = [_][]const u8{ "zig", "cc", "clang", "gcc" };
+    for (compilers) |cc| {
+        const cc_path = findInPath(allocator, cc) orelse continue;
+        defer allocator.free(cc_path);
+        if (tryLink(allocator, cc_path, ll_path, out_path, lib_flag, std.mem.eql(u8, cc, "zig"))) {
+            _ = std.posix.system.unlink(ll_path.ptr);
+            return;
+        }
+    }
+
+    writeStderr("No C compiler found. Install zig, clang, or gcc.\n");
+    _ = std.posix.system.unlink(ll_path.ptr);
+}
+
+fn findInPath(allocator: std.mem.Allocator, name: []const u8) ?[]const u8 {
+    const path_env = std.c.getenv("PATH") orelse return null;
+    const path_str = std.mem.span(path_env);
+    var iter = std.mem.splitScalar(u8, path_str, ':');
+    while (iter.next()) |dir| {
+        const full = std.fmt.allocPrint(allocator, "{s}/{s}", .{ dir, name }) catch continue;
+        const full_z = allocator.dupeZ(u8, full) catch {
+            allocator.free(full);
+            continue;
+        };
+        allocator.free(full);
+        const fd = std.posix.openat(std.posix.AT.FDCWD, full_z, .{ .ACCMODE = .RDONLY }, 0) catch {
+            allocator.free(full_z);
+            continue;
+        };
+        _ = std.posix.system.close(fd);
+        return full_z;
+    }
+    return null;
+}
+
+fn findLibDir(allocator: std.mem.Allocator) ?[]const u8 {
+    const candidates = [_][]const u8{
+        "zig-out/lib",
+        "/usr/local/lib",
+    };
+
+    for (candidates) |dir| {
+        const path = std.fmt.allocPrint(allocator, "{s}/libkaappi_rt.a", .{dir}) catch continue;
+        defer allocator.free(path);
+        const fd = std.posix.openat(std.posix.AT.FDCWD, path, .{ .ACCMODE = .RDONLY }, 0) catch continue;
+        _ = std.posix.system.close(fd);
+        return dir;
+    }
+    return null;
+}
+
+fn tryLink(allocator: std.mem.Allocator, cc: []const u8, ll_path: []const u8, out_path: []const u8, lib_flag: []const u8, is_zig: bool) bool {
+    var argv_buf: [16]?[*:0]const u8 = .{null} ** 16;
+    var argc: usize = 0;
+
+    const cc_z = allocator.dupeZ(u8, cc) catch return false;
+    defer allocator.free(cc_z);
+    argv_buf[argc] = cc_z;
+    argc += 1;
+
+    if (is_zig) {
+        argv_buf[argc] = "cc";
+        argc += 1;
+    }
+
+    argv_buf[argc] = "-w";
+    argc += 1;
+
+    const ll_z = allocator.dupeZ(u8, ll_path) catch return false;
+    defer allocator.free(ll_z);
+    argv_buf[argc] = ll_z;
+    argc += 1;
+
+    argv_buf[argc] = "-o";
+    argc += 1;
+
+    const out_z = allocator.dupeZ(u8, out_path) catch return false;
+    defer allocator.free(out_z);
+    argv_buf[argc] = out_z;
+    argc += 1;
+
+    const lib_z = allocator.dupeZ(u8, lib_flag) catch return false;
+    defer allocator.free(lib_z);
+    argv_buf[argc] = lib_z;
+    argc += 1;
+
+    argv_buf[argc] = "-lkaappi_rt";
+    argc += 1;
+    argv_buf[argc] = "-lc";
+    argc += 1;
+    argv_buf[argc] = "-lm";
+    argc += 1;
+    argv_buf[argc] = "-lpthread";
+    argc += 1;
+    argv_buf[argc] = null;
+
+    const pid = std.posix.system.fork();
+    if (pid < 0) return false;
+
+    if (pid == 0) {
+        _ = std.posix.system.execve(
+            @ptrCast(argv_buf[0].?),
+            @ptrCast(&argv_buf),
+            @ptrCast(std.c.environ),
+        );
+        std.process.exit(127);
+    }
+
+    var status: c_int = 0;
+    _ = std.c.waitpid(pid, &status, 0);
+    const raw: c_uint = @bitCast(status);
+    const exited = (raw & 0x7f) == 0;
+    if (!exited) return false;
+    const exit_code = (raw >> 8) & 0xff;
+    if (exit_code == 0) {
+        var msgbuf: [512]u8 = undefined;
+        const msg = std.fmt.bufPrint(&msgbuf, "Compiled {s}\n", .{out_path}) catch return true;
+        writeStdout(msg);
+        return true;
+    }
+    return false;
 }
 
 test {
