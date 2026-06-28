@@ -19,6 +19,7 @@ test "fuzz reader" {
             var gc = memory.GC.init(std.testing.allocator);
             defer gc.deinit();
             var r = reader_mod.Reader.init(&gc, input);
+            defer r.deinit();
             while (true) {
                 _ = r.readDatum() catch break;
             }
@@ -48,6 +49,7 @@ test "fuzz compiler" {
             var gc = memory.GC.init(std.testing.allocator);
             defer gc.deinit();
             var r = reader_mod.Reader.init(&gc, input);
+            defer r.deinit();
             const expr = r.readDatum() catch return;
             var macros = std.StringHashMap(types.Value).init(std.testing.allocator);
             defer macros.deinit();
