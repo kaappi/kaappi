@@ -23,6 +23,17 @@ pub const CallbackSig = enum {
     pp_void, // (pointer, pointer) -> void
 };
 
+const MAX_FIXNUM: i64 = 0x7FFF_FFFF_FFFF;
+
+fn marshalPtrArg(ptr: ?*anyopaque, gc: *memory.GC) ?Value {
+    const addr: usize = if (ptr) |p| @intFromPtr(p) else return types.makeFixnum(0);
+    const signed: i64 = @bitCast(@as(u64, addr));
+    if (signed >= 0 and signed <= MAX_FIXNUM)
+        return types.makeFixnum(signed);
+    const limbs_buf = [1]u64{addr};
+    return gc.allocBignumFromLimbs(&limbs_buf, 1, true) catch return null;
+}
+
 // ---------------------------------------------------------------------------
 // Trampoline generators — one per supported C callback signature
 // ---------------------------------------------------------------------------
@@ -33,8 +44,8 @@ fn makeTrampolinePPI(comptime idx: usize) *const fn (?*anyopaque, ?*anyopaque) c
             const slot = &callback_slots[idx];
             if (!slot.active) return 0;
             const vm = vm_mod.vm_instance orelse return 0;
-            const arg0 = types.makeFixnum(@intCast(@intFromPtr(a orelse return 0)));
-            const arg1 = types.makeFixnum(@intCast(@intFromPtr(b orelse return 0)));
+            const arg0 = marshalPtrArg(a, vm.gc) orelse return 0;
+            const arg1 = marshalPtrArg(b, vm.gc) orelse return 0;
             const args = [2]Value{ arg0, arg1 };
             const result = vm.callWithArgs(slot.closure, &args) catch {
                 vm.last_callback_error = true;
@@ -71,7 +82,7 @@ fn makeTrampolinePV(comptime idx: usize) *const fn (?*anyopaque) callconv(.c) vo
             const slot = &callback_slots[idx];
             if (!slot.active) return;
             const vm = vm_mod.vm_instance orelse return;
-            const arg0 = types.makeFixnum(@intCast(@intFromPtr(a orelse return)));
+            const arg0 = marshalPtrArg(a, vm.gc) orelse return;
             const args = [1]Value{arg0};
             _ = vm.callWithArgs(slot.closure, &args) catch {
                 vm.last_callback_error = true;
@@ -87,7 +98,7 @@ fn makeTrampolinePI(comptime idx: usize) *const fn (?*anyopaque) callconv(.c) c_
             const slot = &callback_slots[idx];
             if (!slot.active) return 0;
             const vm = vm_mod.vm_instance orelse return 0;
-            const arg0 = types.makeFixnum(@intCast(@intFromPtr(a orelse return 0)));
+            const arg0 = marshalPtrArg(a, vm.gc) orelse return 0;
             const args = [1]Value{arg0};
             const result = vm.callWithArgs(slot.closure, &args) catch {
                 vm.last_callback_error = true;
@@ -111,8 +122,7 @@ fn makeTrampolineIPI(comptime idx: usize) *const fn (c_int, ?*anyopaque) callcon
             if (!slot.active) return 0;
             const vm = vm_mod.vm_instance orelse return 0;
             const arg0 = types.makeFixnum(@intCast(a));
-            const b_addr: usize = if (b) |p| @intFromPtr(p) else 0;
-            const arg1 = types.makeFixnum(@intCast(b_addr));
+            const arg1 = marshalPtrArg(b, vm.gc) orelse return 0;
             const args = [2]Value{ arg0, arg1 };
             const result = vm.callWithArgs(slot.closure, &args) catch {
                 vm.last_callback_error = true;
@@ -151,10 +161,8 @@ fn makeTrampolinePPV(comptime idx: usize) *const fn (?*anyopaque, ?*anyopaque) c
             const slot = &callback_slots[idx];
             if (!slot.active) return;
             const vm = vm_mod.vm_instance orelse return;
-            const a_addr: usize = if (a) |p| @intFromPtr(p) else 0;
-            const b_addr: usize = if (b) |p| @intFromPtr(p) else 0;
-            const arg0 = types.makeFixnum(@intCast(a_addr));
-            const arg1 = types.makeFixnum(@intCast(b_addr));
+            const arg0 = marshalPtrArg(a, vm.gc) orelse return;
+            const arg1 = marshalPtrArg(b, vm.gc) orelse return;
             const args = [2]Value{ arg0, arg1 };
             _ = vm.callWithArgs(slot.closure, &args) catch {
                 vm.last_callback_error = true;
@@ -246,4 +254,30 @@ pub fn markCallbackRoots(gc: *memory.GC) void {
             gc.markValue(slot.closure);
         }
     }
+}
+
+test "marshalPtrArg: null returns fixnum zero" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    const val = marshalPtrArg(null, &gc).?;
+    try std.testing.expectEqual(@as(i64, 0), types.toFixnum(val));
+}
+
+test "marshalPtrArg: small address returns fixnum" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    const addr: usize = 0x1000;
+    const ptr: *anyopaque = @ptrFromInt(addr);
+    const val = marshalPtrArg(ptr, &gc).?;
+    try std.testing.expect(types.isFixnum(val));
+    try std.testing.expectEqual(@as(i64, @intCast(addr)), types.toFixnum(val));
+}
+
+test "marshalPtrArg: large address returns bignum" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    const addr: usize = 0x0001_0000_0000_0000;
+    const ptr: *anyopaque = @ptrFromInt(addr);
+    const val = marshalPtrArg(ptr, &gc).?;
+    try std.testing.expect(types.isBignum(val));
 }

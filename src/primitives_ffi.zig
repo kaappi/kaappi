@@ -222,14 +222,21 @@ fn ffiCallbackPred(args: []const Value) PrimitiveError!Value {
     return if (types.isFfiCallback(args[0])) types.TRUE else types.FALSE;
 }
 
-/// (ffi-bytevector-ptr bv) — returns data pointer as fixnum
+/// (ffi-bytevector-ptr bv) — returns data pointer as fixnum or bignum
 fn ffiBytevectorPtr(args: []const Value) PrimitiveError!Value {
     try checkSandbox("ffi-bytevector-ptr");
     if (!types.isBytevector(args[0]))
         return primitives.typeError("ffi-bytevector-ptr", "bytevector", args[0]);
+    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
     const bv = types.toObject(args[0]).as(types.Bytevector);
     if (bv.data.len == 0) return types.makeFixnum(0);
-    return types.makeFixnum(@intCast(@intFromPtr(bv.data.ptr)));
+    const addr: usize = @intFromPtr(bv.data.ptr);
+    const signed: i64 = @bitCast(@as(u64, addr));
+    const max_fixnum: i64 = 0x7FFF_FFFF_FFFF;
+    if (signed >= 0 and signed <= max_fixnum)
+        return types.makeFixnum(signed);
+    const limbs_buf = [1]u64{addr};
+    return gc.allocBignumFromLimbs(&limbs_buf, 1, true) catch return PrimitiveError.OutOfMemory;
 }
 
 fn matchCallbackSig(params: []const types.FfiType, ret: types.FfiType) ?ffi_callback.CallbackSig {
