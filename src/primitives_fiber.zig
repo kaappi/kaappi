@@ -67,7 +67,7 @@ fn fiberJoinFn(args: []const Value) PrimitiveError!Value {
 
     if (target.status == .completed or target.status == .errored) return target.result;
 
-    return runSchedulerUntil(target, null);
+    return runSchedulerUntil(target, null, types.VOID);
 }
 
 fn fiberPredFn(args: []const Value) PrimitiveError!Value {
@@ -88,10 +88,17 @@ fn channelSendFn(args: []const Value) PrimitiveError!Value {
     const new_pair = gc.allocPair(args[1], types.NIL) catch return PrimitiveError.OutOfMemory;
 
     if (ch.tail != types.NIL and types.isPair(ch.tail)) {
-        types.toObject(ch.tail).as(types.Pair).cdr = new_pair;
+        const tail_obj = types.toObject(ch.tail);
+        tail_obj.as(types.Pair).cdr = new_pair;
+        gc.writeBarrier(tail_obj, new_pair);
     }
+    const ch_obj = types.toObject(args[0]);
     ch.tail = new_pair;
-    if (ch.head == types.NIL) ch.head = new_pair;
+    gc.writeBarrier(ch_obj, new_pair);
+    if (ch.head == types.NIL) {
+        ch.head = new_pair;
+        gc.writeBarrier(ch_obj, new_pair);
+    }
     return types.VOID;
 }
 
@@ -102,22 +109,24 @@ fn channelReceiveFn(args: []const Value) PrimitiveError!Value {
     const ch = types.toObject(args[0]).as(types.Channel);
 
     if (ch.head != types.NIL and types.isPair(ch.head)) {
-        return dequeueChannel(ch);
+        return dequeueChannel(ch, args[0]);
     }
 
-    return runSchedulerUntil(null, ch);
+    return runSchedulerUntil(null, ch, args[0]);
 }
 
-fn dequeueChannel(ch: *types.Channel) Value {
+fn dequeueChannel(ch: *types.Channel, ch_val: Value) Value {
     const pair = types.toObject(ch.head).as(types.Pair);
     const val = pair.car;
     ch.head = pair.cdr;
+    if (primitives.gc_instance) |gc| gc.writeBarrier(types.toObject(ch_val), pair.cdr);
     if (ch.head == types.NIL) ch.tail = types.NIL;
     return val;
 }
 
-fn runSchedulerUntil(target: ?*fiber_mod.Fiber, ch: ?*types.Channel) PrimitiveError!Value {
+fn runSchedulerUntil(target: ?*fiber_mod.Fiber, ch: ?*types.Channel, ch_val: Value) PrimitiveError!Value {
     const vm = vm_mod.vm_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
     const sched = vm.scheduler orelse return PrimitiveError.OutOfMemory;
     const my_idx = sched.current_idx;
     sched.saveCurrentFiber();
@@ -161,6 +170,7 @@ fn runSchedulerUntil(target: ?*fiber_mod.Fiber, ch: ?*types.Channel) PrimitiveEr
         };
         fiber.status = .completed;
         fiber.result = result;
+        gc.writeBarrier(&fiber.header, result);
         sched.saveCurrentFiber();
         sched.wakeWaiters(fiber);
     }
@@ -173,7 +183,7 @@ fn runSchedulerUntil(target: ?*fiber_mod.Fiber, ch: ?*types.Channel) PrimitiveEr
 
     if (target) |f| return f.result;
     if (ch) |channel| {
-        if (channel.head != types.NIL) return dequeueChannel(channel);
+        if (channel.head != types.NIL) return dequeueChannel(channel, ch_val);
     }
     return types.VOID;
 }

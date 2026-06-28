@@ -193,6 +193,7 @@ pub const FiberScheduler = struct {
                 if (fiber.status == .waiting and fiber.waiting_on == completed_val) {
                     fiber.status = .suspended;
                     fiber.result = completed_fiber.result;
+                    self.vm.gc.writeBarrier(&fiber.header, completed_fiber.result);
                 }
             }
         }

@@ -190,6 +190,7 @@ fn threadSpecificSetFn(args: []const Value) PrimitiveError!Value {
         return primitives.typeError("thread-specific-set!", "thread", args[0]);
     const fiber = types.toObject(args[0]).as(fiber_mod.Fiber);
     fiber.specific = args[1];
+    if (primitives.gc_instance) |gc| gc.writeBarrier(types.toObject(args[0]), args[1]);
     return types.VOID;
 }
 
@@ -451,6 +452,7 @@ fn runSchedulerUntilDone(target: *fiber_mod.Fiber) PrimitiveError!void {
         };
         fiber.status = .completed;
         fiber.result = result;
+        if (primitives.gc_instance) |gc| gc.writeBarrier(&fiber.header, result);
         sched.saveCurrentFiber();
         sched.wakeWaiters(fiber);
     }
@@ -492,6 +494,7 @@ fn mutexSpecificSetFn(args: []const Value) PrimitiveError!Value {
     if (!types.isMutex(args[0]))
         return primitives.typeError("mutex-specific-set!", "mutex", args[0]);
     types.toMutex(args[0]).specific = args[1];
+    if (primitives.gc_instance) |gc| gc.writeBarrier(types.toObject(args[0]), args[1]);
     return types.VOID;
 }
 
@@ -606,6 +609,7 @@ fn runSchedulerUntilMutex(m: *types.Mutex, me: *fiber_mod.Fiber) PrimitiveError!
         };
         fiber.status = .completed;
         fiber.result = result;
+        if (primitives.gc_instance) |gc| gc.writeBarrier(&fiber.header, result);
         sched.saveCurrentFiber();
         sched.wakeWaiters(fiber);
     }
@@ -680,6 +684,7 @@ fn runSchedulerUntilCondVar(me: *fiber_mod.Fiber) PrimitiveError!void {
         };
         fiber.status = .completed;
         fiber.result = result;
+        if (primitives.gc_instance) |gc| gc.writeBarrier(&fiber.header, result);
         sched.saveCurrentFiber();
         sched.wakeWaiters(fiber);
     }
@@ -720,6 +725,7 @@ fn condvarSpecificSetFn(args: []const Value) PrimitiveError!Value {
     if (!types.isConditionVariable(args[0]))
         return primitives.typeError("condition-variable-specific-set!", "condition-variable", args[0]);
     types.toConditionVariable(args[0]).specific = args[1];
+    if (primitives.gc_instance) |gc| gc.writeBarrier(types.toObject(args[0]), args[1]);
     return types.VOID;
 }
 
