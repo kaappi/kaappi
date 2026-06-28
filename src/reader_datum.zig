@@ -100,14 +100,14 @@ fn readList(self: *Reader) ReadError!Value {
         if (self.pos + 1 < self.source.len and Reader.isDelimiter(self.source[self.pos + 1])) {
             self.pos += 1;
             const rest = try readDatum(self);
+            var rest_root = rest;
+            try self.gc.pushRoot(&rest_root);
+            defer self.gc.popRoot();
             try self.skipWhitespaceAndCommentsChecked();
             if (self.pos >= self.source.len or self.source[self.pos] != ')') {
                 return ReadError.UnexpectedChar;
             }
             self.pos += 1;
-            var rest_root = rest;
-            try self.gc.pushRoot(&rest_root);
-            defer self.gc.popRoot();
             const pair = self.gc.allocPair(first_root, rest_root) catch return ReadError.OutOfMemory;
             self.gc.source_lines.put(pair, list_line) catch {};
             return pair;
