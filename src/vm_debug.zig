@@ -8,6 +8,13 @@ fn writeStderr(bytes: []const u8) void {
     vm_mod.writeStderr(bytes);
 }
 
+pub fn freeWatches(vm: *VM) void {
+    for (vm.watches[0..vm.watch_count]) |w| {
+        vm.gc.allocator.free(w.name);
+    }
+    vm.watch_count = 0;
+}
+
 pub fn shouldDebugPause(vm: *VM, frame: *CallFrame) bool {
     _ = frame;
     switch (vm.step_mode) {
@@ -136,10 +143,11 @@ pub fn debugPause(vm: *VM, frame: *CallFrame) !void {
         if (std.mem.startsWith(u8, cmd, "watch ")) {
             const var_name = std.mem.trim(u8, cmd[6..], " ");
             if (var_name.len > 0 and vm.watch_count < 16) {
-                vm.watches[vm.watch_count] = .{ .name = var_name };
+                const owned_name = vm.gc.allocator.dupe(u8, var_name) catch continue;
+                vm.watches[vm.watch_count] = .{ .name = owned_name };
                 vm.watch_count += 1;
                 writeStderr("Watching ");
-                writeStderr(var_name);
+                writeStderr(owned_name);
                 writeStderr("\n");
             }
             continue;
@@ -150,6 +158,7 @@ pub fn debugPause(vm: *VM, frame: *CallFrame) !void {
             var j: usize = 0;
             while (j < vm.watch_count) {
                 if (std.mem.eql(u8, vm.watches[j].name, var_name)) {
+                    vm.gc.allocator.free(vm.watches[j].name);
                     vm.watch_count -= 1;
                     if (j < vm.watch_count) {
                         vm.watches[j] = vm.watches[vm.watch_count];
@@ -242,4 +251,49 @@ fn printBacktrace(vm: *VM) void {
         }
         writeStderr("\n");
     }
+}
+
+test "watch names are heap-allocated and survive stack frame" {
+    const memory = @import("memory.zig");
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try VM.init(&gc);
+    defer vm.deinit();
+
+    // Simulate what debugPause does: parse a name from a stack buffer,
+    // then heap-allocate it before storing in vm.watches.
+    {
+        var buf: [256]u8 = undefined;
+        @memcpy(buf[0..5], "hello");
+        const stack_slice = buf[0..5];
+        const owned = try std.testing.allocator.dupe(u8, stack_slice);
+        vm.watches[0] = .{ .name = owned };
+        vm.watch_count = 1;
+        // buf goes out of scope here
+    }
+
+    // The watch name must still be valid after the stack frame is gone.
+    try std.testing.expectEqualStrings("hello", vm.watches[0].name);
+    try std.testing.expectEqual(@as(usize, 1), vm.watch_count);
+
+    // freeWatches (called by deinit) cleans up the heap allocation.
+    freeWatches(&vm);
+    try std.testing.expectEqual(@as(usize, 0), vm.watch_count);
+}
+
+test "freeWatches cleans up multiple watches" {
+    const memory = @import("memory.zig");
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try VM.init(&gc);
+    defer vm.deinit();
+
+    const names = [_][]const u8{ "alpha", "beta", "gamma" };
+    for (names, 0..) |name, i| {
+        vm.watches[i] = .{ .name = try std.testing.allocator.dupe(u8, name) };
+    }
+    vm.watch_count = 3;
+
+    freeWatches(&vm);
+    try std.testing.expectEqual(@as(usize, 0), vm.watch_count);
 }

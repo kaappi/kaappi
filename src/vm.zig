@@ -291,6 +291,7 @@ pub const VM = struct {
         self.output.deinit(self.gc.allocator);
         self.loading_libs.deinit();
         self.param_overrides.deinit();
+        vm_debug.freeWatches(self);
     }
 
     pub fn getParameterValue(self: *VM, param: *types.ParameterObject) Value {
