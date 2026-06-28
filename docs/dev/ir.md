@@ -129,9 +129,14 @@ Every node carries an `Annotations` struct set by the analysis passes:
 
 Two entry points convert S-expressions to IR:
 
-- **`lower(ir, expr)`** — basic lowering (no macro awareness)
-- **`lowerWithMacros(ir, expr, macros)`** — macro-aware; checks the macro
-  table and falls back to `passthrough` for macro invocations
+- **`lowerWithMacros(ir, expr, macros)`** — primary entry point; checks the
+  macro table and falls back to `passthrough` for macro invocations
+- **`lower(ir, expr)`** — convenience wrapper that calls
+  `lowerWithMacros(ir, expr, null)`
+
+All recursive lowering uses `lowerWithMacros` internally, threading the
+macros parameter through helper functions. This ensures nested calls
+produce proper `call` nodes instead of `passthrough` nodes.
 
 Lowering dispatches on the head symbol of a pair. Per-form helpers:
 `lowerIf`, `lowerQuote`, `lowerBegin`, `lowerLet`, `lowerDefine`,

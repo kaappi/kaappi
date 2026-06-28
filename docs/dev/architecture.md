@@ -116,6 +116,8 @@ Source code
 | `jit_aarch64.zig` | AArch64 assembler (fixed 4-byte instruction encoding) |
 | `jit_x86_64.zig` | x86_64 assembler (variable-length encoding, REX prefixes) |
 | `jit_mem.zig` | Executable memory allocation (mmap RWX, macOS JIT protection + entitlements) |
+| `runtime_exports.zig` | C-ABI bridge for LLVM native backend (8 exported functions) |
+| `llvm_emit.zig` | LLVM IR text emitter (walks IR nodes, produces `.ll` files) |
 | `bignum.zig` | Arbitrary-precision integer arithmetic |
 | `bytecode_file.zig` | Bytecode serialization/deserialization (.sbc format) |
 | `disassembler.zig` | Bytecode disassembler for `(disassemble proc)` |

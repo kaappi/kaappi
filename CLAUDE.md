@@ -73,10 +73,13 @@ and continuation-heavy workloads — only use it when debugging:
 ### LLVM native backend
 
 ```bash
+zig build native -Dnative-src=program.scm        # single-step native compilation
+./zig-out/bin/program                            # run native binary
+
+# Or manual three-step:
 zig build lib                                    # build libkaappi_rt.a
-zig build run -- --emit-llvm program.scm -o out.ll  # emit LLVM IR
+zig build run -- --emit-llvm -o out.ll program.scm  # emit LLVM IR
 zig cc -w out.ll -o program -Lzig-out/lib -lkaappi_rt -lc -lm -lpthread  # link
-./program                                        # run native binary
 ```
 
 **Always use `zig cc` (not `clang`) for linking native binaries against
@@ -203,6 +206,8 @@ Exceptions: auto-generated data files (`unicode_tables.zig`) are exempt.
 | `linenoise.zig` | Zig FFI wrapper for vendored linenoise C library |
 | `main.zig` | Entry point, REPL loop with linenoise, file execution, CLI flags, `pub const version` |
 | `thottam.zig` | Package manager binary (thottam): install, remove, list, update, verify |
+| `llvm_emit.zig` | LLVM IR text emitter (walks IR nodes, produces `.ll` files) |
+| `runtime_exports.zig` | C-ABI bridge for LLVM native backend (8 exported functions) |
 | `testing_helpers.zig` | Shared `makeTestVM` helper for unit tests |
 | `tests_ir.zig` | IR tests: bytecode parity, behavioral correctness, analysis, optimizations |
 | `tests_*.zig` | Unit tests by feature (core_eval, tail_calls, macros, io, etc.) |
