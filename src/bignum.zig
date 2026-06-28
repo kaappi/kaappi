@@ -573,7 +573,7 @@ pub fn toString(allocator: std.mem.Allocator, v: Value) ![]u8 {
 }
 
 /// Parse a decimal string into a bignum Value.
-pub fn parseBignumString(gc: *memory.GC, digits: []const u8) !Value {
+pub fn parseBignumString(gc: *memory.GC, digits: []const u8, radix: u8) !Value {
     if (digits.len == 0) return types.makeFixnum(0);
 
     var start: usize = 0;
@@ -588,9 +588,13 @@ pub fn parseBignumString(gc: *memory.GC, digits: []const u8) !Value {
     const num_digits = digits[start..];
     if (num_digits.len == 0) return types.makeFixnum(0);
 
-    // Start with zero and multiply-add each digit
-    // Use chunks of 18 digits for efficiency
-    const CHUNK_DIGITS: usize = 18;
+    const CHUNK_DIGITS: usize = switch (radix) {
+        2 => 63,
+        8 => 21,
+        16 => 15,
+        else => 18,
+    };
+    const radix_u64: u64 = radix;
 
     var limbs = try gc.allocator.alloc(u64, 1);
     limbs[0] = 0;
@@ -604,11 +608,11 @@ pub fn parseBignumString(gc: *memory.GC, digits: []const u8) !Value {
         const chunk_str = num_digits[pos .. pos + chunk_size];
 
         // Parse the chunk
-        const chunk_val = std.fmt.parseInt(u64, chunk_str, 10) catch return error.OutOfMemory;
+        const chunk_val = std.fmt.parseInt(u64, chunk_str, radix) catch return error.OutOfMemory;
 
-        // Compute the multiplier (10^chunk_size)
+        // Compute the multiplier (radix^chunk_size)
         var multiplier: u64 = 1;
-        for (0..chunk_size) |_| multiplier *= 10;
+        for (0..chunk_size) |_| multiplier *= radix_u64;
 
         // Multiply existing number by multiplier and add chunk_val
         // Multiply
@@ -812,7 +816,7 @@ test "bignum parseBignumString small" {
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
 
-    const val = try parseBignumString(&gc, "42");
+    const val = try parseBignumString(&gc, "42", 10);
     try std.testing.expect(types.isFixnum(val));
     try std.testing.expectEqual(@as(i64, 42), types.toFixnum(val));
 }
@@ -821,7 +825,7 @@ test "bignum parseBignumString large" {
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
 
-    const val = try parseBignumString(&gc, "99999999999999999999999999999999");
+    const val = try parseBignumString(&gc, "99999999999999999999999999999999", 10);
     try std.testing.expect(types.isBignum(val));
     const s = try toString(std.testing.allocator, val);
     defer std.testing.allocator.free(s);
@@ -832,8 +836,8 @@ test "bignum compare" {
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
 
-    const a = try parseBignumString(&gc, "99999999999999999999999999999999");
-    const b = try parseBignumString(&gc, "99999999999999999999999999999998");
+    const a = try parseBignumString(&gc, "99999999999999999999999999999999", 10);
+    const b = try parseBignumString(&gc, "99999999999999999999999999999998", 10);
     try std.testing.expectEqual(@as(i8, 1), compare(a, b));
     try std.testing.expectEqual(@as(i8, -1), compare(b, a));
     try std.testing.expectEqual(@as(i8, 0), compare(a, a));
@@ -843,7 +847,7 @@ test "bignum negate" {
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
 
-    const pos = try parseBignumString(&gc, "99999999999999999999999999999999");
+    const pos = try parseBignumString(&gc, "99999999999999999999999999999999", 10);
     const neg = try negate(&gc, pos);
     try std.testing.expect(types.isBignum(neg));
     const s = try toString(std.testing.allocator, neg);

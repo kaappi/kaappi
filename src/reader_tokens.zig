@@ -164,7 +164,7 @@ pub fn readNumber(self: *Reader) ReadError!Token {
     } else {
         const n = std.fmt.parseInt(i64, num_str, 10) catch |err| {
             if (err == error.Overflow) {
-                return .{ .bignum_str = num_str };
+                return .{ .bignum_str = .{ .str = num_str, .radix = 10 } };
             }
             return ReadError.InvalidNumber;
         };
@@ -520,8 +520,8 @@ pub fn readIntegerWithRadix(self: *Reader, radix: u8) ReadError!Token {
     if (num_str.len > Reader.MAX_TOKEN_BYTES) return ReadError.TokenTooLong;
     if (num_str.len == 0 or (num_str.len == 1 and (num_str[0] == '+' or num_str[0] == '-'))) return ReadError.InvalidNumber;
     const n = std.fmt.parseInt(i64, num_str, radix) catch |err| {
-        if (err == error.Overflow and radix == 10) {
-            return .{ .bignum_str = num_str };
+        if (err == error.Overflow) {
+            return .{ .bignum_str = .{ .str = num_str, .radix = radix } };
         }
         return ReadError.InvalidNumber;
     };
@@ -570,6 +570,7 @@ pub fn readCharacter(self: *Reader) ReadError!Token {
                 }
                 const hex_str = self.source[start + 1 .. self.pos];
                 const cp = std.fmt.parseInt(u21, hex_str, 16) catch return ReadError.InvalidNumber;
+                if (cp >= 0xD800 and cp <= 0xDFFF) return ReadError.InvalidCharacterName;
                 return .{ .character = cp };
             }
             // Just #\x alone — return 'x'
