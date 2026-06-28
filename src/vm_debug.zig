@@ -45,9 +45,12 @@ fn checkWatches(vm: *VM) bool {
                     writeStderr("Watch: ");
                     writeStderr(w.name);
                     writeStderr(" = ");
-                    const s = printer.valueToString(vm.gc.allocator, val, .write) catch "?";
-                    defer vm.gc.allocator.free(s);
-                    writeStderr(s);
+                    if (printer.valueToString(vm.gc.allocator, val, .write)) |s| {
+                        defer vm.gc.allocator.free(s);
+                        writeStderr(s);
+                    } else |_| {
+                        writeStderr("?");
+                    }
                     writeStderr("\n");
                     return true;
                 }
