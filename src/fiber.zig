@@ -68,9 +68,23 @@ pub const FiberScheduler = struct {
     }
 
     pub fn addFiber(self: *FiberScheduler, fiber: *Fiber) !void {
-        if (self.fiber_count >= MAX_FIBERS) return VMError.StackOverflow;
-        self.fibers[self.fiber_count] = fiber;
-        self.fiber_count += 1;
+        if (self.fiber_count < MAX_FIBERS) {
+            self.fibers[self.fiber_count] = fiber;
+            self.fiber_count += 1;
+            return;
+        }
+        for (self.fibers[0..self.fiber_count], 0..) |f, i| {
+            if (f) |existing| {
+                if (existing.status == .completed or existing.status == .errored) {
+                    self.fibers[i] = fiber;
+                    return;
+                }
+            } else {
+                self.fibers[i] = fiber;
+                return;
+            }
+        }
+        return VMError.StackOverflow;
     }
 
     pub fn spawnFiber(self: *FiberScheduler, thunk: Value) !*Fiber {
