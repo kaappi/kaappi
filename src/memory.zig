@@ -253,6 +253,7 @@ pub const GC = struct {
     }
 
     pub fn allocNativeClosure(self: *GC, fn_ptr: types.NativeClosureFnType, upvalues: []const Value, arity: u8, name: []const u8) !Value {
+        try self.maybeCollect();
         const uv_copy = try self.allocator.alloc(Value, upvalues.len);
         @memcpy(uv_copy, upvalues);
         const nc = try self.allocator.create(types.NativeClosure);
@@ -1351,4 +1352,26 @@ test "gc preserves rooted objects" {
     try std.testing.expectEqual(@as(i64, 42), types.toFixnum(types.car(rooted)));
 
     gc.popRoot();
+}
+
+fn dummyNativeClosureFn(_: ?*@import("vm.zig").VM, _: [*]const Value, _: u64, _: [*]const Value) callconv(.c) u64 {
+    return types.NIL;
+}
+
+test "allocNativeClosure triggers GC" {
+    var gc = GC.init(std.testing.allocator);
+    defer gc.deinit();
+
+    gc.gc_threshold = 2;
+
+    // Allocate several unrooted native closures; GC should trigger
+    // and collect unreachable ones, keeping object_count bounded.
+    var i: usize = 0;
+    while (i < 10) : (i += 1) {
+        _ = try gc.allocNativeClosure(&dummyNativeClosureFn, &.{}, 0, "x");
+    }
+
+    // Without maybeCollect, object_count would be 10.
+    // With it, GC runs and collects unrooted closures.
+    try std.testing.expect(gc.object_count < 10);
 }
