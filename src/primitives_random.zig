@@ -105,8 +105,8 @@ fn randomSourcePseudoRandomizeFn(args: []const Value) PrimitiveError!Value {
     if (!types.isFixnum(args[2])) return primitives.typeError("random-source-pseudo-randomize!", "integer", args[2]);
     const i_val = types.toFixnum(args[1]);
     const j_val = types.toFixnum(args[2]);
-    if (i_val < 0) return PrimitiveError.TypeError;
-    if (j_val < 0) return PrimitiveError.TypeError;
+    if (i_val < 0) return primitives.typeError("random-source-pseudo-randomize!", "non-negative integer", args[1]);
+    if (j_val < 0) return primitives.typeError("random-source-pseudo-randomize!", "non-negative integer", args[2]);
     const i: u64 = @intCast(i_val);
     const j: u64 = @intCast(j_val);
     rs.prng = std.Random.DefaultPrng.init(i *% 2654435761 +% j *% 2246822519);
@@ -155,7 +155,7 @@ fn randomSourceStateSetFn(args: []const Value) PrimitiveError!Value {
         state_list = types.cdr(state_list);
     }
     if (new_state[0] == 0 and new_state[1] == 0 and new_state[2] == 0 and new_state[3] == 0) {
-        return PrimitiveError.TypeError;
+        return primitives.typeError("random-source-state-set!", "non-all-zero state", args[1]);
     }
     rs.prng.s = new_state;
     return types.VOID;
