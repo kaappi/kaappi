@@ -128,6 +128,7 @@ static char *unsupported_term[] = {"dumb","cons25","emacs",NULL};
 static linenoiseCompletionCallback *completionCallback = NULL;
 static linenoiseHintsCallback *hintsCallback = NULL;
 static linenoiseFreeHintsCallback *freeHintsCallback = NULL;
+static linenoiseHighlightCallback *highlightCallback = NULL;
 static char *linenoiseReadLine(FILE *fp, int *err);
 static char *linenoiseNoTTY(void);
 static void refreshLineWithCompletion(struct linenoiseState *ls, linenoiseCompletions *lc, int flags);
@@ -828,6 +829,10 @@ void linenoiseSetFreeHintsCallback(linenoiseFreeHintsCallback *fn) {
     freeHintsCallback = fn;
 }
 
+void linenoiseSetHighlightCallback(linenoiseHighlightCallback *fn) {
+    highlightCallback = fn;
+}
+
 /* This function is used by the callback function registered by the user
  * in order to add completion options given the input string when the
  * user typed <tab>. See the example.c source code for a very easy to
@@ -1279,6 +1284,15 @@ static void refreshSingleLine(struct linenoiseState *l, int flags) {
                 abAppend(&ab,"*",1);
                 i += utf8NextCharLen(buf, i, len);
             }
+        } else if (highlightCallback) {
+            size_t hl_len = 0;
+            char *hl = highlightCallback(buf, len, &hl_len);
+            if (hl) {
+                abAppend(&ab, hl, hl_len);
+                free(hl);
+            } else {
+                abAppend(&ab, buf, len);
+            }
         } else {
             abAppend(&ab,buf,len);
         }
@@ -1366,6 +1380,15 @@ static void refreshMultiLine(struct linenoiseState *l, int flags) {
             while (i < render_len) {
                 abAppend(&ab,"*",1);
                 i += utf8NextCharLen(render, i, render_len);
+            }
+        } else if (highlightCallback) {
+            size_t hl_len = 0;
+            char *hl = highlightCallback(render, render_len, &hl_len);
+            if (hl) {
+                abAppend(&ab, hl, hl_len);
+                free(hl);
+            } else {
+                abAppend(&ab, render, render_len);
             }
         } else {
             abAppend(&ab,render,render_len);

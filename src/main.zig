@@ -1029,6 +1029,160 @@ fn completionCallback(buf: [*c]const u8, lc: [*c]ln.c.linenoiseCompletions) call
     }
 }
 
+const ANSI_RESET = "\x1b[0m";
+const ANSI_KEYWORD = "\x1b[35m"; // magenta
+const ANSI_STRING = "\x1b[32m"; // green
+const ANSI_NUMBER = "\x1b[33m"; // yellow
+const ANSI_COMMENT = "\x1b[90m"; // bright black (gray)
+const ANSI_BOOLEAN = "\x1b[36m"; // cyan
+const ANSI_PAREN = "\x1b[90m"; // gray
+
+fn isSchemeKeyword(word: []const u8) bool {
+    const keywords = [_][]const u8{
+        "define",        "lambda",       "if",             "cond",
+        "let",           "let*",         "letrec",         "letrec*",
+        "begin",         "set!",         "and",            "or",
+        "when",          "unless",       "case",           "do",
+        "define-syntax", "syntax-rules", "quote",          "quasiquote",
+        "unquote",       "import",       "define-library", "define-record-type",
+        "guard",         "delay",        "delay-force",    "parameterize",
+        "include",
+    };
+    for (keywords) |kw| {
+        if (std.mem.eql(u8, word, kw)) return true;
+    }
+    return false;
+}
+
+fn isDelimiter(ch: u8) bool {
+    return ch == ' ' or ch == '\t' or ch == '(' or ch == ')' or ch == '"' or ch == ';' or ch == '\n' or ch == '\r';
+}
+
+fn highlightCallback(buf: [*c]const u8, len: usize, out_len: [*c]usize) callconv(.c) [*c]u8 {
+    if (len == 0) {
+        out_len.* = 0;
+        return null;
+    }
+    const input = buf[0..len];
+
+    var result: std.ArrayList(u8) = .empty;
+    const allocator = if (repl_vm) |vm| vm.gc.allocator else return null;
+
+    var i: usize = 0;
+    while (i < input.len) {
+        const ch = input[i];
+
+        if (ch == ';') {
+            result.appendSlice(allocator, ANSI_COMMENT) catch return null;
+            while (i < input.len and input[i] != '\n') : (i += 1) {
+                result.append(allocator, input[i]) catch return null;
+            }
+            result.appendSlice(allocator, ANSI_RESET) catch return null;
+            continue;
+        }
+
+        if (ch == '#' and i + 1 < input.len and input[i + 1] == '|') {
+            result.appendSlice(allocator, ANSI_COMMENT) catch return null;
+            result.append(allocator, '#') catch return null;
+            result.append(allocator, '|') catch return null;
+            i += 2;
+            var depth: u32 = 1;
+            while (i < input.len and depth > 0) {
+                if (input[i] == '#' and i + 1 < input.len and input[i + 1] == '|') {
+                    depth += 1;
+                    result.appendSlice(allocator, "#|") catch return null;
+                    i += 2;
+                } else if (input[i] == '|' and i + 1 < input.len and input[i + 1] == '#') {
+                    depth -= 1;
+                    result.appendSlice(allocator, "|#") catch return null;
+                    i += 2;
+                } else {
+                    result.append(allocator, input[i]) catch return null;
+                    i += 1;
+                }
+            }
+            result.appendSlice(allocator, ANSI_RESET) catch return null;
+            continue;
+        }
+
+        if (ch == '"') {
+            result.appendSlice(allocator, ANSI_STRING) catch return null;
+            result.append(allocator, '"') catch return null;
+            i += 1;
+            while (i < input.len) {
+                result.append(allocator, input[i]) catch return null;
+                if (input[i] == '\\' and i + 1 < input.len) {
+                    i += 1;
+                    result.append(allocator, input[i]) catch return null;
+                } else if (input[i] == '"') {
+                    i += 1;
+                    break;
+                }
+                i += 1;
+            }
+            result.appendSlice(allocator, ANSI_RESET) catch return null;
+            continue;
+        }
+
+        if (ch == '(' or ch == ')') {
+            result.appendSlice(allocator, ANSI_PAREN) catch return null;
+            result.append(allocator, ch) catch return null;
+            result.appendSlice(allocator, ANSI_RESET) catch return null;
+            i += 1;
+            continue;
+        }
+
+        if (ch == '#' and i + 1 < input.len and (input[i + 1] == 't' or input[i + 1] == 'f')) {
+            const is_bool = (i + 2 >= input.len or isDelimiter(input[i + 2]));
+            if (is_bool) {
+                result.appendSlice(allocator, ANSI_BOOLEAN) catch return null;
+                result.append(allocator, '#') catch return null;
+                result.append(allocator, input[i + 1]) catch return null;
+                result.appendSlice(allocator, ANSI_RESET) catch return null;
+                i += 2;
+                continue;
+            }
+        }
+
+        if (ch == '\'' or ch == '`' or ch == ',') {
+            result.appendSlice(allocator, ANSI_KEYWORD) catch return null;
+            result.append(allocator, ch) catch return null;
+            result.appendSlice(allocator, ANSI_RESET) catch return null;
+            i += 1;
+            continue;
+        }
+
+        if (!isDelimiter(ch)) {
+            const start = i;
+            while (i < input.len and !isDelimiter(input[i])) : (i += 1) {}
+            const word = input[start..i];
+
+            if (isSchemeKeyword(word)) {
+                result.appendSlice(allocator, ANSI_KEYWORD) catch return null;
+                result.appendSlice(allocator, word) catch return null;
+                result.appendSlice(allocator, ANSI_RESET) catch return null;
+            } else if (word.len > 0 and (std.ascii.isDigit(word[0]) or
+                (word[0] == '-' and word.len > 1 and std.ascii.isDigit(word[1])) or
+                (word[0] == '+' and word.len > 1 and std.ascii.isDigit(word[1]))))
+            {
+                result.appendSlice(allocator, ANSI_NUMBER) catch return null;
+                result.appendSlice(allocator, word) catch return null;
+                result.appendSlice(allocator, ANSI_RESET) catch return null;
+            } else {
+                result.appendSlice(allocator, word) catch return null;
+            }
+            continue;
+        }
+
+        result.append(allocator, ch) catch return null;
+        i += 1;
+    }
+
+    out_len.* = result.items.len;
+    const owned = result.toOwnedSlice(allocator) catch return null;
+    return @ptrCast(owned.ptr);
+}
+
 fn parenDepth(src: []const u8) i32 {
     var depth: i32 = 0;
     var in_string = false;
@@ -1100,6 +1254,7 @@ fn repl(vm: *vm_mod.VM) !void {
     if (hist_path) |p| ln.historyLoad(p);
 
     ln.setCompletionCallback(&completionCallback);
+    ln.setHighlightCallback(&highlightCallback);
 
     var input_buf: std.ArrayList(u8) = .empty;
     defer input_buf.deinit(allocator);

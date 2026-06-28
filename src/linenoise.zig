@@ -44,3 +44,7 @@ pub fn setCompletionCallback(cb: ?*const fn ([*c]const u8, [*c]c.linenoiseComple
 pub fn addCompletion(lc: ?*c.linenoiseCompletions, str: [*:0]const u8) void {
     c.linenoiseAddCompletion(lc, str);
 }
+
+pub fn setHighlightCallback(cb: ?*const fn ([*c]const u8, usize, [*c]usize) callconv(.c) [*c]u8) void {
+    c.linenoiseSetHighlightCallback(cb);
+}
