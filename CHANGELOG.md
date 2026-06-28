@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-06-28
+
+### Added
+- **Generational GC:** young/old generations with minor and full collections; young objects surviving 2 minor cycles are promoted; write barrier tracks old→young references
+- **Native compilation CLI:** `kaappi compile program.scm -o binary` bundles LLVM IR emission and linking in one command; finds `libkaappi_rt.a` via `KAAPPI_LIB_DIR`, exe-relative path, or `zig-out/lib/`
+- **LLVM backend — tail call optimization:** self-tail-calls compiled as loops; cross-function tail calls use LLVM `tail call` annotation
+- **LLVM backend — variadic parameters:** lambdas with rest parameters `(lambda (x . rest) ...)` compiled natively
+- **LLVM backend — let/let\* bindings:** compiled as LLVM alloca + store instead of falling back to `kaappi_eval`
+- **LLVM backend — inline lambdas:** compiled to native LLVM functions wrapped as NativeClosure values
+- **LLVM backend — native closures:** new NativeClosure heap type for lambdas capturing outer parameters
+- **LLVM backend — inlined primitives:** `+`, `-`, `*`, `<`, `=`, `car`, `cdr`, `cons`, `null?` emitted as direct C-ABI calls bypassing runtime dispatch
+- **LSP:** go-to-definition and find-references for top-level definitions
+- **Debugger:** step-out, conditional breakpoints (`condition <id> <expr>`), watch expressions, up/down frame navigation
+- **REPL syntax highlighting:** real-time ANSI coloring for keywords, strings, numbers, comments, booleans, parentheses
+- **Package manager:** semver version constraints in depends fields (`>=`, `>`, `<=`, `<`, `^`, `~`, comma-separated ranges)
+- **"Did you mean?" errors:** Levenshtein-based suggestions for undefined variable names
+- **Fuzz testing:** compiler and eval fuzz targets (in addition to existing reader and bytecode loader targets)
+
+### Fixed
+- `kaappi compile` finds `libkaappi_rt.a` relative to the binary using `_NSGetExecutablePath` (macOS) / `/proc/self/exe` (Linux); release artifacts now include `libkaappi_rt.a`
+- Unit test false failure from disassembler stderr writes corrupting Zig test runner IPC
+
 ## [0.7.0] - 2026-06-28
 
 ### Added
