@@ -106,6 +106,144 @@ fn parsePkgManifest(content: []const u8) PkgManifest {
     return result;
 }
 
+const Semver = struct {
+    major: u32,
+    minor: u32,
+    patch: u32,
+
+    fn parse(s: []const u8) ?Semver {
+        const ver = if (s.len > 0 and s[0] == 'v') s[1..] else s;
+        var it = std.mem.splitScalar(u8, ver, '.');
+        const major = std.fmt.parseInt(u32, it.next() orelse return null, 10) catch return null;
+        const minor = std.fmt.parseInt(u32, it.next() orelse "0", 10) catch return null;
+        const patch = std.fmt.parseInt(u32, it.next() orelse "0", 10) catch return null;
+        return .{ .major = major, .minor = minor, .patch = patch };
+    }
+
+    fn order(a: Semver, b: Semver) std.math.Order {
+        if (a.major != b.major) return std.math.order(a.major, b.major);
+        if (a.minor != b.minor) return std.math.order(a.minor, b.minor);
+        return std.math.order(a.patch, b.patch);
+    }
+};
+
+const ConstraintOp = enum { gte, gt, lte, lt, eq, caret, tilde };
+
+const Constraint = struct {
+    op: ConstraintOp,
+    ver: Semver,
+
+    fn matches(self: Constraint, v: Semver) bool {
+        return switch (self.op) {
+            .gte => Semver.order(v, self.ver) != .lt,
+            .gt => Semver.order(v, self.ver) == .gt,
+            .lte => Semver.order(v, self.ver) != .gt,
+            .lt => Semver.order(v, self.ver) == .lt,
+            .eq => Semver.order(v, self.ver) == .eq,
+            .caret => v.major == self.ver.major and Semver.order(v, self.ver) != .lt,
+            .tilde => v.major == self.ver.major and v.minor == self.ver.minor and Semver.order(v, self.ver) != .lt,
+        };
+    }
+};
+
+fn parseConstraints(spec: []const u8) ?[4]?Constraint {
+    var result: [4]?Constraint = .{ null, null, null, null };
+    const clean = std.mem.trim(u8, spec, "\"");
+    var it = std.mem.splitScalar(u8, clean, ',');
+    var i: usize = 0;
+    while (it.next()) |part| {
+        if (i >= 4) return null;
+        const trimmed = std.mem.trim(u8, part, " ");
+        result[i] = parseSingleConstraint(trimmed) orelse return null;
+        i += 1;
+    }
+    if (i == 0) return null;
+    return result;
+}
+
+fn parseSingleConstraint(s: []const u8) ?Constraint {
+    if (s.len == 0) return null;
+    if (s[0] == '^') {
+        const ver = Semver.parse(s[1..]) orelse return null;
+        return .{ .op = .caret, .ver = ver };
+    }
+    if (s[0] == '~') {
+        const ver = Semver.parse(s[1..]) orelse return null;
+        return .{ .op = .tilde, .ver = ver };
+    }
+    if (std.mem.startsWith(u8, s, ">=")) {
+        const ver = Semver.parse(s[2..]) orelse return null;
+        return .{ .op = .gte, .ver = ver };
+    }
+    if (std.mem.startsWith(u8, s, "<=")) {
+        const ver = Semver.parse(s[2..]) orelse return null;
+        return .{ .op = .lte, .ver = ver };
+    }
+    if (s[0] == '>') {
+        const ver = Semver.parse(s[1..]) orelse return null;
+        return .{ .op = .gt, .ver = ver };
+    }
+    if (s[0] == '<') {
+        const ver = Semver.parse(s[1..]) orelse return null;
+        return .{ .op = .lt, .ver = ver };
+    }
+    const ver = Semver.parse(s) orelse return null;
+    return .{ .op = .eq, .ver = ver };
+}
+
+fn matchesAllConstraints(v: Semver, constraints: [4]?Constraint) bool {
+    for (constraints) |mc| {
+        const c = mc orelse continue;
+        if (!c.matches(v)) return false;
+    }
+    return true;
+}
+
+fn resolveVersion(allocator: std.mem.Allocator, clone_url: []const u8, constraint_str: []const u8) ?[]const u8 {
+    const constraints = parseConstraints(constraint_str) orelse return null;
+
+    const output = runCapture(allocator, &.{ "git", "ls-remote", "--tags", clone_url }, null) catch return null;
+    defer allocator.free(output);
+
+    var best: ?Semver = null;
+    var best_tag: ?[]const u8 = null;
+
+    var lines = std.mem.splitScalar(u8, output, '\n');
+    while (lines.next()) |line| {
+        const tab_idx = std.mem.indexOfScalar(u8, line, '\t') orelse continue;
+        const ref = line[tab_idx + 1 ..];
+        const tag = if (std.mem.startsWith(u8, ref, "refs/tags/"))
+            ref["refs/tags/".len..]
+        else
+            continue;
+        if (std.mem.endsWith(u8, tag, "^{}")) continue;
+
+        const sv = Semver.parse(tag) orelse continue;
+        if (!matchesAllConstraints(sv, constraints)) continue;
+
+        if (best) |b| {
+            if (Semver.order(sv, b) == .gt) {
+                best = sv;
+                best_tag = tag;
+            }
+        } else {
+            best = sv;
+            best_tag = tag;
+        }
+    }
+
+    if (best_tag) |bt| {
+        return allocator.dupe(u8, bt) catch return null;
+    }
+    return null;
+}
+
+fn isConstraintSpec(ver: []const u8) bool {
+    if (ver.len == 0) return false;
+    const clean = std.mem.trim(u8, ver, "\"");
+    return clean[0] == '>' or clean[0] == '<' or clean[0] == '^' or clean[0] == '~';
+}
+
 fn readFile(allocator: std.mem.Allocator, path: []const u8) ![]u8 {
     const path_z = try allocator.dupeZ(u8, path);
     defer allocator.free(path_z);
@@ -556,6 +694,28 @@ fn doInstall(
             std.process.exit(1);
         }
         install_version = locked_sha;
+    }
+
+    if (install_version) |v| {
+        if (isConstraintSpec(v)) {
+            const clone_url = parsed.source orelse blk: {
+                break :blk std.fmt.allocPrint(allocator, "https://github.com/kaappi/{s}", .{pkg}) catch "";
+            };
+            if (resolveVersion(allocator, clone_url, v)) |resolved| {
+                writeStdout("  Resolved ");
+                writeStdout(v);
+                writeStdout(" -> ");
+                writeStdout(resolved);
+                writeStdout("\n");
+                install_version = resolved;
+            } else {
+                var buf: [256]u8 = undefined;
+                printErrColor(Color.red, "error: ");
+                const msg = std.fmt.bufPrint(&buf, "no version matching {s} for {s}\n", .{ v, pkg }) catch "no matching version\n";
+                writeStderr(msg);
+                return error.GitFailed;
+            }
+        }
     }
 
     var buf: [512]u8 = undefined;
