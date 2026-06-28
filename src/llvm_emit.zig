@@ -27,6 +27,8 @@ pub const LLVMEmitter = struct {
     current_fn_name: ?[]const u8 = null,
     body_label: ?[]const u8 = null,
     current_block: []const u8 = "entry",
+    rest_param_alloca: ?[]const u8 = null,
+    rest_param_name: ?[]const u8 = null,
 
     pub fn init(allocator: std.mem.Allocator) LLVMEmitter {
         return .{
@@ -146,6 +148,14 @@ pub const LLVMEmitter = struct {
     fn emitGlobalRef(self: *LLVMEmitter, sym: Value) EmitError![]const u8 {
         if (!types.isSymbol(sym)) return error.UnsupportedNodeType;
         const name = types.symbolName(sym);
+
+        if (self.rest_param_name) |rp_name| {
+            if (std.mem.eql(u8, name, rp_name)) {
+                const tmp = try self.freshTemp();
+                try self.print("  {s} = load i64, ptr {s}\n", .{ tmp, self.rest_param_alloca.? });
+                return tmp;
+            }
+        }
 
         if (self.params) |p| {
             if (p.get(name)) |idx| {
@@ -626,9 +636,16 @@ pub const LLVMEmitter = struct {
 
         var param_names: [16][]const u8 = undefined;
         var arity: u8 = 0;
+        var rest_name: ?[]const u8 = null;
         var plist = formals_val;
         while (plist != types.NIL) {
-            if (!types.isPair(plist)) return null;
+            if (!types.isPair(plist)) {
+                if (types.isSymbol(plist)) {
+                    rest_name = types.symbolName(plist);
+                    break;
+                }
+                return null;
+            }
             const p = types.car(plist);
             if (!types.isSymbol(p)) return null;
             if (arity >= 16) return null;
@@ -660,9 +677,15 @@ pub const LLVMEmitter = struct {
         }
         if (body_count == 0) return null;
 
-        if (hasFreeVars(body_nodes[0..body_count], param_names[0..arity])) return null;
+        const extra: u8 = if (rest_name != null) 1 else 0;
+        var allowed: [17][]const u8 = undefined;
+        @memcpy(allowed[0..arity], param_names[0..arity]);
+        if (rest_name) |rn| {
+            allowed[arity] = rn;
+        }
+        if (hasFreeVars(body_nodes[0..body_count], allowed[0 .. arity + extra])) return null;
 
-        const fn_name = self.emitLambdaFunction(data.name, param_names[0..arity], body_nodes[0..body_count]) orelse return null;
+        const fn_name = self.emitLambdaFunction(data.name, param_names[0..arity], body_nodes[0..body_count], rest_name) orelse return null;
 
         const closure_name = data.name orelse "(lambda)";
         const name_str = self.internString(closure_name) catch return null;
@@ -923,9 +946,16 @@ pub const LLVMEmitter = struct {
 
         var param_names: [16][]const u8 = undefined;
         var arity: u8 = 0;
+        var rest_name: ?[]const u8 = null;
         var param_list = formals;
         while (param_list != types.NIL) {
-            if (!types.isPair(param_list)) return null;
+            if (!types.isPair(param_list)) {
+                if (types.isSymbol(param_list)) {
+                    rest_name = types.symbolName(param_list);
+                    break;
+                }
+                return null;
+            }
             const param = types.car(param_list);
             if (!types.isSymbol(param)) return null;
             if (arity >= 16) return null;
@@ -958,15 +988,19 @@ pub const LLVMEmitter = struct {
         }
         if (body_count == 0) return null;
 
-        var allowed: [17][]const u8 = undefined;
+        const extra: u8 = if (rest_name != null) 1 else 0;
+        var allowed: [18][]const u8 = undefined;
         @memcpy(allowed[0..arity], param_names[0..arity]);
-        allowed[arity] = name;
-        if (hasFreeVars(body_nodes[0..body_count], allowed[0 .. arity + 1])) return null;
+        if (rest_name) |rn| {
+            allowed[arity] = rn;
+        }
+        allowed[arity + extra] = name;
+        if (hasFreeVars(body_nodes[0..body_count], allowed[0 .. arity + extra + 1])) return null;
 
-        return self.emitLambdaFunction(name, param_names[0..arity], body_nodes[0..body_count]);
+        return self.emitLambdaFunction(name, param_names[0..arity], body_nodes[0..body_count], rest_name);
     }
 
-    fn emitLambdaFunction(self: *LLVMEmitter, name: ?[]const u8, param_names: []const []const u8, body_nodes: []const *ir.Node) ?[]const u8 {
+    fn emitLambdaFunction(self: *LLVMEmitter, name: ?[]const u8, param_names: []const []const u8, body_nodes: []const *ir.Node, rest_name: ?[]const u8) ?[]const u8 {
         const id = self.lambda_counter;
         self.lambda_counter += 1;
         const fn_name = std.fmt.allocPrint(self.allocator, "@lambda_{d}", .{id}) catch return null;
@@ -983,6 +1017,8 @@ pub const LLVMEmitter = struct {
         const saved_fn_name = self.current_fn_name;
         const saved_body_label = self.body_label;
         const saved_block = self.current_block;
+        const saved_rest_alloca = self.rest_param_alloca;
+        const saved_rest_name = self.rest_param_name;
         self.buf = fn_buf;
         self.tmp_counter = 0;
         self.label_counter = 0;
@@ -990,68 +1026,48 @@ pub const LLVMEmitter = struct {
         var p = std.StringHashMap(u8).init(self.allocator);
         for (param_names, 0..) |pname, i| {
             p.put(pname, @intCast(i)) catch {
-                self.buf = saved_buf;
-                self.params = saved_params;
-                self.tmp_counter = saved_tmp;
-                self.label_counter = saved_label;
-                self.current_fn_name = saved_fn_name;
-                self.body_label = saved_body_label;
-                self.current_block = saved_block;
+                self.restoreState(saved_buf, saved_params, saved_tmp, saved_label, saved_fn_name, saved_body_label, saved_block, saved_rest_alloca, saved_rest_name);
                 return null;
             };
         }
         self.params = p;
 
         const body_lbl = std.fmt.allocPrint(self.allocator, "body_{d}", .{id}) catch {
-            self.buf = saved_buf;
-            self.params = saved_params;
-            self.tmp_counter = saved_tmp;
-            self.label_counter = saved_label;
-            self.current_fn_name = saved_fn_name;
-            self.body_label = saved_body_label;
-            self.current_block = saved_block;
+            self.restoreState(saved_buf, saved_params, saved_tmp, saved_label, saved_fn_name, saved_body_label, saved_block, saved_rest_alloca, saved_rest_name);
             p.deinit();
             return null;
         };
 
-        self.current_fn_name = name;
-        self.body_label = body_lbl;
+        self.current_fn_name = if (rest_name == null) name else null;
+        self.body_label = if (rest_name == null) body_lbl else null;
         self.current_block = body_lbl;
+        self.rest_param_name = rest_name;
 
         const header = std.fmt.allocPrint(self.allocator, "; {s}\ndefine i64 {s}(ptr %vm, ptr %args, i64 %nargs, ptr %upvalues) {{\nentry:\n  br label %{s}\n{s}:\n", .{ name orelse "(lambda)", fn_name, body_lbl, body_lbl }) catch {
-            self.buf = saved_buf;
-            self.params = saved_params;
-            self.tmp_counter = saved_tmp;
-            self.label_counter = saved_label;
-            self.current_fn_name = saved_fn_name;
-            self.body_label = saved_body_label;
-            self.current_block = saved_block;
+            self.restoreState(saved_buf, saved_params, saved_tmp, saved_label, saved_fn_name, saved_body_label, saved_block, saved_rest_alloca, saved_rest_name);
             p.deinit();
             return null;
         };
         defer self.allocator.free(header);
         self.write(header) catch {
-            self.buf = saved_buf;
-            self.params = saved_params;
-            self.tmp_counter = saved_tmp;
-            self.label_counter = saved_label;
-            self.current_fn_name = saved_fn_name;
-            self.body_label = saved_body_label;
-            self.current_block = saved_block;
+            self.restoreState(saved_buf, saved_params, saved_tmp, saved_label, saved_fn_name, saved_body_label, saved_block, saved_rest_alloca, saved_rest_name);
             p.deinit();
             return null;
         };
 
+        if (rest_name != null) {
+            self.emitRestListBuilder(param_names.len) catch {
+                self.restoreState(saved_buf, saved_params, saved_tmp, saved_label, saved_fn_name, saved_body_label, saved_block, saved_rest_alloca, saved_rest_name);
+                p.deinit();
+                fn_buf.deinit(self.allocator);
+                return null;
+            };
+        }
+
         var last_val: []const u8 = "";
         for (body_nodes) |node| {
             last_val = self.emitNode(node) catch {
-                self.buf = saved_buf;
-                self.params = saved_params;
-                self.tmp_counter = saved_tmp;
-                self.label_counter = saved_label;
-                self.current_fn_name = saved_fn_name;
-                self.body_label = saved_body_label;
-                self.current_block = saved_block;
+                self.restoreState(saved_buf, saved_params, saved_tmp, saved_label, saved_fn_name, saved_body_label, saved_block, saved_rest_alloca, saved_rest_name);
                 p.deinit();
                 fn_buf.deinit(self.allocator);
                 return null;
@@ -1059,32 +1075,83 @@ pub const LLVMEmitter = struct {
         }
 
         self.print("  ret i64 {s}\n}}\n", .{last_val}) catch {
-            self.buf = saved_buf;
-            self.params = saved_params;
-            self.tmp_counter = saved_tmp;
-            self.label_counter = saved_label;
-            self.current_fn_name = saved_fn_name;
-            self.body_label = saved_body_label;
-            self.current_block = saved_block;
+            self.restoreState(saved_buf, saved_params, saved_tmp, saved_label, saved_fn_name, saved_body_label, saved_block, saved_rest_alloca, saved_rest_name);
             p.deinit();
             fn_buf.deinit(self.allocator);
             return null;
         };
 
         fn_buf = self.buf;
-        self.buf = saved_buf;
-        self.params = saved_params;
-        self.tmp_counter = saved_tmp;
-        self.label_counter = saved_label;
-        self.current_fn_name = saved_fn_name;
-        self.body_label = saved_body_label;
-        self.current_block = saved_block;
+        self.restoreState(saved_buf, saved_params, saved_tmp, saved_label, saved_fn_name, saved_body_label, saved_block, saved_rest_alloca, saved_rest_name);
         p.deinit();
 
         const fn_def = fn_buf.toOwnedSlice(self.allocator) catch return null;
         self.lambda_defs.append(self.allocator, fn_def) catch return null;
 
         return fn_name;
+    }
+
+    fn restoreState(self: *LLVMEmitter, buf: std.ArrayList(u8), params: ?std.StringHashMap(u8), tmp: u32, label: u32, fn_name: ?[]const u8, body_label: ?[]const u8, block: []const u8, rest_alloca: ?[]const u8, rp_name: ?[]const u8) void {
+        self.buf = buf;
+        self.params = params;
+        self.tmp_counter = tmp;
+        self.label_counter = label;
+        self.current_fn_name = fn_name;
+        self.body_label = body_label;
+        self.current_block = block;
+        self.rest_param_alloca = rest_alloca;
+        self.rest_param_name = rp_name;
+    }
+
+    fn emitRestListBuilder(self: *LLVMEmitter, fixed_arity: usize) EmitError!void {
+        const nil_val: i64 = @bitCast(types.NIL);
+        const rest_alloca = try self.freshTemp();
+        try self.print("  {s} = alloca i64, align 8\n", .{rest_alloca});
+        self.rest_param_alloca = rest_alloca;
+
+        const nil_tmp = try self.freshTemp();
+        try self.print("  {s} = add i64 0, {d}\n", .{ nil_tmp, nil_val });
+        try self.print("  store i64 {s}, ptr {s}\n", .{ nil_tmp, rest_alloca });
+
+        const lbl_id = self.label_counter;
+        self.label_counter += 1;
+        const check_lbl = try std.fmt.allocPrint(self.allocator, "rest_check_{d}", .{lbl_id});
+        const body_lbl = try std.fmt.allocPrint(self.allocator, "rest_body_{d}", .{lbl_id});
+        const done_lbl = try std.fmt.allocPrint(self.allocator, "rest_done_{d}", .{lbl_id});
+
+        const idx_alloca = try self.freshTemp();
+        try self.print("  {s} = alloca i64, align 8\n", .{idx_alloca});
+        const nargs_minus_1 = try self.freshTemp();
+        try self.print("  {s} = sub i64 %nargs, 1\n", .{nargs_minus_1});
+        try self.print("  store i64 {s}, ptr {s}\n", .{ nargs_minus_1, idx_alloca });
+        try self.print("  br label %{s}\n", .{check_lbl});
+
+        try self.print("{s}:\n", .{check_lbl});
+        self.current_block = check_lbl;
+        const cur_idx = try self.freshTemp();
+        try self.print("  {s} = load i64, ptr {s}\n", .{ cur_idx, idx_alloca });
+        const cmp = try self.freshTemp();
+        try self.print("  {s} = icmp sge i64 {s}, {d}\n", .{ cmp, cur_idx, fixed_arity });
+        try self.print("  br i1 {s}, label %{s}, label %{s}\n", .{ cmp, body_lbl, done_lbl });
+
+        try self.print("{s}:\n", .{body_lbl});
+        self.current_block = body_lbl;
+        const gep = try self.freshTemp();
+        try self.print("  {s} = getelementptr i64, ptr %args, i64 {s}\n", .{ gep, cur_idx });
+        const val = try self.freshTemp();
+        try self.print("  {s} = load i64, ptr {s}\n", .{ val, gep });
+        const acc = try self.freshTemp();
+        try self.print("  {s} = load i64, ptr {s}\n", .{ acc, rest_alloca });
+        const new_pair = try self.freshTemp();
+        try self.print("  {s} = call i64 @kaappi_cons(i64 {s}, i64 {s})\n", .{ new_pair, val, acc });
+        try self.print("  store i64 {s}, ptr {s}\n", .{ new_pair, rest_alloca });
+        const dec_idx = try self.freshTemp();
+        try self.print("  {s} = sub i64 {s}, 1\n", .{ dec_idx, cur_idx });
+        try self.print("  store i64 {s}, ptr {s}\n", .{ dec_idx, idx_alloca });
+        try self.print("  br label %{s}\n", .{check_lbl});
+
+        try self.print("{s}:\n", .{done_lbl});
+        self.current_block = done_lbl;
     }
 
     fn tryEmitInlineBinary(self: *LLVMEmitter, name: []const u8, args: []const *ir.Node) ?[]const u8 {
