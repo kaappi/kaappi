@@ -61,12 +61,14 @@ fn spinUnlock(m: *std.atomic.Mutex) void {
 pub const GC = struct {
     allocator: std.mem.Allocator,
     objects: ?*Object = null,
+    old_objects: ?*Object = null,
     object_count: usize = 0,
     gc_threshold: usize = GC_THRESHOLD,
     symbols: std.StringHashMap(Value),
     shared_symbols: ?*std.StringHashMap(Value) = null,
     roots: std.ArrayList(*Value),
     extra_roots: std.ArrayList(Value),
+    remembered_set: std.ArrayList(*Object),
     enabled: bool = true,
     no_collect: u32 = 0,
     bytes_allocated: usize = 0,
@@ -75,6 +77,7 @@ pub const GC = struct {
     root_marker: ?*const fn (*GC) void = null,
     source_lines: std.AutoHashMap(Value, u32) = undefined,
     stats: GcStats = .{},
+    minor_cycle_count: u32 = 0,
 
     pub fn init(allocator: std.mem.Allocator) GC {
         return .{
@@ -82,6 +85,7 @@ pub const GC = struct {
             .symbols = std.StringHashMap(Value).init(allocator),
             .roots = .empty,
             .extra_roots = .empty,
+            .remembered_set = .empty,
             .source_lines = std.AutoHashMap(Value, u32).init(allocator),
         };
     }
@@ -93,6 +97,7 @@ pub const GC = struct {
             .shared_symbols = &parent.symbols,
             .roots = .empty,
             .extra_roots = .empty,
+            .remembered_set = .empty,
             .source_lines = std.AutoHashMap(Value, u32).init(allocator),
             .gc_threshold = GC_THRESHOLD,
         };
@@ -105,10 +110,26 @@ pub const GC = struct {
             self.freeObject(o);
             obj = next;
         }
+        obj = self.old_objects;
+        while (obj) |o| {
+            const next = o.next;
+            self.freeObject(o);
+            obj = next;
+        }
         self.symbols.deinit();
         self.roots.deinit(self.allocator);
         self.extra_roots.deinit(self.allocator);
+        self.remembered_set.deinit(self.allocator);
         self.source_lines.deinit();
+    }
+
+    pub fn writeBarrier(self: *GC, container: *Object, new_val: Value) void {
+        if (container.generation == 1 and types.isPointer(new_val)) {
+            const child = types.toObject(new_val);
+            if (child.generation == 0) {
+                self.remembered_set.append(self.allocator, container) catch {};
+            }
+        }
     }
 
     inline fn profileAlloc(self: *GC, size: usize) void {
@@ -1249,14 +1270,131 @@ pub const GC = struct {
 
     pub fn collect(self: *GC) void {
         self.stats.collections += 1;
+        self.minor_cycle_count += 1;
+
         const mark_start = clockNs();
-        self.markRoots();
+        if (self.minor_cycle_count >= 8) {
+            self.minor_cycle_count = 0;
+            self.fullCollect();
+        } else {
+            self.minorCollect();
+        }
         const mark_end = clockNs();
-        self.sweep();
-        const sweep_end = clockNs();
         self.stats.total_mark_ns +%= mark_end -% mark_start;
-        self.stats.total_sweep_ns +%= sweep_end -% mark_end;
         self.gc_threshold = @max(GC_THRESHOLD, self.object_count * 4);
+    }
+
+    fn minorCollect(self: *GC) void {
+        self.markRoots();
+        for (self.remembered_set.items) |obj| {
+            self.markObjectContents(obj);
+        }
+        self.sweepYoung();
+        self.remembered_set.clearRetainingCapacity();
+    }
+
+    fn fullCollect(self: *GC) void {
+        self.markRoots();
+        self.sweep();
+        self.sweepOld();
+        self.remembered_set.clearRetainingCapacity();
+    }
+
+    fn sweepYoung(self: *GC) void {
+        var prev: ?*Object = null;
+        var obj = self.objects;
+        while (obj) |o| {
+            if (o.marked) {
+                o.marked = false;
+                o.survive_count +|= 1;
+                if (o.survive_count >= 2) {
+                    const next = o.next;
+                    if (prev) |p| {
+                        p.next = next;
+                    } else {
+                        self.objects = next;
+                    }
+                    o.generation = 1;
+                    o.survive_count = 0;
+                    o.next = self.old_objects;
+                    self.old_objects = o;
+                    obj = next;
+                } else {
+                    prev = o;
+                    obj = o.next;
+                }
+            } else {
+                const next = o.next;
+                if (prev) |p| {
+                    p.next = next;
+                } else {
+                    self.objects = next;
+                }
+                const freed = objectSize(o);
+                self.stats.objects_freed += 1;
+                self.stats.bytes_freed += freed;
+                if (self.bytes_allocated >= freed)
+                    self.bytes_allocated -= freed;
+                self.freeObject(o);
+                self.object_count -= 1;
+                obj = next;
+            }
+        }
+    }
+
+    fn sweepOld(self: *GC) void {
+        var prev: ?*Object = null;
+        var obj = self.old_objects;
+        while (obj) |o| {
+            if (o.marked) {
+                o.marked = false;
+                prev = o;
+                obj = o.next;
+            } else {
+                const next = o.next;
+                if (prev) |p| {
+                    p.next = next;
+                } else {
+                    self.old_objects = next;
+                }
+                const freed = objectSize(o);
+                self.stats.objects_freed += 1;
+                self.stats.bytes_freed += freed;
+                if (self.bytes_allocated >= freed)
+                    self.bytes_allocated -= freed;
+                self.freeObject(o);
+                self.object_count -= 1;
+                obj = next;
+            }
+        }
+    }
+
+    fn markObjectContents(self: *GC, obj: *Object) void {
+        switch (obj.tag) {
+            .pair => {
+                const pair = obj.as(Pair);
+                self.markValue(pair.car);
+                self.markValue(pair.cdr);
+            },
+            .vector => {
+                const vec = obj.as(Vector);
+                for (vec.data) |v| self.markValue(v);
+            },
+            .closure => {
+                const cls = obj.as(Closure);
+                for (cls.upvalues) |uv| self.markValue(uv);
+            },
+            .hash_table => {
+                const ht = obj.as(HashTable);
+                for (ht.entries[0..ht.capacity]) |entry| {
+                    if (entry.key != types.VOID and entry.key != types.NIL) {
+                        self.markValue(entry.key);
+                        self.markValue(entry.value);
+                    }
+                }
+            },
+            else => {},
+        }
     }
 
     fn markRoots(self: *GC) void {
