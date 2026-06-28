@@ -26,7 +26,7 @@ fn freshSeed() u64 {
     return @as(u64, @bitCast(ts.sec)) ^ @as(u64, @bitCast(ts.nsec));
 }
 
-var default_rs_val: Value = types.VOID;
+threadlocal var default_rs_val: Value = types.VOID;
 
 pub fn registerRandom(vm: *vm_mod.VM) !void {
     default_rs_val = vm.gc.allocRandomSource(freshSeed()) catch return error.OutOfMemory;
@@ -45,6 +45,15 @@ pub fn registerRandom(vm: *vm_mod.VM) !void {
     try reg(vm, "%rs-next-real", &rsNextRealFn, .{ .exact = 1 });
 }
 
+pub fn ensureDefaultRS() void {
+    if (default_rs_val == types.VOID) {
+        if (primitives.gc_instance) |gc| {
+            default_rs_val = gc.allocRandomSource(freshSeed()) catch return;
+            gc.extra_roots.append(gc.allocator, default_rs_val) catch {};
+        }
+    }
+}
+
 fn getRS(proc: []const u8, v: Value) PrimitiveError!*types.RandomSource {
     if (!types.isRandomSource(v)) return primitives.typeError(proc, "random-source", v);
     return types.toObject(v).as(types.RandomSource);
@@ -54,6 +63,7 @@ fn randomIntegerFn(args: []const Value) PrimitiveError!Value {
     if (!types.isFixnum(args[0])) return primitives.typeError("random-integer", "integer", args[0]);
     const n = types.toFixnum(args[0]);
     if (n <= 0) return primitives.typeError("random-integer", "positive integer", args[0]);
+    ensureDefaultRS();
     const rs = try getRS("random-integer", default_rs_val);
     const r = rs.prng.random();
     return types.makeFixnum(r.intRangeLessThan(i64, 0, n));
@@ -61,6 +71,7 @@ fn randomIntegerFn(args: []const Value) PrimitiveError!Value {
 
 fn randomRealFn(args: []const Value) PrimitiveError!Value {
     _ = args;
+    ensureDefaultRS();
     const rs = try getRS("random-real", default_rs_val);
     const r = rs.prng.random();
     return types.makeFlonum(r.float(f64));
@@ -68,6 +79,7 @@ fn randomRealFn(args: []const Value) PrimitiveError!Value {
 
 fn defaultRandomSourceFn(args: []const Value) PrimitiveError!Value {
     _ = args;
+    ensureDefaultRS();
     return default_rs_val;
 }
 
@@ -91,8 +103,12 @@ fn randomSourcePseudoRandomizeFn(args: []const Value) PrimitiveError!Value {
     const rs = try getRS("random-source-pseudo-randomize!", args[0]);
     if (!types.isFixnum(args[1])) return primitives.typeError("random-source-pseudo-randomize!", "integer", args[1]);
     if (!types.isFixnum(args[2])) return primitives.typeError("random-source-pseudo-randomize!", "integer", args[2]);
-    const i: u64 = @intCast(types.toFixnum(args[1]));
-    const j: u64 = @intCast(types.toFixnum(args[2]));
+    const i_val = types.toFixnum(args[1]);
+    const j_val = types.toFixnum(args[2]);
+    if (i_val < 0) return PrimitiveError.TypeError;
+    if (j_val < 0) return PrimitiveError.TypeError;
+    const i: u64 = @intCast(i_val);
+    const j: u64 = @intCast(j_val);
     rs.prng = std.Random.DefaultPrng.init(i *% 2654435761 +% j *% 2246822519);
     return types.VOID;
 }
@@ -106,23 +122,42 @@ fn randomSourceStateRefFn(args: []const Value) PrimitiveError!Value {
     var i: usize = 4;
     while (i > 0) {
         i -= 1;
-        const word: i64 = @bitCast(rs.prng.s[i]);
-        result = gc.allocPair(types.makeFixnum(word), result) catch return PrimitiveError.OutOfMemory;
+        const limb = [1]u64{rs.prng.s[i]};
+        const word = gc.allocBignumFromLimbs(&limb, 1, true) catch return PrimitiveError.OutOfMemory;
+        result = gc.allocPair(word, result) catch return PrimitiveError.OutOfMemory;
     }
     return result;
+}
+
+fn stateWordToU64(v: Value) ?u64 {
+    if (types.isFixnum(v)) {
+        const n = types.toFixnum(v);
+        return @bitCast(n);
+    }
+    if (types.isBignum(v)) {
+        const bn = types.toBignum(v);
+        if (bn.len == 0) return 0;
+        if (bn.len > 1) return null;
+        return bn.limbs[0];
+    }
+    return null;
 }
 
 fn randomSourceStateSetFn(args: []const Value) PrimitiveError!Value {
     const rs = try getRS("random-source-state-set!", args[0]);
     var state_list = args[1];
+    var new_state: [4]u64 = undefined;
     var i: usize = 0;
     while (i < 4) : (i += 1) {
         if (!types.isPair(state_list)) return primitives.typeError("random-source-state-set!", "list of 4 integers", state_list);
         const word = types.car(state_list);
-        if (!types.isFixnum(word)) return primitives.typeError("random-source-state-set!", "integer", word);
-        rs.prng.s[i] = @bitCast(types.toFixnum(word));
+        new_state[i] = stateWordToU64(word) orelse return primitives.typeError("random-source-state-set!", "integer", word);
         state_list = types.cdr(state_list);
     }
+    if (new_state[0] == 0 and new_state[1] == 0 and new_state[2] == 0 and new_state[3] == 0) {
+        return PrimitiveError.TypeError;
+    }
+    rs.prng.s = new_state;
     return types.VOID;
 }
 
