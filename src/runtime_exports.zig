@@ -110,6 +110,13 @@ export fn kaappi_eval(vm: ?*vm_mod.VM, src_ptr: [*]const u8, src_len: u64) callc
     return result;
 }
 
+fn callPrimitive(name: []const u8, a: u64, b: u64) u64 {
+    const vm = vm_mod.vm_instance orelse return 0;
+    const proc = vm.globals.get(name) orelse return 0;
+    const args = [_]u64{ a, b };
+    return vm.callWithArgs(proc, &args) catch return 0;
+}
+
 export fn kaappi_fixnum_add(a: u64, b: u64) callconv(.c) u64 {
     if (types.isFixnum(a) and types.isFixnum(b)) {
         const va = types.toFixnum(a);
@@ -119,7 +126,7 @@ export fn kaappi_fixnum_add(a: u64, b: u64) callconv(.c) u64 {
             return types.makeFixnum(result[0]);
         }
     }
-    return 0;
+    return callPrimitive("+", a, b);
 }
 
 export fn kaappi_fixnum_sub(a: u64, b: u64) callconv(.c) u64 {
@@ -131,7 +138,7 @@ export fn kaappi_fixnum_sub(a: u64, b: u64) callconv(.c) u64 {
             return types.makeFixnum(result[0]);
         }
     }
-    return 0;
+    return callPrimitive("-", a, b);
 }
 
 export fn kaappi_fixnum_mul(a: u64, b: u64) callconv(.c) u64 {
@@ -143,19 +150,19 @@ export fn kaappi_fixnum_mul(a: u64, b: u64) callconv(.c) u64 {
             return types.makeFixnum(result[0]);
         }
     }
-    return 0;
+    return callPrimitive("*", a, b);
 }
 
 export fn kaappi_fixnum_lt(a: u64, b: u64) callconv(.c) u64 {
     if (types.isFixnum(a) and types.isFixnum(b))
         return if (types.toFixnum(a) < types.toFixnum(b)) types.TRUE else types.FALSE;
-    return types.FALSE;
+    return callPrimitive("<", a, b);
 }
 
 export fn kaappi_fixnum_eq(a: u64, b: u64) callconv(.c) u64 {
     if (types.isFixnum(a) and types.isFixnum(b))
         return if (a == b) types.TRUE else types.FALSE;
-    return types.FALSE;
+    return callPrimitive("=", a, b);
 }
 
 export fn kaappi_car(v: u64) callconv(.c) u64 {
