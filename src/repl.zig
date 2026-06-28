@@ -60,7 +60,12 @@ fn completionCallback(buf: [*c]const u8, lc: [*c]ln.c.linenoiseCompletions) call
     var it = vm.globals.keyIterator();
     while (it.next()) |key| {
         if (std.mem.startsWith(u8, key.*, prefix)) {
-            ln.addCompletion(lc, @ptrCast(key.*.ptr));
+            var name_buf: [512:0]u8 = undefined;
+            const name = key.*;
+            if (name.len >= name_buf.len) continue;
+            @memcpy(name_buf[0..name.len], name);
+            name_buf[name.len] = 0;
+            ln.addCompletion(lc, &name_buf);
         }
     }
 }
@@ -102,7 +107,7 @@ fn highlightCallback(buf: [*c]const u8, len: usize, out_len: [*c]usize) callconv
     const input = buf[0..len];
 
     var result: std.ArrayList(u8) = .empty;
-    const allocator = if (repl_vm) |vm| vm.gc.allocator else return null;
+    const allocator = std.heap.c_allocator;
 
     var i: usize = 0;
     while (i < input.len) {
