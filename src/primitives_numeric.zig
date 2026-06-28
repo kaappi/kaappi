@@ -689,8 +689,8 @@ fn stringToNumber(args: []const Value) PrimitiveError!Value {
     if (std.fmt.parseInt(i64, s, radix)) |n| {
         return try arith.makeFixnumChecked(n);
     } else |err| {
-        if (err == error.Overflow and radix == 10) {
-            return bignum_mod.parseBignumString(gc, s) catch return PrimitiveError.OutOfMemory;
+        if (err == error.Overflow) {
+            return bignum_mod.parseBignumString(gc, s, radix) catch return PrimitiveError.OutOfMemory;
         }
     }
 

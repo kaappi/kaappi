@@ -23,9 +23,9 @@ fn tokenToValue(self: *Reader, tok: Token) ReadError!Value {
             return types.makeFixnum(n);
         },
         .flonum => |f| return types.makeFlonum(f),
-        .bignum_str => |digits| {
+        .bignum_str => |b| {
             const bignum_mod = @import("bignum.zig");
-            return bignum_mod.parseBignumString(self.gc, digits) catch return ReadError.OutOfMemory;
+            return bignum_mod.parseBignumString(self.gc, b.str, b.radix) catch return ReadError.OutOfMemory;
         },
         .rational => |r| {
             if (r.den == 0) return ReadError.InvalidNumber;
