@@ -81,7 +81,7 @@ fn forceFn(args: []const Value) PrimitiveError!Value {
             if (inner.forcing) {
                 promise.forcing = false;
                 vm.setErrorDetail("re-entrant forcing of promise", .{});
-                return PrimitiveError.TypeError;
+                return PrimitiveError.TypeError; // bare-ok: detail set above
             }
             if (inner.forced) {
                 promise.forcing = false;
