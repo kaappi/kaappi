@@ -485,6 +485,10 @@ fn printValueWithDepth(writer: anytype, value: Value, mode: PrintMode, depth: u3
                 const nf = obj.as(types.NativeFn);
                 try writer.print("#<builtin {s}>", .{nf.name});
             },
+            .native_closure => {
+                const nc = obj.as(types.NativeClosure);
+                try writer.print("#<native-closure {s}>", .{nc.name});
+            },
             .function => {
                 try writer.writeAll("#<function>");
             },

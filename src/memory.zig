@@ -231,6 +231,23 @@ pub const GC = struct {
         return types.makePointer(@ptrCast(nf));
     }
 
+    pub fn allocNativeClosure(self: *GC, fn_ptr: types.NativeClosureFnType, upvalues: []const Value, arity: u8, name: []const u8) !Value {
+        const uv_copy = try self.allocator.alloc(Value, upvalues.len);
+        @memcpy(uv_copy, upvalues);
+        const nc = try self.allocator.create(types.NativeClosure);
+        nc.* = .{
+            .header = .{ .tag = .native_closure },
+            .fn_ptr = fn_ptr,
+            .upvalues = uv_copy,
+            .arity = arity,
+            .name = name,
+        };
+        self.bytes_allocated += @sizeOf(types.NativeClosure) + upvalues.len * @sizeOf(Value);
+        self.profileAlloc(@sizeOf(types.NativeClosure));
+        self.trackObject(&nc.header);
+        return types.makePointer(@ptrCast(nc));
+    }
+
     pub fn allocFlonum(self: *GC, value: f64) !Value {
         _ = self;
         return types.makeFlonum(value);
@@ -1178,7 +1195,7 @@ pub const GC = struct {
                 try visited.put(src_ptr, new_val);
                 return new_val;
             },
-            .native_fn, .ffi_library, .ffi_function => src,
+            .native_fn, .native_closure, .ffi_library, .ffi_function => src,
             .srfi18_time => try self.allocSrfi18Time(obj.as(types.Srfi18Time).seconds),
             .random_source => {
                 const rs = obj.as(types.RandomSource);
@@ -1427,6 +1444,10 @@ pub const GC = struct {
                 self.markValue(cv.name);
                 self.markValue(cv.specific);
             },
+            .native_closure => {
+                const nc = obj.as(types.NativeClosure);
+                for (nc.upvalues) |uv| self.markValue(uv);
+            },
             .symbol, .string, .native_fn, .flonum, .port, .complex, .bytevector, .bignum, .file_info, .user_info, .group_info, .directory_object, .random_source, .srfi18_time => {},
         }
     }
@@ -1473,6 +1494,7 @@ pub const GC = struct {
                 break :blk s;
             },
             .native_fn => @sizeOf(NativeFn),
+            .native_closure => @sizeOf(types.NativeClosure) + obj.as(types.NativeClosure).upvalues.len * @sizeOf(Value),
             .flonum => @sizeOf(Flonum),
             .vector => @sizeOf(Vector) + obj.as(Vector).data.len * @sizeOf(Value),
             .bytevector => @sizeOf(Bytevector) + obj.as(Bytevector).data.len,
@@ -1549,6 +1571,11 @@ pub const GC = struct {
             .native_fn => {
                 const nf = obj.as(NativeFn);
                 self.allocator.destroy(nf);
+            },
+            .native_closure => {
+                const nc = obj.as(types.NativeClosure);
+                self.allocator.free(nc.upvalues);
+                self.allocator.destroy(nc);
             },
             .flonum => {
                 const flo = obj.as(Flonum);

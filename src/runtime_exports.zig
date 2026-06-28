@@ -88,6 +88,17 @@ export fn kaappi_intern_symbol(vm: ?*vm_mod.VM, name_ptr: [*]const u8, name_len:
     return result;
 }
 
+export fn kaappi_create_native_closure(vm: ?*vm_mod.VM, fn_ptr: ?*anyopaque, upvalues_ptr: ?[*]const u64, n_upvalues: u64, arity: u64, name_ptr: [*]const u8, name_len: u64) callconv(.c) u64 {
+    const v = vm orelse return 0;
+    const n: usize = @intCast(n_upvalues);
+    const uv: []const u64 = if (n > 0 and upvalues_ptr != null) upvalues_ptr.?[0..n] else &.{};
+    const a: u8 = @intCast(arity);
+    const name = name_ptr[0..@as(usize, @intCast(name_len))];
+    const nc_fn: types.NativeClosureFnType = @ptrCast(@alignCast(fn_ptr));
+    const result = v.gc.allocNativeClosure(nc_fn, uv, a, name) catch return 0;
+    return result;
+}
+
 export fn kaappi_eval(vm: ?*vm_mod.VM, src_ptr: [*]const u8, src_len: u64) callconv(.c) u64 {
     const v = vm orelse return 0;
     const len: usize = @intCast(src_len);
