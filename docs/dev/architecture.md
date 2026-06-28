@@ -110,12 +110,6 @@ Source code
 | `thottam.zig` | Package manager binary: install, remove, list, update, verify |
 | `kaappi_lsp.zig` | Language server (LSP) for IDE integration |
 | `ffi.zig` | FFI call dispatcher (type marshaling, arity routing, `normalizeType`) |
-| `jit.zig` | JIT orchestration: eligibility, compile dispatch, C-ABI helpers, shared utilities |
-| `jit_compile_aarch64.zig` | AArch64 bytecode → native compiler: NaN-boxed value encoding, frame/call sequences |
-| `jit_compile_x86_64.zig` | x86_64 bytecode → native compiler: register cache, NaN-boxed value encoding |
-| `jit_aarch64.zig` | AArch64 assembler (fixed 4-byte instruction encoding) |
-| `jit_x86_64.zig` | x86_64 assembler (variable-length encoding, REX prefixes) |
-| `jit_mem.zig` | Executable memory allocation (mmap RWX, macOS JIT protection + entitlements) |
 | `runtime_exports.zig` | C-ABI bridge for LLVM native backend (8 exported functions) |
 | `llvm_emit.zig` | LLVM IR text emitter (walks IR nodes, produces `.ll` files) |
 | `bignum.zig` | Arbitrary-precision integer arithmetic |

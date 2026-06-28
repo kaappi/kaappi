@@ -2,7 +2,7 @@
 
 The compiler IR is a tree-structured intermediate representation that sits
 between the macro expander and bytecode emission. It enables shared analysis
-and optimization passes that benefit both the bytecode VM and JIT, and
+and optimization passes that benefit both the bytecode VM and LLVM backend, and
 provides a clean lowering target for a future native backend.
 
 **Source:** `src/ir.zig` (~1,500 lines)

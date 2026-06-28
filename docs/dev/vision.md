@@ -70,9 +70,9 @@ spec requirements — they're what makes a language usable.
 
 The codebase avoids abstraction layers that don't earn their keep. The GC is
 mark-and-sweep with an intrusive linked list — no generational promotion, no
-read barriers, no write barriers. The compiler is a single-pass tree walker,
-not an SSA-based optimizer. The JIT compiles hot loops to native code with a
-straightforward template approach — no IR, no register allocator.
+read barriers, no write barriers. The compiler lowers to an IR with analysis
+and optimization passes, then emits bytecode. The LLVM backend compiles
+Scheme programs to native executables via LLVM IR.
 
 When something is slow, we measure first. The answer is usually "use
 ReleaseSafe instead of Debug" or "the algorithm is O(n^2)", not "add a

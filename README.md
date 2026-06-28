@@ -24,13 +24,13 @@ zig build test                       # Run all tests
 
 ### Supported platforms
 
-| OS | Architecture | Build | Tests | JIT |
-|----|-------------|-------|-------|-----|
-| macOS | aarch64 (Apple Silicon) | yes | 347/347 | yes (native AArch64) |
-| Linux | x86_64 | yes | 312/320 (8 skip) | yes (native x86_64) |
-| Linux | aarch64 | yes | yes | yes (native AArch64) |
-| Linux | riscv64 | yes | yes | no (interpreter only) |
-| WebAssembly | wasm32-wasi | yes | — | no (interpreter only) |
+| OS | Architecture | Build | Tests | Native compilation |
+|----|-------------|-------|-------|--------------------|
+| macOS | aarch64 (Apple Silicon) | yes | yes | LLVM backend |
+| Linux | x86_64 | yes | yes | LLVM backend |
+| Linux | aarch64 | yes | yes | LLVM backend |
+| Linux | riscv64 | yes | yes | LLVM backend |
+| WebAssembly | wasm32-wasi | yes | — | interpreter only |
 
 The WASM build (`zig build wasm`) runs in browsers and WASI runtimes. See the
 [playground](https://kaappi-lang.org/playground/) for a live demo.
@@ -123,7 +123,7 @@ kaappi> (char-alphabetic? #\λ)
 ### Beyond R7RS
 
 - **C FFI** — call into shared libraries from Scheme via `(kaappi ffi)`: `ffi-open`, `ffi-fn`, `ffi-close`, plus `ffi-callback` for passing Scheme procedures to C (7 callback signatures, 18 types including explicit-width integers and `size_t`)
-- **JIT compiler** — hot functions (100+ calls) are compiled to native machine code (AArch64 and x86_64); inline fixnum arithmetic, comparisons, `car`/`cdr`, `cons`, predicates; JIT-to-JIT call chaining
+- **LLVM native backend** — compile Scheme programs to native executables via `zig build native -Dnative-src=program.scm`; native lambda compilation with direct calls; hybrid continuation strategy
 - **Green threads** — `(kaappi fibers)` with `spawn`, `yield`, `fiber-join`, channels; plus full SRFI-18 compatibility (`make-thread`, mutexes, condition variables)
 - **Profiler** — `kaappi --profile` or `,profile expr` in the REPL; per-function self/total time, call counts, allocation bytes
 - **Standalone binaries** — `zig build -Dbundle-src=program.scm` compiles and embeds bytecode + libraries into a single executable
@@ -308,10 +308,6 @@ kaappi/
 │   ├── primitives_ffi.zig         FFI procedures (ffi-open, ffi-fn, ffi-close)
 │   ├── primitives_r7rs.zig        time, process-context, eval, load
 │   ├── unicode_tables.zig         Unicode 15.1 case mapping tables (auto-generated)
-│   ├── jit.zig                    JIT compiler (arch dispatch + code gen)
-│   ├── jit_aarch64.zig            AArch64 instruction encoding
-│   ├── jit_x86_64.zig             x86_64 instruction encoding
-│   ├── jit_mem.zig                Executable memory allocation
 │   ├── disassembler.zig           Bytecode disassembler
 │   │
 │   ├── testing_helpers.zig        Shared test utilities
@@ -553,12 +549,6 @@ See **[CONFORMANCE.md](CONFORMANCE.md)** for design rationale and SRFI coverage 
 ### OS threads (SRFI-18)
 
 Each OS thread gets its own GC with an independent heap. Values are deep-copied when crossing thread boundaries (at `thread-start!` and `thread-join!`). This means threads cannot share mutable state directly — use channels or return values to communicate. Child threads can allocate and GC independently without affecting the parent.
-
-### JIT compiler
-
-AArch64 and x86_64 backends are both fully implemented: inline fixnum arithmetic with overflow detection, comparisons, predicates (`zero?`, `null?`, `pair?`, `not`, `car`, `cdr`), `cons` allocation, global variable access with inline caching, full call sequences with JIT-to-JIT chaining, and optimized self-recursive calls. RISC-V runs interpreter-only (no JIT backend). Use `--no-jit` to disable.
-
-Tail calls to known primitives (`+`, `-`, `*`, `<`, etc.) are specialized inline via peephole analysis, avoiding side-exits. The JIT currently shows no measurable speedup on standard benchmarks (fib, tak, ackermann) because the interpreter's NativeFn fast path already calls primitives directly via function pointer without frame construction, and the JIT does not yet perform inter-instruction register allocation. Future work: register allocation across instructions to reduce redundant frame memory loads/stores.
 
 ### Macros
 

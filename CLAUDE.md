@@ -22,7 +22,7 @@ zig build -Dgc-threshold=16384     # custom initial GC threshold (default: 8192)
 ```
 
 CLI flags: `-h`/`--help`, `--version`, `--lib-path <path>`, `--compile`,
-`-o <file>`, `--disassemble`, `--no-jit`, `--sandbox`, `--gc-stats`,
+`-o <file>`, `--disassemble`, `--sandbox`, `--gc-stats`,
 `--profile`, `--coverage`. Version is defined as `pub const version` in `main.zig`.
 
 Build-time options: `-Dmax-frames=N` (call frame depth, default 512),
@@ -43,27 +43,17 @@ This runs `zig fmt --check` on staged `.zig` files before each commit.
 
 ### Supported platforms
 
-| OS | Architecture | Build | Unit Tests | JIT | Notes |
-|----|-------------|-------|------------|-----|-------|
-| macOS | aarch64 (Apple Silicon) | yes | 347/347 | AArch64 native | Primary dev platform |
-| Linux | x86_64 | yes | 312/320 (8 skip, 0 fail) | x86_64 native | CI tested (Ubuntu) |
-| Linux | aarch64 | yes | yes | AArch64 native | CI tested (Ubuntu ARM) |
-| Linux | riscv64 | yes | yes | No (interpreter only) | CI tested (QEMU) |
-| WebAssembly | wasm32-wasi | yes | — | No (interpreter only) | `zig build wasm`, browser/WASI |
-
-**JIT backends:** AArch64 and x86_64 are both fully implemented (all opcodes +
-specialized arithmetic + function calls + self-tail-call). Unhandled opcodes
-(`tail_call`, `closure`, `push_handler`, etc.) side-exit to the interpreter.
-RISC-V runs interpreter-only (no JIT backend). AArch64 and x86_64 backends
-are tested in CI; riscv64 tests via QEMU cross-compilation.
+| OS | Architecture | Build | Unit Tests | Notes |
+|----|-------------|-------|------------|-------|
+| macOS | aarch64 (Apple Silicon) | yes | yes | Primary dev platform |
+| Linux | x86_64 | yes | yes | CI tested (Ubuntu) |
+| Linux | aarch64 | yes | yes | CI tested (Ubuntu ARM) |
+| Linux | riscv64 | yes | yes | CI tested (QEMU) |
+| WebAssembly | wasm32-wasi | yes | — | `zig build wasm`, browser/WASI |
 
 **Cross-compilation:** `zig build -Dtarget=x86_64-linux` and
 `zig build -Dtarget=riscv64-linux` cross-compile from macOS ARM. Binaries
 run in Linux containers via podman (x86_64 via Rosetta, riscv64 via QEMU).
-
-**8 skipped tests on x86_64 Linux:** 4 aarch64-specific JIT tests (write ARM
-machine code directly), 2 library-loading tests (need source tree), 2
-filesystem tests (need `build.zig` on disk). All skip gracefully — 0 failures.
 
 Builds default to **ReleaseSafe** (fast, with bounds/safety checks retained;
 fixnum overflow auto-promotes to bignum). Debug is ~500x slower for allocation-
@@ -195,12 +185,6 @@ Exceptions: auto-generated data files (`unicode_tables.zig`) are exempt.
 | `library.zig` | Library registry, standard library registration ((scheme base), etc.) |
 | `bignum.zig` | Arbitrary-precision integer arithmetic |
 | `ffi.zig` | C FFI call dispatcher (type marshaling, arity routing, `normalizeType` for extended integer types) |
-| `jit.zig` | JIT orchestration: eligibility, compile dispatch, C-ABI helpers, shared utilities, tests |
-| `jit_compile_aarch64.zig` | AArch64 bytecode → native compiler: emit* functions, frame/call sequences |
-| `jit_compile_x86_64.zig` | x86_64 bytecode → native compiler: x64Emit* functions, register cache |
-| `jit_aarch64.zig` | AArch64 assembler: fixed 4-byte instruction encoding, register/branch/load-store emitters |
-| `jit_x86_64.zig` | x86_64 assembler: variable-length instruction encoding, REX prefixes, ModR/M addressing |
-| `jit_mem.zig` | Executable memory allocation (mmap RWX), code buffer write with JIT protection (macOS) |
 | `bytecode_file.zig` | Bytecode serialization/deserialization (.sbc cache format) |
 | `disassembler.zig` | Bytecode disassembler for `(disassemble proc)` |
 | `linenoise.zig` | Zig FFI wrapper for vendored linenoise C library |
@@ -313,7 +297,7 @@ Always root `Function*` pointers before calling `vm.execute()` — it allocates 
 
 **Every bug fix MUST include a regression test** that fails without the fix and
 passes with it. Place it in the appropriate location:
-- Zig unit test → `src/tests_*.zig` (for VM, compiler, GC, JIT internals)
+- Zig unit test → `src/tests_*.zig` (for VM, compiler, GC internals)
 - Scheme test → `tests/scheme/smoke/` or a dedicated file under `tests/scheme/`
   (for end-to-end behavior visible from Scheme)
 

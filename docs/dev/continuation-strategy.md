@@ -45,7 +45,7 @@ swap.
 
 **Pros:** O(1) capture.
 **Cons:** Every call pays heap allocation cost. Destroys cache locality.
-Requires rewriting the entire call convention and frame layout. The JIT
+Requires rewriting the entire call convention and frame layout. The
 backends (aarch64, x86_64) would need complete redesign. Incompatible with
 C-ABI calls to the runtime.
 
@@ -66,7 +66,7 @@ back to the VM.
 
 **Pros:**
 - Zero overhead for continuation-free code (the common case)
-- No changes to the bytecode VM or JIT — they keep working as-is
+- No changes to the bytecode VM — it keeps working as-is
 - The direct-style IR serves both backends without conversion
 - `call/ec` (escape continuations) can be implemented natively as
   `setjmp`/`longjmp` — they're single-shot by definition
@@ -74,7 +74,7 @@ back to the VM.
 **Cons:**
 - Code that uses `call/cc` in hot loops does not benefit from native
   compilation. This is acceptable: such code is rare, and the bytecode
-  VM + JIT already handles it well.
+  the bytecode VM already handles it well.
 - The boundary between native and VM code requires a calling convention
   bridge (save/restore registers across the boundary).
 
@@ -96,9 +96,7 @@ Functions that may reach `call/cc` stay on the bytecode VM.
 
 At call boundaries, the native code calls into the VM's `execute()` function
 to run bytecode-compiled callees. The VM can call back into native code for
-functions it knows are native-compiled. This is analogous to how the JIT
-already works — JIT-compiled functions call back into the interpreter for
-opcodes they don't handle (`tail_call`, `closure`, `push_handler`).
+functions it knows are native-compiled.
 
 ### call/ec in native code
 

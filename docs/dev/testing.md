@@ -221,8 +221,8 @@ Tests live in `tests/acceptance/`:
 
 | File | Purpose |
 |------|---------|
-| `acceptance.sh` | 34 tests: version, arithmetic/JIT, data structures, Unicode, library imports, file execution, tail calls, closures, continuations, error handling, sandbox, thottam |
-| `test-wasm.sh` | 14 WASM-specific tests via wasmtime (no JIT, no FFI) |
+| `acceptance.sh` | 34 tests: version, arithmetic, data structures, Unicode, library imports, file execution, tail calls, closures, continuations, error handling, sandbox, thottam |
+| `test-wasm.sh` | 14 WASM-specific tests via wasmtime (no FFI) |
 | `hello.scm` | Minimal test program for file execution |
 
 ### Running locally
