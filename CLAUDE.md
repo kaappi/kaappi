@@ -23,7 +23,8 @@ zig build -Dgc-threshold=16384     # custom initial GC threshold (default: 8192)
 
 CLI flags: `-h`/`--help`, `--version`, `--lib-path <path>`, `--compile`,
 `-o <file>`, `--disassemble`, `--sandbox`, `--gc-stats`,
-`--profile`, `--coverage`. Subcommand: `kaappi compile <file> [-o output]`
+`--profile`, `--coverage`, `--completions <shell>`.
+Subcommand: `kaappi compile <file> [-o output]`
 compiles to native binary via LLVM. Version is defined as `pub const version`
 in `main.zig`. Environment: `KAAPPI_LIB_DIR` overrides `libkaappi_rt.a` lookup.
 

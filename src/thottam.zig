@@ -1046,6 +1046,7 @@ fn printUsage() void {
             "  --locked     Refuse to install packages not in the lockfile\n" ++
             "  -h, --help   Show this help message\n" ++
             "  --version    Show version\n" ++
+            "  --completions <shell> Output completion script (bash, zsh, fish)\n" ++
             "\n" ++
             "Packages are installed to ~/.kaappi/lib/\n" ++
             "Lockfile: ~/.kaappi/thottam.lock\n" ++
@@ -1113,6 +1114,19 @@ pub fn main(init: std.process.Init.Minimal) !void {
             return;
         } else if (std.mem.eql(u8, arg, "--version")) {
             writeStdout("thottam v" ++ version ++ "\n");
+            return;
+        } else if (std.mem.eql(u8, arg, "--completions")) {
+            if (args.next()) |shell| {
+                if (@import("completions.zig").thottam(shell)) |script| {
+                    writeStdout(script);
+                } else {
+                    writeStderr("unknown shell: ");
+                    writeStderr(shell);
+                    writeStderr("\nSupported: bash, zsh, fish\n");
+                }
+            } else {
+                writeStderr("--completions requires a shell name (bash, zsh, fish)\n");
+            }
             return;
         } else if (subcommand == null) {
             subcommand = arg;

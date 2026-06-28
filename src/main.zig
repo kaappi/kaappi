@@ -83,6 +83,7 @@ fn printUsage() void {
             "  --coverage-xml <f> Write Cobertura XML coverage to file\n" ++
             "  --timeout <ms>     Execution timeout in milliseconds\n" ++
             "  --max-memory <n>   Maximum heap memory in bytes\n" ++
+            "  --completions <sh> Output completion script (bash, zsh, fish)\n" ++
             "\n" ++
             "Environment variables:\n" ++
             "  KAAPPI_LIB_DIR     Directory containing libkaappi_rt.a (for compile)\n" ++
@@ -269,6 +270,19 @@ fn mainImpl(init: std.process.Init.Minimal) !void {
                 return;
             } else if (std.mem.eql(u8, arg, "--version")) {
                 writeStdout("Kaappi Scheme v" ++ version ++ "\n");
+                return;
+            } else if (std.mem.eql(u8, arg, "--completions")) {
+                if (sa_iter.next()) |shell| {
+                    if (@import("completions.zig").kaappi(shell)) |script| {
+                        writeStdout(script);
+                    } else {
+                        writeStderr("unknown shell: ");
+                        writeStderr(shell);
+                        writeStderr("\nSupported: bash, zsh, fish\n");
+                    }
+                } else {
+                    writeStderr("--completions requires a shell name (bash, zsh, fish)\n");
+                }
                 return;
             } else if (std.mem.eql(u8, arg, "--gc-stats")) {
                 sa_gc_stats = true;
@@ -457,6 +471,19 @@ fn mainImpl(init: std.process.Init.Minimal) !void {
             return;
         } else if (std.mem.eql(u8, arg, "--version")) {
             writeStdout("Kaappi Scheme v" ++ version ++ "\n");
+            return;
+        } else if (std.mem.eql(u8, arg, "--completions")) {
+            if (args.next()) |shell| {
+                if (@import("completions.zig").kaappi(shell)) |script| {
+                    writeStdout(script);
+                } else {
+                    writeStderr("unknown shell: ");
+                    writeStderr(shell);
+                    writeStderr("\nSupported: bash, zsh, fish\n");
+                }
+            } else {
+                writeStderr("--completions requires a shell name (bash, zsh, fish)\n");
+            }
             return;
         } else {
             file_path = arg;
