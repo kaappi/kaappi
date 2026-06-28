@@ -331,8 +331,30 @@ pub fn callClosure(vm: *VM, closure: *types.Closure, base: u16, nargs: u8) VMErr
     if (vm.debug_mode and vm.breakpoint_count > 0) {
         if (func.name) |fname| {
             for (vm.breakpoints[0..vm.breakpoint_count]) |bp| {
-                if (std.mem.eql(u8, bp, fname)) {
-                    vm.step_mode = .step;
+                if (std.mem.eql(u8, bp.name, fname)) {
+                    if (bp.condition) |cond| {
+                        const reader_mod = @import("reader.zig");
+                        var r = reader_mod.Reader.init(vm.gc, cond);
+                        defer r.deinit();
+                        const expr = r.readDatum() catch {
+                            vm.step_mode = .step;
+                            break;
+                        };
+                        const compiler = @import("compiler.zig");
+                        const cond_func = compiler.compileExpression(vm.gc, expr) catch {
+                            vm.step_mode = .step;
+                            break;
+                        };
+                        const result = vm.execute(cond_func) catch {
+                            vm.step_mode = .step;
+                            break;
+                        };
+                        if (result != types.FALSE) {
+                            vm.step_mode = .step;
+                        }
+                    } else {
+                        vm.step_mode = .step;
+                    }
                     break;
                 }
             }

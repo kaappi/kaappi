@@ -144,7 +144,17 @@ pub const CallFrame = struct {
     saved_wind_count: u16 = 0,
 };
 
-pub const StepMode = enum { none, step, next, continue_to_break };
+pub const StepMode = enum { none, step, next, step_out, continue_to_break };
+
+pub const Breakpoint = struct {
+    name: []const u8,
+    condition: ?[]const u8 = null,
+};
+
+pub const WatchEntry = struct {
+    name: []const u8,
+    last_value: Value = types.VOID,
+};
 
 pub const ProfileTimeEntry = struct {
     func: ?*types.Function,
@@ -194,10 +204,13 @@ pub const VM = struct {
     last_stack_trace_len: usize = 0,
     // Debugger state
     debug_mode: bool = false,
-    breakpoints: [16][]const u8 = undefined,
+    breakpoints: [16]Breakpoint = undefined,
     breakpoint_count: usize = 0,
     step_mode: StepMode = .none,
     step_frame: usize = 0,
+    watches: [16]WatchEntry = undefined,
+    watch_count: usize = 0,
+    inspect_frame: usize = 0,
     global_version: u32 = 0,
     profile_mode: bool = false,
     coverage_mode: bool = false,
