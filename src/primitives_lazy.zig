@@ -55,7 +55,10 @@ fn forceFn(args: []const Value) PrimitiveError!Value {
             return thunk;
         }
 
+        promise.forcing = true;
+
         const result = vm.callWithArgs(thunk, &[_]Value{}) catch |err| {
+            promise.forcing = false;
             return switch (err) {
                 vm_mod.VMError.ContinuationInvoked => PrimitiveError.ContinuationInvoked,
                 vm_mod.VMError.ExceptionRaised => PrimitiveError.ExceptionRaised,
@@ -66,11 +69,22 @@ fn forceFn(args: []const Value) PrimitiveError!Value {
 
         // SRFI-45 §8: after the thunk returns, check if another force
         // has already completed this promise (re-entrant force).
-        if (promise.forced) return promise.value;
+        if (promise.forced) {
+            promise.forcing = false;
+            return promise.value;
+        }
 
         if (types.isPromise(result)) {
             const inner = types.toPromise(result);
+            // SRFI-45 §8: detect cyclic promise chains where a thunk
+            // returns a promise that is already being forced.
+            if (inner.forcing) {
+                promise.forcing = false;
+                vm.setErrorDetail("re-entrant forcing of promise", .{});
+                return PrimitiveError.TypeError;
+            }
             if (inner.forced) {
+                promise.forcing = false;
                 promise.forced = true;
                 promise.value = inner.value;
                 gc.writeBarrier(&promise.header, inner.value);
@@ -85,6 +99,7 @@ fn forceFn(args: []const Value) PrimitiveError!Value {
             continue;
         }
 
+        promise.forcing = false;
         promise.forced = true;
         promise.value = result;
         gc.writeBarrier(&promise.header, result);

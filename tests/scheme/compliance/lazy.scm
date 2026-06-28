@@ -28,6 +28,24 @@
 (test-group "nested delay"
   (test-eqv "force nested delays" 99 (force (delay (force (delay 99))))))
 
+;; --- re-entrant forcing (SRFI-45 §8) ---
+
+;; Valid recursive forcing with termination (R7RS 4.2.5 example)
+(let ()
+  (define x 5)
+  (define count 0)
+  (define p
+    (delay (begin (set! count (+ count 1))
+                  (if (> count x) count (force p)))))
+  (test-eqv "recursive force with termination" 6 (force p)))
+
+;; Cyclic delay-force detected via forcing flag
+(let ()
+  (define p (delay-force (delay p)))
+  (test-assert "delay-force self-reference raises error"
+    (guard (exn (#t #t))
+      (force p) #f)))
+
 (set! %test-fail-count (test-runner-fail-count (test-runner-current)))
 (test-end "lazy")
 (if (> %test-fail-count 0) (exit 1))
