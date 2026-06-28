@@ -542,6 +542,20 @@ pub const LLVMEmitter = struct {
     }
 
     fn emitLambdaViaEval(self: *LLVMEmitter, data: ir.LambdaData) EmitError![]const u8 {
+        if (self.params) |p| {
+            var iter = p.iterator();
+            while (iter.next()) |entry| {
+                const pname = entry.key_ptr.*;
+                const idx = entry.value_ptr.*;
+                const sym = try self.internSymbol(pname);
+                const gep = try self.freshTemp();
+                try self.print("  {s} = getelementptr i64, ptr %args, i64 {d}\n", .{ gep, idx });
+                const val = try self.freshTemp();
+                try self.print("  {s} = load i64, ptr {s}\n", .{ val, gep });
+                try self.print("  call void @kaappi_define_global(ptr %vm, ptr {s}, i64 {d}, i64 {s})\n", .{ sym, pname.len, val });
+            }
+        }
+
         var source_buf: std.ArrayList(u8) = .empty;
         defer source_buf.deinit(self.allocator);
         source_buf.appendSlice(self.allocator, "(lambda ") catch return error.OutOfMemory;
@@ -613,7 +627,10 @@ pub const LLVMEmitter = struct {
         }
         if (body_count == 0) return null;
 
-        if (hasFreeVars(body_nodes[0..body_count], param_names[0..arity])) return null;
+        var allowed: [17][]const u8 = undefined;
+        @memcpy(allowed[0..arity], param_names[0..arity]);
+        allowed[arity] = name;
+        if (hasFreeVars(body_nodes[0..body_count], allowed[0 .. arity + 1])) return null;
 
         return self.emitLambdaFunction(name, param_names[0..arity], body_nodes[0..body_count]);
     }
@@ -622,6 +639,10 @@ pub const LLVMEmitter = struct {
         const id = self.lambda_counter;
         self.lambda_counter += 1;
         const fn_name = std.fmt.allocPrint(self.allocator, "@lambda_{d}", .{id}) catch return null;
+
+        if (name) |n| {
+            self.native_fns.put(n, .{ .llvm_name = fn_name, .arity = @intCast(param_names.len) }) catch {};
+        }
 
         var fn_buf: std.ArrayList(u8) = .empty;
         const saved_buf = self.buf;
