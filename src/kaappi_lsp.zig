@@ -275,7 +275,7 @@ fn getArity(val: types.Value) ?[]const u8 {
 
 fn handleInitialize(allocator: std.mem.Allocator, id: i64) void {
     sendResponse(allocator, id,
-        \\{"capabilities":{"textDocumentSync":1,"completionProvider":{"resolveProvider":false,"triggerCharacters":[]},"hoverProvider":true,"documentSymbolProvider":true},"serverInfo":{"name":"kaappi-lsp","version":"0.1.0"}}
+        \\{"capabilities":{"textDocumentSync":1,"completionProvider":{"resolveProvider":false,"triggerCharacters":[]},"hoverProvider":true,"documentSymbolProvider":true,"definitionProvider":true,"referencesProvider":true},"serverInfo":{"name":"kaappi-lsp","version":"0.1.0"}}
     );
 }
 
@@ -437,6 +437,160 @@ fn handleDocumentSymbol(allocator: std.mem.Allocator, vm: *vm_mod.VM, id: i64, p
             defer allocator.free(s);
             result.appendSlice(allocator, s) catch {};
         }
+    }
+
+    result.append(allocator, ']') catch return;
+    sendResponse(allocator, id, result.items);
+}
+
+fn handleDefinition(allocator: std.mem.Allocator, vm: *vm_mod.VM, id: i64, params: []const u8) void {
+    const td = jsonGetObject(params, "textDocument") orelse "";
+    const uri = jsonGetString(td, "uri") orelse "";
+    const pos_obj = jsonGetObject(params, "position") orelse "";
+    const line = jsonGetInt(pos_obj, "line") orelse 0;
+    const character = jsonGetInt(pos_obj, "character") orelse 0;
+
+    const text = getDocument(uri) orelse {
+        sendResponse(allocator, id, "null");
+        return;
+    };
+
+    const symbol = getFullSymbolAtPosition(text, @intCast(line), @intCast(character));
+    if (symbol.len == 0) {
+        sendResponse(allocator, id, "null");
+        return;
+    }
+
+    var r = reader.Reader.init(vm.gc, text);
+    defer r.deinit();
+
+    while (r.hasMore()) {
+        const lc = r.getLineCol();
+        const expr = r.readDatum() catch break;
+        if (findDefineLocation(expr, symbol, lc.line)) |def_line| {
+            const resp_line: i64 = @as(i64, @intCast(def_line)) - 1;
+            const s = std.fmt.allocPrint(allocator,
+                \\{{"uri":"{s}","range":{{"start":{{"line":{d},"character":0}},"end":{{"line":{d},"character":0}}}}}}
+            , .{ uri, resp_line, resp_line }) catch {
+                sendResponse(allocator, id, "null");
+                return;
+            };
+            defer allocator.free(s);
+            sendResponse(allocator, id, s);
+            return;
+        }
+    }
+
+    sendResponse(allocator, id, "null");
+}
+
+fn findDefineLocation(expr: types.Value, name: []const u8, form_line: u32) ?u32 {
+    if (!types.isPair(expr)) return null;
+    const head = types.car(expr);
+    if (!types.isSymbol(head)) return null;
+    const form = types.symbolName(head);
+
+    if (std.mem.eql(u8, form, "define")) {
+        const rest = types.cdr(expr);
+        if (rest == types.NIL) return null;
+        const target = types.car(rest);
+        if (types.isSymbol(target) and std.mem.eql(u8, types.symbolName(target), name)) {
+            return form_line;
+        }
+        if (types.isPair(target)) {
+            const fn_name = types.car(target);
+            if (types.isSymbol(fn_name) and std.mem.eql(u8, types.symbolName(fn_name), name)) {
+                return form_line;
+            }
+        }
+    } else if (std.mem.eql(u8, form, "define-syntax") or std.mem.eql(u8, form, "define-record-type")) {
+        const rest = types.cdr(expr);
+        if (rest != types.NIL and types.isPair(rest)) {
+            const def_name = types.car(rest);
+            if (types.isSymbol(def_name) and std.mem.eql(u8, types.symbolName(def_name), name)) {
+                return form_line;
+            }
+        }
+    }
+    return null;
+}
+
+fn handleReferences(allocator: std.mem.Allocator, vm: *vm_mod.VM, id: i64, params: []const u8) void {
+    _ = vm;
+    const td = jsonGetObject(params, "textDocument") orelse "";
+    const uri = jsonGetString(td, "uri") orelse "";
+    const pos_obj = jsonGetObject(params, "position") orelse "";
+    const line = jsonGetInt(pos_obj, "line") orelse 0;
+    const character = jsonGetInt(pos_obj, "character") orelse 0;
+
+    const text = getDocument(uri) orelse {
+        sendResponse(allocator, id, "[]");
+        return;
+    };
+
+    const symbol = getFullSymbolAtPosition(text, @intCast(line), @intCast(character));
+    if (symbol.len == 0) {
+        sendResponse(allocator, id, "[]");
+        return;
+    }
+
+    var result: std.ArrayList(u8) = .empty;
+    defer result.deinit(allocator);
+    result.append(allocator, '[') catch return;
+    var first = true;
+
+    var cur_line: u32 = 0;
+    var i: usize = 0;
+    while (i < text.len) {
+        if (text[i] == '\n') {
+            cur_line += 1;
+            i += 1;
+            continue;
+        }
+
+        if (isSymbolChar(text[i])) {
+            const start = i;
+            var col: u32 = 0;
+            var j = i;
+            while (j > 0 and text[j - 1] != '\n') : (j -= 1) {
+                col += 1;
+            }
+            while (i < text.len and isSymbolChar(text[i])) : (i += 1) {}
+            const word = text[start..i];
+            if (std.mem.eql(u8, word, symbol)) {
+                if (!first) result.append(allocator, ',') catch {};
+                first = false;
+                const s = std.fmt.allocPrint(allocator,
+                    \\{{"uri":"{s}","range":{{"start":{{"line":{d},"character":{d}}},"end":{{"line":{d},"character":{d}}}}}}}
+                , .{ uri, cur_line, col, cur_line, col + @as(u32, @intCast(word.len)) }) catch continue;
+                defer allocator.free(s);
+                result.appendSlice(allocator, s) catch {};
+            }
+            continue;
+        }
+
+        if (text[i] == '"') {
+            i += 1;
+            while (i < text.len) {
+                if (text[i] == '\\' and i + 1 < text.len) {
+                    i += 2;
+                } else if (text[i] == '"') {
+                    i += 1;
+                    break;
+                } else {
+                    if (text[i] == '\n') cur_line += 1;
+                    i += 1;
+                }
+            }
+            continue;
+        }
+
+        if (text[i] == ';') {
+            while (i < text.len and text[i] != '\n') : (i += 1) {}
+            continue;
+        }
+
+        i += 1;
     }
 
     result.append(allocator, ']') catch return;
@@ -625,6 +779,10 @@ pub fn main(init: std.process.Init.Minimal) !void {
             handleHover(allocator, &vm, id orelse 0, msg);
         } else if (std.mem.eql(u8, method, "textDocument/documentSymbol")) {
             handleDocumentSymbol(allocator, &vm, id orelse 0, msg);
+        } else if (std.mem.eql(u8, method, "textDocument/definition")) {
+            handleDefinition(allocator, &vm, id orelse 0, msg);
+        } else if (std.mem.eql(u8, method, "textDocument/references")) {
+            handleReferences(allocator, &vm, id orelse 0, msg);
         }
     }
 
