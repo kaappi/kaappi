@@ -39,7 +39,9 @@ fn checkWatches(vm: *VM) bool {
     for (vm.watches[0..vm.watch_count]) |*w| {
         for (func.debug_locals) |local| {
             if (std.mem.eql(u8, local.name, w.name)) {
-                const val = vm.registers[frame.base + local.slot];
+                const idx = @as(usize, frame.base) + @as(usize, local.slot);
+                if (idx >= vm_mod.MAX_REGISTERS) continue;
+                const val = vm.registers[idx];
                 if (val != w.last_value) {
                     w.last_value = val;
                     writeStderr("Watch: ");
@@ -200,10 +202,12 @@ fn printLocals(vm: *VM, frame_idx: usize, allocator: std.mem.Allocator) void {
         const func = cls.func;
         const printer = @import("printer.zig");
         for (func.debug_locals) |local| {
+            const idx = @as(usize, f.base) + @as(usize, local.slot);
+            if (idx >= vm_mod.MAX_REGISTERS) continue;
             writeStderr("  ");
             writeStderr(local.name);
             writeStderr(" = ");
-            const val = vm.registers[f.base + local.slot];
+            const val = vm.registers[idx];
             const s = printer.valueToString(allocator, val, .write) catch continue;
             defer allocator.free(s);
             writeStderr(s);
