@@ -89,13 +89,31 @@ test_repo() {
     local repo="$1"
     local info="${REPO_INFO[$repo]:-}"
 
-    if [[ -z "$info" ]]; then
-        skip "$repo" "unknown repo"
-        return
+    local deps tests
+    if [[ -n "$info" ]]; then
+        deps="${info%%:*}"
+        tests="${info#*:}"
+    else
+        # Auto-discover: find tests/test-*.scm files
+        local repo_dir="$WORKSPACE/$repo"
+        if [[ ! -d "$repo_dir" ]]; then
+            skip "$repo" "not cloned"; return
+        fi
+        local discovered
+        discovered=$(find "$repo_dir/tests" -maxdepth 1 -name 'test-*.scm' 2>/dev/null | sort)
+        if [[ -z "$discovered" ]]; then
+            skip "$repo" "no test files found"; return
+        fi
+        tests=""
+        for f in $discovered; do
+            tests="${tests:+$tests }tests/$(basename "$f")"
+        done
+        # Read deps from kaappi.pkg if present
+        deps=""
+        if [[ -f "$repo_dir/kaappi.pkg" ]]; then
+            deps=$(grep '^depends:' "$repo_dir/kaappi.pkg" 2>/dev/null | sed 's/^depends: *//' || true)
+        fi
     fi
-
-    local deps="${info%%:*}"
-    local tests="${info#*:}"
     local repo_dir="$WORKSPACE/$repo"
 
     if [[ ! -d "$repo_dir" ]]; then
