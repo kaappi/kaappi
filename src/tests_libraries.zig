@@ -25,29 +25,56 @@ test "import only" {
     var vm = try th.makeTestVM(&gc);
     defer vm.deinit();
 
-    _ = try vm.eval("(import (only (scheme base) + -))");
-    const r1 = try vm.eval("(+ 10 5)");
-    try std.testing.expectEqual(@as(i64, 15), types.toFixnum(r1));
-    const r2 = try vm.eval("(- 10 3)");
-    try std.testing.expectEqual(@as(i64, 7), types.toFixnum(r2));
+    // Define a custom library with procedures not registered globally
+    _ = try vm.eval(
+        \\(define-library (test only-lib)
+        \\  (import (scheme base))
+        \\  (export alpha beta gamma)
+        \\  (begin
+        \\    (define (alpha) 1)
+        \\    (define (beta) 2)
+        \\    (define (gamma) 3)))
+    );
+
+    // Import only alpha and beta — gamma should be unavailable
+    _ = try vm.eval("(import (only (test only-lib) alpha beta))");
+    const r1 = try vm.eval("(alpha)");
+    try std.testing.expectEqual(@as(i64, 1), types.toFixnum(r1));
+    const r2 = try vm.eval("(beta)");
+    try std.testing.expectEqual(@as(i64, 2), types.toFixnum(r2));
+
+    // gamma was not imported — calling it must raise an error
+    const r3 = vm.eval("(gamma)");
+    try std.testing.expectError(th.VMError.UndefinedVariable, r3);
 }
 
 test "import except" {
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
-
-    // Create a fresh VM without pre-loaded globals to verify except works
-    var vm = try vm_mod.VM.init(&gc);
+    var vm = try th.makeTestVM(&gc);
     defer vm.deinit();
-    primitives_mod.setGCInstance(&gc);
-    try primitives_mod.registerAll(&vm);
-    try library_mod.registerStandardLibraries(&vm.libraries, &vm.globals);
 
-    // Import everything except +
-    _ = try vm.eval("(import (except (scheme base) +))");
-    // - should work
-    const r1 = try vm.eval("(- 10 3)");
-    try std.testing.expectEqual(@as(i64, 7), types.toFixnum(r1));
+    // Define a custom library with procedures not registered globally
+    _ = try vm.eval(
+        \\(define-library (test except-lib)
+        \\  (import (scheme base))
+        \\  (export foo bar baz)
+        \\  (begin
+        \\    (define (foo) 10)
+        \\    (define (bar) 20)
+        \\    (define (baz) 30)))
+    );
+
+    // Import everything except foo
+    _ = try vm.eval("(import (except (test except-lib) foo))");
+    const r1 = try vm.eval("(bar)");
+    try std.testing.expectEqual(@as(i64, 20), types.toFixnum(r1));
+    const r2 = try vm.eval("(baz)");
+    try std.testing.expectEqual(@as(i64, 30), types.toFixnum(r2));
+
+    // foo was excluded — calling it must raise an error
+    const r3 = vm.eval("(foo)");
+    try std.testing.expectError(th.VMError.UndefinedVariable, r3);
 }
 
 test "import rename" {
