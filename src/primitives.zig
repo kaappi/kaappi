@@ -694,6 +694,7 @@ fn recordSetFn(args: []const Value) PrimitiveError!Value {
     const ri = types.toObject(args[0]).as(types.RecordInstance);
     const idx: usize = @intCast(types.toFixnum(args[1]));
     if (idx >= ri.fields.len) return PrimitiveError.TypeError;
+    if (gc_instance) |gc| gc.writeBarrier(types.toObject(args[0]), args[2]);
     ri.fields[idx] = args[2];
     return types.VOID;
 }
