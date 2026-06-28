@@ -104,6 +104,27 @@
     (it "non-tail calls still work"
       (define (fib n)
         (if (< n 2) n (+ (fib (- n 1)) (fib (- n 2)))))
-      (expect (fib 10) to-equal 55))))
+      (expect (fib 10) to-equal 55)))
+
+  (describe "variadic parameters"
+    (it "collects all args as rest parameter"
+      (define (my-list . args) args)
+      (expect (my-list 1 2 3) to-equal '(1 2 3)))
+
+    (it "splits fixed and rest parameters"
+      (define (first-and-rest x . rest) rest)
+      (expect (first-and-rest 10 20 30) to-equal '(20 30)))
+
+    (it "handles empty rest list"
+      (define (maybe-rest x . rest) rest)
+      (expect (maybe-rest 42) to-equal '()))
+
+    (it "supports operations on rest list"
+      (define (sum-all . nums)
+        (define (loop lst acc)
+          (if (null? lst) acc
+              (loop (cdr lst) (+ acc (car lst)))))
+        (loop nums 0))
+      (expect (sum-all 1 2 3 4 5) to-equal 15))))
 
 (run-specs)
