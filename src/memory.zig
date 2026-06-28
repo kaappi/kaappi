@@ -669,7 +669,7 @@ pub const GC = struct {
         return types.makePointer(@ptrCast(lib));
     }
 
-    pub fn allocFfiFunction(self: *GC, symbol: *anyopaque, name: []const u8, param_types: []const FfiType, return_type: FfiType) !Value {
+    pub fn allocFfiFunction(self: *GC, symbol: *anyopaque, library: Value, name: []const u8, param_types: []const FfiType, return_type: FfiType) !Value {
         try self.maybeCollect();
         const owned_name = try self.allocator.dupe(u8, name);
         const owned_params = try self.allocator.dupe(FfiType, param_types);
@@ -677,6 +677,7 @@ pub const GC = struct {
         ffi_fn.* = .{
             .header = .{ .tag = .ffi_function },
             .symbol = symbol,
+            .library = library,
             .name = owned_name,
             .param_types = owned_params,
             .return_type = return_type,

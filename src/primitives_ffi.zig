@@ -150,6 +150,7 @@ fn ffiFn(args: []const Value) PrimitiveError!Value {
 
     return gc.allocFfiFunction(
         symbol,
+        args[0],
         name_str.data[0..name_str.len],
         param_types_buf[0..param_count],
         return_type,

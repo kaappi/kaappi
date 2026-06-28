@@ -121,6 +121,10 @@ fn validateArgs(ffi_fn: *types.FfiFunction, args: []const Value) !void {
 
 /// Main FFI call dispatcher. Routes to arity-specific handlers.
 pub fn callFfi(ffi_fn: *types.FfiFunction, args: []const Value, gc: *memory.GC) !Value {
+    if (types.isFfiLibrary(ffi_fn.library)) {
+        const lib = types.toObject(ffi_fn.library).as(types.FfiLibrary);
+        if (lib.handle == null) return error.TypeError;
+    }
     try validateArgs(ffi_fn, args);
     return switch (ffi_fn.param_count) {
         0 => callFfi0(ffi_fn, gc),

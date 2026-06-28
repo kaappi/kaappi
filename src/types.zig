@@ -458,6 +458,7 @@ pub const FfiLibrary = struct {
 pub const FfiFunction = struct {
     header: Object,
     symbol: *anyopaque,
+    library: Value,
     name: []const u8,
     param_types: []FfiType,
     return_type: FfiType,
