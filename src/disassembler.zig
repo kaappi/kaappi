@@ -503,11 +503,19 @@ test "disassemble all opcodes" {
 
     // Verify all opcodes are present in the bytecode
     try std.testing.expect(func.code.items.len > 120);
-    // Exercise all formatting branches by calling disassemble
+    // Exercise all formatting branches without writing to stderr
+    // (raw stderr writes corrupt zig build test IPC protocol)
+    suppress_output = true;
+    defer {
+        suppress_output = false;
+    }
     disassemble(func, allocator);
 }
 
+threadlocal var suppress_output: bool = false;
+
 fn writeStderr(bytes: []const u8) void {
+    if (suppress_output) return;
     var total: usize = 0;
     while (total < bytes.len) {
         const result: isize = std.posix.system.write(2, bytes.ptr + total, bytes.len - total);
