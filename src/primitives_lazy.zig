@@ -34,6 +34,7 @@ fn makePromiseLazy(args: []const Value) PrimitiveError!Value {
 
 fn forceFn(args: []const Value) PrimitiveError!Value {
     const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError; // bare-ok: no VM
+    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
 
     var current = args[0];
 
@@ -70,17 +71,21 @@ fn forceFn(args: []const Value) PrimitiveError!Value {
             if (inner.forced) {
                 promise.forced = true;
                 promise.value = inner.value;
+                gc.writeBarrier(&promise.header, inner.value);
                 return inner.value;
             }
             promise.value = inner.value;
+            gc.writeBarrier(&promise.header, inner.value);
             inner.forced = true;
             inner.value = types.makePointer(@ptrCast(promise));
+            gc.writeBarrier(&inner.header, types.makePointer(@ptrCast(promise)));
             current = types.makePointer(@ptrCast(promise));
             continue;
         }
 
         promise.forced = true;
         promise.value = result;
+        gc.writeBarrier(&promise.header, result);
         return result;
     }
 
