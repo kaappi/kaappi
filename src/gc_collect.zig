@@ -55,12 +55,68 @@ pub fn collect(gc: *GC) void {
 }
 
 fn minorCollect(gc: *GC) void {
+    clearOldMarks(gc);
     markRoots(gc);
     for (gc.remembered_set.items) |obj| {
         markObjectContents(gc, obj);
     }
     sweepYoung(gc);
-    gc.remembered_set.clearRetainingCapacity();
+    pruneRememberedSet(gc);
+}
+
+fn clearOldMarks(gc: *GC) void {
+    var obj = gc.old_objects;
+    while (obj) |o| {
+        o.marked = false;
+        obj = o.next;
+    }
+}
+
+fn pruneRememberedSet(gc: *GC) void {
+    var write_idx: usize = 0;
+    for (gc.remembered_set.items) |obj| {
+        if (referencesYoung(obj)) {
+            gc.remembered_set.items[write_idx] = obj;
+            write_idx += 1;
+        }
+    }
+    gc.remembered_set.shrinkRetainingCapacity(write_idx);
+}
+
+fn referencesYoung(obj: *Object) bool {
+    switch (obj.tag) {
+        .pair => {
+            const pair = obj.as(Pair);
+            if (isYoungPointer(pair.car) or isYoungPointer(pair.cdr)) return true;
+        },
+        .vector => {
+            const vec = obj.as(types.Vector);
+            for (vec.data) |item| {
+                if (isYoungPointer(item)) return true;
+            }
+        },
+        .record_instance => {
+            const ri = obj.as(RecordInstance);
+            for (ri.fields) |field| {
+                if (isYoungPointer(field)) return true;
+            }
+        },
+        .hash_table => {
+            const ht = obj.as(HashTable);
+            for (ht.entries[0..ht.capacity]) |entry| {
+                if (entry.key != types.VOID and entry.key != types.NIL) {
+                    if (isYoungPointer(entry.key) or isYoungPointer(entry.value)) return true;
+                }
+            }
+        },
+        else => return true,
+    }
+    return false;
+}
+
+fn isYoungPointer(val: Value) bool {
+    if (!types.isPointer(val)) return false;
+    return types.toObject(val).generation == 0;
 }
 
 fn fullCollect(gc: *GC) void {
