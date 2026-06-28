@@ -407,8 +407,21 @@ fn lowerFormWithMacros(ir: *IR, expr: Value, macros: ?*std.StringHashMap(Value))
     return lowerCall(ir, expr, macros);
 }
 
-pub fn lower(ir: *IR, expr: Value) CompileError!*Node {
-    return lowerWithMacros(ir, expr, null);
+pub fn lower(irn: *IR, expr: Value) CompileError!*Node {
+    return lowerWithMacros(irn, expr, null);
+}
+
+pub fn lowerSingleExpr(allocator: std.mem.Allocator, expr: Value) CompileError!*Node {
+    var scratch = IR.init(allocator);
+    const node = try lowerWithMacros(&scratch, expr, null);
+    identifyPrimitives(node);
+    markConstants(node);
+    var opt = foldConstants(&scratch, node);
+    opt = eliminateDeadBranches(&scratch, opt);
+    opt = simplifyBooleans(&scratch, opt);
+    opt = eliminateIdentity(&scratch, opt);
+    opt = simplifyBegin(&scratch, opt);
+    return opt;
 }
 
 fn lowerIf(ir: *IR, args: Value, macros: ?*std.StringHashMap(Value)) CompileError!*Node {

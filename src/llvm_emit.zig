@@ -29,6 +29,7 @@ pub const LLVMEmitter = struct {
     current_block: []const u8 = "entry",
     rest_param_alloca: ?[]const u8 = null,
     rest_param_name: ?[]const u8 = null,
+    locals: ?std.StringHashMap([]const u8) = null,
 
     pub fn init(allocator: std.mem.Allocator) LLVMEmitter {
         return .{
@@ -113,7 +114,9 @@ pub const LLVMEmitter = struct {
             .define => try self.emitDefine(node.data.define),
             .set_form => try self.emitSet(node.data.set_form),
             .lambda => try self.emitLambda(node.data.lambda),
-            .let_form, .let_star, .letrec, .letrec_star, .named_let => try self.emitSexprEval(node),
+            .let_form => try self.emitLet(node.data.let_form.args, false),
+            .let_star => try self.emitLet(node.data.let_star.args, true),
+            .letrec, .letrec_star, .named_let => try self.emitSexprEval(node),
             .do_form, .delay, .delay_force, .cond, .case_form, .case_lambda, .guard => try self.emitSexprEval(node),
             .quasiquote, .parameterize, .define_values, .let_values, .let_star_values => try self.emitSexprEval(node),
             .define_syntax, .let_syntax, .letrec_syntax, .cond_expand => try self.emitSexprEval(node),
@@ -148,6 +151,14 @@ pub const LLVMEmitter = struct {
     fn emitGlobalRef(self: *LLVMEmitter, sym: Value) EmitError![]const u8 {
         if (!types.isSymbol(sym)) return error.UnsupportedNodeType;
         const name = types.symbolName(sym);
+
+        if (self.locals) |loc| {
+            if (loc.get(name)) |alloca_name| {
+                const tmp = try self.freshTemp();
+                try self.print("  {s} = load i64, ptr {s}\n", .{ tmp, alloca_name });
+                return tmp;
+            }
+        }
 
         if (self.rest_param_name) |rp_name| {
             if (std.mem.eql(u8, name, rp_name)) {
@@ -279,6 +290,100 @@ pub const LLVMEmitter = struct {
             last = try self.emitNode(expr);
         }
         return last;
+    }
+
+    fn emitLet(self: *LLVMEmitter, args: Value, sequential: bool) EmitError![]const u8 {
+        const bindings = types.car(args);
+        const body_list = types.cdr(args);
+
+        const saved_locals = self.locals;
+        self.locals = if (saved_locals) |existing|
+            existing.clone() catch return error.OutOfMemory
+        else
+            std.StringHashMap([]const u8).init(self.allocator);
+
+        if (!sequential) {
+            var init_vals: [32][]const u8 = undefined;
+            var var_names: [32][]const u8 = undefined;
+            var count: usize = 0;
+            var blist = bindings;
+            while (blist != types.NIL and types.isPair(blist)) {
+                if (count >= 32) {
+                    self.locals.?.deinit();
+                    self.locals = saved_locals;
+                    return self.emitSexprEvalValue(args);
+                }
+                const binding = types.car(blist);
+                const var_sym = types.car(binding);
+                const init_expr = types.car(types.cdr(binding));
+                if (!types.isSymbol(var_sym)) {
+                    self.locals.?.deinit();
+                    self.locals = saved_locals;
+                    return self.emitSexprEvalValue(args);
+                }
+
+                const node = ir.lowerSingleExpr(self.allocator, init_expr) catch {
+                    self.locals.?.deinit();
+                    self.locals = saved_locals;
+                    return self.emitSexprEvalValue(args);
+                };
+                init_vals[count] = try self.emitNode(node);
+                var_names[count] = types.symbolName(var_sym);
+                count += 1;
+                blist = types.cdr(blist);
+            }
+
+            for (0..count) |i| {
+                const alloca = try self.freshTemp();
+                try self.print("  {s} = alloca i64, align 8\n", .{alloca});
+                try self.print("  store i64 {s}, ptr {s}\n", .{ init_vals[i], alloca });
+                self.locals.?.put(var_names[i], alloca) catch return error.OutOfMemory;
+            }
+        } else {
+            var blist = bindings;
+            while (blist != types.NIL and types.isPair(blist)) {
+                const binding = types.car(blist);
+                const var_sym = types.car(binding);
+                const init_expr = types.car(types.cdr(binding));
+                if (!types.isSymbol(var_sym)) {
+                    self.locals.?.deinit();
+                    self.locals = saved_locals;
+                    return self.emitSexprEvalValue(args);
+                }
+
+                const node = ir.lowerSingleExpr(self.allocator, init_expr) catch {
+                    self.locals.?.deinit();
+                    self.locals = saved_locals;
+                    return self.emitSexprEvalValue(args);
+                };
+                const val = try self.emitNode(node);
+                const alloca = try self.freshTemp();
+                try self.print("  {s} = alloca i64, align 8\n", .{alloca});
+                try self.print("  store i64 {s}, ptr {s}\n", .{ val, alloca });
+                self.locals.?.put(types.symbolName(var_sym), alloca) catch return error.OutOfMemory;
+                blist = types.cdr(blist);
+            }
+        }
+
+        var last: []const u8 = "";
+        var body_expr = body_list;
+        while (body_expr != types.NIL and types.isPair(body_expr)) {
+            const node = ir.lowerSingleExpr(self.allocator, types.car(body_expr)) catch {
+                self.locals.?.deinit();
+                self.locals = saved_locals;
+                return error.UnsupportedNodeType;
+            };
+            last = try self.emitNode(node);
+            body_expr = types.cdr(body_expr);
+        }
+
+        self.locals.?.deinit();
+        self.locals = saved_locals;
+        return last;
+    }
+
+    fn emitSexprEvalValue(self: *LLVMEmitter, args: Value) EmitError![]const u8 {
+        return self.emitEvalExpr(args);
     }
 
     fn emitIf(self: *LLVMEmitter, data: ir.IfData) EmitError![]const u8 {
