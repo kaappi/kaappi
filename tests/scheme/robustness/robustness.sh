@@ -111,8 +111,8 @@ echo "-- Corrupted .sbc --"
 TMPFILE=$(mktemp /tmp/kaappi-corrupt-XXXXXX.sbc)
 echo "NOT_A_VALID_SBC_FILE" > "$TMPFILE"
 assert_error "corrupted .sbc (text)" "(load \"$TMPFILE\")"
-dd if=/dev/urandom bs=128 count=1 2>/dev/null > "$TMPFILE"
-assert_error "corrupted .sbc (random bytes)" "(load \"$TMPFILE\")"
+printf '\x00\x01\x02\x03\x80\x81\xff\xfe\x00\x00\x00\x00\x00\x00\x00\x00' > "$TMPFILE"
+assert_error "corrupted .sbc (binary)" "(load \"$TMPFILE\")"
 rm -f "$TMPFILE"
 
 echo
