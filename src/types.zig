@@ -221,8 +221,6 @@ pub const Function = struct {
     profile_time_ns: u64 = 0,
     profile_inclusive_ns: u64 = 0,
     profile_alloc_bytes: u64 = 0,
-    jit_code: ?*@import("jit.zig").JitCode = null,
-    call_count: u32 = 0,
 
     pub fn lineForOffset(self: *const Function, offset: usize) u32 {
         var best: u32 = self.source_line;

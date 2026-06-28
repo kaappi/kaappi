@@ -72,7 +72,6 @@ fn printUsage() void {
             "  --emit-llvm        Emit LLVM IR text (.ll)\n" ++
             "  -o <file>          Output path for --compile or --emit-llvm\n" ++
             "  --disassemble      Disassemble bytecode\n" ++
-            "  --no-jit           Disable JIT compilation\n" ++
             "  --sandbox          Restrict filesystem and process access\n" ++
             "  --gc-stats         Print GC statistics on exit\n" ++
             "  --profile          Enable profiling\n" ++
@@ -273,8 +272,6 @@ fn mainImpl(init: std.process.Init.Minimal) !void {
             } else if (std.mem.eql(u8, arg, "--coverage-xml")) {
                 sa_coverage = true;
                 if (sa_iter.next()) |p| vm.coverage_xml_path = p;
-            } else if (std.mem.eql(u8, arg, "--no-jit")) {
-                vm.jit_disabled = true;
             } else {
                 if (sa_count < 64) {
                     sa[sa_count] = arg;
@@ -432,8 +429,6 @@ fn mainImpl(init: std.process.Init.Minimal) !void {
             compile_output = args.next();
         } else if (std.mem.eql(u8, arg, "--disassemble")) {
             disassemble_mode = true;
-        } else if (std.mem.eql(u8, arg, "--no-jit")) {
-            vm.jit_disabled = true;
         } else if (std.mem.eql(u8, arg, "--timeout")) {
             if (args.next()) |ms_str| {
                 const ms = std.fmt.parseInt(u64, ms_str, 10) catch 0;

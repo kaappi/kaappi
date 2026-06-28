@@ -10,7 +10,6 @@ const CallFrame = vm_mod.CallFrame;
 const MAX_REGISTERS = vm_mod.MAX_REGISTERS;
 const MAX_FRAMES = vm_mod.MAX_FRAMES;
 
-const jit = @import("jit.zig");
 const vm_calls = @import("vm_calls.zig");
 const vm_continuations = @import("vm_continuations.zig");
 const vm_debug = @import("vm_debug.zig");
@@ -966,16 +965,6 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                         cl.func.profile_calls += 1;
                     }
                     vm_calls.profileCreditSelf(self);
-                }
-                // Count iterations toward JIT threshold
-                if (!self.debug_mode and !self.jit_disabled) {
-                    if (frame.closure) |cl| {
-                        const func = cl.func;
-                        func.call_count +%= 1;
-                        if (func.jit_code == null and func.call_count == jit.JIT_THRESHOLD) {
-                            jit.tryCompile(func, self);
-                        }
-                    }
                 }
                 frame.ip = 0;
             },
