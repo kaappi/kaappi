@@ -34,8 +34,10 @@ jobs:
         with:
           version: 0.16.0
 
-      - name: Build release binaries
-        run: zig build -Doptimize=ReleaseSafe -Dtarget=${{ matrix.target }} -Dstrip=true
+      - name: Build release binaries and runtime library
+        run: |
+          zig build -Doptimize=ReleaseSafe -Dtarget=${{ matrix.target }} -Dstrip=true
+          zig build lib -Doptimize=ReleaseSafe -Dtarget=${{ matrix.target }}
 
       - name: Sign and notarize macOS binaries
         if: matrix.target == 'aarch64-macos'
@@ -78,6 +80,7 @@ jobs:
         run: |
           cp zig-out/bin/kaappi ${{ matrix.artifact }}
           cp zig-out/bin/thottam thottam-${{ matrix.target }}
+          cp zig-out/lib/libkaappi_rt.a libkaappi_rt-${{ matrix.target }}.a
 
       - name: Upload kaappi artifact
         uses: actions/upload-artifact@v7
@@ -91,6 +94,13 @@ jobs:
         with:
           name: thottam-${{ matrix.target }}
           path: thottam-${{ matrix.target }}
+          retention-days: 1
+
+      - name: Upload libkaappi_rt artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: libkaappi_rt-${{ matrix.target }}
+          path: libkaappi_rt-${{ matrix.target }}.a
           retention-days: 1
 
   build-wasm:
@@ -139,10 +149,10 @@ jobs:
       - name: Collect binaries, generate checksums, and sign
         run: |
           mkdir -p release
-          find artifacts -type f \( -name 'kaappi-*' -o -name 'kaappi.wasm' -o -name 'thottam-*' \) -exec cp {} release/ \;
+          find artifacts -type f \( -name 'kaappi-*' -o -name 'kaappi.wasm' -o -name 'thottam-*' -o -name 'libkaappi_rt-*' \) -exec cp {} release/ \;
           cp kaappi-lib.tar.gz release/
           cd release
-          sha256sum kaappi-* kaappi.wasm thottam-* kaappi-lib.tar.gz > SHA256SUMS
+          sha256sum kaappi-* kaappi.wasm thottam-* libkaappi_rt-* kaappi-lib.tar.gz > SHA256SUMS
           echo "${{ secrets.GPG_PASSPHRASE }}" | gpg --batch --yes --passphrase-fd 0 --pinentry-mode loopback --detach-sign --armor SHA256SUMS
 
       - name: Extract changelog for this version
