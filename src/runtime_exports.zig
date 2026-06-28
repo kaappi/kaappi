@@ -177,7 +177,18 @@ export fn kaappi_cdr(v: u64) callconv(.c) u64 {
 
 export fn kaappi_cons(a: u64, b: u64) callconv(.c) u64 {
     const gc = primitives.gc_instance orelse return 0;
-    return gc.allocPair(a, b) catch return 0;
+    var val_a = a;
+    var val_b = b;
+    gc.pushRoot(&val_a) catch return 0;
+    gc.pushRoot(&val_b) catch return 0;
+    const result = gc.allocPair(val_a, val_b) catch {
+        gc.popRoot();
+        gc.popRoot();
+        return 0;
+    };
+    gc.popRoot();
+    gc.popRoot();
+    return result;
 }
 
 export fn kaappi_is_null(v: u64) callconv(.c) u64 {

@@ -37,6 +37,8 @@ fn forceFn(args: []const Value) PrimitiveError!Value {
     const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
 
     var current = args[0];
+    gc.pushRoot(&current) catch return PrimitiveError.OutOfMemory;
+    defer gc.popRoot();
 
     if (!types.isPromise(current)) return current;
 
