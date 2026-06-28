@@ -728,6 +728,14 @@ pub const VM = struct {
                 return err;
             };
             return result;
+        } else if (types.isNativeClosure(proc)) {
+            const nc = types.toObject(proc).as(types.NativeClosure);
+            if (args.len != nc.arity) {
+                self.setErrorDetail("'{s}': expected {d} arguments, got {d}", .{ nc.name, nc.arity, args.len });
+                return VMError.ArityMismatch;
+            }
+            const result = nc.fn_ptr(self, args.ptr, args.len, nc.upvalues.ptr);
+            return result;
         } else if (types.isNativeFn(proc)) {
             const native = types.toObject(proc).as(types.NativeFn);
             switch (native.arity) {

@@ -136,6 +136,7 @@ pub const ObjectTag = enum(u6) {
     mutex = 32,
     condition_variable = 33,
     srfi18_time = 34,
+    native_closure = 35,
 };
 
 pub const Object = struct {
@@ -187,6 +188,16 @@ pub const NativeFn = struct {
         exact: u8,
         variadic: u8, // minimum args
     };
+};
+
+pub const NativeClosureFnType = *const fn (?*@import("vm.zig").VM, [*]const Value, u64, [*]const Value) callconv(.c) u64;
+
+pub const NativeClosure = struct {
+    header: Object,
+    fn_ptr: NativeClosureFnType,
+    upvalues: []Value,
+    arity: u8,
+    name: []const u8,
 };
 
 pub const DebugLocal = struct {
@@ -597,12 +608,16 @@ pub fn isNativeFn(v: Value) bool {
     return isPointer(v) and toObject(v).tag == .native_fn;
 }
 
+pub fn isNativeClosure(v: Value) bool {
+    return isPointer(v) and toObject(v).tag == .native_closure;
+}
+
 pub fn isFunction(v: Value) bool {
     return isPointer(v) and toObject(v).tag == .function;
 }
 
 pub fn isProcedure(v: Value) bool {
-    return isClosure(v) or isNativeFn(v) or isContinuation(v) or isParameter(v) or isFfiFunction(v);
+    return isClosure(v) or isNativeFn(v) or isNativeClosure(v) or isContinuation(v) or isParameter(v) or isFfiFunction(v);
 }
 
 pub fn isContinuation(v: Value) bool {

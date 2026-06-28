@@ -17,6 +17,7 @@ pub const LLVMEmitter = struct {
     lambda_defs: std.ArrayList([]const u8),
     native_fns: std.StringHashMap(NativeLambda),
     params: ?std.StringHashMap(u8),
+    upvalues: ?std.StringHashMap(u8),
     tmp_counter: u32,
     label_counter: u32,
     string_counter: u32,
@@ -32,6 +33,7 @@ pub const LLVMEmitter = struct {
             .lambda_defs = .empty,
             .native_fns = std.StringHashMap(NativeLambda).init(allocator),
             .params = null,
+            .upvalues = null,
             .tmp_counter = 0,
             .label_counter = 0,
             .string_counter = 0,
@@ -147,6 +149,16 @@ pub const LLVMEmitter = struct {
                 const tmp = try self.freshTemp();
                 const gep = try self.freshTemp();
                 try self.print("  {s} = getelementptr i64, ptr %args, i64 {d}\n", .{ gep, idx });
+                try self.print("  {s} = load i64, ptr {s}\n", .{ tmp, gep });
+                return tmp;
+            }
+        }
+
+        if (self.upvalues) |uv| {
+            if (uv.get(name)) |idx| {
+                const tmp = try self.freshTemp();
+                const gep = try self.freshTemp();
+                try self.print("  {s} = getelementptr i64, ptr %upvalues, i64 {d}\n", .{ gep, idx });
                 try self.print("  {s} = load i64, ptr {s}\n", .{ tmp, gep });
                 return tmp;
             }
@@ -543,7 +555,180 @@ pub const LLVMEmitter = struct {
     }
 
     fn emitLambda(self: *LLVMEmitter, data: ir.LambdaData) EmitError![]const u8 {
+        if (self.params != null) {
+            if (self.tryCompileNativeClosure(data)) |result| return result;
+        }
         return self.emitLambdaViaEval(data);
+    }
+
+    fn tryCompileNativeClosure(self: *LLVMEmitter, data: ir.LambdaData) ?[]const u8 {
+        const formals_val = types.car(data.args);
+        const body_list = types.cdr(data.args);
+        if (body_list == types.NIL) return null;
+        if (!types.isPair(formals_val) and formals_val != types.NIL) return null;
+
+        var param_names: [16][]const u8 = undefined;
+        var arity: u8 = 0;
+        var plist = formals_val;
+        while (plist != types.NIL) {
+            if (!types.isPair(plist)) return null;
+            const p = types.car(plist);
+            if (!types.isSymbol(p)) return null;
+            if (arity >= 16) return null;
+            param_names[arity] = types.symbolName(p);
+            arity += 1;
+            plist = types.cdr(plist);
+        }
+
+        var body_ir = ir.IR.init(self.allocator);
+        defer body_ir.deinit();
+        var body_nodes: [64]*ir.Node = undefined;
+        var body_count: usize = 0;
+        var body_expr = body_list;
+        while (body_expr != types.NIL and types.isPair(body_expr)) {
+            if (body_count >= 64) return null;
+            const expr = types.car(body_expr);
+            const node = ir.lowerWithMacros(&body_ir, expr, null) catch return null;
+            ir.markTailPositions(node, types.cdr(body_expr) == types.NIL);
+            ir.identifyPrimitives(node);
+            ir.markConstants(node);
+            var opt = ir.foldConstants(&body_ir, node);
+            opt = ir.eliminateDeadBranches(&body_ir, opt);
+            opt = ir.simplifyBooleans(&body_ir, opt);
+            opt = ir.eliminateIdentity(&body_ir, opt);
+            opt = ir.simplifyBegin(&body_ir, opt);
+            body_nodes[body_count] = opt;
+            body_count += 1;
+            body_expr = types.cdr(body_expr);
+        }
+        if (body_count == 0) return null;
+
+        var free_vars: [16][]const u8 = undefined;
+        var free_count: usize = 0;
+        collectFreeVars(body_nodes[0..body_count], param_names[0..arity], &free_vars, &free_count);
+        if (free_count == 0) return null;
+
+        const outer_params = self.params orelse return null;
+        for (free_vars[0..free_count]) |fv| {
+            if (!outer_params.contains(fv) and !ir.isKnownGlobal(fv)) return null;
+        }
+
+        const id = self.lambda_counter;
+        self.lambda_counter += 1;
+        const fn_name = std.fmt.allocPrint(self.allocator, "@closure_{d}", .{id}) catch return null;
+        const closure_name = data.name orelse "(closure)";
+
+        var fn_buf: std.ArrayList(u8) = .empty;
+        const saved_buf = self.buf;
+        const saved_params = self.params;
+        const saved_tmp = self.tmp_counter;
+        const saved_label = self.label_counter;
+        self.buf = fn_buf;
+        self.tmp_counter = 0;
+        self.label_counter = 0;
+
+        var p = std.StringHashMap(u8).init(self.allocator);
+        for (param_names[0..arity], 0..) |pname, i| {
+            p.put(pname, @intCast(i)) catch {
+                self.buf = saved_buf;
+                self.params = saved_params;
+                self.tmp_counter = saved_tmp;
+                self.label_counter = saved_label;
+                return null;
+            };
+        }
+
+        var uv_map = std.StringHashMap(u8).init(self.allocator);
+        defer uv_map.deinit();
+        for (free_vars[0..free_count], 0..) |fv, i| {
+            if (outer_params.contains(fv)) {
+                uv_map.put(fv, @intCast(i)) catch {
+                    self.buf = saved_buf;
+                    self.params = saved_params;
+                    self.tmp_counter = saved_tmp;
+                    self.label_counter = saved_label;
+                    p.deinit();
+                    return null;
+                };
+            }
+        }
+        self.params = p;
+        self.upvalues = uv_map;
+
+        const header = std.fmt.allocPrint(self.allocator, "; closure: {s}\ndefine i64 {s}(ptr %vm, ptr %args, i64 %nargs, ptr %upvalues) {{\nentry:\n", .{ closure_name, fn_name }) catch {
+            self.buf = saved_buf;
+            self.params = saved_params;
+            self.upvalues = null;
+            self.tmp_counter = saved_tmp;
+            self.label_counter = saved_label;
+            p.deinit();
+            return null;
+        };
+        defer self.allocator.free(header);
+        self.write(header) catch {
+            self.buf = saved_buf;
+            self.params = saved_params;
+            self.upvalues = null;
+            self.tmp_counter = saved_tmp;
+            self.label_counter = saved_label;
+            p.deinit();
+            return null;
+        };
+
+        var last_val: []const u8 = "";
+        for (body_nodes[0..body_count]) |node| {
+            last_val = self.emitNode(node) catch {
+                self.buf = saved_buf;
+                self.params = saved_params;
+                self.upvalues = null;
+                self.tmp_counter = saved_tmp;
+                self.label_counter = saved_label;
+                p.deinit();
+                fn_buf.deinit(self.allocator);
+                return null;
+            };
+        }
+
+        self.print("  ret i64 {s}\n}}\n", .{last_val}) catch {
+            self.buf = saved_buf;
+            self.params = saved_params;
+            self.upvalues = null;
+            self.tmp_counter = saved_tmp;
+            self.label_counter = saved_label;
+            p.deinit();
+            fn_buf.deinit(self.allocator);
+            return null;
+        };
+
+        fn_buf = self.buf;
+        self.buf = saved_buf;
+        self.params = saved_params;
+        self.upvalues = null;
+        self.tmp_counter = saved_tmp;
+        self.label_counter = saved_label;
+        p.deinit();
+
+        const fn_def = fn_buf.toOwnedSlice(self.allocator) catch return null;
+        self.lambda_defs.append(self.allocator, fn_def) catch return null;
+
+        const uv_alloca = self.freshTemp() catch return null;
+        self.print("  {s} = alloca [{d} x i64], align 8\n", .{ uv_alloca, free_count }) catch return null;
+        for (free_vars[0..free_count], 0..) |fv, i| {
+            if (outer_params.get(fv)) |idx| {
+                const gep_src = self.freshTemp() catch return null;
+                self.print("  {s} = getelementptr i64, ptr %args, i64 {d}\n", .{ gep_src, idx }) catch return null;
+                const val = self.freshTemp() catch return null;
+                self.print("  {s} = load i64, ptr {s}\n", .{ val, gep_src }) catch return null;
+                const gep_dst = self.freshTemp() catch return null;
+                self.print("  {s} = getelementptr i64, ptr {s}, i64 {d}\n", .{ gep_dst, uv_alloca, i }) catch return null;
+                self.print("  store i64 {s}, ptr {s}\n", .{ val, gep_dst }) catch return null;
+            }
+        }
+
+        const name_str = self.internString(closure_name) catch return null;
+        const result = self.freshTemp() catch return null;
+        self.print("  {s} = call i64 @kaappi_create_native_closure(ptr %vm, ptr {s}, ptr {s}, i64 {d}, i64 {d}, ptr {s}, i64 {d})\n", .{ result, fn_name, uv_alloca, free_count, arity, name_str, closure_name.len }) catch return null;
+        return result;
     }
 
     fn bindParamsAsGlobals(self: *LLVMEmitter) EmitError!void {
@@ -883,6 +1068,7 @@ pub const LLVMEmitter = struct {
         try self.write("declare i64 @kaappi_cdr(i64)\n");
         try self.write("declare i64 @kaappi_cons(i64, i64)\n");
         try self.write("declare i64 @kaappi_is_null(i64)\n");
+        try self.write("declare i64 @kaappi_create_native_closure(ptr, ptr, ptr, i64, i64, ptr, i64)\n");
         try self.write("declare i64 @kaappi_eval(ptr, ptr, i64)\n");
     }
 
@@ -954,6 +1140,53 @@ fn nodeHasFreeVars(node: *const ir.Node, params: []const []const u8) bool {
         },
         .constant => return false,
         else => return false,
+    }
+}
+
+fn collectFreeVars(nodes: []const *ir.Node, params: []const []const u8, buf: *[16][]const u8, count: *usize) void {
+    for (nodes) |node| {
+        collectNodeFreeVars(node, params, buf, count);
+    }
+}
+
+fn collectNodeFreeVars(node: *const ir.Node, params: []const []const u8, buf: *[16][]const u8, count: *usize) void {
+    switch (node.tag) {
+        .global_ref => {
+            if (!types.isSymbol(node.data.global_ref)) return;
+            const name = types.symbolName(node.data.global_ref);
+            for (params) |p| {
+                if (std.mem.eql(u8, name, p)) return;
+            }
+            if (ir.isKnownGlobal(name)) return;
+            for (buf[0..count.*]) |existing| {
+                if (std.mem.eql(u8, name, existing)) return;
+            }
+            if (count.* < 16) {
+                buf[count.*] = name;
+                count.* += 1;
+            }
+        },
+        .call => {
+            collectNodeFreeVars(node.data.call.operator, params, buf, count);
+            for (node.data.call.args) |arg| collectNodeFreeVars(arg, params, buf, count);
+        },
+        .@"if" => {
+            collectNodeFreeVars(node.data.@"if".test_expr, params, buf, count);
+            collectNodeFreeVars(node.data.@"if".consequent, params, buf, count);
+            if (node.data.@"if".alternate) |alt| collectNodeFreeVars(alt, params, buf, count);
+        },
+        .begin => collectFreeVars(node.data.begin, params, buf, count),
+        .and_form => collectFreeVars(node.data.and_form, params, buf, count),
+        .or_form => collectFreeVars(node.data.or_form, params, buf, count),
+        .when_form => {
+            collectNodeFreeVars(node.data.when_form.test_expr, params, buf, count);
+            collectFreeVars(node.data.when_form.body, params, buf, count);
+        },
+        .unless_form => {
+            collectNodeFreeVars(node.data.unless_form.test_expr, params, buf, count);
+            collectFreeVars(node.data.unless_form.body, params, buf, count);
+        },
+        else => {},
     }
 }
 
