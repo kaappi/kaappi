@@ -88,14 +88,17 @@ pub const FiberScheduler = struct {
     }
 
     pub fn spawnFiber(self: *FiberScheduler, thunk: Value) !*Fiber {
-        const fiber = try self.vm.gc.allocFiber(thunk, self.next_id);
+        var thunk_val = thunk;
+        try self.vm.gc.pushRoot(&thunk_val);
+        const fiber = try self.vm.gc.allocFiber(thunk_val, self.next_id);
+        self.vm.gc.popRoot();
         self.next_id += 1;
 
-        if (!types.isClosure(thunk)) return VMError.NotAProcedure;
-        const closure = types.toObject(thunk).as(types.Closure);
+        if (!types.isClosure(thunk_val)) return VMError.NotAProcedure;
+        const closure = types.toObject(thunk_val).as(types.Closure);
 
         @memset(&fiber.registers, types.UNDEFINED);
-        fiber.registers[0] = thunk;
+        fiber.registers[0] = thunk_val;
         fiber.frames[0] = .{
             .closure = closure,
             .code = closure.func.code.items,
