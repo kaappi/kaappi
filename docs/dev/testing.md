@@ -346,6 +346,50 @@ A pull request will not be merged if CI fails.
 
 ---
 
+## End-to-End Tests (LLVM Native Backend)
+
+E2e tests verify that the LLVM native backend produces binaries with
+identical output to the interpreter. They live in `tests/e2e/`:
+
+```
+tests/e2e/
+  run-e2e.sh              Shell runner (BDD specs + native parity tests)
+  test-llvm-backend.scm   BDD specs using kaappi-bdd
+  programs/               Scheme programs compiled to native binaries
+    arithmetic.scm         Constant-folded addition
+    string.scm             String display
+    define.scm             Global variable binding
+    if-expr.scm            Conditional branching
+    lambda-basic.scm       Lambda and application
+    lambda-closure.scm     Closures with upvalues
+    nested-calls.scm       Non-foldable nested calls
+    and-or.scm             Short-circuit boolean logic
+    when-unless.scm        Conditional body execution
+    set-bang.scm           Variable mutation
+    let-binding.scm        Local bindings via kaappi_eval
+    import.scm             Library imports
+    symbol-eq.scm          Symbol identity in closures
+    quoted-list.scm        Quoted list constants
+    macro.scm              User-defined macros
+```
+
+### Running
+
+```bash
+bash tests/e2e/run-e2e.sh
+```
+
+The script:
+1. Builds `kaappi` and `libkaappi_rt.a`
+2. Runs BDD specs via the interpreter
+3. For each program in `programs/`: runs via interpreter, compiles to
+   native via `--emit-llvm` + `zig cc`, diffs output
+
+Uses `KAAPPI_CC` env var for the C compiler (defaults to `zig cc`).
+Runs in CI on Ubuntu ReleaseSafe builds.
+
+---
+
 ## Testing Checklist
 
 When making changes, verify:

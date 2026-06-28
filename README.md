@@ -223,6 +223,25 @@ zig build run -- examples/hello.scm
 echo '(+ 1 2)' | zig build run
 ```
 
+### Native compilation (LLVM backend)
+
+Compile Scheme programs to native executables via LLVM IR:
+
+```bash
+# Single-step
+zig build native -Dnative-src=program.scm
+./zig-out/bin/program
+
+# Manual three-step
+zig build lib                                        # build runtime library
+kaappi --emit-llvm -o program.ll program.scm         # emit LLVM IR
+zig cc -w program.ll -o program \
+    -Lzig-out/lib -lkaappi_rt -lc -lm -lpthread      # link
+```
+
+The native binary links against `libkaappi_rt.a` (the Kaappi runtime).
+Always use `zig cc` (not `clang`) for linking.
+
 ---
 
 ## Project structure
@@ -250,12 +269,15 @@ kaappi/
 │   ├── bytecode_file.zig          Bytecode serialization (.sbc format)
 │   ├── library.zig                Library registry + standard libs
 │   │
-│   ├── compiler.zig               Bytecode compiler (core)
+│   ├── ir.zig                     Intermediate representation (33 node types, analysis, optimization)
+│   ├── compiler.zig               Bytecode compiler (IR → bytecode via compileFromNode)
 │   ├── compiler_forms.zig         Re-export hub for derived forms
 │   ├── compiler_conditionals.zig  and, or, cond, when, unless, cond-expand
 │   ├── compiler_bindings.zig      let, letrec, do, let-values
 │   ├── compiler_advanced.zig      case, case-lambda, guard, quasiquote
 │   ├── compiler_lambda.zig        lambda, define, set!, begin, delay
+│   ├── llvm_emit.zig              LLVM IR text emitter (IR → .ll files)
+│   ├── runtime_exports.zig        C-ABI bridge for LLVM native backend
 │   │
 │   ├── vm.zig                     Register VM (core)
 │   ├── vm_eval.zig                eval, top-level form handling
