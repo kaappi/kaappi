@@ -120,6 +120,7 @@ fn isYoungPointer(val: Value) bool {
 }
 
 fn fullCollect(gc: *GC) void {
+    clearOldMarks(gc);
     markRoots(gc);
     sweep(gc);
     sweepOld(gc);
@@ -218,6 +219,10 @@ fn markObjectContents(gc: *GC, obj: *Object) void {
                     markValue(gc, entry.value);
                 }
             }
+        },
+        .record_instance => {
+            const ri = obj.as(RecordInstance);
+            for (ri.fields) |field| markValue(gc, field);
         },
         else => {},
     }
