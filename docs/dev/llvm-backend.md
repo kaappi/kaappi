@@ -3,7 +3,7 @@
 The LLVM backend compiles Scheme programs to native executables. It is
 the second of two execution backends:
 
-1. **Interpreter** (bytecode VM + JIT) — REPL, debugging, development
+1. **Interpreter** (bytecode VM) — REPL, debugging, development
 2. **LLVM backend** (this document) — native executables for deployment
 
 ## What LLVM provides vs what the runtime provides
@@ -39,7 +39,7 @@ Source → Reader → Expander → IR → Analysis → Optimization
                               |                                           |
                         Bytecode Emission                          LLVM IR Emission
                               |                                           |
-                         VM + JIT                                    zig cc
+                            VM                                       zig cc
                               |                                           |
                         Interpreter                               Native Binary
                     (REPL, debugging)                        (links libkaappi_rt.a)
