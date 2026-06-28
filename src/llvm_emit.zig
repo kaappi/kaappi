@@ -463,6 +463,8 @@ pub const LLVMEmitter = struct {
             else => return error.UnsupportedNodeType,
         };
 
+        try self.bindParamsAsGlobals();
+
         var source_buf: std.ArrayList(u8) = .empty;
         defer source_buf.deinit(self.allocator);
         source_buf.appendSlice(self.allocator, "(") catch return error.OutOfMemory;
@@ -535,13 +537,10 @@ pub const LLVMEmitter = struct {
     }
 
     fn emitLambda(self: *LLVMEmitter, data: ir.LambdaData) EmitError![]const u8 {
-        if (self.tryCompileLambdaNative(data)) |fn_name| {
-            return fn_name;
-        }
         return self.emitLambdaViaEval(data);
     }
 
-    fn emitLambdaViaEval(self: *LLVMEmitter, data: ir.LambdaData) EmitError![]const u8 {
+    fn bindParamsAsGlobals(self: *LLVMEmitter) EmitError!void {
         if (self.params) |p| {
             var iter = p.iterator();
             while (iter.next()) |entry| {
@@ -555,6 +554,10 @@ pub const LLVMEmitter = struct {
                 try self.print("  call void @kaappi_define_global(ptr %vm, ptr {s}, i64 {d}, i64 {s})\n", .{ sym, pname.len, val });
             }
         }
+    }
+
+    fn emitLambdaViaEval(self: *LLVMEmitter, data: ir.LambdaData) EmitError![]const u8 {
+        try self.bindParamsAsGlobals();
 
         var source_buf: std.ArrayList(u8) = .empty;
         defer source_buf.deinit(self.allocator);
