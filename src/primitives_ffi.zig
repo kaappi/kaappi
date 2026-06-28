@@ -202,7 +202,10 @@ fn ffiCallbackFn(args: []const Value) PrimitiveError!Value {
         return PrimitiveError.OutOfMemory;
     };
 
-    return gc.allocFfiCallback(proc, slot.index, slot.fn_ptr) catch return PrimitiveError.OutOfMemory;
+    return gc.allocFfiCallback(proc, slot.index, slot.fn_ptr) catch {
+        ffi_callback.releaseSlot(slot.index);
+        return PrimitiveError.OutOfMemory;
+    };
 }
 
 /// (ffi-callback-release cb)
