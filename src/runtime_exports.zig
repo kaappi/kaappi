@@ -99,6 +99,73 @@ export fn kaappi_eval(vm: ?*vm_mod.VM, src_ptr: [*]const u8, src_len: u64) callc
     return result;
 }
 
+export fn kaappi_fixnum_add(a: u64, b: u64) callconv(.c) u64 {
+    if (types.isFixnum(a) and types.isFixnum(b)) {
+        const va = types.toFixnum(a);
+        const vb = types.toFixnum(b);
+        const result = @addWithOverflow(va, vb);
+        if (result[1] == 0 and result[0] >= std.math.minInt(i48) and result[0] <= std.math.maxInt(i48)) {
+            return types.makeFixnum(result[0]);
+        }
+    }
+    return 0;
+}
+
+export fn kaappi_fixnum_sub(a: u64, b: u64) callconv(.c) u64 {
+    if (types.isFixnum(a) and types.isFixnum(b)) {
+        const va = types.toFixnum(a);
+        const vb = types.toFixnum(b);
+        const result = @subWithOverflow(va, vb);
+        if (result[1] == 0 and result[0] >= std.math.minInt(i48) and result[0] <= std.math.maxInt(i48)) {
+            return types.makeFixnum(result[0]);
+        }
+    }
+    return 0;
+}
+
+export fn kaappi_fixnum_mul(a: u64, b: u64) callconv(.c) u64 {
+    if (types.isFixnum(a) and types.isFixnum(b)) {
+        const va = types.toFixnum(a);
+        const vb = types.toFixnum(b);
+        const result = @mulWithOverflow(va, vb);
+        if (result[1] == 0 and result[0] >= std.math.minInt(i48) and result[0] <= std.math.maxInt(i48)) {
+            return types.makeFixnum(result[0]);
+        }
+    }
+    return 0;
+}
+
+export fn kaappi_fixnum_lt(a: u64, b: u64) callconv(.c) u64 {
+    if (types.isFixnum(a) and types.isFixnum(b))
+        return if (types.toFixnum(a) < types.toFixnum(b)) types.TRUE else types.FALSE;
+    return types.FALSE;
+}
+
+export fn kaappi_fixnum_eq(a: u64, b: u64) callconv(.c) u64 {
+    if (types.isFixnum(a) and types.isFixnum(b))
+        return if (a == b) types.TRUE else types.FALSE;
+    return types.FALSE;
+}
+
+export fn kaappi_car(v: u64) callconv(.c) u64 {
+    if (types.isPair(v)) return types.car(v);
+    return 0;
+}
+
+export fn kaappi_cdr(v: u64) callconv(.c) u64 {
+    if (types.isPair(v)) return types.cdr(v);
+    return 0;
+}
+
+export fn kaappi_cons(a: u64, b: u64) callconv(.c) u64 {
+    const gc = primitives.gc_instance orelse return 0;
+    return gc.allocPair(a, b) catch return 0;
+}
+
+export fn kaappi_is_null(v: u64) callconv(.c) u64 {
+    return if (v == types.NIL) types.TRUE else types.FALSE;
+}
+
 export fn kaappi_call_scheme(vm: ?*vm_mod.VM, callee: u64, args_ptr: ?[*]const u64, nargs: u64) callconv(.c) u64 {
     const v = vm orelse {
         _ = std.posix.system.write(2, "null vm\n", 8);

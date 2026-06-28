@@ -164,6 +164,12 @@ pub const LLVMEmitter = struct {
             if (self.native_fns.get(op_name)) |native| {
                 return self.emitDirectCall(native.llvm_name, call.args);
             }
+            if (call.args.len == 2) {
+                if (self.tryEmitInlineBinary(op_name, call.args)) |result| return result;
+            }
+            if (call.args.len == 1) {
+                if (self.tryEmitInlineUnary(op_name, call.args[0])) |result| return result;
+            }
         }
 
         const callee = try self.emitNode(call.operator);
@@ -722,6 +728,47 @@ pub const LLVMEmitter = struct {
         return fn_name;
     }
 
+    fn tryEmitInlineBinary(self: *LLVMEmitter, name: []const u8, args: []const *ir.Node) ?[]const u8 {
+        const fn_name: ?[]const u8 = if (std.mem.eql(u8, name, "+"))
+            "@kaappi_fixnum_add"
+        else if (std.mem.eql(u8, name, "-"))
+            "@kaappi_fixnum_sub"
+        else if (std.mem.eql(u8, name, "*"))
+            "@kaappi_fixnum_mul"
+        else if (std.mem.eql(u8, name, "<"))
+            "@kaappi_fixnum_lt"
+        else if (std.mem.eql(u8, name, "="))
+            "@kaappi_fixnum_eq"
+        else if (std.mem.eql(u8, name, "cons"))
+            "@kaappi_cons"
+        else
+            null;
+
+        const target = fn_name orelse return null;
+        const a = self.emitNode(args[0]) catch return null;
+        const b = self.emitNode(args[1]) catch return null;
+        const result = self.freshTemp() catch return null;
+        self.print("  {s} = call i64 {s}(i64 {s}, i64 {s})\n", .{ result, target, a, b }) catch return null;
+        return result;
+    }
+
+    fn tryEmitInlineUnary(self: *LLVMEmitter, name: []const u8, arg: *const ir.Node) ?[]const u8 {
+        const fn_name: ?[]const u8 = if (std.mem.eql(u8, name, "car"))
+            "@kaappi_car"
+        else if (std.mem.eql(u8, name, "cdr"))
+            "@kaappi_cdr"
+        else if (std.mem.eql(u8, name, "null?"))
+            "@kaappi_is_null"
+        else
+            null;
+
+        const target = fn_name orelse return null;
+        const v = self.emitNode(arg) catch return null;
+        const result = self.freshTemp() catch return null;
+        self.print("  {s} = call i64 {s}(i64 {s})\n", .{ result, target, v }) catch return null;
+        return result;
+    }
+
     fn emitDirectCall(self: *LLVMEmitter, fn_name: []const u8, args: []const *ir.Node) EmitError![]const u8 {
         const nargs = args.len;
         var arg_tmps: [256][]const u8 = undefined;
@@ -827,6 +874,15 @@ pub const LLVMEmitter = struct {
         try self.write("declare void @kaappi_define_global(ptr, ptr, i64, i64)\n");
         try self.write("declare i64 @kaappi_make_string(ptr, ptr, i64)\n");
         try self.write("declare i64 @kaappi_intern_symbol(ptr, ptr, i64)\n");
+        try self.write("declare i64 @kaappi_fixnum_add(i64, i64)\n");
+        try self.write("declare i64 @kaappi_fixnum_sub(i64, i64)\n");
+        try self.write("declare i64 @kaappi_fixnum_mul(i64, i64)\n");
+        try self.write("declare i64 @kaappi_fixnum_lt(i64, i64)\n");
+        try self.write("declare i64 @kaappi_fixnum_eq(i64, i64)\n");
+        try self.write("declare i64 @kaappi_car(i64)\n");
+        try self.write("declare i64 @kaappi_cdr(i64)\n");
+        try self.write("declare i64 @kaappi_cons(i64, i64)\n");
+        try self.write("declare i64 @kaappi_is_null(i64)\n");
         try self.write("declare i64 @kaappi_eval(ptr, ptr, i64)\n");
     }
 
