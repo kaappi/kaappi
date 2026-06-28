@@ -1,0 +1,6 @@
+(define (safe-div a b)
+  (guard (e (#t 0))
+    (/ a b)))
+(display (safe-div 10 2))
+(display (safe-div 10 0))
+(newline)

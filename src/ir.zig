@@ -688,18 +688,20 @@ pub fn isKnownGlobal(name: []const u8) bool {
 }
 
 const primitives = [_][]const u8{
-    "+",              "-",              "*",            "/",             "=",           "<",              ">",
-    "<=",             ">=",             "zero?",        "not",           "null?",       "pair?",          "car",
-    "cdr",            "cons",           "list",         "length",        "append",      "map",            "apply",
-    "values",         "vector-ref",     "vector-set!",  "vector-length", "string-ref",  "string-length",  "char->integer",
-    "integer->char",  "number?",        "string?",      "symbol?",       "boolean?",    "char?",          "vector?",
-    "procedure?",     "eq?",            "eqv?",         "equal?",        "abs",         "max",            "min",
-    "remainder",      "modulo",         "quotient",     "expt",          "sqrt",        "number->string", "string->number",
-    "exact->inexact", "inexact->exact", "floor",        "ceiling",       "truncate",    "round",          "string-append",
-    "substring",      "string-copy",    "string->list", "list->string",  "make-string", "make-vector",    "vector",
-    "display",        "write",          "newline",      "read",          "even?",       "odd?",           "positive?",
-    "negative?",      "exact?",         "inexact?",     "integer?",      "rational?",   "real?",          "complex?",
-    "gcd",            "lcm",
+    "+",              "-",                 "*",            "/",                             "=",                "<",               ">",
+    "<=",             ">=",                "zero?",        "not",                           "null?",            "pair?",           "car",
+    "cdr",            "cons",              "list",         "length",                        "append",           "map",             "apply",
+    "values",         "vector-ref",        "vector-set!",  "vector-length",                 "string-ref",       "string-length",   "char->integer",
+    "integer->char",  "number?",           "string?",      "symbol?",                       "boolean?",         "char?",           "vector?",
+    "procedure?",     "eq?",               "eqv?",         "equal?",                        "abs",              "max",             "min",
+    "remainder",      "modulo",            "quotient",     "expt",                          "sqrt",             "number->string",  "string->number",
+    "exact->inexact", "inexact->exact",    "floor",        "ceiling",                       "truncate",         "round",           "string-append",
+    "substring",      "string-copy",       "string->list", "list->string",                  "make-string",      "make-vector",     "vector",
+    "display",        "write",             "newline",      "read",                          "even?",            "odd?",            "positive?",
+    "negative?",      "exact?",            "inexact?",     "integer?",                      "rational?",        "real?",           "complex?",
+    "gcd",            "lcm",               "call/ec",      "call-with-escape-continuation", "call-with-values", "dynamic-wind",    "with-exception-handler",
+    "raise",          "raise-continuable", "error",        "for-each",                      "string-for-each",  "vector-for-each", "vector-map",
+    "string-map",     "assoc",             "assq",         "assv",                          "member",           "memq",            "memv",
 };
 
 pub fn identifyPrimitives(node: *Node) void {
