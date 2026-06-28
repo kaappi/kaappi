@@ -8,7 +8,7 @@
 
 A complete **R7RS-small** Scheme implementation written in **Zig**.
 
-Kaappi implements every identifier from [R7RS Appendix A](https://small.r7rs.org/) — 554 built-in procedures, 32 syntax forms, and all 14 standard libraries — plus 72 SRFIs, a C FFI, and a stepping debugger. The runtime uses a bytecode compiler with a register-based VM, mark-and-sweep garbage collection, and stack-copying first-class continuations.
+Kaappi implements every identifier from [R7RS Appendix A](https://small.r7rs.org/) — 554 built-in procedures, 32 syntax forms, and all 14 standard libraries — plus 72 SRFIs, a C FFI, and a stepping debugger. The runtime uses a bytecode compiler with a register-based VM, generational garbage collection, and stack-copying first-class continuations.
 
 ---
 
@@ -41,7 +41,7 @@ Windows is not supported. Kaappi depends on POSIX APIs (mmap, signals) and linen
 
 ## REPL
 
-The REPL features **line editing** (arrow keys, Ctrl-A/E, backspace), **command history** (up/down arrows, persisted to `.kaappi_history`), **tab completion** for all built-in and user-defined symbols, and **multi-line input** with automatic paren balancing.
+The REPL features **syntax highlighting** (keywords, strings, numbers, comments in color), **line editing** (arrow keys, Ctrl-A/E, backspace), **command history** (up/down arrows, persisted to `.kaappi_history`), **tab completion** for all built-in and user-defined symbols, and **multi-line input** with automatic paren balancing.
 
 ```
 $ zig build run
@@ -118,17 +118,17 @@ kaappi> (char-alphabetic? #\λ)
 - **Multiple values** — `values`, `call-with-values`, `let-values`, `let*-values`
 - **Parameters** — `make-parameter`, `parameterize` with `dynamic-wind` integration
 - **Quasiquote** — `` ` ``, `,`, `,@` with proper splicing and nested quasiquote support
-- **REPL** — line editing, persistent history, tab completion, multi-line paren balancing (via [linenoise](https://github.com/antirez/linenoise))
+- **REPL** — syntax highlighting, line editing, persistent history, tab completion, multi-line paren balancing (via [linenoise](https://github.com/antirez/linenoise))
 
 ### Beyond R7RS
 
 - **C FFI** — call into shared libraries from Scheme via `(kaappi ffi)`: `ffi-open`, `ffi-fn`, `ffi-close`, plus `ffi-callback` for passing Scheme procedures to C (7 callback signatures, 18 types including explicit-width integers and `size_t`)
-- **LLVM native backend** — compile Scheme programs to native executables via `zig build native -Dnative-src=program.scm`; native lambda compilation with direct calls; hybrid continuation strategy
+- **LLVM native backend** — compile Scheme programs to native executables via `kaappi compile program.scm -o binary` or `zig build native -Dnative-src=program.scm`; self-tail-call optimization (compiled as loops), variadic parameters, let/let* bindings, direct lambda calls; hybrid continuation strategy
 - **Green threads** — `(kaappi fibers)` with `spawn`, `yield`, `fiber-join`, channels; plus full SRFI-18 compatibility (`make-thread`, mutexes, condition variables)
 - **Profiler** — `kaappi --profile` or `,profile expr` in the REPL; per-function self/total time, call counts, allocation bytes
 - **Standalone binaries** — `zig build -Dbundle-src=program.scm` compiles and embeds bytecode + libraries into a single executable
 - **Sandbox mode** — `kaappi --sandbox` blocks FFI, file I/O, `eval`, `load`, and environment access
-- **Stepping debugger** — set breakpoints with `,break`, then step / next / continue and inspect locals and backtraces from the REPL
+- **Stepping debugger** — set breakpoints with `,break`, conditional breakpoints (`,condition`), watch expressions, step / next / step-out / continue, up/down frame navigation, inspect locals and backtraces from the REPL
 - **Bytecode caching** — compiled `.sbc` files are reloaded when the source is unchanged, skipping the reader, expander, and compiler
 
 ### Data types
@@ -168,8 +168,8 @@ Source code
 └────────┘     └──────────┘     └──────────┘     └──────────┘     └────┘
                                                                     │
                                                               ┌─────┴─────┐
-                                                              │ GC (mark  │
-                                                              │ & sweep)  │
+                                                              │    GC     │
+                                                              │(generatnl)│
                                                               └───────────┘
 ```
 
@@ -179,7 +179,7 @@ Source code
 | **Expander** | `expander.zig` | `syntax-rules` pattern matching with ellipsis, literal identifiers, underscore wildcards. Template instantiation with hygienic renaming. |
 | **Compiler** | `compiler.zig` + 5 sub-modules | Compiles S-expressions to register-based bytecode. Detects tail positions for proper tail call optimization. Handles 32 syntax forms across 6 files. |
 | **VM** | `vm.zig` + 5 sub-modules | Executes bytecode with a register file, call frame stack, exception handler stack, and dynamic-wind stack. Supports first-class continuations via stack copying, plus a stepping debugger. |
-| **GC** | `memory.zig` | Mark-and-sweep collector with intrusive linked list. Root tracking via `pushRoot`/`popRoot`. Triggered after N allocations. |
+| **GC** | `memory.zig` | Generational collector (young/old) with minor and full collections. Write barrier tracks old→young references. Root tracking via `pushRoot`/`popRoot`. Triggered after N allocations. |
 | **Primitives** | 21 `primitives_*.zig` files | 554 built-in procedures organized by domain: arithmetic, strings, vectors, I/O, control flow, etc. |
 
 ### Value representation
@@ -228,7 +228,11 @@ echo '(+ 1 2)' | zig build run
 Compile Scheme programs to native executables via LLVM IR:
 
 ```bash
-# Single-step
+# Recommended: single command
+kaappi compile program.scm -o program
+./program
+
+# Via build system
 zig build native -Dnative-src=program.scm
 ./zig-out/bin/program
 
@@ -239,8 +243,9 @@ zig cc -w program.ll -o program \
     -Lzig-out/lib -lkaappi_rt -lc -lm -lpthread      # link
 ```
 
-The native binary links against `libkaappi_rt.a` (the Kaappi runtime).
-Always use `zig cc` (not `clang`) for linking.
+`kaappi compile` automatically locates `libkaappi_rt.a` (checking `KAAPPI_LIB_DIR`,
+then `<exe_dir>/../lib/`, then `zig-out/lib/`) and invokes the system C compiler.
+For the manual three-step flow, always use `zig cc` (not `clang`) for linking.
 
 ---
 
@@ -462,11 +467,14 @@ kaappi app.scm
 ### thottam commands
 
 ```bash
-thottam install <package>    # Install a package and its dependencies
-thottam remove <package>     # Remove a package
-thottam list                 # List installed packages
-thottam update [package]     # Update one or all packages
+thottam install <package>              # Install a package and its dependencies
+thottam install <pkg>@">=1.0.0"       # Install with version constraint
+thottam remove <package>               # Remove a package
+thottam list                           # List installed packages
+thottam update [package]               # Update one or all packages
 ```
+
+Version constraints support `>=`, `>`, `<=`, `<`, `^` (compatible), `~` (patch-level), and comma-separated ranges.
 
 Packages are installed to `~/.kaappi/lib/` and discovered automatically.
 

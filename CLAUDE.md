@@ -23,7 +23,9 @@ zig build -Dgc-threshold=16384     # custom initial GC threshold (default: 8192)
 
 CLI flags: `-h`/`--help`, `--version`, `--lib-path <path>`, `--compile`,
 `-o <file>`, `--disassemble`, `--sandbox`, `--gc-stats`,
-`--profile`, `--coverage`. Version is defined as `pub const version` in `main.zig`.
+`--profile`, `--coverage`. Subcommand: `kaappi compile <file> [-o output]`
+compiles to native binary via LLVM. Version is defined as `pub const version`
+in `main.zig`. Environment: `KAAPPI_LIB_DIR` overrides `libkaappi_rt.a` lookup.
 
 Build-time options: `-Dmax-frames=N` (call frame depth, default 512),
 `-Dmax-registers=N` (register count, default 2048),
@@ -63,14 +65,27 @@ and continuation-heavy workloads — only use it when debugging:
 ### LLVM native backend
 
 ```bash
-zig build native -Dnative-src=program.scm        # single-step native compilation
-./zig-out/bin/program                            # run native binary
+kaappi compile program.scm -o program            # recommended single command
+./program                                        # run native binary
+
+zig build native -Dnative-src=program.scm        # via build system
+./zig-out/bin/program
 
 # Or manual three-step:
 zig build lib                                    # build libkaappi_rt.a
 zig build run -- --emit-llvm -o out.ll program.scm  # emit LLVM IR
 zig cc -w out.ll -o program -Lzig-out/lib -lkaappi_rt -lc -lm -lpthread  # link
 ```
+
+`kaappi compile` locates `libkaappi_rt.a` via `KAAPPI_LIB_DIR` env var,
+`<exe_dir>/../lib/`, `zig-out/lib/`, or `/usr/local/lib/`. It searches
+PATH for a C compiler (zig cc, cc, clang, gcc).
+
+**Features compiled natively:** arithmetic, comparisons, if/and/or/when/unless,
+let/let*, lambda (with closures and variadic parameters), self-tail-call
+optimization (compiled as loops), tail calls to other native functions.
+Forms not yet compiled natively (letrec, named-let, do, etc.) fall back to
+`kaappi_eval` at runtime.
 
 **Always use `zig cc` (not `clang`) for linking native binaries against
 `libkaappi_rt.a`.** The Zig-compiled static library references
@@ -81,8 +96,8 @@ cannot resolve. `zig cc` includes these automatically.
 
 ```
 Source → Reader → Expander → IR → Analysis → Optimization → Bytecode Emission → VM
-         (UTF-8    (syntax-    (33 node  (tail pos,    (const fold,     (register-   (mark-and-
-          lexer)    rules)      types)    primitives,   dead branch,      based)       sweep GC)
+         (UTF-8    (syntax-    (33 node  (tail pos,    (const fold,     (register-   (generational
+          lexer)    rules)      types)    primitives,   dead branch,      based)       GC)
                                           constants)    boolean, etc.)
 ```
 
@@ -95,7 +110,7 @@ Source → Reader → Expander → IR → Analysis → Optimization → Bytecode
 | IR | `ir.zig` | Lowers S-expressions to tree-structured IR (33 node types). Runs 3 analysis passes (tail positions, primitive identification, constant detection) and 5 optimization passes (constant folding, dead branch elimination, boolean simplification, identity elimination, begin simplification). See `docs/dev/ir.md`. |
 | Compiler | `compiler.zig` | IR nodes → register-based bytecode via `compileFromNode()`. Retains `compileExpr()` for forms delegated via `passthrough`. Dispatches derived forms to sub-modules. |
 | VM | `vm.zig` | Executes bytecode. Register file + call frame stack. Handles continuations (stack-copying), exception handler stack, dynamic-wind stack, stepping debugger. |
-| GC | `memory.zig` | Mark-and-sweep with intrusive linked list. Roots tracked via `gc.pushRoot`/`gc.popRoot`. Triggered after N allocations. |
+| GC | `memory.zig` | Generational collector (young/old) with minor and full collections, write barrier for old→young references. Roots tracked via `gc.pushRoot`/`gc.popRoot`. Triggered after N allocations. |
 
 ### Value representation
 
@@ -106,7 +121,7 @@ single word with zero heap allocation:
 - **0xFFFD | 48-bit integer**: fixnum (signed, up to ±2^47; auto-promotes to bignum)
 - **0xFFFE | payload**: immediate (nil, true, false, void, eof, char with 21-bit codepoint)
 
-Heap objects share an `Object` header with `ObjectTag` (u6, 64 slots) and GC mark bit. 35 types: Pair, Symbol, SchemeString, Closure, Function, NativeFn, Vector, Bytevector, Port, Flonum, Complex, Transformer, ErrorObject, RecordType, RecordInstance, Continuation, MultipleValues, Promise, ParameterObject, Rational, Bignum, FfiLibrary, FfiFunction, HashTable, FileInfo, UserInfo, GroupInfo, DirectoryObject, RandomSource, FfiCallback, Fiber, Channel, Mutex, ConditionVariable, Srfi18Time.
+Heap objects share an `Object` header with `ObjectTag` (u6, 64 slots), GC mark bit, generation (u1), and survive count (u2). 36 types: Pair, Symbol, SchemeString, Closure, Function, NativeFn, Vector, Bytevector, Port, Flonum, Complex, Transformer, ErrorObject, RecordType, RecordInstance, Continuation, MultipleValues, Promise, ParameterObject, Rational, Bignum, FfiLibrary, FfiFunction, HashTable, FileInfo, UserInfo, GroupInfo, DirectoryObject, RandomSource, FfiCallback, Fiber, Channel, Mutex, ConditionVariable, Srfi18Time.
 
 ### Strings
 
@@ -127,7 +142,7 @@ Exceptions: auto-generated data files (`unicode_tables.zig`) are exempt.
 | File | Lines | Responsibility |
 |------|-------|---------------|
 | `types.zig` | ~500 | Value type, heap object structs, ObjectTag enum, opcodes |
-| `memory.zig` | ~650 | GC allocator, alloc/mark/free for all heap types |
+| `memory.zig` | ~800 | Generational GC allocator, alloc/mark/free for all heap types, write barrier |
 | `reader.zig` | ~700 | Tokenizer, S-expression parser, Unicode lexing |
 | `expander.zig` | ~320 | Macro expansion engine (syntax-rules) |
 | `printer.zig` | ~300 | Value → string (write mode and display mode) |
@@ -153,7 +168,7 @@ Exceptions: auto-generated data files (`unicode_tables.zig`) are exempt.
 | `vm_library.zig` | handleImport (with only/except/rename/prefix), handleDefineLibrary, .sld file loading |
 | `vm_records.zig` | handleDefineRecordType desugaring |
 | `vm_continuations.zig` | captureContinuation, restoreContinuation, performWindTransition, callWithCC |
-| `vm_debug.zig` | Stepping debugger: breakpoints, step/next/continue, locals, backtrace |
+| `vm_debug.zig` | Stepping debugger: breakpoints (with conditions), watch expressions, step/next/step-out/continue, up/down frame navigation, locals, backtrace |
 
 ### Primitives (split into 21 files)
 | File | Procedures |
@@ -293,6 +308,11 @@ gc.popRoot();               // done, val is safe to use
 
 Always root `Function*` pointers before calling `vm.execute()` — it allocates a closure wrapper internally.
 
+**Write barrier:** when mutating a heap object's Value field (set-car!, set-cdr!,
+vector-set!, hash-table-set!, etc.), call `gc.writeBarrier(container, new_val)`
+so the generational GC can track old→young references. Primitives that mutate
+heap objects must include this barrier.
+
 ## Tests
 
 **Every bug fix MUST include a regression test** that fails without the fix and
@@ -354,6 +374,7 @@ Built alongside kaappi via `zig build`, ships in release artifacts for all platf
 thottam install kaappi-web                                    # from default org
 thottam install kaappi-auth::https://github.com/bob/kaappi-auth  # from custom URL
 thottam install kaappi-web@v1.0.0                             # pinned version
+thottam install kaappi-net@">=0.2.0"                          # semver constraint
 thottam list                                                  # show installed packages
 thottam update                                                # pull + rebuild all
 thottam remove kaappi-web                                     # uninstall
@@ -380,6 +401,10 @@ source: https://github.com/kaappi/kaappi-web
 All fields except `name` are optional. The `source` field declares where
 this package is hosted (for third-party packages). Dependencies can also
 specify custom URLs inline: `depends: kaappi-net kaappi-auth::https://github.com/bob/kaappi-auth`.
+Version constraints are supported: `depends: kaappi-net@">=0.2.0"` with
+operators `>=`, `>`, `<=`, `<`, `^` (compatible), `~` (patch-level), and
+comma-separated ranges (`>=1.0.0,<2.0.0`). Constraints resolve against
+git tags via `git ls-remote --tags`.
 The lockfile (`~/.kaappi/thottam.lock`) records source URLs for provenance.
 
 ## Ecosystem libraries
