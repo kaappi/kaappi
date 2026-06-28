@@ -5,14 +5,23 @@ const printer = @import("printer.zig");
 
 const Value = types.Value;
 
+const NativeLambda = struct {
+    llvm_name: []const u8,
+    arity: u8,
+};
+
 pub const LLVMEmitter = struct {
     buf: std.ArrayList(u8),
     symbols: std.StringHashMap(u32),
     string_decls: std.ArrayList([]const u8),
+    lambda_defs: std.ArrayList([]const u8),
+    native_fns: std.StringHashMap(NativeLambda),
+    params: ?std.StringHashMap(u8),
     tmp_counter: u32,
     label_counter: u32,
     string_counter: u32,
     sym_counter: u32,
+    lambda_counter: u32,
     allocator: std.mem.Allocator,
 
     pub fn init(allocator: std.mem.Allocator) LLVMEmitter {
@@ -20,10 +29,14 @@ pub const LLVMEmitter = struct {
             .buf = .empty,
             .symbols = std.StringHashMap(u32).init(allocator),
             .string_decls = .empty,
+            .lambda_defs = .empty,
+            .native_fns = std.StringHashMap(NativeLambda).init(allocator),
+            .params = null,
             .tmp_counter = 0,
             .label_counter = 0,
             .string_counter = 0,
             .sym_counter = 0,
+            .lambda_counter = 0,
             .allocator = allocator,
         };
     }
@@ -32,6 +45,8 @@ pub const LLVMEmitter = struct {
         self.buf.deinit(self.allocator);
         self.symbols.deinit();
         self.string_decls.deinit(self.allocator);
+        self.lambda_defs.deinit(self.allocator);
+        self.native_fns.deinit();
     }
 
     pub fn emitProgram(self: *LLVMEmitter, nodes: []const *ir.Node) EmitError!void {
@@ -65,6 +80,11 @@ pub const LLVMEmitter = struct {
             try self.write(decl);
         }
 
+        for (self.lambda_defs.items) |def| {
+            try self.write("\n");
+            try self.write(def);
+        }
+
         try self.write("\ndefine i32 @main() {\nentry:\n");
         try self.write(body.items);
 
@@ -90,7 +110,7 @@ pub const LLVMEmitter = struct {
             .do_form, .delay, .delay_force, .cond, .case_form, .case_lambda, .guard => try self.emitSexprEval(node),
             .quasiquote, .parameterize, .define_values, .let_values, .let_star_values => try self.emitSexprEval(node),
             .define_syntax, .let_syntax, .letrec_syntax, .cond_expand => try self.emitSexprEval(node),
-            .passthrough => try self.emitEvalExpr(node.data.passthrough),
+            .passthrough => try self.emitPassthrough(node.data.passthrough),
         };
     }
 
@@ -121,6 +141,17 @@ pub const LLVMEmitter = struct {
     fn emitGlobalRef(self: *LLVMEmitter, sym: Value) EmitError![]const u8 {
         if (!types.isSymbol(sym)) return error.UnsupportedNodeType;
         const name = types.symbolName(sym);
+
+        if (self.params) |p| {
+            if (p.get(name)) |idx| {
+                const tmp = try self.freshTemp();
+                const gep = try self.freshTemp();
+                try self.print("  {s} = getelementptr i64, ptr %args, i64 {d}\n", .{ gep, idx });
+                try self.print("  {s} = load i64, ptr {s}\n", .{ tmp, gep });
+                return tmp;
+            }
+        }
+
         const sym_name = try self.internSymbol(name);
         const tmp = try self.freshTemp();
         try self.print("  {s} = call i64 @kaappi_global_lookup(ptr %vm, ptr {s}, i64 {d})\n", .{ tmp, sym_name, name.len });
@@ -128,6 +159,13 @@ pub const LLVMEmitter = struct {
     }
 
     fn emitCall(self: *LLVMEmitter, call: ir.CallData) EmitError![]const u8 {
+        if (call.operator.tag == .global_ref and types.isSymbol(call.operator.data.global_ref)) {
+            const op_name = types.symbolName(call.operator.data.global_ref);
+            if (self.native_fns.get(op_name)) |native| {
+                return self.emitDirectCall(native.llvm_name, call.args);
+            }
+        }
+
         const callee = try self.emitNode(call.operator);
         const nargs = call.args.len;
 
@@ -447,10 +485,41 @@ pub const LLVMEmitter = struct {
         return tmp;
     }
 
+    fn emitPassthrough(self: *LLVMEmitter, expr: Value) EmitError![]const u8 {
+        if (types.isPair(expr)) {
+            const head = types.car(expr);
+            if (types.isSymbol(head) and std.mem.eql(u8, types.symbolName(head), "define")) {
+                const rest = types.cdr(expr);
+                if (rest != types.NIL and types.isPair(rest)) {
+                    const target = types.car(rest);
+                    if (types.isPair(target) and types.isSymbol(types.car(target))) {
+                        const fn_name = types.symbolName(types.car(target));
+                        const formals = types.cdr(target);
+                        const body = types.cdr(rest);
+                        if (self.tryCompileDefineFunction(fn_name, formals, body)) |native_fn_name| {
+                            self.native_fns.put(fn_name, .{ .llvm_name = native_fn_name, .arity = 0 }) catch {};
+                        }
+                    }
+                }
+            }
+        }
+        return self.emitEvalExpr(expr);
+    }
+
     fn emitDefine(self: *LLVMEmitter, data: ir.DefineData) EmitError![]const u8 {
         if (!types.isSymbol(data.name)) return error.UnsupportedNodeType;
         const name = types.symbolName(data.name);
         const sym_name = try self.internSymbol(name);
+
+        if (types.isPair(data.value)) {
+            const head = types.car(data.value);
+            if (types.isSymbol(head) and std.mem.eql(u8, types.symbolName(head), "lambda")) {
+                const lambda_data = ir.LambdaData{ .args = types.cdr(data.value), .name = name };
+                if (self.tryCompileLambdaNative(lambda_data)) |fn_name| {
+                    self.native_fns.put(name, .{ .llvm_name = fn_name, .arity = 0 }) catch {};
+                }
+            }
+        }
 
         const val = if (types.isPair(data.value))
             try self.emitEvalExpr(data.value)
@@ -466,6 +535,13 @@ pub const LLVMEmitter = struct {
     }
 
     fn emitLambda(self: *LLVMEmitter, data: ir.LambdaData) EmitError![]const u8 {
+        if (self.tryCompileLambdaNative(data)) |fn_name| {
+            return fn_name;
+        }
+        return self.emitLambdaViaEval(data);
+    }
+
+    fn emitLambdaViaEval(self: *LLVMEmitter, data: ir.LambdaData) EmitError![]const u8 {
         var source_buf: std.ArrayList(u8) = .empty;
         defer source_buf.deinit(self.allocator);
         source_buf.appendSlice(self.allocator, "(lambda ") catch return error.OutOfMemory;
@@ -487,6 +563,166 @@ pub const LLVMEmitter = struct {
         const tmp = try self.freshTemp();
         try self.print("  {s} = call i64 @kaappi_eval(ptr %vm, ptr {s}, i64 {d})\n", .{ tmp, str_name, source_buf.items.len });
         return tmp;
+    }
+
+    fn tryCompileLambdaNative(self: *LLVMEmitter, data: ir.LambdaData) ?[]const u8 {
+        const formals = types.car(data.args);
+        const body_list = types.cdr(data.args);
+        if (body_list == types.NIL) return null;
+        if (!types.isPair(formals) and formals != types.NIL) return null;
+        return self.tryCompileDefineFunction(data.name orelse "(lambda)", formals, body_list);
+    }
+
+    fn tryCompileDefineFunction(self: *LLVMEmitter, name: []const u8, formals: Value, body: Value) ?[]const u8 {
+        if (body == types.NIL) return null;
+
+        var param_names: [16][]const u8 = undefined;
+        var arity: u8 = 0;
+        var param_list = formals;
+        while (param_list != types.NIL) {
+            if (!types.isPair(param_list)) return null;
+            const param = types.car(param_list);
+            if (!types.isSymbol(param)) return null;
+            if (arity >= 16) return null;
+            param_names[arity] = types.symbolName(param);
+            arity += 1;
+            param_list = types.cdr(param_list);
+        }
+
+        var body_ir = ir.IR.init(self.allocator);
+        defer body_ir.deinit();
+
+        var body_nodes: [64]*ir.Node = undefined;
+        var body_count: usize = 0;
+        var body_expr = body;
+        while (body_expr != types.NIL and types.isPair(body_expr)) {
+            if (body_count >= 64) return null;
+            const expr = types.car(body_expr);
+            const node = ir.lowerWithMacros(&body_ir, expr, null) catch return null;
+            ir.markTailPositions(node, types.cdr(body_expr) == types.NIL);
+            ir.identifyPrimitives(node);
+            ir.markConstants(node);
+            var opt = ir.foldConstants(&body_ir, node);
+            opt = ir.eliminateDeadBranches(&body_ir, opt);
+            opt = ir.simplifyBooleans(&body_ir, opt);
+            opt = ir.eliminateIdentity(&body_ir, opt);
+            opt = ir.simplifyBegin(&body_ir, opt);
+            body_nodes[body_count] = opt;
+            body_count += 1;
+            body_expr = types.cdr(body_expr);
+        }
+        if (body_count == 0) return null;
+
+        if (hasFreeVars(body_nodes[0..body_count], param_names[0..arity])) return null;
+
+        return self.emitLambdaFunction(name, param_names[0..arity], body_nodes[0..body_count]);
+    }
+
+    fn emitLambdaFunction(self: *LLVMEmitter, name: ?[]const u8, param_names: []const []const u8, body_nodes: []const *ir.Node) ?[]const u8 {
+        const id = self.lambda_counter;
+        self.lambda_counter += 1;
+        const fn_name = std.fmt.allocPrint(self.allocator, "@lambda_{d}", .{id}) catch return null;
+
+        var fn_buf: std.ArrayList(u8) = .empty;
+        const saved_buf = self.buf;
+        const saved_params = self.params;
+        const saved_tmp = self.tmp_counter;
+        const saved_label = self.label_counter;
+        self.buf = fn_buf;
+        self.tmp_counter = 0;
+        self.label_counter = 0;
+
+        var p = std.StringHashMap(u8).init(self.allocator);
+        for (param_names, 0..) |pname, i| {
+            p.put(pname, @intCast(i)) catch {
+                self.buf = saved_buf;
+                self.params = saved_params;
+                self.tmp_counter = saved_tmp;
+                self.label_counter = saved_label;
+                return null;
+            };
+        }
+        self.params = p;
+
+        const header = std.fmt.allocPrint(self.allocator, "; {s}\ndefine i64 {s}(ptr %vm, ptr %args, i64 %nargs) {{\nentry:\n", .{ name orelse "(lambda)", fn_name }) catch {
+            self.buf = saved_buf;
+            self.params = saved_params;
+            self.tmp_counter = saved_tmp;
+            self.label_counter = saved_label;
+            p.deinit();
+            return null;
+        };
+        defer self.allocator.free(header);
+        self.write(header) catch {
+            self.buf = saved_buf;
+            self.params = saved_params;
+            self.tmp_counter = saved_tmp;
+            self.label_counter = saved_label;
+            p.deinit();
+            return null;
+        };
+
+        var last_val: []const u8 = "";
+        for (body_nodes) |node| {
+            last_val = self.emitNode(node) catch {
+                self.buf = saved_buf;
+                self.params = saved_params;
+                self.tmp_counter = saved_tmp;
+                self.label_counter = saved_label;
+                p.deinit();
+                fn_buf.deinit(self.allocator);
+                return null;
+            };
+        }
+
+        self.print("  ret i64 {s}\n}}\n", .{last_val}) catch {
+            self.buf = saved_buf;
+            self.params = saved_params;
+            self.tmp_counter = saved_tmp;
+            self.label_counter = saved_label;
+            p.deinit();
+            fn_buf.deinit(self.allocator);
+            return null;
+        };
+
+        fn_buf = self.buf;
+        self.buf = saved_buf;
+        self.params = saved_params;
+        self.tmp_counter = saved_tmp;
+        self.label_counter = saved_label;
+        p.deinit();
+
+        const fn_def = fn_buf.toOwnedSlice(self.allocator) catch return null;
+        self.lambda_defs.append(self.allocator, fn_def) catch return null;
+
+        return fn_name;
+    }
+
+    fn emitDirectCall(self: *LLVMEmitter, fn_name: []const u8, args: []const *ir.Node) EmitError![]const u8 {
+        const nargs = args.len;
+        var arg_tmps: [256][]const u8 = undefined;
+        for (args, 0..) |arg, i| {
+            arg_tmps[i] = try self.emitNode(arg);
+        }
+
+        const result = try self.freshTemp();
+
+        if (nargs == 0) {
+            try self.print("  {s} = call i64 {s}(ptr %vm, ptr null, i64 0)\n", .{ result, fn_name });
+        } else {
+            const args_alloca = try self.freshTemp();
+            try self.print("  {s} = alloca [{d} x i64], align 8\n", .{ args_alloca, nargs });
+
+            for (0..nargs) |i| {
+                const gep = try self.freshTemp();
+                try self.print("  {s} = getelementptr i64, ptr {s}, i64 {d}\n", .{ gep, args_alloca, i });
+                try self.print("  store i64 {s}, ptr {s}\n", .{ arg_tmps[i], gep });
+            }
+
+            try self.print("  {s} = call i64 {s}(ptr %vm, ptr {s}, i64 {d})\n", .{ result, fn_name, args_alloca, nargs });
+        }
+
+        return result;
     }
 
     fn emitEvalExpr(self: *LLVMEmitter, value: Value) EmitError![]const u8 {
@@ -591,6 +827,55 @@ pub const LLVMEmitter = struct {
         return self.buf.items;
     }
 };
+
+fn hasFreeVars(nodes: []const *ir.Node, params: []const []const u8) bool {
+    for (nodes) |node| {
+        if (nodeHasFreeVars(node, params)) return true;
+    }
+    return false;
+}
+
+fn nodeHasFreeVars(node: *const ir.Node, params: []const []const u8) bool {
+    switch (node.tag) {
+        .global_ref => {
+            if (!types.isSymbol(node.data.global_ref)) return false;
+            const name = types.symbolName(node.data.global_ref);
+            for (params) |p| {
+                if (std.mem.eql(u8, name, p)) return false;
+            }
+            if (ir.isKnownGlobal(name)) return false;
+            return true;
+        },
+        .call => {
+            if (nodeHasFreeVars(node.data.call.operator, params)) return true;
+            for (node.data.call.args) |arg| {
+                if (nodeHasFreeVars(arg, params)) return true;
+            }
+            return false;
+        },
+        .@"if" => {
+            if (nodeHasFreeVars(node.data.@"if".test_expr, params)) return true;
+            if (nodeHasFreeVars(node.data.@"if".consequent, params)) return true;
+            if (node.data.@"if".alternate) |alt| {
+                if (nodeHasFreeVars(alt, params)) return true;
+            }
+            return false;
+        },
+        .begin => return hasFreeVars(node.data.begin, params),
+        .and_form => return hasFreeVars(node.data.and_form, params),
+        .or_form => return hasFreeVars(node.data.or_form, params),
+        .when_form => {
+            if (nodeHasFreeVars(node.data.when_form.test_expr, params)) return true;
+            return hasFreeVars(node.data.when_form.body, params);
+        },
+        .unless_form => {
+            if (nodeHasFreeVars(node.data.unless_form.test_expr, params)) return true;
+            return hasFreeVars(node.data.unless_form.body, params);
+        },
+        .constant => return false,
+        else => return false,
+    }
+}
 
 pub const EmitError = error{
     UnsupportedNodeType,

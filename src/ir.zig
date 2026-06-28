@@ -680,6 +680,13 @@ pub fn markTailPositions(node: *Node, is_tail: bool) void {
 // Semantic analysis: primitive identification
 // ---------------------------------------------------------------------------
 
+pub fn isKnownGlobal(name: []const u8) bool {
+    for (primitives) |p| {
+        if (std.mem.eql(u8, name, p)) return true;
+    }
+    return isSpecialForm(name);
+}
+
 const primitives = [_][]const u8{
     "+",              "-",              "*",            "/",             "=",           "<",              ">",
     "<=",             ">=",             "zero?",        "not",           "null?",       "pair?",          "car",
