@@ -49,7 +49,9 @@ pub fn handleTopLevelForm(vm: *VM, expr: Value) ?VMError!Value {
 
 fn handleDefineValues(vm: *VM, args: Value) VMError!Value {
     if (!types.isPair(args)) return VMError.CompileError;
-    const formals = types.car(args);
+    var formals = types.car(args);
+    vm.gc.pushRoot(&formals) catch return VMError.OutOfMemory;
+    defer vm.gc.popRoot();
     const rest = types.cdr(args);
     if (!types.isPair(rest)) return VMError.CompileError;
     const expr = types.car(rest);
