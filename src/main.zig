@@ -2050,19 +2050,62 @@ fn findInPath(allocator: std.mem.Allocator, name: []const u8) ?[]const u8 {
 }
 
 fn findLibDir(allocator: std.mem.Allocator) ?[]const u8 {
+    if (getExeRelativeLibDir(allocator)) |dir| return dir;
+
     const candidates = [_][]const u8{
         "zig-out/lib",
         "/usr/local/lib",
     };
 
     for (candidates) |dir| {
-        const path = std.fmt.allocPrint(allocator, "{s}/libkaappi_rt.a", .{dir}) catch continue;
-        defer allocator.free(path);
-        const fd = std.posix.openat(std.posix.AT.FDCWD, path, .{ .ACCMODE = .RDONLY }, 0) catch continue;
-        _ = std.posix.system.close(fd);
-        return dir;
+        if (checkLibDir(allocator, dir)) return dir;
     }
     return null;
+}
+
+fn getExeRelativeLibDir(allocator: std.mem.Allocator) ?[]const u8 {
+    var path_buf: [1024]u8 = undefined;
+    const exe_path: []const u8 = blk: {
+        if (comptime @import("builtin").os.tag == .linux) {
+            const n: isize = std.posix.system.readlink(
+                "/proc/self/exe",
+                &path_buf,
+                path_buf.len,
+            );
+            if (n > 0) break :blk path_buf[0..@intCast(n)];
+        }
+
+        if (comptime @import("builtin").os.tag == .macos) {
+            var size: u32 = path_buf.len;
+            const rc = std.c._NSGetExecutablePath(&path_buf, &size);
+            if (rc == 0) {
+                const len = std.mem.indexOfScalar(u8, &path_buf, 0) orelse path_buf.len;
+                break :blk path_buf[0..len];
+            }
+        }
+
+        break :blk "";
+    };
+    if (exe_path.len == 0) return null;
+
+    const last_slash = std.mem.lastIndexOfScalar(u8, exe_path, '/') orelse return null;
+    if (last_slash == 0) return null;
+    const bin_dir = exe_path[0..last_slash];
+    const parent_slash = std.mem.lastIndexOfScalar(u8, bin_dir, '/') orelse return null;
+    const parent = exe_path[0..parent_slash];
+
+    const lib_dir = std.fmt.allocPrint(allocator, "{s}/lib", .{parent}) catch return null;
+    if (checkLibDir(allocator, lib_dir)) return lib_dir;
+    allocator.free(lib_dir);
+    return null;
+}
+
+fn checkLibDir(allocator: std.mem.Allocator, dir: []const u8) bool {
+    const path = std.fmt.allocPrint(allocator, "{s}/libkaappi_rt.a", .{dir}) catch return false;
+    defer allocator.free(path);
+    const fd = std.posix.openat(std.posix.AT.FDCWD, path, .{ .ACCMODE = .RDONLY }, 0) catch return false;
+    _ = std.posix.system.close(fd);
+    return true;
 }
 
 fn tryLink(allocator: std.mem.Allocator, cc: []const u8, ll_path: []const u8, out_path: []const u8, lib_flag: []const u8, is_zig: bool) bool {
