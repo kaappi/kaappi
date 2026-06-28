@@ -84,6 +84,9 @@ fn printUsage() void {
             "  --timeout <ms>     Execution timeout in milliseconds\n" ++
             "  --max-memory <n>   Maximum heap memory in bytes\n" ++
             "\n" ++
+            "Environment variables:\n" ++
+            "  KAAPPI_LIB_DIR     Directory containing libkaappi_rt.a (for compile)\n" ++
+            "\n" ++
             "With no file argument, starts an interactive REPL.\n",
     );
 }
@@ -2050,6 +2053,11 @@ fn findInPath(allocator: std.mem.Allocator, name: []const u8) ?[]const u8 {
 }
 
 fn findLibDir(allocator: std.mem.Allocator) ?[]const u8 {
+    if (std.c.getenv("KAAPPI_LIB_DIR")) |env| {
+        const dir = std.mem.span(env);
+        if (checkLibDir(allocator, dir)) return dir;
+    }
+
     if (getExeRelativeLibDir(allocator)) |dir| return dir;
 
     const candidates = [_][]const u8{
