@@ -140,16 +140,7 @@ fn runSchedulerUntil(target: ?*fiber_mod.Fiber, ch: ?*types.Channel, ch_val: Val
     }.check;
 
     while (!done(target, ch)) {
-        var next_idx: ?usize = null;
-        for (sched.fibers[0..sched.fiber_count], 0..) |f, i| {
-            if (f) |fiber| {
-                if (fiber.status == .created or fiber.status == .suspended) {
-                    next_idx = i;
-                    break;
-                }
-            }
-        }
-        const idx = next_idx orelse break;
+        const idx = sched.schedule() orelse break;
 
         sched.restoreFiber(idx);
         sched.current_idx = idx;
