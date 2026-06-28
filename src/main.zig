@@ -1298,7 +1298,7 @@ fn repl(vm: *vm_mod.VM) !void {
         if (std.mem.startsWith(u8, debug_trimmed, ",break ")) {
             const bp_name = std.mem.trim(u8, debug_trimmed[7..], " ");
             if (vm.breakpoint_count < 16) {
-                vm.breakpoints[vm.breakpoint_count] = bp_name;
+                vm.breakpoints[vm.breakpoint_count] = .{ .name = bp_name };
                 vm.breakpoint_count += 1;
                 vm.debug_mode = true;
                 vm.step_mode = .continue_to_break;
@@ -1309,12 +1309,37 @@ fn repl(vm: *vm_mod.VM) !void {
             input_buf.clearRetainingCapacity();
             continue;
         }
+        if (std.mem.startsWith(u8, debug_trimmed, ",condition ")) {
+            const rest = std.mem.trim(u8, debug_trimmed[11..], " ");
+            if (std.mem.indexOfScalar(u8, rest, ' ')) |space| {
+                const id_str = rest[0..space];
+                const expr = std.mem.trim(u8, rest[space + 1 ..], " ");
+                const id = std.fmt.parseInt(usize, id_str, 10) catch {
+                    writeStdout("Usage: ,condition <id> <expr>\n");
+                    input_buf.clearRetainingCapacity();
+                    continue;
+                };
+                if (id < vm.breakpoint_count) {
+                    vm.breakpoints[id].condition = expr;
+                    writeStdout("Condition set\n");
+                } else {
+                    writeStdout("Invalid breakpoint ID\n");
+                }
+            } else {
+                writeStdout("Usage: ,condition <id> <expr>\n");
+            }
+            input_buf.clearRetainingCapacity();
+            continue;
+        }
         if (std.mem.eql(u8, debug_trimmed, ",breakpoints")) {
             for (vm.breakpoints[0..vm.breakpoint_count], 0..) |bp, idx| {
-                var dbuf: [32]u8 = undefined;
-                const s = std.fmt.bufPrint(&dbuf, "  [{d}] ", .{idx}) catch "";
+                var dbuf: [64]u8 = undefined;
+                const s = std.fmt.bufPrint(&dbuf, "  [{d}] {s}", .{ idx, bp.name }) catch "";
                 writeStdout(s);
-                writeStdout(bp);
+                if (bp.condition) |cond| {
+                    writeStdout(" if ");
+                    writeStdout(cond);
+                }
                 writeStdout("\n");
             }
             if (vm.breakpoint_count == 0) {
