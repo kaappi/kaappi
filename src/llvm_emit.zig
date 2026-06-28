@@ -555,10 +555,62 @@ pub const LLVMEmitter = struct {
     }
 
     fn emitLambda(self: *LLVMEmitter, data: ir.LambdaData) EmitError![]const u8 {
-        if (self.params != null) {
-            if (self.tryCompileNativeClosure(data)) |result| return result;
-        }
+        if (self.tryCompileNativeClosure(data)) |result| return result;
+        if (self.tryCompilePureLambdaAsNativeClosure(data)) |result| return result;
         return self.emitLambdaViaEval(data);
+    }
+
+    fn tryCompilePureLambdaAsNativeClosure(self: *LLVMEmitter, data: ir.LambdaData) ?[]const u8 {
+        const formals_val = types.car(data.args);
+        const body_list = types.cdr(data.args);
+        if (body_list == types.NIL) return null;
+        if (!types.isPair(formals_val) and formals_val != types.NIL) return null;
+
+        var param_names: [16][]const u8 = undefined;
+        var arity: u8 = 0;
+        var plist = formals_val;
+        while (plist != types.NIL) {
+            if (!types.isPair(plist)) return null;
+            const p = types.car(plist);
+            if (!types.isSymbol(p)) return null;
+            if (arity >= 16) return null;
+            param_names[arity] = types.symbolName(p);
+            arity += 1;
+            plist = types.cdr(plist);
+        }
+
+        var body_ir = ir.IR.init(self.allocator);
+        defer body_ir.deinit();
+        var body_nodes: [64]*ir.Node = undefined;
+        var body_count: usize = 0;
+        var body_expr = body_list;
+        while (body_expr != types.NIL and types.isPair(body_expr)) {
+            if (body_count >= 64) return null;
+            const expr = types.car(body_expr);
+            const node = ir.lowerWithMacros(&body_ir, expr, null) catch return null;
+            ir.markTailPositions(node, types.cdr(body_expr) == types.NIL);
+            ir.identifyPrimitives(node);
+            ir.markConstants(node);
+            var opt = ir.foldConstants(&body_ir, node);
+            opt = ir.eliminateDeadBranches(&body_ir, opt);
+            opt = ir.simplifyBooleans(&body_ir, opt);
+            opt = ir.eliminateIdentity(&body_ir, opt);
+            opt = ir.simplifyBegin(&body_ir, opt);
+            body_nodes[body_count] = opt;
+            body_count += 1;
+            body_expr = types.cdr(body_expr);
+        }
+        if (body_count == 0) return null;
+
+        if (hasFreeVars(body_nodes[0..body_count], param_names[0..arity])) return null;
+
+        const fn_name = self.emitLambdaFunction(data.name, param_names[0..arity], body_nodes[0..body_count]) orelse return null;
+
+        const closure_name = data.name orelse "(lambda)";
+        const name_str = self.internString(closure_name) catch return null;
+        const result = self.freshTemp() catch return null;
+        self.print("  {s} = call i64 @kaappi_create_native_closure(ptr %vm, ptr {s}, ptr null, i64 0, i64 {d}, ptr {s}, i64 {d})\n", .{ result, fn_name, arity, name_str, closure_name.len }) catch return null;
+        return result;
     }
 
     fn tryCompileNativeClosure(self: *LLVMEmitter, data: ir.LambdaData) ?[]const u8 {
@@ -859,7 +911,7 @@ pub const LLVMEmitter = struct {
         }
         self.params = p;
 
-        const header = std.fmt.allocPrint(self.allocator, "; {s}\ndefine i64 {s}(ptr %vm, ptr %args, i64 %nargs) {{\nentry:\n", .{ name orelse "(lambda)", fn_name }) catch {
+        const header = std.fmt.allocPrint(self.allocator, "; {s}\ndefine i64 {s}(ptr %vm, ptr %args, i64 %nargs, ptr %upvalues) {{\nentry:\n", .{ name orelse "(lambda)", fn_name }) catch {
             self.buf = saved_buf;
             self.params = saved_params;
             self.tmp_counter = saved_tmp;
@@ -964,7 +1016,7 @@ pub const LLVMEmitter = struct {
         const result = try self.freshTemp();
 
         if (nargs == 0) {
-            try self.print("  {s} = call i64 {s}(ptr %vm, ptr null, i64 0)\n", .{ result, fn_name });
+            try self.print("  {s} = call i64 {s}(ptr %vm, ptr null, i64 0, ptr null)\n", .{ result, fn_name });
         } else {
             const args_alloca = try self.freshTemp();
             try self.print("  {s} = alloca [{d} x i64], align 8\n", .{ args_alloca, nargs });
@@ -975,7 +1027,7 @@ pub const LLVMEmitter = struct {
                 try self.print("  store i64 {s}, ptr {s}\n", .{ arg_tmps[i], gep });
             }
 
-            try self.print("  {s} = call i64 {s}(ptr %vm, ptr {s}, i64 {d})\n", .{ result, fn_name, args_alloca, nargs });
+            try self.print("  {s} = call i64 {s}(ptr %vm, ptr {s}, i64 {d}, ptr null)\n", .{ result, fn_name, args_alloca, nargs });
         }
 
         return result;
