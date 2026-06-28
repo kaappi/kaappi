@@ -95,9 +95,11 @@ void linenoiseFree(void *ptr);
 typedef void(linenoiseCompletionCallback)(const char *, linenoiseCompletions *);
 typedef char*(linenoiseHintsCallback)(const char *, int *color, int *bold);
 typedef void(linenoiseFreeHintsCallback)(void *);
+typedef char*(linenoiseHighlightCallback)(const char *, size_t len, size_t *out_len);
 void linenoiseSetCompletionCallback(linenoiseCompletionCallback *);
 void linenoiseSetHintsCallback(linenoiseHintsCallback *);
 void linenoiseSetFreeHintsCallback(linenoiseFreeHintsCallback *);
+void linenoiseSetHighlightCallback(linenoiseHighlightCallback *);
 void linenoiseAddCompletion(linenoiseCompletions *, const char *);
 
 /* History API. */
