@@ -168,3 +168,34 @@ test "record in define-library" {
     try std.testing.expectEqual(@as(i64, 10), types.toFixnum(try vm.eval("(rect-width r)")));
     try std.testing.expectEqual(@as(i64, 20), types.toFixnum(try vm.eval("(rect-height r)")));
 }
+
+test "record-set! field survives full GC" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    _ = try vm.eval(
+        \\(define-record-type <point>
+        \\  (make-point x y)
+        \\  point?
+        \\  (x point-x set-point-x!)
+        \\  (y point-y set-point-y!))
+    );
+
+    const result = try vm.eval(
+        \\(let ()
+        \\  (define p (make-point 1 2))
+        \\  ;; Promote p to old generation
+        \\  (let loop ((i 0))
+        \\    (when (< i 3000) (make-list 10 i) (loop (+ i 1))))
+        \\  ;; Mutate with young-gen value
+        \\  (set-point-y! p (list 'a 'b 'c))
+        \\  ;; Force enough GC cycles to trigger full collection
+        \\  (let loop ((i 0))
+        \\    (when (< i 3000) (make-list 10 i) (loop (+ i 1))))
+        \\  (point-y p))
+    );
+    try std.testing.expect(types.isPair(result));
+    try std.testing.expect(types.isSymbol(types.car(result)));
+}
