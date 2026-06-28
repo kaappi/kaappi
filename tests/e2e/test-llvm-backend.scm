@@ -83,6 +83,27 @@
 
   (describe "let"
     (it "binds local variables"
-      (expect (let ((x 5) (y 3)) (+ x y)) to-equal 8))))
+      (expect (let ((x 5) (y 3)) (+ x y)) to-equal 8)))
+
+  (describe "tail calls"
+    (it "optimizes self-tail-call as loop"
+      (define (loop n)
+        (if (= n 0) 0 (loop (- n 1))))
+      (expect (loop 1000000) to-equal 0))
+
+    (it "handles accumulator pattern"
+      (define (sum n acc)
+        (if (= n 0) acc (sum (- n 1) (+ acc n))))
+      (expect (sum 100 0) to-equal 5050))
+
+    (it "tail calls to other native functions"
+      (define (double x) (+ x x))
+      (define (apply-double x) (double x))
+      (expect (apply-double 21) to-equal 42))
+
+    (it "non-tail calls still work"
+      (define (fib n)
+        (if (< n 2) n (+ (fib (- n 1)) (fib (- n 2)))))
+      (expect (fib 10) to-equal 55))))
 
 (run-specs)
