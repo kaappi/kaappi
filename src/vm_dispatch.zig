@@ -143,7 +143,15 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                     if (func.env != null) {
                         if (self.globals.get(name)) |gval| break :blk gval;
                     }
-                    self.setErrorDetail("undefined variable '{s}'", .{name});
+                    if (self.findSimilarName(name)) |suggestion| {
+                        self.setErrorDetail("undefined variable '{s}'. Did you mean '{s}'?", .{ name, suggestion });
+                    } else {
+                        if (self.findSimilarName(name)) |sug| {
+                            self.setErrorDetail("undefined variable '{s}'. Did you mean '{s}'?", .{ name, sug });
+                        } else {
+                            self.setErrorDetail("undefined variable '{s}'", .{name});
+                        }
+                    }
                     return VMError.UndefinedVariable;
                 };
                 self.registers[dst_idx] = val;
@@ -690,7 +698,11 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                             if (!types.isSymbol(sym)) return VMError.InvalidBytecode;
                             const name = types.symbolName(sym);
                             const val = env.get(name) orelse {
-                                self.setErrorDetail("undefined variable '{s}'", .{name});
+                                if (self.findSimilarName(name)) |sug| {
+                                    self.setErrorDetail("undefined variable '{s}'. Did you mean '{s}'?", .{ name, sug });
+                                } else {
+                                    self.setErrorDetail("undefined variable '{s}'", .{name});
+                                }
                                 return VMError.UndefinedVariable;
                             };
                             self.registers[base] = val;
@@ -703,7 +715,11 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                         if (!types.isSymbol(sym)) return VMError.InvalidBytecode;
                         const name = types.symbolName(sym);
                         const val = env.get(name) orelse {
-                            self.setErrorDetail("undefined variable '{s}'", .{name});
+                            if (self.findSimilarName(name)) |sug| {
+                                self.setErrorDetail("undefined variable '{s}'. Did you mean '{s}'?", .{ name, sug });
+                            } else {
+                                self.setErrorDetail("undefined variable '{s}'", .{name});
+                            }
                             return VMError.UndefinedVariable;
                         };
                         self.registers[base] = val;
@@ -728,7 +744,11 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                     if (!types.isSymbol(sym)) return VMError.InvalidBytecode;
                     const name = types.symbolName(sym);
                     const val = env.get(name) orelse {
-                        self.setErrorDetail("undefined variable '{s}'", .{name});
+                        if (self.findSimilarName(name)) |sug| {
+                            self.setErrorDetail("undefined variable '{s}'. Did you mean '{s}'?", .{ name, sug });
+                        } else {
+                            self.setErrorDetail("undefined variable '{s}'", .{name});
+                        }
                         return VMError.UndefinedVariable;
                     };
                     self.registers[base] = val;
@@ -793,7 +813,11 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                     if (!types.isSymbol(sym)) return VMError.InvalidBytecode;
                     const name = types.symbolName(sym);
                     callee = env.get(name) orelse {
-                        self.setErrorDetail("undefined variable '{s}'", .{name});
+                        if (self.findSimilarName(name)) |sug| {
+                            self.setErrorDetail("undefined variable '{s}'. Did you mean '{s}'?", .{ name, sug });
+                        } else {
+                            self.setErrorDetail("undefined variable '{s}'", .{name});
+                        }
                         return VMError.UndefinedVariable;
                     };
                     if (func.env == null and (types.isClosure(callee) or types.isNativeFn(callee))) {

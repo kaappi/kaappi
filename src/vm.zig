@@ -310,6 +310,38 @@ pub const VM = struct {
         self.captureErrorLocation();
     }
 
+    pub fn findSimilarName(self: *VM, name: []const u8) ?[]const u8 {
+        var best: ?[]const u8 = null;
+        var best_dist: usize = 4;
+        var iter = self.globals.keyIterator();
+        while (iter.next()) |key| {
+            const candidate = key.*;
+            if (candidate.len == 0 or candidate[0] == '%') continue;
+            const dist = editDistance(name, candidate);
+            if (dist > 0 and dist < best_dist) {
+                best_dist = dist;
+                best = candidate;
+            }
+        }
+        return best;
+    }
+
+    fn editDistance(a: []const u8, b: []const u8) usize {
+        if (a.len > 32 or b.len > 32) return 99;
+        var prev: [33]usize = undefined;
+        var curr: [33]usize = undefined;
+        for (0..b.len + 1) |j| prev[j] = j;
+        for (a, 0..) |ca, i| {
+            curr[0] = i + 1;
+            for (b, 0..) |cb, j| {
+                const cost: usize = if (ca == cb) 0 else 1;
+                curr[j + 1] = @min(@min(curr[j] + 1, prev[j + 1] + 1), prev[j] + cost);
+            }
+            @memcpy(prev[0 .. b.len + 1], curr[0 .. b.len + 1]);
+        }
+        return prev[b.len];
+    }
+
     fn captureErrorLocation(self: *VM) void {
         self.last_error_line = 0;
         self.last_error_source = null;
