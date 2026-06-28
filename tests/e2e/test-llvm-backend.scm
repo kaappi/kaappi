@@ -83,7 +83,23 @@
 
   (describe "let"
     (it "binds local variables"
-      (expect (let ((x 5) (y 3)) (+ x y)) to-equal 8)))
+      (expect (let ((x 5) (y 3)) (+ x y)) to-equal 8))
+
+    (it "let* uses sequential bindings"
+      (expect (let* ((x 10) (y (+ x 5))) y) to-equal 15))
+
+    (it "nested let scopes correctly"
+      (expect (let ((x 1))
+                (let ((y (+ x 10)))
+                  (+ x y)))
+              to-equal 12))
+
+    (it "let in function body"
+      (define (compute a b)
+        (let ((sum (+ a b))
+              (diff (- a b)))
+          (* sum diff)))
+      (expect (compute 7 3) to-equal 40)))
 
   (describe "tail calls"
     (it "optimizes self-tail-call as loop"
