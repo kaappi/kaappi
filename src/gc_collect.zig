@@ -387,7 +387,11 @@ pub fn markValue(gc: *GC, v: Value) void {
             markValue(gc, rat.numerator);
             markValue(gc, rat.denominator);
         },
-        .ffi_library, .ffi_function => {},
+        .ffi_library => {},
+        .ffi_function => {
+            const ffi_fn = obj.as(FfiFunction);
+            markValue(gc, ffi_fn.library);
+        },
         .ffi_callback => {
             const cb = obj.as(FfiCallback);
             markValue(gc, cb.closure);
