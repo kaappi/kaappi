@@ -37,7 +37,7 @@ pub const vm_library = @import("vm_library.zig");
 pub const ir_mod = @import("ir.zig");
 pub const llvm_emit = @import("llvm_emit.zig");
 
-pub const version = "0.6.6";
+pub const version = "0.7.0";
 
 var repl_vm: ?*vm_mod.VM = null;
 

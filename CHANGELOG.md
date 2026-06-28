@@ -7,6 +7,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-06-28
+
+### Added
+- **LLVM native backend:** compile Scheme programs to native executables via `zig build native -Dnative-src=program.scm` or `kaappi --emit-llvm`
+- **Native lambda compilation:** simple functions compile as separate LLVM function definitions with direct calls; self-recursive calls bypass runtime dispatch
+- **Closure support in native backend:** inner lambdas capturing outer parameters work in native binaries
+- **Hybrid continuation strategy:** `guard`, `raise`, `with-exception-handler`, `dynamic-wind`, `call/ec` compile natively; `call/cc` falls back to bytecode VM
+- **IR pipeline:** 33-node intermediate representation with 3 analysis passes (tail positions, primitive identification, constant detection) and 5 optimization passes (constant folding, dead branch elimination, boolean simplification, identity elimination, begin simplification)
+- **`(scheme repl)` library:** R7RS §6.4 standard library, exporting `interaction-environment`
+- **`include-library-declarations`:** R7RS §5.3.2 support in `define-library`
+- **Error source snippets:** runtime errors show the offending source line indented below the error message
+- **LSP documentSymbol:** outline view and breadcrumbs for Scheme files in VS Code
+- **Profiler JSON export:** `--profile-json <file>` writes machine-readable profiling data
+- **Standalone native binary:** `zig build native -Dnative-src=...` single-step compilation
+- **E2e test infrastructure:** 23 native parity tests using kaappi-bdd, wired into CI
+- **SRFI-69:** `hash-table-equivalence-function`, `hash-table-hash-function`
+- **SRFI-133:** `vector-append-subvectors`
+- **Benchmarks:** string, list, vector, hashtable benchmarks (suite grows from 4 to 8)
+
+### Changed
+- **Compiler:** all expressions route through IR pipeline (`lowerWithMacros` → analysis → optimization → `compileFromNode`)
+- **IR lowering:** `lower()` is now a thin wrapper over `lowerWithMacros(null)`; macros threaded through all recursive lowering helpers
+
+### Removed
+- **JIT backends:** removed 5,215 lines of hand-written AArch64 and x86_64 JIT code; replaced by LLVM native backend
+- **`--no-jit` flag:** no longer needed
+
+### Fixed
+- **IR lowering:** nested calls inside `if`/`begin`/`and`/`or` produced `passthrough` nodes instead of proper `call` nodes
+- **Native backend:** symbol constants not interned at runtime, breaking `eq?` identity in closures
+- **Native backend:** quoted list constants (`'(1 2 3)`) emitted as dangling pointers
+- **Native backend:** `define-syntax` forms not processed at compile time, preventing macro use in subsequent expressions
+
 ## [0.6.6] - 2026-06-27
 
 ### Fixed
