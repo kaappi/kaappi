@@ -9,7 +9,6 @@ const CallFrame = vm_mod.CallFrame;
 const MAX_REGISTERS = vm_mod.MAX_REGISTERS;
 const MAX_FRAMES = vm_mod.MAX_FRAMES;
 
-const jit = @import("jit.zig");
 const memory = @import("memory.zig");
 const vm_continuations = @import("vm_continuations.zig");
 
@@ -337,26 +336,6 @@ pub fn callClosure(vm: *VM, closure: *types.Closure, base: u16, nargs: u8) VMErr
                     break;
                 }
             }
-        }
-    }
-
-    // JIT: compile hot functions, execute via native code
-    if (!vm.debug_mode and !vm.jit_disabled) {
-        func.call_count +%= 1;
-        if (func.jit_code == null and func.call_count == jit.JIT_THRESHOLD) {
-            jit.tryCompile(func, vm);
-        }
-        if (func.jit_code) |jit_code| {
-            const entry: jit.JitEntryFn = @ptrCast(@alignCast(jit_code.entry));
-            const result = entry(vm, new_base, func.constants.items.ptr, closure);
-            if (vm.jit_error) |err| {
-                vm.jit_error = null;
-                return err;
-            }
-            if (result > 0 and result != 0xFFFFFFFF) {
-                vm.frames[vm.frame_count - 1].ip = @intCast(result - 1);
-            }
-            return;
         }
     }
 }

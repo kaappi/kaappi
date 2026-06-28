@@ -1066,7 +1066,6 @@ pub const GC = struct {
                 new_func.is_variadic = func.is_variadic;
                 new_func.source_line = func.source_line;
                 new_func.source_name = func.source_name;
-                new_func.jit_code = null;
                 new_func.global_cache = null;
                 new_func.env = null;
                 if (func.name) |name| {
@@ -1544,10 +1543,6 @@ pub const GC = struct {
                 }
                 if (func.owns_name) {
                     if (func.name) |n| self.allocator.free(n);
-                }
-                if (func.jit_code) |jit_c| {
-                    const jit = @import("jit.zig");
-                    jit.freeJitCode(jit_c, self.allocator);
                 }
                 self.allocator.destroy(func);
             },

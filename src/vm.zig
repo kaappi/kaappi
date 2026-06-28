@@ -9,7 +9,6 @@ const OpCode = types.OpCode;
 pub const vm_library = @import("vm_library.zig");
 pub const vm_records = @import("vm_records.zig");
 pub const vm_continuations = @import("vm_continuations.zig");
-pub const jit = @import("jit.zig");
 
 pub const VMError = error{
     StackOverflow,
@@ -215,8 +214,6 @@ pub const VM = struct {
     bundled_files: ?*std.StringHashMap([]const u8) = null,
     /// When non-null, record files read during library loading for bundling.
     compile_collect_files: ?*std.StringHashMap([]const u8) = null,
-    jit_disabled: bool = false,
-    jit_error: ?VMError = null,
     param_overrides: std.AutoHashMap(usize, Value) = undefined,
     scheduler: ?*@import("fiber.zig").FiberScheduler = null,
     current_fiber: ?*@import("fiber.zig").Fiber = null,
