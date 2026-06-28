@@ -142,6 +142,8 @@ pub const ObjectTag = enum(u6) {
 pub const Object = struct {
     tag: ObjectTag,
     marked: bool = false,
+    generation: u1 = 0,
+    survive_count: u2 = 0,
     next: ?*Object = null,
     // Force 8-byte alignment so all heap objects satisfy the pointer tag
     // check (v & 7 == 0). Without this, wasm32 allocators may return
