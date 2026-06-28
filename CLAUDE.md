@@ -1,6 +1,6 @@
 # Kaappi — R7RS Scheme in Zig
 
-Complete R7RS-small Scheme implementation. Zig 0.16, ~39k lines, 554 built-in procedures.
+Complete R7RS-small Scheme implementation. Zig 0.16, ~39k lines, 632 built-in procedures.
 
 ## Build
 
