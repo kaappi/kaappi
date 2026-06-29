@@ -926,10 +926,14 @@ fn stringToNumber(args: []const Value) PrimitiveError!Value {
     }
     if (s.len == 0) return types.FALSE;
 
-    if (std.mem.eql(u8, s, "+inf.0")) return types.makeFlonum(std.math.inf(f64));
-    if (std.mem.eql(u8, s, "-inf.0")) return types.makeFlonum(-std.math.inf(f64));
-    if (std.mem.eql(u8, s, "+nan.0")) return types.makeFlonum(std.math.nan(f64));
-    if (std.mem.eql(u8, s, "-nan.0")) return types.makeFlonum(std.math.nan(f64));
+    if (std.mem.eql(u8, s, "+inf.0") or std.mem.eql(u8, s, "-inf.0") or
+        std.mem.eql(u8, s, "+nan.0") or std.mem.eql(u8, s, "-nan.0"))
+    {
+        if (exactness == .exact) return types.FALSE;
+        if (std.mem.eql(u8, s, "+inf.0")) return types.makeFlonum(std.math.inf(f64));
+        if (std.mem.eql(u8, s, "-inf.0")) return types.makeFlonum(-std.math.inf(f64));
+        return types.makeFlonum(std.math.nan(f64));
+    }
 
     // Rational: num/den
     if (std.mem.indexOfScalar(u8, s, '/')) |slash_pos| {
