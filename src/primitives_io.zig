@@ -651,7 +651,17 @@ fn readDatumFn(args: []const Value) PrimitiveError!Value {
     // Parse one datum
     var reader = reader_mod.Reader.init(gc, buf.items);
     defer reader.deinit();
-    const datum = reader.readDatum() catch return types.EOF;
+    const datum = reader.readDatum() catch |err| {
+        if (err == reader_mod.ReadError.UnexpectedEof or err == reader_mod.ReadError.OutOfMemory) return types.EOF;
+        var msg = gc.allocString("read error") catch return PrimitiveError.OutOfMemory;
+        gc.pushRoot(&msg) catch return PrimitiveError.OutOfMemory;
+        defer gc.popRoot();
+        const err_obj = gc.allocErrorObject(msg, types.NIL) catch return PrimitiveError.OutOfMemory;
+        const errObj = types.toObject(err_obj).as(types.ErrorObject);
+        errObj.error_type = .read;
+        const raise_args = [1]Value{err_obj};
+        return primitives_control.raiseFn(&raise_args);
+    };
 
     // Save unconsumed bytes back to port buffer
     const remaining = buf.items[reader.pos..];
