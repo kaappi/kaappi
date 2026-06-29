@@ -34,7 +34,7 @@ fn floatToBignum(f: f64) PrimitiveError!Value {
     const abs_f = @abs(f);
     const bits: u64 = @bitCast(abs_f);
     const raw_exp = @as(u11, @intCast((bits >> 52) & 0x7FF));
-    if (raw_exp == 0 or raw_exp == 0x7FF) return PrimitiveError.TypeError;
+    if (raw_exp == 0 or raw_exp == 0x7FF) return PrimitiveError.TypeError; // bare-ok: subnormal/inf guard
     const mantissa: u64 = (bits & 0x000FFFFFFFFFFFFF) | 0x0010000000000000;
     const exp: i16 = @as(i16, @intCast(raw_exp)) - 1023 - 52;
     if (exp < 0) {
