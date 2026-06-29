@@ -348,6 +348,9 @@ fn applyExactness(tok: Token, exact: ?bool) ReadError!Token {
                 if (den == 1) break :blk Token{ .fixnum = num };
                 break :blk Token{ .rational = .{ .num = num, .den = den } };
             },
+            .complex => |c| blk: {
+                break :blk Token{ .complex = .{ .real = c.real, .imag = c.imag, .exact_real = true, .exact_imag = true } };
+            },
             else => ReadError.InvalidNumber,
         };
     }
@@ -355,6 +358,7 @@ fn applyExactness(tok: Token, exact: ?bool) ReadError!Token {
         .flonum, .complex => tok,
         .fixnum => |n| .{ .flonum = @floatFromInt(n) },
         .rational => |r| .{ .flonum = @as(f64, @floatFromInt(r.num)) / @as(f64, @floatFromInt(r.den)) },
+        .bignum_str => |bs| .{ .flonum = std.fmt.parseFloat(f64, bs.str) catch return ReadError.InvalidNumber },
         else => ReadError.InvalidNumber,
     };
 }
