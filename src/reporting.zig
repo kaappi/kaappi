@@ -623,6 +623,26 @@ pub fn printCoverageReport(vm: *vm_mod.VM) void {
     }
 }
 
+fn writeJsonEscaped(fd: std.posix.fd_t, s: []const u8) void {
+    for (s) |c| {
+        switch (c) {
+            '"' => writeToFd(fd, "\\\""),
+            '\\' => writeToFd(fd, "\\\\"),
+            '\n' => writeToFd(fd, "\\n"),
+            '\r' => writeToFd(fd, "\\r"),
+            '\t' => writeToFd(fd, "\\t"),
+            0x00...0x07, 0x0B, 0x0E...0x1F => {
+                var buf: [6]u8 = undefined;
+                const esc = std.fmt.bufPrint(&buf, "\\u{x:0>4}", .{c}) catch return;
+                writeToFd(fd, esc);
+            },
+            else => {
+                writeToFd(fd, @as(*const [1]u8, @ptrCast(&c)));
+            },
+        }
+    }
+}
+
 pub fn writeProfileJson(gc: *memory.GC, path: []const u8) void {
     const fd = std.posix.openat(std.posix.AT.FDCWD, path, .{
         .ACCMODE = .WRONLY,
@@ -640,12 +660,12 @@ pub fn writeProfileJson(gc: *memory.GC, path: []const u8) void {
             if (func.profile_calls > 0) {
                 if (!first) writeToFd(fd, ",");
                 first = false;
-                var buf: [512]u8 = undefined;
-                const s = std.fmt.bufPrint(&buf,
-                    \\{{"name":"{s}","source":"{s}","line":{d},"calls":{d},"self_ns":{d},"total_ns":{d},"alloc_bytes":{d}}}
-                , .{
-                    func.name orelse "(lambda)",
-                    func.source_name orelse "?",
+                writeToFd(fd, "{\"name\":\"");
+                writeJsonEscaped(fd, func.name orelse "(lambda)");
+                writeToFd(fd, "\",\"source\":\"");
+                writeJsonEscaped(fd, func.source_name orelse "?");
+                var buf: [256]u8 = undefined;
+                const s = std.fmt.bufPrint(&buf, "\",\"line\":{d},\"calls\":{d},\"self_ns\":{d},\"total_ns\":{d},\"alloc_bytes\":{d}}}", .{
                     func.source_line,
                     func.profile_calls,
                     func.profile_time_ns,
@@ -659,11 +679,10 @@ pub fn writeProfileJson(gc: *memory.GC, path: []const u8) void {
             if (native.profile_calls > 0) {
                 if (!first) writeToFd(fd, ",");
                 first = false;
-                var buf: [512]u8 = undefined;
-                const s = std.fmt.bufPrint(&buf,
-                    \\{{"name":"{s}","source":"built-in","line":0,"calls":{d},"self_ns":{d},"total_ns":{d},"alloc_bytes":{d}}}
-                , .{
-                    native.name,
+                writeToFd(fd, "{\"name\":\"");
+                writeJsonEscaped(fd, native.name);
+                var buf: [256]u8 = undefined;
+                const s = std.fmt.bufPrint(&buf, "\",\"source\":\"built-in\",\"line\":0,\"calls\":{d},\"self_ns\":{d},\"total_ns\":{d},\"alloc_bytes\":{d}}}", .{
                     native.profile_calls,
                     native.profile_time_ns,
                     native.profile_time_ns,
