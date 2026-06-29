@@ -97,6 +97,10 @@ fn isWhitespace(c: u8) bool {
 /// Call a predicate or char-set-contains? with a character.
 /// Handles both procedure arguments and SRFI-14 char-set record arguments.
 fn callPredOrCharset(pred: Value, cp: u21) PrimitiveError!bool {
+    if (types.isChar(pred)) {
+        return types.toChar(pred) == cp;
+    }
+
     const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError; // bare-ok: no VM
     const char_val = types.makeChar(cp);
 
