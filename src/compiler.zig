@@ -1152,7 +1152,9 @@ pub const Compiler = struct {
         }
 
         if (is_tail and types.isSymbol(head) and std.mem.eql(u8, types.symbolName(head), "apply")) {
-            return passthrough.compileApplyTail(self, expr, dst);
+            if (self.resolveLocal(types.symbolName(head)) == null) {
+                return passthrough.compileApplyTail(self, expr, dst);
+            }
         }
 
         return passthrough.compileCall(self, expr, dst, is_tail);
