@@ -311,6 +311,19 @@ fn exptFn(args: []const Value) PrimitiveError!Value {
         const denom = bignum_mod.expt(gc, args[0], pos_exp) catch return PrimitiveError.OutOfMemory;
         return arith.makeRationalReduced(gc, types.makeFixnum(1), denom);
     }
+    if (types.isRationalObj(args[0]) and types.isFixnum(args[1])) {
+        const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+        const r = types.toRational(args[0]);
+        const exp = types.toFixnum(args[1]);
+        if (exp == 0) return types.makeFixnum(1);
+        const abs_exp = types.makeFixnum(if (exp < 0) -exp else exp);
+        const num_pow = bignum_mod.expt(gc, r.numerator, abs_exp) catch return PrimitiveError.OutOfMemory;
+        const den_pow = bignum_mod.expt(gc, r.denominator, abs_exp) catch return PrimitiveError.OutOfMemory;
+        if (exp > 0) {
+            return arith.makeRationalReduced(gc, num_pow, den_pow);
+        }
+        return arith.makeRationalReduced(gc, den_pow, num_pow);
+    }
     // Complex exponentiation: z^w = e^(w * ln(z))
     if (types.isComplex(args[0]) or types.isComplex(args[1])) {
         const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
