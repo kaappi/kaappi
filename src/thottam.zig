@@ -338,13 +338,25 @@ fn joinPath3(allocator: std.mem.Allocator, a: []const u8, b: []const u8, c: []co
 
 fn runCapture(allocator: std.mem.Allocator, argv: []const []const u8, cwd: ?[]const u8) ![]u8 {
     const argv_z = try allocator.alloc(?[*:0]const u8, argv.len + 1);
-    defer allocator.free(argv_z);
+    @memset(argv_z, null);
+    defer {
+        for (argv_z) |maybe_ptr| {
+            if (maybe_ptr) |p| {
+                const len = std.mem.len(p);
+                const ptr: [*]u8 = @constCast(p);
+                allocator.free(ptr[0 .. len + 1]);
+            }
+        }
+        allocator.free(argv_z);
+    }
     for (argv, 0..) |arg, i| {
         argv_z[i] = (try allocator.dupeZ(u8, arg)).ptr;
     }
     argv_z[argv.len] = null;
 
-    const cwd_z: ?[*:0]const u8 = if (cwd) |c| (try allocator.dupeZ(u8, c)).ptr else null;
+    const cwd_duped = if (cwd) |c| try allocator.dupeZ(u8, c) else null;
+    defer if (cwd_duped) |d| allocator.free(d);
+    const cwd_z: ?[*:0]const u8 = if (cwd_duped) |d| d.ptr else null;
 
     var pipe: [2]c_int = undefined;
     if (std.c.pipe(&pipe) != 0) return error.PipeFailed;
@@ -403,13 +415,25 @@ fn runCapture(allocator: std.mem.Allocator, argv: []const []const u8, cwd: ?[]co
 
 fn runPassthrough(allocator: std.mem.Allocator, argv: []const []const u8, cwd: ?[]const u8) !u8 {
     const argv_z = try allocator.alloc(?[*:0]const u8, argv.len + 1);
-    defer allocator.free(argv_z);
+    @memset(argv_z, null);
+    defer {
+        for (argv_z) |maybe_ptr| {
+            if (maybe_ptr) |p| {
+                const len = std.mem.len(p);
+                const ptr: [*]u8 = @constCast(p);
+                allocator.free(ptr[0 .. len + 1]);
+            }
+        }
+        allocator.free(argv_z);
+    }
     for (argv, 0..) |arg, i| {
         argv_z[i] = (try allocator.dupeZ(u8, arg)).ptr;
     }
     argv_z[argv.len] = null;
 
-    const cwd_z: ?[*:0]const u8 = if (cwd) |c| (try allocator.dupeZ(u8, c)).ptr else null;
+    const cwd_duped = if (cwd) |c| try allocator.dupeZ(u8, c) else null;
+    defer if (cwd_duped) |d| allocator.free(d);
+    const cwd_z: ?[*:0]const u8 = if (cwd_duped) |d| d.ptr else null;
 
     const pid = std.posix.system.fork();
     if (pid < 0) return error.ForkFailed;
