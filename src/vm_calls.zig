@@ -296,14 +296,19 @@ pub fn callClosure(vm: *VM, closure: *types.Closure, base: u16, nargs: u8) VMErr
         // Collect rest args into a list
         const rest_start = func.arity;
         var rest_list: Value = types.NIL;
+        vm.gc.pushRoot(&rest_list) catch return VMError.OutOfMemory;
         var i: u8 = nargs;
         while (i > rest_start) {
             i -= 1;
             rest_list = vm.gc.allocPair(
                 vm.registers[base + 1 + i],
                 rest_list,
-            ) catch return VMError.OutOfMemory;
+            ) catch {
+                vm.gc.popRoot();
+                return VMError.OutOfMemory;
+            };
         }
+        vm.gc.popRoot();
         vm.registers[base + 1 + rest_start] = rest_list;
     }
 
