@@ -499,12 +499,17 @@ fn mainImpl(init: std.process.Init.Minimal) !void {
     }
 
     // Collect remaining args after the file path for (command-line).
+    // Also check for -o which is valid after the file path for compile modes.
     var script_args: [64][]const u8 = undefined;
     var script_arg_count: usize = 0;
     if (file_path) |fp| {
         script_args[0] = fp;
         script_arg_count = 1;
         while (args.next()) |extra| {
+            if (std.mem.eql(u8, extra, "-o")) {
+                if (compile_output == null) compile_output = args.next();
+                continue;
+            }
             if (script_arg_count < 64) {
                 script_args[script_arg_count] = extra;
                 script_arg_count += 1;
