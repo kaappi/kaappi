@@ -750,7 +750,7 @@ fn numberToString(args: []const Value) PrimitiveError!Value {
         return gc.allocString(s) catch return PrimitiveError.OutOfMemory;
     }
     if (types.isBignum(args[0])) {
-        const s = bignum_mod.toString(gc.allocator, args[0]) catch return PrimitiveError.OutOfMemory;
+        const s = bignum_mod.toStringRadix(gc.allocator, args[0], radix) catch return PrimitiveError.OutOfMemory;
         defer gc.allocator.free(s);
         return gc.allocString(s) catch return PrimitiveError.OutOfMemory;
     }
