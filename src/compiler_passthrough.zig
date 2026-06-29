@@ -500,10 +500,10 @@ fn collectFreeRefsWithLocals(template: Value, pat_vars: []const []const u8, lite
         }
         if (std.mem.eql(u8, hname, "syntax-rules")) {
             if (rest != types.NIL and types.isPair(rest)) {
-                var sr_names: [16][]const u8 = undefined;
+                var sr_names: [64][]const u8 = undefined;
                 var sr_count: usize = 0;
                 for (local_binds) |lb| {
-                    if (sr_count < 16) {
+                    if (sr_count < 64) {
                         sr_names[sr_count] = lb;
                         sr_count += 1;
                     }
