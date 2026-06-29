@@ -190,6 +190,7 @@ pub const GC = struct {
     pub fn allocString(self: *GC, data: []const u8) !Value {
         try self.maybeCollect();
         const owned = try self.allocator.dupe(u8, data);
+        errdefer self.allocator.free(owned);
         const str = try self.allocator.create(SchemeString);
         str.* = .{
             .header = .{ .tag = .string },
@@ -222,6 +223,7 @@ pub const GC = struct {
         try self.maybeCollect();
         const upvalue_count = func.upvalue_count;
         const upvalues = try self.allocator.alloc(Value, upvalue_count);
+        errdefer self.allocator.free(upvalues);
         @memset(upvalues, types.UNDEFINED);
 
         const cls = try self.allocator.create(Closure);
@@ -255,6 +257,7 @@ pub const GC = struct {
     pub fn allocNativeClosure(self: *GC, fn_ptr: types.NativeClosureFnType, upvalues: []const Value, arity: u8, name: []const u8) !Value {
         try self.maybeCollect();
         const uv_copy = try self.allocator.alloc(Value, upvalues.len);
+        errdefer self.allocator.free(uv_copy);
         @memcpy(uv_copy, upvalues);
         const nc = try self.allocator.create(types.NativeClosure);
         nc.* = .{
@@ -278,6 +281,7 @@ pub const GC = struct {
     pub fn allocVector(self: *GC, data: []const Value) !Value {
         try self.maybeCollect();
         const owned = try self.allocator.alloc(Value, data.len);
+        errdefer self.allocator.free(owned);
         @memcpy(owned, data);
         const vec = try self.allocator.create(Vector);
         vec.* = .{
@@ -294,6 +298,7 @@ pub const GC = struct {
     pub fn allocVectorFill(self: *GC, size: usize, fill: Value) !Value {
         try self.maybeCollect();
         const data = try self.allocator.alloc(Value, size);
+        errdefer self.allocator.free(data);
         @memset(data, fill);
         const vec = try self.allocator.create(Vector);
         vec.* = .{
@@ -325,8 +330,11 @@ pub const GC = struct {
     pub fn allocTransformer(self: *GC, literals: []const Value, patterns: []const Value, templates: []const Value) !Value {
         const num_rules: u16 = @intCast(patterns.len);
         const owned_lits = try self.allocator.dupe(Value, literals);
+        errdefer self.allocator.free(owned_lits);
         const owned_pats = try self.allocator.dupe(Value, patterns);
+        errdefer self.allocator.free(owned_pats);
         const owned_tmps = try self.allocator.dupe(Value, templates);
+        errdefer self.allocator.free(owned_tmps);
 
         const tx = try self.allocator.create(Transformer);
         tx.* = .{
@@ -346,6 +354,7 @@ pub const GC = struct {
     pub fn allocRecordType(self: *GC, name: []const u8, num_fields: u8) !Value {
         try self.maybeCollect();
         const owned_name = try self.allocator.dupe(u8, name);
+        errdefer self.allocator.free(owned_name);
         const rt = try self.allocator.create(RecordType);
         rt.* = .{
             .header = .{ .tag = .record_type },
@@ -362,6 +371,7 @@ pub const GC = struct {
     pub fn allocRecordInstance(self: *GC, record_type: *RecordType, field_values: []const Value) !Value {
         try self.maybeCollect();
         const fields = try self.allocator.alloc(Value, record_type.num_fields);
+        errdefer self.allocator.free(fields);
         for (0..record_type.num_fields) |i| {
             if (i < field_values.len) {
                 fields[i] = field_values[i];
@@ -411,6 +421,7 @@ pub const GC = struct {
     pub fn allocStringInputPort(self: *GC, data: []const u8) !Value {
         try self.maybeCollect();
         const owned = try self.allocator.dupe(u8, data);
+        errdefer self.allocator.free(owned);
         const port = try self.allocator.create(Port);
         port.* = .{
             .header = .{ .tag = .port },
@@ -436,6 +447,7 @@ pub const GC = struct {
         try self.maybeCollect();
         const initial_cap: usize = 64;
         const buf = try self.allocator.alloc(u8, initial_cap);
+        errdefer self.allocator.free(buf);
         const port = try self.allocator.create(Port);
         port.* = .{
             .header = .{ .tag = .port },
@@ -461,6 +473,7 @@ pub const GC = struct {
     pub fn allocBytevector(self: *GC, data: []const u8) !Value {
         try self.maybeCollect();
         const owned = try self.allocator.dupe(u8, data);
+        errdefer self.allocator.free(owned);
         const bv = try self.allocator.create(Bytevector);
         bv.* = .{
             .header = .{ .tag = .bytevector },
@@ -476,6 +489,7 @@ pub const GC = struct {
     pub fn allocBytevectorFill(self: *GC, size: usize, fill: u8) !Value {
         try self.maybeCollect();
         const data = try self.allocator.alloc(u8, size);
+        errdefer self.allocator.free(data);
         @memset(data, fill);
         const bv = try self.allocator.create(Bytevector);
         bv.* = .{
@@ -656,6 +670,7 @@ pub const GC = struct {
     pub fn allocFfiLibrary(self: *GC, handle: ?*anyopaque, name: []const u8) !Value {
         try self.maybeCollect();
         const owned_name = try self.allocator.dupe(u8, name);
+        errdefer self.allocator.free(owned_name);
         const lib = try self.allocator.create(FfiLibrary);
         lib.* = .{
             .header = .{ .tag = .ffi_library },
@@ -672,7 +687,9 @@ pub const GC = struct {
     pub fn allocFfiFunction(self: *GC, symbol: *anyopaque, library: Value, name: []const u8, param_types: []const FfiType, return_type: FfiType) !Value {
         try self.maybeCollect();
         const owned_name = try self.allocator.dupe(u8, name);
+        errdefer self.allocator.free(owned_name);
         const owned_params = try self.allocator.dupe(FfiType, param_types);
+        errdefer self.allocator.free(owned_params);
         const ffi_fn = try self.allocator.create(FfiFunction);
         ffi_fn.* = .{
             .header = .{ .tag = .ffi_function },
@@ -827,6 +844,7 @@ pub const GC = struct {
             cap = @as(usize, 1) << @intCast(@as(std.math.Log2Int(usize), @intCast(@bitSizeOf(usize) - @clz(cap))));
         }
         const entries = try self.allocator.alloc(HashEntry, cap);
+        errdefer self.allocator.free(entries);
         // Initialize all entries as empty (key=VOID sentinel)
         for (entries) |*e| {
             e.key = types.VOID;
@@ -848,8 +866,9 @@ pub const GC = struct {
 
     pub fn allocBignumFromI64(self: *GC, n: i64) !Value {
         try self.maybeCollect();
-        const bn = try self.allocator.create(Bignum);
         const limbs = try self.allocator.alloc(u64, 1);
+        errdefer self.allocator.free(limbs);
+        const bn = try self.allocator.create(Bignum);
         const mag: u64 = if (n < 0) @intCast(-@as(i128, n)) else @intCast(n);
         limbs[0] = mag;
         bn.* = .{
@@ -867,8 +886,9 @@ pub const GC = struct {
 
     pub fn allocBignumFromLimbs(self: *GC, limbs: []const u64, len: usize, positive: bool) !Value {
         try self.maybeCollect();
-        const bn = try self.allocator.create(Bignum);
         const owned = try self.allocator.alloc(u64, limbs.len);
+        errdefer self.allocator.free(owned);
+        const bn = try self.allocator.create(Bignum);
         @memcpy(owned, limbs);
         bn.* = .{
             .header = .{ .tag = .bignum },
@@ -943,9 +963,13 @@ pub const GC = struct {
     pub fn allocUserInfo(self: *GC, name: []const u8, uid: u32, gid: u32, home_dir: []const u8, shell: []const u8, full_name: []const u8) !Value {
         try self.maybeCollect();
         const name_copy = try self.allocator.dupe(u8, name);
+        errdefer self.allocator.free(name_copy);
         const home_copy = try self.allocator.dupe(u8, home_dir);
+        errdefer self.allocator.free(home_copy);
         const shell_copy = try self.allocator.dupe(u8, shell);
+        errdefer self.allocator.free(shell_copy);
         const gecos_copy = try self.allocator.dupe(u8, full_name);
+        errdefer self.allocator.free(gecos_copy);
         const ui = try self.allocator.create(types.UserInfo);
         ui.* = .{
             .header = .{ .tag = .user_info },
@@ -966,6 +990,7 @@ pub const GC = struct {
     pub fn allocGroupInfo(self: *GC, name: []const u8, gid: u32) !Value {
         try self.maybeCollect();
         const name_copy = try self.allocator.dupe(u8, name);
+        errdefer self.allocator.free(name_copy);
         const gi = try self.allocator.create(types.GroupInfo);
         gi.* = .{
             .header = .{ .tag = .group_info },
