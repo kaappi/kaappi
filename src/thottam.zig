@@ -148,7 +148,12 @@ const Constraint = struct {
             .lte => Semver.order(v, self.ver) != .gt,
             .lt => Semver.order(v, self.ver) == .lt,
             .eq => Semver.order(v, self.ver) == .eq,
-            .caret => v.major == self.ver.major and Semver.order(v, self.ver) != .lt,
+            .caret => blk: {
+                if (Semver.order(v, self.ver) == .lt) break :blk false;
+                if (self.ver.major != 0) break :blk v.major == self.ver.major;
+                if (self.ver.minor != 0) break :blk v.major == 0 and v.minor == self.ver.minor;
+                break :blk v.major == 0 and v.minor == 0 and v.patch == self.ver.patch;
+            },
             .tilde => v.major == self.ver.major and v.minor == self.ver.minor and Semver.order(v, self.ver) != .lt,
         };
     }
@@ -1282,6 +1287,31 @@ test "parseField" {
     try std.testing.expectEqualStrings("value", parseField("key:  value  ", "key:").?);
     try std.testing.expect(parseField("other: value", "key:") == null);
     try std.testing.expect(parseField("", "key:") == null);
+}
+
+test "caret constraint: major > 0 locks major" {
+    const c = Constraint{ .op = .caret, .ver = .{ .major = 1, .minor = 2, .patch = 3 } };
+    try std.testing.expect(c.matches(.{ .major = 1, .minor = 2, .patch = 3 }));
+    try std.testing.expect(c.matches(.{ .major = 1, .minor = 9, .patch = 0 }));
+    try std.testing.expect(!c.matches(.{ .major = 2, .minor = 0, .patch = 0 }));
+    try std.testing.expect(!c.matches(.{ .major = 1, .minor = 2, .patch = 2 }));
+}
+
+test "caret constraint: major=0 minor>0 locks minor" {
+    const c = Constraint{ .op = .caret, .ver = .{ .major = 0, .minor = 2, .patch = 3 } };
+    try std.testing.expect(c.matches(.{ .major = 0, .minor = 2, .patch = 3 }));
+    try std.testing.expect(c.matches(.{ .major = 0, .minor = 2, .patch = 9 }));
+    try std.testing.expect(!c.matches(.{ .major = 0, .minor = 3, .patch = 0 }));
+    try std.testing.expect(!c.matches(.{ .major = 0, .minor = 2, .patch = 2 }));
+    try std.testing.expect(!c.matches(.{ .major = 1, .minor = 0, .patch = 0 }));
+}
+
+test "caret constraint: major=0 minor=0 locks patch" {
+    const c = Constraint{ .op = .caret, .ver = .{ .major = 0, .minor = 0, .patch = 3 } };
+    try std.testing.expect(c.matches(.{ .major = 0, .minor = 0, .patch = 3 }));
+    try std.testing.expect(!c.matches(.{ .major = 0, .minor = 0, .patch = 4 }));
+    try std.testing.expect(!c.matches(.{ .major = 0, .minor = 0, .patch = 2 }));
+    try std.testing.expect(!c.matches(.{ .major = 0, .minor = 1, .patch = 0 }));
 }
 
 test "dylib_ext is correct for platform" {
