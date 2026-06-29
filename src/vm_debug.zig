@@ -76,7 +76,9 @@ pub fn debugPause(vm: *VM, frame: *CallFrame) !void {
             writeStderr(" (");
             writeStderr(src);
             var buf: [32]u8 = undefined;
-            const s = std.fmt.bufPrint(&buf, ":{d}", .{func.source_line}) catch "";
+            const ip = if (frame.ip > 0) frame.ip - 1 else 0;
+            const line = func.lineForOffset(ip);
+            const s = std.fmt.bufPrint(&buf, ":{d}", .{line}) catch "";
             writeStderr(s);
             writeStderr(")");
         }
@@ -128,8 +130,8 @@ pub fn debugPause(vm: *VM, frame: *CallFrame) !void {
             continue;
         }
         if (std.mem.eql(u8, cmd, "up")) {
-            if (vm.inspect_frame + 1 < vm.frame_count) {
-                vm.inspect_frame += 1;
+            if (vm.inspect_frame > 0) {
+                vm.inspect_frame -= 1;
                 printFrameInfo(vm, vm.inspect_frame);
             } else {
                 writeStderr("Already at top of stack\n");
@@ -137,8 +139,8 @@ pub fn debugPause(vm: *VM, frame: *CallFrame) !void {
             continue;
         }
         if (std.mem.eql(u8, cmd, "down")) {
-            if (vm.inspect_frame > 0) {
-                vm.inspect_frame -= 1;
+            if (vm.inspect_frame + 1 < vm.frame_count) {
+                vm.inspect_frame += 1;
                 printFrameInfo(vm, vm.inspect_frame);
             } else {
                 writeStderr("Already at bottom of stack\n");
