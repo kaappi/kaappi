@@ -598,6 +598,33 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                     }
                     if (target_frame_count == 0) continue;
                     return VMError.ContinuationInvoked;
+                } else if (types.isFfiFunction(proc)) {
+                    const ffi_fn = types.toObject(proc).as(types.FfiFunction);
+                    if (count != ffi_fn.param_count) return VMError.ArityMismatch;
+                    const ffi_mod = @import("ffi.zig");
+                    const result = ffi_mod.callFfi(ffi_fn, flat_args[0..count], self.gc) catch return VMError.TypeError;
+                    const return_dst = frame.dst;
+                    self.frame_count -= 1;
+                    if (self.frame_count <= target_frame_count) return result;
+                    const caller = &self.frames[self.frame_count - 1];
+                    const ret_idx = try registerIndex(self, caller.base, return_dst);
+                    self.registers[ret_idx] = result;
+                } else if (types.isParameter(proc)) {
+                    const param = types.toObject(proc).as(types.ParameterObject);
+                    const result = if (count == 0) self.getParameterValue(param) else blk: {
+                        var new_val = flat_args[0];
+                        if (param.converter != types.NIL) {
+                            new_val = self.callWithArgs(param.converter, &[_]Value{new_val}) catch |err| return err;
+                        }
+                        try self.setParameterValue(param, new_val);
+                        break :blk types.VOID;
+                    };
+                    const return_dst = frame.dst;
+                    self.frame_count -= 1;
+                    if (self.frame_count <= target_frame_count) return result;
+                    const caller = &self.frames[self.frame_count - 1];
+                    const ret_idx = try registerIndex(self, caller.base, return_dst);
+                    self.registers[ret_idx] = result;
                 } else {
                     self.setErrorDetail("apply: not a procedure", .{});
                     return VMError.NotAProcedure;

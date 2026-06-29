@@ -81,6 +81,16 @@
       (let ((adder (make-adder i)))
         (loop (+ i 1) (+ sum (adder 1))))))
 
+;; tail_apply with parameter objects (issue #446)
+(define p446 (make-parameter 42))
+(define (test-param-apply) (apply p446 (list)))
+(test-eqv "tail_apply parameter get" 42 (test-param-apply))
+
+(define p446-set (make-parameter 0))
+(define (test-param-apply-set v) (apply p446-set (list v)))
+(test-param-apply-set 99)
+(test-eqv "tail_apply parameter set" 99 (p446-set))
+
 (set! %test-fail-count (test-runner-fail-count (test-runner-current)))
 (test-end "tail-calls")
 (if (> %test-fail-count 0) (exit 1))
