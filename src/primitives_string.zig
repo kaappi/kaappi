@@ -755,7 +755,7 @@ fn charToIntegerFn(args: []const Value) PrimitiveError!Value {
 fn integerToCharFn(args: []const Value) PrimitiveError!Value {
     if (!types.isFixnum(args[0])) return primitives.typeError("integer->char", "exact integer", args[0]);
     const n = types.toFixnum(args[0]);
-    if (n < 0 or n > 0x10FFFF) return primitives.typeError("integer->char", "valid Unicode codepoint (0..#x10FFFF)", args[0]);
+    if (n < 0 or n > 0x10FFFF or (n >= 0xD800 and n <= 0xDFFF)) return primitives.typeError("integer->char", "valid Unicode scalar value (0..#xD7FF, #xE000..#x10FFFF)", args[0]);
     return types.makeChar(@intCast(n));
 }
 
