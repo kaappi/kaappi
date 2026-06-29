@@ -265,7 +265,10 @@ fn readFile(allocator: std.mem.Allocator, path: []const u8) ![]u8 {
     var buf: std.ArrayList(u8) = .empty;
     var tmp: [4096]u8 = undefined;
     while (true) {
-        const n = std.posix.read(fd, &tmp) catch return buf.toOwnedSlice(allocator);
+        const n = std.posix.read(fd, &tmp) catch {
+            buf.deinit(allocator);
+            return error.ReadFailed;
+        };
         if (n == 0) break;
         buf.appendSlice(allocator, tmp[0..n]) catch return error.OutOfMemory;
     }
