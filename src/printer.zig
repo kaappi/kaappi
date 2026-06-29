@@ -439,8 +439,18 @@ fn printValueWithDepth(writer: anytype, value: Value, mode: PrintMode, depth: u3
                 if (mode != .display and symbolNeedsBars(sym.name)) {
                     try writer.writeByte('|');
                     for (sym.name) |c| {
-                        if (c == '|' or c == '\\') try writer.writeByte('\\');
-                        try writer.writeByte(c);
+                        if (c == '|' or c == '\\') {
+                            try writer.writeByte('\\');
+                            try writer.writeByte(c);
+                        } else if (c < 0x20 or c == 0x7F) {
+                            try writer.writeAll("\\x");
+                            const hex = "0123456789abcdef";
+                            try writer.writeByte(hex[c >> 4]);
+                            try writer.writeByte(hex[c & 0x0F]);
+                            try writer.writeByte(';');
+                        } else {
+                            try writer.writeByte(c);
+                        }
                     }
                     try writer.writeByte('|');
                 } else {
@@ -460,7 +470,17 @@ fn printValueWithDepth(writer: anytype, value: Value, mode: PrintMode, depth: u3
                             '\t' => try writer.writeAll("\\t"),
                             0x07 => try writer.writeAll("\\a"),
                             0x08 => try writer.writeAll("\\b"),
-                            else => try writer.writeByte(c),
+                            else => {
+                                if (c < 0x20 or c == 0x7F) {
+                                    try writer.writeAll("\\x");
+                                    const hex = "0123456789abcdef";
+                                    try writer.writeByte(hex[c >> 4]);
+                                    try writer.writeByte(hex[c & 0x0F]);
+                                    try writer.writeByte(';');
+                                } else {
+                                    try writer.writeByte(c);
+                                }
+                            },
                         }
                     }
                     try writer.writeByte('"');
