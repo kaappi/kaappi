@@ -742,19 +742,11 @@ fn callFfi4(ffi_fn: *types.FfiFunction, args: []const Value, gc: *memory.GC) !Va
     const p3 = normalizeType(ffi_fn.param_types[3]);
     const rt = normalizeType(ffi_fn.return_type);
 
-    // (pointer, long, long, pointer) -> void  — qsort
+    // (pointer, long, long, pointer) -> void
     if (p0 == .pointer and p1 == .long and p2 == .long and p3 == .pointer and rt == .void_type) {
-        const f: *const fn (?*anyopaque, usize, usize, *const fn (?*anyopaque, ?*anyopaque) callconv(.c) c_int) callconv(.c) void =
+        const f: *const fn (?*anyopaque, c_long, c_long, ?*anyopaque) callconv(.c) void =
             @ptrCast(@alignCast(ffi_fn.symbol));
-        const ptr0 = marshalToPointer(args[0]) orelse return error.TypeError;
-        const n_signed = try toIntArg(args[1]);
-        const sz_signed = try toIntArg(args[2]);
-        if (n_signed < 0 or sz_signed < 0) return error.TypeError;
-        const n: usize = @intCast(n_signed);
-        const sz: usize = @intCast(sz_signed);
-        const cmp_ptr = marshalToPointer(args[3]) orelse return error.TypeError;
-        const cmp: *const fn (?*anyopaque, ?*anyopaque) callconv(.c) c_int = @ptrCast(@alignCast(cmp_ptr));
-        f(ptr0, n, sz, cmp);
+        f(marshalToPointer(args[0]), @intCast(try toIntArg(args[1])), @intCast(try toIntArg(args[2])), marshalToPointer(args[3]));
         return types.VOID;
     }
 
