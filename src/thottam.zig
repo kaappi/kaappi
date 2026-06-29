@@ -82,6 +82,14 @@ fn parsePkgSpec(spec: []const u8) PkgSpec {
     return .{ .name = name_ver, .ver = null, .source = source };
 }
 
+fn isValidPkgName(name: []const u8) bool {
+    if (name.len == 0) return false;
+    for (name) |c| {
+        if (!std.ascii.isAlphanumeric(c) and c != '-' and c != '_') return false;
+    }
+    return true;
+}
+
 fn parseField(line: []const u8, prefix: []const u8) ?[]const u8 {
     if (std.mem.startsWith(u8, line, prefix)) {
         return std.mem.trim(u8, line[prefix.len..], " \t\r");
@@ -674,6 +682,14 @@ fn doInstall(
     const pkg = parsed.name;
     var install_version = parsed.ver;
 
+    if (!isValidPkgName(pkg)) {
+        printErrColor(Color.red, "error: ");
+        writeStderr("invalid package name '");
+        writeStderr(pkg);
+        writeStderr("' (only alphanumeric, '-', '_' allowed)\n");
+        return error.InvalidPackageName;
+    }
+
     if (visited.get(pkg) != null) return;
     try visited.put(pkg, {});
 
@@ -782,9 +798,7 @@ fn doInstall(
 
         if (manifest.build_cmd) |build_cmd| {
             printBuf(&buf, "  Building {s}...\n", .{pkg});
-            const full_cmd = try std.mem.concat(allocator, u8, &.{ "cd ", pkg_dir, " && ", build_cmd });
-            defer allocator.free(full_cmd);
-            const exit_code = runPassthrough(allocator, &.{ "/bin/sh", "-c", full_cmd }, null) catch 1;
+            const exit_code = runPassthrough(allocator, &.{ "/bin/sh", "-c", build_cmd }, pkg_dir) catch 1;
             if (exit_code != 0) {
                 printErrColor(Color.red, "  Build failed\n");
                 return error.BuildFailed;
@@ -932,9 +946,7 @@ fn doUpdate(allocator: std.mem.Allocator, config: Config, pkg: ?[]const u8) !voi
 
         if (getPkgManifest(allocator, config.src_dir, p)) |manifest| {
             if (manifest.build_cmd) |build_cmd| {
-                const full_cmd = std.mem.concat(allocator, u8, &.{ "cd ", pkg_dir, " && ", build_cmd }) catch return;
-                defer allocator.free(full_cmd);
-                _ = runPassthrough(allocator, &.{ "/bin/sh", "-c", full_cmd }, null) catch {};
+                _ = runPassthrough(allocator, &.{ "/bin/sh", "-c", build_cmd }, pkg_dir) catch {};
             }
         }
 
