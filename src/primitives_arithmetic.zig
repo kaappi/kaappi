@@ -1057,12 +1057,12 @@ fn gcdFn(args: []const Value) PrimitiveError!Value {
         return result;
     }
     if (anyFlonum(args)) {
-        var result: i64 = @intFromFloat(@abs(try toF64Ext(args[0])));
+        var result: f64 = @abs(try toF64Ext(args[0]));
         for (args[1..]) |a| {
-            const n: i64 = @intFromFloat(@abs(try toF64Ext(a)));
-            result = gcdTwo(result, n);
+            const b = @abs(try toF64Ext(a));
+            result = gcdF64(result, b);
         }
-        return makeFlonumVal(@floatFromInt(result));
+        return makeFlonumVal(result);
     }
     if (!types.isFixnum(args[0])) return PrimitiveError.TypeError;
     var result = types.toFixnum(args[0]);

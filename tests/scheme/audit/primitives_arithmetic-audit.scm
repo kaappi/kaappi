@@ -37,6 +37,14 @@
 (test #t (= 2.0 (gcd 4 6.0)))
 
 ;;; ================================================================
+;;; Bug 439: gcd must not crash on inexact args outside i64 range
+;;; ================================================================
+(test #t (number? (gcd +nan.0 1.0)))
+(test #t (number? (gcd +inf.0 6.0)))
+(test #t (= 1e100 (gcd 1e100 0.0)))
+(test #t (= 2.0 (gcd 1e100 2.0)))
+
+;;; ================================================================
 ;;; Bug 5: lcm should not overflow — large values
 ;;; (lcm on large values should promote to bignum, not panic)
 ;;; ================================================================
