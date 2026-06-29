@@ -218,12 +218,16 @@ fn threadStartFn(args: []const Value) PrimitiveError!Value {
 
 fn threadEntryFn(fiber: *fiber_mod.Fiber, allocator: std.mem.Allocator, parent_gc: *memory.GC, parent_vm: *vm_mod.VM) void {
     _ = parent_gc;
-    const child_gc = allocator.create(memory.GC) catch return;
+    const child_gc = allocator.create(memory.GC) catch {
+        fiber.status = .errored;
+        return;
+    };
     child_gc.* = memory.GC.initForThread(allocator, parent_vm.gc);
 
     const child_vm = allocator.create(vm_mod.VM) catch {
         child_gc.deinit();
         allocator.destroy(child_gc);
+        fiber.status = .errored;
         return;
     };
     @memset(std.mem.asBytes(child_vm), 0);
@@ -238,6 +242,10 @@ fn threadEntryFn(fiber: *fiber_mod.Fiber, allocator: std.mem.Allocator, parent_g
         child_resources.put(@intFromPtr(fiber), .{ .child_gc = child_gc, .child_vm = child_vm }) catch {
             fiber.status = .errored;
             fiber.result = types.VOID;
+            child_vm.deinit();
+            allocator.destroy(child_vm);
+            child_gc.deinit();
+            allocator.destroy(child_gc);
             return;
         };
     }
@@ -256,6 +264,7 @@ fn threadEntryFn(fiber: *fiber_mod.Fiber, allocator: std.mem.Allocator, parent_g
 
     const result = child_vm.callWithArgs(child_thunk, &.{}) catch {
         fiber.status = .errored;
+        storeChildResult(@intFromPtr(fiber), types.VOID, child_vm.current_exception);
         return;
     };
 
@@ -330,6 +339,15 @@ fn threadJoinFn(args: []const Value) PrimitiveError!Value {
         target.os_thread = null;
 
         const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+
+        // Remove thunk from extra_roots (added by thread-start! to keep it
+        // alive during deep-copy; the child is done now).
+        for (gc.extra_roots.items, 0..) |v, idx| {
+            if (v == target.thunk) {
+                _ = gc.extra_roots.swapRemove(idx);
+                break;
+            }
+        }
         const fiber_key = @intFromPtr(target);
 
         // Retrieve result/exception from child_resources (stored there to
