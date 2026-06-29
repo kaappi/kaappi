@@ -1227,9 +1227,10 @@ pub const Compiler = struct {
         if (body == types.NIL) return CompileError.InvalidSyntax;
 
         // Save current macro table entries so we can restore
-        var saved_names: [16][]const u8 = undefined;
-        var saved_values: [16]?Value = undefined;
-        var saved_count: usize = 0;
+        var saved_names: std.ArrayList([]const u8) = .empty;
+        defer saved_names.deinit(self.gc.allocator);
+        var saved_values: std.ArrayList(?Value) = .empty;
+        defer saved_values.deinit(self.gc.allocator);
 
         // Process syntax bindings
         var binding_list = bindings;
@@ -1246,11 +1247,8 @@ pub const Compiler = struct {
             const name = types.symbolName(keyword);
 
             // Save any existing macro with this name
-            if (saved_count < 16) {
-                saved_names[saved_count] = name;
-                saved_values[saved_count] = self.macros.get(name);
-                saved_count += 1;
-            }
+            saved_names.append(self.gc.allocator, name) catch return CompileError.OutOfMemory;
+            saved_values.append(self.gc.allocator, self.macros.get(name)) catch return CompileError.OutOfMemory;
 
             // Capture current locals for referential transparency
             if (self.locals.items.len > 0) {
@@ -1284,11 +1282,11 @@ pub const Compiler = struct {
         self.endScope();
 
         // Restore macro table
-        for (0..saved_count) |i| {
-            if (saved_values[i]) |old_val| {
-                self.macros.put(saved_names[i], old_val) catch {};
+        for (saved_names.items, saved_values.items) |name, saved_val| {
+            if (saved_val) |old_val| {
+                self.macros.put(name, old_val) catch {};
             } else {
-                _ = self.macros.remove(saved_names[i]);
+                _ = self.macros.remove(name);
             }
         }
     }
