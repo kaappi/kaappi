@@ -1060,7 +1060,8 @@ fn doVerify(allocator: std.mem.Allocator, config: Config) !void {
         if (line.len == 0) continue;
         const space = std.mem.indexOfScalar(u8, line, ' ') orelse continue;
         const pkg = line[0..space];
-        const locked_sha = line[space + 1 ..];
+        const rest = line[space + 1 ..];
+        const locked_sha = if (std.mem.indexOfScalar(u8, rest, ' ')) |sp2| rest[0..sp2] else rest;
 
         const current_sha = getPkgSha(allocator, config.src_dir, pkg);
         if (current_sha == null) {
