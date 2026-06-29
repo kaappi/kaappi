@@ -118,10 +118,6 @@ pub const Reader = struct {
         self.token_buf.appendSlice(self.gc.allocator, slice) catch return ReadError.OutOfMemory;
     }
 
-    pub fn skipWhitespaceAndComments(self: *Reader) void {
-        self.skipWhitespaceAndCommentsChecked() catch {};
-    }
-
     pub fn skipWhitespaceAndCommentsChecked(self: *Reader) ReadError!void {
         while (self.pos < self.source.len) {
             const c = self.source[self.pos];
@@ -543,8 +539,8 @@ pub const Reader = struct {
         return reader_datum.readDatum(self);
     }
 
-    pub fn hasMore(self: *Reader) bool {
-        self.skipWhitespaceAndComments();
+    pub fn hasMore(self: *Reader) ReadError!bool {
+        try self.skipWhitespaceAndCommentsChecked();
         return self.pos < self.source.len;
     }
 };

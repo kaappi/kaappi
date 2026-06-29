@@ -473,7 +473,7 @@ pub fn repl(vm: *vm_mod.VM) !void {
                 continue;
             };
             var read_ok = true;
-            while (ir.hasMore()) {
+            while (ir.hasMore() catch false) {
                 const datum = ir.readDatum() catch {
                     writeStderr("read error in import spec\n");
                     read_ok = false;
@@ -806,7 +806,13 @@ fn evalInputInner(vm: *vm_mod.VM, allocator: std.mem.Allocator, input: []const u
     var r = reader.Reader.initWithName(vm.gc, input, "<repl>");
     defer r.deinit();
 
-    while (r.hasMore()) {
+    while (r.hasMore() catch |err| blk: {
+        const lc = r.getLineCol();
+        var errbuf: [256]u8 = undefined;
+        const s = std.fmt.bufPrint(&errbuf, "<repl>:{d}:{d}: read error: {}\n", .{ lc.line, lc.col, err }) catch "read error\n";
+        writeStderr(s);
+        break :blk false;
+    }) {
         const expr = r.readDatum() catch |err| {
             const lc = r.getLineCol();
             var errbuf: [256]u8 = undefined;

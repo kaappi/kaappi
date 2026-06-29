@@ -166,7 +166,7 @@ fn loadLibrarySource(vm: *VM, source: []const u8) !void {
     var rdr = reader_mod.Reader.init(vm.gc, source);
     defer rdr.deinit();
 
-    while (rdr.hasMore()) {
+    while (rdr.hasMore() catch return error.InvalidSyntax) {
         const expr = rdr.readDatum() catch return error.InvalidSyntax;
 
         if (vm.handleTopLevelForm(expr)) |result| {
@@ -251,7 +251,7 @@ fn extractExportsAndImports(vm: *VM, source: []const u8) !LibraryMeta {
         .lib_name = "",
     };
 
-    while (rdr.hasMore()) {
+    while (rdr.hasMore() catch return error.InvalidSyntax) {
         const expr = rdr.readDatum() catch return error.InvalidSyntax;
 
         if (!types.isPair(expr)) continue;
@@ -617,7 +617,7 @@ pub fn handleTopLevelInclude(vm: *VM, args: Value, ci: bool) VMError!Value {
         var file_reader = reader_mod.Reader.initWithName(vm.gc, file_source, owned_path);
         defer file_reader.deinit();
 
-        while (file_reader.hasMore()) {
+        while (file_reader.hasMore() catch false) {
             const lc = file_reader.getLineCol();
             const inc_expr = file_reader.readDatum() catch {
                 reportIncludeError(vm, owned_path, lc.line, null, error.CompileError);
@@ -1074,7 +1074,7 @@ fn compileLibInclude(vm: *VM, lib_env: *std.StringHashMap(Value), file_list_val:
         var file_reader = reader_mod.Reader.init(vm.gc, file_source);
         defer file_reader.deinit();
 
-        while (file_reader.hasMore()) {
+        while (file_reader.hasMore() catch return VMError.CompileError) {
             const inc_expr = file_reader.readDatum() catch return VMError.CompileError;
             try compileLibExpr(vm, lib_env, inc_expr);
         }
@@ -1119,7 +1119,7 @@ fn includeLibraryDeclarations(
         var file_reader = reader_mod.Reader.init(vm.gc, file_source);
         defer file_reader.deinit();
 
-        while (file_reader.hasMore()) {
+        while (file_reader.hasMore() catch return VMError.CompileError) {
             const declaration = file_reader.readDatum() catch return VMError.CompileError;
             if (!types.isPair(declaration)) return VMError.CompileError;
             const decl_head = types.car(declaration);

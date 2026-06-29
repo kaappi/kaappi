@@ -397,7 +397,7 @@ fn handleDocumentSymbol(allocator: std.mem.Allocator, vm: *vm_mod.VM, id: i64, p
     var r = reader.Reader.init(vm.gc, text);
     defer r.deinit();
 
-    while (r.hasMore()) {
+    while (r.hasMore() catch false) {
         const lc = r.getLineCol();
         const expr = r.readDatum() catch break;
 
@@ -489,7 +489,7 @@ fn handleDefinition(allocator: std.mem.Allocator, vm: *vm_mod.VM, id: i64, param
     var r = reader.Reader.init(vm.gc, text);
     defer r.deinit();
 
-    while (r.hasMore()) {
+    while (r.hasMore() catch false) {
         const lc = r.getLineCol();
         const expr = r.readDatum() catch break;
         if (findDefineLocation(expr, symbol, lc.line)) |def_line| {
@@ -662,7 +662,7 @@ fn runDiagnostics(allocator: std.mem.Allocator, vm: *vm_mod.VM, uri: []const u8,
     var r = reader.Reader.initWithName(vm.gc, text, uri);
     defer r.deinit();
 
-    while (r.hasMore()) {
+    while (r.hasMore() catch false) {
         const expr = r.readDatum() catch {
             const lc = r.getLineCol();
             if (has_diag) diag_buf.append(allocator, ',') catch {};
