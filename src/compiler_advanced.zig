@@ -137,15 +137,15 @@ pub fn compileCase(self: *Compiler, args: Value, dst: u16, is_tail: bool) Compil
                     try self.emitU16(arg_reg);
                     try self.emitU16(key_reg);
                     try self.compileExpr(proc_expr, proc_reg, false);
-                    try self.emitOp(.move);
-                    try self.emitU16(dst);
-                    try self.emitU16(proc_reg);
-                    try self.emitOp(.move);
-                    try self.emitU16(dst + 1);
-                    try self.emitU16(arg_reg);
+                    // Call at proc_reg (arg already at proc_reg + 1)
                     if (is_tail) try self.emitOp(.tail_call) else try self.emitOp(.call);
-                    try self.emitU16(dst);
+                    try self.emitU16(proc_reg);
                     try self.emit(1);
+                    if (!is_tail) {
+                        try self.emitOp(.move);
+                        try self.emitU16(dst);
+                        try self.emitU16(proc_reg);
+                    }
                     self.freeReg(); // arg_reg
                     self.freeReg(); // proc_reg
                     had_else = true;
