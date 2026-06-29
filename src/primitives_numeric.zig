@@ -511,27 +511,103 @@ fn exactIntegerSqrt(args: []const Value) PrimitiveError!Value {
 // ---------------------------------------------------------------------------
 
 fn sinFn(args: []const Value) PrimitiveError!Value {
+    if (types.isComplex(args[0])) {
+        const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+        const c = types.toComplex(args[0]);
+        const re = @sin(c.real) * std.math.cosh(c.imag);
+        const im = @cos(c.real) * std.math.sinh(c.imag);
+        return gc.allocComplex(re, im) catch return PrimitiveError.OutOfMemory;
+    }
     const f = try toF64(args[0]);
     return makeFlonumVal(@sin(f));
 }
 
 fn cosFn(args: []const Value) PrimitiveError!Value {
+    if (types.isComplex(args[0])) {
+        const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+        const c = types.toComplex(args[0]);
+        const re = @cos(c.real) * std.math.cosh(c.imag);
+        const im = -@sin(c.real) * std.math.sinh(c.imag);
+        return gc.allocComplex(re, im) catch return PrimitiveError.OutOfMemory;
+    }
     const f = try toF64(args[0]);
     return makeFlonumVal(@cos(f));
 }
 
 fn tanFn(args: []const Value) PrimitiveError!Value {
+    if (types.isComplex(args[0])) {
+        const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+        const c = types.toComplex(args[0]);
+        const sin_re = @sin(c.real) * std.math.cosh(c.imag);
+        const sin_im = @cos(c.real) * std.math.sinh(c.imag);
+        const cos_re = @cos(c.real) * std.math.cosh(c.imag);
+        const cos_im = -@sin(c.real) * std.math.sinh(c.imag);
+        const denom = cos_re * cos_re + cos_im * cos_im;
+        const re = (sin_re * cos_re + sin_im * cos_im) / denom;
+        const im = (sin_im * cos_re - sin_re * cos_im) / denom;
+        return gc.allocComplex(re, im) catch return PrimitiveError.OutOfMemory;
+    }
     const f = try toF64(args[0]);
     return makeFlonumVal(@tan(f));
 }
 
+fn complexAsin(gc: anytype, re: f64, im: f64) PrimitiveError!Value {
+    // asin(z) = -i * log(iz + sqrt(1 - z^2))
+    const one_minus_z2_re = 1.0 - (re * re - im * im);
+    const one_minus_z2_im = -(2.0 * re * im);
+    const sqrt_mag = @sqrt(@sqrt(one_minus_z2_re * one_minus_z2_re + one_minus_z2_im * one_minus_z2_im));
+    const sqrt_arg = std.math.atan2(one_minus_z2_im, one_minus_z2_re) / 2.0;
+    const sqrt_re = sqrt_mag * @cos(sqrt_arg);
+    const sqrt_im = sqrt_mag * @sin(sqrt_arg);
+    const log_arg_re = -im + sqrt_re;
+    const log_arg_im = re + sqrt_im;
+    const log_re = @log(@sqrt(log_arg_re * log_arg_re + log_arg_im * log_arg_im));
+    const log_im = std.math.atan2(log_arg_im, log_arg_re);
+    const result_re = log_im;
+    const result_im = -log_re;
+    if (@abs(result_im) < 1e-15) return makeFlonumVal(result_re);
+    return gc.allocComplex(result_re, result_im) catch return PrimitiveError.OutOfMemory;
+}
+
 fn asinFn(args: []const Value) PrimitiveError!Value {
+    if (types.isComplex(args[0])) {
+        const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+        const c = types.toComplex(args[0]);
+        return complexAsin(gc, c.real, c.imag);
+    }
     const f = try toF64(args[0]);
+    if (f < -1.0 or f > 1.0) {
+        const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+        return complexAsin(gc, f, 0.0);
+    }
     return makeFlonumVal(std.math.asin(f));
 }
 
 fn acosFn(args: []const Value) PrimitiveError!Value {
+    if (types.isComplex(args[0])) {
+        const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+        const c = types.toComplex(args[0]);
+        const asin_val = try complexAsin(gc, c.real, c.imag);
+        const pi_half = std.math.pi / 2.0;
+        if (types.isFlonum(asin_val)) return makeFlonumVal(pi_half - types.toFlonum(asin_val));
+        const ac = types.toComplex(asin_val);
+        const re = pi_half - ac.real;
+        const im = -ac.imag;
+        if (@abs(im) < 1e-15) return makeFlonumVal(re);
+        return gc.allocComplex(re, im) catch return PrimitiveError.OutOfMemory;
+    }
     const f = try toF64(args[0]);
+    if (f < -1.0 or f > 1.0) {
+        const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+        const asin_val = try complexAsin(gc, f, 0.0);
+        const pi_half = std.math.pi / 2.0;
+        if (types.isFlonum(asin_val)) return makeFlonumVal(pi_half - types.toFlonum(asin_val));
+        const ac = types.toComplex(asin_val);
+        const re = pi_half - ac.real;
+        const im = -ac.imag;
+        if (@abs(im) < 1e-15) return makeFlonumVal(re);
+        return gc.allocComplex(re, im) catch return PrimitiveError.OutOfMemory;
+    }
     return makeFlonumVal(std.math.acos(f));
 }
 
@@ -551,13 +627,39 @@ fn atanFn(args: []const Value) PrimitiveError!Value {
 // ---------------------------------------------------------------------------
 
 fn expFn(args: []const Value) PrimitiveError!Value {
+    if (types.isComplex(args[0])) {
+        const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+        const c = types.toComplex(args[0]);
+        const exp_r = @exp(c.real);
+        const re = exp_r * @cos(c.imag);
+        const im = exp_r * @sin(c.imag);
+        if (@abs(im) < 1e-15) return makeFlonumVal(re);
+        return gc.allocComplex(re, im) catch return PrimitiveError.OutOfMemory;
+    }
     const f = try toF64(args[0]);
     return makeFlonumVal(@exp(f));
 }
 
+fn complexLog(gc: anytype, re: f64, im: f64) PrimitiveError!Value {
+    const mag = @sqrt(re * re + im * im);
+    const result_re = @log(mag);
+    const result_im = std.math.atan2(im, re);
+    if (@abs(result_im) < 1e-15) return makeFlonumVal(result_re);
+    return gc.allocComplex(result_re, result_im) catch return PrimitiveError.OutOfMemory;
+}
+
 fn logFn(args: []const Value) PrimitiveError!Value {
     if (args.len == 1) {
+        if (types.isComplex(args[0])) {
+            const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+            const c = types.toComplex(args[0]);
+            return complexLog(gc, c.real, c.imag);
+        }
         const f = try toF64(args[0]);
+        if (f < 0.0) {
+            const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+            return complexLog(gc, f, 0.0);
+        }
         return makeFlonumVal(@log(f));
     }
     // (log z base)
