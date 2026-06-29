@@ -159,6 +159,22 @@ const Reader = struct {
     }
 };
 
+fn freeBundledFiles(allocator: std.mem.Allocator, bf: *std.StringHashMap([]const u8)) void {
+    var it = bf.iterator();
+    while (it.next()) |entry| {
+        allocator.free(entry.key_ptr.*);
+        allocator.free(entry.value_ptr.*);
+    }
+    bf.deinit();
+}
+
+fn freePreambleEntries(allocator: std.mem.Allocator, entries: [][]const u8, count: usize) void {
+    for (0..count) |j| {
+        allocator.free(entries[j]);
+    }
+    allocator.free(entries);
+}
+
 // ---------------------------------------------------------------------------
 // Function collection (flatten nested functions depth-first)
 // ---------------------------------------------------------------------------
@@ -763,38 +779,38 @@ fn deserializeFromBuffer(gc: *GC, data: []const u8, expected_hash: ?u64) !?Deser
         var bf = std.StringHashMap([]const u8).init(allocator);
         for (0..bf_count) |_| {
             const path_len = r.readU16() catch {
-                bf.deinit();
+                freeBundledFiles(allocator, &bf);
                 return null;
             };
             const path_bytes = r.readBytes(path_len) catch {
-                bf.deinit();
+                freeBundledFiles(allocator, &bf);
                 return null;
             };
             const content_len = r.readU32() catch {
-                bf.deinit();
+                freeBundledFiles(allocator, &bf);
                 return null;
             };
             if (content_len > MAX_STRING_BYTES) {
-                bf.deinit();
+                freeBundledFiles(allocator, &bf);
                 return null;
             }
             const content = r.readBytes(content_len) catch {
-                bf.deinit();
+                freeBundledFiles(allocator, &bf);
                 return null;
             };
             const key = allocator.dupe(u8, path_bytes) catch {
-                bf.deinit();
+                freeBundledFiles(allocator, &bf);
                 return BytecodeError.OutOfMemory;
             };
             const val = allocator.dupe(u8, content) catch {
                 allocator.free(key);
-                bf.deinit();
+                freeBundledFiles(allocator, &bf);
                 return BytecodeError.OutOfMemory;
             };
             bf.put(key, val) catch {
                 allocator.free(key);
                 allocator.free(val);
-                bf.deinit();
+                freeBundledFiles(allocator, &bf);
                 return BytecodeError.OutOfMemory;
             };
         }
@@ -803,38 +819,38 @@ fn deserializeFromBuffer(gc: *GC, data: []const u8, expected_hash: ?u64) !?Deser
 
     // Read preamble section
     const preamble_count = r.readU32() catch {
-        if (bundled_files) |*bf| bf.deinit();
+        if (bundled_files) |*bf| freeBundledFiles(allocator, bf);
         return null;
     };
     var preamble: ?[][]const u8 = null;
     if (preamble_count > 0) {
         if (preamble_count > 4096) {
-            if (bundled_files) |*bf| bf.deinit();
+            if (bundled_files) |*bf| freeBundledFiles(allocator, bf);
             return null;
         }
         const entries = allocator.alloc([]const u8, preamble_count) catch {
-            if (bundled_files) |*bf| bf.deinit();
+            if (bundled_files) |*bf| freeBundledFiles(allocator, bf);
             return BytecodeError.OutOfMemory;
         };
         for (0..preamble_count) |i| {
             const src_len = r.readU32() catch {
-                allocator.free(entries);
-                if (bundled_files) |*bf| bf.deinit();
+                freePreambleEntries(allocator, entries, i);
+                if (bundled_files) |*bf| freeBundledFiles(allocator, bf);
                 return null;
             };
             if (src_len > MAX_STRING_BYTES) {
-                allocator.free(entries);
-                if (bundled_files) |*bf| bf.deinit();
+                freePreambleEntries(allocator, entries, i);
+                if (bundled_files) |*bf| freeBundledFiles(allocator, bf);
                 return null;
             }
             const src = r.readBytes(src_len) catch {
-                allocator.free(entries);
-                if (bundled_files) |*bf| bf.deinit();
+                freePreambleEntries(allocator, entries, i);
+                if (bundled_files) |*bf| freeBundledFiles(allocator, bf);
                 return null;
             };
             entries[i] = allocator.dupe(u8, src) catch {
-                allocator.free(entries);
-                if (bundled_files) |*bf| bf.deinit();
+                freePreambleEntries(allocator, entries, i);
+                if (bundled_files) |*bf| freeBundledFiles(allocator, bf);
                 return BytecodeError.OutOfMemory;
             };
         }
@@ -842,8 +858,8 @@ fn deserializeFromBuffer(gc: *GC, data: []const u8, expected_hash: ?u64) !?Deser
     }
 
     if (r.pos != data.len) {
-        if (bundled_files) |*bf| bf.deinit();
-        if (preamble) |p| allocator.free(p);
+        if (bundled_files) |*bf| freeBundledFiles(allocator, bf);
+        if (preamble) |p| freePreambleEntries(allocator, p, p.len);
         return null;
     }
 
