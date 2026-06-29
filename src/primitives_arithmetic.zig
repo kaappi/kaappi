@@ -998,6 +998,8 @@ fn evenP(args: []const Value) PrimitiveError!Value {
     }
     if (types.isFlonum(args[0])) {
         const f = types.toFlonum(args[0]);
+        if (f != @trunc(f) or !std.math.isFinite(f))
+            return PrimitiveError.TypeError;
         return if (@rem(f, 2.0) == 0.0) types.TRUE else types.FALSE;
     }
     return PrimitiveError.TypeError;
@@ -1012,6 +1014,8 @@ fn oddP(args: []const Value) PrimitiveError!Value {
     }
     if (types.isFlonum(args[0])) {
         const f = types.toFlonum(args[0]);
+        if (f != @trunc(f) or !std.math.isFinite(f))
+            return PrimitiveError.TypeError;
         return if (@rem(f, 2.0) != 0.0) types.TRUE else types.FALSE;
     }
     return PrimitiveError.TypeError;
