@@ -755,6 +755,20 @@ fn numberToString(args: []const Value) PrimitiveError!Value {
         return gc.allocString(s) catch return PrimitiveError.OutOfMemory;
     }
     if (types.isRationalObj(args[0])) {
+        if (radix != 10) {
+            const r = types.toRational(args[0]);
+            const num_s = bignum_mod.toStringRadix(gc.allocator, r.numerator, radix) catch return PrimitiveError.OutOfMemory;
+            defer gc.allocator.free(num_s);
+            const den_s = bignum_mod.toStringRadix(gc.allocator, r.denominator, radix) catch return PrimitiveError.OutOfMemory;
+            defer gc.allocator.free(den_s);
+            var result: std.ArrayList(u8) = .empty;
+            defer result.deinit(gc.allocator);
+            result.appendSlice(gc.allocator, num_s) catch return PrimitiveError.OutOfMemory;
+            result.append(gc.allocator, '/') catch return PrimitiveError.OutOfMemory;
+            result.appendSlice(gc.allocator, den_s) catch return PrimitiveError.OutOfMemory;
+            const s = result.items;
+            return gc.allocString(s) catch return PrimitiveError.OutOfMemory;
+        }
         const printer = @import("printer.zig");
         const s = printer.valueToString(gc.allocator, args[0], .write) catch return PrimitiveError.OutOfMemory;
         defer gc.allocator.free(s);
