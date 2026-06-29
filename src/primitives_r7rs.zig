@@ -286,6 +286,7 @@ fn parameterSetDirectFn(args: []const Value) PrimitiveError!Value {
         vm.setParameterValue(param, args[1]) catch return PrimitiveError.OutOfMemory;
     } else {
         param.value = args[1];
+        if (primitives.gc_instance) |gc| gc.writeBarrier(types.toObject(args[0]), args[1]);
     }
     return types.VOID;
 }
