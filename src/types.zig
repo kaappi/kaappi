@@ -557,7 +557,7 @@ pub const FileInfo = struct {
     gid: u32,
     file_type: FileType,
 
-    pub const FileType = enum(u8) { regular, directory, symlink, fifo, socket, device, other };
+    pub const FileType = enum(u8) { regular, directory, symlink, fifo, socket, char_device, block_device, other };
 };
 
 pub const UserInfo = struct {

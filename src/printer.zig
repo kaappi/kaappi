@@ -697,7 +697,8 @@ fn printValueWithDepth(writer: anytype, value: Value, mode: PrintMode, depth: u3
                     .symlink => "symlink",
                     .fifo => "fifo",
                     .socket => "socket",
-                    .device => "device",
+                    .char_device => "char-device",
+                    .block_device => "block-device",
                     .other => "other",
                 };
                 try writer.print("#<file-info {s} size={d} mode={o}>", .{ kind, fi.size, fi.mode });
