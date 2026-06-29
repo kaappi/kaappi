@@ -682,21 +682,35 @@ fn objectSize(obj: *Object) usize {
         .error_object => @sizeOf(types.ErrorObject),
         .record_type => @sizeOf(RecordType) + obj.as(RecordType).name.len,
         .record_instance => @sizeOf(RecordInstance) + obj.as(RecordInstance).fields.len * @sizeOf(Value),
-        .port => @sizeOf(Port),
+        .port => blk: {
+            const port = obj.as(Port);
+            var s: usize = @sizeOf(Port);
+            if (port.owns_name) s += port.name.len;
+            if (port.string_data) |sd| s += sd.len;
+            if (port.string_out_buf) |_| s += port.string_out_cap;
+            if (port.read_buf) |rb| s += rb.len;
+            break :blk s;
+        },
         .continuation => @sizeOf(Continuation) + obj.as(Continuation).backing.len * @sizeOf(Value),
         .multiple_values => @sizeOf(MultipleValues) + obj.as(MultipleValues).values.len * @sizeOf(Value),
         .complex => @sizeOf(types.Complex),
         .promise => @sizeOf(Promise),
         .parameter => @sizeOf(types.ParameterObject),
         .hash_table => @sizeOf(HashTable) + obj.as(HashTable).entries.len * @sizeOf(types.HashEntry),
-        .ffi_library => @sizeOf(FfiLibrary),
-        .ffi_function => @sizeOf(FfiFunction),
+        .ffi_library => @sizeOf(FfiLibrary) + obj.as(FfiLibrary).name.len,
+        .ffi_function => blk: {
+            const f = obj.as(FfiFunction);
+            break :blk @sizeOf(FfiFunction) + f.name.len + f.param_types.len * @sizeOf(types.FfiType);
+        },
         .ffi_callback => @sizeOf(FfiCallback),
         .bignum => @sizeOf(Bignum) + obj.as(Bignum).limbs.len * @sizeOf(u64),
         .rational => @sizeOf(Rational),
         .file_info => @sizeOf(types.FileInfo),
-        .user_info => @sizeOf(types.UserInfo),
-        .group_info => @sizeOf(types.GroupInfo),
+        .user_info => blk: {
+            const ui = obj.as(types.UserInfo);
+            break :blk @sizeOf(types.UserInfo) + ui.name.len + ui.home_dir.len + ui.shell.len + ui.full_name.len;
+        },
+        .group_info => @sizeOf(types.GroupInfo) + obj.as(types.GroupInfo).name.len,
         .directory_object => @sizeOf(types.DirectoryObject),
         .random_source => @sizeOf(RandomSource),
         .fiber => @sizeOf(@import("fiber.zig").Fiber),
