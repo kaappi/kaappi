@@ -5,6 +5,8 @@ const Value = types.Value;
 const FfiType = types.FfiType;
 
 fn toIntArgOpt(v: Value) ?i64 {
+    if (v == types.TRUE) return 1;
+    if (v == types.FALSE) return 0;
     if (types.isBignum(v)) {
         const bn = types.toBignum(v);
         if (bn.len == 0) return 0;
@@ -117,6 +119,7 @@ fn normalizeType(t: FfiType) FfiType {
 }
 
 fn validateArg(v: Value, t: FfiType) bool {
+    if (t == .bool_type and (v == types.TRUE or v == types.FALSE)) return true;
     const nt = normalizeType(t);
     return switch (nt) {
         .int, .long => types.isFixnum(v) or types.isBignum(v),
@@ -143,15 +146,20 @@ pub fn callFfi(ffi_fn: *types.FfiFunction, args: []const Value, gc: *memory.GC) 
         if (lib.handle == null) return error.TypeError;
     }
     try validateArgs(ffi_fn, args);
-    return switch (ffi_fn.param_count) {
-        0 => callFfi0(ffi_fn, gc),
-        1 => callFfi1(ffi_fn, args, gc),
-        2 => callFfi2(ffi_fn, args, gc),
-        3 => callFfi3(ffi_fn, args, gc),
-        4 => callFfi4(ffi_fn, args, gc),
-        5 => callFfi5(ffi_fn, args, gc),
-        else => error.TypeError,
+    const result = switch (ffi_fn.param_count) {
+        0 => try callFfi0(ffi_fn, gc),
+        1 => try callFfi1(ffi_fn, args, gc),
+        2 => try callFfi2(ffi_fn, args, gc),
+        3 => try callFfi3(ffi_fn, args, gc),
+        4 => try callFfi4(ffi_fn, args, gc),
+        5 => try callFfi5(ffi_fn, args, gc),
+        else => return error.TypeError,
     };
+    if (ffi_fn.return_type == .bool_type) {
+        if (types.isFixnum(result))
+            return if (types.toFixnum(result) != 0) types.TRUE else types.FALSE;
+    }
+    return result;
 }
 
 // ---------------------------------------------------------------------------
@@ -1066,6 +1074,18 @@ test "validateArg: accepts bignum for long type" {
     try std.testing.expect(validateArg(big, .long));
     try std.testing.expect(validateArg(big, .int64));
     try std.testing.expect(validateArg(big, .size_type));
+}
+
+test "validateArg: accepts Scheme booleans for bool_type" {
+    try std.testing.expect(validateArg(types.TRUE, .bool_type));
+    try std.testing.expect(validateArg(types.FALSE, .bool_type));
+    try std.testing.expect(validateArg(types.makeFixnum(1), .bool_type));
+    try std.testing.expect(validateArg(types.makeFixnum(0), .bool_type));
+}
+
+test "toIntArgOpt: converts Scheme booleans to 0/1" {
+    try std.testing.expectEqual(@as(?i64, 1), toIntArgOpt(types.TRUE));
+    try std.testing.expectEqual(@as(?i64, 0), toIntArgOpt(types.FALSE));
 }
 
 test "validateArg: accepts bignum for pointer type" {
