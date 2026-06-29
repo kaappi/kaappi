@@ -633,8 +633,9 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                 if (!types.isFunction(func_val)) return VMError.InvalidBytecode;
                 const func = types.toObject(func_val).as(types.Function);
 
-                const cls_val = self.gc.allocClosure(func) catch return VMError.OutOfMemory;
-                const cls = types.toObject(cls_val).as(types.Closure);
+                var cls_val = self.gc.allocClosure(func) catch return VMError.OutOfMemory;
+                self.gc.pushRoot(&cls_val) catch return VMError.OutOfMemory;
+                var cls = types.toObject(cls_val).as(types.Closure);
 
                 for (cls.upvalues, 0..) |_, i| {
                     try ensureOperands(self, frame, 3);
@@ -647,6 +648,7 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                         var val = self.registers[local_idx];
                         if (!types.isPair(val) or types.cdr(val) != types.VOID) {
                             const box = self.gc.allocPair(val, types.VOID) catch return VMError.OutOfMemory;
+                            cls = types.toObject(cls_val).as(types.Closure);
                             self.registers[local_idx] = box;
                             val = box;
                         }
@@ -658,6 +660,7 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                     }
                 }
 
+                self.gc.popRoot();
                 const dst_idx = try registerIndex(self, frame.base, dst);
                 self.registers[dst_idx] = cls_val;
             },
