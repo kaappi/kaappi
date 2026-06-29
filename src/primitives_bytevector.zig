@@ -343,7 +343,7 @@ fn u8ReadyP(args: []const Value) PrimitiveError!Value {
     if (port.peek_byte != null) return types.TRUE;
     if (port.is_string_port) {
         const data = port.string_data orelse return types.TRUE;
-        return if (port.string_pos < data.len) types.TRUE else types.TRUE;
+        return if (port.string_pos < data.len) types.TRUE else types.FALSE;
     }
     return types.TRUE; // simplified
 }
@@ -356,6 +356,8 @@ fn readBytevectorFn(args: []const Value) PrimitiveError!Value {
     if (k < 0) return primitives.typeError("read-bytevector", "non-negative integer", args[0]);
     const count: usize = @intCast(@as(u64, @bitCast(k)));
     const port = try getInputPort(args, 1);
+
+    if (count == 0) return gc.allocBytevector(&.{}) catch return PrimitiveError.OutOfMemory;
 
     const buf = gc.allocator.alloc(u8, count) catch return PrimitiveError.OutOfMemory;
     defer gc.allocator.free(buf);
@@ -427,7 +429,7 @@ fn getOutputBytevector(args: []const Value) PrimitiveError!Value {
     if (!types.isPort(args[0])) return primitives.typeError("get-output-bytevector", "output bytevector port", args[0]);
     const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
     const port = types.toObject(args[0]).as(types.Port);
-    if (!port.is_string_port or !port.is_output) return primitives.typeError("get-output-bytevector", "output bytevector port", args[0]);
+    if (!port.is_string_port or !port.is_output or !port.is_binary) return primitives.typeError("get-output-bytevector", "output bytevector port", args[0]);
     const data = if (port.string_out_buf) |buf| buf[0..port.string_out_len] else &[_]u8{};
     return gc.allocBytevector(data) catch return PrimitiveError.OutOfMemory;
 }
