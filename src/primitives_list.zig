@@ -275,9 +275,13 @@ fn mapFn(args: []const Value) PrimitiveError!Value {
     const list_count = args.len - 1;
     if (list_count == 0) return PrimitiveError.ArityMismatch;
 
-    // Collect results in an ArrayList, iterate lists in parallel
-    var results: std.ArrayList(Value) = .empty;
-    defer results.deinit(gc.allocator);
+    // Build result list incrementally (rooted head + tail)
+    var result_head: Value = types.NIL;
+    gc.pushRoot(&result_head) catch return PrimitiveError.OutOfMemory;
+    defer gc.popRoot();
+    var result_tail: Value = types.NIL;
+    gc.pushRoot(&result_tail) catch return PrimitiveError.OutOfMemory;
+    defer gc.popRoot();
 
     // Current pointers for each list
     var currents: [256]Value = undefined;
@@ -314,7 +318,13 @@ fn mapFn(args: []const Value) PrimitiveError!Value {
             };
         };
 
-        results.append(gc.allocator, result) catch return PrimitiveError.OutOfMemory;
+        const new_pair = gc.allocPair(result, types.NIL) catch return PrimitiveError.OutOfMemory;
+        if (result_head == types.NIL) {
+            result_head = new_pair;
+        } else {
+            types.setCdr(result_tail, new_pair);
+        }
+        result_tail = new_pair;
 
         // Advance each list
         for (0..list_count) |i| {
@@ -322,16 +332,7 @@ fn mapFn(args: []const Value) PrimitiveError!Value {
         }
     }
 
-    // Build result list from collected values
-    var result_list: Value = types.NIL;
-    gc.pushRoot(&result_list) catch return PrimitiveError.OutOfMemory;
-    defer gc.popRoot();
-    var i = results.items.len;
-    while (i > 0) {
-        i -= 1;
-        result_list = gc.allocPair(results.items[i], result_list) catch return PrimitiveError.OutOfMemory;
-    }
-    return result_list;
+    return result_head;
 }
 
 fn forEachFn(args: []const Value) PrimitiveError!Value {
