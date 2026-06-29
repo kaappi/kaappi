@@ -656,7 +656,10 @@ fn printValueWithDepth(writer: anytype, value: Value, mode: PrintMode, depth: u3
             .bignum => {
                 const bignum_mod = @import("bignum.zig");
                 const allocator = std.heap.page_allocator;
-                const s = bignum_mod.toString(allocator, value) catch "?bignum?";
+                const s = bignum_mod.toString(allocator, value) catch {
+                    try writer.writeAll("?bignum?");
+                    return;
+                };
                 defer allocator.free(s);
                 try writer.writeAll(s);
             },
