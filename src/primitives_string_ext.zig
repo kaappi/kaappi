@@ -306,8 +306,13 @@ fn stringSplitFn(args: []const Value) PrimitiveError!Value {
             while (start > 0 and (data[start] & 0xC0) == 0x80) {
                 start -= 1;
             }
-            const s = gc.allocString(data[start..byte_i]) catch return PrimitiveError.OutOfMemory;
-            result = gc.allocPair(s, result) catch return PrimitiveError.OutOfMemory;
+            var str_val = gc.allocString(data[start..byte_i]) catch return PrimitiveError.OutOfMemory;
+            gc.pushRoot(&str_val) catch return PrimitiveError.OutOfMemory;
+            result = gc.allocPair(str_val, result) catch {
+                gc.popRoot();
+                return PrimitiveError.OutOfMemory;
+            };
+            gc.popRoot();
             byte_i = start;
         }
         return result;
