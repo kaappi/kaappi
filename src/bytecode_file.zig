@@ -86,7 +86,8 @@ const Writer = struct {
     }
 
     fn writeF64(self: *Writer, allocator: std.mem.Allocator, v: f64) !void {
-        const bytes: [8]u8 = @bitCast(v);
+        const bits: u64 = @bitCast(v);
+        const bytes: [8]u8 = @bitCast(std.mem.nativeToLittle(u64, bits));
         self.buf.appendSlice(allocator, &bytes) catch return BytecodeError.OutOfMemory;
     }
 
@@ -146,7 +147,8 @@ const Reader = struct {
         if (self.pos + 8 > self.data.len) return BytecodeError.CorruptedFile;
         const bytes = self.data[self.pos..][0..8];
         self.pos += 8;
-        return @bitCast(bytes.*);
+        const bits = std.mem.littleToNative(u64, @bitCast(bytes.*));
+        return @bitCast(bits);
     }
 
     fn readBytes(self: *Reader, len: usize) ![]const u8 {
