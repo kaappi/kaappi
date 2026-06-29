@@ -226,11 +226,23 @@ pub fn compileDefine(self: *Compiler, args: Value, dst: u16) CompileError!void {
         if (!types.isSymbol(name)) return CompileError.InvalidSyntax;
         const param_formals = types.cdr(target);
 
-        // Build lambda body list. compileLambda sets the function's name (used
-        // for debugging and for self-tail-call detection in the body).
         const lambda_args = self.gc.allocPair(param_formals, rest) catch return CompileError.OutOfMemory;
         try compileLambda(self, lambda_args, dst, types.symbolName(name));
 
+        if (self.in_body_scope) {
+            const slot = try self.allocReg();
+            try self.emitOp(.move);
+            try self.emitU16(slot);
+            try self.emitU16(dst);
+            self.locals.append(self.gc.allocator, .{
+                .name = types.symbolName(name),
+                .depth = self.scope_depth,
+                .slot = slot,
+            }) catch return CompileError.OutOfMemory;
+            try self.emitOp(.load_void);
+            try self.emitU16(dst);
+            return;
+        }
         const sym_idx = try self.addConstant(name);
         try self.emitOp(.define_global);
         try self.emitU16(sym_idx);
@@ -464,6 +476,11 @@ pub fn compileDelay(self: *Compiler, args: Value, dst: u16) CompileError!void {
     try child.emitOp(.@"return");
     try child.emitU16(body_dst);
 
+    // Box parent locals that are captured as upvalues (enables shared mutation)
+    for (child.upvalues.items) |uv| {
+        if (uv.is_local) try self.markLocalBoxedBySlot(uv.index);
+    }
+
     // Store the lambda as a closure constant and emit closure + upvalue descriptors
     const func_val = types.makePointer(@ptrCast(child.func));
     const closure_idx = try self.addConstant(func_val);
@@ -472,28 +489,31 @@ pub fn compileDelay(self: *Compiler, args: Value, dst: u16) CompileError!void {
     try self.emitU16(thunk_reg);
     try self.emitU16(closure_idx);
 
-    // Emit upvalue descriptors (critical for capturing variables)
     for (child.upvalues.items) |uv| {
         try self.emit(if (uv.is_local) 1 else 0);
         try self.emitU16(uv.index);
     }
 
-    // Call %make-promise-lazy(thunk) to create an unforced promise
+    // Call %make-promise-lazy(thunk) — use fresh registers to avoid clobbering
     const sym = self.gc.allocSymbol("%make-promise-lazy") catch return CompileError.OutOfMemory;
     const sym_idx = try self.addConstant(sym);
+    const call_base = try self.allocReg();
     try self.emitOp(.get_global);
-    try self.emitU16(dst);
+    try self.emitU16(call_base);
     try self.emitU16(sym_idx);
 
-    // Set up the call: dst=func, dst+1=arg
     try self.emitOp(.move);
-    try self.emitU16(dst + 1);
+    try self.emitU16(call_base + 1);
     try self.emitU16(thunk_reg);
 
     try self.emitOp(.call);
-    try self.emitU16(dst);
+    try self.emitU16(call_base);
     try self.emit(1);
+    try self.emitOp(.move);
+    try self.emitU16(dst);
+    try self.emitU16(call_base);
 
+    self.freeReg(); // free call_base
     self.freeReg(); // free thunk_reg
 }
 

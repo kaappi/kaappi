@@ -184,28 +184,26 @@ pub fn compileCond(self: *Compiler, args: Value, dst: u16, is_tail: bool) Compil
                 if (!types.isPair(arrow_rest)) return CompileError.InvalidSyntax;
                 const proc_expr = types.car(arrow_rest);
                 const proc_reg = try self.allocReg();
-                // Move test value to arg position
                 const arg_reg = try self.allocReg();
+                // Save test value to arg position (proc_reg + 1)
                 try self.emitOp(.move);
                 try self.emitU16(arg_reg);
                 try self.emitU16(dst);
-                // Compile proc
+                // Compile proc into proc_reg
                 try self.compileExpr(proc_expr, proc_reg, false);
-                // Move proc to dst (for call base)
-                try self.emitOp(.move);
-                try self.emitU16(dst);
-                try self.emitU16(proc_reg);
-                // Move arg after dst
-                try self.emitOp(.move);
-                try self.emitU16(dst + 1);
-                try self.emitU16(arg_reg);
+                // Call at proc_reg (arg already at proc_reg + 1)
                 if (is_tail) {
                     try self.emitOp(.tail_call);
                 } else {
                     try self.emitOp(.call);
                 }
-                try self.emitU16(dst);
+                try self.emitU16(proc_reg);
                 try self.emit(1);
+                if (!is_tail) {
+                    try self.emitOp(.move);
+                    try self.emitU16(dst);
+                    try self.emitU16(proc_reg);
+                }
                 self.freeReg(); // arg_reg
                 self.freeReg(); // proc_reg
 

@@ -25,14 +25,39 @@ fn renameInBody(gc: *memory.GC, expr: Value, old_name: []const u8, new_sym: Valu
     }
     if (types.isPair(expr)) {
         const head = types.car(expr);
-        if (types.isSymbol(head) and std.mem.eql(u8, types.symbolName(head), "quote"))
-            return expr;
+        if (types.isSymbol(head)) {
+            const hname = types.symbolName(head);
+            if (std.mem.eql(u8, hname, "quote"))
+                return expr;
+            if (std.mem.eql(u8, hname, "quasiquote")) {
+                const new_tmpl = try renameInQuasiquote(gc, types.cdr(expr), old_name, new_sym);
+                if (new_tmpl == types.cdr(expr)) return expr;
+                return gc.allocPair(head, new_tmpl) catch return CompileError.OutOfMemory;
+            }
+        }
         const new_car = try renameInBody(gc, types.car(expr), old_name, new_sym);
         const new_cdr = try renameInBody(gc, types.cdr(expr), old_name, new_sym);
         if (new_car == types.car(expr) and new_cdr == types.cdr(expr)) return expr;
         return gc.allocPair(new_car, new_cdr) catch return CompileError.OutOfMemory;
     }
     return expr;
+}
+
+fn renameInQuasiquote(gc: *memory.GC, template: Value, old_name: []const u8, new_sym: Value) CompileError!Value {
+    if (!types.isPair(template)) return template;
+    const head = types.car(template);
+    if (types.isSymbol(head)) {
+        const hname = types.symbolName(head);
+        if (std.mem.eql(u8, hname, "unquote") or std.mem.eql(u8, hname, "unquote-splicing")) {
+            const new_cdr = try renameInBody(gc, types.cdr(template), old_name, new_sym);
+            if (new_cdr == types.cdr(template)) return template;
+            return gc.allocPair(head, new_cdr) catch return CompileError.OutOfMemory;
+        }
+    }
+    const new_car = try renameInQuasiquote(gc, head, old_name, new_sym);
+    const new_cdr = try renameInQuasiquote(gc, types.cdr(template), old_name, new_sym);
+    if (new_car == head and new_cdr == types.cdr(template)) return template;
+    return gc.allocPair(new_car, new_cdr) catch return CompileError.OutOfMemory;
 }
 
 // -- Binding and iteration forms --
@@ -309,8 +334,9 @@ pub fn compileDo(self: *Compiler, args: Value, dst: u16, is_tail: bool) CompileE
 
     self.beginScope();
 
-    // Parse var specs and evaluate inits
+    // Parse var specs and evaluate inits (two-phase: all inits first, then locals)
     var var_slots: [MAX_LET_BINDINGS]u16 = undefined;
+    var var_names: [MAX_LET_BINDINGS][]const u8 = undefined;
     var step_exprs: [MAX_LET_BINDINGS]Value = undefined;
     var has_step: [MAX_LET_BINDINGS]bool = undefined;
     var var_count: usize = 0;
@@ -329,8 +355,8 @@ pub fn compileDo(self: *Compiler, args: Value, dst: u16, is_tail: bool) CompileE
         if (var_count >= MAX_LET_BINDINGS) return CompileError.TooManyLocals;
         const slot = try self.allocReg();
         try self.compileExpr(init_expr, slot, false);
-        try self.addLocal(types.symbolName(var_name), slot);
         var_slots[var_count] = slot;
+        var_names[var_count] = types.symbolName(var_name);
 
         const step_rest = types.cdr(types.cdr(spec));
         if (step_rest != types.NIL) {
@@ -343,6 +369,11 @@ pub fn compileDo(self: *Compiler, args: Value, dst: u16, is_tail: bool) CompileE
 
         var_count += 1;
         spec_list = types.cdr(spec_list);
+    }
+
+    // Phase 2: add all locals at once (let semantics, not let*)
+    for (0..var_count) |vi| {
+        try self.addLocal(var_names[vi], var_slots[vi]);
     }
 
     // Loop start
@@ -364,7 +395,7 @@ pub fn compileDo(self: *Compiler, args: Value, dst: u16, is_tail: bool) CompileE
     }
 
     // Step: evaluate all steps to temp registers, then assign back
-    var temp_slots: [32]u16 = undefined;
+    var temp_slots: [MAX_LET_BINDINGS]u16 = undefined;
     var step_count: usize = 0;
     for (0..var_count) |j| {
         if (has_step[j]) {
