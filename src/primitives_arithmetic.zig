@@ -348,6 +348,14 @@ fn sub(args: []const Value) PrimitiveError!Value {
     }
     if (anyRational(args)) {
         const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+        if (types.isBignum(args[0])) {
+            var f: f64 = bignum_mod.toF64(args[0]);
+            if (args.len == 1) return makeFlonumVal(-f);
+            for (args[1..]) |a| {
+                f -= toF64(a) catch return PrimitiveError.TypeError; // bare-ok: bignum fallback
+            }
+            return makeFlonumVal(f);
+        }
         const first_parts = toRationalParts(args[0]);
         var n = first_parts.num;
         var d = first_parts.den;
@@ -541,6 +549,15 @@ fn divFn(args: []const Value) PrimitiveError!Value {
     // Handle rational division: any rational arg means rational result
     if (anyRational(args) and !anyFlonum(args)) {
         const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+        if (types.isBignum(args[0])) {
+            var f: f64 = bignum_mod.toF64(args[0]);
+            for (args[1..]) |a| {
+                const dv = toF64(a) catch return PrimitiveError.TypeError; // bare-ok: bignum fallback
+                if (dv == 0.0) return raiseDivByZero();
+                f /= dv;
+            }
+            return makeFlonumVal(f);
+        }
         const first_parts = toRationalParts(args[0]);
         var n = first_parts.num;
         var d = first_parts.den;
