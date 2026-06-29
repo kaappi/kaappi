@@ -262,8 +262,8 @@ pub fn sub(gc: *memory.GC, a: Value, b: Value) !Value {
 pub fn negate(gc: *memory.GC, v: Value) !Value {
     if (types.isFixnum(v)) {
         const n = types.toFixnum(v);
-        // -minInt overflows, promote to bignum
-        if (n == std.math.minInt(i64)) {
+        // -minInt(i48) overflows the fixnum range, promote to bignum
+        if (n == std.math.minInt(i48)) {
             const mag: u64 = @intCast(-@as(i128, n));
             var limbs = [1]u64{mag};
             return gc.allocBignumFromLimbs(&limbs, 1, true);
@@ -671,7 +671,7 @@ pub fn parseBignumString(gc: *memory.GC, digits: []const u8, radix: u8) !Value {
 // Helpers
 // ---------------------------------------------------------------------------
 
-/// Check if a bignum value fits in a fixnum (i63 range).
+/// Check if a bignum value fits in a fixnum (i48 range).
 pub fn fitsFixnum(v: Value) bool {
     if (types.isFixnum(v)) return true;
     if (!types.isBignum(v)) return false;
@@ -681,7 +681,7 @@ pub fn fitsFixnum(v: Value) bool {
     if (bn.positive) {
         return bn.limbs[0] <= @as(u64, @intCast(std.math.maxInt(i48)));
     } else {
-        // minInt(i48) = -(2^62) = 4611686018427387904
+        // minInt(i48) = -(2^47) = -140737488355328
         return bn.limbs[0] <= @as(u64, @intCast(-@as(i64, std.math.minInt(i48))));
     }
 }
@@ -757,8 +757,8 @@ pub fn isEven(v: Value) bool {
 pub fn absVal(gc: *memory.GC, v: Value) !Value {
     if (types.isFixnum(v)) {
         const n = types.toFixnum(v);
-        if (n == std.math.minInt(i64)) {
-            // Overflow: promote to bignum
+        if (n == std.math.minInt(i48)) {
+            // -minInt(i48) overflows the fixnum range, promote to bignum
             const mag: u64 = @intCast(-@as(i128, n));
             var limbs = [1]u64{mag};
             return gc.allocBignumFromLimbs(&limbs, 1, true);
