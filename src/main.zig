@@ -930,7 +930,22 @@ fn disassembleFile(vm: *vm_mod.VM, path: []const u8) !void {
             return;
         };
 
-        if (vm.handleTopLevelForm(expr)) |_| continue;
+        if (vm.handleTopLevelForm(expr)) |top_result| {
+            _ = top_result catch |err| {
+                const detail = vm.getErrorDetail();
+                if (detail.len > 0) {
+                    var errbuf: [256]u8 = undefined;
+                    const s = std.fmt.bufPrint(&errbuf, "{s}:{d}: error: {s}\n", .{ path, datum_lc.line, detail }) catch "runtime error\n";
+                    writeStderr(s);
+                } else {
+                    var errbuf: [256]u8 = undefined;
+                    const s = std.fmt.bufPrint(&errbuf, "{s}:{d}: runtime error: {}\n", .{ path, datum_lc.line, err }) catch "runtime error\n";
+                    writeStderr(s);
+                }
+                vm.last_error_detail_len = 0;
+            };
+            continue;
+        }
 
         const func = compiler.compileExpressionWithMacrosAt(vm.gc, expr, &vm.macros, &vm.globals, datum_lc.line, path) catch |err| {
             var errbuf: [256]u8 = undefined;
@@ -1000,8 +1015,21 @@ fn compileFile(vm: *vm_mod.VM, path: []const u8, output_path: ?[]const u8) !void
             return;
         };
 
-        if (vm.handleTopLevelForm(expr)) |_| {
-            // Capture the top-level form as source text for preamble
+        if (vm.handleTopLevelForm(expr)) |top_result| {
+            _ = top_result catch |err| {
+                const detail = vm.getErrorDetail();
+                if (detail.len > 0) {
+                    var errbuf: [256]u8 = undefined;
+                    const s = std.fmt.bufPrint(&errbuf, "{s}:{d}: error: {s}\n", .{ path, datum_lc.line, detail }) catch "runtime error\n";
+                    writeStderr(s);
+                } else {
+                    var errbuf: [256]u8 = undefined;
+                    const s = std.fmt.bufPrint(&errbuf, "{s}:{d}: runtime error: {}\n", .{ path, datum_lc.line, err }) catch "runtime error\n";
+                    writeStderr(s);
+                }
+                vm.last_error_detail_len = 0;
+                continue;
+            };
             const form_src = printer.valueToString(allocator, expr, .write) catch continue;
             preamble.append(allocator, form_src) catch {
                 allocator.free(form_src);
