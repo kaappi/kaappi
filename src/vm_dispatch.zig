@@ -232,8 +232,10 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                 const src_idx = try registerIndex(self, frame.base, src);
                 const uv = closure.upvalues[idx];
                 if (types.isPair(uv) and types.cdr(uv) == types.VOID) {
+                    self.gc.writeBarrier(types.toObject(uv), self.registers[src_idx]);
                     types.setCar(uv, self.registers[src_idx]);
                 } else {
+                    self.gc.writeBarrier(&closure.header, self.registers[src_idx]);
                     closure.upvalues[idx] = self.registers[src_idx];
                 }
             },
@@ -980,6 +982,7 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                 const src_idx = try registerIndex(self, frame.base, src);
                 const val = self.registers[reg_idx];
                 if (types.isPair(val) and types.cdr(val) == types.VOID) {
+                    self.gc.writeBarrier(types.toObject(val), self.registers[src_idx]);
                     types.setCar(val, self.registers[src_idx]);
                 } else {
                     const box = self.gc.allocPair(self.registers[src_idx], types.VOID) catch return VMError.OutOfMemory;
