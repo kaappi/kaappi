@@ -49,6 +49,7 @@ const StatResult = struct {
     nlinks: u64,
     rdev: u64,
     blksize: i64,
+    blocks: i64,
     uid: u32,
     gid: u32,
 };
@@ -77,6 +78,7 @@ fn doStat(path: [*:0]const u8, follow: bool) ?StatResult {
             .nlinks = sx.nlink,
             .rdev = makedev(sx.rdev_major, sx.rdev_minor),
             .blksize = @intCast(sx.blksize),
+            .blocks = @intCast(sx.blocks),
             .uid = sx.uid,
             .gid = sx.gid,
         };
@@ -96,6 +98,7 @@ fn doStat(path: [*:0]const u8, follow: bool) ?StatResult {
             .nlinks = @intCast(stat_buf.nlink),
             .rdev = @intCast(stat_buf.rdev),
             .blksize = @intCast(stat_buf.blksize),
+            .blocks = @intCast(stat_buf.blocks),
             .uid = stat_buf.uid,
             .gid = stat_buf.gid,
         };
@@ -285,7 +288,7 @@ fn fileInfoFn(args: []const Value) PrimitiveError!Value {
         .nlinks = @bitCast(sr.nlinks),
         .rdev = @bitCast(sr.rdev),
         .blksize = @intCast(sr.blksize),
-        .blocks = 0,
+        .blocks = sr.blocks,
         .mode = sr.mode,
         .uid = sr.uid,
         .gid = sr.gid,
