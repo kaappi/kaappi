@@ -235,7 +235,7 @@ fn loadFn(args: []const Value) PrimitiveError!Value {
     defer reader.deinit();
 
     var last_result: Value = types.VOID;
-    while (reader.hasMore() catch return PrimitiveError.TypeError) {
+    while (reader.hasMore() catch return PrimitiveError.TypeError) { // bare-ok: reader error in load
         const expr = reader.readDatum() catch return PrimitiveError.TypeError;
 
         const func = compiler_mod.compileExpressionWithMacros(gc, expr, &vm.macros, &vm.globals) catch return PrimitiveError.TypeError;
