@@ -236,10 +236,7 @@ fn charFoldcaseFn(args: []const Value) PrimitiveError!Value {
 }
 
 pub fn charFoldcase(cp: u21) u21 {
-    return switch (cp) {
-        0x017F => 's',
-        else => unicodeDowncase(cp),
-    };
+    return foldChar(cp);
 }
 
 // ---------------------------------------------------------------------------
@@ -318,31 +315,72 @@ fn charCiGtFn(args: []const Value) PrimitiveError!Value {
 // Case-insensitive string comparison
 // ---------------------------------------------------------------------------
 
+const FoldResult = struct {
+    cps: [3]u21,
+    len: u2,
+};
+
+fn foldCharExpanding(cp: u21) FoldResult {
+    return switch (cp) {
+        0x00DF => .{ .cps = .{ 's', 's', 0 }, .len = 2 },
+        0x0130 => .{ .cps = .{ 0x0069, 0x0307, 0 }, .len = 2 },
+        0x01F0 => .{ .cps = .{ 'j', 0x030C, 0 }, .len = 2 },
+        0x0390 => .{ .cps = .{ 0x03B9, 0x0308, 0x0301 }, .len = 3 },
+        0x03B0 => .{ .cps = .{ 0x03C5, 0x0308, 0x0301 }, .len = 3 },
+        0xFB00 => .{ .cps = .{ 'f', 'f', 0 }, .len = 2 },
+        0xFB01 => .{ .cps = .{ 'f', 'i', 0 }, .len = 2 },
+        0xFB02 => .{ .cps = .{ 'f', 'l', 0 }, .len = 2 },
+        0xFB03 => .{ .cps = .{ 'f', 'f', 'i' }, .len = 3 },
+        0xFB04 => .{ .cps = .{ 'f', 'f', 'l' }, .len = 3 },
+        0xFB05, 0xFB06 => .{ .cps = .{ 's', 't', 0 }, .len = 2 },
+        else => {
+            const folded = foldChar(cp);
+            return .{ .cps = .{ folded, 0, 0 }, .len = 1 };
+        },
+    };
+}
+
 fn foldCompareStrings(a: []const u8, b: []const u8) std.math.Order {
-    // Compare codepoints after case-folding
     var ai: usize = 0;
     var bi: usize = 0;
-    while (ai < a.len and bi < b.len) {
-        const a_len = std.unicode.utf8ByteSequenceLength(a[ai]) catch 1;
-        const b_len = std.unicode.utf8ByteSequenceLength(b[bi]) catch 1;
-        const a_cp = if (ai + a_len <= a.len)
-            (std.unicode.utf8Decode(a[ai .. ai + a_len]) catch @as(u21, a[ai]))
-        else
-            @as(u21, a[ai]);
-        const b_cp = if (bi + b_len <= b.len)
-            (std.unicode.utf8Decode(b[bi .. bi + b_len]) catch @as(u21, b[bi]))
-        else
-            @as(u21, b[bi]);
-        const fa = foldChar(a_cp);
-        const fb = foldChar(b_cp);
+    var a_buf: FoldResult = .{ .cps = .{ 0, 0, 0 }, .len = 0 };
+    var b_buf: FoldResult = .{ .cps = .{ 0, 0, 0 }, .len = 0 };
+    var a_idx: u2 = 0;
+    var b_idx: u2 = 0;
+
+    while (true) {
+        if (a_idx >= a_buf.len) {
+            if (ai >= a.len) {
+                if (b_idx >= b_buf.len and bi >= b.len) return .eq;
+                return .lt;
+            }
+            const a_len = std.unicode.utf8ByteSequenceLength(a[ai]) catch 1;
+            const a_cp = if (ai + a_len <= a.len)
+                (std.unicode.utf8Decode(a[ai .. ai + a_len]) catch @as(u21, a[ai]))
+            else
+                @as(u21, a[ai]);
+            a_buf = foldCharExpanding(a_cp);
+            a_idx = 0;
+            ai += a_len;
+        }
+        if (b_idx >= b_buf.len) {
+            if (bi >= b.len) return .gt;
+            const b_len = std.unicode.utf8ByteSequenceLength(b[bi]) catch 1;
+            const b_cp = if (bi + b_len <= b.len)
+                (std.unicode.utf8Decode(b[bi .. bi + b_len]) catch @as(u21, b[bi]))
+            else
+                @as(u21, b[bi]);
+            b_buf = foldCharExpanding(b_cp);
+            b_idx = 0;
+            bi += b_len;
+        }
+        const fa = a_buf.cps[a_idx];
+        const fb = b_buf.cps[b_idx];
         if (fa < fb) return .lt;
         if (fa > fb) return .gt;
-        ai += a_len;
-        bi += b_len;
+        a_idx += 1;
+        b_idx += 1;
     }
-    if (ai < a.len) return .gt;
-    if (bi < b.len) return .lt;
-    return .eq;
 }
 
 fn compareCiStrings(proc: []const u8, args: []const Value, comptime cmp: enum { lt, le, eq, ge, gt }) PrimitiveError!Value {
