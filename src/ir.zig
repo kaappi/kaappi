@@ -1039,25 +1039,7 @@ pub fn simplifyBooleans(ir: *IR, node: *Node) *Node {
             if (changed) return ir.makeBegin(buf[0..node.data.begin.len]) catch return node;
             return node;
         },
-        .call => {
-            const call = node.data.call;
-            // (not (not X)) → X
-            if (call.args.len == 1 and call.operator.tag == .global_ref) {
-                const sym = call.operator.data.global_ref;
-                if (types.isSymbol(sym) and std.mem.eql(u8, types.symbolName(sym), "not")) {
-                    const inner = call.args[0];
-                    if (inner.tag == .call and inner.data.call.args.len == 1 and
-                        inner.data.call.operator.tag == .global_ref)
-                    {
-                        const inner_sym = inner.data.call.operator.data.global_ref;
-                        if (types.isSymbol(inner_sym) and std.mem.eql(u8, types.symbolName(inner_sym), "not")) {
-                            return inner.data.call.args[0];
-                        }
-                    }
-                }
-            }
-            return node;
-        },
+        .call => return node,
         else => return node,
     }
 }

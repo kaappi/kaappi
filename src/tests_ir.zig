@@ -437,7 +437,7 @@ test "IR analysis: constant detection — variable ref is not constant" {
     try std.testing.expect(!node.ann.is_constant);
 }
 
-test "IR optimization: boolean simplification — not not" {
+test "IR optimization: boolean simplification — not not preserved for correctness" {
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
     var ir = ir_mod.IR.init(std.testing.allocator);
@@ -452,7 +452,8 @@ test "IR optimization: boolean simplification — not not" {
     const outer = try ir.makeCall(not_op2, &.{inner});
 
     const result = ir_mod.simplifyBooleans(&ir, outer);
-    try std.testing.expect(result.tag == .global_ref);
+    // (not (not X)) must NOT fold to X — X may not be boolean
+    try std.testing.expect(result.tag == .call);
 }
 
 test "IR optimization: boolean simplification — if not test swaps branches" {
