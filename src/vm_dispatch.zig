@@ -779,6 +779,10 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                     if (arity_ok and base + @as(u16, nargs) + 1 < MAX_REGISTERS) {
                         const args = self.registers[base + 1 .. base + 1 + nargs];
                         const result = native.func(args) catch |err| {
+                            if (err == error.ContinuationInvoked) {
+                                if (target_frame_count == 0) continue;
+                                return VMError.ContinuationInvoked;
+                            }
                             return vm_calls.handleNativeError(self, err, base, nargs);
                         };
                         self.registers[base] = result;
@@ -903,6 +907,10 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                     const args = self.registers[abs_base + 1 .. abs_base + 1 + nargs];
                     const result = if (!self.profile_mode)
                         native.func(args) catch |err| {
+                            if (err == error.ContinuationInvoked) {
+                                if (target_frame_count == 0) continue;
+                                return VMError.ContinuationInvoked;
+                            }
                             return vm_calls.handleNativeError(self, err, abs_base, nargs);
                         }
                     else blk: {
@@ -916,6 +924,10 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                             native.profile_time_ns +%= vm_calls.clockNs() -% native_start;
                             self.profile_last_ns = vm_calls.clockNs();
                             self.gc.profile_alloc_target = saved_alloc_target;
+                            if (err == error.ContinuationInvoked) {
+                                if (target_frame_count == 0) continue;
+                                return VMError.ContinuationInvoked;
+                            }
                             return switch (err) {
                                 error.TypeError => b2: {
                                     if (self.last_error_detail_len == 0)
