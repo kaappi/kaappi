@@ -337,7 +337,8 @@ pub fn repl(vm: *vm_mod.VM) !void {
 
         // Debug commands (comma-prefixed)
         if (std.mem.startsWith(u8, debug_trimmed, ",break ")) {
-            const bp_name = std.mem.trim(u8, debug_trimmed[7..], " ");
+            const bp_name_src = std.mem.trim(u8, debug_trimmed[7..], " ");
+            const bp_name = allocator.dupe(u8, bp_name_src) catch continue;
             if (vm.breakpoint_count < 16) {
                 vm.breakpoints[vm.breakpoint_count] = .{ .name = bp_name };
                 vm.breakpoint_count += 1;
@@ -361,7 +362,9 @@ pub fn repl(vm: *vm_mod.VM) !void {
                     continue;
                 };
                 if (id < vm.breakpoint_count) {
-                    vm.breakpoints[id].condition = expr;
+                    const owned_expr = allocator.dupe(u8, expr) catch continue;
+                    if (vm.breakpoints[id].condition) |old_cond| allocator.free(old_cond);
+                    vm.breakpoints[id].condition = owned_expr;
                     writeStdout("Condition set\n");
                 } else {
                     writeStdout("Invalid breakpoint ID\n");
@@ -474,16 +477,23 @@ pub fn repl(vm: *vm_mod.VM) !void {
             };
             var read_ok = true;
             while (ir.hasMore() catch false) {
-                const datum = ir.readDatum() catch {
+                var datum = ir.readDatum() catch {
                     writeStderr("read error in import spec\n");
                     read_ok = false;
                     break;
                 };
-                var pair = vm.gc.allocPair(datum, types.NIL) catch {
+                vm.gc.pushRoot(&datum) catch {
                     writeStderr("out of memory\n");
                     read_ok = false;
                     break;
                 };
+                var pair = vm.gc.allocPair(datum, types.NIL) catch {
+                    vm.gc.popRoot();
+                    writeStderr("out of memory\n");
+                    read_ok = false;
+                    break;
+                };
+                vm.gc.popRoot();
                 if (import_root == types.NIL) {
                     import_root = pair;
                     import_list = pair;
