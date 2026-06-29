@@ -260,6 +260,31 @@ fn parenDepth(src: []const u8) i32 {
             i += 1;
             continue;
         }
+        // Character literals: #\x or #\space etc.
+        if (ch == '#' and i + 1 < src.len and src[i + 1] == '\\') {
+            i += 2; // skip #\ — now i points at the character after backslash
+            if (i >= src.len) continue;
+            // The character itself (could be anything: paren, letter, etc.)
+            const first = src[i];
+            // Check for multi-char names: if it's a letter, consume until delimiter
+            if ((first >= 'a' and first <= 'z') or (first >= 'A' and first <= 'Z')) {
+                i += 1;
+                while (i < src.len and ((src[i] >= 'a' and src[i] <= 'z') or (src[i] >= 'A' and src[i] <= 'Z'))) : (i += 1) {}
+                i -= 1; // back up for outer loop's i+=1
+            }
+            // For single-char names like #\( or #\), i stays on that char
+            // and the outer loop's i+=1 skips past it
+            continue;
+        }
+        // Pipe-quoted symbols: |...|
+        if (ch == '|') {
+            i += 1;
+            while (i < src.len and src[i] != '|') {
+                if (src[i] == '\\' and i + 1 < src.len) i += 1;
+                i += 1;
+            }
+            continue;
+        }
         switch (ch) {
             '"' => in_string = true,
             ';' => in_line_comment = true,
