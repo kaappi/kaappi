@@ -111,6 +111,7 @@ fn vectorSetFn(args: []const Value) PrimitiveError!Value {
     const vec = types.toVector(args[0]);
     const k = types.toFixnum(args[1]);
     if (k < 0 or @as(usize, @intCast(k)) >= vec.data.len) return PrimitiveError.IndexOutOfBounds;
+    if (primitives.gc_instance) |gc| gc.writeBarrier(types.toObject(args[0]), args[2]);
     vec.data[@intCast(k)] = args[2];
     return types.VOID;
 }
@@ -205,6 +206,7 @@ fn vectorFillFn(args: []const Value) PrimitiveError!Value {
         end = @intCast(e);
     }
     if (start > end) return primitives.typeError("vector-fill!", "start <= end", args[2]);
+    if (primitives.gc_instance) |gc| gc.writeBarrier(types.toObject(args[0]), args[1]);
     @memset(vec.data[start..end], args[1]);
     return types.VOID;
 }
@@ -276,6 +278,11 @@ fn vectorCopyBangFn(args: []const Value) PrimitiveError!Value {
     const count = end - start;
     if (at + count > to_vec.data.len) return primitives.typeError("vector-copy!", "valid index range", args[1]);
 
+    if (primitives.gc_instance) |gc| {
+        for (from_vec.data[start..end]) |val| {
+            gc.writeBarrier(types.toObject(args[0]), val);
+        }
+    }
     // Use a loop that handles overlapping regions correctly
     if (at <= start) {
         for (0..count) |i| {

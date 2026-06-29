@@ -190,6 +190,10 @@ fn hashTableSetFn(args: []const Value) PrimitiveError!Value {
     const ht = try getHashTable("hash-table-set!", args[0]);
     try growIfNeeded(ht);
     const slot = findSlot(ht, args[1]);
+    if (primitives.gc_instance) |gc| {
+        gc.writeBarrier(types.toObject(args[0]), args[1]);
+        gc.writeBarrier(types.toObject(args[0]), args[2]);
+    }
     if (slot.found) {
         ht.entries[slot.idx].value = args[2];
     } else {
@@ -366,6 +370,10 @@ fn hashTableUpdateDefaultFn(args: []const Value) PrimitiveError!Value {
 
     try growIfNeeded(ht);
     const slot = findSlot(ht, key);
+    if (primitives.gc_instance) |gc| {
+        gc.writeBarrier(types.toObject(args[0]), key);
+        gc.writeBarrier(types.toObject(args[0]), new_val);
+    }
     if (slot.found) {
         ht.entries[slot.idx].value = new_val;
     } else {
