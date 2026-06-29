@@ -200,13 +200,12 @@ pub fn registerStandardLibraries(registry: *LibraryRegistry, globals: *std.Strin
         "call-with-port",
         // Binary I/O
                         "read-u8",               "peek-u8",                       "u8-ready?",
-        "write-u8",                       "read-bytevector",       "write-bytevector",              "open-binary-input-file",
-        "open-binary-output-file",
+        "write-u8",                       "read-bytevector",       "write-bytevector",
         // Bytevector ports
-               "open-input-bytevector", "open-output-bytevector",        "get-output-bytevector",
-        "read-bytevector!",
+                     "open-input-bytevector",
+        "open-output-bytevector",         "get-output-bytevector", "read-bytevector!",
         // String/vector conversion
-                      "string->vector",
+                     "string->vector",
     };
 
     var base = Library.init(allocator, "scheme.base");
