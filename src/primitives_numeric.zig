@@ -927,7 +927,7 @@ fn realPart(args: []const Value) PrimitiveError!Value {
         }
         return makeFlonumVal(c.real);
     }
-    if (types.isFixnum(args[0]) or types.isFlonum(args[0])) return args[0];
+    if (types.isFixnum(args[0]) or types.isFlonum(args[0]) or types.isBignum(args[0]) or types.isRationalObj(args[0])) return args[0];
     return primitives.typeError("real-part", "number", args[0]);
 }
 
@@ -939,7 +939,7 @@ fn imagPart(args: []const Value) PrimitiveError!Value {
         }
         return makeFlonumVal(c.imag);
     }
-    if (types.isFixnum(args[0])) return types.makeFixnum(0);
+    if (types.isFixnum(args[0]) or types.isBignum(args[0]) or types.isRationalObj(args[0])) return types.makeFixnum(0);
     if (types.isFlonum(args[0])) return makeFlonumVal(0.0);
     return primitives.typeError("imag-part", "number", args[0]);
 }
@@ -956,6 +956,13 @@ fn magnitudeFn(args: []const Value) PrimitiveError!Value {
     if (types.isFlonum(args[0])) {
         return makeFlonumVal(@abs(types.toFlonum(args[0])));
     }
+    if (types.isBignum(args[0])) {
+        const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+        return bignum_mod.absVal(gc, args[0]) catch return PrimitiveError.OutOfMemory;
+    }
+    if (types.isRationalObj(args[0])) {
+        return makeFlonumVal(@abs(try toF64Ext(args[0])));
+    }
     return primitives.typeError("magnitude", "number", args[0]);
 }
 
@@ -970,6 +977,13 @@ fn angleFn(args: []const Value) PrimitiveError!Value {
     }
     if (types.isFlonum(args[0])) {
         const f = types.toFlonum(args[0]);
+        return makeFlonumVal(if (f >= 0.0) 0.0 else std.math.pi);
+    }
+    if (types.isBignum(args[0])) {
+        return makeFlonumVal(if (bignum_mod.isNegative(args[0])) std.math.pi else 0.0);
+    }
+    if (types.isRationalObj(args[0])) {
+        const f = try toF64Ext(args[0]);
         return makeFlonumVal(if (f >= 0.0) 0.0 else std.math.pi);
     }
     return primitives.typeError("angle", "number", args[0]);
