@@ -274,7 +274,8 @@ fn fileInfoFn(args: []const Value) PrimitiveError!Value {
         if (masked == S.IFLNK) break :blk .symlink;
         if (masked == S.IFIFO) break :blk .fifo;
         if (masked == S.IFSOCK) break :blk .socket;
-        if (masked == S.IFCHR or masked == S.IFBLK) break :blk .device;
+        if (masked == S.IFCHR) break :blk .char_device;
+        if (masked == S.IFBLK) break :blk .block_device;
         break :blk .other;
     };
 
@@ -400,7 +401,8 @@ fn fileInfoSocketP(args: []const Value) PrimitiveError!Value {
 
 fn fileInfoDeviceP(args: []const Value) PrimitiveError!Value {
     if (!types.isFileInfo(args[0])) return primitives.typeError("file-info-device?", "file-info", args[0]);
-    return if (types.toFileInfo(args[0]).file_type == .device) types.TRUE else types.FALSE;
+    const ft = types.toFileInfo(args[0]).file_type;
+    return if (ft == .char_device or ft == .block_device) types.TRUE else types.FALSE;
 }
 
 // -------------------------------------------------------------------------
@@ -953,7 +955,8 @@ fn fileInfoTypeFn(args: []const Value) PrimitiveError!Value {
         .symlink => "symlink",
         .fifo => "fifo",
         .socket => "socket",
-        .device => "block-special",
+        .char_device => "char-special",
+        .block_device => "block-special",
         .other => "unknown",
     };
     return gc.allocSymbol(name) catch return PrimitiveError.OutOfMemory;
