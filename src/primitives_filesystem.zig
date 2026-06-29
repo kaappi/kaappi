@@ -778,7 +778,9 @@ fn userInfoFn(args: []const Value) PrimitiveError!Value {
     const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
 
     const pw = if (types.isFixnum(args[0])) blk: {
-        const uid: std.c.uid_t = @intCast(@as(u64, @bitCast(types.toFixnum(args[0]))));
+        const id_val = types.toFixnum(args[0]);
+        if (id_val < 0 or id_val > std.math.maxInt(std.c.uid_t)) return primitives.typeError("user-info", "valid user ID", args[0]);
+        const uid: std.c.uid_t = @intCast(@as(u64, @bitCast(id_val)));
         break :blk std.c.getpwuid(uid);
     } else if (types.isString(args[0])) blk: {
         const name = extractPath(args[0]) orelse return primitives.typeError("user-info", "string or integer", args[0]);
@@ -838,7 +840,9 @@ fn groupInfoFn(args: []const Value) PrimitiveError!Value {
     const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
 
     if (types.isFixnum(args[0])) {
-        const gid: std.c.gid_t = @intCast(@as(u64, @bitCast(types.toFixnum(args[0]))));
+        const id_val = types.toFixnum(args[0]);
+        if (id_val < 0 or id_val > std.math.maxInt(std.c.gid_t)) return primitives.typeError("group-info", "valid group ID", args[0]);
+        const gid: std.c.gid_t = @intCast(@as(u64, @bitCast(id_val)));
         const g = std.c.getgrgid(gid) orelse return types.FALSE;
         const name_str = std.mem.span(g.name.?);
         return gc.allocGroupInfo(name_str, g.gid) catch return PrimitiveError.OutOfMemory;
