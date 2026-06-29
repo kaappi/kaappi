@@ -461,21 +461,21 @@ pub fn expt(gc: *memory.GC, base_val: Value, exp_val: Value) !Value {
     var b = base_val;
     var e: u64 = @intCast(exp);
 
-    // Root the intermediate values
+    // Root both intermediates — result and the squared base
+    const roots_base = gc.extra_roots.items.len;
     gc.extra_roots.append(gc.allocator, result) catch return error.OutOfMemory;
-    defer {
-        if (gc.extra_roots.items.len > 0) _ = gc.extra_roots.pop();
-    }
+    gc.extra_roots.append(gc.allocator, b) catch return error.OutOfMemory;
+    defer gc.extra_roots.shrinkRetainingCapacity(roots_base);
 
     while (e > 0) {
         if (e & 1 == 1) {
             result = try mul(gc, result, b);
-            // Update the root
-            gc.extra_roots.items[gc.extra_roots.items.len - 1] = result;
+            gc.extra_roots.items[roots_base] = result;
         }
         e >>= 1;
         if (e > 0) {
             b = try mul(gc, b, b);
+            gc.extra_roots.items[roots_base + 1] = b;
         }
     }
     return result;
