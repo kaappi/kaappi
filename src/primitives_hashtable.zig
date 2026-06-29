@@ -495,9 +495,14 @@ fn hashTableMergeFn(args: []const Value) PrimitiveError!Value {
     const ht1 = try getHashTable("hash-table-merge!", args[0]);
     const ht2 = try getHashTable("hash-table-merge!", args[1]);
 
+    const gc = primitives.gc_instance;
     for (ht2.entries[0..ht2.capacity]) |entry| {
         if (entry.key == EMPTY or entry.key == TOMBSTONE) continue;
         const slot = findSlot(ht1, entry.key);
+        if (gc) |g| {
+            g.writeBarrier(types.toObject(args[0]), entry.key);
+            g.writeBarrier(types.toObject(args[0]), entry.value);
+        }
         if (slot.found) {
             ht1.entries[slot.idx].value = entry.value;
         } else {
