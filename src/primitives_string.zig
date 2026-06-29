@@ -197,6 +197,7 @@ fn stringSetFn(args: []const Value) PrimitiveError!Value {
     const char_idx: usize = @intCast(k);
     const byte_start = utf8IndexToByteOffset(data, char_idx) orelse return PrimitiveError.IndexOutOfBounds;
     const old_cp_len = utf8ByteLenAt(data, byte_start);
+    if (old_cp_len == 0) return PrimitiveError.IndexOutOfBounds;
     if (byte_start + old_cp_len > data.len) return primitives.typeError("string-set!", "valid UTF-8 string", args[0]);
 
     const new_cp = types.toChar(args[2]);
