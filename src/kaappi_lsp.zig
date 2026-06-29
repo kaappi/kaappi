@@ -66,15 +66,14 @@ fn jsonInt(buf: *std.ArrayList(u8), allocator: std.mem.Allocator, n: i64) void {
 }
 
 // Simple JSON value extractor — finds "key": "value" or "key": number
-fn jsonGetString(json: []const u8, key: []const u8) ?[]const u8 {
+fn jsonGetStringRaw(json: []const u8, key: []const u8) ?[]const u8 {
     var search_buf: [256]u8 = undefined;
     const search = std.fmt.bufPrint(&search_buf, "\"{s}\"", .{key}) catch return null;
     const pos = std.mem.indexOf(u8, json, search) orelse return null;
     var i = pos + search.len;
-    // skip whitespace and colon
     while (i < json.len and (json[i] == ' ' or json[i] == ':' or json[i] == '\t')) : (i += 1) {}
     if (i >= json.len or json[i] != '"') return null;
-    i += 1; // skip opening quote
+    i += 1;
     const start = i;
     while (i < json.len and json[i] != '"') : (i += 1) {
         if (json[i] == '\\') {
@@ -83,6 +82,39 @@ fn jsonGetString(json: []const u8, key: []const u8) ?[]const u8 {
         }
     }
     return json[start..i];
+}
+
+fn jsonUnescape(allocator: std.mem.Allocator, raw: []const u8) ?[]const u8 {
+    if (std.mem.indexOfScalar(u8, raw, '\\') == null) return raw;
+    const buf = allocator.alloc(u8, raw.len) catch return null;
+    var out: usize = 0;
+    var i: usize = 0;
+    while (i < raw.len) {
+        if (raw[i] == '\\' and i + 1 < raw.len) {
+            i += 1;
+            buf[out] = switch (raw[i]) {
+                'n' => '\n',
+                'r' => '\r',
+                't' => '\t',
+                '"' => '"',
+                '\\' => '\\',
+                '/' => '/',
+                'b' => 0x08,
+                'f' => 0x0C,
+                else => raw[i],
+            };
+            out += 1;
+        } else {
+            buf[out] = raw[i];
+            out += 1;
+        }
+        i += 1;
+    }
+    return buf[0..out];
+}
+
+fn jsonGetString(json: []const u8, key: []const u8) ?[]const u8 {
+    return jsonGetStringRaw(json, key);
 }
 
 fn jsonGetInt(json: []const u8, key: []const u8) ?i64 {
@@ -108,7 +140,14 @@ fn jsonGetObject(json: []const u8, key: []const u8) ?[]const u8 {
     var depth: usize = 0;
     const start = i;
     while (i < json.len) : (i += 1) {
-        if (json[i] == '{') depth += 1 else if (json[i] == '}') {
+        if (json[i] == '"') {
+            i += 1;
+            while (i < json.len and json[i] != '"') : (i += 1) {
+                if (json[i] == '\\') i += 1;
+            }
+        } else if (json[i] == '{') {
+            depth += 1;
+        } else if (json[i] == '}') {
             depth -= 1;
             if (depth == 0) return json[start .. i + 1];
         }
@@ -293,7 +332,7 @@ fn getArity(val: types.Value, buf: *[32]u8) ?[]const u8 {
 
 fn handleInitialize(allocator: std.mem.Allocator, id: i64) void {
     sendResponse(allocator, id,
-        \\{"capabilities":{"textDocumentSync":1,"completionProvider":{"resolveProvider":false,"triggerCharacters":[]},"hoverProvider":true,"documentSymbolProvider":true,"definitionProvider":true,"referencesProvider":true},"serverInfo":{"name":"kaappi-lsp","version":"0.1.0"}}
+        \\{"capabilities":{"positionEncoding":"utf-8","textDocumentSync":1,"completionProvider":{"resolveProvider":false,"triggerCharacters":[]},"hoverProvider":true,"documentSymbolProvider":true,"definitionProvider":true,"referencesProvider":true},"serverInfo":{"name":"kaappi-lsp","version":"0.1.0"}}
     );
 }
 
@@ -646,7 +685,8 @@ fn handleDidOpenOrChange(allocator: std.mem.Allocator, vm: *vm_mod.VM, params: [
         }
     }
 
-    if (text) |t| {
+    if (text) |raw_t| {
+        const t = jsonUnescape(allocator, raw_t) orelse raw_t;
         storeDocument(uri, t);
         runDiagnostics(allocator, vm, uri, t);
     }
