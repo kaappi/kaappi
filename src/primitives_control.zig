@@ -103,8 +103,10 @@ fn withExceptionHandlerFn(args: []const Value) PrimitiveError!Value {
             const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
             gc.pushRoot(&handler_root) catch return PrimitiveError.OutOfMemory;
             defer gc.popRoot();
-            const exc = vm.current_exception orelse types.FALSE;
+            var exc = vm.current_exception orelse types.FALSE;
             vm.current_exception = null;
+            gc.pushRoot(&exc) catch return PrimitiveError.OutOfMemory;
+            defer gc.popRoot();
             _ = vm.callHandler(handler_root, exc, 0) catch |herr| {
                 return switch (herr) {
                     vm_mod.VMError.ContinuationInvoked => PrimitiveError.ContinuationInvoked,
@@ -376,8 +378,12 @@ fn callWithValuesFn(args: []const Value) PrimitiveError!Value {
     };
 
     // Call consumer with the produced values
-    if (types.isMultipleValues(produced)) {
-        const mv = types.toObject(produced).as(types.MultipleValues);
+    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    var produced_root = produced;
+    gc.pushRoot(&produced_root) catch return PrimitiveError.OutOfMemory;
+    defer gc.popRoot();
+    if (types.isMultipleValues(produced_root)) {
+        const mv = types.toObject(produced_root).as(types.MultipleValues);
         const result = vm.callWithArgs(consumer, mv.values) catch |err| {
             return switch (err) {
                 vm_mod.VMError.ContinuationInvoked => PrimitiveError.ContinuationInvoked,

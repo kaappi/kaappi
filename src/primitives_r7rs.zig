@@ -101,17 +101,21 @@ fn commandLine(args: []const Value) PrimitiveError!Value {
     gc.pushRoot(&result) catch return PrimitiveError.OutOfMemory;
     defer gc.popRoot();
 
+    var str_val: Value = types.NIL;
+    gc.pushRoot(&str_val) catch return PrimitiveError.OutOfMemory;
+    defer gc.popRoot();
+
     // Build list in reverse: script args then program name at the front.
     var i = vm.command_line_args.len;
     while (i > 0) {
         i -= 1;
-        const s = gc.allocString(vm.command_line_args[i]) catch return PrimitiveError.OutOfMemory;
-        result = gc.allocPair(s, result) catch return PrimitiveError.OutOfMemory;
+        str_val = gc.allocString(vm.command_line_args[i]) catch return PrimitiveError.OutOfMemory;
+        result = gc.allocPair(str_val, result) catch return PrimitiveError.OutOfMemory;
     }
 
     // Prepend program name.
-    const name = gc.allocString("kaappi") catch return PrimitiveError.OutOfMemory;
-    result = gc.allocPair(name, result) catch return PrimitiveError.OutOfMemory;
+    str_val = gc.allocString("kaappi") catch return PrimitiveError.OutOfMemory;
+    result = gc.allocPair(str_val, result) catch return PrimitiveError.OutOfMemory;
     return result;
 }
 
@@ -265,6 +269,8 @@ fn makeParameterFn(args: []const Value) PrimitiveError!Value {
     const converter: Value = if (args.len > 1) args[1] else types.NIL;
     // If converter provided, apply it to initial value
     var val = init;
+    gc.pushRoot(&val) catch return PrimitiveError.OutOfMemory;
+    defer gc.popRoot();
     if (converter != types.NIL) {
         const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError; // bare-ok: no VM
         val = vm.callWithArgs(converter, &[_]Value{init}) catch |err| {
