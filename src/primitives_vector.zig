@@ -495,15 +495,19 @@ fn vectorCountFn(args: []const Value) PrimitiveError!Value {
     const pred = args[0];
     if (!types.isVector(args[1])) return primitives.typeError("vector-count", "vector", args[1]);
     const vec = types.toVector(args[1]);
+    var min_len: usize = vec.data.len;
+    for (args[2..]) |extra| {
+        if (!types.isVector(extra)) return primitives.typeError("vector-count", "vector", extra);
+        const ev = types.toVector(extra);
+        if (ev.data.len < min_len) min_len = ev.data.len;
+    }
     var n: i64 = 0;
-    for (0..vec.data.len) |i| {
+    for (0..min_len) |i| {
         var call_args_buf: [256]Value = undefined;
         call_args_buf[0] = vec.data[i];
         var arg_count: usize = 1;
         for (args[2..]) |extra| {
-            if (!types.isVector(extra)) return primitives.typeError("vector-count", "vector", extra);
             const ev = types.toVector(extra);
-            if (i >= ev.data.len) break;
             call_args_buf[arg_count] = ev.data[i];
             arg_count += 1;
         }
@@ -586,16 +590,20 @@ fn vectorIndexRightFn(args: []const Value) PrimitiveError!Value {
     const pred = args[0];
     if (!types.isVector(args[1])) return primitives.typeError("vector-index-right", "vector", args[1]);
     const vec = types.toVector(args[1]);
-    var i = vec.data.len;
+    var min_len: usize = vec.data.len;
+    for (args[2..]) |extra| {
+        if (!types.isVector(extra)) return primitives.typeError("vector-index-right", "vector", extra);
+        const ev = types.toVector(extra);
+        if (ev.data.len < min_len) min_len = ev.data.len;
+    }
+    var i = min_len;
     while (i > 0) {
         i -= 1;
         var call_args_buf: [256]Value = undefined;
         call_args_buf[0] = vec.data[i];
         var arg_count: usize = 1;
         for (args[2..]) |extra| {
-            if (!types.isVector(extra)) return primitives.typeError("vector-index-right", "vector", extra);
             const ev = types.toVector(extra);
-            if (i >= ev.data.len) continue;
             call_args_buf[arg_count] = ev.data[i];
             arg_count += 1;
         }
@@ -901,12 +909,16 @@ fn vectorPartitionFn(args: []const Value) PrimitiveError!Value {
         }
     }
 
-    var yes_vec = gc.allocVector(yes.items) catch return PrimitiveError.OutOfMemory;
-    gc.pushRoot(&yes_vec) catch return PrimitiveError.OutOfMemory;
+    const combined = gc.allocator.alloc(Value, yes.items.len + no.items.len) catch return PrimitiveError.OutOfMemory;
+    defer gc.allocator.free(combined);
+    @memcpy(combined[0..yes.items.len], yes.items);
+    @memcpy(combined[yes.items.len..], no.items);
+    var result_vec = gc.allocVector(combined) catch return PrimitiveError.OutOfMemory;
+    gc.pushRoot(&result_vec) catch return PrimitiveError.OutOfMemory;
     defer gc.popRoot();
     const count_val = types.makeFixnum(@intCast(yes.items.len));
 
-    const vals = [2]Value{ yes_vec, count_val };
+    const vals = [2]Value{ result_vec, count_val };
     return gc.allocMultipleValues(&vals) catch return PrimitiveError.OutOfMemory;
 }
 
