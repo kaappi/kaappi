@@ -350,10 +350,19 @@ pub fn callClosure(vm: *VM, closure: *types.Closure, base: u16, nargs: u8) VMErr
                             vm.step_mode = .step;
                             break;
                         };
+                        const saved_fc = vm.frame_count;
+                        const saved_hc = vm.handler_count;
+                        const saved_wc = vm.wind_count;
                         const result = vm.execute(cond_func) catch {
+                            vm.frame_count = saved_fc;
+                            vm.handler_count = saved_hc;
+                            vm.wind_count = saved_wc;
                             vm.step_mode = .step;
                             break;
                         };
+                        vm.frame_count = saved_fc;
+                        vm.handler_count = saved_hc;
+                        vm.wind_count = saved_wc;
                         if (result != types.FALSE) {
                             vm.step_mode = .step;
                         }

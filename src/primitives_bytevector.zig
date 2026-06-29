@@ -443,11 +443,15 @@ fn readBytevectorMut(args: []const Value) PrimitiveError!Value {
     var end: usize = len;
     if (args.len > 2) {
         if (!types.isFixnum(args[2])) return primitives.typeError("read-bytevector!", "exact integer", args[2]);
-        start = @intCast(types.toFixnum(args[2]));
+        const s = types.toFixnum(args[2]);
+        if (s < 0) return PrimitiveError.IndexOutOfBounds;
+        start = @intCast(s);
     }
     if (args.len > 3) {
         if (!types.isFixnum(args[3])) return primitives.typeError("read-bytevector!", "exact integer", args[3]);
-        end = @intCast(types.toFixnum(args[3]));
+        const e = types.toFixnum(args[3]);
+        if (e < 0) return PrimitiveError.IndexOutOfBounds;
+        end = @intCast(e);
     }
     if (start > end or end > len) return primitives.typeError("read-bytevector!", "valid range", args[0]);
 

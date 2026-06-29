@@ -494,6 +494,7 @@ fn hashTableFoldFn(args: []const Value) PrimitiveError!Value {
 fn hashTableMergeFn(args: []const Value) PrimitiveError!Value {
     const ht1 = try getHashTable("hash-table-merge!", args[0]);
     const ht2 = try getHashTable("hash-table-merge!", args[1]);
+    if (ht1 == ht2) return args[0];
 
     const gc = primitives.gc_instance;
     for (ht2.entries[0..ht2.capacity]) |entry| {
