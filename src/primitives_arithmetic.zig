@@ -352,7 +352,7 @@ fn sub(args: []const Value) PrimitiveError!Value {
             var f: f64 = bignum_mod.toF64(args[0]);
             if (args.len == 1) return makeFlonumVal(-f);
             for (args[1..]) |a| {
-                f -= toF64(a) catch return PrimitiveError.TypeError;
+                f -= toF64(a) catch return PrimitiveError.TypeError; // bare-ok: bignum fallback
             }
             return makeFlonumVal(f);
         }
@@ -552,7 +552,7 @@ fn divFn(args: []const Value) PrimitiveError!Value {
         if (types.isBignum(args[0])) {
             var f: f64 = bignum_mod.toF64(args[0]);
             for (args[1..]) |a| {
-                const dv = toF64(a) catch return PrimitiveError.TypeError;
+                const dv = toF64(a) catch return PrimitiveError.TypeError; // bare-ok: bignum fallback
                 if (dv == 0.0) return raiseDivByZero();
                 f /= dv;
             }
