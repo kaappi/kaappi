@@ -347,7 +347,7 @@ fn mainImpl(init: std.process.Init.Minimal) !void {
             for (preamble) |src| {
                 var pr = reader_mod.Reader.init(&gc, src);
                 defer pr.deinit();
-                while (pr.hasMore()) {
+                while (pr.hasMore() catch break) {
                     const expr = pr.readDatum() catch break;
                     if (vm.handleTopLevelForm(expr)) |top_result| {
                         _ = top_result catch |err| {
@@ -676,7 +676,13 @@ fn runFile(vm: *vm_mod.VM, path: []const u8) !void {
     var r = reader.Reader.initWithName(vm.gc, source, path);
     defer r.deinit();
 
-    while (r.hasMore()) {
+    while (r.hasMore() catch |err| {
+        const lc = r.getLineCol();
+        var errbuf: [256]u8 = undefined;
+        const s = std.fmt.bufPrint(&errbuf, "{s}:{d}:{d}: read error: {}\n", .{ path, lc.line, lc.col, err }) catch "read error\n";
+        writeStderr(s);
+        return;
+    }) {
         const datum_lc = r.getLineCol();
         const expr = r.readDatum() catch |err| {
             const lc = r.getLineCol();
@@ -803,7 +809,13 @@ fn runStdin(vm: *vm_mod.VM) !void {
     var r = reader.Reader.initWithName(vm.gc, source, "<stdin>");
     defer r.deinit();
 
-    while (r.hasMore()) {
+    while (r.hasMore() catch |err| {
+        const lc = r.getLineCol();
+        var errbuf: [256]u8 = undefined;
+        const s = std.fmt.bufPrint(&errbuf, "<stdin>:{d}:{d}: read error: {}\n", .{ lc.line, lc.col, err }) catch "read error\n";
+        writeStderr(s);
+        return;
+    }) {
         const expr = r.readDatum() catch |err| {
             const lc = r.getLineCol();
             var errbuf: [256]u8 = undefined;
@@ -894,7 +906,13 @@ fn disassembleFile(vm: *vm_mod.VM, path: []const u8) !void {
     var r = reader.Reader.initWithName(vm.gc, source, path);
     defer r.deinit();
 
-    while (r.hasMore()) {
+    while (r.hasMore() catch |err| {
+        const lc = r.getLineCol();
+        var errbuf: [256]u8 = undefined;
+        const s = std.fmt.bufPrint(&errbuf, "{s}:{d}:{d}: read error: {}\n", .{ path, lc.line, lc.col, err }) catch "read error\n";
+        writeStderr(s);
+        return;
+    }) {
         const datum_lc = r.getLineCol();
         const expr = r.readDatum() catch |err| {
             const lc = r.getLineCol();
@@ -958,7 +976,13 @@ fn compileFile(vm: *vm_mod.VM, path: []const u8, output_path: ?[]const u8) !void
     var r = reader.Reader.initWithName(vm.gc, source, path);
     defer r.deinit();
 
-    while (r.hasMore()) {
+    while (r.hasMore() catch |err| {
+        const lc = r.getLineCol();
+        var errbuf: [256]u8 = undefined;
+        const s = std.fmt.bufPrint(&errbuf, "{s}:{d}:{d}: read error: {}\n", .{ path, lc.line, lc.col, err }) catch "read error\n";
+        writeStderr(s);
+        return;
+    }) {
         const datum_lc = r.getLineCol();
         const expr = r.readDatum() catch |err| {
             const lc = r.getLineCol();
@@ -1042,7 +1066,13 @@ fn emitLlvmFile(vm: *vm_mod.VM, path: []const u8, output_path: ?[]const u8) !voi
     var ir_instance = ir_mod.IR.init(allocator);
     defer ir_instance.deinit();
 
-    while (r.hasMore()) {
+    while (r.hasMore() catch |err| {
+        const lc = r.getLineCol();
+        var errbuf: [256]u8 = undefined;
+        const s = std.fmt.bufPrint(&errbuf, "{s}:{d}:{d}: read error: {}\n", .{ path, lc.line, lc.col, err }) catch "read error\n";
+        writeStderr(s);
+        return;
+    }) {
         const expr = r.readDatum() catch |err| {
             const lc = r.getLineCol();
             var errbuf: [256]u8 = undefined;

@@ -14,7 +14,7 @@ pub fn eval(vm: *VM, source: []const u8) VMError!Value {
     defer reader.deinit();
 
     var last_result: Value = types.VOID;
-    while (reader.hasMore()) {
+    while (reader.hasMore() catch return VMError.CompileError) {
         const expr = reader.readDatum() catch return VMError.CompileError;
         if (handleTopLevelForm(vm, expr)) |result| {
             last_result = result catch |err| return err;
