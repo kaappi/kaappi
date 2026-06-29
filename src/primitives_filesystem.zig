@@ -18,6 +18,26 @@ extern "c" fn setenv(name: [*:0]const u8, value: [*:0]const u8, overwrite: c_int
 extern "c" fn unsetenv(name: [*:0]const u8) c_int;
 const is_linux = @import("builtin").os.tag == .linux;
 
+fn validateMode(gc: *GC, val: Value) PrimitiveError!std.c.mode_t {
+    if (!types.isFixnum(val)) return primitives.typeError("set-file-mode", "integer", val);
+    const n = types.toFixnum(val);
+    if (n < 0 or n > std.math.maxInt(std.c.mode_t)) {
+        _ = try raiseFileError(gc, "mode value out of range", val);
+        unreachable;
+    }
+    return @truncate(@as(u64, @intCast(n)));
+}
+
+fn validateUid(gc: *GC, val: Value) PrimitiveError!std.c.uid_t {
+    const n = types.toFixnum(val);
+    if (n == -1) return @bitCast(@as(u32, 0xFFFFFFFF));
+    if (n < 0 or n > std.math.maxInt(std.c.uid_t)) {
+        _ = try raiseFileError(gc, "uid/gid value out of range", val);
+        unreachable;
+    }
+    return @truncate(@as(u64, @intCast(n)));
+}
+
 const StatResult = struct {
     mode: u32,
     size: i64,
@@ -260,10 +280,10 @@ fn fileInfoFn(args: []const Value) PrimitiveError!Value {
         .mtime = sr.mtime_sec,
         .atime = sr.atime_sec,
         .ctime = sr.ctime_sec,
-        .dev = @intCast(sr.dev),
-        .ino = @intCast(sr.ino),
-        .nlinks = @intCast(sr.nlinks),
-        .rdev = @intCast(sr.rdev),
+        .dev = @bitCast(sr.dev),
+        .ino = @bitCast(sr.ino),
+        .nlinks = @bitCast(sr.nlinks),
+        .rdev = @bitCast(sr.rdev),
         .blksize = @intCast(sr.blksize),
         .blocks = 0,
         .mode = sr.mode,
@@ -390,7 +410,7 @@ fn createDirectoryFn(args: []const Value) PrimitiveError!Value {
     const path = extractPath(args[0]) orelse return primitives.typeError("create-directory", "string", args[0]);
 
     const mode: std.c.mode_t = if (args.len > 1 and types.isFixnum(args[1]))
-        @intCast(@as(u64, @bitCast(types.toFixnum(args[1]))))
+        try validateMode(gc, args[1])
     else
         0o755;
 
@@ -506,7 +526,7 @@ fn setFileModeFn(args: []const Value) PrimitiveError!Value {
     const path_z = gc.allocator.dupeZ(u8, path) catch return PrimitiveError.OutOfMemory;
     defer gc.allocator.free(path_z);
 
-    const mode: std.c.mode_t = @intCast(@as(u64, @bitCast(types.toFixnum(args[1]))));
+    const mode = try validateMode(gc, args[1]);
     if (std.c.chmod(path_z, mode) != 0) {
         return raiseFileError(gc, "cannot set file mode", args[0]);
     }
@@ -533,7 +553,7 @@ fn createFifoFn(args: []const Value) PrimitiveError!Value {
     const path = extractPath(args[0]) orelse return primitives.typeError("create-fifo", "string", args[0]);
 
     const mode: std.c.mode_t = if (args.len > 1 and types.isFixnum(args[1]))
-        @intCast(@as(u64, @bitCast(types.toFixnum(args[1]))))
+        try validateMode(gc, args[1])
     else
         0o664;
 
@@ -555,10 +575,8 @@ fn setFileOwnerFn(args: []const Value) PrimitiveError!Value {
     const path_z = gc.allocator.dupeZ(u8, path) catch return PrimitiveError.OutOfMemory;
     defer gc.allocator.free(path_z);
 
-    const uid_val = types.toFixnum(args[1]);
-    const gid_val = types.toFixnum(args[2]);
-    const owner: std.c.uid_t = if (uid_val < 0) @bitCast(@as(u32, 0xFFFFFFFF)) else @intCast(@as(u64, @bitCast(uid_val)));
-    const group: std.c.gid_t = if (gid_val < 0) @bitCast(@as(u32, 0xFFFFFFFF)) else @intCast(@as(u64, @bitCast(gid_val)));
+    const owner: std.c.uid_t = try validateUid(gc, args[1]);
+    const group: std.c.gid_t = try validateUid(gc, args[2]);
 
     if (chown(path_z, owner, group) != 0) {
         return raiseFileError(gc, "cannot set file owner", args[0]);
@@ -627,8 +645,9 @@ fn umaskFn(args: []const Value) PrimitiveError!Value {
 }
 
 fn setUmaskFn(args: []const Value) PrimitiveError!Value {
+    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
     if (!types.isFixnum(args[0])) return primitives.typeError("set-umask!", "integer", args[0]);
-    const mask: std.c.mode_t = @intCast(@as(u64, @bitCast(types.toFixnum(args[0]))));
+    const mask = try validateMode(gc, args[0]);
     _ = std.c.umask(mask);
     return types.VOID;
 }
