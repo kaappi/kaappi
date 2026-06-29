@@ -399,9 +399,10 @@ pub fn readHash(self: *Reader) ReadError!Token {
                     self.pos += 1;
                 }
                 const word = self.source[start..self.pos];
-                if (std.mem.eql(u8, word, "true")) return .{ .boolean = true };
-                return ReadError.UnexpectedChar;
+                if (!std.mem.eql(u8, word, "true")) return ReadError.UnexpectedChar;
             }
+            if (self.pos < self.source.len and !Reader.isDelimiter(self.source[self.pos]))
+                return ReadError.UnexpectedChar;
             return .{ .boolean = true };
         },
         'f' => {
@@ -412,9 +413,10 @@ pub fn readHash(self: *Reader) ReadError!Token {
                     self.pos += 1;
                 }
                 const word = self.source[start..self.pos];
-                if (std.mem.eql(u8, word, "false")) return .{ .boolean = false };
-                return ReadError.UnexpectedChar;
+                if (!std.mem.eql(u8, word, "false")) return ReadError.UnexpectedChar;
             }
+            if (self.pos < self.source.len and !Reader.isDelimiter(self.source[self.pos]))
+                return ReadError.UnexpectedChar;
             return .{ .boolean = false };
         },
         '\\' => return readCharacter(self),
@@ -570,11 +572,15 @@ pub fn readCharacter(self: *Reader) ReadError!Token {
                 }
                 const hex_str = self.source[start + 1 .. self.pos];
                 const cp = std.fmt.parseInt(u21, hex_str, 16) catch return ReadError.InvalidNumber;
-                if (cp >= 0xD800 and cp <= 0xDFFF) return ReadError.InvalidCharacterName;
+                if (cp > 0x10FFFF or (cp >= 0xD800 and cp <= 0xDFFF)) return ReadError.InvalidCharacterName;
+                if (self.pos < self.source.len and !Reader.isDelimiter(self.source[self.pos]))
+                    return ReadError.UnexpectedChar;
                 return .{ .character = cp };
             }
             // Just #\x alone — return 'x'
             if (self.pos >= self.source.len or !std.ascii.isAlphabetic(self.source[self.pos])) {
+                if (self.pos < self.source.len and !Reader.isDelimiter(self.source[self.pos]))
+                    return ReadError.UnexpectedChar;
                 return .{ .character = first_byte };
             }
         }
@@ -583,18 +589,14 @@ pub fn readCharacter(self: *Reader) ReadError!Token {
         }
         const name = self.source[start..self.pos];
         if (name.len == 1) {
+            if (self.pos < self.source.len and !Reader.isDelimiter(self.source[self.pos]))
+                return ReadError.UnexpectedChar;
             return .{ .character = name[0] };
         }
-        if (std.ascii.eqlIgnoreCase(name, "space")) return .{ .character = ' ' };
-        if (std.ascii.eqlIgnoreCase(name, "newline")) return .{ .character = '\n' };
-        if (std.ascii.eqlIgnoreCase(name, "tab")) return .{ .character = '\t' };
-        if (std.ascii.eqlIgnoreCase(name, "return")) return .{ .character = '\r' };
-        if (std.ascii.eqlIgnoreCase(name, "null")) return .{ .character = 0 };
-        if (std.ascii.eqlIgnoreCase(name, "alarm")) return .{ .character = 7 };
-        if (std.ascii.eqlIgnoreCase(name, "backspace")) return .{ .character = 8 };
-        if (std.ascii.eqlIgnoreCase(name, "delete")) return .{ .character = 0x7F };
-        if (std.ascii.eqlIgnoreCase(name, "escape")) return .{ .character = 0x1B };
-        return ReadError.InvalidCharacterName;
+        const char_val: u21 = if (std.ascii.eqlIgnoreCase(name, "space")) ' ' else if (std.ascii.eqlIgnoreCase(name, "newline")) '\n' else if (std.ascii.eqlIgnoreCase(name, "tab")) '\t' else if (std.ascii.eqlIgnoreCase(name, "return")) '\r' else if (std.ascii.eqlIgnoreCase(name, "null")) 0 else if (std.ascii.eqlIgnoreCase(name, "alarm")) 7 else if (std.ascii.eqlIgnoreCase(name, "backspace")) 8 else if (std.ascii.eqlIgnoreCase(name, "delete")) 0x7F else if (std.ascii.eqlIgnoreCase(name, "escape")) 0x1B else return ReadError.InvalidCharacterName;
+        if (self.pos < self.source.len and !Reader.isDelimiter(self.source[self.pos]))
+            return ReadError.UnexpectedChar;
+        return .{ .character = char_val };
     }
 
     // Multi-byte UTF-8 character (e.g., #\λ)
@@ -607,6 +609,8 @@ pub fn readCharacter(self: *Reader) ReadError!Token {
             return ReadError.InvalidCharacterName;
         };
         self.pos += seq_len;
+        if (self.pos < self.source.len and !Reader.isDelimiter(self.source[self.pos]))
+            return ReadError.UnexpectedChar;
         return .{ .character = cp };
     }
 
