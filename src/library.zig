@@ -219,7 +219,7 @@ pub fn registerStandardLibraries(registry: *LibraryRegistry, globals: *std.Strin
 
     // (scheme write) — write/display procedures
     const scheme_write_names = [_][]const u8{
-        "display",      "write",        "newline", "write-char", "write-string",
+        "display",      "write",
         "write-shared", "write-simple",
     };
     var write_lib = Library.init(allocator, "scheme.write");
