@@ -287,22 +287,18 @@ fn extractExportsAndImports(vm: *VM, source: []const u8) !LibraryMeta {
                     } else if (types.isPair(id)) {
                         const eh = types.car(id);
                         if (types.isSymbol(eh) and std.mem.eql(u8, types.symbolName(eh), "rename")) {
-                            var rl = types.cdr(id);
-                            while (rl != types.NIL and types.isPair(rl)) {
-                                const p = types.car(rl);
-                                if (types.isPair(p)) {
-                                    const os = types.car(p);
-                                    const nr = types.cdr(p);
-                                    if (types.isPair(nr)) {
-                                        const ns = types.car(nr);
-                                        if (types.isSymbol(os) and types.isSymbol(ns) and result.export_count < 128) {
-                                            result.export_names[result.export_count] = types.symbolName(os);
-                                            result.export_renames[result.export_count] = types.symbolName(ns);
-                                            result.export_count += 1;
-                                        }
+                            const rename_args = types.cdr(id);
+                            if (types.isPair(rename_args)) {
+                                const os = types.car(rename_args);
+                                const nr = types.cdr(rename_args);
+                                if (types.isPair(nr) and types.isSymbol(os)) {
+                                    const ns = types.car(nr);
+                                    if (types.isSymbol(ns) and result.export_count < 128) {
+                                        result.export_names[result.export_count] = types.symbolName(os);
+                                        result.export_renames[result.export_count] = types.symbolName(ns);
+                                        result.export_count += 1;
                                     }
                                 }
-                                rl = types.cdr(rl);
                             }
                         }
                     }
@@ -905,22 +901,18 @@ pub fn handleDefineLibrary(vm: *VM, args: Value) VMError!Value {
                 } else if (types.isPair(id)) {
                     const head = types.car(id);
                     if (types.isSymbol(head) and std.mem.eql(u8, types.symbolName(head), "rename")) {
-                        var rename_list = types.cdr(id);
-                        while (rename_list != types.NIL and types.isPair(rename_list)) {
-                            const pair = types.car(rename_list);
-                            if (types.isPair(pair)) {
-                                const old_sym = types.car(pair);
-                                const new_rest = types.cdr(pair);
-                                if (types.isPair(new_rest)) {
-                                    const new_sym = types.car(new_rest);
-                                    if (types.isSymbol(old_sym) and types.isSymbol(new_sym) and export_count < 128) {
-                                        export_names[export_count] = types.symbolName(old_sym);
-                                        export_renames[export_count] = types.symbolName(new_sym);
-                                        export_count += 1;
-                                    }
+                        const rename_args = types.cdr(id);
+                        if (types.isPair(rename_args)) {
+                            const old_sym = types.car(rename_args);
+                            const rest = types.cdr(rename_args);
+                            if (types.isPair(rest) and types.isSymbol(old_sym)) {
+                                const new_sym = types.car(rest);
+                                if (types.isSymbol(new_sym) and export_count < 128) {
+                                    export_names[export_count] = types.symbolName(old_sym);
+                                    export_renames[export_count] = types.symbolName(new_sym);
+                                    export_count += 1;
                                 }
                             }
-                            rename_list = types.cdr(rename_list);
                         }
                     }
                 }
