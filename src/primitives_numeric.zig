@@ -25,7 +25,49 @@ fn safeFloatToExactInt(f: f64) PrimitiveError!Value {
     if (f >= min_i64 and f <= max_i64_f) {
         return try arith.makeFixnumChecked(@intFromFloat(f));
     }
-    return makeFlonumVal(f);
+    return floatToBignum(f);
+}
+
+fn floatToBignum(f: f64) PrimitiveError!Value {
+    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const positive = f >= 0;
+    const abs_f = @abs(f);
+    const bits: u64 = @bitCast(abs_f);
+    const raw_exp = @as(u11, @intCast((bits >> 52) & 0x7FF));
+    if (raw_exp == 0 or raw_exp == 0x7FF) return PrimitiveError.TypeError; // bare-ok: subnormal/inf guard
+    const mantissa: u64 = (bits & 0x000FFFFFFFFFFFFF) | 0x0010000000000000;
+    const exp: i16 = @as(i16, @intCast(raw_exp)) - 1023 - 52;
+    if (exp < 0) {
+        const shift: u6 = @intCast(-exp);
+        const result = mantissa >> shift;
+        if (result <= @as(u64, @intCast(std.math.maxInt(i48)))) {
+            const signed: i64 = if (positive) @intCast(result) else -@as(i64, @intCast(result));
+            return types.makeFixnum(signed);
+        }
+        const limbs = [1]u64{result};
+        return gc.allocBignumFromLimbs(&limbs, 1, positive) catch return PrimitiveError.OutOfMemory;
+    }
+    const shift: u6 = @intCast(@min(exp, 63));
+    if (exp <= 10) {
+        const result = mantissa << shift;
+        const limbs = [1]u64{result};
+        return gc.allocBignumFromLimbs(&limbs, 1, positive) catch return PrimitiveError.OutOfMemory;
+    }
+    const uexp: u16 = @intCast(exp);
+    const word_shift = uexp / 64;
+    const bit_shift: u6 = @intCast(uexp % 64);
+    const total_limbs = word_shift + 1 + @as(u16, if (bit_shift > 10) 1 else 0);
+    var limbs = gc.allocator.alloc(u64, total_limbs) catch return PrimitiveError.OutOfMemory;
+    defer gc.allocator.free(limbs);
+    @memset(limbs, 0);
+    limbs[word_shift] = mantissa << bit_shift;
+    if (bit_shift > 10 and word_shift + 1 < total_limbs) {
+        const complement: u6 = @intCast(64 - @as(u7, bit_shift));
+        limbs[word_shift + 1] = mantissa >> complement;
+    }
+    var len = total_limbs;
+    while (len > 0 and limbs[len - 1] == 0) len -= 1;
+    return gc.allocBignumFromLimbs(limbs[0..total_limbs], len, positive) catch return PrimitiveError.OutOfMemory;
 }
 const raiseDivByZero = arith.raiseDivByZero;
 
