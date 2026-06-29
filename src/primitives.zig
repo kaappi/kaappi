@@ -210,12 +210,13 @@ fn safeValueDescription(buf: *[128]u8, value: Value) []const u8 {
         if (addr == 0 or addr < 4096) return "#<invalid-pointer>";
         const obj = types.toObject(value);
         const tag = @intFromEnum(obj.tag);
-        if (tag >= 35) return std.fmt.bufPrint(buf, "#<corrupt tag={d}>", .{tag}) catch "#<corrupt>";
+        if (tag >= @typeInfo(types.ObjectTag).@"enum".fields.len)
+            return std.fmt.bufPrint(buf, "#<corrupt tag={d}>", .{tag}) catch "#<corrupt>";
         return switch (obj.tag) {
             .pair => "#<pair>",
             .symbol => "#<symbol>",
             .string => "#<string>",
-            .closure, .native_fn, .function => "#<procedure>",
+            .closure, .native_fn, .function, .native_closure => "#<procedure>",
             .vector => "#<vector>",
             .hash_table => "#<hash-table>",
             else => std.fmt.bufPrint(buf, "#<{s}>", .{@tagName(obj.tag)}) catch "#<object>",

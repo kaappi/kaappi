@@ -77,7 +77,10 @@ fn jsonGetString(json: []const u8, key: []const u8) ?[]const u8 {
     i += 1; // skip opening quote
     const start = i;
     while (i < json.len and json[i] != '"') : (i += 1) {
-        if (json[i] == '\\') i += 1; // skip escaped char
+        if (json[i] == '\\') {
+            i += 1;
+            if (i >= json.len) return null;
+        }
     }
     return json[start..i];
 }
@@ -116,9 +119,10 @@ fn jsonGetObject(json: []const u8, key: []const u8) ?[]const u8 {
 // ---- LSP message I/O ----
 
 fn readMessage(allocator: std.mem.Allocator) ?[]u8 {
-    var header_buf: [256]u8 = undefined;
+    var header_buf: [4096]u8 = undefined;
     var header_len: usize = 0;
     var content_length: usize = 0;
+    var last4: [4]u8 = .{ 0, 0, 0, 0 };
 
     // Read headers until blank line
     while (true) {
@@ -127,13 +131,16 @@ fn readMessage(allocator: std.mem.Allocator) ?[]u8 {
         if (n == 0) return null;
         if (header_len < header_buf.len) {
             header_buf[header_len] = byte[0];
-            header_len += 1;
         }
-        if (header_len >= 4 and
-            std.mem.eql(u8, header_buf[header_len - 4 .. header_len], "\r\n\r\n"))
-        {
+        header_len += 1;
+        last4[0] = last4[1];
+        last4[1] = last4[2];
+        last4[2] = last4[3];
+        last4[3] = byte[0];
+        if (header_len >= 4 and std.mem.eql(u8, &last4, "\r\n\r\n")) {
             // Parse Content-Length
-            const headers = header_buf[0..header_len];
+            const hdr_end = @min(header_len, header_buf.len);
+            const headers = header_buf[0..hdr_end];
             if (std.mem.indexOf(u8, headers, "Content-Length: ")) |cl_pos| {
                 const cl_start = cl_pos + 16;
                 var cl_end = cl_start;
@@ -179,6 +186,19 @@ fn sendResponse(allocator: std.mem.Allocator, id: i64, result: []const u8) void 
     buf.appendSlice(allocator, ",\"result\":") catch return;
     buf.appendSlice(allocator, result) catch return;
     buf.append(allocator, '}') catch return;
+    writeMessage(allocator, buf.items);
+}
+
+fn sendError(allocator: std.mem.Allocator, id: i64, code: i64, message: []const u8) void {
+    var buf: std.ArrayList(u8) = .empty;
+    defer buf.deinit(allocator);
+    buf.appendSlice(allocator, "{\"jsonrpc\":\"2.0\",\"id\":") catch return;
+    jsonInt(&buf, allocator, id);
+    buf.appendSlice(allocator, ",\"error\":{\"code\":") catch return;
+    jsonInt(&buf, allocator, code);
+    buf.appendSlice(allocator, ",\"message\":") catch return;
+    jsonString(&buf, allocator, message);
+    buf.appendSlice(allocator, "}}") catch return;
     writeMessage(allocator, buf.items);
 }
 
@@ -252,21 +272,19 @@ fn getTypeName(val: types.Value) []const u8 {
     };
 }
 
-fn getArity(val: types.Value) ?[]const u8 {
+fn getArity(val: types.Value, buf: *[32]u8) ?[]const u8 {
     if (!types.isPointer(val)) return null;
     const obj = types.toObject(val);
     if (obj.tag == .native_fn) {
         const nfn = obj.as(types.NativeFn);
-        var buf: [32]u8 = undefined;
         return switch (nfn.arity) {
-            .exact => |n| std.fmt.bufPrint(&buf, "{d}", .{n}) catch null,
-            .variadic => |n| std.fmt.bufPrint(&buf, "{d}+", .{n}) catch null,
+            .exact => |n| std.fmt.bufPrint(buf, "{d}", .{n}) catch null,
+            .variadic => |n| std.fmt.bufPrint(buf, "{d}+", .{n}) catch null,
         };
     }
     if (obj.tag == .closure) {
         const cls = obj.as(types.Closure);
-        var buf: [32]u8 = undefined;
-        return std.fmt.bufPrint(&buf, "{d}", .{cls.func.arity}) catch null;
+        return std.fmt.bufPrint(buf, "{d}", .{cls.func.arity}) catch null;
     }
     return null;
 }
@@ -355,7 +373,8 @@ fn handleHover(allocator: std.mem.Allocator, vm: *vm_mod.VM, id: i64, params: []
     md.appendSlice(allocator, symbol) catch {};
     md.appendSlice(allocator, "`") catch {};
 
-    if (getArity(val)) |arity| {
+    var arity_buf: [32]u8 = undefined;
+    if (getArity(val, &arity_buf)) |arity| {
         md.appendSlice(allocator, "\\n\\nArity: ") catch {};
         md.appendSlice(allocator, arity) catch {};
     }
@@ -431,11 +450,17 @@ fn handleDocumentSymbol(allocator: std.mem.Allocator, vm: *vm_mod.VM, id: i64, p
             if (!first) result.append(allocator, ',') catch {};
             first = false;
             const line: i64 = @intCast(lc.line -| 1);
-            const s = std.fmt.allocPrint(allocator,
-                \\{{"name":"{s}","kind":{d},"location":{{"uri":"{s}","range":{{"start":{{"line":{d},"character":0}},"end":{{"line":{d},"character":0}}}}}}}}
-            , .{ n, kind, uri, line, line }) catch continue;
-            defer allocator.free(s);
-            result.appendSlice(allocator, s) catch {};
+            result.appendSlice(allocator, "{\"name\":") catch {};
+            jsonString(&result, allocator, n);
+            result.appendSlice(allocator, ",\"kind\":") catch {};
+            jsonInt(&result, allocator, kind);
+            result.appendSlice(allocator, ",\"location\":{\"uri\":") catch {};
+            jsonString(&result, allocator, uri);
+            result.appendSlice(allocator, ",\"range\":{\"start\":{\"line\":") catch {};
+            jsonInt(&result, allocator, line);
+            result.appendSlice(allocator, ",\"character\":0},\"end\":{\"line\":") catch {};
+            jsonInt(&result, allocator, line);
+            result.appendSlice(allocator, ",\"character\":0}}}}") catch {};
         }
     }
 
@@ -469,14 +494,16 @@ fn handleDefinition(allocator: std.mem.Allocator, vm: *vm_mod.VM, id: i64, param
         const expr = r.readDatum() catch break;
         if (findDefineLocation(expr, symbol, lc.line)) |def_line| {
             const resp_line: i64 = @as(i64, @intCast(def_line)) - 1;
-            const s = std.fmt.allocPrint(allocator,
-                \\{{"uri":"{s}","range":{{"start":{{"line":{d},"character":0}},"end":{{"line":{d},"character":0}}}}}}
-            , .{ uri, resp_line, resp_line }) catch {
-                sendResponse(allocator, id, "null");
-                return;
-            };
-            defer allocator.free(s);
-            sendResponse(allocator, id, s);
+            var resp: std.ArrayList(u8) = .empty;
+            defer resp.deinit(allocator);
+            resp.appendSlice(allocator, "{\"uri\":") catch {};
+            jsonString(&resp, allocator, uri);
+            resp.appendSlice(allocator, ",\"range\":{\"start\":{\"line\":") catch {};
+            jsonInt(&resp, allocator, resp_line);
+            resp.appendSlice(allocator, ",\"character\":0},\"end\":{\"line\":") catch {};
+            jsonInt(&resp, allocator, resp_line);
+            resp.appendSlice(allocator, ",\"character\":0}}}") catch {};
+            sendResponse(allocator, id, resp.items);
             return;
         }
     }
@@ -560,11 +587,18 @@ fn handleReferences(allocator: std.mem.Allocator, vm: *vm_mod.VM, id: i64, param
             if (std.mem.eql(u8, word, symbol)) {
                 if (!first) result.append(allocator, ',') catch {};
                 first = false;
-                const s = std.fmt.allocPrint(allocator,
-                    \\{{"uri":"{s}","range":{{"start":{{"line":{d},"character":{d}}},"end":{{"line":{d},"character":{d}}}}}}}
-                , .{ uri, cur_line, col, cur_line, col + @as(u32, @intCast(word.len)) }) catch continue;
-                defer allocator.free(s);
-                result.appendSlice(allocator, s) catch {};
+                const end_col = col + @as(u32, @intCast(word.len));
+                result.appendSlice(allocator, "{\"uri\":") catch {};
+                jsonString(&result, allocator, uri);
+                result.appendSlice(allocator, ",\"range\":{\"start\":{\"line\":") catch {};
+                jsonInt(&result, allocator, @intCast(cur_line));
+                result.appendSlice(allocator, ",\"character\":") catch {};
+                jsonInt(&result, allocator, @intCast(col));
+                result.appendSlice(allocator, "},\"end\":{\"line\":") catch {};
+                jsonInt(&result, allocator, @intCast(cur_line));
+                result.appendSlice(allocator, ",\"character\":") catch {};
+                jsonInt(&result, allocator, @intCast(end_col));
+                result.appendSlice(allocator, "}}}") catch {};
             }
             continue;
         }
@@ -754,7 +788,7 @@ pub fn main(init: std.process.Init.Minimal) !void {
             break;
         } else if (!initialized) {
             if (id) |req_id| {
-                sendResponse(allocator, req_id, "{\"code\":-32002,\"message\":\"not initialized\"}");
+                sendError(allocator, req_id, -32002, "not initialized");
             }
         } else if (std.mem.eql(u8, method, "textDocument/didOpen")) {
             handleDidOpenOrChange(allocator, &vm, msg);
