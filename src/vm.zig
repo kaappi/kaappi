@@ -698,11 +698,16 @@ pub const VM = struct {
                 // Collect rest args into a list
                 const rest_start = func.arity;
                 var rest_list: Value = types.NIL;
+                self.gc.pushRoot(&rest_list) catch return VMError.OutOfMemory;
                 var i: u8 = nargs;
                 while (i > rest_start) {
                     i -= 1;
-                    rest_list = self.gc.allocPair(args[i], rest_list) catch return VMError.OutOfMemory;
+                    rest_list = self.gc.allocPair(args[i], rest_list) catch {
+                        self.gc.popRoot();
+                        return VMError.OutOfMemory;
+                    };
                 }
+                self.gc.popRoot();
                 // Place fixed args and rest list
                 for (0..rest_start) |ri| {
                     self.registers[base + ri] = args[ri];

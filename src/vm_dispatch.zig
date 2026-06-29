@@ -315,14 +315,19 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                             return VMError.InvalidBytecode;
                         }
                         var rest_list: Value = types.NIL;
+                        self.gc.pushRoot(&rest_list) catch return VMError.OutOfMemory;
                         var ri: u8 = nargs;
                         while (ri > rest_start) {
                             ri -= 1;
                             rest_list = self.gc.allocPair(
                                 self.registers[abs_base + 1 + ri],
                                 rest_list,
-                            ) catch return VMError.OutOfMemory;
+                            ) catch {
+                                self.gc.popRoot();
+                                return VMError.OutOfMemory;
+                            };
                         }
+                        self.gc.popRoot();
                         self.registers[abs_base + 1 + rest_start] = rest_list;
                     }
 
@@ -519,11 +524,16 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                         }
                         const rest_start = func.arity;
                         var rest_list: Value = types.NIL;
+                        self.gc.pushRoot(&rest_list) catch return VMError.OutOfMemory;
                         var ri: u8 = total_nargs;
                         while (ri > rest_start) {
                             ri -= 1;
-                            rest_list = self.gc.allocPair(flat_args[ri], rest_list) catch return VMError.OutOfMemory;
+                            rest_list = self.gc.allocPair(flat_args[ri], rest_list) catch {
+                                self.gc.popRoot();
+                                return VMError.OutOfMemory;
+                            };
                         }
+                        self.gc.popRoot();
                         flat_args[rest_start] = rest_list;
                     }
 
@@ -852,14 +862,19 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                             return VMError.InvalidBytecode;
                         }
                         var rest_list: Value = types.NIL;
+                        self.gc.pushRoot(&rest_list) catch return VMError.OutOfMemory;
                         var ri: u8 = nargs;
                         while (ri > rest_start) {
                             ri -= 1;
                             rest_list = self.gc.allocPair(
                                 self.registers[abs_base + 1 + ri],
                                 rest_list,
-                            ) catch return VMError.OutOfMemory;
+                            ) catch {
+                                self.gc.popRoot();
+                                return VMError.OutOfMemory;
+                            };
                         }
+                        self.gc.popRoot();
                         self.registers[abs_base + 1 + rest_start] = rest_list;
                     }
                     const arg_count = if (tfunc.is_variadic) tfunc.arity + 1 else nargs;
