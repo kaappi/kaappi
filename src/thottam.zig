@@ -210,7 +210,7 @@ fn matchesAllConstraints(v: Semver, constraints: [4]?Constraint) bool {
 fn resolveVersion(allocator: std.mem.Allocator, clone_url: []const u8, constraint_str: []const u8) ?[]const u8 {
     const constraints = parseConstraints(constraint_str) orelse return null;
 
-    const output = runCapture(allocator, &.{ "git", "ls-remote", "--tags", clone_url }, null) catch return null;
+    const output = runGitCapture(allocator, &.{ "ls-remote", "--tags", clone_url }) catch return null;
     defer allocator.free(output);
 
     var best: ?Semver = null;
