@@ -231,6 +231,9 @@ fn matchPattern(pattern: Value, input: Value, literals: []const Value, bindings:
     if (types.isFixnum(pattern)) {
         return types.isFixnum(input) and pattern == input;
     }
+    if (types.isFlonum(pattern)) {
+        return types.isFlonum(input) and pattern == input;
+    }
     if (types.isBool(pattern)) {
         return pattern == input;
     }
@@ -482,7 +485,7 @@ fn instantiateTemplate(gc: *GC, template: Value, bindings: []Binding, intro_scop
     if (!in_escape and types.isSymbol(elem) and isEllipsis(types.symbolName(elem))) {
         if (rest != types.NIL and types.isPair(rest) and types.cdr(rest) == types.NIL) {
             const inner = types.car(rest);
-            return instantiateTemplate(gc, inner, bindings, intro_scope | ESCAPE_FLAG | QUOTE_FLAG, literals, macro_keyword, globals, macros);
+            return instantiateTemplate(gc, inner, bindings, intro_scope | ESCAPE_FLAG, literals, macro_keyword, globals, macros);
         }
         return template;
     }
@@ -661,8 +664,9 @@ fn substitutePatternVarsOnly(gc: *GC, template: Value, bindings: []Binding) !Val
 }
 
 fn renameForHygiene(gc: *GC, name: []const u8, scope: u32, globals: ?*std.StringHashMap(Value)) !Value {
-    // Skip renaming inside quote or ellipsis escape contexts
-    if ((scope & 0xC0000000) != 0) return gc.allocSymbol(name);
+    // Skip renaming inside quote contexts (not ellipsis escape — hygiene still applies there)
+    const QUOTE_FLAG: u32 = 0x40000000;
+    if ((scope & QUOTE_FLAG) != 0) return gc.allocSymbol(name);
     // If the name exists as a global binding, keep it as-is.
     // This preserves referential transparency AND allows set! to
     // mutate the original global (aliasing would create a separate binding).
