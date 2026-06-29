@@ -93,8 +93,8 @@ fn marshalToPointer(v: Value) ?*anyopaque {
 
 fn normalizeType(t: FfiType) FfiType {
     return switch (t) {
-        .int8, .int16, .int32, .char_type, .bool_type, .uint8, .uint16, .uint32 => .int,
-        .int64, .uint64, .size_type => .long,
+        .int8, .int16, .int32, .char_type, .bool_type, .uint8, .uint16 => .int,
+        .int64, .uint32, .uint64, .size_type => .long,
         else => t,
     };
 }
