@@ -1092,10 +1092,10 @@ pub fn eliminateIdentity(ir: *IR, node: *Node) *Node {
                         return eliminateIdentity(ir, a);
                     if (a.tag == .constant and types.isFixnum(a.data.constant) and types.toFixnum(a.data.constant) == 1)
                         return eliminateIdentity(ir, b);
-                    // (* x 0) → 0, (* 0 x) → 0
-                    if (b.tag == .constant and types.isFixnum(b.data.constant) and types.toFixnum(b.data.constant) == 0)
+                    // (* x 0) → 0, (* 0 x) → 0 (only when the other operand is pure)
+                    if (b.tag == .constant and types.isFixnum(b.data.constant) and types.toFixnum(b.data.constant) == 0 and a.tag == .constant)
                         return ir.makeConst(types.makeFixnum(0)) catch return node;
-                    if (a.tag == .constant and types.isFixnum(a.data.constant) and types.toFixnum(a.data.constant) == 0)
+                    if (a.tag == .constant and types.isFixnum(a.data.constant) and types.toFixnum(a.data.constant) == 0 and b.tag == .constant)
                         return ir.makeConst(types.makeFixnum(0)) catch return node;
                 }
                 // (- x 0) → x

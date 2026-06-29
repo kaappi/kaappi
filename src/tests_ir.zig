@@ -494,7 +494,24 @@ test "IR optimization: identity elimination — add zero" {
     try std.testing.expect(result.tag == .global_ref);
 }
 
-test "IR optimization: identity elimination — multiply by zero" {
+test "IR optimization: identity elimination — multiply by zero (pure)" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var ir = ir_mod.IR.init(std.testing.allocator);
+    defer ir.deinit();
+
+    const mul_sym = try gc.allocSymbol("*");
+    const op = try ir.makeGlobalRef(mul_sym);
+    const five = try ir.makeConst(types.makeFixnum(5));
+    const zero = try ir.makeConst(types.makeFixnum(0));
+    const call = try ir.makeCall(op, &.{ five, zero });
+
+    const result = ir_mod.eliminateIdentity(&ir, call);
+    try std.testing.expect(result.tag == .constant);
+    try std.testing.expectEqual(@as(i64, 0), types.toFixnum(result.data.constant));
+}
+
+test "IR optimization: identity elimination — multiply by zero (impure preserved)" {
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
     var ir = ir_mod.IR.init(std.testing.allocator);
@@ -508,8 +525,8 @@ test "IR optimization: identity elimination — multiply by zero" {
     const call = try ir.makeCall(op, &.{ x, zero });
 
     const result = ir_mod.eliminateIdentity(&ir, call);
-    try std.testing.expect(result.tag == .constant);
-    try std.testing.expectEqual(@as(i64, 0), types.toFixnum(result.data.constant));
+    // Non-constant operand must NOT be optimized away (may have side effects)
+    try std.testing.expect(result.tag == .call);
 }
 
 test "IR optimization: begin simplification — single expr" {
