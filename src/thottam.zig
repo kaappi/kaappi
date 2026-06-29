@@ -40,6 +40,15 @@ const PkgManifest = struct {
     depends: ?[]const u8 = null,
     build_cmd: ?[]const u8 = null,
     source: ?[]const u8 = null,
+    owned: bool = false,
+
+    fn deinit(self: PkgManifest, allocator: std.mem.Allocator) void {
+        if (!self.owned) return;
+        if (self.name) |n| allocator.free(n);
+        if (self.depends) |d| allocator.free(d);
+        if (self.build_cmd) |b| allocator.free(b);
+        if (self.source) |s| allocator.free(s);
+    }
 };
 
 fn writeToFd(fd: std.posix.fd_t, bytes: []const u8) void {
@@ -615,8 +624,14 @@ fn getPkgManifest(allocator: std.mem.Allocator, src_dir: []const u8, pkg: []cons
     const pkg_file = joinPath3(allocator, src_dir, pkg, "kaappi.pkg") catch return null;
     defer allocator.free(pkg_file);
     const content = readFile(allocator, pkg_file) catch return null;
-    // content intentionally not freed — manifest fields are slices into it
-    return parsePkgManifest(content);
+    defer allocator.free(content);
+    var m = parsePkgManifest(content);
+    m.name = if (m.name) |n| allocator.dupe(u8, n) catch null else null;
+    m.depends = if (m.depends) |d| allocator.dupe(u8, d) catch null else null;
+    m.build_cmd = if (m.build_cmd) |b| allocator.dupe(u8, b) catch null else null;
+    m.source = if (m.source) |s| allocator.dupe(u8, s) catch null else null;
+    m.owned = true;
+    return m;
 }
 
 fn copyDir(allocator: std.mem.Allocator, src: []const u8, dst: []const u8) !void {
@@ -819,6 +834,7 @@ fn doInstall(
     }
 
     if (getPkgManifest(allocator, config.src_dir, pkg)) |manifest| {
+        defer manifest.deinit(allocator);
         if (manifest.depends) |deps| {
             var dep_it = std.mem.splitScalar(u8, deps, ' ');
             while (dep_it.next()) |dep| {
@@ -922,6 +938,7 @@ fn doList(allocator: std.mem.Allocator, config: Config) !void {
         writeStdout(sha_short);
 
         if (getPkgManifest(allocator, config.src_dir, pkg)) |manifest| {
+            defer manifest.deinit(allocator);
             if (manifest.depends) |deps| {
                 printBuf(&buf, " (depends: {s})", .{deps});
             }
@@ -977,6 +994,7 @@ fn doUpdate(allocator: std.mem.Allocator, config: Config, pkg: ?[]const u8) !voi
         };
 
         if (getPkgManifest(allocator, config.src_dir, p)) |manifest| {
+            defer manifest.deinit(allocator);
             if (manifest.build_cmd) |build_cmd| {
                 _ = runPassthrough(allocator, &.{ "/bin/sh", "-c", build_cmd }, pkg_dir) catch {};
             }
