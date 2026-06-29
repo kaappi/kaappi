@@ -911,6 +911,10 @@ fn disassembleFile(vm: *vm_mod.VM, path: []const u8) !void {
     const source = readFileContents(allocator, path) catch return;
     defer allocator.free(source);
 
+    const saved_lib_dir = vm.current_lib_dir;
+    vm.current_lib_dir = if (std.mem.lastIndexOfScalar(u8, path, '/')) |pos| path[0 .. pos + 1] else "";
+    defer vm.current_lib_dir = saved_lib_dir;
+
     var r = reader.Reader.initWithName(vm.gc, source, path);
     defer r.deinit();
 
@@ -1092,6 +1096,10 @@ fn emitLlvmFile(vm: *vm_mod.VM, path: []const u8, output_path: ?[]const u8) !voi
     const allocator = vm.gc.allocator;
     const source = readFileContents(allocator, path) catch return;
     defer allocator.free(source);
+
+    const saved_lib_dir = vm.current_lib_dir;
+    vm.current_lib_dir = if (std.mem.lastIndexOfScalar(u8, path, '/')) |pos| path[0 .. pos + 1] else "";
+    defer vm.current_lib_dir = saved_lib_dir;
 
     var r = reader.Reader.initWithName(vm.gc, source, path);
     defer r.deinit();
