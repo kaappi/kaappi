@@ -551,6 +551,20 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                     frame.ip = 0;
                 } else if (types.isNativeFn(proc)) {
                     const native = types.toObject(proc).as(types.NativeFn);
+                    switch (native.arity) {
+                        .exact => |expected| {
+                            if (count != expected) {
+                                self.setErrorDetail("'{s}': expected {d} arguments, got {d}", .{ native.name, expected, count });
+                                return VMError.ArityMismatch;
+                            }
+                        },
+                        .variadic => |min| {
+                            if (count < min) {
+                                self.setErrorDetail("'{s}': expected at least {d} arguments, got {d}", .{ native.name, min, count });
+                                return VMError.ArityMismatch;
+                            }
+                        },
+                    }
                     const result = native.func(flat_args[0..count]) catch |err| {
                         if (err == error.ContinuationInvoked) {
                             if (target_frame_count == 0) continue;
