@@ -391,6 +391,9 @@ fn vectorMapFn(args: []const Value) PrimitiveError!Value {
     const results = gc.allocator.alloc(Value, min_len) catch return PrimitiveError.OutOfMemory;
     defer gc.allocator.free(results);
 
+    const roots_base = gc.extra_roots.items.len;
+    defer gc.extra_roots.shrinkRetainingCapacity(roots_base);
+
     var call_args: [256]Value = undefined;
     for (0..min_len) |i| {
         // Build argument list: one element from each vector
@@ -406,6 +409,7 @@ fn vectorMapFn(args: []const Value) PrimitiveError!Value {
                 else => PrimitiveError.TypeError, // bare-ok: catch fallback
             };
         };
+        gc.extra_roots.append(gc.allocator, results[i]) catch return PrimitiveError.OutOfMemory;
     }
 
     return gc.allocVector(results) catch return PrimitiveError.OutOfMemory;
@@ -727,6 +731,9 @@ fn vectorUnfoldFn(args: []const Value) PrimitiveError!Value {
     const new_data = gc.allocator.alloc(Value, length) catch return PrimitiveError.OutOfMemory;
     defer gc.allocator.free(new_data);
 
+    const roots_base = gc.extra_roots.items.len;
+    defer gc.extra_roots.shrinkRetainingCapacity(roots_base);
+
     for (0..length) |i| {
         var call_args_buf: [257]Value = undefined;
         call_args_buf[0] = types.makeFixnum(@intCast(i));
@@ -745,6 +752,10 @@ fn vectorUnfoldFn(args: []const Value) PrimitiveError!Value {
             }
         } else {
             new_data[i] = result;
+        }
+        gc.extra_roots.append(gc.allocator, new_data[i]) catch return PrimitiveError.OutOfMemory;
+        for (seeds.items) |s| {
+            gc.extra_roots.append(gc.allocator, s) catch return PrimitiveError.OutOfMemory;
         }
     }
     return gc.allocVector(new_data) catch return PrimitiveError.OutOfMemory;
@@ -768,6 +779,9 @@ fn vectorUnfoldRightFn(args: []const Value) PrimitiveError!Value {
     const new_data = gc.allocator.alloc(Value, length) catch return PrimitiveError.OutOfMemory;
     defer gc.allocator.free(new_data);
 
+    const roots_base = gc.extra_roots.items.len;
+    defer gc.extra_roots.shrinkRetainingCapacity(roots_base);
+
     // Fill from right to left (index length-1 down to 0)
     var i = length;
     while (i > 0) {
@@ -786,6 +800,10 @@ fn vectorUnfoldRightFn(args: []const Value) PrimitiveError!Value {
             }
         } else {
             new_data[i] = result;
+        }
+        gc.extra_roots.append(gc.allocator, new_data[i]) catch return PrimitiveError.OutOfMemory;
+        for (seeds.items) |s| {
+            gc.extra_roots.append(gc.allocator, s) catch return PrimitiveError.OutOfMemory;
         }
     }
     return gc.allocVector(new_data) catch return PrimitiveError.OutOfMemory;
@@ -851,10 +869,13 @@ fn vectorCumulateFn(args: []const Value) PrimitiveError!Value {
     const vec = types.toVector(args[2]);
     const new_data = gc.allocator.alloc(Value, vec.data.len) catch return PrimitiveError.OutOfMemory;
     defer gc.allocator.free(new_data);
+    const roots_base = gc.extra_roots.items.len;
+    defer gc.extra_roots.shrinkRetainingCapacity(roots_base);
     for (0..vec.data.len) |i| {
         const call_args_buf = [2]Value{ acc, vec.data[i] };
         acc = try callVM(f, &call_args_buf);
         new_data[i] = acc;
+        gc.extra_roots.append(gc.allocator, acc) catch return PrimitiveError.OutOfMemory;
     }
     return gc.allocVector(new_data) catch return PrimitiveError.OutOfMemory;
 }
