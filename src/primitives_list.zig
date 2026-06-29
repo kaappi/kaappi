@@ -2,6 +2,7 @@ const std = @import("std");
 const types = @import("types.zig");
 const vm_mod = @import("vm.zig");
 const primitives = @import("primitives.zig");
+const bignum_mod = @import("bignum.zig");
 const Value = types.Value;
 const NativeFn = types.NativeFn;
 const PrimitiveError = primitives.PrimitiveError;
@@ -165,18 +166,46 @@ fn memqFn(args: []const Value) PrimitiveError!Value {
     return types.FALSE;
 }
 
+fn isEqv(a: Value, b: Value) bool {
+    if (a == b) return true;
+    if (types.isFlonum(a) and types.isFlonum(b)) {
+        const fa: u64 = @bitCast(types.toFlonum(a));
+        const fb: u64 = @bitCast(types.toFlonum(b));
+        return fa == fb;
+    }
+    if (types.isBignum(a) and types.isBignum(b)) {
+        return bignum_mod.compare(a, b) == 0;
+    }
+    if ((types.isBignum(a) and types.isFixnum(b)) or
+        (types.isFixnum(a) and types.isBignum(b)))
+    {
+        return bignum_mod.compare(a, b) == 0;
+    }
+    if (types.isComplex(a) and types.isComplex(b)) {
+        const ca = types.toComplex(a);
+        const cb = types.toComplex(b);
+        const ra: u64 = @bitCast(ca.real);
+        const rb: u64 = @bitCast(cb.real);
+        const ia: u64 = @bitCast(ca.imag);
+        const ib: u64 = @bitCast(cb.imag);
+        return ra == rb and ia == ib;
+    }
+    if (types.isRationalObj(a) and types.isRationalObj(b)) {
+        const ra = types.toRational(a);
+        const rb = types.toRational(b);
+        if (ra.numerator == rb.numerator and ra.denominator == rb.denominator) return true;
+        const n_eq = if (ra.numerator == rb.numerator) true else if ((types.isBignum(ra.numerator) or types.isFixnum(ra.numerator)) and (types.isBignum(rb.numerator) or types.isFixnum(rb.numerator))) bignum_mod.compare(ra.numerator, rb.numerator) == 0 else false;
+        const d_eq = if (ra.denominator == rb.denominator) true else if ((types.isBignum(ra.denominator) or types.isFixnum(ra.denominator)) and (types.isBignum(rb.denominator) or types.isFixnum(rb.denominator))) bignum_mod.compare(ra.denominator, rb.denominator) == 0 else false;
+        return n_eq and d_eq;
+    }
+    return false;
+}
+
 fn memvFn(args: []const Value) PrimitiveError!Value {
     var current = args[1];
     while (current != types.NIL) {
         if (!types.isPair(current)) return primitives.typeError("memv", "proper list", current);
-        const elem = types.car(current);
-        if (args[0] == elem) return current;
-        // eqv? also checks flonum bit-equality
-        if (types.isFlonum(args[0]) and types.isFlonum(elem)) {
-            const a: u64 = @bitCast(types.toFlonum(args[0]));
-            const b: u64 = @bitCast(types.toFlonum(elem));
-            if (a == b) return current;
-        }
+        if (isEqv(args[0], types.car(current))) return current;
         current = types.cdr(current);
     }
     return types.FALSE;
@@ -228,13 +257,7 @@ fn assvFn(args: []const Value) PrimitiveError!Value {
         if (!types.isPair(current)) return primitives.typeError("assv", "association list", current);
         const pair = types.car(current);
         if (!types.isPair(pair)) return primitives.typeError("assv", "pair", pair);
-        const key = types.car(pair);
-        if (args[0] == key) return pair;
-        if (types.isFlonum(args[0]) and types.isFlonum(key)) {
-            const a: u64 = @bitCast(types.toFlonum(args[0]));
-            const b: u64 = @bitCast(types.toFlonum(key));
-            if (a == b) return pair;
-        }
+        if (isEqv(args[0], types.car(pair))) return pair;
         current = types.cdr(current);
     }
     return types.FALSE;
