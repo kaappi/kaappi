@@ -920,8 +920,15 @@ fn vectorAppendSubvectorsFn(args: []const Value) PrimitiveError!Value {
         if (!types.isVector(args[i])) return primitives.typeError("vector-append-subvectors", "vector", args[i]);
         if (!types.isFixnum(args[i + 1])) return primitives.typeError("vector-append-subvectors", "integer", args[i + 1]);
         if (!types.isFixnum(args[i + 2])) return primitives.typeError("vector-append-subvectors", "integer", args[i + 2]);
-        const start: usize = @intCast(types.toFixnum(args[i + 1]));
-        const end: usize = @intCast(types.toFixnum(args[i + 2]));
+        const s = types.toFixnum(args[i + 1]);
+        const e = types.toFixnum(args[i + 2]);
+        if (s < 0) return primitives.typeError("vector-append-subvectors", "non-negative integer", args[i + 1]);
+        if (e < 0) return primitives.typeError("vector-append-subvectors", "non-negative integer", args[i + 2]);
+        const start: usize = @intCast(s);
+        const end: usize = @intCast(e);
+        const vec_len = types.toVector(args[i]).data.len;
+        if (start > vec_len) return PrimitiveError.IndexOutOfBounds;
+        if (end > vec_len) return PrimitiveError.IndexOutOfBounds;
         if (end < start) return primitives.typeError("vector-append-subvectors", "valid range (end >= start)", args[i + 2]);
         total += end - start;
     }
