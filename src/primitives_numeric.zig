@@ -652,11 +652,64 @@ pub fn makeComplexOrRealEx(real: f64, imag: f64, exact_real: bool, exact_imag: b
     return gc.allocComplexEx(real, imag, exact_real, exact_imag) catch return PrimitiveError.OutOfMemory;
 }
 
+const Exactness = enum { unspecified, exact, inexact };
+
+fn applyExactness(gc: *@import("memory.zig").GC, val: Value, exactness: Exactness) PrimitiveError!Value {
+    switch (exactness) {
+        .unspecified => return val,
+        .inexact => {
+            if (types.isFixnum(val)) return types.makeFlonum(@floatFromInt(types.toFixnum(val)));
+            if (types.isBignum(val)) {
+                const bn = types.toBignum(val);
+                var result: f64 = 0;
+                var base: f64 = 1;
+                for (bn.limbs[0..bn.len]) |limb| {
+                    result += @as(f64, @floatFromInt(limb)) * base;
+                    base *= 18446744073709551616.0; // 2^64
+                }
+                return types.makeFlonum(if (bn.positive) result else -result);
+            }
+            if (types.isRationalObj(val)) {
+                const rat = types.toRational(val);
+                const num_f = types.toF64(rat.numerator);
+                const den_f = types.toF64(rat.denominator);
+                return types.makeFlonum(num_f / den_f);
+            }
+            return val;
+        },
+        .exact => {
+            if (types.isFlonum(val)) {
+                const f = types.toFlonum(val);
+                if (std.math.isNan(f) or std.math.isInf(f)) return types.FALSE;
+                const trunc = @trunc(f);
+                if (f == trunc) {
+                    const n: i64 = @intFromFloat(trunc);
+                    return arith.makeFixnumChecked(n);
+                }
+                // Non-integer exact: convert to rational
+                // Use a simple approach: multiply by power of 10 to get integers
+                var num = f;
+                var den: f64 = 1.0;
+                var i: u32 = 0;
+                while (i < 15) : (i += 1) {
+                    if (num == @trunc(num)) break;
+                    num *= 10.0;
+                    den *= 10.0;
+                }
+                const n: i64 = @intFromFloat(num);
+                const d: i64 = @intFromFloat(den);
+                return arith.makeRationalFromReader(gc, n, d) catch return PrimitiveError.OutOfMemory;
+            }
+            return val;
+        },
+    }
+}
+
 fn stringToNumber(args: []const Value) PrimitiveError!Value {
     if (!types.isString(args[0])) return primitives.typeError("string->number", "string", args[0]);
     const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
     const str = types.toObject(args[0]).as(types.SchemeString);
-    const s = str.data[0..str.len];
+    var s = str.data[0..str.len];
 
     var radix: u8 = 10;
     if (args.len > 1) {
@@ -666,37 +719,75 @@ fn stringToNumber(args: []const Value) PrimitiveError!Value {
         radix = @intCast(@as(u64, @bitCast(r)));
     }
 
+    // R7RS prefix handling: #b #o #d #x (radix) and #e #i (exactness)
+    // Both can appear in either order: #e#xff or #x#eff
+    var exactness: Exactness = .unspecified;
+    for (0..2) |_| {
+        if (s.len >= 2 and s[0] == '#') {
+            switch (s[1] | 0x20) { // case-insensitive
+                'b' => {
+                    radix = 2;
+                    s = s[2..];
+                },
+                'o' => {
+                    radix = 8;
+                    s = s[2..];
+                },
+                'd' => {
+                    radix = 10;
+                    s = s[2..];
+                },
+                'x' => {
+                    radix = 16;
+                    s = s[2..];
+                },
+                'e' => {
+                    exactness = .exact;
+                    s = s[2..];
+                },
+                'i' => {
+                    exactness = .inexact;
+                    s = s[2..];
+                },
+                else => return types.FALSE,
+            }
+        }
+    }
+    if (s.len == 0) return types.FALSE;
+
     if (std.mem.eql(u8, s, "+inf.0")) return types.makeFlonum(std.math.inf(f64));
     if (std.mem.eql(u8, s, "-inf.0")) return types.makeFlonum(-std.math.inf(f64));
     if (std.mem.eql(u8, s, "+nan.0")) return types.makeFlonum(std.math.nan(f64));
     if (std.mem.eql(u8, s, "-nan.0")) return types.makeFlonum(std.math.nan(f64));
 
-    if (radix == 10) {
-        if (std.mem.indexOfScalar(u8, s, '/')) |slash_pos| {
-            if (slash_pos > 0 and slash_pos + 1 < s.len) {
-                const num_str = s[0..slash_pos];
-                const den_str = s[slash_pos + 1 ..];
-                if (std.fmt.parseInt(i64, num_str, 10)) |num| {
-                    if (std.fmt.parseInt(i64, den_str, 10)) |den| {
-                        if (den == 0) return types.FALSE;
-                        return arith.makeRationalFromReader(gc, num, den) catch return PrimitiveError.OutOfMemory;
-                    } else |_| {}
+    // Rational: num/den
+    if (std.mem.indexOfScalar(u8, s, '/')) |slash_pos| {
+        if (slash_pos > 0 and slash_pos + 1 < s.len) {
+            const num_str = s[0..slash_pos];
+            const den_str = s[slash_pos + 1 ..];
+            if (std.fmt.parseInt(i64, num_str, radix)) |num| {
+                if (std.fmt.parseInt(i64, den_str, radix)) |den| {
+                    if (den == 0) return types.FALSE;
+                    const result = arith.makeRationalFromReader(gc, num, den) catch return PrimitiveError.OutOfMemory;
+                    return applyExactness(gc, result, exactness);
                 } else |_| {}
-            }
+            } else |_| {}
         }
     }
 
     if (std.fmt.parseInt(i64, s, radix)) |n| {
-        return try arith.makeFixnumChecked(n);
+        const result = try arith.makeFixnumChecked(n);
+        return applyExactness(gc, result, exactness);
     } else |err| {
         if (err == error.Overflow) {
-            return bignum_mod.parseBignumString(gc, s, radix) catch return PrimitiveError.OutOfMemory;
+            const result = bignum_mod.parseBignumString(gc, s, radix) catch return PrimitiveError.OutOfMemory;
+            return applyExactness(gc, result, exactness);
         }
     }
 
     if (radix == 10) {
         if (std.fmt.parseFloat(f64, s)) |f| {
-            return types.makeFlonum(f);
+            return applyExactness(gc, types.makeFlonum(f), exactness);
         } else |_| {}
 
         // Try parsing as complex: a+bi, a-bi, +bi, -bi, +i, -i
