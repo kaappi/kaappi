@@ -616,6 +616,12 @@ fn buildQQListExpr(gc: *@import("memory.zig").GC, quote_sym: Value, list_sym: Va
             args = gc.allocPair(wrapped, args) catch return CompileError.OutOfMemory;
             continue;
         }
+        // Vector: wrap in (quasiquote elem) so nested unquotes are processed
+        if (types.isVector(elem)) {
+            const wrapped = gc.allocPair(qq_sym, gc.allocPair(elem, types.NIL) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory;
+            args = gc.allocPair(wrapped, args) catch return CompileError.OutOfMemory;
+            continue;
+        }
         // Atom: wrap in (quote elem)
         const quoted = gc.allocPair(quote_sym, gc.allocPair(elem, types.NIL) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory;
         args = gc.allocPair(quoted, args) catch return CompileError.OutOfMemory;
