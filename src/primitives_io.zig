@@ -551,11 +551,15 @@ fn writeStringFn(args: []const Value) PrimitiveError!Value {
     var end_cp: usize = cp_count;
     if (args.len > 2) {
         if (!types.isFixnum(args[2])) return primitives.typeError("write-string", "integer", args[2]);
-        start_cp = @intCast(types.toFixnum(args[2]));
+        const s = types.toFixnum(args[2]);
+        if (s < 0) return primitives.typeError("write-string", "non-negative integer", args[2]);
+        start_cp = @intCast(s);
     }
     if (args.len > 3) {
         if (!types.isFixnum(args[3])) return primitives.typeError("write-string", "integer", args[3]);
-        end_cp = @intCast(types.toFixnum(args[3]));
+        const e = types.toFixnum(args[3]);
+        if (e < 0) return primitives.typeError("write-string", "non-negative integer", args[3]);
+        end_cp = @intCast(e);
     }
     if (start_cp > end_cp or end_cp > cp_count) return primitives.typeError("write-string", "valid range", args[0]);
     const byte_start = string_mod.utf8IndexToByteOffset(data, start_cp) orelse return primitives.typeError("write-string", "valid start index", args[0]);
