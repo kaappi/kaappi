@@ -151,7 +151,11 @@ fn readFileContents(allocator: std.mem.Allocator, path: []const u8) ![]u8 {
     var tmp: [4096]u8 = undefined;
     while (true) {
         const raw = std.c.read(fd, &tmp, tmp.len);
-        if (raw <= 0) break;
+        if (raw == 0) break;
+        if (raw < 0) {
+            if (std.posix.errno(raw) == .INTR) continue;
+            break;
+        }
         const bytes_read: usize = @intCast(raw);
         if (result.items.len + bytes_read > max_size) {
             std.debug.print("File too large\n", .{});
@@ -171,7 +175,11 @@ fn readAllStdin(allocator: std.mem.Allocator) ![]u8 {
     var tmp: [4096]u8 = undefined;
     while (true) {
         const raw = std.c.read(0, &tmp, tmp.len);
-        if (raw <= 0) break;
+        if (raw == 0) break;
+        if (raw < 0) {
+            if (std.posix.errno(raw) == .INTR) continue;
+            break;
+        }
         const bytes_read: usize = @intCast(raw);
         if (result.items.len + bytes_read > max_size) return error.StreamTooLong;
         result.appendSlice(allocator, tmp[0..bytes_read]) catch |err| return err;
