@@ -109,7 +109,127 @@ fn referencesYoung(obj: *Object) bool {
                 }
             }
         },
-        else => return true,
+        .closure => {
+            const cls = obj.as(Closure);
+            for (cls.upvalues) |uv| {
+                if (isYoungPointer(uv)) return true;
+            }
+        },
+        .promise => {
+            if (isYoungPointer(obj.as(Promise).value)) return true;
+        },
+        .parameter => {
+            const param = obj.as(types.ParameterObject);
+            if (isYoungPointer(param.value) or isYoungPointer(param.converter)) return true;
+        },
+        .transformer => {
+            const tx = obj.as(Transformer);
+            for (tx.literals) |lit| {
+                if (isYoungPointer(lit)) return true;
+            }
+            for (tx.patterns) |pat| {
+                if (isYoungPointer(pat)) return true;
+            }
+            for (tx.templates) |tmpl| {
+                if (isYoungPointer(tmpl)) return true;
+            }
+        },
+        .error_object => {
+            const err = obj.as(types.ErrorObject);
+            if (isYoungPointer(err.message) or isYoungPointer(err.irritants) or isYoungPointer(err.uncaught_reason)) return true;
+        },
+        .continuation => {
+            const cont = obj.as(Continuation);
+            for (cont.registers) |reg| {
+                if (isYoungPointer(reg)) return true;
+            }
+            for (cont.frames[0..cont.frame_count]) |frame| {
+                if (frame.closure) |cls| {
+                    if (isYoungPointer(types.makePointer(@ptrCast(cls)))) return true;
+                }
+                if (frame.native) |nf| {
+                    if (isYoungPointer(types.makePointer(@ptrCast(nf)))) return true;
+                }
+            }
+            for (cont.handlers[0..cont.handler_count]) |handler| {
+                if (isYoungPointer(handler.handler)) return true;
+            }
+            for (cont.wind_records[0..cont.wind_count]) |wr| {
+                if (isYoungPointer(wr.before) or isYoungPointer(wr.after)) return true;
+            }
+        },
+        .multiple_values => {
+            const mv = obj.as(MultipleValues);
+            for (mv.values) |val| {
+                if (isYoungPointer(val)) return true;
+            }
+        },
+        .rational => {
+            const rat = obj.as(Rational);
+            if (isYoungPointer(rat.numerator) or isYoungPointer(rat.denominator)) return true;
+        },
+        .ffi_function => {
+            if (isYoungPointer(obj.as(FfiFunction).library)) return true;
+        },
+        .ffi_callback => {
+            if (isYoungPointer(obj.as(FfiCallback).closure)) return true;
+        },
+        .fiber => {
+            const fiber_mod = @import("fiber.zig");
+            const fiber = obj.as(fiber_mod.Fiber);
+            if (isYoungPointer(fiber.thunk) or isYoungPointer(fiber.result) or
+                isYoungPointer(fiber.waiting_on) or isYoungPointer(fiber.name) or
+                isYoungPointer(fiber.specific)) return true;
+            if (fiber.current_exception) |exc| {
+                if (isYoungPointer(exc)) return true;
+            }
+            if (isYoungPointer(fiber.continuation_value)) return true;
+            for (fiber.frames[0..fiber.frame_count]) |f| {
+                if (f.closure) |cls| {
+                    if (isYoungPointer(types.makePointer(@ptrCast(cls)))) return true;
+                }
+                const window: usize = if (f.closure) |cls| blk: {
+                    const lc = cls.func.locals_count;
+                    break :blk if (lc == 0) 256 else @as(usize, lc);
+                } else 256;
+                const vm_mod = @import("vm.zig");
+                const end: usize = @min(@as(usize, f.base) + window, vm_mod.MAX_REGISTERS);
+                var r: usize = f.base;
+                while (r < end) : (r += 1) {
+                    if (isYoungPointer(fiber.registers[r])) return true;
+                }
+            }
+        },
+        .channel => {
+            const ch = obj.as(types.Channel);
+            if (isYoungPointer(ch.head) or isYoungPointer(ch.tail)) return true;
+        },
+        .mutex => {
+            const m = obj.as(types.Mutex);
+            if (isYoungPointer(m.name) or isYoungPointer(m.owner) or isYoungPointer(m.specific)) return true;
+        },
+        .condition_variable => {
+            const cv = obj.as(types.ConditionVariable);
+            if (isYoungPointer(cv.name) or isYoungPointer(cv.specific)) return true;
+        },
+        .function => {
+            const func = obj.as(Function);
+            for (func.constants.items) |c| {
+                if (isYoungPointer(c)) return true;
+            }
+            if (func.global_cache) |cache| {
+                for (cache) |c| {
+                    if (isYoungPointer(c)) return true;
+                }
+            }
+        },
+        .native_closure => {
+            const nc = obj.as(types.NativeClosure);
+            for (nc.upvalues) |uv| {
+                if (isYoungPointer(uv)) return true;
+            }
+        },
+        .symbol, .string, .native_fn, .flonum, .port, .complex, .bytevector, .bignum, .record_type, .ffi_library, .file_info, .user_info, .group_info, .directory_object, .random_source, .srfi18_time => {},
     }
     return false;
 }
@@ -224,7 +344,90 @@ fn markObjectContents(gc: *GC, obj: *Object) void {
             const ri = obj.as(RecordInstance);
             for (ri.fields) |field| markValue(gc, field);
         },
-        else => {},
+        .promise => {
+            const p = obj.as(Promise);
+            markValue(gc, p.value);
+        },
+        .parameter => {
+            const param = obj.as(types.ParameterObject);
+            markValue(gc, param.value);
+            markValue(gc, param.converter);
+        },
+        .transformer => {
+            const tx = obj.as(Transformer);
+            for (tx.literals) |lit| markValue(gc, lit);
+            for (tx.patterns) |pat| markValue(gc, pat);
+            for (tx.templates) |tmpl| markValue(gc, tmpl);
+        },
+        .error_object => {
+            const err = obj.as(types.ErrorObject);
+            markValue(gc, err.message);
+            markValue(gc, err.irritants);
+            markValue(gc, err.uncaught_reason);
+        },
+        .continuation => {
+            const cont = obj.as(Continuation);
+            for (cont.registers) |reg| markValue(gc, reg);
+            for (cont.frames[0..cont.frame_count]) |frame| {
+                if (frame.closure) |cls| markValue(gc, types.makePointer(@ptrCast(cls)));
+                if (frame.native) |nf| markValue(gc, types.makePointer(@ptrCast(nf)));
+            }
+            for (cont.handlers[0..cont.handler_count]) |handler| markValue(gc, handler.handler);
+            for (cont.wind_records[0..cont.wind_count]) |wr| {
+                markValue(gc, wr.before);
+                markValue(gc, wr.after);
+            }
+        },
+        .multiple_values => {
+            const mv = obj.as(MultipleValues);
+            for (mv.values) |val| markValue(gc, val);
+        },
+        .rational => {
+            const rat = obj.as(Rational);
+            markValue(gc, rat.numerator);
+            markValue(gc, rat.denominator);
+        },
+        .ffi_function => {
+            const ffi_fn = obj.as(FfiFunction);
+            markValue(gc, ffi_fn.library);
+        },
+        .ffi_callback => {
+            const cb = obj.as(FfiCallback);
+            markValue(gc, cb.closure);
+        },
+        .fiber => {
+            const fiber_mod = @import("fiber.zig");
+            const fiber = obj.as(fiber_mod.Fiber);
+            fiber_mod.markFiberState(gc, fiber);
+        },
+        .channel => {
+            const ch = obj.as(types.Channel);
+            markValue(gc, ch.head);
+            markValue(gc, ch.tail);
+        },
+        .mutex => {
+            const m = obj.as(types.Mutex);
+            markValue(gc, m.name);
+            markValue(gc, m.owner);
+            markValue(gc, m.specific);
+        },
+        .condition_variable => {
+            const cv = obj.as(types.ConditionVariable);
+            markValue(gc, cv.name);
+            markValue(gc, cv.specific);
+        },
+        .function => {
+            const func = obj.as(Function);
+            for (func.constants.items) |c| markValue(gc, c);
+            if (func.global_cache) |cache| {
+                for (cache) |c| markValue(gc, c);
+            }
+        },
+        .native_closure => {
+            const nc = obj.as(types.NativeClosure);
+            for (nc.upvalues) |uv| markValue(gc, uv);
+        },
+        .symbol, .string, .native_fn, .flonum, .port, .complex, .bytevector, .bignum, .record_type, .ffi_library, .file_info, .user_info, .group_info, .directory_object, .random_source, .srfi18_time => {},
     }
 }
 
