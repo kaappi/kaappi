@@ -963,6 +963,9 @@ pub fn handleDefineLibrary(vm: *VM, args: Value) VMError!Value {
                         types.setCdr(last_pair, remaining);
                         decl = spliced;
                         continue;
+                    } else {
+                        decl = types.cdr(decl);
+                        continue;
                     }
                 }
             }
