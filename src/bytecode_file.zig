@@ -342,6 +342,7 @@ fn readConstant(r: *Reader, gc: *GC, all_funcs: []*Function, depth: u32) !Value 
     switch (tag) {
         TAG_FIXNUM => {
             const n = try r.readI64();
+            if (n < -(1 << 47) or n >= (1 << 47)) return BytecodeError.CorruptedFile;
             return types.makeFixnum(n);
         },
         TAG_FLONUM => {
