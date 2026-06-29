@@ -543,17 +543,20 @@ pub const LLVMEmitter = struct {
         try self.print("  br label %{s}\n{s}:\n", .{ pre_label, pre_label });
         try self.print("  br i1 {s}, label %{s}, label %{s}\n", .{ cmp, body_label, merge_label });
         try self.print("{s}:\n", .{body_label});
+        self.current_block = body_label;
 
         var last: []const u8 = "";
         for (data.body) |expr| {
             last = try self.emitNode(expr);
         }
+        const body_end_block = self.current_block;
         try self.print("  br label %{s}\n", .{merge_label});
         try self.print("{s}:\n", .{merge_label});
+        self.current_block = merge_label;
 
         const void_val: i64 = @bitCast(types.VOID);
         const result = try self.freshTemp();
-        try self.print("  {s} = phi i64 [ {s}, %{s} ], [ {d}, %{s} ]\n", .{ result, last, body_label, void_val, pre_label });
+        try self.print("  {s} = phi i64 [ {s}, %{s} ], [ {d}, %{s} ]\n", .{ result, last, body_end_block, void_val, pre_label });
         return result;
     }
 
@@ -572,17 +575,20 @@ pub const LLVMEmitter = struct {
         try self.print("  br label %{s}\n{s}:\n", .{ pre_label, pre_label });
         try self.print("  br i1 {s}, label %{s}, label %{s}\n", .{ cmp, body_label, merge_label });
         try self.print("{s}:\n", .{body_label});
+        self.current_block = body_label;
 
         var last: []const u8 = "";
         for (data.body) |expr| {
             last = try self.emitNode(expr);
         }
+        const body_end_block = self.current_block;
         try self.print("  br label %{s}\n", .{merge_label});
         try self.print("{s}:\n", .{merge_label});
+        self.current_block = merge_label;
 
         const void_val: i64 = @bitCast(types.VOID);
         const result = try self.freshTemp();
-        try self.print("  {s} = phi i64 [ {s}, %{s} ], [ {d}, %{s} ]\n", .{ result, last, body_label, void_val, pre_label });
+        try self.print("  {s} = phi i64 [ {s}, %{s} ], [ {d}, %{s} ]\n", .{ result, last, body_end_block, void_val, pre_label });
         return result;
     }
 
