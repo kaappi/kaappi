@@ -469,6 +469,7 @@ pub const LLVMEmitter = struct {
         try self.print("  br label %{s}\n{s}:\n", .{ last_next, last_next });
         try self.print("  br label %{s}\n", .{merge_label});
         try self.print("{s}:\n", .{merge_label});
+        self.current_block = merge_label;
 
         const result = try self.freshTemp();
         try self.print("  {s} = phi i64 [ {s}, %{s} ]", .{ result, prev_val, last_next });
@@ -518,6 +519,7 @@ pub const LLVMEmitter = struct {
         try self.print("  br label %{s}\n{s}:\n", .{ last_label, last_label });
         try self.print("  br label %{s}\n", .{merge_label});
         try self.print("{s}:\n", .{merge_label});
+        self.current_block = merge_label;
 
         const result = try self.freshTemp();
         try self.print("  {s} = phi i64 [ {s}, %{s} ]", .{ result, last_val, last_label });
@@ -599,6 +601,8 @@ pub const LLVMEmitter = struct {
 
         const val = if (types.isPair(data.value))
             try self.emitEvalExpr(data.value)
+        else if (types.isSymbol(data.value))
+            try self.emitGlobalRef(data.value)
         else
             try self.emitConstant(data.value);
 
@@ -722,6 +726,8 @@ pub const LLVMEmitter = struct {
 
         const val = if (types.isPair(data.value))
             try self.emitEvalExpr(data.value)
+        else if (types.isSymbol(data.value))
+            try self.emitGlobalRef(data.value)
         else
             try self.emitConstant(data.value);
 
