@@ -563,8 +563,8 @@ fn tryFoldFromAST(ir: *IR, expr: Value) ?*Node {
 
         const result: ?Value = if (std.mem.eql(u8, name, "not"))
             (if (a == types.FALSE) types.TRUE else types.FALSE)
-        else if (std.mem.eql(u8, name, "zero?"))
-            (if (types.isFixnum(a) and types.toFixnum(a) == 0) types.TRUE else types.FALSE)
+        else if (std.mem.eql(u8, name, "zero?") and types.isFixnum(a))
+            (if (types.toFixnum(a) == 0) types.TRUE else types.FALSE)
         else if (std.mem.eql(u8, name, "-") and types.isFixnum(a)) blk: {
             const neg = @subWithOverflow(@as(i64, 0), types.toFixnum(a));
             if (neg[1] != 0) break :blk null;
@@ -880,8 +880,8 @@ pub fn foldConstants(ir: *IR, node: *Node) *Node {
 
                 const result: ?Value = if (std.mem.eql(u8, name, "not"))
                     (if (av == types.FALSE) types.TRUE else types.FALSE)
-                else if (std.mem.eql(u8, name, "zero?"))
-                    (if (types.isFixnum(av) and types.toFixnum(av) == 0) types.TRUE else types.FALSE)
+                else if (std.mem.eql(u8, name, "zero?") and types.isFixnum(av))
+                    (if (types.toFixnum(av) == 0) types.TRUE else types.FALSE)
                 else if (std.mem.eql(u8, name, "-") and types.isFixnum(av)) blk: {
                     const neg = @subWithOverflow(@as(i64, 0), types.toFixnum(av));
                     if (neg[1] != 0) break :blk null;

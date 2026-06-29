@@ -218,8 +218,8 @@ fn tryConstantFold(self: *Compiler, expr: Value, dst: u16) bool {
         if (!types.isFixnum(a) and a != types.TRUE and a != types.FALSE) return false;
         const result: ?Value = if (std.mem.eql(u8, name, "not"))
             (if (a == types.FALSE) types.TRUE else types.FALSE)
-        else if (std.mem.eql(u8, name, "zero?"))
-            (if (types.isFixnum(a) and types.toFixnum(a) == 0) types.TRUE else types.FALSE)
+        else if (std.mem.eql(u8, name, "zero?") and types.isFixnum(a))
+            (if (types.toFixnum(a) == 0) types.TRUE else types.FALSE)
         else if (std.mem.eql(u8, name, "-") and types.isFixnum(a)) blk: {
             const neg = @subWithOverflow(@as(i64, 0), types.toFixnum(a));
             if (neg[1] != 0) break :blk null;
