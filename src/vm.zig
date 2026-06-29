@@ -688,8 +688,9 @@ pub const VM = struct {
                     32;
                 break :blk prev.base + stride;
             } else 0;
-            if (base + args.len + 1 >= MAX_REGISTERS) return VMError.StackOverflow;
+            if (base + @as(usize, func.locals_count) >= MAX_REGISTERS) return VMError.StackOverflow;
 
+            if (args.len > std.math.maxInt(u8)) return VMError.ArityMismatch;
             const nargs: u8 = @intCast(args.len);
             if (!func.is_variadic) {
                 if (nargs != func.arity) return VMError.ArityMismatch;
