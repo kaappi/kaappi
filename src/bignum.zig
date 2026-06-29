@@ -572,6 +572,77 @@ pub fn toString(allocator: std.mem.Allocator, v: Value) ![]u8 {
     return (result.toOwnedSlice(allocator) catch return error.OutOfMemory);
 }
 
+pub fn toStringRadix(allocator: std.mem.Allocator, v: Value, radix: u8) ![]u8 {
+    if (radix == 10) return toString(allocator, v);
+    if (types.isFixnum(v)) {
+        var buf: [68]u8 = undefined;
+        var n = types.toFixnum(v);
+        const neg = n < 0;
+        if (neg) n = -n;
+        var pos: usize = buf.len;
+        if (n == 0) {
+            pos -= 1;
+            buf[pos] = '0';
+        } else {
+            const r: i64 = @intCast(radix);
+            while (n > 0) {
+                pos -= 1;
+                const digit: u8 = @intCast(@as(u64, @bitCast(@rem(n, r))));
+                buf[pos] = if (digit < 10) '0' + digit else 'a' + digit - 10;
+                n = @divTrunc(n, r);
+            }
+        }
+        if (neg) {
+            pos -= 1;
+            buf[pos] = '-';
+        }
+        return allocator.dupe(u8, buf[pos..]) catch return error.OutOfMemory;
+    }
+
+    const bn = types.toBignum(v);
+    if (bn.len == 0) {
+        return allocator.dupe(u8, "0") catch return error.OutOfMemory;
+    }
+
+    const r64: u64 = @intCast(radix);
+    var work = try allocator.alloc(u64, bn.len);
+    defer allocator.free(work);
+    @memcpy(work, bn.limbs[0..bn.len]);
+    var work_len = bn.len;
+
+    var digits_list: std.ArrayList(u8) = .empty;
+    defer digits_list.deinit(allocator);
+
+    while (work_len > 0) {
+        var rem: u128 = 0;
+        var i: usize = work_len;
+        while (i > 0) {
+            i -= 1;
+            rem = (rem << 64) | @as(u128, work[i]);
+            work[i] = @truncate(rem / @as(u128, r64));
+            rem = rem % @as(u128, r64);
+        }
+        const digit: u8 = @intCast(@as(u64, @truncate(rem)));
+        digits_list.append(allocator, if (digit < 10) '0' + digit else 'a' + digit - 10) catch return error.OutOfMemory;
+        while (work_len > 0 and work[work_len - 1] == 0) work_len -= 1;
+    }
+
+    var result: std.ArrayList(u8) = .empty;
+    defer result.deinit(allocator);
+
+    if (!bn.positive) {
+        result.append(allocator, '-') catch return error.OutOfMemory;
+    }
+
+    var i: usize = digits_list.items.len;
+    while (i > 0) {
+        i -= 1;
+        result.append(allocator, digits_list.items[i]) catch return error.OutOfMemory;
+    }
+
+    return (result.toOwnedSlice(allocator) catch return error.OutOfMemory);
+}
+
 /// Parse a decimal string into a bignum Value.
 pub fn parseBignumString(gc: *memory.GC, digits: []const u8, radix: u8) !Value {
     if (digits.len == 0) return types.makeFixnum(0);
