@@ -482,7 +482,7 @@ fn stringDropRightFn(args: []const Value) PrimitiveError!Value {
 
 fn stringPadFn(args: []const Value) PrimitiveError!Value {
     const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
-    const data = try getStringSlice(args[0]);
+    const full_data = try getStringSlice(args[0]);
     if (!types.isFixnum(args[1])) return primitives.typeError("string-pad", "integer", args[1]);
     const tlv = types.toFixnum(args[1]);
     if (tlv < 0) return primitives.typeError("string-pad", "non-negative integer", args[1]);
@@ -491,6 +491,8 @@ fn stringPadFn(args: []const Value) PrimitiveError!Value {
     const pad_cp: u21 = if (args.len > 2 and types.isChar(args[2])) types.toChar(args[2]) else ' ';
     const pad_len = std.unicode.utf8Encode(pad_cp, &pad_buf) catch
         return primitives.typeError("string-pad", "valid character", args[2]);
+    const range = try parseStartEnd(full_data, args, 3);
+    const data = range.data;
     const current_len = utf8CodepointCount(data);
     if (current_len >= target_len) {
         const byte_start = pstr.utf8IndexToByteOffset(data, current_len - target_len) orelse data.len;
@@ -508,7 +510,7 @@ fn stringPadFn(args: []const Value) PrimitiveError!Value {
 
 fn stringPadRightFn(args: []const Value) PrimitiveError!Value {
     const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
-    const data = try getStringSlice(args[0]);
+    const full_data = try getStringSlice(args[0]);
     if (!types.isFixnum(args[1])) return primitives.typeError("string-pad-right", "integer", args[1]);
     const tlv = types.toFixnum(args[1]);
     if (tlv < 0) return primitives.typeError("string-pad-right", "non-negative integer", args[1]);
@@ -517,6 +519,8 @@ fn stringPadRightFn(args: []const Value) PrimitiveError!Value {
     const pad_cp: u21 = if (args.len > 2 and types.isChar(args[2])) types.toChar(args[2]) else ' ';
     const pad_len = std.unicode.utf8Encode(pad_cp, &pad_buf) catch
         return primitives.typeError("string-pad-right", "valid character", args[2]);
+    const range = try parseStartEnd(full_data, args, 3);
+    const data = range.data;
     const current_len = utf8CodepointCount(data);
     if (current_len >= target_len) {
         const byte_end = pstr.utf8IndexToByteOffset(data, target_len) orelse data.len;
