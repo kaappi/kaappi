@@ -180,7 +180,9 @@ pub fn compileCond(self: *Compiler, args: Value, dst: u16, is_tail: bool) Compil
                 try self.emitI16(0);
 
                 // test value is in dst, compile proc and call it
-                const proc_expr = types.car(types.cdr(clause_body));
+                const arrow_rest = types.cdr(clause_body);
+                if (!types.isPair(arrow_rest)) return CompileError.InvalidSyntax;
+                const proc_expr = types.car(arrow_rest);
                 const proc_reg = try self.allocReg();
                 // Move test value to arg position
                 const arg_reg = try self.allocReg();

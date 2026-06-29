@@ -656,7 +656,9 @@ fn makeRecordTypeFn(args: []const Value) PrimitiveError!Value {
     if (!types.isString(args[0])) return PrimitiveError.TypeError;
     if (!types.isFixnum(args[1])) return PrimitiveError.TypeError;
     const str = types.toObject(args[0]).as(types.SchemeString);
-    const num_fields: u8 = @intCast(types.toFixnum(args[1]));
+    const nf = types.toFixnum(args[1]);
+    if (nf < 0 or nf > 255) return PrimitiveError.TypeError;
+    const num_fields: u8 = @intCast(nf);
     return gc.allocRecordType(str.data[0..str.len], num_fields) catch return PrimitiveError.OutOfMemory;
 }
 
@@ -682,7 +684,9 @@ fn recordRefFn(args: []const Value) PrimitiveError!Value {
     if (!types.isRecordInstance(args[0])) return PrimitiveError.TypeError;
     if (!types.isFixnum(args[1])) return PrimitiveError.TypeError;
     const ri = types.toObject(args[0]).as(types.RecordInstance);
-    const idx: usize = @intCast(types.toFixnum(args[1]));
+    const raw_idx = types.toFixnum(args[1]);
+    if (raw_idx < 0) return PrimitiveError.TypeError;
+    const idx: usize = @intCast(raw_idx);
     if (idx >= ri.fields.len) return PrimitiveError.TypeError;
     return ri.fields[idx];
 }
@@ -692,7 +696,9 @@ fn recordSetFn(args: []const Value) PrimitiveError!Value {
     if (!types.isRecordInstance(args[0])) return PrimitiveError.TypeError;
     if (!types.isFixnum(args[1])) return PrimitiveError.TypeError;
     const ri = types.toObject(args[0]).as(types.RecordInstance);
-    const idx: usize = @intCast(types.toFixnum(args[1]));
+    const raw_idx = types.toFixnum(args[1]);
+    if (raw_idx < 0) return PrimitiveError.TypeError;
+    const idx: usize = @intCast(raw_idx);
     if (idx >= ri.fields.len) return PrimitiveError.TypeError;
     if (gc_instance) |gc| gc.writeBarrier(types.toObject(args[0]), args[2]);
     ri.fields[idx] = args[2];
