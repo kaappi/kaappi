@@ -683,7 +683,7 @@ fn objectSize(obj: *Object) usize {
         .record_type => @sizeOf(RecordType) + obj.as(RecordType).name.len,
         .record_instance => @sizeOf(RecordInstance) + obj.as(RecordInstance).fields.len * @sizeOf(Value),
         .port => @sizeOf(Port),
-        .continuation => @sizeOf(Continuation) + obj.as(Continuation).backing.len,
+        .continuation => @sizeOf(Continuation) + obj.as(Continuation).backing.len * @sizeOf(Value),
         .multiple_values => @sizeOf(MultipleValues) + obj.as(MultipleValues).values.len * @sizeOf(Value),
         .complex => @sizeOf(types.Complex),
         .promise => @sizeOf(Promise),
