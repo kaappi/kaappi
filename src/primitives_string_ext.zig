@@ -669,7 +669,9 @@ fn stringEveryFn(args: []const Value) PrimitiveError!Value {
             i += len;
             continue;
         };
-        if (types.isRecordInstance(pred)) {
+        if (types.isChar(pred)) {
+            if (types.toChar(pred) != cp) return types.FALSE;
+        } else if (types.isRecordInstance(pred)) {
             if (!try callPredOrCharset(pred, cp)) return types.FALSE;
         } else {
             const r = try callVM(pred, &[1]Value{types.makeChar(cp)});
@@ -693,7 +695,9 @@ fn stringAnyFn(args: []const Value) PrimitiveError!Value {
             i += len;
             continue;
         };
-        if (types.isRecordInstance(pred)) {
+        if (types.isChar(pred)) {
+            if (types.toChar(pred) == cp) return types.TRUE;
+        } else if (types.isRecordInstance(pred)) {
             if (try callPredOrCharset(pred, cp)) return types.TRUE;
         } else {
             const r = try callVM(pred, &[1]Value{types.makeChar(cp)});
