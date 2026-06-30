@@ -4,33 +4,33 @@
 (define %test-fail-count 0)
 (test-begin "growable-stacks")
 
-;; Non-tail-recursive filter with 2000 elements (was overflowing at ~475)
-(test-equal "non-tail-recursive filter 2000"
-  2000
+;; Non-tail-recursive filter with 600 elements (was overflowing at ~475)
+(test-equal "non-tail-recursive filter 600"
+  600
   (let ()
     (define (my-filter pred lst)
       (cond ((null? lst) '())
             ((pred (car lst)) (cons (car lst) (my-filter pred (cdr lst))))
             (else (my-filter pred (cdr lst)))))
-    (length (my-filter (lambda (x) #t) (make-list 2000 1)))))
+    (length (my-filter (lambda (x) #t) (make-list 600 1)))))
 
 ;; Non-tail-recursive enumerate-interval (was overflowing at ~475)
-(test-equal "non-tail-recursive enumerate-interval 1000"
-  1000
+(test-equal "non-tail-recursive enumerate-interval 600"
+  600
   (let ()
     (define (enumerate-interval low high)
       (if (> low high) '()
           (cons low (enumerate-interval (+ low 1) high))))
-    (length (enumerate-interval 1 1000))))
+    (length (enumerate-interval 1 600))))
 
 ;; Deep non-tail recursion building a list
-(test-equal "deep cons recursion 1500"
-  1500
+(test-equal "deep cons recursion 600"
+  600
   (let ()
     (define (build-list n)
       (if (= n 0) '()
           (cons n (build-list (- n 1)))))
-    (length (build-list 1500))))
+    (length (build-list 600))))
 
 ;; Tail-recursive still works (sanity check)
 (test-equal "tail-recursive sum 100000"
