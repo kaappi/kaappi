@@ -35,6 +35,11 @@ BENCHMARKS=(
     "list:benchmarks/list.scm:benchmarks/list.input"
     "vector:benchmarks/vector.scm:benchmarks/vector.input"
     "hashtable:benchmarks/hashtable.scm:benchmarks/hashtable.input"
+    "continuations:benchmarks/continuations.scm:benchmarks/continuations.input"
+    "tailcall:benchmarks/tailcall.scm:benchmarks/tailcall.input"
+    "closures:benchmarks/closures.scm:benchmarks/closures.input"
+    "bignum:benchmarks/bignum.scm:benchmarks/bignum.input"
+    "gc-pressure:benchmarks/gc-pressure.scm:benchmarks/gc-pressure.input"
 )
 
 extract_field() {
