@@ -925,7 +925,7 @@ pub const VM = struct {
         return vm_dispatch.registerIndex(self, base, reg);
     }
 
-    fn ensureCallWindow(self: *VM, base: u16, nargs: u8) VMError!void {
+    fn ensureCallWindow(self: *VM, base: usize, nargs: u8) VMError!void {
         return vm_dispatch.ensureCallWindow(self, base, nargs);
     }
 
