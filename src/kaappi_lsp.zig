@@ -130,6 +130,34 @@ fn jsonGetInt(json: []const u8, key: []const u8) ?i64 {
     return std.fmt.parseInt(i64, json[start..i], 10) catch null;
 }
 
+fn jsonGetRawId(json: []const u8) ?[]const u8 {
+    var search_buf: [256]u8 = undefined;
+    const search = std.fmt.bufPrint(&search_buf, "\"id\"", .{}) catch return null;
+    const pos = std.mem.indexOf(u8, json, search) orelse return null;
+    var i = pos + search.len;
+    while (i < json.len and (json[i] == ' ' or json[i] == ':' or json[i] == '\t')) : (i += 1) {}
+    if (i >= json.len) return null;
+    if (json[i] == '"') {
+        // String id — include quotes
+        const start = i;
+        i += 1;
+        while (i < json.len) : (i += 1) {
+            if (json[i] == '\\') {
+                i += 1;
+                continue;
+            }
+            if (json[i] == '"') return json[start .. i + 1];
+        }
+        return null;
+    }
+    // Numeric id
+    const start = i;
+    if (json[i] == '-') i += 1;
+    while (i < json.len and json[i] >= '0' and json[i] <= '9') : (i += 1) {}
+    if (i == start) return null;
+    return json[start..i];
+}
+
 fn jsonGetObject(json: []const u8, key: []const u8) ?[]const u8 {
     var search_buf: [256]u8 = undefined;
     const search = std.fmt.bufPrint(&search_buf, "\"{s}\"", .{key}) catch return null;
@@ -217,22 +245,22 @@ fn writeMessage(allocator: std.mem.Allocator, json: []const u8) void {
     _ = allocator;
 }
 
-fn sendResponse(allocator: std.mem.Allocator, id: i64, result: []const u8) void {
+fn sendResponse(allocator: std.mem.Allocator, id: []const u8, result: []const u8) void {
     var buf: std.ArrayList(u8) = .empty;
     defer buf.deinit(allocator);
     buf.appendSlice(allocator, "{\"jsonrpc\":\"2.0\",\"id\":") catch return;
-    jsonInt(&buf, allocator, id);
+    buf.appendSlice(allocator, id) catch return;
     buf.appendSlice(allocator, ",\"result\":") catch return;
     buf.appendSlice(allocator, result) catch return;
     buf.append(allocator, '}') catch return;
     writeMessage(allocator, buf.items);
 }
 
-fn sendError(allocator: std.mem.Allocator, id: i64, code: i64, message: []const u8) void {
+fn sendError(allocator: std.mem.Allocator, id: []const u8, code: i64, message: []const u8) void {
     var buf: std.ArrayList(u8) = .empty;
     defer buf.deinit(allocator);
     buf.appendSlice(allocator, "{\"jsonrpc\":\"2.0\",\"id\":") catch return;
-    jsonInt(&buf, allocator, id);
+    buf.appendSlice(allocator, id) catch return;
     buf.appendSlice(allocator, ",\"error\":{\"code\":") catch return;
     jsonInt(&buf, allocator, code);
     buf.appendSlice(allocator, ",\"message\":") catch return;
@@ -330,13 +358,13 @@ fn getArity(val: types.Value, buf: *[32]u8) ?[]const u8 {
 
 // ---- LSP handlers ----
 
-fn handleInitialize(allocator: std.mem.Allocator, id: i64) void {
+fn handleInitialize(allocator: std.mem.Allocator, id: []const u8) void {
     sendResponse(allocator, id,
         \\{"capabilities":{"positionEncoding":"utf-8","textDocumentSync":1,"completionProvider":{"resolveProvider":false,"triggerCharacters":[]},"hoverProvider":true,"documentSymbolProvider":true,"definitionProvider":true,"referencesProvider":true},"serverInfo":{"name":"kaappi-lsp","version":"0.1.0"}}
     );
 }
 
-fn handleCompletion(allocator: std.mem.Allocator, vm: *vm_mod.VM, id: i64, params: []const u8) void {
+fn handleCompletion(allocator: std.mem.Allocator, vm: *vm_mod.VM, id: []const u8, params: []const u8) void {
     // Get document and position
     const td = jsonGetObject(params, "textDocument") orelse "";
     const uri = jsonGetString(td, "uri") orelse "";
@@ -377,7 +405,7 @@ fn handleCompletion(allocator: std.mem.Allocator, vm: *vm_mod.VM, id: i64, param
     sendResponse(allocator, id, buf.items);
 }
 
-fn handleHover(allocator: std.mem.Allocator, vm: *vm_mod.VM, id: i64, params: []const u8) void {
+fn handleHover(allocator: std.mem.Allocator, vm: *vm_mod.VM, id: []const u8, params: []const u8) void {
     const td = jsonGetObject(params, "textDocument") orelse "";
     const uri = jsonGetString(td, "uri") orelse "";
     const pos_obj = jsonGetObject(params, "position") orelse "";
@@ -423,7 +451,7 @@ fn handleHover(allocator: std.mem.Allocator, vm: *vm_mod.VM, id: i64, params: []
     sendResponse(allocator, id, buf.items);
 }
 
-fn handleDocumentSymbol(allocator: std.mem.Allocator, vm: *vm_mod.VM, id: i64, params: []const u8) void {
+fn handleDocumentSymbol(allocator: std.mem.Allocator, vm: *vm_mod.VM, id: []const u8, params: []const u8) void {
     const td = jsonGetObject(params, "textDocument") orelse "";
     const uri = jsonGetString(td, "uri") orelse "";
     const text = getDocument(uri) orelse "";
@@ -507,7 +535,7 @@ fn handleDocumentSymbol(allocator: std.mem.Allocator, vm: *vm_mod.VM, id: i64, p
     sendResponse(allocator, id, result.items);
 }
 
-fn handleDefinition(allocator: std.mem.Allocator, vm: *vm_mod.VM, id: i64, params: []const u8) void {
+fn handleDefinition(allocator: std.mem.Allocator, vm: *vm_mod.VM, id: []const u8, params: []const u8) void {
     const td = jsonGetObject(params, "textDocument") orelse "";
     const uri = jsonGetString(td, "uri") orelse "";
     const pos_obj = jsonGetObject(params, "position") orelse "";
@@ -581,7 +609,7 @@ fn findDefineLocation(expr: types.Value, name: []const u8, form_line: u32) ?u32 
     return null;
 }
 
-fn handleReferences(allocator: std.mem.Allocator, vm: *vm_mod.VM, id: i64, params: []const u8) void {
+fn handleReferences(allocator: std.mem.Allocator, vm: *vm_mod.VM, id: []const u8, params: []const u8) void {
     _ = vm;
     const td = jsonGetObject(params, "textDocument") orelse "";
     const uri = jsonGetString(td, "uri") orelse "";
@@ -816,15 +844,15 @@ pub fn main(init: std.process.Init.Minimal) !void {
         defer allocator.free(msg);
 
         const method = jsonGetString(msg, "method") orelse continue;
-        const id = jsonGetInt(msg, "id");
+        const id = jsonGetRawId(msg);
 
         if (std.mem.eql(u8, method, "initialize")) {
-            handleInitialize(allocator, id orelse 0);
+            handleInitialize(allocator, id orelse "0");
             initialized = true;
         } else if (std.mem.eql(u8, method, "initialized")) {
             // Notification, no response needed
         } else if (std.mem.eql(u8, method, "shutdown")) {
-            sendResponse(allocator, id orelse 0, "null");
+            sendResponse(allocator, id orelse "0", "null");
         } else if (std.mem.eql(u8, method, "exit")) {
             break;
         } else if (!initialized) {
@@ -849,17 +877,43 @@ pub fn main(init: std.process.Init.Minimal) !void {
                 }
             }
         } else if (std.mem.eql(u8, method, "textDocument/completion")) {
-            handleCompletion(allocator, &vm, id orelse 0, msg);
+            handleCompletion(allocator, &vm, id orelse "0", msg);
         } else if (std.mem.eql(u8, method, "textDocument/hover")) {
-            handleHover(allocator, &vm, id orelse 0, msg);
+            handleHover(allocator, &vm, id orelse "0", msg);
         } else if (std.mem.eql(u8, method, "textDocument/documentSymbol")) {
-            handleDocumentSymbol(allocator, &vm, id orelse 0, msg);
+            handleDocumentSymbol(allocator, &vm, id orelse "0", msg);
         } else if (std.mem.eql(u8, method, "textDocument/definition")) {
-            handleDefinition(allocator, &vm, id orelse 0, msg);
+            handleDefinition(allocator, &vm, id orelse "0", msg);
         } else if (std.mem.eql(u8, method, "textDocument/references")) {
-            handleReferences(allocator, &vm, id orelse 0, msg);
+            handleReferences(allocator, &vm, id orelse "0", msg);
         }
     }
 
     log("kaappi-lsp exiting\n");
+}
+
+test "jsonGetRawId parses integer id" {
+    const msg = "{\"jsonrpc\":\"2.0\",\"id\":42,\"method\":\"initialize\"}";
+    const id = jsonGetRawId(msg);
+    try std.testing.expect(id != null);
+    try std.testing.expectEqualStrings("42", id.?);
+}
+
+test "jsonGetRawId parses string id" {
+    const msg = "{\"jsonrpc\":\"2.0\",\"id\":\"req-1\",\"method\":\"initialize\"}";
+    const id = jsonGetRawId(msg);
+    try std.testing.expect(id != null);
+    try std.testing.expectEqualStrings("\"req-1\"", id.?);
+}
+
+test "jsonGetRawId returns null for missing id" {
+    const msg = "{\"jsonrpc\":\"2.0\",\"method\":\"initialized\"}";
+    try std.testing.expect(jsonGetRawId(msg) == null);
+}
+
+test "jsonGetRawId parses negative id" {
+    const msg = "{\"jsonrpc\":\"2.0\",\"id\":-1,\"method\":\"shutdown\"}";
+    const id = jsonGetRawId(msg);
+    try std.testing.expect(id != null);
+    try std.testing.expectEqualStrings("-1", id.?);
 }
