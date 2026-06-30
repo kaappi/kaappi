@@ -1356,7 +1356,6 @@ pub fn compileExpressionWithMacrosAt(gc: *memory.GC, expr: Value, vm_macros: *st
     var out_it = c.macros.iterator();
     while (out_it.next()) |entry| {
         vm_macros.put(entry.key_ptr.*, entry.value_ptr.*) catch return CompileError.OutOfMemory;
-        gc.extra_roots.append(gc.allocator, entry.value_ptr.*) catch return CompileError.OutOfMemory;
     }
     ok = true;
     return c.func;
@@ -1380,7 +1379,6 @@ pub fn compileExpressionInEnv(gc: *memory.GC, expr: Value, vm_macros: *std.Strin
     var out_it = c.macros.iterator();
     while (out_it.next()) |entry| {
         vm_macros.put(entry.key_ptr.*, entry.value_ptr.*) catch return CompileError.OutOfMemory;
-        gc.extra_roots.append(gc.allocator, entry.value_ptr.*) catch return CompileError.OutOfMemory;
     }
     ok = true;
     return c.func;
