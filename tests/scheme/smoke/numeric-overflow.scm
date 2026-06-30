@@ -38,6 +38,13 @@
 (check "truncate-quotient minInt÷-1 positive" (positive? (truncate-quotient -140737488355328 -1)) #t)
 (check "floor-quotient minInt÷-1 positive" (positive? (floor-quotient -140737488355328 -1)) #t)
 
+;; Regression for #611: rationals with bignum fields must not produce garbage
+(check "add bignum-field rational" #t (number? (+ (exact 0.1) 0)))
+(check "mul bignum-field rational" #t (number? (* (exact 0.1) 1)))
+(check "negate bignum-field rational" #t (negative? (- (exact 0.1))))
+(check "compare bignum-field rational" #t (< (exact 0.1) 1))
+(check "equality bignum-field rational" #t (= (exact 0.1) (exact 0.1)))
+
 (display pass) (display " passed, ") (display fail) (display " failed")
 (newline)
 (if (> fail 0) (error "numeric overflow tests failed" fail))
