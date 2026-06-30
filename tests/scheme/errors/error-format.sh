@@ -109,7 +109,7 @@ echo
 echo "-- Stack overflow --"
 
 assert_output_contains "stack overflow is reported" \
-    '(define (deep n) (if (= n 0) 0 (+ 1 (deep (- n 1))))) (deep 10000)' "StackOverflow"
+    '(define (deep n) (if (= n 0) 0 (+ 1 (deep (- n 1))))) (deep 50000)' "StackOverflow"
 
 # --- Library import errors ---
 echo
