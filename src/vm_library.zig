@@ -6,6 +6,7 @@ const library_mod = @import("library.zig");
 const bytecode_file = @import("bytecode_file.zig");
 const Value = types.Value;
 
+const passthrough = @import("compiler_passthrough.zig");
 const vm_mod = @import("vm.zig");
 const VM = vm_mod.VM;
 const VMError = vm_mod.VMError;
@@ -19,11 +20,22 @@ fn importBinding(vm: *VM, target: *std.StringHashMap(Value), name: []const u8, v
         }
         const tx = types.toObject(val).as(types.Transformer);
         if (tx.def_env) |env| {
-            var it = env.iterator();
-            while (it.next()) |entry| {
-                if (!target.contains(entry.key_ptr.*)) {
-                    target.put(entry.key_ptr.*, entry.value_ptr.*) catch return error.OutOfMemory;
-                    if (target == &vm.globals) vm.global_version +%= 1;
+            var pv_names: [64][]const u8 = undefined;
+            var pv_count: usize = 0;
+            for (tx.patterns[0..tx.num_rules]) |pat| {
+                if (!passthrough.collectSymbols(pat, &pv_names, &pv_count)) break;
+            }
+            var free_names: [64][]const u8 = undefined;
+            var free_count: usize = 0;
+            for (tx.templates[0..tx.num_rules]) |tmpl| {
+                if (!passthrough.collectFreeRefs(tmpl, pv_names[0..pv_count], tx.literals, &free_names, &free_count)) break;
+            }
+            for (free_names[0..free_count]) |fname| {
+                if (env.get(fname)) |fval| {
+                    if (!target.contains(fname)) {
+                        target.put(fname, fval) catch return error.OutOfMemory;
+                        if (target == &vm.globals) vm.global_version +%= 1;
+                    }
                 }
             }
         }
