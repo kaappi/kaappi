@@ -22,13 +22,13 @@
       "Bash(grep *)",
       "Bash(wc *)",
       "Bash(ls *)",
-      "Bash(make *)"
-    ],
-    "ask": [
+      "Bash(make *)",
       "Bash(git push*)",
       "Bash(podman *)",
       "Bash(gh release *)",
       "Bash(gh pr *)"
+    ],
+    "ask": [
     ],
     "deny": [
       "Bash(rm -rf /*)",
