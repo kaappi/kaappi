@@ -83,7 +83,10 @@ fn parsePkgSpec(spec: []const u8) PkgSpec {
     var source: ?[]const u8 = null;
     if (std.mem.indexOf(u8, spec, "::")) |sep| {
         name_ver = spec[0..sep];
-        source = spec[sep + 2 ..];
+        const url = spec[sep + 2 ..];
+        if (url.len > 0 and url[0] != '-') {
+            source = url;
+        }
     }
     if (std.mem.indexOfScalar(u8, name_ver, '@')) |at| {
         return .{ .name = name_ver[0..at], .ver = name_ver[at + 1 ..], .source = source };
@@ -117,7 +120,7 @@ fn parsePkgManifest(content: []const u8) PkgManifest {
         } else if (parseField(line, "build:")) |val| {
             result.build_cmd = val;
         } else if (parseField(line, "source:")) |val| {
-            result.source = val;
+            if (val.len > 0 and val[0] != '-') result.source = val;
         }
     }
     return result;
@@ -224,7 +227,7 @@ fn matchesAllConstraints(v: Semver, constraints: [4]?Constraint) bool {
 fn resolveVersion(allocator: std.mem.Allocator, clone_url: []const u8, constraint_str: []const u8) ?[]const u8 {
     const constraints = parseConstraints(constraint_str) orelse return null;
 
-    const output = runGitCapture(allocator, &.{ "ls-remote", "--tags", clone_url }) catch return null;
+    const output = runGitCapture(allocator, &.{ "ls-remote", "--tags", "--", clone_url }) catch return null;
     defer allocator.free(output);
 
     var best: ?Semver = null;
@@ -803,7 +806,7 @@ fn doInstall(
         writeStdout("...\n");
         const url_copy = try allocator.dupe(u8, clone_url);
         defer allocator.free(url_copy);
-        runGit(allocator, &.{ "clone", "--quiet", url_copy, pkg_dir }) catch {
+        runGit(allocator, &.{ "clone", "--quiet", "--", url_copy, pkg_dir }) catch {
             printErrColor(Color.red, "  Failed to clone repository\n");
             return error.GitFailed;
         };
