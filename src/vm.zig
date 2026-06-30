@@ -76,6 +76,7 @@ fn markVMRoots(gc: *memory.GC) void {
 
     if (vm.current_exception) |exc| gc.markValue(exc);
     gc.markValue(vm.continuation_value);
+    gc.markValue(vm.default_random_source);
 
     // Only mark globals/macros when this VM owns them. Child threads
     // share the parent's maps — the parent GC keeps those values alive.
@@ -232,6 +233,7 @@ pub const VM = struct {
     /// When non-null, record files read during library loading for bundling.
     compile_collect_files: ?*std.StringHashMap([]const u8) = null,
     param_overrides: std.AutoHashMap(usize, Value) = undefined,
+    default_random_source: Value = types.VOID,
     scheduler: ?*@import("fiber.zig").FiberScheduler = null,
     current_fiber: ?*@import("fiber.zig").Fiber = null,
     yielded: bool = false,

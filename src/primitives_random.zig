@@ -26,11 +26,8 @@ fn freshSeed() u64 {
     return @as(u64, @bitCast(ts.sec)) ^ @as(u64, @bitCast(ts.nsec));
 }
 
-threadlocal var default_rs_val: Value = types.VOID;
-
 pub fn registerRandom(vm: *vm_mod.VM) !void {
-    default_rs_val = vm.gc.allocRandomSource(freshSeed()) catch return error.OutOfMemory;
-    vm.gc.extra_roots.append(vm.gc.allocator, default_rs_val) catch return error.OutOfMemory;
+    vm.default_random_source = vm.gc.allocRandomSource(freshSeed()) catch return error.OutOfMemory;
 
     try reg(vm, "random-integer", &randomIntegerFn, .{ .exact = 1 });
     try reg(vm, "random-real", &randomRealFn, .{ .exact = 0 });
@@ -46,11 +43,9 @@ pub fn registerRandom(vm: *vm_mod.VM) !void {
 }
 
 pub fn ensureDefaultRS() void {
-    if (default_rs_val == types.VOID) {
-        if (primitives.gc_instance) |gc| {
-            default_rs_val = gc.allocRandomSource(freshSeed()) catch return;
-            gc.extra_roots.append(gc.allocator, default_rs_val) catch {};
-        }
+    const vm = vm_mod.vm_instance orelse return;
+    if (vm.default_random_source == types.VOID) {
+        vm.default_random_source = vm.gc.allocRandomSource(freshSeed()) catch return;
     }
 }
 
@@ -64,7 +59,8 @@ fn randomIntegerFn(args: []const Value) PrimitiveError!Value {
     const n = types.toFixnum(args[0]);
     if (n <= 0) return primitives.typeError("random-integer", "positive integer", args[0]);
     ensureDefaultRS();
-    const rs = try getRS("random-integer", default_rs_val);
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.OutOfMemory;
+    const rs = try getRS("random-integer", vm.default_random_source);
     const r = rs.prng.random();
     return types.makeFixnum(r.intRangeLessThan(i64, 0, n));
 }
@@ -72,7 +68,8 @@ fn randomIntegerFn(args: []const Value) PrimitiveError!Value {
 fn randomRealFn(args: []const Value) PrimitiveError!Value {
     _ = args;
     ensureDefaultRS();
-    const rs = try getRS("random-real", default_rs_val);
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.OutOfMemory;
+    const rs = try getRS("random-real", vm.default_random_source);
     const r = rs.prng.random();
     return types.makeFlonum(r.float(f64));
 }
@@ -80,7 +77,8 @@ fn randomRealFn(args: []const Value) PrimitiveError!Value {
 fn defaultRandomSourceFn(args: []const Value) PrimitiveError!Value {
     _ = args;
     ensureDefaultRS();
-    return default_rs_val;
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.OutOfMemory;
+    return vm.default_random_source;
 }
 
 fn randomSourcePFn(args: []const Value) PrimitiveError!Value {
