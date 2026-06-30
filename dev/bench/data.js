@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1782853393560,
+  "lastUpdate": 1782854660886,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
@@ -781,6 +781,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "gc-pressure",
             "value": 2.419597,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 0,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "97cf45868d645130bf92f55e0a79c017b76ba769",
+          "message": "Fix constant folding ignoring redefined primitives (#600) (#618)\n\nThe IR constant folding and boolean simplification passes folded calls\nto + - * = < > <= >= zero? not by symbol name without checking whether\nthe user had redefined those bindings at the top level.\n\nAdd a globals field to the IR struct and check whether each operator\nis still bound to its original NativeFn before folding. Thread the\ncompiler's globals map through to all IR construction sites.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-01T02:42:31+05:30",
+          "tree_id": "af69a099f5c225918e2b6eed977b816269be994f",
+          "url": "https://github.com/kaappi/kaappi/commit/97cf45868d645130bf92f55e0a79c017b76ba769"
+        },
+        "date": 1782854660088,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.768732,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.651305,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.749468,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.713156,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006954,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.031298,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.409207,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 1.070329,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.998459,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.601257,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.070799,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.218283,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 2.251927,
             "unit": "seconds"
           },
           {
