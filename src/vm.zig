@@ -125,7 +125,11 @@ fn writeToFd(fd: std.posix.fd_t, bytes: []const u8) void {
     var total: usize = 0;
     while (total < bytes.len) {
         const result = std.posix.system.write(fd, bytes.ptr + total, bytes.len - total);
-        if (result <= 0) break;
+        if (result < 0) {
+            if (std.posix.errno(result) == .INTR) continue;
+            break;
+        }
+        if (result == 0) break;
         total += @as(usize, @intCast(result));
     }
 }

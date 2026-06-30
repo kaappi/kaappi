@@ -519,8 +519,11 @@ fn writeStderr(bytes: []const u8) void {
     var total: usize = 0;
     while (total < bytes.len) {
         const result: isize = std.posix.system.write(2, bytes.ptr + total, bytes.len - total);
-        if (result > 0) {
-            total += @intCast(result);
-        } else break;
+        if (result < 0) {
+            if (std.posix.errno(result) == .INTR) continue;
+            break;
+        }
+        if (result == 0) break;
+        total += @intCast(result);
     }
 }

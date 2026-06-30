@@ -282,9 +282,15 @@ fn portReadOneByte(port: *types.Port) ?u8 {
         return b;
     }
     var buf: [1]u8 = undefined;
-    const raw = std.posix.system.read(port.fd, &buf, buf.len);
-    if (raw <= 0) return null;
-    return buf[0];
+    while (true) {
+        const raw = std.posix.system.read(port.fd, &buf, buf.len);
+        if (raw < 0) {
+            if (std.posix.errno(raw) == .INTR) continue;
+            return null;
+        }
+        if (raw == 0) return null;
+        return buf[0];
+    }
 }
 
 fn readU8Fn(args: []const Value) PrimitiveError!Value {

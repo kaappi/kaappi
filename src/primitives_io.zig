@@ -125,7 +125,11 @@ pub fn writeToFd(fd: std.posix.fd_t, bytes: []const u8) void {
     var total: usize = 0;
     while (total < bytes.len) {
         const result = std.posix.system.write(fd, bytes.ptr + total, bytes.len - total);
-        if (result <= 0) break;
+        if (result < 0) {
+            if (std.posix.errno(result) == .INTR) continue;
+            break;
+        }
+        if (result == 0) break;
         total += @as(usize, @intCast(result));
     }
 }
@@ -420,9 +424,15 @@ fn readOneByte(port: *types.Port) ?u8 {
         return byte;
     }
     var buf: [1]u8 = undefined;
-    const raw = std.posix.system.read(port.fd, &buf, buf.len);
-    if (raw <= 0) return null;
-    return buf[0];
+    while (true) {
+        const raw = std.posix.system.read(port.fd, &buf, buf.len);
+        if (raw < 0) {
+            if (std.posix.errno(raw) == .INTR) continue;
+            return null;
+        }
+        if (raw == 0) return null;
+        return buf[0];
+    }
 }
 
 fn readUtf8Char(port: *types.Port) ?u21 {
@@ -640,9 +650,12 @@ fn readDatumFn(args: []const Value) PrimitiveError!Value {
     var tmp: [4096]u8 = undefined;
     while (true) {
         const raw_n = std.posix.system.read(port.fd, &tmp, tmp.len);
-        if (raw_n <= 0) break;
+        if (raw_n < 0) {
+            if (std.posix.errno(raw_n) == .INTR) continue;
+            break;
+        }
+        if (raw_n == 0) break;
         const n: usize = @intCast(raw_n);
-        if (n == 0) break;
         buf.appendSlice(gc.allocator, tmp[0..n]) catch return PrimitiveError.OutOfMemory;
     }
 
