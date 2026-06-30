@@ -54,7 +54,7 @@ are two ways a frame's `base` is chosen, and they behave very differently:
    frame's base is a **flat `prev.base + 200`**:
 
    ```zig
-   const base: u16 = if (self.frame_count > 0)
+   const base: u32 = if (self.frame_count > 0)
        self.frames[self.frame_count - 1].base + 200
    else
        0;
@@ -113,6 +113,10 @@ offset, so it tolerates much greater depth before (also unbounded) overflow.
    heap-allocated slices that double on overflow (initial 480/2048, caps at
    32768/65536). `ensureFrameCapacity` and `ensureRegisterCapacity` on the VM
    handle growth at all frame push sites.
+4. **Widened `CallFrame.base` from u16 to u32 (#593).** The u16 field overflowed
+   at ~20,000 non-tail frames, causing a Zig panic instead of a clean
+   `StackOverflow`. The u32 field supports up to 4 billion register indices.
+   `dst` stays u16 (per-frame offset, bounded by `locals_count`).
 
 ## Cross-references
 
