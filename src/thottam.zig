@@ -266,6 +266,7 @@ fn resolveVersion(allocator: std.mem.Allocator, clone_url: []const u8, constrain
 fn isConstraintSpec(ver: []const u8) bool {
     if (ver.len == 0) return false;
     const clean = std.mem.trim(u8, ver, "\"");
+    if (clean.len == 0) return false;
     return clean[0] == '>' or clean[0] == '<' or clean[0] == '^' or clean[0] == '~';
 }
 
