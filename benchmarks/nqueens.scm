@@ -1,19 +1,18 @@
 (include "benchmarks/common.scm")
 
 (define (nqueens n)
-  (letrec ((queen-cols
-            (lambda (k)
-              (if (= k 0)
-                  (list '())
-                  (filter
-                   (lambda (positions) (safe? k positions))
-                   (flatmap
-                    (lambda (rest-of-queens)
-                      (map-interval
-                       (lambda (new-row) (cons new-row rest-of-queens))
-                       1 n))
-                    (queen-cols (- k 1))))))))
-    (length (queen-cols n))))
+  (define (queen-cols k)
+    (if (= k 0)
+        (list '())
+        (filter
+         (lambda (positions) (safe? k positions))
+         (flatmap
+          (lambda (rest-of-queens)
+            (map-interval
+             (lambda (new-row) (cons new-row rest-of-queens))
+             1 n))
+          (queen-cols (- k 1))))))
+  (length (queen-cols n)))
 
 (define (safe? k positions)
   (let ((new-row (car positions))
