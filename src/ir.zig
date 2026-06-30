@@ -412,10 +412,15 @@ pub fn lower(irn: *IR, expr: Value) CompileError!*Node {
 }
 
 pub fn lowerSingleExpr(allocator: std.mem.Allocator, expr: Value) CompileError!*Node {
+    return lowerSingleExprTail(allocator, expr, false);
+}
+
+pub fn lowerSingleExprTail(allocator: std.mem.Allocator, expr: Value, is_tail: bool) CompileError!*Node {
     var scratch = IR.init(allocator);
     const node = try lowerWithMacros(&scratch, expr, null);
     identifyPrimitives(node);
     markConstants(node);
+    if (is_tail) markTailPositions(node, true);
     var opt = foldConstants(&scratch, node);
     opt = eliminateDeadBranches(&scratch, opt);
     opt = simplifyBooleans(&scratch, opt);
