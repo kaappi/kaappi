@@ -737,24 +737,21 @@ fn processImportExcept(vm: *VM, target: *std.StringHashMap(Value), args: Value) 
     var source = try resolveImportBindings(vm, inner_set);
     defer source.deinit();
 
-    var excluded: [64][]const u8 = undefined;
-    var excluded_count: usize = 0;
+    var excluded_list: std.ArrayList([]const u8) = .empty;
+    defer excluded_list.deinit(vm.gc.allocator);
     var id_list = ids;
     while (id_list != types.NIL) {
         if (!types.isPair(id_list)) return error.InvalidSyntax;
         const id = types.car(id_list);
         if (!types.isSymbol(id)) return error.InvalidSyntax;
-        if (excluded_count < 64) {
-            excluded[excluded_count] = types.symbolName(id);
-            excluded_count += 1;
-        }
+        excluded_list.append(vm.gc.allocator, types.symbolName(id)) catch return error.OutOfMemory;
         id_list = types.cdr(id_list);
     }
 
     var it = source.iterator();
     while (it.next()) |entry| {
         var is_excluded = false;
-        for (excluded[0..excluded_count]) |exc| {
+        for (excluded_list.items) |exc| {
             if (std.mem.eql(u8, entry.key_ptr.*, exc)) {
                 is_excluded = true;
                 break;
@@ -798,9 +795,10 @@ fn processImportRename(vm: *VM, target: *std.StringHashMap(Value), args: Value) 
     var source = try resolveImportBindings(vm, inner_set);
     defer source.deinit();
 
-    var rename_old: [32][]const u8 = undefined;
-    var rename_new: [32][]const u8 = undefined;
-    var rename_count: usize = 0;
+    var rename_old_list: std.ArrayList([]const u8) = .empty;
+    defer rename_old_list.deinit(vm.gc.allocator);
+    var rename_new_list: std.ArrayList([]const u8) = .empty;
+    defer rename_new_list.deinit(vm.gc.allocator);
     var rename_list = renames;
     while (rename_list != types.NIL) {
         if (!types.isPair(rename_list)) return error.InvalidSyntax;
@@ -811,20 +809,17 @@ fn processImportRename(vm: *VM, target: *std.StringHashMap(Value), args: Value) 
         if (!types.isPair(new_rest)) return error.InvalidSyntax;
         const new_sym = types.car(new_rest);
         if (!types.isSymbol(old_sym) or !types.isSymbol(new_sym)) return error.InvalidSyntax;
-        if (rename_count < 32) {
-            rename_old[rename_count] = types.symbolName(old_sym);
-            rename_new[rename_count] = types.symbolName(new_sym);
-            rename_count += 1;
-        }
+        rename_old_list.append(vm.gc.allocator, types.symbolName(old_sym)) catch return error.OutOfMemory;
+        rename_new_list.append(vm.gc.allocator, types.symbolName(new_sym)) catch return error.OutOfMemory;
         rename_list = types.cdr(rename_list);
     }
 
     var it = source.iterator();
     while (it.next()) |entry| {
         var imported_name = entry.key_ptr.*;
-        for (0..rename_count) |i| {
-            if (std.mem.eql(u8, entry.key_ptr.*, rename_old[i])) {
-                imported_name = rename_new[i];
+        for (0..rename_old_list.items.len) |i| {
+            if (std.mem.eql(u8, entry.key_ptr.*, rename_old_list.items[i])) {
+                imported_name = rename_new_list.items[i];
                 break;
             }
         }
