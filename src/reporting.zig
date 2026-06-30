@@ -8,7 +8,11 @@ fn writeToFd(fd: std.posix.fd_t, bytes: []const u8) void {
     var total: usize = 0;
     while (total < bytes.len) {
         const result = std.posix.system.write(fd, bytes.ptr + total, bytes.len - total);
-        if (result <= 0) break;
+        if (result < 0) {
+            if (std.posix.errno(result) == .INTR) continue;
+            break;
+        }
+        if (result == 0) break;
         total += @as(usize, @intCast(result));
     }
 }
@@ -496,7 +500,11 @@ pub fn writeCoverageXml(vm: *vm_mod.VM, path: []const u8) void {
     var written: usize = 0;
     while (written < xml.items.len) {
         const result = std.posix.system.write(fd, xml.items.ptr + written, xml.items.len - written);
-        if (result <= 0) break;
+        if (result < 0) {
+            if (std.posix.errno(result) == .INTR) continue;
+            break;
+        }
+        if (result == 0) break;
         written += @as(usize, @intCast(result));
     }
 }

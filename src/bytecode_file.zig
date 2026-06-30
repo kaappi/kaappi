@@ -636,7 +636,11 @@ fn writeBufferToFile(w: *Writer, path: []const u8) !void {
     var total: usize = 0;
     while (total < w.buf.items.len) {
         const result = std.posix.system.write(fd, w.buf.items.ptr + total, w.buf.items.len - total);
-        if (result <= 0) return BytecodeError.WriteError;
+        if (result < 0) {
+            if (std.posix.errno(result) == .INTR) continue;
+            return BytecodeError.WriteError;
+        }
+        if (result == 0) return BytecodeError.WriteError;
         total += @as(usize, @intCast(result));
     }
 }
@@ -1157,7 +1161,11 @@ test "bytecode validation rejects oversized function count header" {
     var total: usize = 0;
     while (total < w.buf.items.len) {
         const wrote = std.posix.system.write(fd, w.buf.items.ptr + total, w.buf.items.len - total);
-        if (wrote <= 0) break;
+        if (wrote < 0) {
+            if (std.posix.errno(wrote) == .INTR) continue;
+            break;
+        }
+        if (wrote == 0) break;
         total += @as(usize, @intCast(wrote));
     }
 
@@ -1276,7 +1284,11 @@ test "bytecode validation rejects invalid opcode" {
     var total: usize = 0;
     while (total < w.buf.items.len) {
         const wrote = std.posix.system.write(fd, w.buf.items.ptr + total, w.buf.items.len - total);
-        if (wrote <= 0) break;
+        if (wrote < 0) {
+            if (std.posix.errno(wrote) == .INTR) continue;
+            break;
+        }
+        if (wrote == 0) break;
         total += @as(usize, @intCast(wrote));
     }
 

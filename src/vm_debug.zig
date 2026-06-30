@@ -91,7 +91,13 @@ pub fn debugPause(vm: *VM, frame: *CallFrame) !void {
         var i: usize = 0;
         while (i < cmd_buf.len) {
             const result = std.posix.system.read(0, cmd_buf[i .. i + 1].ptr, 1);
-            if (result <= 0) {
+            if (result < 0) {
+                if (std.posix.errno(result) == .INTR) continue;
+                vm.debug_mode = false;
+                vm.step_mode = .none;
+                return;
+            }
+            if (result == 0) {
                 vm.debug_mode = false;
                 vm.step_mode = .none;
                 return;
