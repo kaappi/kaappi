@@ -81,6 +81,7 @@ pub fn handleDefineRecordType(vm: *VM, args: Value) VMError!Value {
             const mut_sym = types.car(spec_rest2);
             if (!types.isSymbol(mut_sym)) return VMError.CompileError;
             mutator_names[all_field_count] = types.symbolName(mut_sym);
+            if (types.cdr(spec_rest2) != types.NIL) return VMError.CompileError;
         } else {
             mutator_names[all_field_count] = null;
         }

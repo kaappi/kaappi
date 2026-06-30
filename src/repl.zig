@@ -260,6 +260,60 @@ fn parenDepth(src: []const u8) i32 {
             i += 1;
             continue;
         }
+        // Datum comment: #; — skip the next datum for paren counting
+        if (ch == '#' and i + 1 < src.len and src[i + 1] == ';') {
+            i += 2;
+            // Skip whitespace
+            while (i < src.len and (src[i] == ' ' or src[i] == '\t' or src[i] == '\n' or src[i] == '\r')) : (i += 1) {}
+            if (i >= src.len) {
+                depth += 1;
+                continue;
+            }
+            if (src[i] == '(' or src[i] == '[') {
+                var datum_depth: i32 = 1;
+                i += 1;
+                var dc_in_string = false;
+                var dc_escape = false;
+                while (i < src.len and datum_depth > 0) {
+                    if (dc_escape) {
+                        dc_escape = false;
+                        i += 1;
+                        continue;
+                    }
+                    if (dc_in_string) {
+                        if (src[i] == '\\') dc_escape = true else if (src[i] == '"') dc_in_string = false;
+                        i += 1;
+                        continue;
+                    }
+                    if (src[i] == '"') {
+                        dc_in_string = true;
+                    } else if (src[i] == '(' or src[i] == '[') {
+                        datum_depth += 1;
+                    } else if (src[i] == ')' or src[i] == ']') {
+                        datum_depth -= 1;
+                    }
+                    i += 1;
+                }
+                if (datum_depth > 0) depth += 1;
+                i -= 1;
+            } else if (src[i] == '"') {
+                i += 1;
+                while (i < src.len) {
+                    if (src[i] == '\\' and i + 1 < src.len) {
+                        i += 2;
+                        continue;
+                    }
+                    if (src[i] == '"') break;
+                    i += 1;
+                }
+            } else {
+                while (i < src.len and src[i] != ' ' and src[i] != '\t' and src[i] != '\n' and
+                    src[i] != ')' and src[i] != '(' and src[i] != ';') : (i += 1)
+                {}
+                i -= 1;
+            }
+            continue;
+        }
         // Character literals: #\x or #\space etc.
         if (ch == '#' and i + 1 < src.len and src[i + 1] == '\\') {
             i += 2; // skip #\ — now i points at the character after backslash
