@@ -48,11 +48,14 @@ echo
 
 # --- Deep recursion ---
 echo "-- Deep recursion --"
-assert_error "deep non-tail recursion" \
+assert_no_crash "deep non-tail recursion (growable stack)" \
     '(define (deep n) (if (= n 0) 0 (+ 1 (deep (- n 1))))) (deep 10000)'
 
+assert_error "non-tail recursion past hard limit" \
+    '(define (deep n) (if (= n 0) 0 (+ 1 (deep (- n 1))))) (deep 50000)'
+
 assert_no_crash "catchable stack overflow" \
-    '(define (deep n) (if (= n 0) 0 (+ 1 (deep (- n 1))))) (guard (e (#t "caught")) (deep 10000))'
+    '(define (deep n) (if (= n 0) 0 (+ 1 (deep (- n 1))))) (guard (e (#t "caught")) (deep 50000))'
 
 assert_no_crash "deep tail recursion (should not overflow)" \
     '(define (loop n) (if (= n 0) (display "ok") (loop (- n 1)))) (loop 1000000)'

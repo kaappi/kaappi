@@ -529,7 +529,7 @@ pub const GC = struct {
         wind_records: []const WindRecord,
         wind_count: usize,
         dst_reg: u16,
-        dst_base: u16,
+        dst_base: u32,
     ) !Value {
         try self.maybeCollect();
 
@@ -602,7 +602,7 @@ pub const GC = struct {
         target_wind_count: usize,
         target_handler_count: usize,
         dst_reg: u16,
-        dst_base: u16,
+        dst_base: u32,
     ) !Value {
         try self.maybeCollect();
         const cont = try self.allocator.create(Continuation);

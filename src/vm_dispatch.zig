@@ -274,7 +274,7 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                 const nargs = readU8(self, frame);
                 const base_wide = @as(usize, frame.base) + @as(usize, base_reg);
                 try ensureCallWindow(self, base_wide, nargs);
-                const base: u16 = @intCast(base_wide);
+                const base: u32 = try toBase(base_wide);
                 const callee = self.registers[base];
                 if (types.isClosure(callee)) {
                     vm_calls.callClosure(self, types.toObject(callee).as(types.Closure), base, nargs) catch |err| return err;
@@ -295,7 +295,7 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                 const nargs = readU8(self, frame);
                 const abs_base_wide = @as(usize, frame.base) + @as(usize, base_reg);
                 try ensureCallWindow(self, abs_base_wide, nargs);
-                const abs_base: u16 = @intCast(abs_base_wide);
+                const abs_base: u32 = try toBase(abs_base_wide);
                 const callee = self.registers[abs_base];
 
                 if (types.isClosure(callee)) {
@@ -480,7 +480,7 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                 if (nargs == 0) return VMError.InvalidBytecode;
                 const abs_base_wide = @as(usize, frame.base) + @as(usize, base_reg);
                 try ensureCallWindow(self, abs_base_wide, nargs);
-                const abs_base: u16 = @intCast(abs_base_wide);
+                const abs_base: u32 = try toBase(abs_base_wide);
                 const proc = self.registers[abs_base];
 
                 var flat_args: [256]Value = undefined;
@@ -743,7 +743,7 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                 const env: *std.StringHashMap(Value) = the_func.env orelse &self.globals;
                 const base_wide = @as(usize, frame.base) + @as(usize, base_reg);
                 try ensureCallWindow(self, base_wide, nargs);
-                const base: u16 = @intCast(base_wide);
+                const base: u32 = try toBase(base_wide);
 
                 if (the_func.env == null) {
                     if (the_func.global_cache) |cache| {
@@ -859,7 +859,7 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                 const env: *std.StringHashMap(Value) = func.env orelse &self.globals;
                 const abs_base_wide = @as(usize, frame.base) + @as(usize, base_reg);
                 try ensureCallWindow(self, abs_base_wide, nargs);
-                const abs_base: u16 = @intCast(abs_base_wide);
+                const abs_base: u32 = try toBase(abs_base_wide);
 
                 var callee: Value = types.VOID;
                 if (func.env == null) {
@@ -1053,7 +1053,7 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                 const nargs = readU8(self, frame);
                 const abs_base_wide = @as(usize, frame.base) + @as(usize, base_reg);
                 try ensureCallWindow(self, abs_base_wide, nargs);
-                const abs_base: u16 = @intCast(abs_base_wide);
+                const abs_base: u32 = try toBase(abs_base_wide);
                 for (0..nargs) |i| {
                     const dst_idx = @as(usize, frame.base) + i;
                     const src_idx = @as(usize, abs_base) + 1 + i;
@@ -1089,7 +1089,7 @@ pub fn ensureOperands(vm: *VM, frame: *CallFrame, operand_bytes: usize) VMError!
     if (frame.ip + operand_bytes > frame.code.len) return VMError.InvalidBytecode;
 }
 
-pub fn registerIndex(vm: *VM, base: u16, reg: u16) VMError!usize {
+pub fn registerIndex(vm: *VM, base: u32, reg: u16) VMError!usize {
     const idx = @as(usize, base) + @as(usize, reg);
     if (idx >= vm.registers.len) return VMError.InvalidBytecode;
     return idx;
@@ -1098,6 +1098,11 @@ pub fn registerIndex(vm: *VM, base: u16, reg: u16) VMError!usize {
 pub fn ensureCallWindow(vm: *VM, base: usize, nargs: u8) VMError!void {
     const hi = base + @as(usize, nargs) + 1;
     if (hi > vm.registers.len) try vm.ensureRegisterCapacity(hi);
+}
+
+fn toBase(base_wide: usize) VMError!u32 {
+    if (base_wide > std.math.maxInt(u32)) return VMError.StackOverflow;
+    return @intCast(base_wide);
 }
 
 pub fn constantAt(vm: *VM, func: *types.Function, idx: u16) VMError!Value {

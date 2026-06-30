@@ -198,7 +198,7 @@ pub fn restoreContinuation(self: *VM, cont: *types.Continuation, value: Value) V
     try vm_continuations.restoreContinuation(self, cont, value);
 }
 
-pub fn handleNativeError(_: *VM, err: anyerror, _: u16, _: u8) VMError {
+pub fn handleNativeError(_: *VM, err: anyerror, _: u32, _: u8) VMError {
     return switch (err) {
         error.TypeError => VMError.TypeError,
         error.DivisionByZero => VMError.DivisionByZero,
@@ -212,7 +212,7 @@ pub fn handleNativeError(_: *VM, err: anyerror, _: u16, _: u8) VMError {
     };
 }
 
-pub fn callValue(vm: *VM, callee: Value, base: u16, nargs: u8) VMError!void {
+pub fn callValue(vm: *VM, callee: Value, base: u32, nargs: u8) VMError!void {
     // Check closure first — by far the most common case in Scheme programs
     if (types.isClosure(callee)) {
         return callClosure(vm, types.toObject(callee).as(types.Closure), base, nargs);
@@ -267,7 +267,7 @@ pub fn callValue(vm: *VM, callee: Value, base: u16, nargs: u8) VMError!void {
     return VMError.NotAProcedure;
 }
 
-pub fn callClosure(vm: *VM, closure: *types.Closure, base: u16, nargs: u8) VMError!void {
+pub fn callClosure(vm: *VM, closure: *types.Closure, base: u32, nargs: u8) VMError!void {
     const func = closure.func;
 
     try vm.ensureRegisterCapacity(@as(usize, base) + @as(usize, @max(nargs + 1, func.locals_count)) + 1);
@@ -313,7 +313,7 @@ pub fn callClosure(vm: *VM, closure: *types.Closure, base: u16, nargs: u8) VMErr
 
     // The callee is in base, args are in base+1..base+nargs
     // New frame's registers start at base (callee reg becomes r0 for the function)
-    const new_base = base + 1; // skip the callee register
+    const new_base = if (base < std.math.maxInt(u32)) base + 1 else return VMError.StackOverflow;
     vm.frames[vm.frame_count] = .{
         .closure = closure,
         .code = func.code.items,
@@ -373,7 +373,7 @@ pub fn callClosure(vm: *VM, closure: *types.Closure, base: u16, nargs: u8) VMErr
     }
 }
 
-pub fn callNative(vm: *VM, native: *types.NativeFn, base: u16, nargs: u8) VMError!void {
+pub fn callNative(vm: *VM, native: *types.NativeFn, base: u32, nargs: u8) VMError!void {
     if (vm.profile_mode) {
         native.profile_calls += 1;
     }

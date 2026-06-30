@@ -146,7 +146,7 @@ pub const CallFrame = struct {
     native: ?*types.NativeFn = null,
     code: []const u8,
     ip: usize,
-    base: u16,
+    base: u32,
     dst: u16,
     saved_wind_count: u16 = 0,
 };
@@ -526,9 +526,9 @@ pub const VM = struct {
             const closure = types.toObject(handler_val).as(types.Closure);
             const func = closure.func;
 
-            const base: u16 = if (self.frame_count > 0) blk: {
+            const base: u32 = if (self.frame_count > 0) blk: {
                 const prev = self.frames[self.frame_count - 1];
-                const stride: u16 = if (prev.closure) |c|
+                const stride: u32 = if (prev.closure) |c|
                     @max(16, @as(u16, c.func.locals_count) + 2)
                 else
                     32;
@@ -621,9 +621,9 @@ pub const VM = struct {
             const closure = types.toObject(thunk_val).as(types.Closure);
             const func = closure.func;
 
-            const base: u16 = if (self.frame_count > 0) blk: {
+            const base: u32 = if (self.frame_count > 0) blk: {
                 const prev = self.frames[self.frame_count - 1];
-                const stride: u16 = if (prev.closure) |c|
+                const stride: u32 = if (prev.closure) |c|
                     @max(16, @as(u16, c.func.locals_count) + 2)
                 else
                     32;
@@ -729,9 +729,9 @@ pub const VM = struct {
             const closure = types.toObject(proc).as(types.Closure);
             const func = closure.func;
 
-            const base: u16 = if (self.frame_count > 0) blk: {
+            const base: u32 = if (self.frame_count > 0) blk: {
                 const prev = self.frames[self.frame_count - 1];
-                const stride: u16 = if (prev.closure) |c|
+                const stride: u32 = if (prev.closure) |c|
                     @max(16, @as(u16, c.func.locals_count) + 2)
                 else
                     32;
@@ -861,7 +861,7 @@ pub const VM = struct {
     }
 
     /// Capture the current continuation state (delegates to vm_continuations).
-    pub fn captureContinuation(self: *VM, dst_reg: u8, dst_base: u16) VMError!Value {
+    pub fn captureContinuation(self: *VM, dst_reg: u8, dst_base: u32) VMError!Value {
         return vm_continuations.captureContinuation(self, dst_reg, dst_base);
     }
 
@@ -871,7 +871,7 @@ pub const VM = struct {
     }
 
     /// Capture an escape continuation (delegates to vm_continuations).
-    pub fn captureEscape(self: *VM, dst_reg: u8, dst_base: u16) VMError!Value {
+    pub fn captureEscape(self: *VM, dst_reg: u8, dst_base: u32) VMError!Value {
         return vm_continuations.captureEscape(self, dst_reg, dst_base);
     }
 
