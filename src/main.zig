@@ -1225,8 +1225,12 @@ fn emitLlvmFile(vm: *vm_mod.VM, path: []const u8, output_path: ?[]const u8) !voi
 fn compileNative(vm: *vm_mod.VM, path: []const u8, output_path: ?[]const u8) !void {
     const allocator = vm.gc.allocator;
 
-    const ll_path = "/tmp/kaappi_native.ll";
+    const pid = std.c.getpid();
+    const ll_path_owned = std.fmt.allocPrintZ(allocator, "/tmp/kaappi_native_{d}.ll", .{pid}) catch return;
+    defer allocator.free(ll_path_owned);
+    const ll_path: []const u8 = ll_path_owned;
     emitLlvmFile(vm, path, ll_path) catch return;
+    defer _ = std.posix.system.unlink(ll_path_owned.ptr);
 
     const out_path = output_path orelse blk: {
         if (std.mem.endsWith(u8, path, ".scm")) {
@@ -1248,13 +1252,11 @@ fn compileNative(vm: *vm_mod.VM, path: []const u8, output_path: ?[]const u8) !vo
         const cc_path = findInPath(allocator, cc) orelse continue;
         defer allocator.free(cc_path);
         if (tryLink(allocator, cc_path, ll_path, out_path, lib_flag, std.mem.eql(u8, cc, "zig"))) {
-            _ = std.posix.system.unlink(ll_path.ptr);
             return;
         }
     }
 
     writeStderr("No C compiler found. Install zig, clang, or gcc.\n");
-    _ = std.posix.system.unlink(ll_path.ptr);
 }
 
 fn findInPath(allocator: std.mem.Allocator, name: []const u8) ?[]const u8 {
