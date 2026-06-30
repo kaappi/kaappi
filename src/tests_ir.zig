@@ -485,6 +485,23 @@ test "IR optimization: identity elimination — add zero" {
     defer ir.deinit();
 
     const plus_sym = try gc.allocSymbol("+");
+    const op = try ir.makeGlobalRef(plus_sym);
+    const five = try ir.makeConst(types.makeFixnum(5));
+    const zero = try ir.makeConst(types.makeFixnum(0));
+    const call = try ir.makeCall(op, &.{ five, zero });
+
+    const result = ir_mod.eliminateIdentity(&ir, call);
+    try std.testing.expect(result.tag == .constant);
+    try std.testing.expect(types.toFixnum(result.data.constant) == 5);
+}
+
+test "IR optimization: identity elimination — add zero skipped for non-constant" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var ir = ir_mod.IR.init(std.testing.allocator);
+    defer ir.deinit();
+
+    const plus_sym = try gc.allocSymbol("+");
     const x_sym = try gc.allocSymbol("x");
     const op = try ir.makeGlobalRef(plus_sym);
     const x = try ir.makeGlobalRef(x_sym);
@@ -492,7 +509,7 @@ test "IR optimization: identity elimination — add zero" {
     const call = try ir.makeCall(op, &.{ x, zero });
 
     const result = ir_mod.eliminateIdentity(&ir, call);
-    try std.testing.expect(result.tag == .global_ref);
+    try std.testing.expect(result.tag == .call);
 }
 
 test "IR optimization: identity elimination — multiply by zero (pure)" {
