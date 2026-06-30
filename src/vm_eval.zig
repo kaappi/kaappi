@@ -44,7 +44,31 @@ pub fn handleTopLevelForm(vm: *VM, expr: Value) ?VMError!Value {
     if (std.mem.eql(u8, name, "define-values")) return handleDefineValues(vm, types.cdr(expr));
     if (std.mem.eql(u8, name, "include")) return vm_library.handleTopLevelInclude(vm, types.cdr(expr), false);
     if (std.mem.eql(u8, name, "include-ci")) return vm_library.handleTopLevelInclude(vm, types.cdr(expr), true);
+
+    // R7RS 5.1: top-level begin splices its body as top-level forms
+    if (std.mem.eql(u8, name, "begin")) return handleTopLevelBegin(vm, types.cdr(expr));
+
     return null;
+}
+
+fn handleTopLevelBegin(vm: *VM, body: Value) VMError!Value {
+    var last: Value = types.VOID;
+    var rest = body;
+    while (types.isPair(rest)) {
+        const form = types.car(rest);
+        if (handleTopLevelForm(vm, form)) |result| {
+            last = result catch |err| return err;
+        } else {
+            const func = compiler_mod.compileExpressionWithMacros(vm.gc, form, &vm.macros, &vm.globals) catch return VMError.CompileError;
+            var func_val = types.makePointer(@ptrCast(func));
+            vm.gc.pushRoot(&func_val) catch return VMError.OutOfMemory;
+            defer vm.gc.popRoot();
+            compiler_mod.Compiler.unrootFunction(vm.gc, func);
+            last = vm.execute(func) catch |err| return err;
+        }
+        rest = types.cdr(rest);
+    }
+    return last;
 }
 
 fn handleDefineValues(vm: *VM, args: Value) VMError!Value {
