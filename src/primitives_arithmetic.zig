@@ -101,7 +101,40 @@ pub fn makeRationalReduced(gc: *@import("memory.zig").GC, num_val: Value, den_va
     }
     // Bignum-containing case: check for zero denominator
     if (bignum_mod.isZero(den_val)) return raiseDivByZero();
-    return gc.allocRational(num_val, den_val) catch return PrimitiveError.OutOfMemory;
+    if (bignum_mod.isZero(num_val)) return types.makeFixnum(0);
+
+    var num = num_val;
+    var den = den_val;
+
+    // Ensure positive denominator
+    if (bignum_mod.isNegative(den)) {
+        num = bignum_mod.negate(gc, num) catch return PrimitiveError.OutOfMemory;
+        den = bignum_mod.negate(gc, den) catch return PrimitiveError.OutOfMemory;
+    }
+
+    // Reduce by GCD
+    var abs_num = bignum_mod.absVal(gc, num) catch return PrimitiveError.OutOfMemory;
+    var g = den;
+    while (!bignum_mod.isZero(abs_num)) {
+        const t = abs_num;
+        abs_num = bignum_mod.remainder(gc, g, abs_num) catch return PrimitiveError.OutOfMemory;
+        abs_num = bignum_mod.absVal(gc, abs_num) catch return PrimitiveError.OutOfMemory;
+        g = t;
+    }
+    // g is now gcd(|num|, den)
+    if (!bignum_mod.isZero(g) and bignum_mod.compare(g, types.makeFixnum(1)) != 0) {
+        num = bignum_mod.quotient(gc, num, g) catch return PrimitiveError.OutOfMemory;
+        den = bignum_mod.quotient(gc, den, g) catch return PrimitiveError.OutOfMemory;
+    }
+
+    // Demote to fixnum if possible
+    num = bignum_mod.demote(num);
+    den = bignum_mod.demote(den);
+
+    // If denominator is 1, return integer
+    if (types.isFixnum(den) and types.toFixnum(den) == 1) return num;
+
+    return gc.allocRational(num, den) catch return PrimitiveError.OutOfMemory;
 }
 
 /// Raise a division-by-zero error through the exception system so that
@@ -893,6 +926,7 @@ fn positiveP(args: []const Value) PrimitiveError!Value {
         const r = types.toRational(args[0]);
         // Denominator always > 0, so sign is determined by numerator
         if (types.isFixnum(r.numerator)) return if (types.toFixnum(r.numerator) > 0) types.TRUE else types.FALSE;
+        if (types.isBignum(r.numerator)) return if (bignum_mod.isPositive(r.numerator)) types.TRUE else types.FALSE;
         return types.FALSE;
     }
     const v = try toF64(args[0]);
@@ -904,6 +938,7 @@ fn negativeP(args: []const Value) PrimitiveError!Value {
     if (types.isRationalObj(args[0])) {
         const r = types.toRational(args[0]);
         if (types.isFixnum(r.numerator)) return if (types.toFixnum(r.numerator) < 0) types.TRUE else types.FALSE;
+        if (types.isBignum(r.numerator)) return if (bignum_mod.isNegative(r.numerator)) types.TRUE else types.FALSE;
         return types.FALSE;
     }
     const v = try toF64(args[0]);
@@ -929,10 +964,17 @@ fn absVal(args: []const Value) PrimitiveError!Value {
         // Denominator is always positive; just take abs of numerator
         if (types.isFixnum(r.numerator)) {
             const n = types.toFixnum(r.numerator);
-            if (n >= 0) return args[0]; // already positive
+            if (n >= 0) return args[0];
             return gc.allocRational(types.makeFixnum(-n), r.denominator) catch return PrimitiveError.OutOfMemory;
         }
-        return args[0]; // should not happen for fixnum-only rationals
+        if (types.isBignum(r.numerator)) {
+            if (bignum_mod.isNegative(r.numerator)) {
+                const abs_num = bignum_mod.absVal(gc, r.numerator) catch return PrimitiveError.OutOfMemory;
+                return gc.allocRational(abs_num, r.denominator) catch return PrimitiveError.OutOfMemory;
+            }
+            return args[0];
+        }
+        return args[0];
     }
     if (types.isFlonum(args[0])) {
         return makeFlonumVal(@abs(types.toFlonum(args[0])));
