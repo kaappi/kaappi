@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1782861610027,
+  "lastUpdate": 1782862240243,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
@@ -1573,6 +1573,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "gc-pressure",
             "value": 2.370796,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 0,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d9ae2cb0b718512ed96298d815bc4c9359d1906d",
+          "message": "Fix isConstraintSpec panic on empty-after-trim version (#613) (#626)\n\nisConstraintSpec checked ver.len == 0 but then trimmed quotes and\nindexed clean[0] without rechecking length. A version like @\"\"\nproduced an empty slice after trim, panicking on the index.\n\nAdd a clean.len == 0 check after trimming.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-01T04:51:16+05:30",
+          "tree_id": "aa1b624f1f8dbfea4a879112aa4a3634155d5c86",
+          "url": "https://github.com/kaappi/kaappi/commit/d9ae2cb0b718512ed96298d815bc4c9359d1906d"
+        },
+        "date": 1782862238901,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.337738,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.735064,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.812484,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.097224,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.007047,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.032656,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.448938,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 1.14696,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 4.021738,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.763251,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.113738,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.222006,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 2.412035,
             "unit": "seconds"
           },
           {
