@@ -322,7 +322,7 @@ After the benchmark job has run at least once on `main`, a trend chart is
 published to GitHub Pages. Access it at:
 
 ```
-https://kaappi.github.io/kaappi/dev/bench/
+https://kaappi-lang.org/kaappi/dev/bench/
 ```
 
 The chart shows per-benchmark time series with up to 100 data points. Each

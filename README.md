@@ -528,6 +528,7 @@ OS threads enable true parallel I/O (e.g., thread-per-connection HTTP servers).
 | [Architecture](docs/dev/architecture.md) | Pipeline, value representation, GC, file organization |
 | [Adding Features](docs/dev/adding-features.md) | Step-by-step guides for extending the implementation |
 | [Testing Guide](docs/dev/testing.md) | Unit tests, Scheme tests, benchmarks, CI |
+| [Benchmark Dashboard](https://kaappi-lang.org/kaappi/dev/bench/) | Per-commit performance trends (15 benchmarks) |
 | [R7RS Conformance](CONFORMANCE.md) | Design choices and SRFI coverage |
 
 ---
