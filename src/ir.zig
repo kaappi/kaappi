@@ -1048,6 +1048,10 @@ pub fn simplifyBooleans(ir: *IR, node: *Node) *Node {
 // Optimization: identity elimination
 // ---------------------------------------------------------------------------
 
+fn isExactInteger(val: Value) bool {
+    return types.isFixnum(val) or types.isBignum(val);
+}
+
 pub fn eliminateIdentity(ir: *IR, node: *Node) *Node {
     switch (node.tag) {
         .call => {
@@ -1061,28 +1065,28 @@ pub fn eliminateIdentity(ir: *IR, node: *Node) *Node {
                 const a = call.args[0];
                 const b = call.args[1];
 
-                // (+ x 0) → x, (+ 0 x) → x
+                // (+ x 0) → x, (+ 0 x) → x  (only for exact integer constants)
                 if (std.mem.eql(u8, name, "+")) {
-                    if (b.tag == .constant and types.isFixnum(b.data.constant) and types.toFixnum(b.data.constant) == 0)
+                    if (b.tag == .constant and types.isFixnum(b.data.constant) and types.toFixnum(b.data.constant) == 0 and a.tag == .constant and isExactInteger(a.data.constant))
                         return eliminateIdentity(ir, a);
-                    if (a.tag == .constant and types.isFixnum(a.data.constant) and types.toFixnum(a.data.constant) == 0)
+                    if (a.tag == .constant and types.isFixnum(a.data.constant) and types.toFixnum(a.data.constant) == 0 and b.tag == .constant and isExactInteger(b.data.constant))
                         return eliminateIdentity(ir, b);
                 }
-                // (* x 1) → x, (* 1 x) → x
+                // (* x 1) → x, (* 1 x) → x  (only for exact integer constants)
                 if (std.mem.eql(u8, name, "*")) {
-                    if (b.tag == .constant and types.isFixnum(b.data.constant) and types.toFixnum(b.data.constant) == 1)
+                    if (b.tag == .constant and types.isFixnum(b.data.constant) and types.toFixnum(b.data.constant) == 1 and a.tag == .constant and isExactInteger(a.data.constant))
                         return eliminateIdentity(ir, a);
-                    if (a.tag == .constant and types.isFixnum(a.data.constant) and types.toFixnum(a.data.constant) == 1)
+                    if (a.tag == .constant and types.isFixnum(a.data.constant) and types.toFixnum(a.data.constant) == 1 and b.tag == .constant and isExactInteger(b.data.constant))
                         return eliminateIdentity(ir, b);
-                    // (* x 0) → 0, (* 0 x) → 0 (only when the other operand is pure)
-                    if (b.tag == .constant and types.isFixnum(b.data.constant) and types.toFixnum(b.data.constant) == 0 and a.tag == .constant)
+                    // (* x 0) → 0, (* 0 x) → 0 (only when both operands are exact integer constants)
+                    if (b.tag == .constant and types.isFixnum(b.data.constant) and types.toFixnum(b.data.constant) == 0 and a.tag == .constant and isExactInteger(a.data.constant))
                         return ir.makeConst(types.makeFixnum(0)) catch return node;
-                    if (a.tag == .constant and types.isFixnum(a.data.constant) and types.toFixnum(a.data.constant) == 0 and b.tag == .constant)
+                    if (a.tag == .constant and types.isFixnum(a.data.constant) and types.toFixnum(a.data.constant) == 0 and b.tag == .constant and isExactInteger(b.data.constant))
                         return ir.makeConst(types.makeFixnum(0)) catch return node;
                 }
-                // (- x 0) → x
+                // (- x 0) → x  (only for exact integer constants)
                 if (std.mem.eql(u8, name, "-")) {
-                    if (b.tag == .constant and types.isFixnum(b.data.constant) and types.toFixnum(b.data.constant) == 0)
+                    if (b.tag == .constant and types.isFixnum(b.data.constant) and types.toFixnum(b.data.constant) == 0 and a.tag == .constant and isExactInteger(a.data.constant))
                         return eliminateIdentity(ir, a);
                 }
             }
