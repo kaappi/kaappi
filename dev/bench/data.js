@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1782859452237,
+  "lastUpdate": 1782860772355,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
@@ -1375,6 +1375,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "gc-pressure",
             "value": 2.406879,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 0,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "0f6dab1dafafb65a7e3d0c789f1d40134600b34f",
+          "message": "Fix macro import leaking entire def_env into importer (#608) (#624)\n\nimportBinding copied the macro's entire definition-site environment\n(def_env) into the importing namespace, leaking all private library\nbindings — even those never referenced by any template.\n\nNow uses collectFreeRefs/collectSymbols to compute which names the\ntemplates actually reference, and only copies those from def_env.\nUnreferenced private helpers are no longer visible in the importer.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-01T04:25:36+05:30",
+          "tree_id": "d6ca31acfbe0e92072c42365fa2a5d181f799aa7",
+          "url": "https://github.com/kaappi/kaappi/commit/0f6dab1dafafb65a7e3d0c789f1d40134600b34f"
+        },
+        "date": 1782860771435,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.076912,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.958762,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.762294,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.826171,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006295,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.030661,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.422829,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 1.074203,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.814122,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.638099,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.027224,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.202926,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 2.241188,
             "unit": "seconds"
           },
           {
