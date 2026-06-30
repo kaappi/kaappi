@@ -128,7 +128,7 @@ pub fn compileCall(self: *Compiler, expr: Value, dst: u16, is_tail: bool) Compil
         if (tryConstantFold(self, expr, dst)) return;
     }
 
-    var nargs: u8 = 0;
+    var nargs_count: usize = 0;
     var arg_list = types.cdr(expr);
     var args_valid = true;
     while (arg_list != types.NIL) {
@@ -136,9 +136,12 @@ pub fn compileCall(self: *Compiler, expr: Value, dst: u16, is_tail: bool) Compil
             args_valid = false;
             break;
         }
-        nargs += 1;
+        nargs_count += 1;
         arg_list = types.cdr(arg_list);
     }
+
+    if (nargs_count > 255) return CompileError.InternalLimit;
+    const nargs: u8 = @intCast(nargs_count);
 
     if (args_valid and is_tail and types.isSymbol(operator) and self.func.name != null) {
         const op_name = types.symbolName(operator);
@@ -313,16 +316,18 @@ pub fn compileApplyTail(self: *Compiler, expr: Value, dst: u16) CompileError!voi
     try self.compileExpr(types.car(arg_list), base, false);
     arg_list = types.cdr(arg_list);
 
-    var nargs: u8 = 0;
+    var nargs_count: usize = 0;
     while (arg_list != types.NIL) {
         if (!types.isPair(arg_list)) return CompileError.InvalidSyntax;
         const arg_reg = try self.allocReg();
         try self.compileExpr(types.car(arg_list), arg_reg, false);
-        nargs += 1;
+        nargs_count += 1;
         arg_list = types.cdr(arg_list);
     }
 
-    if (nargs < 1) return CompileError.InvalidSyntax;
+    if (nargs_count < 1) return CompileError.InvalidSyntax;
+    if (nargs_count > 255) return CompileError.InternalLimit;
+    const nargs: u8 = @intCast(nargs_count);
 
     try self.emitOp(.tail_apply);
     try self.emitU16(base);
@@ -348,16 +353,18 @@ fn compileCallGlobal(self: *Compiler, expr: Value, operator: Value, dst: u16, is
         break :blk dst;
     };
 
-    var nargs: u8 = 0;
+    var nargs_count: usize = 0;
     var arg_list = types.cdr(expr);
     while (arg_list != types.NIL) {
         if (!types.isPair(arg_list)) return CompileError.InvalidSyntax;
         const arg = types.car(arg_list);
         const arg_reg = try self.allocReg();
         try self.compileExpr(arg, arg_reg, false);
-        nargs += 1;
+        nargs_count += 1;
         arg_list = types.cdr(arg_list);
     }
+    if (nargs_count > 255) return CompileError.InternalLimit;
+    const nargs: u8 = @intCast(nargs_count);
 
     if (is_tail) {
         try self.emitOp(.tail_call_global);

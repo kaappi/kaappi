@@ -383,6 +383,7 @@ pub const Compiler = struct {
 
     fn compileCallFromIR(self: *Compiler, call: ir_mod.CallData, dst: u16, is_tail: bool, is_primitive: bool) CompileError!void {
         _ = is_primitive;
+        if (call.args.len > 255) return CompileError.InternalLimit;
         const nargs: u8 = @intCast(call.args.len);
 
         if (!is_tail and call.operator.tag == .global_ref) {
