@@ -687,6 +687,7 @@ fn handleDidOpenOrChange(allocator: std.mem.Allocator, vm: *vm_mod.VM, params: [
 
     if (text) |raw_t| {
         const t = jsonUnescape(allocator, raw_t) orelse raw_t;
+        defer if (t.ptr != raw_t.ptr) allocator.free(t);
         storeDocument(uri, t);
         runDiagnostics(allocator, vm, uri, t);
     }

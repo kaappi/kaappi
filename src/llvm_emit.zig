@@ -81,7 +81,15 @@ pub const LLVMEmitter = struct {
         while (sym_iter.next()) |entry| {
             const name = entry.key_ptr.*;
             const id = entry.value_ptr.*;
-            try self.print("@.sym.{d} = private unnamed_addr constant [{d} x i8] c\"{s}\"\n", .{ id, name.len, name });
+            try self.print("@.sym.{d} = private unnamed_addr constant [{d} x i8] c\"", .{ id, name.len });
+            for (name) |byte| {
+                if (byte >= 0x20 and byte < 0x7F and byte != '"' and byte != '\\') {
+                    try self.print("{c}", .{byte});
+                } else {
+                    try self.print("\\{X:0>2}", .{byte});
+                }
+            }
+            try self.write("\"\n");
         }
 
         for (self.string_decls.items) |decl| {
