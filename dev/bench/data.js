@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1782843858532,
+  "lastUpdate": 1782851543644,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
@@ -484,6 +484,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "gc-pressure",
             "value": 2.398376,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 0,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "bbe7d318f75a2168a3558b00213b1f8e36f2e8f8",
+          "message": "Fix bare lambda internal define register clobbering (#601) (#615)\n\nIn compileLambdaWithIR, the body loop freed exactly one register after\neach non-final expression. When compileDefineFromIR allocated an extra\nregister for a local variable, that local's slot was reused by the next\nexpression, causing wrong values or runtime type errors.\n\nTrack whether compileFromNode allocated extra registers (for locals) and\nskip freeReg when it did, preserving the local's slot.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-01T01:51:33+05:30",
+          "tree_id": "e683ef80de6dc5d2292545e186055e766355712e",
+          "url": "https://github.com/kaappi/kaappi/commit/bbe7d318f75a2168a3558b00213b1f8e36f2e8f8"
+        },
+        "date": 1782851542821,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.290064,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.220745,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.806455,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.16915,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006945,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.03206,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.452847,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 1.145877,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.94287,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.764609,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.135508,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.219603,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 2.480891,
             "unit": "seconds"
           },
           {
