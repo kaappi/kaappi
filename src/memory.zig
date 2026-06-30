@@ -529,7 +529,7 @@ pub const GC = struct {
         wind_records: []const WindRecord,
         wind_count: usize,
         dst_reg: u16,
-        dst_base: u16,
+        dst_base: u32,
     ) !Value {
         try self.maybeCollect();
 
@@ -602,7 +602,7 @@ pub const GC = struct {
         target_wind_count: usize,
         target_handler_count: usize,
         dst_reg: u16,
-        dst_base: u16,
+        dst_base: u32,
     ) !Value {
         try self.maybeCollect();
         const cont = try self.allocator.create(Continuation);
@@ -742,11 +742,16 @@ pub const GC = struct {
     pub fn allocFiber(self: *GC, thunk: Value, id: u32) !*@import("fiber.zig").Fiber {
         try self.maybeCollect();
         const fiber_mod = @import("fiber.zig");
+        const vm_m = @import("vm.zig");
+        const registers = try self.allocator.alloc(Value, vm_m.INITIAL_REGISTER_CAPACITY);
+        errdefer self.allocator.free(registers);
+        const frames = try self.allocator.alloc(vm_m.CallFrame, vm_m.INITIAL_FRAME_CAPACITY);
+        errdefer self.allocator.free(frames);
         const fiber = try self.allocator.create(fiber_mod.Fiber);
         fiber.* = .{
             .header = .{ .tag = .fiber },
-            .registers = undefined,
-            .frames = undefined,
+            .registers = registers,
+            .frames = frames,
             .frame_count = 0,
             .handler_stack = undefined,
             .handler_count = 0,
@@ -767,10 +772,13 @@ pub const GC = struct {
             .terminated = false,
             .param_overrides = std.AutoHashMap(usize, Value).init(self.allocator),
         };
-        @memset(&fiber.registers, types.UNDEFINED);
-        self.bytes_allocated += @sizeOf(fiber_mod.Fiber);
+        @memset(fiber.registers, types.UNDEFINED);
+        const total_size = @sizeOf(fiber_mod.Fiber) +
+            registers.len * @sizeOf(Value) +
+            frames.len * @sizeOf(vm_m.CallFrame);
+        self.bytes_allocated += total_size;
 
-        self.profileAlloc(@sizeOf(fiber_mod.Fiber));
+        self.profileAlloc(total_size);
         self.trackObject(&fiber.header);
         return fiber;
     }

@@ -153,7 +153,7 @@ fn makeThreadFn(args: []const Value) PrimitiveError!Value {
     ctx.sched.next_id += 1;
 
     const closure = types.toObject(thunk).as(types.Closure);
-    @memset(&fiber.registers, types.UNDEFINED);
+    @memset(fiber.registers, types.UNDEFINED);
     fiber.registers[0] = thunk;
     fiber.frames[0] = .{
         .closure = closure,
@@ -231,7 +231,13 @@ fn threadEntryFn(fiber: *fiber_mod.Fiber, allocator: std.mem.Allocator, parent_g
         return;
     };
     @memset(std.mem.asBytes(child_vm), 0);
-    child_vm.* = vm_mod.VM.initForThread(child_gc, parent_vm);
+    child_vm.* = vm_mod.VM.initForThread(child_gc, parent_vm) catch {
+        allocator.destroy(child_vm);
+        child_gc.deinit();
+        allocator.destroy(child_gc);
+        fiber.status = .errored;
+        return;
+    };
 
     vm_mod.vm_instance = child_vm;
     primitives.gc_instance = child_gc;

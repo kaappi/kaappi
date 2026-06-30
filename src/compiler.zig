@@ -34,7 +34,7 @@ const Upvalue = struct {
 };
 
 const build_options = @import("build_options");
-const MAX_COMPILER_REGISTERS: u16 = @min(std.math.maxInt(u16), build_options.max_registers);
+const MAX_COMPILER_REGISTERS: u16 = std.math.maxInt(u16);
 const MAX_MACRO_EXPANSION_DEPTH: u16 = 256;
 const MAX_MACRO_EXPANSION_STEPS: u32 = 10_000;
 

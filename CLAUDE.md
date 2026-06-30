@@ -16,8 +16,8 @@ zig build coverage                 # unit test code coverage (requires kcov)
 zig build coverage-scheme -- f.scm # Scheme file code coverage (requires kcov)
 zig build -Dbundle-src=program.scm # standalone binary (compile + embed in one step)
 zig build -Dbundle=program.sbc     # standalone binary from pre-compiled .sbc
-zig build -Dmax-frames=1024        # custom max call depth (default: 480)
-zig build -Dmax-registers=4096     # custom register count (default: 2048)
+zig build -Dmax-frames=1024        # initial frame capacity (default: 480, grows to 32768)
+zig build -Dmax-registers=4096     # initial register count (default: 2048, grows to 65536)
 zig build -Dgc-threshold=16384     # custom initial GC threshold (default: 8192)
 ```
 
@@ -28,8 +28,8 @@ Subcommand: `kaappi compile <file> [-o output]`
 compiles to native binary via LLVM. Version is defined as `pub const version`
 in `main.zig`. Environment: `KAAPPI_LIB_DIR` overrides `libkaappi_rt.a` lookup.
 
-Build-time options: `-Dmax-frames=N` (call frame depth, default 512),
-`-Dmax-registers=N` (register count, default 2048),
+Build-time options: `-Dmax-frames=N` (initial frame capacity, default 480, grows to 32768),
+`-Dmax-registers=N` (initial register count, default 2048, grows to 65536),
 `-Dgc-threshold=N` (initial GC object threshold, default 8192).
 
 Requires Zig 0.16+ and libc (for linenoise terminal handling).
@@ -110,7 +110,7 @@ Source → Reader → Expander → IR → Analysis → Optimization → Bytecode
 | Expander | `expander.zig` | `syntax-rules` pattern matching and template instantiation. Called by the compiler when a macro keyword is encountered. |
 | IR | `ir.zig` | Lowers S-expressions to tree-structured IR (33 node types). Runs 3 analysis passes (tail positions, primitive identification, constant detection) and 5 optimization passes (constant folding, dead branch elimination, boolean simplification, identity elimination, begin simplification). See `docs/dev/ir.md`. |
 | Compiler | `compiler.zig` | IR nodes → register-based bytecode via `compileFromNode()`. Retains `compileExpr()` for forms delegated via `passthrough`. Dispatches derived forms to sub-modules. |
-| VM | `vm.zig` | Executes bytecode. Register file + call frame stack. Handles continuations (stack-copying), exception handler stack, dynamic-wind stack, stepping debugger. |
+| VM | `vm.zig` | Executes bytecode. Growable register file + call frame stack (heap-allocated, double-on-overflow). Handles continuations (stack-copying), exception handler stack, dynamic-wind stack, stepping debugger. |
 | GC | `memory.zig` | Generational collector (young/old) with minor and full collections, write barrier for old→young references. Roots tracked via `gc.pushRoot`/`gc.popRoot`. Triggered after N allocations. |
 
 ### Value representation

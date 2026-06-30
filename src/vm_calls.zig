@@ -6,8 +6,6 @@ const vm_mod = @import("vm.zig");
 const VM = vm_mod.VM;
 const VMError = vm_mod.VMError;
 const CallFrame = vm_mod.CallFrame;
-const MAX_REGISTERS = vm_mod.MAX_REGISTERS;
-const MAX_FRAMES = vm_mod.MAX_FRAMES;
 
 const memory = @import("memory.zig");
 const vm_continuations = @import("vm_continuations.zig");
@@ -200,7 +198,7 @@ pub fn restoreContinuation(self: *VM, cont: *types.Continuation, value: Value) V
     try vm_continuations.restoreContinuation(self, cont, value);
 }
 
-pub fn handleNativeError(_: *VM, err: anyerror, _: u16, _: u8) VMError {
+pub fn handleNativeError(_: *VM, err: anyerror, _: u32, _: u8) VMError {
     return switch (err) {
         error.TypeError => VMError.TypeError,
         error.DivisionByZero => VMError.DivisionByZero,
@@ -214,7 +212,7 @@ pub fn handleNativeError(_: *VM, err: anyerror, _: u16, _: u8) VMError {
     };
 }
 
-pub fn callValue(vm: *VM, callee: Value, base: u16, nargs: u8) VMError!void {
+pub fn callValue(vm: *VM, callee: Value, base: u32, nargs: u8) VMError!void {
     // Check closure first — by far the most common case in Scheme programs
     if (types.isClosure(callee)) {
         return callClosure(vm, types.toObject(callee).as(types.Closure), base, nargs);
@@ -269,11 +267,10 @@ pub fn callValue(vm: *VM, callee: Value, base: u16, nargs: u8) VMError!void {
     return VMError.NotAProcedure;
 }
 
-pub fn callClosure(vm: *VM, closure: *types.Closure, base: u16, nargs: u8) VMError!void {
+pub fn callClosure(vm: *VM, closure: *types.Closure, base: u32, nargs: u8) VMError!void {
     const func = closure.func;
 
-    if (base + @as(u16, @max(nargs + 1, func.locals_count)) >= MAX_REGISTERS)
-        return VMError.StackOverflow;
+    try vm.ensureRegisterCapacity(@as(usize, base) + @as(usize, @max(nargs + 1, func.locals_count)) + 1);
 
     if (!func.is_variadic) {
         if (nargs != func.arity) {
@@ -312,11 +309,11 @@ pub fn callClosure(vm: *VM, closure: *types.Closure, base: u16, nargs: u8) VMErr
         vm.registers[base + 1 + rest_start] = rest_list;
     }
 
-    if (vm.frame_count >= MAX_FRAMES) return VMError.StackOverflow;
+    try vm.ensureFrameCapacity(vm.frame_count + 1);
 
     // The callee is in base, args are in base+1..base+nargs
     // New frame's registers start at base (callee reg becomes r0 for the function)
-    const new_base = base + 1; // skip the callee register
+    const new_base = if (base < std.math.maxInt(u32)) base + 1 else return VMError.StackOverflow;
     vm.frames[vm.frame_count] = .{
         .closure = closure,
         .code = func.code.items,
@@ -376,12 +373,12 @@ pub fn callClosure(vm: *VM, closure: *types.Closure, base: u16, nargs: u8) VMErr
     }
 }
 
-pub fn callNative(vm: *VM, native: *types.NativeFn, base: u16, nargs: u8) VMError!void {
+pub fn callNative(vm: *VM, native: *types.NativeFn, base: u32, nargs: u8) VMError!void {
     if (vm.profile_mode) {
         native.profile_calls += 1;
     }
 
-    if (base + @as(u16, nargs) + 1 >= MAX_REGISTERS)
+    if (@as(usize, base) + @as(usize, nargs) + 1 > vm.registers.len)
         return VMError.StackOverflow;
 
     switch (native.arity) {

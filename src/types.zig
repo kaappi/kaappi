@@ -351,7 +351,7 @@ pub const SavedFrame = struct {
     native: ?*NativeFn,
     code: []const u8,
     ip: usize,
-    base: u16,
+    base: u32,
     dst: u16,
     saved_wind_count: u16,
     // On wasm32, pointer-sized fields shrink from 8 to 4 bytes, making the
@@ -383,7 +383,7 @@ pub const Continuation = struct {
     wind_records: []WindRecord,
     wind_count: usize,
     dst_reg: u16, // register offset within frame where result goes
-    dst_base: u16, // base register of the return frame
+    dst_base: u32, // base register of the return frame
     // Single backing allocation holding registers, frames, handlers and winds
     // contiguously. The four slices above are views into this buffer; it is
     // freed as one block on sweep. Empty for escape continuations.

@@ -107,4 +107,5 @@ commit, so not introduced here:
   (`tests/scheme/r7rs-tests.scm`).
 - Deep `force`/promise recursion overflows the fixed 1024-entry frame/register
   arrays (`index out of bounds: index 1201, len 1024`) in
-  `tests/scheme/r7rs/{combined-tests,r7rs-tests}.scm`.
+  `tests/scheme/r7rs/{combined-tests,r7rs-tests}.scm`. **Resolved:** bounds
+  checks added (adaptive stride), then frame/register arrays made growable (#593).

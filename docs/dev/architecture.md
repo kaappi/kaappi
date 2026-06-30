@@ -30,7 +30,7 @@ Source code
 | **Expander** | `expander.zig` | `syntax-rules` pattern matching with ellipsis, literal identifiers, and underscore wildcards. Template instantiation with hygienic renaming (gensym-based). |
 | **IR** | `ir.zig` | Lowers S-expressions to a tree-structured IR (33 node types). Runs 3 analysis passes (tail positions, primitive identification, constant detection) and 5 optimization passes (constant folding, dead branch elimination, boolean simplification, identity elimination, begin simplification). See [ir.md](ir.md) for details. |
 | **Compiler** | `compiler.zig` + 5 sub-modules | Emits register-based bytecode from IR nodes via `compileFromNode()`. Retains `compileExpr()` for forms delegated via `passthrough`. Dispatches 32 syntax forms across 6 files. |
-| **VM** | `vm.zig` + 7 sub-modules | Executes bytecode with a register file, call frame stack, exception handler stack, and dynamic-wind stack. First-class continuations via stack copying, plus a stepping debugger. |
+| **VM** | `vm.zig` + 7 sub-modules | Executes bytecode with a growable register file and call frame stack (heap-allocated, double-on-overflow), exception handler stack, and dynamic-wind stack. First-class continuations via stack copying, plus a stepping debugger. |
 | **GC** | `memory.zig` | Mark-and-sweep collector with intrusive linked list. Root tracking via `pushRoot`/`popRoot`. Triggered after N allocations. |
 | **Primitives** | 21 `primitives_*.zig` files | 554 built-in procedures organized by domain. |
 

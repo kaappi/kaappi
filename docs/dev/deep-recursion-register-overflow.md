@@ -2,9 +2,13 @@
 
 ## Status
 
-**Fixed.** Bounds checks added at all three re-entrant call sites. Adaptive stride (locals_count+2, min 16) replaces flat +200, allowing ~60 re-entrant levels. Found while sweeping the test suite during the GC
-reachability investigation (2026-06-17); confirmed identical on the pre-fix
-commit, so not introduced by that work.
+**Fixed** (two phases). Phase 1 (2026-06-17): bounds checks added at all three
+re-entrant call sites; adaptive stride (locals_count+2, min 16) replaces flat
++200, allowing ~60 re-entrant levels. Phase 2 (#593, 2026-06-30): frame and
+register arrays made growable (heap-allocated slices, double-on-overflow), fully
+eliminating the fixed-capacity limit. The VM now supports thousands of nested
+non-tail-recursive frames, bounded only by available memory (hard caps: 32768
+frames, 65536 registers).
 
 ## Symptom
 
@@ -26,12 +30,13 @@ deeply recursive chain of `force` / promise streams.
 
 ## Root cause
 
-The VM uses a single **flat, fixed register file** shared by all call frames:
+The VM uses a single **flat register file** shared by all call frames (now
+heap-allocated and growable; originally fixed-size):
 
 ```zig
-// src/vm.zig
-pub const MAX_FRAMES    = 256;
-pub const MAX_REGISTERS = 1024;   // registers: [MAX_REGISTERS]Value
+// src/vm.zig (original constants, now replaced by growable slices)
+pub const INITIAL_FRAME_CAPACITY    = 480;   // grows to MAX_FRAME_LIMIT (32768)
+pub const INITIAL_REGISTER_CAPACITY = 2048;  // grows to MAX_REGISTER_LIMIT (65536)
 ```
 
 Each call frame occupies a slice of that one array starting at its `base`. There
@@ -49,7 +54,7 @@ are two ways a frame's `base` is chosen, and they behave very differently:
    frame's base is a **flat `prev.base + 200`**:
 
    ```zig
-   const base: u16 = if (self.frame_count > 0)
+   const base: u32 = if (self.frame_count > 0)
        self.frames[self.frame_count - 1].base + 200
    else
        0;
@@ -96,21 +101,22 @@ offset, so it tolerates much greater depth before (also unbounded) overflow.
   adjacent to the `registers` array inside the `VM` struct (`frames`,
   `handler_stack`, counters, …), i.e. silent memory corruption / UB.
 
-## Possible fixes (not yet chosen)
+## Fixes applied
 
-1. **Bounds-check the register window (minimal, highest value).** Before writing
-   args / pushing a frame in `callWithArgs`, `callClosure`, and `callValue`,
-   verify `base + window <= MAX_REGISTERS` and return `VMError.StackOverflow`
-   otherwise. This converts the crash into a clean, catchable Scheme error and
-   closes the ReleaseFast corruption hole. `window` can be `func.locals_count`
-   (or a safe bound when unknown).
-2. **Shrink / make the stride adaptive.** Replace the flat `+200` with the
-   caller's actual high-water register use (`locals_count`) so re-entrant frames
-   pack tighter and tolerate deeper recursion. Combine with (1).
-3. **Grow the budget.** Increase `MAX_REGISTERS`, and/or make the register file a
-   growable allocation. Larger ceiling, but still needs (1) to fail gracefully.
-
-Recommended: (1) now for safety, then (2) to raise the practical depth limit.
+1. **Bounds-check the register window.** Before writing args / pushing a frame in
+   `callWithArgs`, `callClosure`, and `callValue`, the register window is
+   validated. This converts overflows into clean, catchable `StackOverflow` errors.
+2. **Adaptive stride.** The flat `+200` was replaced with the caller's actual
+   high-water register use (`locals_count + 2`, min 16) so re-entrant frames pack
+   tighter.
+3. **Growable register file (#593).** Both `frames` and `registers` are now
+   heap-allocated slices that double on overflow (initial 480/2048, caps at
+   32768/65536). `ensureFrameCapacity` and `ensureRegisterCapacity` on the VM
+   handle growth at all frame push sites.
+4. **Widened `CallFrame.base` from u16 to u32 (#593).** The u16 field overflowed
+   at ~20,000 non-tail frames, causing a Zig panic instead of a clean
+   `StackOverflow`. The u32 field supports up to 4 billion register indices.
+   `dst` stays u16 (per-frame offset, bounded by `locals_count`).
 
 ## Cross-references
 
