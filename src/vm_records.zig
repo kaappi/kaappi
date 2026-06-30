@@ -97,8 +97,8 @@ pub fn handleDefineRecordType(vm: *VM, args: Value) VMError!Value {
     vm.gc.pushRoot(&rt_val) catch return VMError.OutOfMemory;
     defer vm.gc.popRoot();
 
-    // Store in a global with an internal name
-    const internal_name_buf = std.fmt.allocPrint(vm.gc.allocator, "__record_type_{s}", .{type_name}) catch return VMError.OutOfMemory;
+    // Store in a global with an internal name (space prefix prevents user access)
+    const internal_name_buf = std.fmt.allocPrint(vm.gc.allocator, " __record_type_{s}", .{type_name}) catch return VMError.OutOfMemory;
     defer vm.gc.allocator.free(internal_name_buf);
     // Intern the name via allocSymbol so it persists
     const internal_sym = vm.gc.allocSymbol(internal_name_buf) catch return VMError.OutOfMemory;
@@ -153,11 +153,9 @@ pub fn handleDefineRecordType(vm: *VM, args: Value) VMError!Value {
                 }
             }
             if (!found_in_ctor) {
-                if (!target_env.contains("__undefined__")) {
-                    target_env.put("__undefined__", types.UNDEFINED) catch return VMError.OutOfMemory;
-                    if (vm.current_lib_env == null) vm.global_version +%= 1;
-                }
-                body_args[2 + fi] = vm.gc.allocSymbol("__undefined__") catch return VMError.OutOfMemory;
+                // (if #f #f) evaluates to void/undefined without polluting the namespace
+                const if_sym = vm.gc.allocSymbol("if") catch return VMError.OutOfMemory;
+                body_args[2 + fi] = vm.gc.makeList(&[_]Value{ if_sym, types.FALSE, types.FALSE }) catch return VMError.OutOfMemory;
             }
         }
 
