@@ -644,6 +644,38 @@ fn runFile(vm: *vm_mod.VM, path: []const u8) !void {
     if (sbc_path) |sp| {
         if (bytecode_file.readFileWithTopLevel(vm.gc, source_hash, sp) catch null) |loaded| {
             defer allocator.free(loaded.funcs);
+
+            var bundled_files_map = loaded.bundled_files orelse std.StringHashMap([]const u8).init(allocator);
+            defer {
+                var bfit = bundled_files_map.iterator();
+                while (bfit.next()) |entry| {
+                    allocator.free(entry.key_ptr.*);
+                    allocator.free(entry.value_ptr.*);
+                }
+                bundled_files_map.deinit();
+            }
+            if (loaded.bundled_files != null) {
+                vm.bundled_files = &bundled_files_map;
+            }
+            defer vm.bundled_files = null;
+
+            if (loaded.preamble) |preamble| {
+                defer {
+                    for (preamble) |p| allocator.free(p);
+                    allocator.free(preamble);
+                }
+                for (preamble) |src| {
+                    var pr = reader.Reader.init(vm.gc, src);
+                    defer pr.deinit();
+                    while (pr.hasMore() catch break) {
+                        const expr = pr.readDatum() catch break;
+                        if (vm.handleTopLevelForm(expr)) |top_result| {
+                            _ = top_result catch {};
+                        }
+                    }
+                }
+            }
+
             const top_count = @min(loaded.top_level_count, @as(u32, @intCast(loaded.funcs.len)));
             for (loaded.funcs[0..top_count]) |func| {
                 var func_val = types.makePointer(@ptrCast(func));
