@@ -58,6 +58,32 @@
     (define (double x) (* x 2))
     (+ a (double a))))
 
+;; Regression tests for #601: bare lambda with internal defines
+;; (compileLambdaWithIR register clobbering)
+(test-equal "bare lambda with single internal define"
+  -7
+  (let ()
+    (define b (lambda () (define q 7) (- q)))
+    (b)))
+
+(test-equal "bare lambda with define and complex expression"
+  30
+  (let ()
+    (define h (lambda () (define z 5) (+ (* z z) z)))
+    (h)))
+
+(test-equal "bare lambda with multiple internal defines"
+  7
+  (let ()
+    (define m (lambda () (define a 3) (define b 4) (+ a b)))
+    (m)))
+
+(test-equal "bare lambda define with lambda application"
+  10
+  (let ()
+    (define g (lambda () (define x 10) ((lambda (a) a) x)))
+    (g)))
+
 (define %test-fail-count (test-runner-fail-count (test-runner-current)))
 (test-end "internal-define")
 (if (> %test-fail-count 0) (exit 1))

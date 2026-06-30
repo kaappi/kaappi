@@ -557,8 +557,11 @@ pub const Compiler = struct {
             if (rest == types.NIL) {
                 try child.compileFromNode(root, last_dst, true);
             } else {
+                const saved_next = child.next_register;
                 try child.compileFromNode(root, last_dst, false);
-                child.freeReg();
+                if (child.next_register == saved_next) {
+                    child.freeReg();
+                }
             }
             current = rest;
         }
