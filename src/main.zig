@@ -1226,11 +1226,13 @@ fn compileNative(vm: *vm_mod.VM, path: []const u8, output_path: ?[]const u8) !vo
     const allocator = vm.gc.allocator;
 
     const pid = std.c.getpid();
-    const ll_path_owned = std.fmt.allocPrintZ(allocator, "/tmp/kaappi_native_{d}.ll", .{pid}) catch return;
-    defer allocator.free(ll_path_owned);
-    const ll_path: []const u8 = ll_path_owned;
+    var ll_buf: [64]u8 = undefined;
+    var ll_w: std.Io.Writer = .fixed(&ll_buf);
+    ll_w.print("/tmp/kaappi_native_{d}.ll", .{pid}) catch return;
+    const ll_path = ll_w.buffered();
+    ll_buf[ll_path.len] = 0;
     emitLlvmFile(vm, path, ll_path) catch return;
-    defer _ = std.posix.system.unlink(ll_path_owned.ptr);
+    defer _ = std.posix.system.unlink(@ptrCast(ll_path.ptr));
 
     const out_path = output_path orelse blk: {
         if (std.mem.endsWith(u8, path, ".scm")) {
