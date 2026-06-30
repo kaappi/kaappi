@@ -401,10 +401,10 @@ fn sub(args: []const Value) PrimitiveError!Value {
             return makeFlonumVal(f);
         }
         const first_parts = toRationalParts(args[0]) orelse {
-            var f: f64 = toF64(args[0]) catch return PrimitiveError.TypeError;
+            var f: f64 = toF64(args[0]) catch return PrimitiveError.TypeError; // bare-ok: bignum fallback
             if (args.len == 1) return makeFlonumVal(-f);
             for (args[1..]) |a2| {
-                f -= toF64(a2) catch return PrimitiveError.TypeError;
+                f -= toF64(a2) catch return PrimitiveError.TypeError; // bare-ok: bignum fallback
             }
             return makeFlonumVal(f);
         };
@@ -428,7 +428,7 @@ fn sub(args: []const Value) PrimitiveError!Value {
             }
             const parts = toRationalParts(a) orelse {
                 var f: f64 = @as(f64, @floatFromInt(n)) / @as(f64, @floatFromInt(d));
-                f -= toF64(a) catch return PrimitiveError.TypeError;
+                f -= toF64(a) catch return PrimitiveError.TypeError; // bare-ok: bignum fallback
                 return makeFlonumVal(f);
             };
             // n/d - parts.num/parts.den = (n*parts.den - parts.num*d) / (d*parts.den)
@@ -522,7 +522,7 @@ fn mul(args: []const Value) PrimitiveError!Value {
             }
             const parts = toRationalParts(a) orelse {
                 var f: f64 = @as(f64, @floatFromInt(n)) / @as(f64, @floatFromInt(d));
-                f *= toF64(a) catch return PrimitiveError.TypeError;
+                f *= toF64(a) catch return PrimitiveError.TypeError; // bare-ok: bignum fallback
                 return makeFlonumVal(f);
             };
             // n/d * parts.num/parts.den = (n*parts.num) / (d*parts.den)
@@ -618,9 +618,9 @@ fn divFn(args: []const Value) PrimitiveError!Value {
             return makeFlonumVal(f);
         }
         const first_parts = toRationalParts(args[0]) orelse {
-            var f: f64 = toF64(args[0]) catch return PrimitiveError.TypeError;
+            var f: f64 = toF64(args[0]) catch return PrimitiveError.TypeError; // bare-ok: bignum fallback
             for (args[1..]) |a2| {
-                const dv = toF64(a2) catch return PrimitiveError.TypeError;
+                const dv = toF64(a2) catch return PrimitiveError.TypeError; // bare-ok: bignum fallback
                 if (dv == 0.0) return raiseDivByZero();
                 f /= dv;
             }
@@ -636,7 +636,7 @@ fn divFn(args: []const Value) PrimitiveError!Value {
             }
             const parts = toRationalParts(a) orelse {
                 var f: f64 = @as(f64, @floatFromInt(n)) / @as(f64, @floatFromInt(d));
-                const dv = toF64(a) catch return PrimitiveError.TypeError;
+                const dv = toF64(a) catch return PrimitiveError.TypeError; // bare-ok: bignum fallback
                 if (dv == 0.0) return raiseDivByZero();
                 f /= dv;
                 return makeFlonumVal(f);
