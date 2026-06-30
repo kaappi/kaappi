@@ -257,31 +257,113 @@ gh workflow run post-release.yml -f tag=v0.6.3
 
 ---
 
-## Benchmark Tests
+## Benchmarks
 
-Benchmarks live in the `benchmarks/` directory:
+### Suite
 
-| File | Measures |
-|------|----------|
-| `fib.scm` | Recursive Fibonacci (CPU-bound) |
-| `nqueens.scm` | N-queens puzzle (allocation + recursion) |
-| `primes.scm` | Prime sieve (list operations) |
-| `tak.scm` | Takeuchi function (deeply recursive) |
+Benchmarks live in `benchmarks/`. Each has a `.scm` file using the
+`run-r7rs-benchmark` harness (from `common.scm`) and a `.input` file with
+`count input expected` parameters.
 
-Each benchmark has a corresponding `.input` file with expected output and a
-pre-compiled `.sbc` cache.
+| Benchmark | Subsystem | What it stresses |
+|-----------|-----------|-----------------|
+| `fib` | Fixnum arithmetic | Recursive Fibonacci, non-tail call overhead |
+| `nqueens` | List allocation | N-Queens backtracking, pair allocation |
+| `primes` | Iteration | Prime sieve, numeric predicates |
+| `tak` | Deep recursion | Takeuchi function, stack frame management |
+| `string` | String ops | String construction and manipulation |
+| `list` | List ops | List construction and traversal |
+| `vector` | Vector ops | Vector allocation and access |
+| `hashtable` | Hash tables | SRFI-69 insert/lookup throughput |
+| `continuations` | call/cc | Continuation capture/restore (5M iterations) |
+| `tailcall` | TCO | Deep tail-recursive loop (10M iterations) |
+| `closures` | Higher-order | Closure allocation via map (10K rounds × 1000 elements) |
+| `bignum` | Bignum arith | factorial(5000), fixnum→bignum promotion |
+| `gc-pressure` | GC | Rapid short-lived pair allocation (5M allocs) |
 
-Run a benchmark:
+The harness runs each benchmark 5 times (after a warmup), reports median/min/max.
+
+### Running locally
 
 ```bash
-time zig build run -- benchmarks/fib.scm < benchmarks/fib.input
-```
+# Human-readable table (all benchmarks)
+bash benchmarks/run-benchmarks.sh
 
-There is also a Zig-level benchmark for continuations:
+# JSON output for tooling
+bash benchmarks/run-benchmarks.sh --json
 
-```bash
+# Single benchmark
+echo "1 35 9227465" | zig-out/bin/kaappi benchmarks/fib.scm
+
+# call/cc vs call/ec micro-benchmark (Zig-level)
 zig build bench
+
+# Compare two JSON result files (flags >10% regressions)
+bash benchmarks/compare-benchmarks.sh baseline.json current.json
+THRESHOLD=20 bash benchmarks/compare-benchmarks.sh baseline.json current.json
 ```
+
+### CI integration
+
+**Push to main** (`ci.yml` → `benchmark` job): runs the full suite, uploads
+results as a GitHub Actions artifact (30-day retention), and stores them on the
+`gh-pages` branch via `github-action-benchmark`. This builds a historical
+time series used for trend visualization and regression detection.
+
+**Pull requests** (`benchmark-pr.yml`): triggered by path filter when `src/`,
+`benchmarks/`, `lib/`, or build files change. Builds and benchmarks both the
+PR branch and the base branch, then posts a comparison table as a PR comment
+via `github-action-pull-request-benchmark`. Alert threshold: 120% (flags >20%
+regression).
+
+### Trend dashboard
+
+After the benchmark job has run at least once on `main`, a trend chart is
+published to GitHub Pages. Access it at:
+
+```
+https://kaappi.github.io/kaappi/dev/bench/
+```
+
+The chart shows per-benchmark time series with up to 100 data points. Each
+point is keyed by commit SHA. When a benchmark regresses >30% vs. the previous
+run, a commit comment is posted automatically.
+
+### Reading benchmark results
+
+**Table output** (local): the `Median` column is the primary metric. Compare
+`Min`/`Max` to gauge noise — a wide spread means the result is unreliable.
+`GC#` shows garbage collection count, useful for GC-sensitive benchmarks.
+
+**PR comparison comment**: shows per-benchmark deltas (percentage change). A
+positive delta means the PR is slower. Values within ±10% are typically noise
+on shared CI runners.
+
+**Trend chart**: look for step changes (sudden jumps) rather than gradual
+drift. A sudden regression correlating with a specific commit is actionable;
+slow drift over many commits is usually runner variance.
+
+### Adding a new benchmark
+
+1. Create `benchmarks/<name>.scm` using the harness:
+   ```scheme
+   (include "benchmarks/common.scm")
+
+   (define (my-bench n) ...)
+
+   (let* ((count (read))
+          (input (read))
+          (expected (read)))
+     (run-r7rs-benchmark
+      (string-append "<name>(" (number->string input) ")")
+      count
+      (lambda () (my-bench input))
+      (lambda (result) (= result expected))))
+   ```
+2. Create `benchmarks/<name>.input` with `count input expected` (one per line).
+   Calibrate so each iteration runs 0.5–3 seconds.
+3. Add the entry to the `BENCHMARKS` array in `benchmarks/run-benchmarks.sh`.
+4. Run `bash benchmarks/run-benchmarks.sh` to verify status is `ok`.
 
 ---
 
@@ -337,7 +419,8 @@ matrix covers:
 | `riscv64-test` | Ubuntu (QEMU) | Cross-compiled unit tests + R7RS suite |
 | `wasm` | Ubuntu | WASM build + wasmtime smoke test |
 | `coverage` | Ubuntu (push to main only) | kcov unit + Scheme coverage, Codecov upload |
-| `benchmark` | Ubuntu (push to main only) | Performance benchmarks |
+| `benchmark` | Ubuntu (push to main only) | Performance benchmarks, trend data to `gh-pages` |
+| `benchmark-pr` | Ubuntu (PRs, path-filtered) | PR vs base branch benchmark comparison |
 
 Post-release: `post-release.yml` runs automatically after each release,
 testing the actual published artifacts on all platforms.
