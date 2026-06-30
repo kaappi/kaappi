@@ -57,15 +57,29 @@ fn marshalLongReturn(result: c_long, gc: *memory.GC) !Value {
     return gc.allocBignumFromI64(result) catch return error.OutOfMemory;
 }
 
+fn marshalLongOrUlong(result: c_long, orig_type: FfiType, gc: *memory.GC) !Value {
+    if (orig_type == .uint32 or orig_type == .uint64 or orig_type == .size_type) {
+        const unsigned: u64 = @bitCast(@as(i64, result));
+        if (orig_type == .uint32) {
+            const val: u64 = unsigned & 0xFFFFFFFF;
+            return types.makeFixnum(@intCast(val));
+        }
+        if (unsigned <= @as(u64, @intCast(MAX_FIXNUM)))
+            return types.makeFixnum(@intCast(unsigned));
+        const limbs_buf = [1]u64{unsigned};
+        return gc.allocBignumFromLimbs(&limbs_buf, 1, true) catch return error.OutOfMemory;
+    }
+    return marshalLongReturn(result, gc);
+}
+
 /// Convert a C return value to a Scheme Value based on return type.
 fn marshalReturn(comptime T: type, result: T, rt: FfiType, gc: *memory.GC) !Value {
-    _ = rt;
     if (T == f64) {
         return types.makeFlonum(result);
     } else if (T == c_int) {
         return types.makeFixnum(@intCast(result));
     } else if (T == c_long) {
-        return marshalLongReturn(result, gc);
+        return marshalLongOrUlong(result, rt, gc);
     } else if (T == void) {
         return types.VOID;
     }
@@ -187,7 +201,7 @@ fn callFfi0(ffi_fn: *types.FfiFunction, gc: *memory.GC) !Value {
     if (rt == .long) {
         const f: *const fn () callconv(.c) c_long = @ptrCast(@alignCast(ffi_fn.symbol));
         const result = f();
-        return marshalLongReturn(result, gc);
+        return marshalLongOrUlong(result, ffi_fn.return_type, gc);
     }
     if (rt == .double) {
         const f: *const fn () callconv(.c) f64 = @ptrCast(@alignCast(ffi_fn.symbol));
@@ -254,14 +268,14 @@ fn callFfi1(ffi_fn: *types.FfiFunction, args: []const Value, gc: *memory.GC) !Va
     if (p0 == .int and rt == .long) {
         const f: *const fn (c_int) callconv(.c) c_long = @ptrCast(@alignCast(ffi_fn.symbol));
         const result = f(try toCheckedInt(c_int, args[0]));
-        return marshalLongReturn(result, gc);
+        return marshalLongOrUlong(result, ffi_fn.return_type, gc);
     }
 
     // long -> long
     if (p0 == .long and rt == .long) {
         const f: *const fn (c_long) callconv(.c) c_long = @ptrCast(@alignCast(ffi_fn.symbol));
         const result = f(try toCheckedInt(c_long, args[0]));
-        return marshalLongReturn(result, gc);
+        return marshalLongOrUlong(result, ffi_fn.return_type, gc);
     }
 
     // string -> int (atoi, etc.)
@@ -279,7 +293,7 @@ fn callFfi1(ffi_fn: *types.FfiFunction, args: []const Value, gc: *memory.GC) !Va
         var buf: [4096]u8 = undefined;
         const cstr = toCString(args[0], &buf) orelse return error.TypeError;
         const result = f(cstr);
-        return marshalLongReturn(result, gc);
+        return marshalLongOrUlong(result, ffi_fn.return_type, gc);
     }
 
     // string -> void (puts, etc.)
@@ -339,7 +353,7 @@ fn callFfi1(ffi_fn: *types.FfiFunction, args: []const Value, gc: *memory.GC) !Va
     if (p0 == .pointer and rt == .long) {
         const f: *const fn (?*anyopaque) callconv(.c) c_long = @ptrCast(@alignCast(ffi_fn.symbol));
         const result = f(marshalToPointer(args[0]));
-        return marshalLongReturn(result, gc);
+        return marshalLongOrUlong(result, ffi_fn.return_type, gc);
     }
 
     // pointer -> pointer
@@ -439,14 +453,14 @@ fn callFfi2(ffi_fn: *types.FfiFunction, args: []const Value, gc: *memory.GC) !Va
     if (p0 == .int and p1 == .int and rt == .long) {
         const f: *const fn (c_int, c_int) callconv(.c) c_long = @ptrCast(@alignCast(ffi_fn.symbol));
         const result = f(try toCheckedInt(c_int, args[0]), try toCheckedInt(c_int, args[1]));
-        return marshalLongReturn(result, gc);
+        return marshalLongOrUlong(result, ffi_fn.return_type, gc);
     }
 
     // (long, long) -> long
     if (p0 == .long and p1 == .long and rt == .long) {
         const f: *const fn (c_long, c_long) callconv(.c) c_long = @ptrCast(@alignCast(ffi_fn.symbol));
         const result = f(try toCheckedInt(c_long, args[0]), try toCheckedInt(c_long, args[1]));
-        return marshalLongReturn(result, gc);
+        return marshalLongOrUlong(result, ffi_fn.return_type, gc);
     }
 
     // (string, string) -> int (strcmp, etc.)
@@ -468,7 +482,7 @@ fn callFfi2(ffi_fn: *types.FfiFunction, args: []const Value, gc: *memory.GC) !Va
         const cs0 = toCString(args[0], &buf0) orelse return error.TypeError;
         const cs1 = toCString(args[1], &buf1) orelse return error.TypeError;
         const result = f(cs0, cs1);
-        return marshalLongReturn(result, gc);
+        return marshalLongOrUlong(result, ffi_fn.return_type, gc);
     }
 
     // (string, string) -> void
@@ -563,7 +577,7 @@ fn callFfi2(ffi_fn: *types.FfiFunction, args: []const Value, gc: *memory.GC) !Va
     if (p0 == .pointer and p1 == .long and rt == .long) {
         const f: *const fn (?*anyopaque, c_long) callconv(.c) c_long = @ptrCast(@alignCast(ffi_fn.symbol));
         const result = f(marshalToPointer(args[0]), try toCheckedInt(c_long, args[1]));
-        return marshalLongReturn(result, gc);
+        return marshalLongOrUlong(result, ffi_fn.return_type, gc);
     }
 
     // (int, pointer) -> int
@@ -683,7 +697,7 @@ fn callFfi3(ffi_fn: *types.FfiFunction, args: []const Value, gc: *memory.GC) !Va
     if (p0 == .pointer and p1 == .long and p2 == .pointer and rt == .long) {
         const f: *const fn (?*anyopaque, c_long, ?*anyopaque) callconv(.c) c_long = @ptrCast(@alignCast(ffi_fn.symbol));
         const result = f(marshalToPointer(args[0]), try toCheckedInt(c_long, args[1]), marshalToPointer(args[2]));
-        return marshalLongReturn(result, gc);
+        return marshalLongOrUlong(result, ffi_fn.return_type, gc);
     }
 
     // (pointer, pointer, pointer) -> int
