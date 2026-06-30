@@ -29,8 +29,8 @@ fn getScheduler() ?*fiber_mod.FiberScheduler {
 
 fn spawnFn(args: []const Value) PrimitiveError!Value {
     const proc = args[0];
-    if (!types.isClosure(proc) and !types.isNativeFn(proc))
-        return primitives.typeError("spawn", "procedure", proc);
+    if (!types.isClosure(proc))
+        return primitives.typeError("spawn", "closure", proc);
 
     const vm = vm_mod.vm_instance orelse return PrimitiveError.OutOfMemory;
 
@@ -48,7 +48,13 @@ fn spawnFn(args: []const Value) PrimitiveError!Value {
     }
 
     const sched = vm.scheduler.?;
-    const fiber = sched.spawnFiber(proc) catch return PrimitiveError.OutOfMemory;
+    const fiber = sched.spawnFiber(proc) catch |err| {
+        if (err == vm_mod.VMError.StackOverflow) {
+            vm.setErrorDetail("spawn: fiber limit exceeded (max {d})", .{fiber_mod.MAX_FIBERS});
+            return PrimitiveError.InvalidArgument;
+        }
+        return PrimitiveError.OutOfMemory;
+    };
     return types.makePointer(@ptrCast(fiber));
 }
 
@@ -65,9 +71,22 @@ fn fiberJoinFn(args: []const Value) PrimitiveError!Value {
 
     const target = types.toObject(args[0]).as(fiber_mod.Fiber);
 
-    if (target.status == .completed or target.status == .errored) return target.result;
+    if (target.status == .completed) return target.result;
+    if (target.status == .errored) return reraiseFiberError(target);
 
-    return runSchedulerUntil(target, null, types.VOID);
+    const result = try runSchedulerUntil(target, null, types.VOID);
+    if (target.status == .errored) return reraiseFiberError(target);
+    return result;
+}
+
+fn reraiseFiberError(fiber: *fiber_mod.Fiber) PrimitiveError {
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.ExceptionRaised;
+    if (fiber.current_exception) |exc| {
+        vm.current_exception = exc;
+        return PrimitiveError.ExceptionRaised;
+    }
+    vm.setErrorDetail("fiber error (no exception value)", .{});
+    return PrimitiveError.InvalidArgument;
 }
 
 fn fiberPredFn(args: []const Value) PrimitiveError!Value {
@@ -155,6 +174,7 @@ fn runSchedulerUntil(target: ?*fiber_mod.Fiber, ch: ?*types.Channel, ch_val: Val
                 continue;
             }
             fiber.status = .errored;
+            fiber.current_exception = vm.current_exception;
             sched.saveCurrentFiber();
             sched.wakeWaiters(fiber);
             continue;
