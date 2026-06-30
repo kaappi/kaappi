@@ -29,8 +29,8 @@ pub const VMError = error{
 };
 
 const build_options = @import("build_options");
-pub const MAX_FRAMES: usize = build_options.max_frames;
-pub const MAX_REGISTERS: usize = build_options.max_registers;
+pub const INITIAL_FRAMES: usize = build_options.max_frames;
+pub const INITIAL_REGISTERS: usize = build_options.max_registers;
 pub const MAX_HANDLERS = 64;
 pub const MAX_WINDS = 64;
 
@@ -62,7 +62,7 @@ fn markVMRoots(gc: *memory.GC) void {
             const lc = cls.func.locals_count;
             break :blk if (lc == 0) 256 else @as(usize, lc);
         } else 256;
-        const end: usize = @min(@as(usize, f.base) + window, MAX_REGISTERS);
+        const end: usize = @min(@as(usize, f.base) + window, vm.registers.len);
         var r: usize = f.base;
         while (r < end) : (r += 1) gc.markValue(vm.registers[r]);
     }
@@ -168,8 +168,8 @@ pub const ProfileTimeEntry = struct {
 
 pub const VM = struct {
     gc: *memory.GC,
-    registers: [MAX_REGISTERS]Value = undefined,
-    frames: [MAX_FRAMES]CallFrame = undefined,
+    registers: []Value = &.{},
+    frames: []CallFrame = &.{},
     frame_count: usize = 0,
     globals: std.StringHashMap(Value),
     macros: std.StringHashMap(Value),
@@ -239,8 +239,12 @@ pub const VM = struct {
     yielded: bool = false,
 
     pub fn init(gc: *memory.GC) !VM {
+        const regs = try gc.allocator.alloc(Value, INITIAL_REGISTERS);
+        const frms = try gc.allocator.alloc(CallFrame, INITIAL_FRAMES);
         var vm = VM{
             .gc = gc,
+            .registers = regs,
+            .frames = frms,
             .globals = std.StringHashMap(Value).init(gc.allocator),
             .macros = std.StringHashMap(Value).init(gc.allocator),
             .output = .empty,
@@ -248,7 +252,7 @@ pub const VM = struct {
             .loading_libs = std.StringHashMap(void).init(gc.allocator),
             .param_overrides = std.AutoHashMap(usize, Value).init(gc.allocator),
         };
-        @memset(&vm.registers, types.UNDEFINED);
+        @memset(vm.registers, types.UNDEFINED);
         // Teach the GC how to find roots held in the VM (registers, frames,
         // handlers, winds, globals, macros) so collections during execution
         // don't free in-flight objects.
@@ -264,9 +268,13 @@ pub const VM = struct {
         return vm;
     }
 
-    pub fn initForThread(gc: *memory.GC, parent: *VM) VM {
-        var vm = VM{
+    pub fn initForThread(gc: *memory.GC, parent: *VM) !VM {
+        const regs = try gc.allocator.alloc(Value, INITIAL_REGISTERS);
+        const frms = try gc.allocator.alloc(CallFrame, INITIAL_FRAMES);
+        const vm = VM{
             .gc = gc,
+            .registers = regs,
+            .frames = frms,
             .globals = parent.globals,
             .macros = parent.macros,
             .output = .empty,
@@ -279,7 +287,7 @@ pub const VM = struct {
             .stderr_port = parent.stderr_port,
             .owns_globals = false,
         };
-        @memset(&vm.registers, types.UNDEFINED);
+        @memset(vm.registers, types.UNDEFINED);
         gc.root_marker = &markVMRoots;
         return vm;
     }
@@ -303,6 +311,24 @@ pub const VM = struct {
             if (bp.condition) |cond| self.gc.allocator.free(cond);
         }
         self.breakpoint_count = 0;
+        if (self.frames.len > 0) self.gc.allocator.free(self.frames);
+        if (self.registers.len > 0) self.gc.allocator.free(self.registers);
+    }
+
+    pub fn ensureFrameCapacity(self: *VM) VMError!void {
+        if (self.frame_count < self.frames.len) return;
+        const new_cap = if (self.frames.len == 0) INITIAL_FRAMES else self.frames.len * 2;
+        const new_frames = self.gc.allocator.realloc(self.frames, new_cap) catch return VMError.OutOfMemory;
+        self.frames = new_frames;
+    }
+
+    pub fn ensureRegisterCapacity(self: *VM, needed: usize) VMError!void {
+        if (needed < self.registers.len) return;
+        var new_cap = if (self.registers.len == 0) INITIAL_REGISTERS else self.registers.len;
+        while (new_cap <= needed) new_cap *= 2;
+        const new_regs = self.gc.allocator.realloc(self.registers, new_cap) catch return VMError.OutOfMemory;
+        @memset(new_regs[self.registers.len..], types.UNDEFINED);
+        self.registers = new_regs;
     }
 
     pub fn getParameterValue(self: *VM, param: *types.ParameterObject) Value {
@@ -496,7 +522,7 @@ pub const VM = struct {
                     32;
                 break :blk prev.base + stride;
             } else 0;
-            if (base + func.locals_count >= MAX_REGISTERS) return VMError.StackOverflow;
+            try self.ensureRegisterCapacity(@as(usize, base) + @as(usize, func.locals_count));
 
             if (func.is_variadic and func.arity == 0) {
                 // (lambda args ...) — wrap arg in a list
@@ -509,7 +535,7 @@ pub const VM = struct {
                 self.registers[base] = arg;
             }
 
-            if (self.frame_count >= MAX_FRAMES) return VMError.StackOverflow;
+            try self.ensureFrameCapacity();
 
             const saved_frame_count = self.frame_count;
             const saved_handler_count = self.handler_count;
@@ -591,13 +617,13 @@ pub const VM = struct {
                     32;
                 break :blk prev.base + stride;
             } else 0;
-            if (base + @as(u16, func.locals_count) >= MAX_REGISTERS) return VMError.StackOverflow;
+            try self.ensureRegisterCapacity(@as(usize, base) + @as(usize, func.locals_count));
 
             if (func.is_variadic and func.arity == 0) {
                 self.registers[base] = types.NIL;
             }
 
-            if (self.frame_count >= MAX_FRAMES) return VMError.StackOverflow;
+            try self.ensureFrameCapacity();
 
             const saved_frame_count = self.frame_count;
             const saved_handler_count = self.handler_count;
@@ -699,7 +725,7 @@ pub const VM = struct {
                     32;
                 break :blk prev.base + stride;
             } else 0;
-            if (base + @as(usize, func.locals_count) >= MAX_REGISTERS) return VMError.StackOverflow;
+            try self.ensureRegisterCapacity(@as(usize, base) + @as(usize, func.locals_count));
 
             if (args.len > std.math.maxInt(u8)) return VMError.ArityMismatch;
             const nargs: u8 = @intCast(args.len);
@@ -733,7 +759,7 @@ pub const VM = struct {
                 }
             }
 
-            if (self.frame_count >= MAX_FRAMES) return VMError.StackOverflow;
+            try self.ensureFrameCapacity();
 
             const saved_frame_count = self.frame_count;
             const saved_handler_count = self.handler_count;

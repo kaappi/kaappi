@@ -26,8 +26,8 @@ pub const FiberStatus = enum(u8) {
 
 pub const Fiber = struct {
     header: types.Object,
-    registers: [vm_mod.MAX_REGISTERS]Value,
-    frames: [vm_mod.MAX_FRAMES]CallFrame,
+    registers: []Value,
+    frames: []CallFrame,
     frame_count: usize,
     handler_stack: [vm_mod.MAX_HANDLERS]vm_mod.ExceptionHandler,
     handler_count: usize,
@@ -97,7 +97,7 @@ pub const FiberScheduler = struct {
         if (!types.isClosure(thunk_val)) return VMError.NotAProcedure;
         const closure = types.toObject(thunk_val).as(types.Closure);
 
-        @memset(&fiber.registers, types.UNDEFINED);
+        @memset(fiber.registers, types.UNDEFINED);
         fiber.registers[0] = thunk_val;
         fiber.frames[0] = .{
             .closure = closure,
@@ -124,8 +124,21 @@ pub const FiberScheduler = struct {
     pub fn saveCurrentFiber(self: *FiberScheduler) void {
         const fiber = self.fibers[self.current_idx] orelse return;
         const vm = self.vm;
-        @memcpy(&fiber.registers, &vm.registers);
-        @memcpy(fiber.frames[0..vm.frame_count], vm.frames[0..vm.frame_count]);
+        // Grow fiber storage if the VM has grown beyond fiber's current capacity
+        if (vm.registers.len > fiber.registers.len) {
+            if (vm.gc.allocator.realloc(fiber.registers, vm.registers.len)) |new_regs| {
+                fiber.registers = new_regs;
+            } else |_| {}
+        }
+        if (vm.frames.len > fiber.frames.len) {
+            if (vm.gc.allocator.realloc(fiber.frames, vm.frames.len)) |new_frms| {
+                fiber.frames = new_frms;
+            } else |_| {}
+        }
+        const reg_len = @min(vm.registers.len, fiber.registers.len);
+        @memcpy(fiber.registers[0..reg_len], vm.registers[0..reg_len]);
+        const frm_len = @min(vm.frame_count, fiber.frames.len);
+        @memcpy(fiber.frames[0..frm_len], vm.frames[0..frm_len]);
         fiber.frame_count = vm.frame_count;
         @memcpy(fiber.handler_stack[0..vm.handler_count], vm.handler_stack[0..vm.handler_count]);
         fiber.handler_count = vm.handler_count;
@@ -139,8 +152,13 @@ pub const FiberScheduler = struct {
     pub fn restoreFiber(self: *FiberScheduler, idx: usize) void {
         const fiber = self.fibers[idx] orelse return;
         const vm = self.vm;
-        @memcpy(&vm.registers, &fiber.registers);
-        @memcpy(vm.frames[0..fiber.frame_count], fiber.frames[0..fiber.frame_count]);
+        // Grow VM storage if the fiber has grown beyond VM's current capacity
+        vm.ensureRegisterCapacity(fiber.registers.len) catch {};
+        const reg_len = @min(fiber.registers.len, vm.registers.len);
+        @memcpy(vm.registers[0..reg_len], fiber.registers[0..reg_len]);
+        while (vm.frames.len < fiber.frame_count) vm.ensureFrameCapacity() catch break;
+        const frm_len = @min(fiber.frame_count, vm.frames.len);
+        @memcpy(vm.frames[0..frm_len], fiber.frames[0..frm_len]);
         vm.frame_count = fiber.frame_count;
         @memcpy(vm.handler_stack[0..fiber.handler_count], fiber.handler_stack[0..fiber.handler_count]);
         vm.handler_count = fiber.handler_count;
@@ -273,7 +291,7 @@ pub fn markFiberState(gc: *memory.GC, fiber: *Fiber) void {
             const lc = cls.func.locals_count;
             break :blk if (lc == 0) 256 else @as(usize, lc);
         } else 256;
-        const end: usize = @min(@as(usize, f.base) + window, vm_mod.MAX_REGISTERS);
+        const end: usize = @min(@as(usize, f.base) + window, fiber.registers.len);
         var r: usize = f.base;
         while (r < end) : (r += 1) gc.markValue(fiber.registers[r]);
     }

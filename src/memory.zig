@@ -742,11 +742,14 @@ pub const GC = struct {
     pub fn allocFiber(self: *GC, thunk: Value, id: u32) !*@import("fiber.zig").Fiber {
         try self.maybeCollect();
         const fiber_mod = @import("fiber.zig");
+        const vm_init = @import("vm.zig");
         const fiber = try self.allocator.create(fiber_mod.Fiber);
+        const fiber_regs = try self.allocator.alloc(Value, vm_init.INITIAL_REGISTERS);
+        const fiber_frms = try self.allocator.alloc(vm_init.CallFrame, vm_init.INITIAL_FRAMES);
         fiber.* = .{
             .header = .{ .tag = .fiber },
-            .registers = undefined,
-            .frames = undefined,
+            .registers = fiber_regs,
+            .frames = fiber_frms,
             .frame_count = 0,
             .handler_stack = undefined,
             .handler_count = 0,
@@ -767,7 +770,7 @@ pub const GC = struct {
             .terminated = false,
             .param_overrides = std.AutoHashMap(usize, Value).init(self.allocator),
         };
-        @memset(&fiber.registers, types.UNDEFINED);
+        @memset(fiber.registers, types.UNDEFINED);
         self.bytes_allocated += @sizeOf(fiber_mod.Fiber);
 
         self.profileAlloc(@sizeOf(fiber_mod.Fiber));

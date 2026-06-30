@@ -6,8 +6,6 @@ const vm_mod = @import("vm.zig");
 const VM = vm_mod.VM;
 const VMError = vm_mod.VMError;
 const CallFrame = vm_mod.CallFrame;
-const MAX_REGISTERS = vm_mod.MAX_REGISTERS;
-const MAX_FRAMES = vm_mod.MAX_FRAMES;
 
 const memory = @import("memory.zig");
 const vm_continuations = @import("vm_continuations.zig");
@@ -272,8 +270,8 @@ pub fn callValue(vm: *VM, callee: Value, base: u16, nargs: u8) VMError!void {
 pub fn callClosure(vm: *VM, closure: *types.Closure, base: u16, nargs: u8) VMError!void {
     const func = closure.func;
 
-    if (base + @as(u16, @max(nargs + 1, func.locals_count)) >= MAX_REGISTERS)
-        return VMError.StackOverflow;
+    const needed_regs = @as(usize, base) + @as(usize, @max(nargs + 1, func.locals_count));
+    try vm.ensureRegisterCapacity(needed_regs);
 
     if (!func.is_variadic) {
         if (nargs != func.arity) {
@@ -312,7 +310,7 @@ pub fn callClosure(vm: *VM, closure: *types.Closure, base: u16, nargs: u8) VMErr
         vm.registers[base + 1 + rest_start] = rest_list;
     }
 
-    if (vm.frame_count >= MAX_FRAMES) return VMError.StackOverflow;
+    try vm.ensureFrameCapacity();
 
     // The callee is in base, args are in base+1..base+nargs
     // New frame's registers start at base (callee reg becomes r0 for the function)
@@ -381,8 +379,7 @@ pub fn callNative(vm: *VM, native: *types.NativeFn, base: u16, nargs: u8) VMErro
         native.profile_calls += 1;
     }
 
-    if (base + @as(u16, nargs) + 1 >= MAX_REGISTERS)
-        return VMError.StackOverflow;
+    try vm.ensureRegisterCapacity(@as(usize, base) + @as(usize, nargs) + 1);
 
     switch (native.arity) {
         .exact => |expected| {

@@ -21,8 +21,8 @@ pub fn build(b: *std.Build) void {
     const do_strip = b.option(bool, "strip", "Strip debug info from binaries (for release builds)") orelse false;
     const strip: ?bool = if (do_strip) true else null;
 
-    const max_frames = b.option(u32, "max-frames", "Maximum call frame depth (default: 480)") orelse 480;
-    const max_registers = b.option(u32, "max-registers", "Maximum register count (default: 2048)") orelse 2048;
+    const max_frames = b.option(u32, "max-frames", "Initial call frame capacity; grows as needed (default: 480)") orelse 480;
+    const max_registers = b.option(u32, "max-registers", "Initial register capacity; grows as needed (default: 2048)") orelse 2048;
 
     const gc_threshold = b.option(u32, "gc-threshold", "Initial GC object threshold (default: 8192)") orelse 8192;
 

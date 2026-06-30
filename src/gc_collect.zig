@@ -192,8 +192,7 @@ fn referencesYoung(obj: *Object) bool {
                     const lc = cls.func.locals_count;
                     break :blk if (lc == 0) 256 else @as(usize, lc);
                 } else 256;
-                const vm_mod = @import("vm.zig");
-                const end: usize = @min(@as(usize, f.base) + window, vm_mod.MAX_REGISTERS);
+                const end: usize = @min(@as(usize, f.base) + window, fiber.registers.len);
                 var r: usize = f.base;
                 while (r < end) : (r += 1) {
                     if (isYoungPointer(fiber.registers[r])) return true;
@@ -914,6 +913,8 @@ pub fn freeObject(gc: *GC, obj: *Object) void {
         .fiber => {
             const fiber = obj.as(@import("fiber.zig").Fiber);
             fiber.param_overrides.deinit();
+            if (fiber.registers.len > 0) gc.allocator.free(fiber.registers);
+            if (fiber.frames.len > 0) gc.allocator.free(fiber.frames);
             gc.allocator.destroy(fiber);
         },
         .channel => {
