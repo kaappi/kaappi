@@ -1,0 +1,81 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(**)",
+      "Bash(zig build)",
+      "Bash(zig build test)",
+      "Bash(zig build run -- *)",
+      "Bash(zig build wasm)",
+      "Bash(zig build bench)",
+      "Bash(zig build coverage*)",
+      "Bash(zig fmt *)",
+      "Bash(zig-out/bin/kaappi *)",
+      "Bash(bash tests/scheme/*)",
+      "Bash(git status*)",
+      "Bash(git diff*)",
+      "Bash(git log*)",
+      "Bash(git branch*)",
+      "Bash(git add *)",
+      "Bash(git commit -m *)",
+      "Bash(git checkout -b *)",
+      "Bash(find *)",
+      "Bash(grep *)",
+      "Bash(wc *)",
+      "Bash(ls *)",
+      "Bash(make *)"
+    ],
+    "ask": [
+      "Bash(git push*)",
+      "Bash(podman *)",
+      "Bash(gh release *)",
+      "Bash(gh pr *)"
+    ],
+    "deny": [
+      "Bash(rm -rf /*)",
+      "Bash(sudo *)",
+      "Bash(git push*--force*)",
+      "Read(.env*)",
+      "Read(~/.ssh/**)",
+      "Write(.git/**)"
+    ]
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash .claude/hooks/zig-fmt-post.sh",
+            "timeout": 15,
+            "statusMessage": "Formatting..."
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash .claude/hooks/bash-guard-pre.sh",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash .claude/hooks/test-on-stop.sh",
+            "timeout": 150,
+            "statusMessage": "Running unit tests..."
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -5,6 +5,8 @@ zig-out/
 *.log
 test_*.o
 .claude/worktrees/
+.claude/settings.local.json
+.claude/scheduled_tasks.lock
 /coverage/
 tools/.cache/
 __pycache__/
