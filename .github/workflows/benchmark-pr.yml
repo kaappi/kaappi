@@ -1,0 +1,51 @@
+name: PR Benchmark Comparison
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'benchmarks/**'
+      - 'lib/**'
+      - 'build.zig'
+      - 'build.zig.zon'
+
+permissions:
+  pull-requests: write
+  contents: read
+
+jobs:
+  benchmark-pr:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Install Zig
+        uses: xyzzylabs/setup-zig@v1
+        with:
+          version: 0.16.0
+
+      - name: Build and benchmark PR branch
+        run: |
+          zig build
+          bash benchmarks/run-benchmarks.sh --json > pr-results.json
+
+      - name: Build and benchmark base branch
+        run: |
+          git checkout ${{ github.event.pull_request.base.sha }}
+          zig build
+          bash benchmarks/run-benchmarks.sh --json > base-results.json
+          git checkout ${{ github.event.pull_request.head.sha }}
+
+      - name: Compare and comment
+        uses: openpgpjs/github-action-pull-request-benchmark@v1
+        with:
+          tool: 'customSmallerIsBetter'
+          pr-benchmark-file-path: pr-results.json
+          base-benchmark-file-path: base-results.json
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          alert-threshold: '120%'
+          comment-always: true
