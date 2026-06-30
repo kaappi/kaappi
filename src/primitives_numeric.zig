@@ -280,28 +280,51 @@ fn exactFn(args: []const Value) PrimitiveError!Value {
     if (types.isFlonum(args[0])) {
         const f = types.toFlonum(args[0]);
         if (std.math.isNan(f) or std.math.isInf(f)) return primitives.typeError("exact", "finite number", args[0]);
-        // Check if it's an integer-valued float
-        if (f == @trunc(f)) {
-            return try safeFloatToExactInt(f);
-        }
-        // Convert float to exact rational using 2^46 scaling (fits in i48 fixnum)
+        if (f == 0.0) return types.makeFixnum(0);
+        if (f == @trunc(f)) return try safeFloatToExactInt(f);
         const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
-        const scale: f64 = 70368744177664.0; // 2^46
-        const n_f = f * scale;
-        if (n_f > @as(f64, @floatFromInt(std.math.maxInt(i48))) or n_f < @as(f64, @floatFromInt(std.math.minInt(i48)))) {
-            return try safeFloatToExactInt(f);
+        const positive = f >= 0;
+        const bits: u64 = @bitCast(@abs(f));
+        const raw_exp = @as(u11, @intCast((bits >> 52) & 0x7FF));
+        const mantissa: u64 = if (raw_exp == 0)
+            bits & 0x000FFFFFFFFFFFFF
+        else
+            (bits & 0x000FFFFFFFFFFFFF) | 0x0010000000000000;
+        const exp: i16 = if (raw_exp == 0)
+            1 - 1023 - 52
+        else
+            @as(i16, @intCast(raw_exp)) - 1023 - 52;
+        if (exp >= 0) return try safeFloatToExactInt(f);
+        // Rational mantissa / 2^(-exp). Reduce by trailing zeros in mantissa.
+        var m = mantissa;
+        var neg_exp: u16 = @intCast(-exp);
+        while (m != 0 and m & 1 == 0 and neg_exp > 0) {
+            m >>= 1;
+            neg_exp -= 1;
         }
-        var n: i64 = @intFromFloat(n_f);
-        var d: i64 = @intFromFloat(scale);
-        const g = gcdTwo(if (n < 0) -n else n, d);
-        if (g != 0) {
-            n = @divExact(n, g);
-            d = @divExact(d, g);
-        }
-        if (d == 1) return try arith.makeFixnumChecked(n);
-        const num = try arith.makeFixnumChecked(n);
-        const den = try arith.makeFixnumChecked(d);
-        return gc.allocRational(num, den) catch return PrimitiveError.OutOfMemory;
+        const num_val = blk: {
+            if (m <= @as(u64, @intCast(std.math.maxInt(i48)))) {
+                const signed: i64 = if (positive) @intCast(m) else -@as(i64, @intCast(m));
+                break :blk types.makeFixnum(signed);
+            }
+            break :blk gc.allocBignumFromLimbs(&[1]u64{m}, 1, positive) catch return PrimitiveError.OutOfMemory;
+        };
+        if (neg_exp == 0) return num_val;
+        // Build denominator 2^neg_exp
+        const den_val = blk: {
+            if (neg_exp <= 47) {
+                break :blk types.makeFixnum(@as(i64, 1) << @intCast(neg_exp));
+            }
+            const word_shift = neg_exp / 64;
+            const bit_shift: u6 = @intCast(neg_exp % 64);
+            const total: usize = @as(usize, word_shift) + 1;
+            var limbs = gc.allocator.alloc(u64, total) catch return PrimitiveError.OutOfMemory;
+            defer gc.allocator.free(limbs);
+            @memset(limbs, 0);
+            limbs[word_shift] = @as(u64, 1) << bit_shift;
+            break :blk gc.allocBignumFromLimbs(limbs, total, true) catch return PrimitiveError.OutOfMemory;
+        };
+        return gc.allocRational(num_val, den_val) catch return PrimitiveError.OutOfMemory;
     }
     if (types.isComplex(args[0])) {
         const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
