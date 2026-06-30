@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1782852555426,
+  "lastUpdate": 1782853393560,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
@@ -682,6 +682,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "gc-pressure",
             "value": 2.412188,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 0,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "9721f5150e41bbbd68273cd41e3c5577e31d60a3",
+          "message": "Fix floor-quotient/truncate-quotient fixnum overflow (#603) (#617)\n\nBoth procedures used types.makeFixnum for the quotient result, which\nsilently truncates values outside i48 range. The only triggering case\nis minInt(i48) ÷ -1 = 2^47, which wraps to the most-negative fixnum.\n\nUse arith.makeFixnumChecked which promotes to bignum on overflow.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-01T02:22:29+05:30",
+          "tree_id": "b6271456d05033a96c56ba910565b1157eaeaab1",
+          "url": "https://github.com/kaappi/kaappi/commit/9721f5150e41bbbd68273cd41e3c5577e31d60a3"
+        },
+        "date": 1782853392170,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.291792,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.910723,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.855784,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.134798,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.007035,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.032974,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.45204,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 1.151492,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.958152,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.765264,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.097302,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.226681,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 2.419597,
             "unit": "seconds"
           },
           {
