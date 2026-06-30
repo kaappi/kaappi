@@ -190,6 +190,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     if: github.event_name == 'push'
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v7
 
@@ -211,3 +213,16 @@ jobs:
           name: benchmark-results
           path: benchmark-results.json
           retention-days: 30
+
+      - name: Store benchmark result
+        uses: benchmark-action/github-action-benchmark@v1
+        with:
+          tool: 'customSmallerIsBetter'
+          output-file-path: benchmark-results.json
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          auto-push: true
+          alert-threshold: '130%'
+          comment-on-alert: true
+          fail-on-alert: false
+          benchmark-data-dir-path: 'dev/bench'
+          max-items-in-chart: 100
