@@ -279,6 +279,7 @@ fn writeConstant(w: *Writer, allocator: std.mem.Allocator, val: Value, all_funcs
         switch (obj.tag) {
             .symbol => {
                 const sym = obj.as(types.Symbol);
+                if (sym.name.len > MAX_SYMBOL_BYTES) return BytecodeError.CorruptedFile;
                 try w.writeU8(allocator, TAG_SYMBOL);
                 try w.writeU16(allocator, @intCast(sym.name.len));
                 try w.writeBytes(allocator, sym.name);
@@ -607,6 +608,7 @@ fn writeFunctionsToBuffer(w: *Writer, allocator: std.mem.Allocator, top_level_fu
         try w.writeU8(allocator, if (func.is_variadic) @as(u8, 1) else @as(u8, 0));
 
         if (func.name) |name| {
+            if (name.len > MAX_SYMBOL_BYTES) return BytecodeError.CorruptedFile;
             try w.writeU16(allocator, @intCast(name.len));
             try w.writeBytes(allocator, name);
         } else {
