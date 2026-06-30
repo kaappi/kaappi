@@ -569,6 +569,42 @@ test "IR analysis: emission uses tail annotation" {
     try std.testing.expectEqual(@as(i64, 6), types.toFixnum(result));
 }
 
+test "bare lambda with single internal define" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+    const result = try vm.eval("(define b (lambda () (define q 7) (- q))) (b)");
+    try std.testing.expectEqual(@as(i64, -7), types.toFixnum(result));
+}
+
+test "bare lambda with internal define and complex expression" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+    const result = try vm.eval("(define h (lambda () (define z 5) (+ (* z z) z))) (h)");
+    try std.testing.expectEqual(@as(i64, 30), types.toFixnum(result));
+}
+
+test "bare lambda with multiple internal defines" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+    const result = try vm.eval("(define m (lambda () (define a 3) (define b 4) (+ a b))) (m)");
+    try std.testing.expectEqual(@as(i64, 7), types.toFixnum(result));
+}
+
+test "bare lambda internal define with lambda application" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+    const result = try vm.eval("(define g (lambda () (define x 10) ((lambda (a) a) x))) (g)");
+    try std.testing.expectEqual(@as(i64, 10), types.toFixnum(result));
+}
+
 fn readExpr(gc: *memory.GC, source: []const u8) !types.Value {
     var reader = reader_mod.Reader.init(gc, source);
     defer reader.deinit();
