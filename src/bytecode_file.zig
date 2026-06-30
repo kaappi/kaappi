@@ -432,6 +432,7 @@ fn readConstant(r: *Reader, gc: *GC, all_funcs: []*Function, depth: u32) !Value 
             for (0..len) |i| {
                 limbs[i] = try r.readU64();
             }
+            if (limbs[len - 1] == 0) return BytecodeError.CorruptedFile;
             return gc.allocBignumFromLimbs(limbs, len, positive) catch return BytecodeError.OutOfMemory;
         },
         TAG_RATIONAL => {
