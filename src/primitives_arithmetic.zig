@@ -137,6 +137,11 @@ pub fn makeRationalReduced(gc: *@import("memory.zig").GC, num_val: Value, den_va
     return gc.allocRational(num, den) catch return PrimitiveError.OutOfMemory;
 }
 
+fn isExactZero(v: Value) bool {
+    return (types.isFixnum(v) and types.toFixnum(v) == 0) or
+        (types.isBignum(v) and bignum_mod.isZero(v));
+}
+
 /// Raise a division-by-zero error through the exception system so that
 /// (guard ...) can catch it.
 pub fn raiseDivByZero() PrimitiveError!Value {
@@ -545,7 +550,7 @@ fn divFn(args: []const Value) PrimitiveError!Value {
         if (args.len == 1) {
             // 1/(a+bi) = (a-bi)/(a^2+b^2)
             const denom = first.real * first.real + first.imag * first.imag;
-            if (denom == 0.0) return raiseDivByZero();
+            if (denom == 0.0 and isExactZero(args[0])) return raiseDivByZero();
             return makeComplexOrReal(first.real / denom, -first.imag / denom);
         }
         var real = first.real;
@@ -553,7 +558,7 @@ fn divFn(args: []const Value) PrimitiveError!Value {
         for (args[1..]) |a| {
             const c = try toComplexParts(a);
             const denom = c.real * c.real + c.imag * c.imag;
-            if (denom == 0.0) return raiseDivByZero();
+            if (denom == 0.0 and isExactZero(a)) return raiseDivByZero();
             const new_real = (real * c.real + imag * c.imag) / denom;
             const new_imag = (imag * c.real - real * c.imag) / denom;
             real = new_real;
@@ -576,7 +581,7 @@ fn divFn(args: []const Value) PrimitiveError!Value {
             return makeRationalReduced(gc, r.denominator, r.numerator);
         }
         const a = try toF64Ext(args[0]);
-        if (a == 0) return raiseDivByZero();
+        if (a == 0 and isExactZero(args[0])) return raiseDivByZero();
         return makeFlonumVal(1.0 / a);
     }
     // Handle rational division: any rational arg means rational result
@@ -678,7 +683,7 @@ fn divFn(args: []const Value) PrimitiveError!Value {
     var result = try toF64Ext(args[0]);
     for (args[1..]) |a| {
         const b = try toF64Ext(a);
-        if (b == 0) return raiseDivByZero();
+        if (b == 0 and isExactZero(a)) return raiseDivByZero();
         result /= b;
     }
     return makeFlonumVal(result);
