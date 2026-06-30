@@ -298,21 +298,9 @@ map.deinit();  // no allocator arg needed
 
 ## GC safety
 
-When allocating between obtaining a pointer and using it, the pointer may become invalid if GC runs. Root values that must survive allocation:
-
-```zig
-var val = try gc.allocPair(a, b);
-gc.pushRoot(&val);          // protect from GC
-const other = try gc.allocPair(c, d);  // this might trigger GC
-gc.popRoot();               // done, val is safe to use
-```
-
-Always root `Function*` pointers before calling `vm.execute()` — it allocates a closure wrapper internally.
-
-**Write barrier:** when mutating a heap object's Value field (set-car!, set-cdr!,
-vector-set!, hash-table-set!, etc.), call `gc.writeBarrier(container, new_val)`
-so the generational GC can track old→young references. Primitives that mutate
-heap objects must include this barrier.
+See `.claude/rules/gc-safety.md` (loaded automatically when editing primitives,
+memory, or VM files). Key rules: root before allocating, write barrier after
+mutating heap object fields, root `Function*` before `vm.execute()`.
 
 ## Tests
 
