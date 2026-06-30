@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1782854660886,
+  "lastUpdate": 1782855482381,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
@@ -880,6 +880,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "gc-pressure",
             "value": 2.251927,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 0,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "33c04050c252a875f19be4ba9eda4daeb9e7fe0c",
+          "message": "Fix -o flag stripped from (command-line) in normal runs (#602) (#619)\n\nThe post-file-path argument loop unconditionally intercepted -o and\nswallowed it along with its value, even during normal script execution.\nGuard -o stripping with compile/disassemble/emit-llvm mode flags so\nscripts that accept -o as their own option can see it.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-01T02:57:32+05:30",
+          "tree_id": "0502ffbda6eb53853a1d95b2742b6a554e913ef9",
+          "url": "https://github.com/kaappi/kaappi/commit/33c04050c252a875f19be4ba9eda4daeb9e7fe0c"
+        },
+        "date": 1782855481690,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.982589,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.621045,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.840716,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.319973,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.007228,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.032187,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.445759,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 1.271716,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.886788,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.708867,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.109454,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.239555,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 2.360516,
             "unit": "seconds"
           },
           {
