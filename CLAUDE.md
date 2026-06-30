@@ -424,6 +424,56 @@ independently and the child heap is freed after `thread-join!`.
 - `symbol_mutex` (spinlock) protects concurrent symbol interning (`src/memory.zig`)
 - Child GC/VM references stored in global `child_resources` map (`src/primitives_srfi18.zig`)
 
+## Claude Code harness
+
+The repo includes a Claude Code harness (hooks, permissions, path-scoped rules,
+and skills) that enforces conventions automatically during AI-assisted development.
+
+### Hooks (`.claude/settings.json`)
+
+| Hook | Event | What it does |
+|------|-------|-------------|
+| `zig-fmt-post.sh` | PostToolUse (Edit/Write) | Auto-formats `.zig` files after every edit. Silent on success. |
+| `bash-guard-pre.sh` | PreToolUse (Bash) | Blocks `rm -rf /`, `sudo`, `git push --force`, `git tag -d`, `git reset --hard`. |
+| `test-on-stop.sh` | Stop | Runs `zig build test` if any `.zig` files were modified. Blocks on failure. |
+
+Hook scripts live in `.claude/hooks/`. They supplement (not replace) the git
+pre-commit hook in `.githooks/pre-commit`.
+
+### Permissions (`.claude/settings.json`)
+
+- **allow**: `zig build/fmt/run`, `bash tests/scheme/*`, safe git ops, `find/grep/ls`
+- **ask**: `git push`, `podman`, `gh release/pr`
+- **deny**: `rm -rf /`, `sudo`, `git push --force`, `.env` reads, `.ssh` reads, `.git` writes
+
+### Path-scoped rules (`.claude/rules/`)
+
+| Rule | Globs | Loaded when |
+|------|-------|-------------|
+| `gc-safety.md` | `src/primitives_*.zig`, `src/memory.zig`, `src/vm*.zig` | Editing GC-sensitive code |
+| `compiler-forms.md` | `src/compiler*.zig`, `src/ir.zig`, `src/tests_ir.zig` | Editing compiler/IR code |
+
+These load automatically — no manual invocation needed. They contain the
+detailed checklists for GC write barriers, rooting, and compiler form additions.
+
+### Skills (`.claude/skills/`)
+
+| Skill | Purpose |
+|-------|---------|
+| `/add-builtin` | Step-by-step guide for adding a new built-in Scheme procedure |
+| `/audit-primitives` | Audit a primitives file for R7RS correctness — writes tests, runs them, fixes bugs |
+| `/bytecode-isa` | Reference for the bytecode instruction set |
+| `/github-release` | Full release workflow (version bump, changelog, tag, push, CI verification) |
+| `/r7rs-reader` | R7RS lexical syntax reference for reader changes |
+| `/linux-test` | Build and test on Linux via podman (aarch64, x86_64, riscv64) |
+
+### Ecosystem plugin (`kaappi-dev`)
+
+The `infra/` repo hosts a Claude Code plugin (`kaappi-dev`) with ecosystem-wide
+skills (`/kaappi-dev:test-ecosystem`, `/kaappi-dev:repo-status`, etc.), a bash
+guard hook, and an `ecosystem-reviewer` agent. It loads automatically via the
+workspace-level `.claude/settings.json` when working from the multi-repo workspace.
+
 ## Known limitations
 
 See the "Known limitations" section in `README.md` (single source of truth).

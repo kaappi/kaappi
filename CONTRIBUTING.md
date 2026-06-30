@@ -155,6 +155,14 @@ For new features, add both Zig unit tests and Scheme-level tests.
 To report a security vulnerability, see [SECURITY.md](SECURITY.md). Do not
 open a public issue for security reports.
 
+## Claude Code
+
+If you use [Claude Code](https://claude.com/claude-code) for development, this
+repo includes a harness with auto-formatting hooks, permission guardrails,
+path-scoped rules (GC safety, compiler forms), and skills (`/add-builtin`,
+`/audit-primitives`, `/github-release`, etc.). See the "Claude Code harness"
+section in [CLAUDE.md](CLAUDE.md) for details.
+
 ## Architecture documentation
 
 - [docs/dev/architecture.md](docs/dev/architecture.md) -- Pipeline, value
