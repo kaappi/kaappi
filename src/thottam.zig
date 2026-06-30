@@ -762,7 +762,7 @@ fn doInstall(
     if (install_version) |v| {
         if (isConstraintSpec(v)) {
             const clone_url = parsed.source orelse blk: {
-                break :blk std.fmt.allocPrint(allocator, "https://github.com/kaappi/{s}", .{pkg}) catch "";
+                break :blk std.fmt.allocPrint(allocator, "{s}/{s}", .{ config.org, pkg }) catch "";
             };
             if (resolveVersion(allocator, clone_url, v)) |resolved| {
                 writeStdout("  Resolved ");
