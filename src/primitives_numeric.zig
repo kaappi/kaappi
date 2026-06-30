@@ -918,13 +918,10 @@ fn applyExactness(gc: *@import("memory.zig").GC, val: Value, exactness: Exactnes
             if (types.isFlonum(val)) {
                 const f = types.toFlonum(val);
                 if (std.math.isNan(f) or std.math.isInf(f)) return types.FALSE;
-                const trunc = @trunc(f);
-                if (f == trunc) {
-                    const n: i64 = @intFromFloat(trunc);
-                    return arith.makeFixnumChecked(n);
+                const trunc_val = @trunc(f);
+                if (f == trunc_val) {
+                    return try safeFloatToExactInt(trunc_val);
                 }
-                // Non-integer exact: convert to rational
-                // Use a simple approach: multiply by power of 10 to get integers
                 var num = f;
                 var den: f64 = 1.0;
                 var i: u32 = 0;
@@ -932,6 +929,11 @@ fn applyExactness(gc: *@import("memory.zig").GC, val: Value, exactness: Exactnes
                     if (num == @trunc(num)) break;
                     num *= 10.0;
                     den *= 10.0;
+                }
+                const min_i64: f64 = @floatFromInt(std.math.minInt(i64));
+                const max_i64_f: f64 = @floatFromInt(std.math.maxInt(i64));
+                if (num < min_i64 or num > max_i64_f or den < min_i64 or den > max_i64_f) {
+                    return try safeFloatToExactInt(f);
                 }
                 const n: i64 = @intFromFloat(num);
                 const d: i64 = @intFromFloat(den);

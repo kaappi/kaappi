@@ -36,6 +36,12 @@
 ;; Rational with non-decimal radix
 (test "a/b base 16" 10/11 (string->number "a/b" 16))
 
+;; Regression for #604: #e with large floats must not abort
+(test "#e1e20" 100000000000000000000 (string->number "#e1e20"))
+(test "#e9.5e18" 9500000000000000000 (string->number "#e9.5e18"))
+(test "#e1e19" 10000000000000000000 (string->number "#e1e19"))
+(test "#e1e20 = exact" #t (= (string->number "#e1e20") (exact 1e20)))
+
 ;; Existing functionality preserved
 (test "42" 42 (string->number "42"))
 (test "3.14" 3.14 (string->number "3.14"))
