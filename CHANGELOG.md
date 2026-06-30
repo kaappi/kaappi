@@ -7,6 +7,189 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-06-30
+
+### Added
+- **Growable frame stack and register array:** frame stack starts at 480 and doubles on overflow up to 32,768; register file starts at 2,048 and grows to 65,536 — eliminates fixed-size stack overflow for deeply recursive programs
+- **R7RS 5.3.2 compliance:** internal `define` forms desugared to `letrec*` per spec, enabling correct scoping in procedure bodies
+- **Benchmark infrastructure:** 13 benchmarks covering continuations, tail calls, closures, bignum, GC pressure, plus trend visualization with regression detection and PR-level comparison workflow
+- **Shell completion:** `--completions` flag generates completions for bash, zsh, and fish
+- **Complex number math:** trig, inverse trig, `exp`, and `log` now accept complex arguments; `real-part`, `imag-part`, `magnitude`, `angle` handle bignum and rational inputs
+- **Radix support:** `number->string` supports radix for bignums and rationals
+- **R7RS radix/exactness prefixes:** `string->number` handles `#b`, `#o`, `#d`, `#x`, `#e`, `#i` prefix combinations
+- **`file-info:blocks`:** reads `st_blocks` from stat
+
+### Fixed
+
+#### GC safety
+- Root closure during upvalue capture to prevent collection
+- Fix `markObjectContents` missing types causing use-after-free
+- Clear old marks before full collection (corruption fix)
+- Fix object size calculation for continuations (undercounted by 8x), ports, FFI types, user/group info
+- Fix hash table marking using wrong sentinel in minor collection
+- Add missing write barriers in mutation primitives, `hash-table-merge!`, `%parameter-set!`, `set_upvalue`/`set_box_local` opcodes, `%record-set!`, promise forcing, fiber/channel/SRFI-18 mutations
+- Fix generational GC remembered set in `%record-set!`
+- Root values across allocations in `vector-map`, `vector-unfold`, `vector-cumulate`, `bignum expt`, `string-split`, `map`, `call-with-values`, `make-parameter`, `command-line`, `handleDefineValues`, reader dotted-pair path, variadic call setup
+- Fix unbounded `extra_roots` growth from compiler macro re-rooting
+- Fix `extra_roots` leak from bytecode deserialization
+- Fix `deepCopy` hash table using wrong hash function
+- Add `maybeCollect` call to `allocNativeClosure`
+- Add `errdefer` to alloc functions for auxiliary allocations
+- Unroot accessor/mutator functions in `vm_records`
+
+#### Compiler
+- Fix `case =>` proc clause clobbering live local registers
+- Guard `apply` tail-call optimization against local variable shadowing
+- Fix panic on calls with >255 arguments
+- Fix identity elimination dropping type checks and breaking signed-zero
+- Fix `zero?` constant folding to reject non-numeric arguments
+- Remove incorrect `(not (not X)) → X` optimization
+- Prevent `(* expr 0)` from dropping side effects
+- Fix buffer overflow in `syntax-rules` free-reference collection
+- Fix `let-syntax` with >16 bindings leaking macros into enclosing scope
+- Fix correctness bugs in `do`, `define`, `cond`/`case =>`, `delay`, and named-let
+- Splice top-level `begin` so `define-record-type` works inside it
+- Stop `define-record-type` from polluting user namespace
+- Fix `define-values` to reject arity mismatches
+
+#### FFI
+- Fix unsigned return types marshaled as signed
+- Fix `uint32` params panic for values > 2^31
+- Fix integer args crashing on out-of-range values
+- Fix `toIntArg` wrong sign and silent truncation for bignums
+- Fix bignum arguments extracting pointer bits instead of numeric value
+- Fix `bool_type` to accept Scheme booleans and return booleans
+- Fix callback slot leak on allocation failure
+- Fix pointer truncation for large addresses (promote to bignum)
+- Fix use-after-free when calling functions from invalidated library
+- Make `(pointer, long, long, pointer)->void` handler generic
+
+#### Arithmetic and numeric
+- Fix `inexact->exact` to return true IEEE-754 value for non-integer flonums
+- Fix `floor`/`ceiling`/`truncate`/`round` on exact rationals to use exact arithmetic
+- Fix `exact` returning flonum instead of bignum for large values
+- Fix `expt` with exact rational base returning inexact result
+- Handle bignum first argument in `sub` and `div` rational paths
+- Fix `gcd` crash on inexact args outside i64 range
+- Fix `negate` and `absVal` to check `minInt(i48)` not `minInt(i64)`
+- Fix bignum rational normalization and sign predicates
+- Allow inexact zero division to yield IEEE 754 infinity/NaN
+- Fix `memv` and `assv` to handle bignums, rationals, and complex numbers
+- Reject non-integer flonums in `even?` and `odd?`
+
+#### Reader and I/O
+- Fix token validation for codepoints, delimiters, and booleans
+- Fix `readConstant` accepting malformed numeric constants from `.sbc`
+- Fix `#e` on complex numbers and `#i` on bignums
+- Fix `string->number` to return `#f` for `#e+inf.0` and `#e+nan.0`
+- Skip character literals and pipe-quoted symbols in REPL paren depth
+- Raise read error on file port syntax errors instead of returning EOF
+- Propagate reader errors from `hasMore()` instead of swallowing them
+- Fix REPL completion out-of-bounds read and highlight allocator mismatch
+- Fix `peek-char` to restore exact consumed bytes, not re-encoded codepoint
+- Fix EINTR handling in all read/write syscall loops
+- Fix bytevector port primitives: `u8-ready?`, `read-bytevector`, `get-output-bytevector`
+
+#### LLVM native backend
+- Mark tail position in `let`/`let*` body expressions
+- Fix symbol escaping and LSP document text memory leak
+- Update `current_block` in `and`/`or`, handle symbol refs in `define`/`set!`
+- Fix `when`/`unless` emitting incorrect phi predecessor blocks
+- Fix arithmetic for non-fixnum operands and overflow
+
+#### VM and runtime
+- Handle `ContinuationInvoked` in `call_global` and `tail_call_global` fast paths
+- Fix `pending_lib_envs` unconditional pop causing use-after-free on deep nesting
+- Fix `callWithArgs` register bounds check and >255 args panic
+- Fix u16 overflow panic in call-family dispatch handlers
+- Add arity check for native functions in `tail_apply`
+- Add FFI function and parameter object support to `tail_apply`
+- Add missing `ArityMismatch` handling in `call-with-values` multi-value branch
+- Detect re-entrant promise forcing per SRFI-45
+
+#### Fibers and threading
+- Fix fiber error handling: proper limit error, error propagation, native proc rejection
+- Fix fiber scheduling starvation with round-robin dispatch
+- Reclaim completed fiber slots in scheduler
+- Fix four SRFI-18 threading bugs
+- Store `default-random-source` on VM instead of thread-local
+
+#### Strings and characters
+- Fix character write format and `string-every`/`string-any` char criterion
+- Handle `start`/`end` arguments in `string-pad` and `string-pad-right`
+- Escape control characters in write mode for strings and symbols
+- Accept char arguments as criterion in SRFI-13 string functions
+- Validate `write-string` start/end indices are non-negative
+- Fix char folding to use fold table and handle multi-char expansions
+- Reject `string-set!` at index 0 on empty string
+- Reject surrogate codepoints in `integer->char`
+
+#### Vectors
+- Fix `vector-count`, `vector-index-right`, and `vector-partition` SRFI-133 bugs
+- Process vector unquotes in quasiquote splicing context
+- Validate `vector-append-subvectors` indices are non-negative and in bounds
+
+#### R7RS library compliance
+- Fix `export (rename ...)` to use R7RS flat syntax
+- Add `exact-integer-sqrt` to `(scheme base)` exports
+- Remove `open-binary-input-file` and `open-binary-output-file` from `(scheme base)`
+- Remove non-R7RS exports from `(scheme write)`
+- Remove duplicate `string->symbol` entry from `(scheme base)`
+- Fix import modifiers to apply to exported macros
+- Replace fixed-size arrays with dynamic lists in import `except`/`rename`
+
+#### Package manager (thottam)
+- Fix semver resolution to use `KAAPPI_ORG`
+- Fix caret (`^`) semver constraint for major version 0
+- Validate package names and use cwd to prevent shell injection
+- Fix memory leaks in `runCapture`, `runPassthrough`, and `getPkgManifest`
+- Fix `readFile` to propagate read errors instead of returning partial data
+- Fix `doVerify` SHA parsing to exclude source URL from lockfile
+
+#### Filesystem
+- Fix error handling: descriptive errno, `getgroups` cap, `readlink` truncation
+- Validate `mode`/`uid`/`gid` range instead of panicking
+- Validate `user-info` and `group-info` reject negative integer arguments
+- Distinguish `char-special` and `block-special` in `file-info-type`
+
+#### Bytecode serialization
+- Fix cached bytecode path to handle bundled files and preamble
+- Fix f64 read/write to use little-endian byte order
+- Add fixnum range validation during deserialization
+- Fix memory leaks in deserialization error paths
+
+#### LSP
+- Support string request IDs
+- Fix three JSON handling bugs
+- Fix document text memory leak
+- Fix `safeValueDescription` `native_closure` tag
+
+#### Debugger
+- Fix break line number and up/down navigation
+- Free breakpoint name/condition strings on delete, cap overflow, and VM teardown
+- Add bounds check on register access
+- Fix `allocator.free()` called on string literal in watches
+- Fix dangling pointer in watch command
+
+#### Expander
+- Fix flonum datum patterns and ellipsis escape hygiene
+- Fix infinite loop when `cond-expand` clause has empty body
+
+#### SRFI-27
+- Fix `make-random-source` seeding and unit validation
+- Fix lossless state roundtrip, negative arg guard, zero-state rejection
+
+#### Other
+- Fix record field spec validation and REPL datum comment handling
+- Fix crashes in record primitives, `read-bytevector!`, and `hash-table-merge!`
+- Fix printer freeing string literal on bignum `toString` failure
+- Escape JSON string values in profile output
+- Use PID-unique temp path for native compilation LLVM IR
+
+### Changed
+- Split four files that exceeded the 1500-line policy
+- Use descriptive `typeError` calls instead of bare `PrimitiveError.TypeError`
+
 ## [0.8.0] - 2026-06-28
 
 ### Added
