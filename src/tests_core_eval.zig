@@ -95,6 +95,13 @@ test "eval quote" {
     const result = try vm.eval("'(1 2 3)");
     try std.testing.expect(types.isPair(result));
     try std.testing.expectEqual(@as(i64, 1), types.toFixnum(types.car(result)));
+    const tail1 = types.cdr(result);
+    try std.testing.expect(types.isPair(tail1));
+    try std.testing.expectEqual(@as(i64, 2), types.toFixnum(types.car(tail1)));
+    const tail2 = types.cdr(tail1);
+    try std.testing.expect(types.isPair(tail2));
+    try std.testing.expectEqual(@as(i64, 3), types.toFixnum(types.car(tail2)));
+    try std.testing.expectEqual(types.NIL, types.cdr(tail2));
 }
 
 test "eval set!" {
@@ -117,8 +124,7 @@ test "eval begin" {
 
     _ = try vm.eval("(define a 0)");
     _ = try vm.eval("(define b 0)");
-    _ = try vm.eval("(begin (set! a 1) (set! b 2))");
-    const result = try vm.eval("(+ a b)");
+    const result = try vm.eval("(begin (set! a 1) (set! b 2) (+ a b))");
     try std.testing.expectEqual(@as(i64, 3), types.toFixnum(result));
 }
 
