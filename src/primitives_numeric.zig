@@ -145,13 +145,65 @@ pub fn registerNumeric(vm: *vm_mod.VM) !void {
 // Rounding
 // ---------------------------------------------------------------------------
 
+fn rationalFloor(r: *types.Rational) PrimitiveError!Value {
+    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const q = bignum_mod.quotient(gc, r.numerator, r.denominator) catch return PrimitiveError.OutOfMemory;
+    const rem = bignum_mod.remainder(gc, r.numerator, r.denominator) catch return PrimitiveError.OutOfMemory;
+    if (bignum_mod.isZero(rem)) return bignum_mod.demote(q);
+    if (bignum_mod.isNegative(r.numerator)) {
+        return bignum_mod.demote(bignum_mod.sub(gc, q, types.makeFixnum(1)) catch return PrimitiveError.OutOfMemory);
+    }
+    return bignum_mod.demote(q);
+}
+
+fn rationalCeiling(r: *types.Rational) PrimitiveError!Value {
+    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const q = bignum_mod.quotient(gc, r.numerator, r.denominator) catch return PrimitiveError.OutOfMemory;
+    const rem = bignum_mod.remainder(gc, r.numerator, r.denominator) catch return PrimitiveError.OutOfMemory;
+    if (bignum_mod.isZero(rem)) return bignum_mod.demote(q);
+    if (bignum_mod.isPositive(r.numerator) or bignum_mod.isZero(r.numerator)) {
+        return bignum_mod.demote(bignum_mod.add(gc, q, types.makeFixnum(1)) catch return PrimitiveError.OutOfMemory);
+    }
+    return bignum_mod.demote(q);
+}
+
+fn rationalTruncate(r: *types.Rational) PrimitiveError!Value {
+    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    return bignum_mod.demote(bignum_mod.quotient(gc, r.numerator, r.denominator) catch return PrimitiveError.OutOfMemory);
+}
+
+fn rationalRound(r: *types.Rational) PrimitiveError!Value {
+    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const q = bignum_mod.quotient(gc, r.numerator, r.denominator) catch return PrimitiveError.OutOfMemory;
+    const rem = bignum_mod.remainder(gc, r.numerator, r.denominator) catch return PrimitiveError.OutOfMemory;
+    if (bignum_mod.isZero(rem)) return bignum_mod.demote(q);
+    const abs_rem = bignum_mod.absVal(gc, rem) catch return PrimitiveError.OutOfMemory;
+    const double_rem = bignum_mod.mul(gc, abs_rem, types.makeFixnum(2)) catch return PrimitiveError.OutOfMemory;
+    const cmp = bignum_mod.compare(double_rem, r.denominator);
+    if (cmp < 0) {
+        return bignum_mod.demote(if (bignum_mod.isNegative(rem))
+            bignum_mod.sub(gc, q, types.makeFixnum(1)) catch return PrimitiveError.OutOfMemory
+        else
+            q);
+    }
+    if (cmp > 0) {
+        return bignum_mod.demote(if (bignum_mod.isNegative(rem))
+            bignum_mod.sub(gc, q, types.makeFixnum(1)) catch return PrimitiveError.OutOfMemory
+        else
+            bignum_mod.add(gc, q, types.makeFixnum(1)) catch return PrimitiveError.OutOfMemory);
+    }
+    // Exact half — ties to even
+    if (bignum_mod.isEven(q)) return bignum_mod.demote(q);
+    return bignum_mod.demote(if (bignum_mod.isNegative(rem))
+        bignum_mod.sub(gc, q, types.makeFixnum(1)) catch return PrimitiveError.OutOfMemory
+    else
+        bignum_mod.add(gc, q, types.makeFixnum(1)) catch return PrimitiveError.OutOfMemory);
+}
+
 fn floorFn(args: []const Value) PrimitiveError!Value {
     if (types.isFixnum(args[0])) return args[0];
     if (types.isBignum(args[0])) return args[0];
-    if (types.isRationalObj(args[0])) {
-        const f = try toF64Ext(args[0]);
-        return try safeFloatToExactInt(@floor(f));
-    }
+    if (types.isRationalObj(args[0])) return rationalFloor(types.toRational(args[0]));
     if (types.isFlonum(args[0])) return makeFlonumVal(@floor(types.toFlonum(args[0])));
     return primitives.typeError("floor", "number", args[0]);
 }
@@ -159,10 +211,7 @@ fn floorFn(args: []const Value) PrimitiveError!Value {
 fn ceilingFn(args: []const Value) PrimitiveError!Value {
     if (types.isFixnum(args[0])) return args[0];
     if (types.isBignum(args[0])) return args[0];
-    if (types.isRationalObj(args[0])) {
-        const f = try toF64Ext(args[0]);
-        return try safeFloatToExactInt(@ceil(f));
-    }
+    if (types.isRationalObj(args[0])) return rationalCeiling(types.toRational(args[0]));
     if (types.isFlonum(args[0])) return makeFlonumVal(@ceil(types.toFlonum(args[0])));
     return primitives.typeError("ceiling", "number", args[0]);
 }
@@ -170,10 +219,7 @@ fn ceilingFn(args: []const Value) PrimitiveError!Value {
 fn truncateFn(args: []const Value) PrimitiveError!Value {
     if (types.isFixnum(args[0])) return args[0];
     if (types.isBignum(args[0])) return args[0];
-    if (types.isRationalObj(args[0])) {
-        const f = try toF64Ext(args[0]);
-        return try safeFloatToExactInt(@trunc(f));
-    }
+    if (types.isRationalObj(args[0])) return rationalTruncate(types.toRational(args[0]));
     if (types.isFlonum(args[0])) return makeFlonumVal(@trunc(types.toFlonum(args[0])));
     return primitives.typeError("truncate", "number", args[0]);
 }
@@ -196,10 +242,7 @@ fn bankersRound(f: f64) f64 {
 fn roundFn(args: []const Value) PrimitiveError!Value {
     if (types.isFixnum(args[0])) return args[0];
     if (types.isBignum(args[0])) return args[0];
-    if (types.isRationalObj(args[0])) {
-        const f = try toF64Ext(args[0]);
-        return try safeFloatToExactInt(bankersRound(f));
-    }
+    if (types.isRationalObj(args[0])) return rationalRound(types.toRational(args[0]));
     if (types.isFlonum(args[0])) return makeFlonumVal(bankersRound(types.toFlonum(args[0])));
     return primitives.typeError("round", "number", args[0]);
 }
