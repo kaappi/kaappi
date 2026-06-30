@@ -417,9 +417,16 @@ fn printValueWithDepth(writer: anytype, value: Value, mode: PrintMode, depth: u3
                 0x20 => try writer.writeAll("space"),
                 0x7F => try writer.writeAll("delete"),
                 else => {
-                    var buf: [4]u8 = undefined;
-                    const len = std.unicode.utf8Encode(cp, &buf) catch 0;
-                    try writer.writeAll(buf[0..len]);
+                    if (cp < 0x20 or (cp >= 0x7F and cp <= 0x9F)) {
+                        var hex_buf: [8]u8 = undefined;
+                        var hw: std.Io.Writer = .fixed(&hex_buf);
+                        hw.print("x{x};", .{cp}) catch {};
+                        try writer.writeAll(hw.buffered());
+                    } else {
+                        var buf: [4]u8 = undefined;
+                        const len = std.unicode.utf8Encode(cp, &buf) catch 0;
+                        try writer.writeAll(buf[0..len]);
+                    }
                 },
             }
         } else {
