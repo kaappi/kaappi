@@ -249,28 +249,19 @@ pub fn compileCase(self: *Compiler, args: Value, dst: u16, is_tail: bool) Compil
                 if (arrow_rest == types.NIL or !types.isPair(arrow_rest)) return CompileError.InvalidSyntax;
                 const proc_expr = types.car(arrow_rest);
                 const proc_reg = try self.allocReg();
-                // Move key value to arg position
                 const arg_reg = try self.allocReg();
                 try self.emitOp(.move);
                 try self.emitU16(arg_reg);
                 try self.emitU16(key_reg);
-                // Compile proc
                 try self.compileExpr(proc_expr, proc_reg, false);
-                // Move proc to dst (for call base)
-                try self.emitOp(.move);
-                try self.emitU16(dst);
+                if (is_tail) try self.emitOp(.tail_call) else try self.emitOp(.call);
                 try self.emitU16(proc_reg);
-                // Move arg after dst
-                try self.emitOp(.move);
-                try self.emitU16(dst + 1);
-                try self.emitU16(arg_reg);
-                if (is_tail) {
-                    try self.emitOp(.tail_call);
-                } else {
-                    try self.emitOp(.call);
-                }
-                try self.emitU16(dst);
                 try self.emit(1);
+                if (!is_tail) {
+                    try self.emitOp(.move);
+                    try self.emitU16(dst);
+                    try self.emitU16(proc_reg);
+                }
                 self.freeReg(); // arg_reg
                 self.freeReg(); // proc_reg
 
