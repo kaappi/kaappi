@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1782842037625,
+  "lastUpdate": 1782842275877,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
@@ -187,6 +187,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "gc-pressure",
             "value": 2.396056,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 0,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "distinct": true,
+          "id": "3b2b51372d2c049c8f6ad839dd6fb9560c719534",
+          "message": "Update benchmark dev docs with full suite and CI integration\n\nRewrite the benchmarks section in docs/dev/testing.md to cover:\n- All 13 Scheme benchmarks with subsystem and purpose\n- run-benchmarks.sh usage (table and JSON modes)\n- compare-benchmarks.sh for local comparison\n- CI integration (push-to-main trend tracking, PR comparison)\n- Trend dashboard URL and how to read the charts\n- Guide for interpreting results (noise, step changes)\n- How to add a new benchmark\n\nAlso update CI table to include benchmark-pr workflow.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-06-30T23:17:13+05:30",
+          "tree_id": "37ff5acf7c9c3fe7d7c7d9eb4212525cfb807875",
+          "url": "https://github.com/kaappi/kaappi/commit/3b2b51372d2c049c8f6ad839dd6fb9560c719534"
+        },
+        "date": 1782842275451,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.940598,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.868951,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.826699,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.108899,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.007276,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.03188,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.445979,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 1.265317,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.832364,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.711074,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.101515,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.235368,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 2.364011,
             "unit": "seconds"
           },
           {
