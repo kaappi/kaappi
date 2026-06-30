@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1782842275877,
+  "lastUpdate": 1782843207792,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
@@ -286,6 +286,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "gc-pressure",
             "value": 2.364011,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 0,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "distinct": true,
+          "id": "963547cf2dcb3cf78ad5e7052878bdd2a4e6c729",
+          "message": "Add benchmark dashboard link to README and fix URL in dev docs\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-06-30T23:32:10+05:30",
+          "tree_id": "b2f63cfbcc856b8e088c0265c056c1039eb2b9bd",
+          "url": "https://github.com/kaappi/kaappi/commit/963547cf2dcb3cf78ad5e7052878bdd2a4e6c729"
+        },
+        "date": 1782843206991,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.051828,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.077453,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.644783,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 3.974102,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.005621,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.025354,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.347045,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.982734,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.308706,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.342052,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 0.858158,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.190826,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.832203,
             "unit": "seconds"
           },
           {
