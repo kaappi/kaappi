@@ -137,3 +137,21 @@ test "eval nested arithmetic" {
     const result = try vm.eval("(+ (* 2 3) (- 10 4))");
     try std.testing.expectEqual(@as(i64, 12), types.toFixnum(result));
 }
+
+test "breakpoint strings freed on deinit" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+
+    // Simulate ,break: allocate duped name strings and store as breakpoints
+    const name1 = try std.testing.allocator.dupe(u8, "foo");
+    const name2 = try std.testing.allocator.dupe(u8, "bar");
+    const cond = try std.testing.allocator.dupe(u8, "(> x 0)");
+    vm.breakpoints[0] = .{ .name = name1, .condition = cond };
+    vm.breakpoints[1] = .{ .name = name2 };
+    vm.breakpoint_count = 2;
+
+    // deinit must free the duped strings — std.testing.allocator will
+    // report a leak (test failure) if any are missed
+    vm.deinit();
+}
