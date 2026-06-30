@@ -425,7 +425,7 @@ fn readConstant(r: *Reader, gc: *GC, all_funcs: []*Function, depth: u32) !Value 
         TAG_BIGNUM => {
             const positive = (try r.readU8()) != 0;
             const len = try r.readU32();
-            if (len > MAX_BIGNUM_LIMBS) return BytecodeError.CorruptedFile;
+            if (len == 0 or len > MAX_BIGNUM_LIMBS) return BytecodeError.CorruptedFile;
             const allocator = gc.allocator;
             const limbs = allocator.alloc(u64, len) catch return BytecodeError.OutOfMemory;
             defer allocator.free(limbs);
@@ -436,10 +436,14 @@ fn readConstant(r: *Reader, gc: *GC, all_funcs: []*Function, depth: u32) !Value 
         },
         TAG_RATIONAL => {
             const num = try readConstant(r, gc, all_funcs, depth + 1);
+            if (!types.isFixnum(num) and !types.isBignum(num)) return BytecodeError.CorruptedFile;
             var num_root = num;
             try gc.pushRoot(&num_root);
             defer gc.popRoot();
             const den = try readConstant(r, gc, all_funcs, depth + 1);
+            if (!types.isFixnum(den) and !types.isBignum(den)) return BytecodeError.CorruptedFile;
+            if (types.isFixnum(den) and types.toFixnum(den) == 0) return BytecodeError.CorruptedFile;
+            if (types.isBignum(den) and types.toBignum(den).len == 0) return BytecodeError.CorruptedFile;
             return gc.allocRational(num_root, den) catch return BytecodeError.OutOfMemory;
         },
         TAG_COMPLEX => {
