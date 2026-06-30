@@ -489,6 +489,9 @@ fn readSymlinkFn(args: []const Value) PrimitiveError!Value {
     if (r < 0) {
         return raiseFileError(gc, "cannot read symlink", args[0]);
     }
+    if (@as(usize, @intCast(r)) == buf.len) {
+        return raiseFileError(gc, "symlink target too long", args[0]);
+    }
     return gc.allocString(buf[0..@intCast(r)]) catch return PrimitiveError.OutOfMemory;
 }
 
@@ -705,9 +708,12 @@ fn userSupplementaryGidsFn(args: []const Value) PrimitiveError!Value {
     _ = args;
     const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
 
-    var gids: [64]std.c.gid_t = undefined;
-    const n = getgroups(64, &gids);
-    if (n < 0) return PrimitiveError.TypeError;
+    const count = getgroups(0, undefined);
+    if (count < 0) return raiseFileError(gc, "cannot query supplementary groups", types.NIL);
+    const gids = gc.allocator.alloc(std.c.gid_t, @intCast(count)) catch return PrimitiveError.OutOfMemory;
+    defer gc.allocator.free(gids);
+    const n = getgroups(count, gids.ptr);
+    if (n < 0) return raiseFileError(gc, "cannot query supplementary groups", types.NIL);
 
     var result: Value = types.NIL;
     gc.pushRoot(&result) catch return PrimitiveError.OutOfMemory;
@@ -723,11 +729,18 @@ fn userSupplementaryGidsFn(args: []const Value) PrimitiveError!Value {
 }
 
 fn niceFn(args: []const Value) PrimitiveError!Value {
+    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
     const delta: c_int = if (args.len > 0 and types.isFixnum(args[0]))
         @intCast(types.toFixnum(args[0]))
     else
         1;
+    const e = std.c._errno();
+    e.* = 0;
     const result = nice(delta);
+    if (result == -1 and e.* != 0) {
+        const irritant = if (args.len > 0) args[0] else types.makeFixnum(1);
+        return raiseFileError(gc, "cannot change nice value", irritant);
+    }
     return types.makeFixnum(@as(i64, @intCast(result)));
 }
 
