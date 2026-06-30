@@ -505,8 +505,9 @@ fn mainImpl(init: std.process.Init.Minimal) !void {
     if (file_path) |fp| {
         script_args[0] = fp;
         script_arg_count = 1;
+        const consumes_output = compile_mode or native_compile_mode or disassemble_mode or emit_llvm_mode;
         while (args.next()) |extra| {
-            if (std.mem.eql(u8, extra, "-o")) {
+            if (consumes_output and std.mem.eql(u8, extra, "-o")) {
                 if (compile_output == null) compile_output = args.next();
                 continue;
             }
