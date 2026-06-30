@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1782862240243,
+  "lastUpdate": 1782863962088,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
@@ -1672,6 +1672,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "gc-pressure",
             "value": 2.412035,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 0,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "015f79b5c2f8056385b9fd8d11749f3c07cb89b3",
+          "message": "Fix toRationalParts calling toFixnum on bignum fields (#627)\n\n* Fix toRationalParts calling toFixnum on bignum fields (#611)\n\ntoRationalParts called types.toFixnum on rational numerator/denominator\nwithout checking if they were bignums. Bignums truncated to garbage i64\nvalues, causing wrong results from arithmetic and comparison on rationals\nlike (exact 0.1) whose fields exceed i48 range.\n\nReturn null from toRationalParts when fields are bignums, and fall back\nto float arithmetic at all 8 call sites (matching the existing bignum\nfallback pattern).\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Add bare-ok markers for bignum fallback error returns\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-01T05:18:38+05:30",
+          "tree_id": "24c509ce9dd63b0de2f99a771fc02a254d94e1dd",
+          "url": "https://github.com/kaappi/kaappi/commit/015f79b5c2f8056385b9fd8d11749f3c07cb89b3"
+        },
+        "date": 1782863961801,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.322651,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.695586,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.80549,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.122708,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.007254,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.032362,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.453226,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 1.145806,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.974887,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.773316,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.08429,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.218928,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 2.392797,
             "unit": "seconds"
           },
           {
