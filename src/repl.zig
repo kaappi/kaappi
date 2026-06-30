@@ -417,13 +417,16 @@ pub fn repl(vm: *vm_mod.VM) !void {
         // Debug commands (comma-prefixed)
         if (std.mem.startsWith(u8, debug_trimmed, ",break ")) {
             const bp_name_src = std.mem.trim(u8, debug_trimmed[7..], " ");
-            const bp_name = allocator.dupe(u8, bp_name_src) catch continue;
-            if (vm.breakpoint_count < 16) {
-                vm.breakpoints[vm.breakpoint_count] = .{ .name = bp_name };
-                vm.breakpoint_count += 1;
-                vm.debug_mode = true;
-                vm.step_mode = .continue_to_break;
+            if (vm.breakpoint_count >= 16) {
+                writeStdout("Too many breakpoints (max 16)\n");
+                input_buf.clearRetainingCapacity();
+                continue;
             }
+            const bp_name = allocator.dupe(u8, bp_name_src) catch continue;
+            vm.breakpoints[vm.breakpoint_count] = .{ .name = bp_name };
+            vm.breakpoint_count += 1;
+            vm.debug_mode = true;
+            vm.step_mode = .continue_to_break;
             writeStdout("Breakpoint set on ");
             writeStdout(bp_name);
             writeStdout("\n");
@@ -472,6 +475,10 @@ pub fn repl(vm: *vm_mod.VM) !void {
             continue;
         }
         if (std.mem.eql(u8, debug_trimmed, ",delete all")) {
+            for (vm.breakpoints[0..vm.breakpoint_count]) |bp| {
+                allocator.free(bp.name);
+                if (bp.condition) |cond| allocator.free(cond);
+            }
             vm.breakpoint_count = 0;
             vm.debug_mode = false;
             vm.step_mode = .none;

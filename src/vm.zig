@@ -296,6 +296,11 @@ pub const VM = struct {
         self.loading_libs.deinit();
         self.param_overrides.deinit();
         vm_debug.freeWatches(self);
+        for (self.breakpoints[0..self.breakpoint_count]) |bp| {
+            self.gc.allocator.free(bp.name);
+            if (bp.condition) |cond| self.gc.allocator.free(cond);
+        }
+        self.breakpoint_count = 0;
     }
 
     pub fn getParameterValue(self: *VM, param: *types.ParameterObject) Value {
