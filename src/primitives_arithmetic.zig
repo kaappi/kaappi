@@ -62,10 +62,12 @@ fn anyRational(args: []const Value) bool {
 const RatParts = struct { num: i64, den: i64 };
 
 /// Extract numerator/denominator from any exact number.
-fn toRationalParts(v: Value) RatParts {
+/// Returns null when a rational has bignum fields that cannot fit in i64.
+fn toRationalParts(v: Value) ?RatParts {
     if (types.isFixnum(v)) return .{ .num = types.toFixnum(v), .den = 1 };
     if (types.isRationalObj(v)) {
         const r = types.toRational(v);
+        if (!types.isFixnum(r.numerator) or !types.isFixnum(r.denominator)) return null;
         return .{ .num = types.toFixnum(r.numerator), .den = types.toFixnum(r.denominator) };
     }
     return .{ .num = 0, .den = 1 };
@@ -315,7 +317,11 @@ fn add(args: []const Value) PrimitiveError!Value {
                 f += bignum_mod.toF64(a);
                 return makeFlonumVal(f);
             }
-            const parts = toRationalParts(a);
+            const parts = toRationalParts(a) orelse {
+                var f: f64 = @as(f64, @floatFromInt(n)) / @as(f64, @floatFromInt(d));
+                f += try toF64(a);
+                return makeFlonumVal(f);
+            };
             // n/d + parts.num/parts.den = (n*parts.den + parts.num*d) / (d*parts.den)
             const r1 = @mulWithOverflow(n, parts.den);
             const r2 = @mulWithOverflow(parts.num, d);
@@ -394,7 +400,14 @@ fn sub(args: []const Value) PrimitiveError!Value {
             }
             return makeFlonumVal(f);
         }
-        const first_parts = toRationalParts(args[0]);
+        const first_parts = toRationalParts(args[0]) orelse {
+            var f: f64 = toF64(args[0]) catch return PrimitiveError.TypeError;
+            if (args.len == 1) return makeFlonumVal(-f);
+            for (args[1..]) |a2| {
+                f -= toF64(a2) catch return PrimitiveError.TypeError;
+            }
+            return makeFlonumVal(f);
+        };
         var n = first_parts.num;
         var d = first_parts.den;
         if (args.len == 1) {
@@ -413,7 +426,11 @@ fn sub(args: []const Value) PrimitiveError!Value {
                 f -= bignum_mod.toF64(a);
                 return makeFlonumVal(f);
             }
-            const parts = toRationalParts(a);
+            const parts = toRationalParts(a) orelse {
+                var f: f64 = @as(f64, @floatFromInt(n)) / @as(f64, @floatFromInt(d));
+                f -= toF64(a) catch return PrimitiveError.TypeError;
+                return makeFlonumVal(f);
+            };
             // n/d - parts.num/parts.den = (n*parts.den - parts.num*d) / (d*parts.den)
             const r1 = @mulWithOverflow(n, parts.den);
             const r2 = @mulWithOverflow(parts.num, d);
@@ -503,7 +520,11 @@ fn mul(args: []const Value) PrimitiveError!Value {
                 f *= bignum_mod.toF64(a);
                 return makeFlonumVal(f);
             }
-            const parts = toRationalParts(a);
+            const parts = toRationalParts(a) orelse {
+                var f: f64 = @as(f64, @floatFromInt(n)) / @as(f64, @floatFromInt(d));
+                f *= toF64(a) catch return PrimitiveError.TypeError;
+                return makeFlonumVal(f);
+            };
             // n/d * parts.num/parts.den = (n*parts.num) / (d*parts.den)
             const r1 = @mulWithOverflow(n, parts.num);
             const r2 = @mulWithOverflow(d, parts.den);
@@ -596,7 +617,15 @@ fn divFn(args: []const Value) PrimitiveError!Value {
             }
             return makeFlonumVal(f);
         }
-        const first_parts = toRationalParts(args[0]);
+        const first_parts = toRationalParts(args[0]) orelse {
+            var f: f64 = toF64(args[0]) catch return PrimitiveError.TypeError;
+            for (args[1..]) |a2| {
+                const dv = toF64(a2) catch return PrimitiveError.TypeError;
+                if (dv == 0.0) return raiseDivByZero();
+                f /= dv;
+            }
+            return makeFlonumVal(f);
+        };
         var n = first_parts.num;
         var d = first_parts.den;
         for (args[1..]) |a| {
@@ -605,7 +634,13 @@ fn divFn(args: []const Value) PrimitiveError!Value {
                 f /= bignum_mod.toF64(a);
                 return makeFlonumVal(f);
             }
-            const parts = toRationalParts(a);
+            const parts = toRationalParts(a) orelse {
+                var f: f64 = @as(f64, @floatFromInt(n)) / @as(f64, @floatFromInt(d));
+                const dv = toF64(a) catch return PrimitiveError.TypeError;
+                if (dv == 0.0) return raiseDivByZero();
+                f /= dv;
+                return makeFlonumVal(f);
+            };
             if (parts.num == 0) return raiseDivByZero();
             // (n/d) / (parts.num/parts.den) = (n*parts.den) / (d*parts.num)
             const r1 = @mulWithOverflow(n, parts.den);
@@ -760,16 +795,16 @@ fn cmpPair(a: Value, b: Value) PrimitiveError!i8 {
         if (types.isRationalObj(a) or types.isRationalObj(b)) {
             const pa = toRationalParts(a);
             const pb = toRationalParts(b);
-            // Compare a_num/a_den vs b_num/b_den
-            // a_num * b_den vs b_num * a_den (both denominators positive)
-            const r1 = @mulWithOverflow(pa.num, pb.den);
-            const r2 = @mulWithOverflow(pb.num, pa.den);
-            if (r1[1] == 0 and r2[1] == 0) {
-                if (r1[0] < r2[0]) return -1;
-                if (r1[0] > r2[0]) return 1;
-                return 0;
+            if (pa != null and pb != null) {
+                const r1 = @mulWithOverflow(pa.?.num, pb.?.den);
+                const r2 = @mulWithOverflow(pb.?.num, pa.?.den);
+                if (r1[1] == 0 and r2[1] == 0) {
+                    if (r1[0] < r2[0]) return -1;
+                    if (r1[0] > r2[0]) return 1;
+                    return 0;
+                }
             }
-            // Overflow: fall back to float
+            // Overflow or bignum fields: fall back to float
         }
     }
     // Exact bignum vs inexact flonum: check if bignum is exactly representable
