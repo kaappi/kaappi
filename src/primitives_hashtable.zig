@@ -51,7 +51,7 @@ fn getHashTable(proc: []const u8, v: Value) PrimitiveError!*HashTable {
 const EMPTY: Value = types.VOID;
 const TOMBSTONE: Value = types.EOF;
 
-fn valueHash(key: Value) usize {
+pub fn valueHash(key: Value) usize {
     if (types.isFixnum(key)) {
         return @truncate(@as(u64, @bitCast(types.toFixnum(key))) *% 2654435761);
     }

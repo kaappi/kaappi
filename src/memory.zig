@@ -1,5 +1,6 @@
 const std = @import("std");
 const types = @import("types.zig");
+const hashtable = @import("primitives_hashtable.zig");
 const Value = types.Value;
 const Object = types.Object;
 const ObjectTag = types.ObjectTag;
@@ -1167,8 +1168,7 @@ pub const GC = struct {
                     if (entry.key != types.VOID and entry.key != types.EOF) {
                         const nk = try self.deepCopyValue(entry.key, visited);
                         const nv = try self.deepCopyValue(entry.value, visited);
-                        const hash = std.hash.Wyhash.hash(0, std.mem.asBytes(&nk));
-                        var idx = hash & (new_ht.capacity - 1);
+                        var idx = hashtable.valueHash(nk) & (new_ht.capacity - 1);
                         while (new_ht.entries[idx].key != types.VOID) {
                             idx = (idx + 1) & (new_ht.capacity - 1);
                         }
