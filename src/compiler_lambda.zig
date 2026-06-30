@@ -150,24 +150,121 @@ pub fn compileBody(self: *Compiler, body: Value) CompileError!void {
         }
     }
 
+    // Collect leading internal defines and desugar to letrec* (R7RS 5.3.2).
+    // Internal definitions must be equivalent to letrec* — all defined names
+    // are visible to their own initializers (self-recursion) and to each
+    // other (mutual recursion).
+    const MAX_BODY_DEFS = 256;
+    var def_names: [MAX_BODY_DEFS][]const u8 = undefined;
+    var def_inits: [MAX_BODY_DEFS]Value = undefined;
+    var def_slots: [MAX_BODY_DEFS]u16 = undefined;
+    var def_count: usize = 0;
+
     var current = body;
+    // Scan leading defines
+    while (current != types.NIL and types.isPair(current)) {
+        const expr = types.car(current);
+        if (!types.isPair(expr)) break;
+        const head = types.car(expr);
+        if (!types.isSymbol(head)) break;
+        const head_name = types.symbolName(head);
+        if (!std.mem.eql(u8, head_name, "define")) break;
+
+        const def_args = types.cdr(expr);
+        if (def_args == types.NIL or !types.isPair(def_args)) break;
+        const target = types.car(def_args);
+        const def_rest = types.cdr(def_args);
+
+        if (types.isSymbol(target)) {
+            // (define x expr)
+            if (def_rest == types.NIL or !types.isPair(def_rest)) break;
+            if (def_count >= MAX_BODY_DEFS) return CompileError.TooManyLocals;
+            def_names[def_count] = types.symbolName(target);
+            def_inits[def_count] = types.car(def_rest);
+            def_count += 1;
+        } else if (types.isPair(target)) {
+            // (define (name args...) body) => lambda
+            const fn_name = types.car(target);
+            if (!types.isSymbol(fn_name)) break;
+            if (def_count >= MAX_BODY_DEFS) return CompileError.TooManyLocals;
+            def_names[def_count] = types.symbolName(fn_name);
+            // Build (lambda (args...) body...) as init expression
+            const param_formals = types.cdr(target);
+            const lambda_sym = self.gc.allocSymbol("lambda") catch return CompileError.OutOfMemory;
+            const lambda_args = self.gc.allocPair(param_formals, def_rest) catch return CompileError.OutOfMemory;
+            def_inits[def_count] = self.gc.allocPair(lambda_sym, lambda_args) catch return CompileError.OutOfMemory;
+            def_count += 1;
+        } else {
+            break;
+        }
+        current = types.cdr(current);
+    }
+    // `current` now points to the remaining non-define body expressions.
+
     var last_dst: u16 = 0;
 
-    while (current != types.NIL) {
-        if (!types.isPair(current)) return CompileError.InvalidSyntax;
-        const expr = types.car(current);
-        const rest = types.cdr(current);
+    if (def_count > 0) {
+        // Compile as letrec*: pre-allocate all slots, then evaluate inits.
+        self.beginScope();
 
-        last_dst = try self.allocReg();
+        // Phase 1: allocate locals initialized to void, box for closure capture
+        for (0..def_count) |i| {
+            const slot = try self.allocReg();
+            def_slots[i] = slot;
+            try self.emitOp(.load_void);
+            try self.emitU16(slot);
+            try self.addLocal(def_names[i], slot);
+            try self.markLocalBoxedBySlot(slot);
+        }
 
-        if (rest == types.NIL) {
-            try self.compileExpr(expr, last_dst, true);
-        } else {
-            try self.compileExpr(expr, last_dst, false);
+        // Phase 2: evaluate initializers (all names are now visible)
+        for (0..def_count) |i| {
+            last_dst = try self.allocReg();
+            try self.compileExpr(def_inits[i], last_dst, false);
+            try self.emitOp(.set_box_local);
+            try self.emitU16(def_slots[i]);
+            try self.emitU16(last_dst);
             self.freeReg();
         }
 
-        current = rest;
+        // Phase 3: compile remaining body expressions
+        if (current == types.NIL) {
+            // Body was all defines — return void
+            last_dst = try self.allocReg();
+            try self.emitOp(.load_void);
+            try self.emitU16(last_dst);
+        } else {
+            while (current != types.NIL) {
+                if (!types.isPair(current)) return CompileError.InvalidSyntax;
+                const expr = types.car(current);
+                const rest = types.cdr(current);
+                last_dst = try self.allocReg();
+                if (rest == types.NIL) {
+                    try self.compileExpr(expr, last_dst, true);
+                } else {
+                    try self.compileExpr(expr, last_dst, false);
+                    self.freeReg();
+                }
+                current = rest;
+            }
+        }
+
+        self.endScope();
+    } else {
+        // No internal defines — compile body expressions directly
+        while (current != types.NIL) {
+            if (!types.isPair(current)) return CompileError.InvalidSyntax;
+            const expr = types.car(current);
+            const rest = types.cdr(current);
+            last_dst = try self.allocReg();
+            if (rest == types.NIL) {
+                try self.compileExpr(expr, last_dst, true);
+            } else {
+                try self.compileExpr(expr, last_dst, false);
+                self.freeReg();
+            }
+            current = rest;
+        }
     }
 
     self.in_body_scope = saved_body_scope;

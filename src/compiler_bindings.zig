@@ -498,13 +498,81 @@ pub fn compileLetBody(self: *Compiler, body: Value, dst: u16, is_tail: bool) Com
         }
     }
 
+    // Collect leading internal defines and desugar to letrec* (R7RS 5.3.2)
+    const MAX_BODY_DEFS = 256;
+    var def_names: [MAX_BODY_DEFS][]const u8 = undefined;
+    var def_inits: [MAX_BODY_DEFS]Value = undefined;
+    var def_slots: [MAX_BODY_DEFS]u16 = undefined;
+    var def_count: usize = 0;
+
     var current = body;
-    while (current != types.NIL) {
-        if (!types.isPair(current)) return CompileError.InvalidSyntax;
+    while (current != types.NIL and types.isPair(current)) {
         const expr = types.car(current);
+        if (!types.isPair(expr)) break;
+        const head = types.car(expr);
+        if (!types.isSymbol(head)) break;
+        const head_name = types.symbolName(head);
+        if (!std.mem.eql(u8, head_name, "define")) break;
+
+        const def_args = types.cdr(expr);
+        if (def_args == types.NIL or !types.isPair(def_args)) break;
+        const target = types.car(def_args);
+        const def_rest = types.cdr(def_args);
+
+        if (types.isSymbol(target)) {
+            if (def_rest == types.NIL or !types.isPair(def_rest)) break;
+            if (def_count >= MAX_BODY_DEFS) return CompileError.TooManyLocals;
+            def_names[def_count] = types.symbolName(target);
+            def_inits[def_count] = types.car(def_rest);
+            def_count += 1;
+        } else if (types.isPair(target)) {
+            const fn_name = types.car(target);
+            if (!types.isSymbol(fn_name)) break;
+            if (def_count >= MAX_BODY_DEFS) return CompileError.TooManyLocals;
+            def_names[def_count] = types.symbolName(fn_name);
+            const param_formals = types.cdr(target);
+            const lambda_sym = self.gc.allocSymbol("lambda") catch return CompileError.OutOfMemory;
+            const lambda_args = self.gc.allocPair(param_formals, def_rest) catch return CompileError.OutOfMemory;
+            def_inits[def_count] = self.gc.allocPair(lambda_sym, lambda_args) catch return CompileError.OutOfMemory;
+            def_count += 1;
+        } else {
+            break;
+        }
         current = types.cdr(current);
-        const tail = is_tail and current == types.NIL;
-        try self.compileExpr(expr, dst, tail);
+    }
+
+    if (def_count > 0) {
+        self.beginScope();
+        for (0..def_count) |i| {
+            const slot = try self.allocReg();
+            def_slots[i] = slot;
+            try self.emitOp(.load_void);
+            try self.emitU16(slot);
+            try self.addLocal(def_names[i], slot);
+            try self.markLocalBoxedBySlot(slot);
+        }
+        for (0..def_count) |i| {
+            try self.compileExpr(def_inits[i], dst, false);
+            try self.emitOp(.set_box_local);
+            try self.emitU16(def_slots[i]);
+            try self.emitU16(dst);
+        }
+        while (current != types.NIL) {
+            if (!types.isPair(current)) return CompileError.InvalidSyntax;
+            const expr = types.car(current);
+            current = types.cdr(current);
+            const tail = is_tail and current == types.NIL;
+            try self.compileExpr(expr, dst, tail);
+        }
+        self.endScope();
+    } else {
+        while (current != types.NIL) {
+            if (!types.isPair(current)) return CompileError.InvalidSyntax;
+            const expr = types.car(current);
+            current = types.cdr(current);
+            const tail = is_tail and current == types.NIL;
+            try self.compileExpr(expr, dst, tail);
+        }
     }
 }
 
