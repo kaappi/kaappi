@@ -136,12 +136,23 @@ pub const IfData = struct {
 pub const IR = struct {
     allocator: std.mem.Allocator,
     nodes: std.ArrayList(*Node),
+    globals: ?*const std.StringHashMap(Value) = null,
 
     pub fn init(allocator: std.mem.Allocator) IR {
         return .{
             .allocator = allocator,
             .nodes = .empty,
         };
+    }
+
+    fn isRedefined(self: *const IR, name: []const u8) bool {
+        const g = self.globals orelse return false;
+        const val = g.get(name) orelse return false;
+        if (!types.isPointer(val)) return true;
+        const obj = types.toObject(val);
+        if (obj.tag != .native_fn) return true;
+        const nfn = obj.as(types.NativeFn);
+        return !std.mem.eql(u8, nfn.name, name);
     }
 
     pub fn deinit(self: *IR) void {
@@ -557,6 +568,7 @@ fn tryFoldFromAST(ir: *IR, expr: Value) ?*Node {
     const operator = types.car(expr);
     if (!types.isSymbol(operator)) return null;
     const name = types.symbolName(operator);
+    if (ir.isRedefined(name)) return null;
 
     const args_pair = types.cdr(expr);
     if (!types.isPair(args_pair)) return null;
@@ -876,6 +888,7 @@ pub fn foldConstants(ir: *IR, node: *Node) *Node {
             const sym = call.operator.data.global_ref;
             if (!types.isSymbol(sym)) return node;
             const name = types.symbolName(sym);
+            if (ir.isRedefined(name)) return node;
 
             if (call.args.len == 1) {
                 const a = call.args[0];
@@ -1021,7 +1034,7 @@ pub fn simplifyBooleans(ir: *IR, node: *Node) *Node {
                 new_test.data.call.operator.tag == .global_ref)
             {
                 const sym = new_test.data.call.operator.data.global_ref;
-                if (types.isSymbol(sym) and std.mem.eql(u8, types.symbolName(sym), "not")) {
+                if (types.isSymbol(sym) and std.mem.eql(u8, types.symbolName(sym), "not") and !ir.isRedefined("not")) {
                     new_test = new_test.data.call.args[0];
                     return ir.makeIf(new_test, new_alt orelse (ir.makeConst(types.VOID) catch return node), new_cons) catch return node;
                 }
