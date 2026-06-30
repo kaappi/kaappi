@@ -84,9 +84,11 @@ fn handleDefineValues(vm: *VM, args: Value) VMError!Value {
         } else {
             var formal = formals;
             var i: usize = 0;
+            var has_rest = false;
             while (formal != types.NIL and i < mv.values.len) {
                 if (types.isSymbol(formal)) {
                     // Rest parameter: (define-values (a b . rest) ...)
+                    has_rest = true;
                     var result_root = result;
                     vm.gc.pushRoot(&result_root) catch return VMError.OutOfMemory;
                     defer vm.gc.popRoot();
@@ -101,6 +103,8 @@ fn handleDefineValues(vm: *VM, args: Value) VMError!Value {
                     }
                     vm.globals.put(types.symbolName(formal), rest_list) catch return VMError.OutOfMemory;
                     vm.global_version +%= 1;
+                    formal = types.NIL;
+                    i = mv.values.len;
                     break;
                 }
                 if (!types.isPair(formal)) return VMError.CompileError;
@@ -110,6 +114,10 @@ fn handleDefineValues(vm: *VM, args: Value) VMError!Value {
                 vm.global_version +%= 1;
                 formal = types.cdr(formal);
                 i += 1;
+            }
+            if (!has_rest) {
+                if (types.isPair(formal)) return VMError.CompileError;
+                if (i < mv.values.len and formal == types.NIL) return VMError.CompileError;
             }
         }
     } else {
