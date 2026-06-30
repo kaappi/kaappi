@@ -122,8 +122,8 @@ pub const LLVMEmitter = struct {
             .define => try self.emitDefine(node.data.define),
             .set_form => try self.emitSet(node.data.set_form),
             .lambda => try self.emitLambda(node.data.lambda),
-            .let_form => try self.emitLet(node.data.let_form.args, false),
-            .let_star => try self.emitLet(node.data.let_star.args, true),
+            .let_form => try self.emitLet(node.data.let_form.args, false, node.ann.is_tail),
+            .let_star => try self.emitLet(node.data.let_star.args, true, node.ann.is_tail),
             .letrec, .letrec_star, .named_let => try self.emitSexprEval(node),
             .do_form, .delay, .delay_force, .cond, .case_form, .case_lambda, .guard => try self.emitSexprEval(node),
             .quasiquote, .parameterize, .define_values, .let_values, .let_star_values => try self.emitSexprEval(node),
@@ -300,7 +300,7 @@ pub const LLVMEmitter = struct {
         return last;
     }
 
-    fn emitLet(self: *LLVMEmitter, args: Value, sequential: bool) EmitError![]const u8 {
+    fn emitLet(self: *LLVMEmitter, args: Value, sequential: bool, is_tail: bool) EmitError![]const u8 {
         const bindings = types.car(args);
         const body_list = types.cdr(args);
 
@@ -376,13 +376,15 @@ pub const LLVMEmitter = struct {
         var last: []const u8 = "";
         var body_expr = body_list;
         while (body_expr != types.NIL and types.isPair(body_expr)) {
-            const node = ir.lowerSingleExpr(self.allocator, types.car(body_expr)) catch {
+            const rest = types.cdr(body_expr);
+            const expr_is_tail = is_tail and (rest == types.NIL or !types.isPair(rest));
+            const node = ir.lowerSingleExprTail(self.allocator, types.car(body_expr), expr_is_tail) catch {
                 self.locals.?.deinit();
                 self.locals = saved_locals;
                 return error.UnsupportedNodeType;
             };
             last = try self.emitNode(node);
-            body_expr = types.cdr(body_expr);
+            body_expr = rest;
         }
 
         self.locals.?.deinit();
