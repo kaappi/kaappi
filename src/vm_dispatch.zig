@@ -7,8 +7,6 @@ const vm_mod = @import("vm.zig");
 const VM = vm_mod.VM;
 const VMError = vm_mod.VMError;
 const CallFrame = vm_mod.CallFrame;
-const MAX_REGISTERS = vm_mod.MAX_REGISTERS;
-const MAX_FRAMES = vm_mod.MAX_FRAMES;
 
 const vm_calls = @import("vm_calls.zig");
 const vm_continuations = @import("vm_continuations.zig");
@@ -315,7 +313,7 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                             return VMError.ArityMismatch;
                         }
                         const rest_start = func.arity;
-                        if (@as(usize, abs_base) + @as(usize, rest_start) + 1 >= MAX_REGISTERS) {
+                        if (@as(usize, abs_base) + @as(usize, rest_start) + 1 >= self.registers.len) {
                             return VMError.InvalidBytecode;
                         }
                         var rest_list: Value = types.NIL;
@@ -339,7 +337,7 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                     for (0..arg_count) |i| {
                         const dst_idx = @as(usize, frame.base) + i;
                         const src_idx = @as(usize, abs_base) + 1 + i;
-                        if (dst_idx >= MAX_REGISTERS or src_idx >= MAX_REGISTERS) {
+                        if (dst_idx >= self.registers.len or src_idx >= self.registers.len) {
                             return VMError.InvalidBytecode;
                         }
                         self.registers[dst_idx] = self.registers[src_idx];
@@ -545,7 +543,7 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                     const arg_count: u8 = if (func.is_variadic) func.arity + 1 else total_nargs;
                     for (0..arg_count) |i| {
                         const dst_idx = @as(usize, frame.base) + i;
-                        if (dst_idx >= MAX_REGISTERS) return VMError.InvalidBytecode;
+                        if (dst_idx >= self.registers.len) return VMError.InvalidBytecode;
                         self.registers[dst_idx] = flat_args[i];
                     }
 
@@ -821,7 +819,7 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                         .exact => |expected| nargs == expected,
                         .variadic => |min| nargs >= min,
                     };
-                    if (arity_ok and base + @as(u16, nargs) + 1 < MAX_REGISTERS) {
+                    if (arity_ok and base + @as(u16, nargs) + 1 < self.registers.len) {
                         const args = self.registers[base + 1 .. base + 1 + nargs];
                         const result = native.func(args) catch |err| {
                             if (err == error.ContinuationInvoked) {
@@ -913,7 +911,7 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                     } else {
                         if (nargs < tfunc.arity) return VMError.ArityMismatch;
                         const rest_start = tfunc.arity;
-                        if (@as(usize, abs_base) + @as(usize, rest_start) + 1 >= MAX_REGISTERS) {
+                        if (@as(usize, abs_base) + @as(usize, rest_start) + 1 >= self.registers.len) {
                             return VMError.InvalidBytecode;
                         }
                         var rest_list: Value = types.NIL;
@@ -936,7 +934,7 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                     for (0..arg_count) |ai| {
                         const dst_idx = @as(usize, frame.base) + ai;
                         const src_idx = @as(usize, abs_base) + 1 + ai;
-                        if (dst_idx >= MAX_REGISTERS or src_idx >= MAX_REGISTERS) {
+                        if (dst_idx >= self.registers.len or src_idx >= self.registers.len) {
                             return VMError.InvalidBytecode;
                         }
                         self.registers[dst_idx] = self.registers[src_idx];
@@ -1059,7 +1057,7 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                 for (0..nargs) |i| {
                     const dst_idx = @as(usize, frame.base) + i;
                     const src_idx = @as(usize, abs_base) + 1 + i;
-                    if (dst_idx >= MAX_REGISTERS or src_idx >= MAX_REGISTERS) {
+                    if (dst_idx >= self.registers.len or src_idx >= self.registers.len) {
                         return VMError.InvalidBytecode;
                     }
                     self.registers[dst_idx] = self.registers[src_idx];
@@ -1092,16 +1090,14 @@ pub fn ensureOperands(vm: *VM, frame: *CallFrame, operand_bytes: usize) VMError!
 }
 
 pub fn registerIndex(vm: *VM, base: u16, reg: u16) VMError!usize {
-    _ = vm;
     const idx = @as(usize, base) + @as(usize, reg);
-    if (idx >= MAX_REGISTERS) return VMError.InvalidBytecode;
+    if (idx >= vm.registers.len) return VMError.InvalidBytecode;
     return idx;
 }
 
 pub fn ensureCallWindow(vm: *VM, base: usize, nargs: u8) VMError!void {
-    _ = vm;
     const hi = base + @as(usize, nargs) + 1;
-    if (hi > MAX_REGISTERS) return VMError.InvalidBytecode;
+    if (hi > vm.registers.len) try vm.ensureRegisterCapacity(hi);
 }
 
 pub fn constantAt(vm: *VM, func: *types.Function, idx: u16) VMError!Value {

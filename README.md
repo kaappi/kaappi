@@ -178,7 +178,7 @@ Source code
 | **Reader** | `reader.zig` | Tokenizer + recursive descent parser. Handles full R7RS lexical syntax including Unicode identifiers, `#\λ` character literals, `#(...)` vectors, `#u8(...)` bytevectors. |
 | **Expander** | `expander.zig` | `syntax-rules` pattern matching with ellipsis, literal identifiers, underscore wildcards. Template instantiation with hygienic renaming. |
 | **Compiler** | `compiler.zig` + 5 sub-modules | Compiles S-expressions to register-based bytecode. Detects tail positions for proper tail call optimization. Handles 32 syntax forms across 6 files. |
-| **VM** | `vm.zig` + 5 sub-modules | Executes bytecode with a register file, call frame stack, exception handler stack, and dynamic-wind stack. Supports first-class continuations via stack copying, plus a stepping debugger. |
+| **VM** | `vm.zig` + 5 sub-modules | Executes bytecode with a growable register file and call frame stack, exception handler stack, and dynamic-wind stack. Supports first-class continuations via stack copying, plus a stepping debugger. |
 | **GC** | `memory.zig` | Generational collector (young/old) with minor and full collections. Write barrier tracks old→young references. Root tracking via `pushRoot`/`popRoot`. Triggered after N allocations. |
 | **Primitives** | 21 `primitives_*.zig` files | 554 built-in procedures organized by domain: arithmetic, strings, vectors, I/O, control flow, etc. |
 

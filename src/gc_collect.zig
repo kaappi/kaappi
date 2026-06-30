@@ -192,8 +192,7 @@ fn referencesYoung(obj: *Object) bool {
                     const lc = cls.func.locals_count;
                     break :blk if (lc == 0) 256 else @as(usize, lc);
                 } else 256;
-                const vm_mod = @import("vm.zig");
-                const end: usize = @min(@as(usize, f.base) + window, vm_mod.MAX_REGISTERS);
+                const end: usize = @min(@as(usize, f.base) + window, fiber.registers.len);
                 var r: usize = f.base;
                 while (r < end) : (r += 1) {
                     if (isYoungPointer(fiber.registers[r])) return true;
@@ -713,7 +712,12 @@ fn objectSize(obj: *Object) usize {
         .group_info => @sizeOf(types.GroupInfo) + obj.as(types.GroupInfo).name.len,
         .directory_object => @sizeOf(types.DirectoryObject),
         .random_source => @sizeOf(RandomSource),
-        .fiber => @sizeOf(@import("fiber.zig").Fiber),
+        .fiber => blk: {
+            const fiber = obj.as(@import("fiber.zig").Fiber);
+            break :blk @sizeOf(@import("fiber.zig").Fiber) +
+                fiber.registers.len * @sizeOf(Value) +
+                fiber.frames.len * @sizeOf(@import("vm.zig").CallFrame);
+        },
         .channel => @sizeOf(types.Channel),
         .mutex => @sizeOf(types.Mutex),
         .condition_variable => @sizeOf(types.ConditionVariable),
@@ -914,6 +918,8 @@ pub fn freeObject(gc: *GC, obj: *Object) void {
         .fiber => {
             const fiber = obj.as(@import("fiber.zig").Fiber);
             fiber.param_overrides.deinit();
+            gc.allocator.free(fiber.frames);
+            gc.allocator.free(fiber.registers);
             gc.allocator.destroy(fiber);
         },
         .channel => {

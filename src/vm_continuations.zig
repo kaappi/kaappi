@@ -5,9 +5,7 @@ const Value = types.Value;
 const vm_mod = @import("vm.zig");
 const VM = vm_mod.VM;
 const VMError = vm_mod.VMError;
-const MAX_FRAMES = vm_mod.MAX_FRAMES;
 const MAX_HANDLERS = vm_mod.MAX_HANDLERS;
-const MAX_REGISTERS = vm_mod.MAX_REGISTERS;
 const MAX_WINDS = vm_mod.MAX_WINDS;
 
 /// Capture the current continuation state.
@@ -28,13 +26,15 @@ pub fn captureContinuation(vm: *VM, dst_reg: u16, dst_base: u16) VMError!Value {
         const frame_end = @as(usize, f.base) + window;
         if (frame_end > max_reg) max_reg = frame_end;
     }
-    if (max_reg > MAX_REGISTERS) max_reg = MAX_REGISTERS;
+    if (max_reg > vm.registers.len) max_reg = vm.registers.len;
     // At minimum, save up to dst_base + dst_reg + 1
     const min_needed = @as(usize, dst_base) + @as(usize, dst_reg) + 1;
     if (min_needed > max_reg) max_reg = min_needed;
 
-    // Convert frames to SavedFrames
-    var saved_frames: [MAX_FRAMES]types.SavedFrame = undefined;
+    // Convert frames to SavedFrames (heap-allocated for growable stacks)
+    const saved_frames = vm.gc.allocator.alloc(types.SavedFrame, vm.frame_count) catch
+        return VMError.OutOfMemory;
+    defer vm.gc.allocator.free(saved_frames);
     for (vm.frames[0..vm.frame_count], 0..) |f, i| {
         saved_frames[i] = .{
             .closure = f.closure,
@@ -142,7 +142,7 @@ pub fn invokeEscape(vm: *VM, cont: *types.Continuation, value: Value) VMError!vo
     // Truncate the live stack back to the call/ec point and deliver the value.
     vm.frame_count = cont.target_frame_count;
     const dst_idx = @as(usize, cont.dst_base) + @as(usize, cont.dst_reg);
-    if (dst_idx < MAX_REGISTERS) {
+    if (dst_idx < vm.registers.len) {
         vm.registers[dst_idx] = value;
     }
     vm.continuation_value = value;
@@ -188,16 +188,16 @@ pub fn performWindTransition(vm: *VM, target_winds: []const types.WindRecord, ta
 /// Restore a captured continuation, replacing the VM state and placing
 /// the given value at the continuation's destination register.
 pub fn restoreContinuation(vm: *VM, cont: *types.Continuation, value: Value) VMError!void {
-    // Validate captured counts fit within VM limits; fail closed instead of
-    // truncating continuation state silently.
-    if (cont.registers.len > MAX_REGISTERS) return VMError.StackOverflow;
-    if (cont.frame_count > MAX_FRAMES) return VMError.StackOverflow;
     if (cont.handler_count > MAX_HANDLERS) return VMError.StackOverflow;
     if (cont.wind_count > MAX_WINDS) return VMError.StackOverflow;
     if (cont.frames.len < cont.frame_count) return VMError.InvalidBytecode;
     if (cont.handlers.len < cont.handler_count) return VMError.InvalidBytecode;
     if (cont.wind_records.len < cont.wind_count) return VMError.InvalidBytecode;
     if (cont.is_escape) return VMError.InvalidArgument;
+
+    // Grow VM capacity to fit the captured state
+    try vm.ensureRegisterCapacity(cont.registers.len);
+    try vm.ensureFrameCapacity(cont.frame_count);
 
     // Restore saved VM state
     @memcpy(vm.registers[0..cont.registers.len], cont.registers[0..cont.registers.len]);
@@ -234,7 +234,7 @@ pub fn restoreContinuation(vm: *VM, cont: *types.Continuation, value: Value) VME
 
     // Place the result value where call/cc was waiting for it
     const dst_idx = @as(usize, cont.dst_base) + @as(usize, cont.dst_reg);
-    if (dst_idx >= MAX_REGISTERS) return VMError.StackOverflow;
+    if (dst_idx >= vm.registers.len) return VMError.StackOverflow;
     vm.registers[dst_idx] = value;
     vm.continuation_value = value;
     vm.continuation_invoked = true;
