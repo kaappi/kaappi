@@ -435,16 +435,28 @@ fn readOneByte(port: *types.Port) ?u8 {
     }
 }
 
-fn readUtf8Char(port: *types.Port) ?u21 {
+const Utf8ReadResult = struct {
+    codepoint: u21,
+    bytes: [4]u8,
+    len: u3,
+};
+
+fn readUtf8CharWithBytes(port: *types.Port) ?Utf8ReadResult {
     const lead = readOneByte(port) orelse return null;
-    const seq_len = std.unicode.utf8ByteSequenceLength(lead) catch return @intCast(lead);
-    if (seq_len == 1) return @intCast(lead);
-    var buf: [4]u8 = undefined;
+    const seq_len = std.unicode.utf8ByteSequenceLength(lead) catch return .{ .codepoint = @intCast(lead), .bytes = .{ lead, 0, 0, 0 }, .len = 1 };
+    if (seq_len == 1) return .{ .codepoint = @intCast(lead), .bytes = .{ lead, 0, 0, 0 }, .len = 1 };
+    var buf: [4]u8 = .{ 0, 0, 0, 0 };
     buf[0] = lead;
     for (1..seq_len) |i| {
-        buf[i] = readOneByte(port) orelse return @intCast(lead);
+        buf[i] = readOneByte(port) orelse return .{ .codepoint = @intCast(lead), .bytes = buf, .len = @intCast(i) };
     }
-    return std.unicode.utf8Decode(buf[0..seq_len]) catch @intCast(lead);
+    const cp = std.unicode.utf8Decode(buf[0..seq_len]) catch return .{ .codepoint = @intCast(lead), .bytes = buf, .len = @intCast(seq_len) };
+    return .{ .codepoint = cp, .bytes = buf, .len = @intCast(seq_len) };
+}
+
+fn readUtf8Char(port: *types.Port) ?u21 {
+    const result = readUtf8CharWithBytes(port) orelse return null;
+    return result.codepoint;
 }
 
 fn readCharFn(args: []const Value) PrimitiveError!Value {
@@ -484,23 +496,18 @@ fn peekCharFn(args: []const Value) PrimitiveError!Value {
         return types.makeChar(@intCast(b));
     }
     const port2 = port;
-    const cp = readUtf8Char(port2) orelse return types.EOF;
-    // Put back the encoded bytes for peeking — only store lead byte
-    // and rewind string port position
-    if (port2.is_string_port and port2.string_pos > 0) {
-        var buf: [4]u8 = undefined;
-        const len = std.unicode.utf8Encode(cp, &buf) catch 1;
+    const result = readUtf8CharWithBytes(port2) orelse return types.EOF;
+    const len: usize = @intCast(result.len);
+    if (port2.is_string_port and port2.string_pos >= len) {
         port2.string_pos -= len;
     } else {
-        var buf: [4]u8 = undefined;
-        const len = std.unicode.utf8Encode(cp, &buf) catch 1;
-        port2.peek_byte = buf[0];
+        port2.peek_byte = result.bytes[0];
         if (len > 1) {
-            for (1..len) |i| port2.peek_extra[i - 1] = buf[i];
+            for (1..len) |i| port2.peek_extra[i - 1] = result.bytes[i];
             port2.peek_extra_len = @intCast(len - 1);
         }
     }
-    return types.makeChar(cp);
+    return types.makeChar(result.codepoint);
 }
 
 fn readLineFn(args: []const Value) PrimitiveError!Value {
