@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1782855482381,
+  "lastUpdate": 1782856398471,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
@@ -979,6 +979,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "gc-pressure",
             "value": 2.360516,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 0,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a862510cc9147b1a3b39c21911139bc35bcb7acf",
+          "message": "Fix deepCopyValue record_instance missing cycle guard (#606) (#620)\n\nThe .record_instance arm was the only compound arm that never registered\nin the visited map, causing infinite recursion (stack overflow) on cyclic\nrecords and broken sharing on DAGs during cross-thread deep copy.\n\nAllocate the new instance with empty fields first, register in visited,\nthen deep-copy fields into the pre-allocated instance — matching the\npattern used by .pair, .vector, .closure, and all other compound arms.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-01T03:12:35+05:30",
+          "tree_id": "d25185b14d3ef19bf1ff47a6d179cf3d58aea7df",
+          "url": "https://github.com/kaappi/kaappi/commit/a862510cc9147b1a3b39c21911139bc35bcb7acf"
+        },
+        "date": 1782856398185,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.301084,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.905477,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.806341,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.071405,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.00703,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.032132,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.450828,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 1.143958,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.959639,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.757745,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.131186,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.216239,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 2.404597,
             "unit": "seconds"
           },
           {
