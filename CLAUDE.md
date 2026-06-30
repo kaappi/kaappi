@@ -272,21 +272,9 @@ map.deinit();  // no allocator arg needed
 
 ## How to add a new compiler form
 
-1. Add an IR node type in `src/ir.zig`: add variant to `NodeTag`, add `Data`
-   union variant (use `SexprArgs` for forms that delegate to existing compilers),
-   add lowering in `lowerFormWithMacros()`/`lowerForm()`, handle in the analysis
-   pass switch arms.
-
-2. Add dispatch in `compileFromNode()` in `src/compiler.zig`:
-   ```zig
-   .my_form => try forms.compileMyForm(self, node.data.my_form.args, dst, tail),
-   ```
-
-3. Implement in the appropriate `compiler_*.zig` file.
-
-4. Add re-export in `compiler_forms.zig`.
-
-5. Add IR tests in `src/tests_ir.zig` (behavioral parity at minimum).
+See `.claude/rules/compiler-forms.md` (loaded automatically when editing
+compiler or IR files). Covers: IR node type, dispatch, implementation,
+re-export, IR tests, and tail position handling.
 
 ## How to add a new heap type
 
