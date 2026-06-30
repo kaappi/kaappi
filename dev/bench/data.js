@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1782857346667,
+  "lastUpdate": 1782858215557,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
@@ -1177,6 +1177,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "gc-pressure",
             "value": 2.363482,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 0,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "5060ba647fd05fea337a4e424aededbaf738684b",
+          "message": "Reject denormalized bignum in bytecode reader (#607) (#622)\n\nreadConstant's TAG_BIGNUM branch accepted bignums with a zero top limb,\nviolating the normalization invariant. Downstream comparisons and\narithmetic would produce wrong results for such values.\n\nAdd a check that the most-significant limb is non-zero, rejecting\ncorrupt .sbc files that contain denormalized bignums.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-01T03:43:12+05:30",
+          "tree_id": "5e846be7f95434a25711c118b0005c36a7b1f581",
+          "url": "https://github.com/kaappi/kaappi/commit/5060ba647fd05fea337a4e424aededbaf738684b"
+        },
+        "date": 1782858214643,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.72289,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.763132,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.760534,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.607777,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006989,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.031279,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.409562,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 1.071558,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.988581,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.559614,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.083833,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.222061,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 2.248547,
             "unit": "seconds"
           },
           {
