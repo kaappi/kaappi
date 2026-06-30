@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1782860772355,
+  "lastUpdate": 1782861610027,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
@@ -1474,6 +1474,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "gc-pressure",
             "value": 2.241188,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 0,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "27701f330e24c010e12052b8e1bc9ab539298ea8",
+          "message": "Fix git argument injection in thottam package manager (#614) (#625)\n\nCustom source URLs from ::url specs and kaappi.pkg manifest source:\nfields were passed to git clone/ls-remote as positional arguments\nwithout a '--' separator. A URL starting with '-' would be parsed\nas a git option, enabling argument injection.\n\nAdd '--' end-of-options separator before user-controlled URLs in\ngit clone and git ls-remote invocations. Also reject source URLs\nstarting with '-' at parse time in both parsePkgSpec and manifest\nparsing.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-01T04:40:13+05:30",
+          "tree_id": "acb2773b7e4ff8739daadc0175a23cd293de1bec",
+          "url": "https://github.com/kaappi/kaappi/commit/27701f330e24c010e12052b8e1bc9ab539298ea8"
+        },
+        "date": 1782861609674,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.934002,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.007077,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.828833,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.127833,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.007287,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.032104,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.445251,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 1.267293,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.83112,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.714138,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.100581,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.234551,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 2.370796,
             "unit": "seconds"
           },
           {
