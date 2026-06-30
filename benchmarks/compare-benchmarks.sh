@@ -38,8 +38,8 @@ print(f'{'---------':<12} {'--------':>10} {'-------':>10} {'-----':>8}  ------'
 for name in sorted(set(list(baseline.keys()) + list(current.keys()))):
     b = baseline.get(name, {})
     c = current.get(name, {})
-    bt = b.get('seconds', 0)
-    ct = c.get('seconds', 0)
+    bt = b.get('value', b.get('seconds', 0))
+    ct = c.get('value', c.get('seconds', 0))
     if bt > 0:
         delta_pct = ((ct - bt) / bt) * 100
         status = 'REGRESSED' if delta_pct > threshold else 'ok'

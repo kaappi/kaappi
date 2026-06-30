@@ -1,18 +1,19 @@
 (include "benchmarks/common.scm")
 
 (define (nqueens n)
-  (define (queen-cols k)
-    (if (= k 0)
-        (list '())
-        (filter
-         (lambda (positions) (safe? k positions))
-         (flatmap
-          (lambda (rest-of-queens)
-            (map (lambda (new-row)
-                   (cons new-row rest-of-queens))
-                 (enumerate-interval 1 n)))
-          (queen-cols (- k 1))))))
-  (length (queen-cols n)))
+  (letrec ((queen-cols
+            (lambda (k)
+              (if (= k 0)
+                  (list '())
+                  (filter
+                   (lambda (positions) (safe? k positions))
+                   (flatmap
+                    (lambda (rest-of-queens)
+                      (map-interval
+                       (lambda (new-row) (cons new-row rest-of-queens))
+                       1 n))
+                    (queen-cols (- k 1))))))))
+    (length (queen-cols n))))
 
 (define (safe? k positions)
   (let ((new-row (car positions))
@@ -27,17 +28,27 @@
                 #f
                 (loop (cdr r) (+ dist 1))))))))
 
-(define (enumerate-interval low high)
-  (if (> low high) '()
-      (cons low (enumerate-interval (+ low 1) high))))
+(define (map-interval f low high)
+  (let loop ((i high) (acc '()))
+    (if (< i low) acc
+        (loop (- i 1) (cons (f i) acc)))))
 
 (define (flatmap proc lst)
-  (apply append (map proc lst)))
+  (let loop ((remaining lst) (acc '()))
+    (if (null? remaining)
+        (reverse acc)
+        (let ((chunk (proc (car remaining))))
+          (let copy ((c chunk) (a acc))
+            (if (null? c)
+                (loop (cdr remaining) a)
+                (copy (cdr c) (cons (car c) a))))))))
 
 (define (filter pred lst)
-  (cond ((null? lst) '())
-        ((pred (car lst)) (cons (car lst) (filter pred (cdr lst))))
-        (else (filter pred (cdr lst)))))
+  (let loop ((remaining lst) (acc '()))
+    (cond ((null? remaining) (reverse acc))
+          ((pred (car remaining))
+           (loop (cdr remaining) (cons (car remaining) acc)))
+          (else (loop (cdr remaining) acc)))))
 
 (let* ((count (read))
        (n (read))
