@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1782851543644,
+  "lastUpdate": 1782852555426,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
@@ -583,6 +583,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "gc-pressure",
             "value": 2.480891,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 0,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "5d85dcc4bdc91fdcc5f1a2d4c014c6b4ffc7b212",
+          "message": "Fix string->number \"#e<large>\" process abort (#604) (#616)\n\napplyExactness used unchecked @intFromFloat(trunc) to i64 for the exact\ninteger path, panicking when the float exceeded i64 range. Use\nsafeFloatToExactInt which promotes to bignum for large values.\n\nAlso guard the non-integer rational path against i64 overflow on the\nscaled numerator.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-01T02:07:24+05:30",
+          "tree_id": "4bd93ff65678eb5e1081ea4645519f8de30c1ada",
+          "url": "https://github.com/kaappi/kaappi/commit/5d85dcc4bdc91fdcc5f1a2d4c014c6b4ffc7b212"
+        },
+        "date": 1782852555102,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.280017,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.398782,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.803834,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.126977,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006905,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.03288,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.451942,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 1.147251,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.914398,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.762804,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.105122,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.218831,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 2.412188,
             "unit": "seconds"
           },
           {
