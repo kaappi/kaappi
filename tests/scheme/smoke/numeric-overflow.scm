@@ -32,6 +32,12 @@
 (check "floor large flonum" (floor 2.5e15) 2.5e15)
 (check "round large flonum" (round 2.5e15) 2.5e15)
 
+;; Regression for #603: floor-quotient/truncate-quotient must promote to bignum
+(check "truncate-quotient minInt÷-1" (truncate-quotient -140737488355328 -1) 140737488355328)
+(check "floor-quotient minInt÷-1" (floor-quotient -140737488355328 -1) 140737488355328)
+(check "truncate-quotient minInt÷-1 positive" (positive? (truncate-quotient -140737488355328 -1)) #t)
+(check "floor-quotient minInt÷-1 positive" (positive? (floor-quotient -140737488355328 -1)) #t)
+
 (display pass) (display " passed, ") (display fail) (display " failed")
 (newline)
 (if (> fail 0) (error "numeric overflow tests failed" fail))

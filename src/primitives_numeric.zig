@@ -1202,7 +1202,7 @@ fn floorQuotient(args: []const Value) PrimitiveError!Value {
     const a = types.toFixnum(args[0]);
     const b = types.toFixnum(args[1]);
     if (b == 0) return raiseDivByZero();
-    return types.makeFixnum(@divFloor(a, b));
+    return try arith.makeFixnumChecked(@divFloor(a, b));
 }
 
 fn floorRemainder(args: []const Value) PrimitiveError!Value {
@@ -1253,7 +1253,7 @@ fn truncateQuotient(args: []const Value) PrimitiveError!Value {
     if (!types.isFixnum(args[0]) or !types.isFixnum(args[1])) return primitives.typeError("truncate-quotient", "integer", if (!types.isFixnum(args[0])) args[0] else args[1]);
     const b = types.toFixnum(args[1]);
     if (b == 0) return raiseDivByZero();
-    return types.makeFixnum(@divTrunc(types.toFixnum(args[0]), b));
+    return try arith.makeFixnumChecked(@divTrunc(types.toFixnum(args[0]), b));
 }
 
 fn truncateRemainder(args: []const Value) PrimitiveError!Value {
