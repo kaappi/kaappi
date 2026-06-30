@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1782843207792,
+  "lastUpdate": 1782843858532,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
@@ -385,6 +385,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "gc-pressure",
             "value": 1.832203,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 0,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "distinct": true,
+          "id": "e501abd013ff28300824795ababd844a55a7670d",
+          "message": "Release v0.9.0",
+          "timestamp": "2026-06-30T23:42:35+05:30",
+          "tree_id": "21ca6be188ade515c0a695b530d1770a658b000f",
+          "url": "https://github.com/kaappi/kaappi/commit/e501abd013ff28300824795ababd844a55a7670d"
+        },
+        "date": 1782843858252,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.34165,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.614339,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.825836,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.076773,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.00692,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.032896,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.44738,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 1.149978,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.923137,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.761287,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.101479,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.225567,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 2.398376,
             "unit": "seconds"
           },
           {
