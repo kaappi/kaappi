@@ -32,6 +32,11 @@ fn toIntArg(v: Value) error{TypeError}!i64 {
     return toIntArgOpt(v) orelse return error.TypeError;
 }
 
+fn toCheckedInt(comptime T: type, v: Value) error{TypeError}!T {
+    const wide = toIntArgOpt(v) orelse return error.TypeError;
+    return std.math.cast(T, wide) orelse return error.TypeError;
+}
+
 /// Convert a Scheme string Value to a null-terminated C string using a stack buffer.
 /// Returns null if the value is not a string or the string is too long.
 fn toCString(v: Value, buf: *[4096]u8) ?[*:0]const u8 {
@@ -241,21 +246,21 @@ fn callFfi1(ffi_fn: *types.FfiFunction, args: []const Value, gc: *memory.GC) !Va
     // int -> int (abs, etc.)
     if (p0 == .int and rt == .int) {
         const f: *const fn (c_int) callconv(.c) c_int = @ptrCast(@alignCast(ffi_fn.symbol));
-        const result = f(@intCast(try toIntArg(args[0])));
+        const result = f(try toCheckedInt(c_int, args[0]));
         return types.makeFixnum(@intCast(result));
     }
 
     // int -> long
     if (p0 == .int and rt == .long) {
         const f: *const fn (c_int) callconv(.c) c_long = @ptrCast(@alignCast(ffi_fn.symbol));
-        const result = f(@intCast(try toIntArg(args[0])));
+        const result = f(try toCheckedInt(c_int, args[0]));
         return marshalLongReturn(result, gc);
     }
 
     // long -> long
     if (p0 == .long and rt == .long) {
         const f: *const fn (c_long) callconv(.c) c_long = @ptrCast(@alignCast(ffi_fn.symbol));
-        const result = f(@intCast(try toIntArg(args[0])));
+        const result = f(try toCheckedInt(c_long, args[0]));
         return marshalLongReturn(result, gc);
     }
 
@@ -298,7 +303,7 @@ fn callFfi1(ffi_fn: *types.FfiFunction, args: []const Value, gc: *memory.GC) !Va
     // int -> void
     if (p0 == .int and rt == .void_type) {
         const f: *const fn (c_int) callconv(.c) void = @ptrCast(@alignCast(ffi_fn.symbol));
-        f(@intCast(try toIntArg(args[0])));
+        f(try toCheckedInt(c_int, args[0]));
         return types.VOID;
     }
 
@@ -354,21 +359,21 @@ fn callFfi1(ffi_fn: *types.FfiFunction, args: []const Value, gc: *memory.GC) !Va
     // int -> pointer (malloc, etc.)
     if (p0 == .int and rt == .pointer) {
         const f: *const fn (c_int) callconv(.c) ?*anyopaque = @ptrCast(@alignCast(ffi_fn.symbol));
-        const result = f(@intCast(try toIntArg(args[0])));
+        const result = f(try toCheckedInt(c_int, args[0]));
         return marshalPointerReturn(result, gc);
     }
 
     // long -> pointer
     if (p0 == .long and rt == .pointer) {
         const f: *const fn (c_long) callconv(.c) ?*anyopaque = @ptrCast(@alignCast(ffi_fn.symbol));
-        const result = f(@intCast(try toIntArg(args[0])));
+        const result = f(try toCheckedInt(c_long, args[0]));
         return marshalPointerReturn(result, gc);
     }
 
     // long -> void
     if (p0 == .long and rt == .void_type) {
         const f: *const fn (c_long) callconv(.c) void = @ptrCast(@alignCast(ffi_fn.symbol));
-        f(@intCast(try toIntArg(args[0])));
+        f(try toCheckedInt(c_long, args[0]));
         return types.VOID;
     }
 
@@ -426,21 +431,21 @@ fn callFfi2(ffi_fn: *types.FfiFunction, args: []const Value, gc: *memory.GC) !Va
     // (int, int) -> int
     if (p0 == .int and p1 == .int and rt == .int) {
         const f: *const fn (c_int, c_int) callconv(.c) c_int = @ptrCast(@alignCast(ffi_fn.symbol));
-        const result = f(@intCast(try toIntArg(args[0])), @intCast(try toIntArg(args[1])));
+        const result = f(try toCheckedInt(c_int, args[0]), try toCheckedInt(c_int, args[1]));
         return types.makeFixnum(@intCast(result));
     }
 
     // (int, int) -> long
     if (p0 == .int and p1 == .int and rt == .long) {
         const f: *const fn (c_int, c_int) callconv(.c) c_long = @ptrCast(@alignCast(ffi_fn.symbol));
-        const result = f(@intCast(try toIntArg(args[0])), @intCast(try toIntArg(args[1])));
+        const result = f(try toCheckedInt(c_int, args[0]), try toCheckedInt(c_int, args[1]));
         return marshalLongReturn(result, gc);
     }
 
     // (long, long) -> long
     if (p0 == .long and p1 == .long and rt == .long) {
         const f: *const fn (c_long, c_long) callconv(.c) c_long = @ptrCast(@alignCast(ffi_fn.symbol));
-        const result = f(@intCast(try toIntArg(args[0])), @intCast(try toIntArg(args[1])));
+        const result = f(try toCheckedInt(c_long, args[0]), try toCheckedInt(c_long, args[1]));
         return marshalLongReturn(result, gc);
     }
 
@@ -480,7 +485,7 @@ fn callFfi2(ffi_fn: *types.FfiFunction, args: []const Value, gc: *memory.GC) !Va
     // (int, int) -> void
     if (p0 == .int and p1 == .int and rt == .void_type) {
         const f: *const fn (c_int, c_int) callconv(.c) void = @ptrCast(@alignCast(ffi_fn.symbol));
-        f(@intCast(try toIntArg(args[0])), @intCast(try toIntArg(args[1])));
+        f(try toCheckedInt(c_int, args[0]), try toCheckedInt(c_int, args[1]));
         return types.VOID;
     }
 
@@ -515,63 +520,63 @@ fn callFfi2(ffi_fn: *types.FfiFunction, args: []const Value, gc: *memory.GC) !Va
     // (pointer, int) -> int
     if (p0 == .pointer and p1 == .int and rt == .int) {
         const f: *const fn (?*anyopaque, c_int) callconv(.c) c_int = @ptrCast(@alignCast(ffi_fn.symbol));
-        const result = f(marshalToPointer(args[0]), @intCast(try toIntArg(args[1])));
+        const result = f(marshalToPointer(args[0]), try toCheckedInt(c_int, args[1]));
         return types.makeFixnum(@intCast(result));
     }
 
     // (pointer, int) -> void
     if (p0 == .pointer and p1 == .int and rt == .void_type) {
         const f: *const fn (?*anyopaque, c_int) callconv(.c) void = @ptrCast(@alignCast(ffi_fn.symbol));
-        f(marshalToPointer(args[0]), @intCast(try toIntArg(args[1])));
+        f(marshalToPointer(args[0]), try toCheckedInt(c_int, args[1]));
         return types.VOID;
     }
 
     // (pointer, int) -> pointer
     if (p0 == .pointer and p1 == .int and rt == .pointer) {
         const f: *const fn (?*anyopaque, c_int) callconv(.c) ?*anyopaque = @ptrCast(@alignCast(ffi_fn.symbol));
-        const result = f(marshalToPointer(args[0]), @intCast(try toIntArg(args[1])));
+        const result = f(marshalToPointer(args[0]), try toCheckedInt(c_int, args[1]));
         return marshalPointerReturn(result, gc);
     }
 
     // (pointer, long) -> pointer (realloc, etc.)
     if (p0 == .pointer and p1 == .long and rt == .pointer) {
         const f: *const fn (?*anyopaque, c_long) callconv(.c) ?*anyopaque = @ptrCast(@alignCast(ffi_fn.symbol));
-        const result = f(marshalToPointer(args[0]), @intCast(try toIntArg(args[1])));
+        const result = f(marshalToPointer(args[0]), try toCheckedInt(c_long, args[1]));
         return marshalPointerReturn(result, gc);
     }
 
     // (pointer, long) -> int
     if (p0 == .pointer and p1 == .long and rt == .int) {
         const f: *const fn (?*anyopaque, c_long) callconv(.c) c_int = @ptrCast(@alignCast(ffi_fn.symbol));
-        const result = f(marshalToPointer(args[0]), @intCast(try toIntArg(args[1])));
+        const result = f(marshalToPointer(args[0]), try toCheckedInt(c_long, args[1]));
         return types.makeFixnum(@intCast(result));
     }
 
     // (pointer, long) -> void
     if (p0 == .pointer and p1 == .long and rt == .void_type) {
         const f: *const fn (?*anyopaque, c_long) callconv(.c) void = @ptrCast(@alignCast(ffi_fn.symbol));
-        f(marshalToPointer(args[0]), @intCast(try toIntArg(args[1])));
+        f(marshalToPointer(args[0]), try toCheckedInt(c_long, args[1]));
         return types.VOID;
     }
 
     // (pointer, long) -> long
     if (p0 == .pointer and p1 == .long and rt == .long) {
         const f: *const fn (?*anyopaque, c_long) callconv(.c) c_long = @ptrCast(@alignCast(ffi_fn.symbol));
-        const result = f(marshalToPointer(args[0]), @intCast(try toIntArg(args[1])));
+        const result = f(marshalToPointer(args[0]), try toCheckedInt(c_long, args[1]));
         return marshalLongReturn(result, gc);
     }
 
     // (int, pointer) -> int
     if (p0 == .int and p1 == .pointer and rt == .int) {
         const f: *const fn (c_int, ?*anyopaque) callconv(.c) c_int = @ptrCast(@alignCast(ffi_fn.symbol));
-        const result = f(@intCast(try toIntArg(args[0])), marshalToPointer(args[1]));
+        const result = f(try toCheckedInt(c_int, args[0]), marshalToPointer(args[1]));
         return types.makeFixnum(@intCast(result));
     }
 
     // (int, pointer) -> void
     if (p0 == .int and p1 == .pointer and rt == .void_type) {
         const f: *const fn (c_int, ?*anyopaque) callconv(.c) void = @ptrCast(@alignCast(ffi_fn.symbol));
-        f(@intCast(try toIntArg(args[0])), marshalToPointer(args[1]));
+        f(try toCheckedInt(c_int, args[0]), marshalToPointer(args[1]));
         return types.VOID;
     }
 
@@ -580,7 +585,7 @@ fn callFfi2(ffi_fn: *types.FfiFunction, args: []const Value, gc: *memory.GC) !Va
         const f: *const fn ([*:0]const u8, c_int) callconv(.c) ?*anyopaque = @ptrCast(@alignCast(ffi_fn.symbol));
         var buf0: [4096]u8 = undefined;
         const cs0 = toCString(args[0], &buf0) orelse return error.TypeError;
-        const result = f(cs0, @intCast(try toIntArg(args[1])));
+        const result = f(cs0, try toCheckedInt(c_int, args[1]));
         return marshalPointerReturn(result, gc);
     }
 
@@ -609,7 +614,7 @@ fn callFfi2(ffi_fn: *types.FfiFunction, args: []const Value, gc: *memory.GC) !Va
     // (long, long) -> pointer
     if (p0 == .long and p1 == .long and rt == .pointer) {
         const f: *const fn (c_long, c_long) callconv(.c) ?*anyopaque = @ptrCast(@alignCast(ffi_fn.symbol));
-        const result = f(@intCast(try toIntArg(args[0])), @intCast(try toIntArg(args[1])));
+        const result = f(try toCheckedInt(c_long, args[0]), try toCheckedInt(c_long, args[1]));
         return marshalPointerReturn(result, gc);
     }
 
@@ -631,7 +636,7 @@ fn callFfi3(ffi_fn: *types.FfiFunction, args: []const Value, gc: *memory.GC) !Va
         const f: *const fn ([*:0]const u8, c_int, c_int) callconv(.c) c_int = @ptrCast(@alignCast(ffi_fn.symbol));
         var buf: [4096]u8 = undefined;
         const cstr = toCString(args[0], &buf) orelse return error.TypeError;
-        const result = f(cstr, @intCast(try toIntArg(args[1])), @intCast(try toIntArg(args[2])));
+        const result = f(cstr, try toCheckedInt(c_int, args[1]), try toCheckedInt(c_int, args[2]));
         return types.makeFixnum(@intCast(result));
     }
 
@@ -645,7 +650,7 @@ fn callFfi3(ffi_fn: *types.FfiFunction, args: []const Value, gc: *memory.GC) !Va
     // (int, int, int) -> int
     if (p0 == .int and p1 == .int and p2 == .int and rt == .int) {
         const f: *const fn (c_int, c_int, c_int) callconv(.c) c_int = @ptrCast(@alignCast(ffi_fn.symbol));
-        const result = f(@intCast(try toIntArg(args[0])), @intCast(try toIntArg(args[1])), @intCast(try toIntArg(args[2])));
+        const result = f(try toCheckedInt(c_int, args[0]), try toCheckedInt(c_int, args[1]), try toCheckedInt(c_int, args[2]));
         return types.makeFixnum(@intCast(result));
     }
 
@@ -656,28 +661,28 @@ fn callFfi3(ffi_fn: *types.FfiFunction, args: []const Value, gc: *memory.GC) !Va
         var buf1: [4096]u8 = undefined;
         const cs0 = toCString(args[0], &buf0) orelse return error.TypeError;
         const cs1 = toCString(args[1], &buf1) orelse return error.TypeError;
-        const result = f(cs0, cs1, @intCast(try toIntArg(args[2])));
+        const result = f(cs0, cs1, try toCheckedInt(c_int, args[2]));
         return types.makeFixnum(@intCast(result));
     }
 
     // (pointer, pointer, long) -> pointer (memcpy, memmove, etc.)
     if (p0 == .pointer and p1 == .pointer and p2 == .long and rt == .pointer) {
         const f: *const fn (?*anyopaque, ?*anyopaque, c_long) callconv(.c) ?*anyopaque = @ptrCast(@alignCast(ffi_fn.symbol));
-        const result = f(marshalToPointer(args[0]), marshalToPointer(args[1]), @intCast(try toIntArg(args[2])));
+        const result = f(marshalToPointer(args[0]), marshalToPointer(args[1]), try toCheckedInt(c_long, args[2]));
         return marshalPointerReturn(result, gc);
     }
 
     // (pointer, int, long) -> pointer (memset, etc.)
     if (p0 == .pointer and p1 == .int and p2 == .long and rt == .pointer) {
         const f: *const fn (?*anyopaque, c_int, c_long) callconv(.c) ?*anyopaque = @ptrCast(@alignCast(ffi_fn.symbol));
-        const result = f(marshalToPointer(args[0]), @intCast(try toIntArg(args[1])), @intCast(try toIntArg(args[2])));
+        const result = f(marshalToPointer(args[0]), try toCheckedInt(c_int, args[1]), try toCheckedInt(c_long, args[2]));
         return marshalPointerReturn(result, gc);
     }
 
     // (pointer, long, pointer) -> long (fread/fwrite patterns)
     if (p0 == .pointer and p1 == .long and p2 == .pointer and rt == .long) {
         const f: *const fn (?*anyopaque, c_long, ?*anyopaque) callconv(.c) c_long = @ptrCast(@alignCast(ffi_fn.symbol));
-        const result = f(marshalToPointer(args[0]), @intCast(try toIntArg(args[1])), marshalToPointer(args[2]));
+        const result = f(marshalToPointer(args[0]), try toCheckedInt(c_long, args[1]), marshalToPointer(args[2]));
         return marshalLongReturn(result, gc);
     }
 
@@ -705,21 +710,21 @@ fn callFfi3(ffi_fn: *types.FfiFunction, args: []const Value, gc: *memory.GC) !Va
     // (pointer, pointer, long) -> int
     if (p0 == .pointer and p1 == .pointer and p2 == .long and rt == .int) {
         const f: *const fn (?*anyopaque, ?*anyopaque, c_long) callconv(.c) c_int = @ptrCast(@alignCast(ffi_fn.symbol));
-        const result = f(marshalToPointer(args[0]), marshalToPointer(args[1]), @intCast(try toIntArg(args[2])));
+        const result = f(marshalToPointer(args[0]), marshalToPointer(args[1]), try toCheckedInt(c_long, args[2]));
         return types.makeFixnum(@intCast(result));
     }
 
     // (pointer, pointer, long) -> void
     if (p0 == .pointer and p1 == .pointer and p2 == .long and rt == .void_type) {
         const f: *const fn (?*anyopaque, ?*anyopaque, c_long) callconv(.c) void = @ptrCast(@alignCast(ffi_fn.symbol));
-        f(marshalToPointer(args[0]), marshalToPointer(args[1]), @intCast(try toIntArg(args[2])));
+        f(marshalToPointer(args[0]), marshalToPointer(args[1]), try toCheckedInt(c_long, args[2]));
         return types.VOID;
     }
 
     // (int, pointer, pointer) -> int
     if (p0 == .int and p1 == .pointer and p2 == .pointer and rt == .int) {
         const f: *const fn (c_int, ?*anyopaque, ?*anyopaque) callconv(.c) c_int = @ptrCast(@alignCast(ffi_fn.symbol));
-        const result = f(@intCast(try toIntArg(args[0])), marshalToPointer(args[1]), marshalToPointer(args[2]));
+        const result = f(try toCheckedInt(c_int, args[0]), marshalToPointer(args[1]), marshalToPointer(args[2]));
         return types.makeFixnum(@intCast(result));
     }
 
@@ -754,7 +759,7 @@ fn callFfi4(ffi_fn: *types.FfiFunction, args: []const Value, gc: *memory.GC) !Va
     if (p0 == .pointer and p1 == .long and p2 == .long and p3 == .pointer and rt == .void_type) {
         const f: *const fn (?*anyopaque, c_long, c_long, ?*anyopaque) callconv(.c) void =
             @ptrCast(@alignCast(ffi_fn.symbol));
-        f(marshalToPointer(args[0]), @intCast(try toIntArg(args[1])), @intCast(try toIntArg(args[2])), marshalToPointer(args[3]));
+        f(marshalToPointer(args[0]), try toCheckedInt(c_long, args[1]), try toCheckedInt(c_long, args[2]), marshalToPointer(args[3]));
         return types.VOID;
     }
 
@@ -764,7 +769,7 @@ fn callFfi4(ffi_fn: *types.FfiFunction, args: []const Value, gc: *memory.GC) !Va
             @ptrCast(@alignCast(ffi_fn.symbol));
         const ptr0 = marshalToPointer(args[0]) orelse return error.TypeError;
         const ptr3 = marshalToPointer(args[3]) orelse return error.TypeError;
-        const result = f(ptr0, @intCast(try toIntArg(args[1])), @intCast(try toIntArg(args[2])), ptr3);
+        const result = f(ptr0, try toCheckedInt(c_long, args[1]), try toCheckedInt(c_long, args[2]), ptr3);
         return types.makeFixnum(@intCast(result));
     }
 
@@ -785,7 +790,7 @@ fn callFfi4(ffi_fn: *types.FfiFunction, args: []const Value, gc: *memory.GC) !Va
     if (p0 == .pointer and p1 == .pointer and p2 == .long and p3 == .long and rt == .pointer) {
         const f: *const fn (?*anyopaque, ?*anyopaque, c_long, c_long) callconv(.c) ?*anyopaque =
             @ptrCast(@alignCast(ffi_fn.symbol));
-        const result = f(marshalToPointer(args[0]), marshalToPointer(args[1]), @intCast(try toIntArg(args[2])), @intCast(try toIntArg(args[3])));
+        const result = f(marshalToPointer(args[0]), marshalToPointer(args[1]), try toCheckedInt(c_long, args[2]), try toCheckedInt(c_long, args[3]));
         return marshalPointerReturn(result, gc);
     }
 
@@ -793,7 +798,7 @@ fn callFfi4(ffi_fn: *types.FfiFunction, args: []const Value, gc: *memory.GC) !Va
     if (p0 == .pointer and p1 == .long and p2 == .long and p3 == .long and rt == .int) {
         const f: *const fn (?*anyopaque, c_long, c_long, c_long) callconv(.c) c_int =
             @ptrCast(@alignCast(ffi_fn.symbol));
-        const result = f(marshalToPointer(args[0]), @intCast(try toIntArg(args[1])), @intCast(try toIntArg(args[2])), @intCast(try toIntArg(args[3])));
+        const result = f(marshalToPointer(args[0]), try toCheckedInt(c_long, args[1]), try toCheckedInt(c_long, args[2]), try toCheckedInt(c_long, args[3]));
         return types.makeFixnum(@intCast(result));
     }
 
@@ -845,35 +850,35 @@ fn callFfi5(ffi_fn: *types.FfiFunction, args: []const Value, gc: *memory.GC) !Va
     // (int, int, int, int, int) -> int
     if (p0 == .int and p1 == .int and p2 == .int and p3 == .int and p4 == .int and rt == .int) {
         const f: *const fn (c_int, c_int, c_int, c_int, c_int) callconv(.c) c_int = @ptrCast(@alignCast(ffi_fn.symbol));
-        const result = f(@intCast(try toIntArg(args[0])), @intCast(try toIntArg(args[1])), @intCast(try toIntArg(args[2])), @intCast(try toIntArg(args[3])), @intCast(try toIntArg(args[4])));
+        const result = f(try toCheckedInt(c_int, args[0]), try toCheckedInt(c_int, args[1]), try toCheckedInt(c_int, args[2]), try toCheckedInt(c_int, args[3]), try toCheckedInt(c_int, args[4]));
         return types.makeFixnum(@intCast(result));
     }
 
     // (int, int, int, int, int) -> void
     if (p0 == .int and p1 == .int and p2 == .int and p3 == .int and p4 == .int and rt == .void_type) {
         const f: *const fn (c_int, c_int, c_int, c_int, c_int) callconv(.c) void = @ptrCast(@alignCast(ffi_fn.symbol));
-        f(@intCast(try toIntArg(args[0])), @intCast(try toIntArg(args[1])), @intCast(try toIntArg(args[2])), @intCast(try toIntArg(args[3])), @intCast(try toIntArg(args[4])));
+        f(try toCheckedInt(c_int, args[0]), try toCheckedInt(c_int, args[1]), try toCheckedInt(c_int, args[2]), try toCheckedInt(c_int, args[3]), try toCheckedInt(c_int, args[4]));
         return types.VOID;
     }
 
     // (int, int, int, pointer, int) -> int — setsockopt
     if (p0 == .int and p1 == .int and p2 == .int and p3 == .pointer and p4 == .int and rt == .int) {
         const f: *const fn (c_int, c_int, c_int, ?*anyopaque, c_int) callconv(.c) c_int = @ptrCast(@alignCast(ffi_fn.symbol));
-        const result = f(@intCast(try toIntArg(args[0])), @intCast(try toIntArg(args[1])), @intCast(try toIntArg(args[2])), marshalToPointer(args[3]), @intCast(try toIntArg(args[4])));
+        const result = f(try toCheckedInt(c_int, args[0]), try toCheckedInt(c_int, args[1]), try toCheckedInt(c_int, args[2]), marshalToPointer(args[3]), try toCheckedInt(c_int, args[4]));
         return types.makeFixnum(@intCast(result));
     }
 
     // (pointer, pointer, long, int, pointer) -> int — sendto
     if (p0 == .pointer and p1 == .pointer and p2 == .long and p3 == .int and p4 == .pointer and rt == .int) {
         const f: *const fn (?*anyopaque, ?*anyopaque, c_long, c_int, ?*anyopaque) callconv(.c) c_int = @ptrCast(@alignCast(ffi_fn.symbol));
-        const result = f(marshalToPointer(args[0]), marshalToPointer(args[1]), @intCast(try toIntArg(args[2])), @intCast(try toIntArg(args[3])), marshalToPointer(args[4]));
+        const result = f(marshalToPointer(args[0]), marshalToPointer(args[1]), try toCheckedInt(c_long, args[2]), try toCheckedInt(c_int, args[3]), marshalToPointer(args[4]));
         return types.makeFixnum(@intCast(result));
     }
 
     // (pointer, int, int, int, int) -> int — socket/IO ops
     if (p0 == .pointer and p1 == .int and p2 == .int and p3 == .int and p4 == .int and rt == .int) {
         const f: *const fn (?*anyopaque, c_int, c_int, c_int, c_int) callconv(.c) c_int = @ptrCast(@alignCast(ffi_fn.symbol));
-        const result = f(marshalToPointer(args[0]), @intCast(try toIntArg(args[1])), @intCast(try toIntArg(args[2])), @intCast(try toIntArg(args[3])), @intCast(try toIntArg(args[4])));
+        const result = f(marshalToPointer(args[0]), try toCheckedInt(c_int, args[1]), try toCheckedInt(c_int, args[2]), try toCheckedInt(c_int, args[3]), try toCheckedInt(c_int, args[4]));
         return types.makeFixnum(@intCast(result));
     }
 
@@ -905,7 +910,7 @@ fn callFfi5(ffi_fn: *types.FfiFunction, args: []const Value, gc: *memory.GC) !Va
     if (p0 == .string and p1 == .int and p2 == .int and p3 == .int and p4 == .int and rt == .int) {
         const f: *const fn ([*:0]const u8, c_int, c_int, c_int, c_int) callconv(.c) c_int = @ptrCast(@alignCast(ffi_fn.symbol));
         var buf0: [4096]u8 = undefined;
-        const result = f(toCString(args[0], &buf0) orelse return error.TypeError, @intCast(try toIntArg(args[1])), @intCast(try toIntArg(args[2])), @intCast(try toIntArg(args[3])), @intCast(try toIntArg(args[4])));
+        const result = f(toCString(args[0], &buf0) orelse return error.TypeError, try toCheckedInt(c_int, args[1]), try toCheckedInt(c_int, args[2]), try toCheckedInt(c_int, args[3]), try toCheckedInt(c_int, args[4]));
         return types.makeFixnum(@intCast(result));
     }
 
