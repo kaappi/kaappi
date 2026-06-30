@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1782856398471,
+  "lastUpdate": 1782857346667,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
@@ -1078,6 +1078,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "gc-pressure",
             "value": 2.404597,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 0,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "7110c9742af24a4cd2ab4ece5b411e2d7f0e1524",
+          "message": "Fix deepCopyValue dropping transformer fields on cross-thread copy (#605) (#621)\n\nThe .transformer arm of deepCopyValue only reconstructed literals,\npatterns, and templates — silently dropping custom_ellipsis,\ncaptured_locals, and def_env. Macros using these fields would\nproduce wrong results after crossing a thread boundary.\n\nReconstruct all three fields: dupe custom_ellipsis and captured_locals,\nshare def_env (part of shared library infrastructure).\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-01T03:28:25+05:30",
+          "tree_id": "37f5e30afb9cc3d2696cfd57a1c924f76f3d072c",
+          "url": "https://github.com/kaappi/kaappi/commit/7110c9742af24a4cd2ab4ece5b411e2d7f0e1524"
+        },
+        "date": 1782857346241,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.934035,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.078016,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.817321,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.083117,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.007309,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.031941,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.446184,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 1.266447,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.823905,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.71369,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.092668,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.235331,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 2.363482,
             "unit": "seconds"
           },
           {
