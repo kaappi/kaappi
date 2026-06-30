@@ -1250,6 +1250,14 @@ pub const GC = struct {
                 for (t.templates, 0..) |v, i| tmp_tmpls[i] = try self.deepCopyValue(v, visited);
                 const new_val = try self.allocTransformer(tmp_lits, tmp_pats, tmp_tmpls);
                 try visited.put(src_ptr, new_val);
+                const new_tx = types.toObject(new_val).as(types.Transformer);
+                if (t.custom_ellipsis) |ce| {
+                    new_tx.custom_ellipsis = self.allocator.dupe(u8, ce) catch null;
+                }
+                if (t.captured_locals.len > 0) {
+                    new_tx.captured_locals = self.allocator.dupe(types.CapturedLocal, t.captured_locals) catch &.{};
+                }
+                new_tx.def_env = t.def_env;
                 return new_val;
             },
             .native_fn, .native_closure, .ffi_library, .ffi_function => src,
