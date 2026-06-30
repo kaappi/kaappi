@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1782858215557,
+  "lastUpdate": 1782859452237,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
@@ -1276,6 +1276,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "gc-pressure",
             "value": 2.248547,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 0,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "41c36da6dfd1017a14d9f32273ecf755ecf9582a",
+          "message": "Fix bytecode symbol name length write/read mismatch (#609) (#623)\n\nThe writer used unchecked @intCast(sym.name.len) to u16 for symbol and\nfunction name lengths, panicking on names > 65535 bytes in ReleaseSafe.\nThe reader rejects names > MAX_SYMBOL_BYTES (4096), creating a\nwrite/read mismatch for names 4097-65535 bytes.\n\nAdd MAX_SYMBOL_BYTES validation on the write side for both symbol\nconstants and function names, matching the reader's limit and\npreventing the @intCast panic.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-01T04:03:23+05:30",
+          "tree_id": "5d7554c6fb0229f17c836375292208c06feba3cc",
+          "url": "https://github.com/kaappi/kaappi/commit/41c36da6dfd1017a14d9f32273ecf755ecf9582a"
+        },
+        "date": 1782859451478,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.299026,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.214066,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.80275,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.114234,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006872,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.033777,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.451519,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 1.146434,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.955723,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.761095,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.173383,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.215993,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 2.406879,
             "unit": "seconds"
           },
           {
