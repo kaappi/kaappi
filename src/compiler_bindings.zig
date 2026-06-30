@@ -290,12 +290,12 @@ pub fn compileNamedLet(self: *Compiler, args: Value, dst: u16, is_tail: bool) Co
         try self.emitU16(loop_reg);
     }
 
-    var nargs: u8 = 0;
+    if (param_count > 255) return CompileError.InternalLimit;
+    const nargs: u8 = @intCast(param_count);
     for (0..param_count) |j| {
         const arg_reg = try self.allocReg();
         _ = arg_reg;
         try self.compileExpr(init_exprs[j], call_base + 1 + @as(u16, @intCast(j)), false);
-        nargs += 1;
     }
 
     if (is_tail) {
