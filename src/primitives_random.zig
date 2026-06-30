@@ -90,7 +90,7 @@ fn randomSourcePFn(args: []const Value) PrimitiveError!Value {
 fn makeRandomSourceFn(args: []const Value) PrimitiveError!Value {
     _ = args;
     const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
-    return gc.allocRandomSource(freshSeed()) catch return PrimitiveError.OutOfMemory;
+    return gc.allocRandomSource(0) catch return PrimitiveError.OutOfMemory;
 }
 
 fn randomSourceRandomizeFn(args: []const Value) PrimitiveError!Value {

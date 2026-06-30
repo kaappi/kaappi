@@ -12,6 +12,11 @@
       (lambda (n) (%rs-next-int rs n)))
 
     (define (random-source-make-reals rs . rest)
+      (when (and (pair? rest)
+                 (not (and (real? (car rest))
+                           (> (car rest) 0)
+                           (< (car rest) 1))))
+        (error "random-source-make-reals: unit must satisfy 0 < unit < 1" (car rest)))
       (lambda () (%rs-next-real rs)))
 
     ))
