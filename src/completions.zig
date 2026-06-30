@@ -66,7 +66,7 @@ const kaappi_zsh =
     \\
     \\    _arguments -s \
     \\        $flags \
-    \\        '1:command or file:_files -g "*.scm"' \
+    \\        '1:command or file:_alternative "commands:command:(compile)" "files:file:_files -g \"*.scm\""' \
     \\        '*:script args:_files'
     \\}
     \\
