@@ -274,8 +274,9 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
             .call => {
                 const base_reg = readU16(self, frame);
                 const nargs = readU8(self, frame);
-                const base = frame.base + base_reg;
-                try ensureCallWindow(self, base, nargs);
+                const base_wide = @as(usize, frame.base) + @as(usize, base_reg);
+                try ensureCallWindow(self, base_wide, nargs);
+                const base: u16 = @intCast(base_wide);
                 const callee = self.registers[base];
                 if (types.isClosure(callee)) {
                     vm_calls.callClosure(self, types.toObject(callee).as(types.Closure), base, nargs) catch |err| return err;
@@ -294,8 +295,9 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
             .tail_call => {
                 const base_reg = readU16(self, frame);
                 const nargs = readU8(self, frame);
-                const abs_base = frame.base + base_reg;
-                try ensureCallWindow(self, abs_base, nargs);
+                const abs_base_wide = @as(usize, frame.base) + @as(usize, base_reg);
+                try ensureCallWindow(self, abs_base_wide, nargs);
+                const abs_base: u16 = @intCast(abs_base_wide);
                 const callee = self.registers[abs_base];
 
                 if (types.isClosure(callee)) {
@@ -478,8 +480,9 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                 const base_reg = readU16(self, frame);
                 const nargs = readU8(self, frame);
                 if (nargs == 0) return VMError.InvalidBytecode;
-                const abs_base = frame.base + base_reg;
-                try ensureCallWindow(self, abs_base, nargs);
+                const abs_base_wide = @as(usize, frame.base) + @as(usize, base_reg);
+                try ensureCallWindow(self, abs_base_wide, nargs);
+                const abs_base: u16 = @intCast(abs_base_wide);
                 const proc = self.registers[abs_base];
 
                 var flat_args: [256]Value = undefined;
@@ -740,8 +743,9 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                 const the_closure = frame.closure orelse return VMError.InvalidBytecode;
                 const the_func = the_closure.func;
                 const env: *std.StringHashMap(Value) = the_func.env orelse &self.globals;
-                const base = frame.base + base_reg;
-                try ensureCallWindow(self, base, nargs);
+                const base_wide = @as(usize, frame.base) + @as(usize, base_reg);
+                try ensureCallWindow(self, base_wide, nargs);
+                const base: u16 = @intCast(base_wide);
 
                 if (the_func.env == null) {
                     if (the_func.global_cache) |cache| {
@@ -855,8 +859,9 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                 const closure = frame.closure orelse return VMError.InvalidBytecode;
                 const func = closure.func;
                 const env: *std.StringHashMap(Value) = func.env orelse &self.globals;
-                const abs_base = frame.base + base_reg;
-                try ensureCallWindow(self, abs_base, nargs);
+                const abs_base_wide = @as(usize, frame.base) + @as(usize, base_reg);
+                try ensureCallWindow(self, abs_base_wide, nargs);
+                const abs_base: u16 = @intCast(abs_base_wide);
 
                 var callee: Value = types.VOID;
                 if (func.env == null) {
@@ -1048,8 +1053,9 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
             .self_tail_call => {
                 const base_reg = readU16(self, frame);
                 const nargs = readU8(self, frame);
-                const abs_base = frame.base + base_reg;
-                try ensureCallWindow(self, abs_base, nargs);
+                const abs_base_wide = @as(usize, frame.base) + @as(usize, base_reg);
+                try ensureCallWindow(self, abs_base_wide, nargs);
+                const abs_base: u16 = @intCast(abs_base_wide);
                 for (0..nargs) |i| {
                     const dst_idx = @as(usize, frame.base) + i;
                     const src_idx = @as(usize, abs_base) + 1 + i;
@@ -1092,9 +1098,9 @@ pub fn registerIndex(vm: *VM, base: u16, reg: u16) VMError!usize {
     return idx;
 }
 
-pub fn ensureCallWindow(vm: *VM, base: u16, nargs: u8) VMError!void {
+pub fn ensureCallWindow(vm: *VM, base: usize, nargs: u8) VMError!void {
     _ = vm;
-    const hi = @as(usize, base) + @as(usize, nargs) + 1;
+    const hi = base + @as(usize, nargs) + 1;
     if (hi > MAX_REGISTERS) return VMError.InvalidBytecode;
 }
 
