@@ -1218,12 +1218,13 @@ pub const GC = struct {
                 const rt_val = types.makePointer(@ptrCast(ri.record_type));
                 const new_rt_val = try self.deepCopyValue(rt_val, visited);
                 const new_rt = types.toObject(new_rt_val).as(types.RecordType);
-                const tmp_fields = try self.allocator.alloc(Value, ri.fields.len);
-                defer self.allocator.free(tmp_fields);
+                const new_val = try self.allocRecordInstance(new_rt, &.{});
+                try visited.put(src_ptr, new_val);
+                const new_ri = types.toObject(new_val).as(types.RecordInstance);
                 for (ri.fields, 0..) |f, i| {
-                    tmp_fields[i] = try self.deepCopyValue(f, visited);
+                    new_ri.fields[i] = try self.deepCopyValue(f, visited);
                 }
-                return try self.allocRecordInstance(new_rt, tmp_fields);
+                return new_val;
             },
             .multiple_values => {
                 const mv = obj.as(types.MultipleValues);
