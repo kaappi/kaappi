@@ -865,13 +865,14 @@ pub fn handleDefineLibrary(vm: *VM, args: Value) VMError!Value {
     // Root the library environment so GC can trace closures defined in
     // begin blocks before the library is registered. Push/pop for
     // nested library loading (e.g. SRFI 64 importing SRFI 35).
-    if (vm.pending_lib_env_count < vm.pending_lib_envs.len) {
+    const pushed_lib_env = vm.pending_lib_env_count < vm.pending_lib_envs.len;
+    if (pushed_lib_env) {
         vm.pending_lib_envs[vm.pending_lib_env_count] = lib_env;
         vm.pending_lib_env_count += 1;
     }
-    defer {
-        if (vm.pending_lib_env_count > 0) vm.pending_lib_env_count -= 1;
-    }
+    defer if (pushed_lib_env) {
+        vm.pending_lib_env_count -= 1;
+    };
 
     var export_names: [128][]const u8 = undefined;
     var export_renames: [128]?[]const u8 = undefined;
