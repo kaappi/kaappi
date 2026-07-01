@@ -80,6 +80,40 @@ run_suite "SRFI tests" tests/scheme/srfi/*.scm
 run_suite "FFI tests" tests/scheme/ffi/*.scm
 run_suite "Audit tests" tests/scheme/audit/*.scm
 
+# Regression test for #699: compileFile GC safety and preamble recording.
+# Exercises the --compile path (compileFile), which roots expr before
+# handleTopLevelForm and always appends to preamble. Compiles to .sbc,
+# then re-runs the .scm (which loads the cached .sbc) to verify imports replay.
+echo "=== Compile tests ==="
+COMPILE_DIR=$(mktemp -d)
+trap 'rm -rf "$COMPILE_DIR"' EXIT
+cat > "$COMPILE_DIR/test.scm" << 'SCHEME'
+(import (scheme base) (scheme write) (scheme char) (scheme cxr))
+(display (string-upcase "hello"))
+(display " ")
+(display (car (cons 42 '())))
+(newline)
+SCHEME
+set +e
+"$KAAPPI" --compile -o "$COMPILE_DIR/test.sbc" "$COMPILE_DIR/test.scm" > /tmp/kaappi-test-out 2>&1
+COMPILE_STATUS=$?
+set -e
+if [[ $COMPILE_STATUS -eq 0 ]]; then
+    REPLAY_OUTPUT=$("$KAAPPI" "$COMPILE_DIR/test.scm" 2>&1)
+    if [[ "$REPLAY_OUTPUT" == "HELLO 42" ]]; then
+        echo "  PASS  compile-preamble-replay (#699)"
+        PASS=$((PASS + 1))
+    else
+        echo "  FAIL  compile-preamble-replay (#699): got '$REPLAY_OUTPUT'"
+        FAIL=$((FAIL + 1))
+    fi
+else
+    echo "  FAIL  compile-preamble-replay (#699): --compile exited $COMPILE_STATUS"
+    cat /tmp/kaappi-test-out
+    FAIL=$((FAIL + 1))
+fi
+echo ""
+
 echo "=== R7RS test suite ==="
 set +e
 # Capture stdout and stderr separately to preserve panic messages
