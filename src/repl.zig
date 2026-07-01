@@ -173,6 +173,27 @@ fn highlightCallback(buf: [*c]const u8, len: usize, out_len: [*c]usize) callconv
             continue;
         }
 
+        if (ch == '#' and i + 1 < input.len and input[i + 1] == '\\') {
+            result.appendSlice(allocator, ANSI_NUMBER) catch return null;
+            result.append(allocator, '#') catch return null;
+            result.append(allocator, '\\') catch return null;
+            i += 2;
+            if (i < input.len) {
+                const first = input[i];
+                if ((first >= 'a' and first <= 'z') or (first >= 'A' and first <= 'Z')) {
+                    while (i < input.len and ((input[i] >= 'a' and input[i] <= 'z') or (input[i] >= 'A' and input[i] <= 'Z'))) {
+                        result.append(allocator, input[i]) catch return null;
+                        i += 1;
+                    }
+                } else {
+                    result.append(allocator, first) catch return null;
+                    i += 1;
+                }
+            }
+            result.appendSlice(allocator, ANSI_RESET) catch return null;
+            continue;
+        }
+
         if (ch == '#' and i + 1 < input.len and (input[i + 1] == 't' or input[i + 1] == 'f')) {
             const is_bool = (i + 2 >= input.len or isDelimiter(input[i + 2]));
             if (is_bool) {
