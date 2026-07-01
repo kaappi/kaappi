@@ -12,9 +12,7 @@ on:
       - '.github/workflows/benchmark-pr.yml'
 
 permissions:
-  pull-requests: write
-  issues: write
-  contents: read
+  contents: write
 
 jobs:
   benchmark-pr:
