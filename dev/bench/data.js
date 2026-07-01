@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1782864916126,
+  "lastUpdate": 1782865647985,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
@@ -1870,6 +1870,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "gc-pressure",
             "value": 2.409527,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 0,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e04b06a898728c19602adae030efa479a1d90ea5",
+          "message": "Fix exact division with bignums returning flonum instead of rational (#612) (#629)\n\nTwo paths in divFn silently degraded exact results to flonum when\nbignums were involved:\n\n1. Single-arg reciprocal (/ bignum) fell through to the float path\n   instead of producing an exact rational 1/bignum.\n\n2. Multi-arg bignum division only handled the args.len==2 exact-divide\n   case; non-even division fell through to float.\n\nAdd bignum case to single-arg reciprocal using makeRationalReduced,\nand extend multi-arg bignum path to produce exact rationals when\ndivision is not even.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-01T05:46:59+05:30",
+          "tree_id": "1ec1a382e6fe33c1d355cc4f7ede74ba57729175",
+          "url": "https://github.com/kaappi/kaappi/commit/e04b06a898728c19602adae030efa479a1d90ea5"
+        },
+        "date": 1782865647537,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.726466,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.760755,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.761779,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.956502,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.007232,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.030926,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.412124,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 1.074722,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.987335,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.568858,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.091656,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.218687,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 2.225906,
             "unit": "seconds"
           },
           {
