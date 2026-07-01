@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1782875573250,
+  "lastUpdate": 1782876441660,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
@@ -2662,6 +2662,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "gc-pressure",
             "value": 2.402526,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 0,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c5934c0d9ca1dbf7a67a84e37fec3e46d2a393af",
+          "message": "Fix highlightCallback misparses character literals (#633) (#658)\n\nhighlightCallback had no special-casing for #\\ character literals.\nCharacters like #\\; triggered the line-comment branch (painting the\nrest of the line gray), and #\\( / #\\) triggered the paren branch\n(producing extra colored spans).\n\nAdd a #\\ case that consumes the character literal as a single token\n(either one non-alpha character or an alphabetic run for named chars\nlike #\\space), mirroring parenDepth's existing handling.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-01T08:46:30+05:30",
+          "tree_id": "ca24318ab1125819dd8dfde732241ba25d692019",
+          "url": "https://github.com/kaappi/kaappi/commit/c5934c0d9ca1dbf7a67a84e37fec3e46d2a393af"
+        },
+        "date": 1782876440734,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.335746,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.604252,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.818687,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.177203,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006864,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.032294,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.452172,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 1.146198,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.999244,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.761837,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.109618,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.23155,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 2.435521,
             "unit": "seconds"
           },
           {
