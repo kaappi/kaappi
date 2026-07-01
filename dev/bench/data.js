@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1782900857041,
+  "lastUpdate": 1782902184372,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
@@ -4157,6 +4157,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.04535,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "bab7a5e0d6da321e7ee839fe6e9663a856e4d728",
+          "message": "Merge pull request #674 from kaappi/fix/643-thread-self-join\n\nDetect thread-join! on current thread and raise error",
+          "timestamp": "2026-07-01T15:51:40+05:30",
+          "tree_id": "91a43cdbdb09204575bf0da50519c540e0bac646",
+          "url": "https://github.com/kaappi/kaappi/commit/bab7a5e0d6da321e7ee839fe6e9663a856e4d728"
+        },
+        "date": 1782902183949,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.688396,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.619687,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.767358,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.658906,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.007137,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.031233,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.406682,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.065923,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.958474,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.535949,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.080391,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.216788,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 2.243282,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 0.905532,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.038223,
             "unit": "seconds"
           }
         ]
