@@ -49,12 +49,16 @@ fn importBinding(vm: *VM, target: *std.StringHashMap(Value), name: []const u8, v
 /// Handle (import import-set ...) into a specific target environment.
 pub fn handleImportInto(vm: *VM, target: *std.StringHashMap(Value), args: Value) VMError!Value {
     var current = args;
+    var had_error = false;
     while (current != types.NIL) {
         if (!types.isPair(current)) return VMError.CompileError;
         const import_set = types.car(current);
-        processImportSet(vm, target, import_set) catch return VMError.CompileError;
+        processImportSet(vm, target, import_set) catch {
+            had_error = true;
+        };
         current = types.cdr(current);
     }
+    if (had_error) return VMError.CompileError;
     return types.VOID;
 }
 
