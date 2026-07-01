@@ -1049,7 +1049,7 @@ fn compileFile(vm: *vm_mod.VM, path: []const u8, output_path: ?[]const u8) !void
         return;
     }) {
         const datum_lc = r.getLineCol();
-        const expr = r.readDatum() catch |err| {
+        var expr = r.readDatum() catch |err| {
             const lc = r.getLineCol();
             var errbuf: [256]u8 = undefined;
             const s = std.fmt.bufPrint(&errbuf, "{s}:{d}:{d}: read error: {}\n", .{ path, lc.line, lc.col, err }) catch "read error\n";
@@ -1058,6 +1058,9 @@ fn compileFile(vm: *vm_mod.VM, path: []const u8, output_path: ?[]const u8) !void
         };
 
         if (vm.handleTopLevelForm(expr)) |top_result| {
+            vm.gc.pushRoot(&expr) catch continue;
+            defer vm.gc.popRoot();
+            const form_src = printer.valueToString(allocator, expr, .write) catch continue;
             _ = top_result catch |err| {
                 const detail = vm.getErrorDetail();
                 if (detail.len > 0) {
@@ -1070,9 +1073,7 @@ fn compileFile(vm: *vm_mod.VM, path: []const u8, output_path: ?[]const u8) !void
                     writeStderr(s);
                 }
                 vm.last_error_detail_len = 0;
-                continue;
             };
-            const form_src = printer.valueToString(allocator, expr, .write) catch continue;
             preamble.append(allocator, form_src) catch {
                 allocator.free(form_src);
             };
