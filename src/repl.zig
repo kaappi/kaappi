@@ -35,13 +35,20 @@ fn writeStderr(bytes: []const u8) void {
     writeToFd(2, bytes);
 }
 
+fn isIdentBreak(c: u8) bool {
+    return switch (c) {
+        '(', ')', '\'', '`', ',', '"', ';', '#', '[', ']', ' ', '\t', '\n', '\r' => true,
+        else => false,
+    };
+}
+
 fn completionCallback(buf: [*c]const u8, lc: [*c]ln.c.linenoiseCompletions) callconv(.c) void {
     const vm = repl_vm orelse return;
     const b: ?[*:0]const u8 = @ptrCast(buf);
-    const prefix = if (b) |bp| std.mem.span(bp) else return;
-    if (prefix.len == 0) return;
+    const line = if (b) |bp| std.mem.span(bp) else return;
+    if (line.len == 0) return;
 
-    if (prefix[0] == ',') {
+    if (line[0] == ',') {
         const commands = [_][*:0]const u8{
             ",time ",  ",type ",       ",describe ", ",apropos ",
             ",env ",   ",profile ",    ",expand ",   ",gc",
@@ -50,22 +57,31 @@ fn completionCallback(buf: [*c]const u8, lc: [*c]ln.c.linenoiseCompletions) call
             ",load ",  ",import ",     ",dis ",
         };
         for (&commands) |cmd| {
-            if (std.mem.startsWith(u8, std.mem.span(cmd), prefix)) {
+            if (std.mem.startsWith(u8, std.mem.span(cmd), line)) {
                 ln.addCompletion(lc, cmd);
             }
         }
         return;
     }
 
+    var ident_start = line.len;
+    while (ident_start > 0 and !isIdentBreak(line[ident_start - 1])) {
+        ident_start -= 1;
+    }
+    const ident_prefix = line[ident_start..];
+    if (ident_prefix.len == 0) return;
+    const line_prefix = line[0..ident_start];
+
     var it = vm.globals.keyIterator();
     while (it.next()) |key| {
-        if (std.mem.startsWith(u8, key.*, prefix)) {
-            var name_buf: [512:0]u8 = undefined;
-            const name = key.*;
-            if (name.len >= name_buf.len) continue;
-            @memcpy(name_buf[0..name.len], name);
-            name_buf[name.len] = 0;
-            ln.addCompletion(lc, &name_buf);
+        if (std.mem.startsWith(u8, key.*, ident_prefix)) {
+            var completion_buf: [1024:0]u8 = undefined;
+            const total_len = line_prefix.len + key.*.len;
+            if (total_len >= completion_buf.len) continue;
+            @memcpy(completion_buf[0..line_prefix.len], line_prefix);
+            @memcpy(completion_buf[line_prefix.len..][0..key.*.len], key.*);
+            completion_buf[total_len] = 0;
+            ln.addCompletion(lc, &completion_buf);
         }
     }
 }
