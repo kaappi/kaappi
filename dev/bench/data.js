@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1782895681422,
+  "lastUpdate": 1782897004178,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
@@ -3761,6 +3761,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044238,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "bd06f83c6c2a997de13cd1db03c0ca9b6e96ffb6",
+          "message": "Merge pull request #670 from kaappi/fix/647-reader-peculiar-identifiers\n\nFix reader truncating peculiar identifiers like ->foo to just the sign",
+          "timestamp": "2026-07-01T14:27:23+05:30",
+          "tree_id": "fc7e555e01972af987b7307940d2fd588bdfb399",
+          "url": "https://github.com/kaappi/kaappi/commit/bd06f83c6c2a997de13cd1db03c0ca9b6e96ffb6"
+        },
+        "date": 1782897003592,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.36429,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.235116,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.81116,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.174496,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006801,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.032241,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.454345,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.066723,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.937902,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.802487,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.097203,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.215456,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 2.400988,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.605616,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.040826,
             "unit": "seconds"
           }
         ]
