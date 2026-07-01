@@ -356,7 +356,9 @@ fn mainImpl(init: std.process.Init.Minimal) !void {
                 var pr = reader_mod.Reader.init(&gc, src);
                 defer pr.deinit();
                 while (pr.hasMore() catch break) {
-                    const expr = pr.readDatum() catch break;
+                    var expr = pr.readDatum() catch break;
+                    gc.pushRoot(&expr) catch break;
+                    defer gc.popRoot();
                     if (vm.handleTopLevelForm(expr)) |top_result| {
                         _ = top_result catch |err| {
                             const detail = vm.getErrorDetail();
