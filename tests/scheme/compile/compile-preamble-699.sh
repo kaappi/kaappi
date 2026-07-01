@@ -23,7 +23,7 @@ SCHEME
 
 "$KAAPPI" --compile -o "$COMPILE_DIR/test.sbc" "$COMPILE_DIR/test.scm" > /dev/null 2>&1
 
-REPLAY_OUTPUT=$("$KAAPPI" "$COMPILE_DIR/test.scm" 2>&1)
+REPLAY_OUTPUT=$("$KAAPPI" "$COMPILE_DIR/test.scm" 2>/dev/null)
 if [[ "$REPLAY_OUTPUT" != "HELLO 42" ]]; then
     echo "FAIL: expected 'HELLO 42', got '$REPLAY_OUTPUT'" >&2
     exit 1
