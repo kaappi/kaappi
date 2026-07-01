@@ -130,6 +130,12 @@ fn jsonGetInt(json: []const u8, key: []const u8) ?i64 {
     return std.fmt.parseInt(i64, json[start..i], 10) catch null;
 }
 
+fn clampToU32(val: i64) u32 {
+    if (val < 0) return 0;
+    if (val > std.math.maxInt(u32)) return std.math.maxInt(u32);
+    return @intCast(@as(u64, @bitCast(val)));
+}
+
 fn jsonGetRawId(json: []const u8) ?[]const u8 {
     var search_buf: [256]u8 = undefined;
     const search = std.fmt.bufPrint(&search_buf, "\"id\"", .{}) catch return null;
@@ -373,7 +379,7 @@ fn handleCompletion(allocator: std.mem.Allocator, vm: *vm_mod.VM, id: []const u8
     const character = jsonGetInt(pos_obj, "character") orelse 0;
 
     const text = getDocument(uri) orelse "";
-    const prefix = getSymbolAtPosition(text, @intCast(line), @intCast(character));
+    const prefix = getSymbolAtPosition(text, clampToU32(line), clampToU32(character));
 
     var buf: std.ArrayList(u8) = .empty;
     defer buf.deinit(allocator);
@@ -413,7 +419,7 @@ fn handleHover(allocator: std.mem.Allocator, vm: *vm_mod.VM, id: []const u8, par
     const character = jsonGetInt(pos_obj, "character") orelse 0;
 
     const text = getDocument(uri) orelse "";
-    const symbol = getFullSymbolAtPosition(text, @intCast(line), @intCast(character));
+    const symbol = getFullSymbolAtPosition(text, clampToU32(line), clampToU32(character));
 
     if (symbol.len == 0) {
         sendResponse(allocator, id, "null");
@@ -547,7 +553,7 @@ fn handleDefinition(allocator: std.mem.Allocator, vm: *vm_mod.VM, id: []const u8
         return;
     };
 
-    const symbol = getFullSymbolAtPosition(text, @intCast(line), @intCast(character));
+    const symbol = getFullSymbolAtPosition(text, clampToU32(line), clampToU32(character));
     if (symbol.len == 0) {
         sendResponse(allocator, id, "null");
         return;
@@ -622,7 +628,7 @@ fn handleReferences(allocator: std.mem.Allocator, vm: *vm_mod.VM, id: []const u8
         return;
     };
 
-    const symbol = getFullSymbolAtPosition(text, @intCast(line), @intCast(character));
+    const symbol = getFullSymbolAtPosition(text, clampToU32(line), clampToU32(character));
     if (symbol.len == 0) {
         sendResponse(allocator, id, "[]");
         return;
