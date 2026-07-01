@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1782873697842,
+  "lastUpdate": 1782874592296,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
@@ -2464,6 +2464,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "gc-pressure",
             "value": 2.371597,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 0,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "7a7eedb80566fbe5afb27d939dea7d9855d86721",
+          "message": "Fix toCString silently truncating strings with embedded NUL bytes (#630) (#656)\n\ntoCString copied Scheme string bytes into a buffer and appended a NUL\nterminator without checking for interior NUL bytes. Since C string\nsemantics treat the first NUL as the string end, this silently\ntruncated the string passed to the C callee.\n\nAdd a scan for interior NUL bytes before copying. If found, return null\nwhich propagates as a TypeError to Scheme code, giving callers a clear\nerror instead of silently-wrong data crossing the FFI boundary.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-01T08:15:30+05:30",
+          "tree_id": "2e73be997d38123f0fac1e1279763b5081c7f17c",
+          "url": "https://github.com/kaappi/kaappi/commit/7a7eedb80566fbe5afb27d939dea7d9855d86721"
+        },
+        "date": 1782874591607,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.333232,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.763928,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.826134,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.275586,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006861,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.033166,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.460783,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 1.156751,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.882886,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.802343,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.129039,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.223149,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 2.442806,
             "unit": "seconds"
           },
           {
