@@ -339,6 +339,14 @@ fn threadJoinFn(args: []const Value) PrimitiveError!Value {
 
     const target = types.toObject(args[0]).as(fiber_mod.Fiber);
 
+    // Self-join detection: a thread cannot join itself (SRFI-18)
+    if (vm_mod.vm_instance) |vm| {
+        if (vm.current_fiber) |me| {
+            if (me == target)
+                return raiseError(.general, "thread-join!: thread cannot join itself", args[0]);
+        }
+    }
+
     // OS thread path: join, deep-copy result from child heap, free child resources
     if (target.os_thread) |thread| {
         thread.join();
