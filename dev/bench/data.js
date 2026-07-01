@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1782905095031,
+  "lastUpdate": 1782905635194,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
@@ -4454,6 +4454,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.042018,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "distinct": true,
+          "id": "cdff9571b81aba51faafccdf4c33bbcafccc45e1",
+          "message": "Add SessionStart hook, enforcement sections, and harness doc updates\n\n- SessionStart hook: prints branch, Zig version, warns about stale worktrees\n- Enforcement map tables in CLAUDE.md mapping rules to mechanisms\n- Updated harness dev doc with new hook documentation\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-01T16:54:09+05:30",
+          "tree_id": "a09eb2a4d4270fce154989c501cc7ef732c004ac",
+          "url": "https://github.com/kaappi/kaappi/commit/cdff9571b81aba51faafccdf4c33bbcafccc45e1"
+        },
+        "date": 1782905634719,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.301654,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.207635,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.821185,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.108282,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006977,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.032575,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.456279,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.068597,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.946671,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.773999,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.094273,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.220141,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 2.404316,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.650678,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.041531,
             "unit": "seconds"
           }
         ]
