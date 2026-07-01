@@ -275,7 +275,7 @@ pub const VM = struct {
         errdefer gc.allocator.free(frames);
         const registers = try gc.allocator.alloc(Value, INITIAL_REGISTER_CAPACITY);
         errdefer gc.allocator.free(registers);
-        const vm = VM{
+        var vm = VM{
             .gc = gc,
             .frames = frames,
             .registers = registers,
@@ -286,13 +286,16 @@ pub const VM = struct {
             .loading_libs = std.StringHashMap(void).init(gc.allocator),
             .lib_paths = parent.lib_paths,
             .param_overrides = std.AutoHashMap(usize, Value).init(gc.allocator),
-            .stdin_port = parent.stdin_port,
-            .stdout_port = parent.stdout_port,
-            .stderr_port = parent.stderr_port,
             .owns_globals = false,
         };
         @memset(vm.registers, types.UNDEFINED);
         gc.root_marker = &markVMRoots;
+        vm.stdin_port = gc.allocPort(0, true, false, "stdin", false) catch types.VOID;
+        vm.stdout_port = gc.allocPort(1, false, true, "stdout", false) catch types.VOID;
+        vm.stderr_port = gc.allocPort(2, false, true, "stderr", false) catch types.VOID;
+        if (vm.stdin_port != types.VOID) try gc.extra_roots.append(gc.allocator, vm.stdin_port);
+        if (vm.stdout_port != types.VOID) try gc.extra_roots.append(gc.allocator, vm.stdout_port);
+        if (vm.stderr_port != types.VOID) try gc.extra_roots.append(gc.allocator, vm.stderr_port);
         return vm;
     }
 
