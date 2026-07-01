@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1782881778038,
+  "lastUpdate": 1782889884645,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
@@ -3355,6 +3355,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "gc-pressure",
             "value": 2.387557,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 0,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "18440e549cb969665ab9d449b4bdfb6e3b36246a",
+          "message": "Fix PR Benchmark Comparison workflow always failing (#665)\n\nFix PR Benchmark Comparison workflow:\n- Use 'raw' tool type (not 'customSmallerIsBetter') for openpgpjs action compatibility\n- Fork action to kaappi/github-action-pull-request-benchmark with PR comment support (upsert), visualization (Unicode bars + color indicators), and node20 runtime\n- Add self-trigger path for workflow file changes",
+          "timestamp": "2026-07-01T12:29:24+05:30",
+          "tree_id": "f7f1355c1005adbc5a5af68a0e8cb73c335011f5",
+          "url": "https://github.com/kaappi/kaappi/commit/18440e549cb969665ab9d449b4bdfb6e3b36246a"
+        },
+        "date": 1782889883880,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.945866,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.73744,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.84549,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.172057,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.007295,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.032081,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.453497,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 1.265954,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.845076,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.761666,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.099173,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.24187,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 2.414421,
             "unit": "seconds"
           },
           {
