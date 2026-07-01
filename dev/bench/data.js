@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1782897004178,
+  "lastUpdate": 1782898687061,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
@@ -3860,6 +3860,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.040826,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "85a5cc41edab6e68747b18dcf0d8814a94c3d3fa",
+          "message": "Merge pull request #671 from kaappi/fix/651-internal-define-syntax-scope\n\nFix internal define-syntax inside let/letrec body leaking macro binding",
+          "timestamp": "2026-07-01T14:55:50+05:30",
+          "tree_id": "668fb039ab58ceb8ae43720c86e05820e95b78e9",
+          "url": "https://github.com/kaappi/kaappi/commit/85a5cc41edab6e68747b18dcf0d8814a94c3d3fa"
+        },
+        "date": 1782898686652,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.355475,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.484149,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.844971,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.198119,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.007175,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.032417,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.460295,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.068405,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.972629,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.780648,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.114067,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.220238,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 2.436323,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.636747,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.041709,
             "unit": "seconds"
           }
         ]
