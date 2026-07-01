@@ -216,8 +216,10 @@ pub fn makeRationalFromReader(gc: *@import("memory.zig").GC, num: i64, den: i64)
     const g = gcdTwo(abs_n, d);
     n = @divExact(n, g);
     d = @divExact(d, g);
-    if (d == 1) return types.makeFixnum(n);
-    return gc.allocRational(types.makeFixnum(n), types.makeFixnum(d));
+    if (d == 1) return try makeFixnumChecked(n);
+    const num_val = try makeFixnumChecked(n);
+    const den_val = try makeFixnumChecked(d);
+    return gc.allocRational(num_val, den_val);
 }
 
 // ---------------------------------------------------------------------------

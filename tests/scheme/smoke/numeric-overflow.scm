@@ -38,6 +38,11 @@
 (check "truncate-quotient minInt÷-1 positive" (positive? (truncate-quotient -140737488355328 -1)) #t)
 (check "floor-quotient minInt÷-1 positive" (positive? (floor-quotient -140737488355328 -1)) #t)
 
+;; Regression for #610: rational literals with large num/den must not truncate
+(check "rational literal large num" 200000000000000/3 200000000000000/3)
+(check "rational literal large den" 1/140737488355328 1/140737488355328)
+(check "rational large den positive" #t (positive? (denominator 1/140737488355328)))
+
 ;; Regression for #611: rationals with bignum fields must not produce garbage
 (check "add bignum-field rational" #t (number? (+ (exact 0.1) 0)))
 (check "mul bignum-field rational" #t (number? (* (exact 0.1) 1)))
