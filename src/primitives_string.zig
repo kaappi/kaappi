@@ -561,19 +561,13 @@ fn stringForEachFn(args: []const Value) PrimitiveError!Value {
         if (cp_len < min_cp_len) min_cp_len = cp_len;
     }
 
-    // Track byte offsets for each string
-    var byte_offsets: [256]usize = undefined;
-    for (0..str_count) |si| {
-        byte_offsets[si] = 0;
-    }
-
     var call_args: [256]Value = undefined;
-    for (0..min_cp_len) |_| {
+    for (0..min_cp_len) |cp_idx| {
         for (0..str_count) |si| {
             const data = try getStringSlice(args[1 + si]);
-            const cp = utf8DecodeAt(data, byte_offsets[si]) orelse return primitives.typeError("string-for-each", "valid UTF-8 string", args[1 + si]);
+            const byte_off = utf8IndexToByteOffset(data, cp_idx) orelse return primitives.typeError("string-for-each", "valid UTF-8 string", args[1 + si]);
+            const cp = utf8DecodeAt(data, byte_off) orelse return primitives.typeError("string-for-each", "valid UTF-8 string", args[1 + si]);
             call_args[si] = types.makeChar(cp);
-            byte_offsets[si] += utf8ByteLenAt(data, byte_offsets[si]);
         }
         _ = vm.callWithArgs(proc, call_args[0..str_count]) catch |err| {
             return switch (err) {
@@ -609,23 +603,17 @@ fn stringMapFn(args: []const Value) PrimitiveError!Value {
         if (cp_len < min_cp_len) min_cp_len = cp_len;
     }
 
-    // Track byte offsets for each string
-    var byte_offsets: [256]usize = undefined;
-    for (0..str_count) |si| {
-        byte_offsets[si] = 0;
-    }
-
     // Collect result chars
     var result_buf: std.ArrayList(u8) = .empty;
     defer result_buf.deinit(gc.allocator);
 
     var call_args: [256]Value = undefined;
-    for (0..min_cp_len) |_| {
+    for (0..min_cp_len) |cp_idx| {
         for (0..str_count) |si| {
             const data = try getStringSlice(args[1 + si]);
-            const cp = utf8DecodeAt(data, byte_offsets[si]) orelse return primitives.typeError("string-map", "valid UTF-8 string", args[1 + si]);
+            const byte_off = utf8IndexToByteOffset(data, cp_idx) orelse return primitives.typeError("string-map", "valid UTF-8 string", args[1 + si]);
+            const cp = utf8DecodeAt(data, byte_off) orelse return primitives.typeError("string-map", "valid UTF-8 string", args[1 + si]);
             call_args[si] = types.makeChar(cp);
-            byte_offsets[si] += utf8ByteLenAt(data, byte_offsets[si]);
         }
         const result = vm.callWithArgs(proc, call_args[0..str_count]) catch |err| {
             return switch (err) {
