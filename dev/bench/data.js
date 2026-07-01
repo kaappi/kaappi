@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1782876441660,
+  "lastUpdate": 1782877334730,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
@@ -2761,6 +2761,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "gc-pressure",
             "value": 2.435521,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 0,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a051a2398ef618bc69ae20c771bbfc086cb38876",
+          "message": "Fix create-temp-file raising uninformative bare TypeError (#632) (#659)\n\ncreate-temp-file returned a bare PrimitiveError.TypeError when the\nprefix was too long, producing \"type error in 'create-temp-file'\" with\nno irritants. Every other error path in this file uses raiseFileError\nto produce descriptive messages.\n\nReplace with raiseFileError(\"temp file prefix too long\", args[0]) to\ngive callers a clear message with the prefix as the irritant.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-01T09:01:32+05:30",
+          "tree_id": "1af7a6f2f5e69adabe824cd91cab21fc38d17344",
+          "url": "https://github.com/kaappi/kaappi/commit/a051a2398ef618bc69ae20c771bbfc086cb38876"
+        },
+        "date": 1782877334272,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.964873,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.783237,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.743659,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.866665,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006885,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.032294,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.415296,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 1.064491,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.670926,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.634268,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.027396,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.201584,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 2.238171,
             "unit": "seconds"
           },
           {
