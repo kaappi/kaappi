@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1782934948284,
+  "lastUpdate": 1782939652374,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
@@ -5048,6 +5048,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.043144,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "29325b65edf7c2a2acb0ec22eabee82167295cb3",
+          "message": "Merge pull request #704 from kaappi/fix/define-library-import-error-703\n\nFix handleDefineLibrary import abort and bundled file paths",
+          "timestamp": "2026-07-02T02:17:32+05:30",
+          "tree_id": "72cb2e6dfcdc337f765cdade344893dcd819fbee",
+          "url": "https://github.com/kaappi/kaappi/commit/29325b65edf7c2a2acb0ec22eabee82167295cb3"
+        },
+        "date": 1782939652022,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.383219,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.259685,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.81524,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.203753,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006956,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.032187,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.457,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.067852,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.959426,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.787924,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.075291,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.21726,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 2.409048,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.615897,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.040691,
             "unit": "seconds"
           }
         ]
