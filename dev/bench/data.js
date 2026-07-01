@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1782889884645,
+  "lastUpdate": 1782892143375,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
@@ -3464,6 +3464,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "8efa3e55a36695ab0251aa57208c40501c978283",
+          "message": "Fix zig build bench failing and call_cc/call_ec showing 0 in PR benchmarks (#667)\n\nThe bench module was the only build target missing the build_options import,\ncausing compilation failure. The benchmark runner silently swallowed the error\nand defaulted to 0.\n\nEven after fixing the build, the output parser would fail: data rows contain\nonly numbers (no \"call/cc\" text), and the format uses zero decimal places\nso the float regex never matched.\n\nFix by adding machine-readable summary lines to bench.zig (matching the\ncommon.scm format) and rewriting run_callcc_bench to use extract_field.\n\nFixes #666\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-01T13:08:11+05:30",
+          "tree_id": "a33a0735e50357928bbba1bfd3bcc1691c28db08",
+          "url": "https://github.com/kaappi/kaappi/commit/8efa3e55a36695ab0251aa57208c40501c978283"
+        },
+        "date": 1782892143022,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.962698,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 10.280699,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.85818,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.178928,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.007829,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.032115,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.452219,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 1.268337,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.833201,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.743757,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.101104,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.248348,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 2.421627,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.834839,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044012,
             "unit": "seconds"
           }
         ]
