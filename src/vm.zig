@@ -94,14 +94,15 @@ fn markVMRoots(gc: *memory.GC) void {
     var pit = vm.param_overrides.valueIterator();
     while (pit.next()) |v| gc.markValue(v.*);
 
-    // Mark library export values and per-library environments
-    var lit = vm.libraries.libraries.valueIterator();
-    while (lit.next()) |lib| {
-        var eit = lib.exports.valueIterator();
-        while (eit.next()) |v| gc.markValue(v.*);
-        if (lib.lib_env) |env| {
-            var eit2 = env.valueIterator();
-            while (eit2.next()) |v| gc.markValue(v.*);
+    if (vm.owns_globals) {
+        var lit = vm.libraries.libraries.valueIterator();
+        while (lit.next()) |lib| {
+            var eit = lib.exports.valueIterator();
+            while (eit.next()) |v| gc.markValue(v.*);
+            if (lib.lib_env) |env| {
+                var eit2 = env.valueIterator();
+                while (eit2.next()) |v| gc.markValue(v.*);
+            }
         }
     }
 
