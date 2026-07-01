@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1782881226790,
+  "lastUpdate": 1782881778038,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
@@ -3256,6 +3256,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "gc-pressure",
             "value": 2.421784,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 0,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "1047a09e39260270090da9ca5e08d013d711c0a1",
+          "message": "Fix LSP crash on negative or oversized line/character position (#641) (#664)\n\nhandleCompletion, handleHover, handleDefinition, and handleReferences\nused @intCast to convert i64 position values to u32, which panics on\nnegative or >u32::MAX values in ReleaseSafe. Add clampToU32 helper\nthat safely clamps to [0, maxInt(u32)], preventing the server from\ncrashing on malformed position inputs.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-01T10:16:16+05:30",
+          "tree_id": "ce312327f19effbf3e424a224dfe70e38ae6d9ff",
+          "url": "https://github.com/kaappi/kaappi/commit/1047a09e39260270090da9ca5e08d013d711c0a1"
+        },
+        "date": 1782881777745,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.326998,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.23011,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.808058,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.03305,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.007013,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.032267,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.452566,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 1.146928,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.965816,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.764691,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.100546,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.219072,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 2.387557,
             "unit": "seconds"
           },
           {
