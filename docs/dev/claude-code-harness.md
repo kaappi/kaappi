@@ -11,8 +11,21 @@ Configuration lives in `.claude/settings.json`. Hook scripts live in
 
 ## Hooks
 
-Hooks run shell scripts in response to Claude Code tool-use events. Three hooks
+Hooks run shell scripts in response to Claude Code tool-use events. Four hooks
 are configured, each with a timeout:
+
+### `session-start.sh` — session context on startup
+
+| Field | Value |
+|-------|-------|
+| Event | `SessionStart` |
+| Matcher | (none — fires once at session start) |
+| Timeout | 10 seconds |
+
+Prints the current git branch, Zig version, and warns about any stale
+worktrees (older than 7 days) in `.claude/worktrees/`. Purely informational
+— never blocks. Helps prevent working on the wrong branch or with a stale
+checkout.
 
 ### `zig-fmt-post.sh` — auto-format after edits
 

@@ -433,6 +433,7 @@ and skills) that enforces conventions automatically during AI-assisted developme
 
 | Hook | Event | What it does |
 |------|-------|-------------|
+| `session-start.sh` | SessionStart | Prints current branch, Zig version, and warns about stale worktrees (>7 days). |
 | `zig-fmt-post.sh` | PostToolUse (Edit/Write) | Auto-formats `.zig` files after every edit. Silent on success. |
 | `bash-guard-pre.sh` | PreToolUse (Bash) | Blocks `rm -rf /`, `sudo`, `git push --force`, `git tag -d`, `git reset --hard`. |
 | `test-on-stop.sh` | Stop | Runs `zig build test` if any `.zig` files were modified. Blocks on failure. |
@@ -473,6 +474,20 @@ The `infra/` repo hosts a Claude Code plugin (`kaappi-dev`) with ecosystem-wide
 skills (`/kaappi-dev:test-ecosystem`, `/kaappi-dev:repo-status`, etc.), a bash
 guard hook, and an `ecosystem-reviewer` agent. It loads automatically via the
 workspace-level `.claude/settings.json` when working from the multi-repo workspace.
+
+### Enforcement map
+
+| Rule | Enforced by | Where |
+|------|------------|-------|
+| Session context | SessionStart hook | `.claude/hooks/session-start.sh` |
+| Zig formatting | PostToolUse hook + git pre-commit | `.claude/hooks/zig-fmt-post.sh`, `.githooks/pre-commit` |
+| No destructive commands | Deny permissions + PreToolUse hook | `.claude/settings.json`, `.claude/hooks/bash-guard-pre.sh` |
+| Tests pass before stop | Stop hook | `.claude/hooks/test-on-stop.sh` |
+| GC safety checklist | Path-scoped rule (auto-loaded) | `.claude/rules/gc-safety.md` |
+| Compiler form checklist | Path-scoped rule (auto-loaded) | `.claude/rules/compiler-forms.md` |
+| Bug fixes need tests | Advisory only | This file (Tests section) |
+| Files ≤ 1500 lines | Advisory only | This file (File size policy) |
+| Commit message format | Advisory only | Parent CLAUDE.md (Conventions) |
 
 ## Known limitations
 
