@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1782892143375,
+  "lastUpdate": 1782894471282,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
@@ -3563,6 +3563,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044012,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "9646b8cb5b18e20911d9c52f5aa1b6af235450e7",
+          "message": "Fix referencesYoung .fiber case missing handler_stack, wind_stack, param_overrides, and frame.native (#646) (#668)\n\nThe remembered-set pruning logic checked fewer fiber fields than\nmarkFiberState, which could cause premature eviction of fibers from the\nremembered set when their only young references were through these\nunchecked fields.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-01T13:45:23+05:30",
+          "tree_id": "7975859e2874d7f9ed32ceb33c6d4bdaf4675065",
+          "url": "https://github.com/kaappi/kaappi/commit/9646b8cb5b18e20911d9c52f5aa1b6af235450e7"
+        },
+        "date": 1782894470460,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.538379,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.863921,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.639517,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.1508,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.007103,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.028374,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.35266,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 1.183803,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.641877,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.361391,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 0.992042,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.226418,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.935347,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.030478,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.03603,
             "unit": "seconds"
           }
         ]
