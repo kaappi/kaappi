@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1782898687061,
+  "lastUpdate": 1782899689086,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
@@ -3959,6 +3959,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.041709,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "3ad06e1ad7107c997e72b55fdc1274a30e551277",
+          "message": "Merge pull request #672 from kaappi/fix/649-apply-large-arglist\n\nRemove 256-argument cap from apply by using heap-allocated ArrayList",
+          "timestamp": "2026-07-01T15:12:49+05:30",
+          "tree_id": "01d07f32c3e503d5608dd710eac39f6b95b886ac",
+          "url": "https://github.com/kaappi/kaappi/commit/3ad06e1ad7107c997e72b55fdc1274a30e551277"
+        },
+        "date": 1782899688080,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.304785,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.662472,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.827839,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.187661,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006899,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.032764,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.456977,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.06875,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.923349,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.787183,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.105082,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.222937,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 2.456871,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.626846,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.04162,
             "unit": "seconds"
           }
         ]
