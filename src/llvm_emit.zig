@@ -8,6 +8,7 @@ const Value = types.Value;
 const NativeLambda = struct {
     llvm_name: []const u8,
     arity: u8,
+    is_variadic: bool,
 };
 
 pub const LLVMEmitter = struct {
@@ -213,14 +214,24 @@ pub const LLVMEmitter = struct {
                 if (self.current_fn_name) |fn_name| {
                     if (self.body_label) |body_lbl| {
                         if (std.mem.eql(u8, op_name, fn_name)) {
-                            return self.emitSelfTailCall(call.args, body_lbl);
+                            if (self.native_fns.get(fn_name)) |self_fn| {
+                                if (call.args.len == self_fn.arity) {
+                                    return self.emitSelfTailCall(call.args, body_lbl);
+                                }
+                            }
                         }
                     }
                 }
             }
 
             if (self.native_fns.get(op_name)) |native| {
-                return self.emitDirectCall(native.llvm_name, call.args, is_tail);
+                const arity_ok = if (native.is_variadic)
+                    call.args.len >= native.arity
+                else
+                    call.args.len == native.arity;
+                if (arity_ok) {
+                    return self.emitDirectCall(native.llvm_name, call.args, is_tail);
+                }
             }
             if (call.args.len == 2) {
                 if (self.tryEmitInlineBinary(op_name, call.args)) |result| return result;
@@ -709,9 +720,7 @@ pub const LLVMEmitter = struct {
                         const fn_name = types.symbolName(types.car(target));
                         const formals = types.cdr(target);
                         const body = types.cdr(rest);
-                        if (self.tryCompileDefineFunction(fn_name, formals, body)) |native_fn_name| {
-                            self.native_fns.put(fn_name, .{ .llvm_name = native_fn_name, .arity = 0 }) catch {};
-                        }
+                        _ = self.tryCompileDefineFunction(fn_name, formals, body);
                     }
                 }
             }
@@ -728,9 +737,7 @@ pub const LLVMEmitter = struct {
             const head = types.car(data.value);
             if (types.isSymbol(head) and std.mem.eql(u8, types.symbolName(head), "lambda")) {
                 const lambda_data = ir.LambdaData{ .args = types.cdr(data.value), .name = name };
-                if (self.tryCompileLambdaNative(lambda_data)) |fn_name| {
-                    self.native_fns.put(name, .{ .llvm_name = fn_name, .arity = 0 }) catch {};
-                }
+                _ = self.tryCompileLambdaNative(lambda_data);
             }
         }
 
