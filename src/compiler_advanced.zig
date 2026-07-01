@@ -165,67 +165,43 @@ pub fn compileCase(self: *Compiler, args: Value, dst: u16, is_tail: bool) Compil
         defer body_jumps.deinit(self.gc.allocator);
         var datum_list = datums;
 
+        // Allocate 3 contiguous temp registers for eqv? calls:
+        // cmp_base (function + result), cmp_base+1 (arg1), cmp_base+2 (arg2)
+        const eqv_sym = self.gc.allocSymbol("eqv?") catch return CompileError.OutOfMemory;
+        const eqv_sym_idx = try self.addConstant(eqv_sym);
+        const cmp_base = try self.allocReg();
+        const cmp_arg1 = try self.allocReg();
+        const cmp_arg2 = try self.allocReg();
+
         while (datum_list != types.NIL) {
             if (!types.isPair(datum_list)) return CompileError.InvalidSyntax;
             const datum = types.car(datum_list);
             datum_list = types.cdr(datum_list);
 
-            // Build (eqv? key datum) call inline:
-            // Load eqv? into a temp reg, load datum, call, then jump_true
-            // Simpler: compile datum as a constant, then emit an eqv? comparison
-
-            // Load the datum as a constant
             const datum_idx = try self.addConstant(datum);
-            const datum_reg = try self.allocReg();
-            try self.emitOp(.load_const);
-            try self.emitU16(datum_reg);
-            try self.emitU16(datum_idx);
 
-            // Load eqv? procedure
-            const eqv_sym = self.gc.allocSymbol("eqv?") catch return CompileError.OutOfMemory;
-            const eqv_idx = try self.addConstant(eqv_sym);
-            const eqv_reg = try self.allocReg();
-            try self.emitOp(.get_global);
-            try self.emitU16(eqv_reg);
-            try self.emitU16(eqv_idx);
-
-            // Set up call: eqv?(key, datum) in fresh contiguous registers
-            // to avoid clobbering live variables near dst.
-            const call_base = try self.allocReg();
-            const arg1_pos = try self.allocReg();
-            const arg2_pos = try self.allocReg();
+            // Set up eqv?(key, datum) call using pre-allocated registers
             try self.emitOp(.move);
-            try self.emitU16(call_base);
-            try self.emitU16(eqv_reg);
-            try self.emitOp(.move);
-            try self.emitU16(arg1_pos);
+            try self.emitU16(cmp_arg1);
             try self.emitU16(key_reg);
-            try self.emitOp(.move);
-            try self.emitU16(arg2_pos);
-            try self.emitU16(datum_reg);
-
-            try self.emitOp(.call);
-            try self.emitU16(call_base);
+            try self.emitOp(.load_const);
+            try self.emitU16(cmp_arg2);
+            try self.emitU16(datum_idx);
+            try self.emitOp(.call_global);
+            try self.emitU16(cmp_base);
+            try self.emitU16(eqv_sym_idx);
             try self.emit(2);
 
-            // Move result to dst
-            try self.emitOp(.move);
-            try self.emitU16(dst);
-            try self.emitU16(call_base);
-
-            // Free temp regs
-            self.freeReg(); // arg2_pos
-            self.freeReg(); // arg1_pos
-            self.freeReg(); // call_base
-            self.freeReg(); // eqv_reg
-            self.freeReg(); // datum_reg
-
-            // jump_true to clause body
+            // jump_true to clause body (result is in cmp_base)
             try self.emitOp(.jump_true);
-            try self.emitU16(dst);
+            try self.emitU16(cmp_base);
             body_jumps.append(self.gc.allocator, self.currentOffset()) catch return CompileError.TooManyLocals;
             try self.emitI16(0);
         }
+
+        self.freeReg(); // cmp_arg2
+        self.freeReg(); // cmp_arg1
+        self.freeReg(); // cmp_base
 
         // No datum matched — jump to next clause
         try self.emitOp(.jump);
