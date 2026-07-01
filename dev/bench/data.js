@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1782880299356,
+  "lastUpdate": 1782881226790,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
@@ -3157,6 +3157,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "gc-pressure",
             "value": 2.468821,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 0,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e8a73ab43178a2cfd3db9d680375450303ef6cee",
+          "message": "Fix SRFI-13 parseStartEnd and string-take/-drop silently clamping out-of-range indices (#640) (#663)\n\nparseStartEnd, string-take, string-drop, string-take-right, and\nstring-drop-right used `orelse data.len` when utf8IndexToByteOffset\nreturned null for out-of-range indices, silently clamping instead of\nraising an error. Change all sites to return IndexOutOfBounds, matching\nsubstring/string-copy/string-ref behavior.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-01T10:05:29+05:30",
+          "tree_id": "449fd55148b76d32a0b6896705408a83b56929ef",
+          "url": "https://github.com/kaappi/kaappi/commit/e8a73ab43178a2cfd3db9d680375450303ef6cee"
+        },
+        "date": 1782881225966,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.309525,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.173091,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.811054,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.014254,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.007219,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.032751,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.445258,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 1.145833,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.971431,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.752166,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.100065,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.220191,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 2.421784,
             "unit": "seconds"
           },
           {
