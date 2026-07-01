@@ -127,6 +127,25 @@ fn raiseError(error_type: types.ErrorObject.ErrorType, msg: []const u8, reason: 
     return PrimitiveError.ExceptionRaised;
 }
 
+pub fn abandonFiberMutexes(gc: *memory.GC, fiber: *fiber_mod.Fiber, sched: ?*fiber_mod.FiberScheduler) void {
+    const fiber_val = types.makePointer(@ptrCast(fiber));
+    var lists = [_]?*types.Object{ gc.objects, gc.old_objects };
+    for (&lists) |*head| {
+        var obj = head.*;
+        while (obj) |o| : (obj = o.next) {
+            if (o.tag == .mutex) {
+                const m = o.as(types.Mutex);
+                if (m.locked and m.owner == fiber_val) {
+                    m.abandoned = true;
+                    m.locked = false;
+                    m.owner = types.VOID;
+                    if (sched) |s| s.wakeMutexWaiters(types.makePointer(@ptrCast(o)));
+                }
+            }
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Thread primitives
 // ---------------------------------------------------------------------------
@@ -269,10 +288,13 @@ fn threadEntryFn(fiber: *fiber_mod.Fiber, allocator: std.mem.Allocator, parent_g
     };
 
     const result = child_vm.callWithArgs(child_thunk, &.{}) catch {
+        if (child_vm.current_fiber) |cf| abandonFiberMutexes(child_gc, cf, child_vm.scheduler);
         fiber.status = .errored;
         storeChildResult(@intFromPtr(fiber), types.VOID, child_vm.current_exception);
         return;
     };
+
+    if (child_vm.current_fiber) |cf| abandonFiberMutexes(child_gc, cf, child_vm.scheduler);
 
     // Store result in child_resources (not on the fiber) so the parent
     // GC never traverses a child-heap pointer (Race C).
@@ -322,6 +344,9 @@ fn threadTerminateFn(args: []const Value) PrimitiveError!Value {
     const fiber = types.toObject(args[0]).as(fiber_mod.Fiber);
 
     fiber.terminated = true;
+
+    if (primitives.gc_instance) |gc| abandonFiberMutexes(gc, fiber, ctx.sched);
+
     if (fiber.status != .completed and fiber.status != .errored) {
         fiber.status = .errored;
         ctx.sched.wakeWaiters(fiber);
@@ -478,13 +503,17 @@ fn runSchedulerUntilDone(target: *fiber_mod.Fiber) PrimitiveError!void {
                 continue;
             }
             fiber.status = .errored;
+            if (primitives.gc_instance) |gc| abandonFiberMutexes(gc, fiber, sched);
             sched.saveCurrentFiber();
             sched.wakeWaiters(fiber);
             continue;
         };
         fiber.status = .completed;
         fiber.result = result;
-        if (primitives.gc_instance) |gc| gc.writeBarrier(&fiber.header, result);
+        if (primitives.gc_instance) |gc| {
+            gc.writeBarrier(&fiber.header, result);
+            abandonFiberMutexes(gc, fiber, sched);
+        }
         sched.saveCurrentFiber();
         sched.wakeWaiters(fiber);
     }
@@ -635,13 +664,17 @@ fn runSchedulerUntilMutex(m: *types.Mutex, me: *fiber_mod.Fiber) PrimitiveError!
                 continue;
             }
             fiber.status = .errored;
+            if (primitives.gc_instance) |gc| abandonFiberMutexes(gc, fiber, sched);
             sched.saveCurrentFiber();
             sched.wakeWaiters(fiber);
             continue;
         };
         fiber.status = .completed;
         fiber.result = result;
-        if (primitives.gc_instance) |gc| gc.writeBarrier(&fiber.header, result);
+        if (primitives.gc_instance) |gc| {
+            gc.writeBarrier(&fiber.header, result);
+            abandonFiberMutexes(gc, fiber, sched);
+        }
         sched.saveCurrentFiber();
         sched.wakeWaiters(fiber);
     }
@@ -710,13 +743,17 @@ fn runSchedulerUntilCondVar(me: *fiber_mod.Fiber) PrimitiveError!void {
                 continue;
             }
             fiber.status = .errored;
+            if (primitives.gc_instance) |gc| abandonFiberMutexes(gc, fiber, sched);
             sched.saveCurrentFiber();
             sched.wakeWaiters(fiber);
             continue;
         };
         fiber.status = .completed;
         fiber.result = result;
-        if (primitives.gc_instance) |gc| gc.writeBarrier(&fiber.header, result);
+        if (primitives.gc_instance) |gc| {
+            gc.writeBarrier(&fiber.header, result);
+            abandonFiberMutexes(gc, fiber, sched);
+        }
         sched.saveCurrentFiber();
         sched.wakeWaiters(fiber);
     }
