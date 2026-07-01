@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1782871879094,
+  "lastUpdate": 1782872755332,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
@@ -2266,6 +2266,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "gc-pressure",
             "value": 2.36895,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 0,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "54f43c84e0f957491f720f9b79d0ceeb42223e01",
+          "message": "Fix VM.initForThread sharing parent's Port objects by raw pointer (#635) (#654)\n\nChild threads created via thread-start! shared the parent VM's\nstdin/stdout/stderr Port heap objects by copying the raw Value pointer.\nThis meant both threads' I/O primitives mutated the same Port struct\nwithout synchronization, and the child GC had no knowledge of these\ncross-heap pointers.\n\nAllocate fresh Port objects in initForThread using the child's GC,\nwrapping the same underlying fds (0/1/2). Each thread now has its own\nindependent Port state, matching the documented thread-isolation model.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-01T07:44:30+05:30",
+          "tree_id": "5cdf34286812273713cb000612fe86b9f11031e3",
+          "url": "https://github.com/kaappi/kaappi/commit/54f43c84e0f957491f720f9b79d0ceeb42223e01"
+        },
+        "date": 1782872754431,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.311573,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.752895,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.812258,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.088971,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006782,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.03278,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.451091,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 1.145527,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.866819,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.760153,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.09409,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.219175,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 2.391093,
             "unit": "seconds"
           },
           {
