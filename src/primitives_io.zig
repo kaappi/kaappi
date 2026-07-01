@@ -953,16 +953,17 @@ fn readBytevectorFn(args: []const Value) PrimitiveError!Value {
     const count: usize = @intCast(@as(u64, @bitCast(k)));
     const port = try getInputPort(args, 1, "read-bytevector");
 
-    var result = gc.allocator.alloc(u8, count) catch return PrimitiveError.OutOfMemory;
-    defer gc.allocator.free(result);
+    var result: std.ArrayList(u8) = .empty;
+    defer result.deinit(gc.allocator);
+
     var bytes_read: usize = 0;
     while (bytes_read < count) {
         const byte = readOneByte(port) orelse break;
-        result[bytes_read] = byte;
+        result.append(gc.allocator, byte) catch return PrimitiveError.OutOfMemory;
         bytes_read += 1;
     }
-    if (bytes_read == 0) return types.EOF;
-    return gc.allocBytevector(result[0..bytes_read]) catch return PrimitiveError.OutOfMemory;
+    if (result.items.len == 0) return types.EOF;
+    return gc.allocBytevector(result.items) catch return PrimitiveError.OutOfMemory;
 }
 
 fn writeBytevectorFn(args: []const Value) PrimitiveError!Value {
