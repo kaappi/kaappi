@@ -137,19 +137,25 @@ Show the workflow URL. After it completes:
 gh release view vX.Y.Z
 ```
 
-## Step 9: Verify post-release acceptance tests
+## Step 9: Run post-release acceptance tests
 
-The `post-release.yml` workflow triggers automatically when the release is
-published. It downloads the release artifacts and runs acceptance tests on
-macOS, Linux x86/ARM, WASM, plus checksum and install script verification.
+The `post-release.yml` workflow listens for `release: published` events, but
+it will **not** auto-trigger because the release is created by `github-actions[bot]`
+using the default `GITHUB_TOKEN`. GitHub suppresses workflow triggers from
+`GITHUB_TOKEN`-generated events to prevent recursive loops.
+
+Trigger it manually:
 
 ```bash
+gh workflow run post-release.yml -f tag=vX.Y.Z
 gh run list --workflow=post-release.yml --limit=1
 ```
 
-Show the workflow URL and wait for it to complete. If it fails, investigate
-before updating the docs site — a failure means the release artifacts have
-a problem (e.g. missing entitlement, broken binary, bad checksum).
+Watch the run and wait for it to complete. It downloads the release artifacts
+and runs acceptance tests on macOS, Linux x86/ARM, WASM, plus checksum and
+install script verification. If it fails, investigate before updating the
+docs site — a failure means the release artifacts have a problem (e.g.
+missing entitlement, broken binary, bad checksum).
 
 ## Step 10: Update docs site (playground WASM + downloads page)
 
