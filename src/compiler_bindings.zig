@@ -2,6 +2,7 @@ const std = @import("std");
 const types = @import("types.zig");
 const memory = @import("memory.zig");
 const compiler_mod = @import("compiler.zig");
+const passthrough = @import("compiler_passthrough.zig");
 const Value = types.Value;
 const Compiler = compiler_mod.Compiler;
 const CompileError = compiler_mod.CompileError;
@@ -498,12 +499,17 @@ pub fn compileLetBody(self: *Compiler, body: Value, dst: u16, is_tail: bool) Com
         }
     }
 
-    // Collect leading internal defines and desugar to letrec* (R7RS 5.3.2)
+    // Collect leading internal defines and define-syntax, desugar to letrec* (R7RS 5.3.2)
     const MAX_BODY_DEFS = 256;
     var def_names: [MAX_BODY_DEFS][]const u8 = undefined;
     var def_inits: [MAX_BODY_DEFS]Value = undefined;
     var def_slots: [MAX_BODY_DEFS]u16 = undefined;
     var def_count: usize = 0;
+
+    const MAX_BODY_MACROS = 64;
+    var macro_names: [MAX_BODY_MACROS][]const u8 = undefined;
+    var macro_saved: [MAX_BODY_MACROS]?Value = undefined;
+    var macro_count: usize = 0;
 
     var current = body;
     while (current != types.NIL and types.isPair(current)) {
@@ -512,33 +518,67 @@ pub fn compileLetBody(self: *Compiler, body: Value, dst: u16, is_tail: bool) Com
         const head = types.car(expr);
         if (!types.isSymbol(head)) break;
         const head_name = types.symbolName(head);
-        if (!std.mem.eql(u8, head_name, "define")) break;
+        if (std.mem.eql(u8, head_name, "define")) {
+            const def_args = types.cdr(expr);
+            if (def_args == types.NIL or !types.isPair(def_args)) break;
+            const target = types.car(def_args);
+            const def_rest = types.cdr(def_args);
 
-        const def_args = types.cdr(expr);
-        if (def_args == types.NIL or !types.isPair(def_args)) break;
-        const target = types.car(def_args);
-        const def_rest = types.cdr(def_args);
+            if (types.isSymbol(target)) {
+                if (def_rest == types.NIL or !types.isPair(def_rest)) break;
+                if (def_count >= MAX_BODY_DEFS) return CompileError.TooManyLocals;
+                def_names[def_count] = types.symbolName(target);
+                def_inits[def_count] = types.car(def_rest);
+                def_count += 1;
+            } else if (types.isPair(target)) {
+                const fn_name = types.car(target);
+                if (!types.isSymbol(fn_name)) break;
+                if (def_count >= MAX_BODY_DEFS) return CompileError.TooManyLocals;
+                def_names[def_count] = types.symbolName(fn_name);
+                const param_formals = types.cdr(target);
+                const lambda_sym = self.gc.allocSymbol("lambda") catch return CompileError.OutOfMemory;
+                const lambda_args = self.gc.allocPair(param_formals, def_rest) catch return CompileError.OutOfMemory;
+                def_inits[def_count] = self.gc.allocPair(lambda_sym, lambda_args) catch return CompileError.OutOfMemory;
+                def_count += 1;
+            } else {
+                break;
+            }
+        } else if (std.mem.eql(u8, head_name, "define-syntax")) {
+            const ds_args = types.cdr(expr);
+            if (ds_args == types.NIL or !types.isPair(ds_args)) break;
+            const keyword = types.car(ds_args);
+            if (!types.isSymbol(keyword)) break;
+            const ds_rest = types.cdr(ds_args);
+            if (ds_rest == types.NIL or !types.isPair(ds_rest)) break;
+            const transformer_spec = types.car(ds_rest);
 
-        if (types.isSymbol(target)) {
-            if (def_rest == types.NIL or !types.isPair(def_rest)) break;
-            if (def_count >= MAX_BODY_DEFS) return CompileError.TooManyLocals;
-            def_names[def_count] = types.symbolName(target);
-            def_inits[def_count] = types.car(def_rest);
-            def_count += 1;
-        } else if (types.isPair(target)) {
-            const fn_name = types.car(target);
-            if (!types.isSymbol(fn_name)) break;
-            if (def_count >= MAX_BODY_DEFS) return CompileError.TooManyLocals;
-            def_names[def_count] = types.symbolName(fn_name);
-            const param_formals = types.cdr(target);
-            const lambda_sym = self.gc.allocSymbol("lambda") catch return CompileError.OutOfMemory;
-            const lambda_args = self.gc.allocPair(param_formals, def_rest) catch return CompileError.OutOfMemory;
-            def_inits[def_count] = self.gc.allocPair(lambda_sym, lambda_args) catch return CompileError.OutOfMemory;
-            def_count += 1;
+            const transformer = passthrough.parseSyntaxRules(self, transformer_spec) catch break;
+            const name = types.symbolName(keyword);
+
+            if (macro_count >= MAX_BODY_MACROS) return CompileError.InternalLimit;
+            macro_names[macro_count] = name;
+            macro_saved[macro_count] = self.macros.get(name);
+            macro_count += 1;
+
+            const tx = types.toObject(transformer).as(types.Transformer);
+            if (self.lib_env) |env| {
+                tx.def_env = env;
+            }
+            self.macros.put(name, transformer) catch return CompileError.OutOfMemory;
         } else {
             break;
         }
         current = types.cdr(current);
+    }
+
+    defer {
+        for (0..macro_count) |i| {
+            if (macro_saved[i]) |old_val| {
+                self.macros.put(macro_names[i], old_val) catch {};
+            } else {
+                _ = self.macros.remove(macro_names[i]);
+            }
+        }
     }
 
     if (def_count > 0) {
@@ -565,7 +605,7 @@ pub fn compileLetBody(self: *Compiler, body: Value, dst: u16, is_tail: bool) Com
             try self.compileExpr(expr, dst, tail);
         }
         self.endScope();
-    } else {
+    } else if (current != types.NIL) {
         while (current != types.NIL) {
             if (!types.isPair(current)) return CompileError.InvalidSyntax;
             const expr = types.car(current);
@@ -573,6 +613,9 @@ pub fn compileLetBody(self: *Compiler, body: Value, dst: u16, is_tail: bool) Com
             const tail = is_tail and current == types.NIL;
             try self.compileExpr(expr, dst, tail);
         }
+    } else if (macro_count > 0) {
+        try self.emitOp(.load_void);
+        try self.emitU16(dst);
     }
 }
 
