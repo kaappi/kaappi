@@ -151,7 +151,7 @@ fn parseStartEnd(data: []const u8, args: []const Value, start_arg_idx: usize) Pr
         const sv = types.toFixnum(args[start_arg_idx]);
         if (sv < 0) return PrimitiveError.TypeError; // bare-ok: generic helper, no proc name
         const start_cp: usize = @intCast(sv);
-        byte_start = pstr.utf8IndexToByteOffset(data, start_cp) orelse data.len;
+        byte_start = pstr.utf8IndexToByteOffset(data, start_cp) orelse return PrimitiveError.IndexOutOfBounds;
         cp_offset = start_cp;
     }
     if (args.len > start_arg_idx + 1) {
@@ -159,7 +159,7 @@ fn parseStartEnd(data: []const u8, args: []const Value, start_arg_idx: usize) Pr
         const ev = types.toFixnum(args[start_arg_idx + 1]);
         if (ev < 0) return PrimitiveError.TypeError; // bare-ok: generic helper, no proc name
         const end_cp: usize = @intCast(ev);
-        byte_end = pstr.utf8IndexToByteOffset(data, end_cp) orelse data.len;
+        byte_end = pstr.utf8IndexToByteOffset(data, end_cp) orelse return PrimitiveError.IndexOutOfBounds;
     }
     if (byte_start > byte_end) return PrimitiveError.TypeError;
     return .{ .data = data[byte_start..byte_end], .byte_start = byte_start, .byte_end = byte_end, .cp_offset = cp_offset };
@@ -439,7 +439,7 @@ fn stringTakeFn(args: []const Value) PrimitiveError!Value {
     const nv = types.toFixnum(args[1]);
     if (nv < 0) return primitives.typeError("string-take", "non-negative integer", args[1]);
     const n: usize = @intCast(nv);
-    const byte_end = pstr.utf8IndexToByteOffset(data, n) orelse data.len;
+    const byte_end = pstr.utf8IndexToByteOffset(data, n) orelse return PrimitiveError.IndexOutOfBounds;
     return gc.allocString(data[0..byte_end]) catch return PrimitiveError.OutOfMemory;
 }
 
@@ -450,7 +450,7 @@ fn stringDropFn(args: []const Value) PrimitiveError!Value {
     const nv = types.toFixnum(args[1]);
     if (nv < 0) return primitives.typeError("string-drop", "non-negative integer", args[1]);
     const n: usize = @intCast(nv);
-    const byte_start = pstr.utf8IndexToByteOffset(data, n) orelse data.len;
+    const byte_start = pstr.utf8IndexToByteOffset(data, n) orelse return PrimitiveError.IndexOutOfBounds;
     return gc.allocString(data[byte_start..]) catch return PrimitiveError.OutOfMemory;
 }
 
@@ -462,8 +462,9 @@ fn stringTakeRightFn(args: []const Value) PrimitiveError!Value {
     if (nv < 0) return primitives.typeError("string-take-right", "non-negative integer", args[1]);
     const n: usize = @intCast(nv);
     const total_cp = utf8CodepointCount(data);
-    if (n >= total_cp) return gc.allocString(data) catch return PrimitiveError.OutOfMemory;
-    const byte_start = pstr.utf8IndexToByteOffset(data, total_cp - n) orelse data.len;
+    if (n > total_cp) return PrimitiveError.IndexOutOfBounds;
+    if (n == total_cp) return gc.allocString(data) catch return PrimitiveError.OutOfMemory;
+    const byte_start = pstr.utf8IndexToByteOffset(data, total_cp - n) orelse return PrimitiveError.IndexOutOfBounds;
     return gc.allocString(data[byte_start..]) catch return PrimitiveError.OutOfMemory;
 }
 
@@ -475,8 +476,9 @@ fn stringDropRightFn(args: []const Value) PrimitiveError!Value {
     if (nv < 0) return primitives.typeError("string-drop-right", "non-negative integer", args[1]);
     const n: usize = @intCast(nv);
     const total_cp = utf8CodepointCount(data);
-    if (n >= total_cp) return gc.allocString("") catch return PrimitiveError.OutOfMemory;
-    const byte_end = pstr.utf8IndexToByteOffset(data, total_cp - n) orelse data.len;
+    if (n > total_cp) return PrimitiveError.IndexOutOfBounds;
+    if (n == total_cp) return gc.allocString("") catch return PrimitiveError.OutOfMemory;
+    const byte_end = pstr.utf8IndexToByteOffset(data, total_cp - n) orelse return PrimitiveError.IndexOutOfBounds;
     return gc.allocString(data[0..byte_end]) catch return PrimitiveError.OutOfMemory;
 }
 
@@ -495,7 +497,7 @@ fn stringPadFn(args: []const Value) PrimitiveError!Value {
     const data = range.data;
     const current_len = utf8CodepointCount(data);
     if (current_len >= target_len) {
-        const byte_start = pstr.utf8IndexToByteOffset(data, current_len - target_len) orelse data.len;
+        const byte_start = pstr.utf8IndexToByteOffset(data, current_len - target_len) orelse return PrimitiveError.IndexOutOfBounds;
         return gc.allocString(data[byte_start..]) catch return PrimitiveError.OutOfMemory;
     }
     const pad_count = target_len - current_len;
@@ -523,7 +525,7 @@ fn stringPadRightFn(args: []const Value) PrimitiveError!Value {
     const data = range.data;
     const current_len = utf8CodepointCount(data);
     if (current_len >= target_len) {
-        const byte_end = pstr.utf8IndexToByteOffset(data, target_len) orelse data.len;
+        const byte_end = pstr.utf8IndexToByteOffset(data, target_len) orelse return PrimitiveError.IndexOutOfBounds;
         return gc.allocString(data[0..byte_end]) catch return PrimitiveError.OutOfMemory;
     }
     const pad_count = target_len - current_len;
