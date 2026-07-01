@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1782906619167,
+  "lastUpdate": 1782908511489,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
@@ -4751,6 +4751,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.04193,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "bcee57c1851cb327dce0cb25bed652687c5f22f1",
+          "message": "Fix REPL tab completion for Scheme identifiers (#676)\n\nThe completion callback was matching global names against the entire\ninput line, so it only worked when the identifier started at position 0.\nExtract the last identifier token by scanning backwards for Scheme\ndelimiters, then match against just that token and reconstruct the full\nline for linenoise.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-01T17:39:56+05:30",
+          "tree_id": "ea96112fe5dcc2686a5df1828d9acfc54a66f9a1",
+          "url": "https://github.com/kaappi/kaappi/commit/bcee57c1851cb327dce0cb25bed652687c5f22f1"
+        },
+        "date": 1782908511197,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.32513,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.423232,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.83013,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.102661,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006862,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.03227,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.455923,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.068453,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.91827,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.773433,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.084402,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.222759,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 2.40171,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.590929,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.040128,
             "unit": "seconds"
           }
         ]
