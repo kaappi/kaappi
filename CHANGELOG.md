@@ -7,6 +7,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.9.1] - 2026-07-01
+
+### Fixed
+
+#### Security
+- Fix git argument injection in thottam package manager — custom source URLs starting with `-` parsed as git options (#614)
+
+#### Compiler
+- Fix bare lambda internal define register clobbering (#601)
+- Fix constant folding ignoring redefined primitives (#600)
+
+#### Arithmetic and numeric
+- Fix exact division with bignums returning flonum instead of rational (#612)
+- Fix `makeRationalFromReader` using unchecked `makeFixnum`, truncating large rational literals (#610)
+- Fix `toRationalParts` calling `toFixnum` on bignum fields (#611)
+- Fix `floor-quotient`/`truncate-quotient` fixnum overflow on `minInt(i48) ÷ -1` (#603)
+- Fix `string->number` `"#e<large>"` process abort from unchecked `@intFromFloat` (#604)
+
+#### GC and memory
+- Fix `deepCopyValue` dropping transformer fields on cross-thread copy (#605)
+- Fix `deepCopyValue` record_instance missing cycle guard, causing stack overflow on cyclic records (#606)
+
+#### Bytecode
+- Fix bytecode symbol name length write/read mismatch, panic on names > 4096 bytes (#609)
+- Reject denormalized bignum in bytecode reader (#607)
+
+#### Macro system
+- Fix macro import leaking entire `def_env` into importer (#608)
+
+#### CLI
+- Fix `-o` flag stripped from `(command-line)` in normal runs (#602)
+
+#### Package manager
+- Fix `isConstraintSpec` panic on empty-after-trim version string (#613)
+
 ## [0.9.0] - 2026-06-30
 
 ### Added
