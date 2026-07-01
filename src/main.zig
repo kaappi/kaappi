@@ -1057,9 +1057,10 @@ fn compileFile(vm: *vm_mod.VM, path: []const u8, output_path: ?[]const u8) !void
             return;
         };
 
+        vm.gc.pushRoot(&expr) catch continue;
+        defer vm.gc.popRoot();
+
         if (vm.handleTopLevelForm(expr)) |top_result| {
-            vm.gc.pushRoot(&expr) catch continue;
-            defer vm.gc.popRoot();
             const form_src = printer.valueToString(allocator, expr, .write) catch continue;
             _ = top_result catch |err| {
                 const detail = vm.getErrorDetail();
