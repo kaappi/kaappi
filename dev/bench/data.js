@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1782879407021,
+  "lastUpdate": 1782880299356,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
@@ -3058,6 +3058,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "gc-pressure",
             "value": 2.383023,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 0,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "fcc61d4bdf7ad11b74085ad092f1860f02b7b781",
+          "message": "Fix string-for-each/string-map byte cursor desync on mutation (#645) (#662)\n\nBoth functions tracked iteration position as raw byte offsets, which\nbecame stale when the callback mutated the string (via string-set!)\nat a position that changed UTF-8 byte widths. Switch to codepoint\nindex tracking, recomputing the byte offset from the index each\niteration to correctly handle buffer layout changes from mutations.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-01T09:49:17+05:30",
+          "tree_id": "85bdf7f1ffa5a9f9ecfe02ca2536b2d4864b4f38",
+          "url": "https://github.com/kaappi/kaappi/commit/fcc61d4bdf7ad11b74085ad092f1860f02b7b781"
+        },
+        "date": 1782880298028,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.344543,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.906904,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.811172,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.129752,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006814,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.032379,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.451332,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 1.149541,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.926256,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.768503,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.081334,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.217183,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 2.468821,
             "unit": "seconds"
           },
           {
