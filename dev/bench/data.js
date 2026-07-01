@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1782908511489,
+  "lastUpdate": 1782929205971,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
@@ -4850,6 +4850,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.040128,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "6acfb198d3f2b9b3eb251647da55dd9be391b743",
+          "message": "Merge pull request #701 from kaappi/fix/compile-file-preamble-gc-699\n\nFix compileFile preamble skip and GC safety",
+          "timestamp": "2026-07-01T23:23:55+05:30",
+          "tree_id": "5a07c0cc08fb2bc4620b084cda4796aff71905c7",
+          "url": "https://github.com/kaappi/kaappi/commit/6acfb198d3f2b9b3eb251647da55dd9be391b743"
+        },
+        "date": 1782929205583,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.284543,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.438707,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.841655,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.360958,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006903,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.033053,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.460731,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.067944,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.978866,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.776718,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.084244,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.225177,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 2.429693,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.641361,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.041717,
             "unit": "seconds"
           }
         ]
