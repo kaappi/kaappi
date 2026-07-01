@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1782906101134,
+  "lastUpdate": 1782906619167,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
@@ -4652,6 +4652,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.041793,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "distinct": true,
+          "id": "c603d837d6affb31bdf40e1b96fa185d395dec5c",
+          "message": "Document manual post-release workflow trigger in release skill\n\nThe post-release workflow won't auto-trigger because the release is\ncreated by github-actions[bot] using the default GITHUB_TOKEN, and\nGitHub suppresses workflow triggers from GITHUB_TOKEN events.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-01T17:09:15+05:30",
+          "tree_id": "5e12bda9bf6c9d9a4626c1c81591bfb16228683a",
+          "url": "https://github.com/kaappi/kaappi/commit/c603d837d6affb31bdf40e1b96fa185d395dec5c"
+        },
+        "date": 1782906617883,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.307948,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.69469,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.844343,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.411213,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.00697,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.032662,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.455612,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.068754,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.979654,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.775906,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.094425,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.226242,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 2.408016,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.700741,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.04193,
             "unit": "seconds"
           }
         ]
