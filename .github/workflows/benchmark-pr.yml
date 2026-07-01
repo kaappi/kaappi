@@ -9,6 +9,7 @@ on:
       - 'lib/**'
       - 'build.zig'
       - 'build.zig.zon'
+      - '.github/workflows/benchmark-pr.yml'
 
 permissions:
   pull-requests: write
