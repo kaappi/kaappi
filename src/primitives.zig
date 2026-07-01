@@ -471,23 +471,22 @@ fn equalP(args: []const Value) PrimitiveError!Value {
     return if (deepEqual(args[0], args[1])) types.TRUE else types.FALSE;
 }
 
-const MAX_VISITED = 128;
+const VisitedKey = struct { a: Value, b: Value };
+const VisitedMap = std.AutoHashMap(VisitedKey, void);
 
-fn deepEqualWithVisited(a: Value, b: Value, visited: *[MAX_VISITED][2]Value, visited_count: *usize) bool {
+fn deepEqualWithVisited(a: Value, b: Value, visited: *VisitedMap) bool {
     if (a == b) return true;
     if (types.isFlonum(a) and types.isFlonum(b)) {
         const fa: u64 = @bitCast(types.toFlonum(a));
         const fb: u64 = @bitCast(types.toFlonum(b));
         return fa == fb;
     }
-    // Bignum equality (including bignum-fixnum comparison)
     if ((types.isBignum(a) or types.isFixnum(a)) and (types.isBignum(b) or types.isFixnum(b))) {
         if (types.isBignum(a) or types.isBignum(b)) {
             const bignum_mod = @import("bignum.zig");
             return bignum_mod.compare(a, b) == 0;
         }
     }
-    // Complex equality (bitwise on both components, matching eqv?)
     if (types.isComplex(a) and types.isComplex(b)) {
         const ca = types.toComplex(a);
         const cb = types.toComplex(b);
@@ -497,25 +496,18 @@ fn deepEqualWithVisited(a: Value, b: Value, visited: *[MAX_VISITED][2]Value, vis
         const ib: u64 = @bitCast(cb.imag);
         return ra == rb and ia == ib;
     }
-    // Rational equality
     if (types.isRationalObj(a) and types.isRationalObj(b)) {
         const ra = types.toRational(a);
         const rb = types.toRational(b);
-        return deepEqualWithVisited(ra.numerator, rb.numerator, visited, visited_count) and
-            deepEqualWithVisited(ra.denominator, rb.denominator, visited, visited_count);
+        return deepEqualWithVisited(ra.numerator, rb.numerator, visited) and
+            deepEqualWithVisited(ra.denominator, rb.denominator, visited);
     }
     if (types.isPair(a) and types.isPair(b)) {
-        // Check visited set for cycle detection
-        for (visited.*[0..visited_count.*]) |pair| {
-            if (pair[0] == a and pair[1] == b) return true;
-        }
-        // Add to visited
-        if (visited_count.* < MAX_VISITED) {
-            visited.*[visited_count.*] = .{ a, b };
-            visited_count.* += 1;
-        }
-        return deepEqualWithVisited(types.car(a), types.car(b), visited, visited_count) and
-            deepEqualWithVisited(types.cdr(a), types.cdr(b), visited, visited_count);
+        const key = VisitedKey{ .a = a, .b = b };
+        if (visited.get(key) != null) return true;
+        visited.put(key, {}) catch {};
+        return deepEqualWithVisited(types.car(a), types.car(b), visited) and
+            deepEqualWithVisited(types.cdr(a), types.cdr(b), visited);
     }
     if (types.isString(a) and types.isString(b)) {
         const sa = types.toObject(a).as(types.SchemeString);
@@ -526,16 +518,11 @@ fn deepEqualWithVisited(a: Value, b: Value, visited: *[MAX_VISITED][2]Value, vis
         const va = types.toVector(a);
         const vb = types.toVector(b);
         if (va.data.len != vb.data.len) return false;
-        // Check visited set for cycle detection
-        for (visited.*[0..visited_count.*]) |pair| {
-            if (pair[0] == a and pair[1] == b) return true;
-        }
-        if (visited_count.* < MAX_VISITED) {
-            visited.*[visited_count.*] = .{ a, b };
-            visited_count.* += 1;
-        }
+        const key = VisitedKey{ .a = a, .b = b };
+        if (visited.get(key) != null) return true;
+        visited.put(key, {}) catch {};
         for (va.data, vb.data) |ea, eb| {
-            if (!deepEqualWithVisited(ea, eb, visited, visited_count)) return false;
+            if (!deepEqualWithVisited(ea, eb, visited)) return false;
         }
         return true;
     }
@@ -548,9 +535,9 @@ fn deepEqualWithVisited(a: Value, b: Value, visited: *[MAX_VISITED][2]Value, vis
 }
 
 pub fn deepEqual(a: Value, b: Value) bool {
-    var visited: [MAX_VISITED][2]Value = undefined;
-    var count: usize = 0;
-    return deepEqualWithVisited(a, b, &visited, &count);
+    var visited = VisitedMap.init(std.heap.page_allocator);
+    defer visited.deinit();
+    return deepEqualWithVisited(a, b, &visited);
 }
 
 // ---------------------------------------------------------------------------
