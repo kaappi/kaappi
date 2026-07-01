@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1782870889832,
+  "lastUpdate": 1782871879094,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
@@ -2167,6 +2167,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "gc-pressure",
             "value": 2.368682,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 0,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "1b14fa3384b8718835dfc1653b92a5bc22d60fe5",
+          "message": "Fix markVMRoots iterating shared libraries map in child threads (#634) (#653)\n\nmarkVMRoots correctly gated globals/macros marking on owns_globals to\nprevent child thread GC from iterating the parent's shared maps without\nsynchronization. However, vm.libraries.libraries was marked\nunconditionally despite being shared the same way via initForThread.\n\nGate library marking on owns_globals to match globals/macros treatment.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-01T07:29:06+05:30",
+          "tree_id": "e7213ae2dbd9b630f4975f82e3e50e246209438f",
+          "url": "https://github.com/kaappi/kaappi/commit/1b14fa3384b8718835dfc1653b92a5bc22d60fe5"
+        },
+        "date": 1782871878797,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.929088,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.101289,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.836618,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.17059,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.007313,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.032221,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.450705,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 1.265232,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.875575,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.746552,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.100246,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.23727,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 2.36895,
             "unit": "seconds"
           },
           {
