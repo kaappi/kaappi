@@ -43,7 +43,7 @@ jobs:
       - name: Compare and comment
         uses: openpgpjs/github-action-pull-request-benchmark@v1
         with:
-          tool: 'customSmallerIsBetter'
+          tool: 'raw'
           pr-benchmark-file-path: pr-results.json
           base-benchmark-file-path: base-results.json
           github-token: ${{ secrets.GITHUB_TOKEN }}
