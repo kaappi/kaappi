@@ -80,6 +80,25 @@ run_suite "SRFI tests" tests/scheme/srfi/*.scm
 run_suite "FFI tests" tests/scheme/ffi/*.scm
 run_suite "Audit tests" tests/scheme/audit/*.scm
 
+echo "=== Compile tests ==="
+for test_script in tests/scheme/compile/*.sh; do
+    if [[ -x "$test_script" ]]; then
+        set +e
+        bash "$test_script" "$KAAPPI" > /tmp/kaappi-test-out 2>&1
+        status=$?
+        set -e
+        if [[ $status -eq 0 ]]; then
+            echo "  PASS  $test_script"
+            PASS=$((PASS + 1))
+        else
+            echo "  FAIL  $test_script"
+            cat /tmp/kaappi-test-out
+            FAIL=$((FAIL + 1))
+        fi
+    fi
+done
+echo ""
+
 echo "=== R7RS test suite ==="
 set +e
 # Capture stdout and stderr separately to preserve panic messages
