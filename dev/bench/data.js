@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1782867674350,
+  "lastUpdate": 1782870889832,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
@@ -2068,6 +2068,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "gc-pressure",
             "value": 2.37417,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 0,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "97d32d73a479e0e1426e53d30ce697615803788a",
+          "message": "Fix emitDirectCall skipping arity validation in native backend (#636) (#652)\n\nThe LLVM native backend's emitCallNode resolved statically-known calls\nto natively-compiled functions via emitDirectCall without checking that\nthe call site's argument count matched the callee's arity. This caused\nover-application to silently compute wrong results and under-application\nto read out-of-bounds stack memory.\n\nAdd arity validation before using the direct-call and self-tail-call\nfast paths: fixed-arity functions require exact match, variadic functions\nrequire at least the fixed parameter count. Mismatched calls fall through\nto kaappi_call_scheme which raises proper arity errors.\n\nAlso fix two call sites that overwrote native_fns entries (with correct\narity from emitLambdaFunction) with arity=0, which would have broken the\nnew arity checks.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-01T07:13:44+05:30",
+          "tree_id": "8e01acbec08c0c88982cc681bd81efb5ce9fd755",
+          "url": "https://github.com/kaappi/kaappi/commit/97d32d73a479e0e1426e53d30ce697615803788a"
+        },
+        "date": 1782870889534,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.925724,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.590044,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.857306,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.167181,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.007276,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.032448,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.455971,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 1.267064,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.849869,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.74017,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.103536,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.242734,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 2.368682,
             "unit": "seconds"
           },
           {
