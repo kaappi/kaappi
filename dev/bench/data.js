@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1782874592296,
+  "lastUpdate": 1782875573250,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
@@ -2563,6 +2563,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "gc-pressure",
             "value": 2.442806,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 0,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2d95b9f5bb21ef63937843bb66b121e309d60f35",
+          "message": "Fix Complex number printing dropping -0.0 components (#637) (#657)\n\nThe printer used == 0.0 and != 0.0 to decide whether to omit complex\ncomponents. Since IEEE 754 defines -0.0 == 0.0, a -0.0 imaginary part\nwas silently dropped (printing as a bare real) and a -0.0 real part was\nomitted (printing as just the imaginary part with a sign).\n\nUse std.math.signbit to detect negative zero: preserve the imaginary\npart when it's -0.0, include the real part when it's -0.0, and emit\n'-' instead of '+' for a -0.0 imaginary part.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-01T08:31:24+05:30",
+          "tree_id": "fa309ef16bb1eee8acb27ebc037dd46a4ee91155",
+          "url": "https://github.com/kaappi/kaappi/commit/2d95b9f5bb21ef63937843bb66b121e309d60f35"
+        },
+        "date": 1782875572444,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.304664,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.408815,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.799512,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.144232,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006863,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.032158,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.449691,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 1.144912,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.89249,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.766148,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.082595,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.217781,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 2.402526,
             "unit": "seconds"
           },
           {
