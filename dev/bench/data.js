@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1782902184372,
+  "lastUpdate": 1782904165090,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
@@ -4256,6 +4256,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.038223,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "cdd00fbe50e72d5395f6cf506b62d67c628d3b33",
+          "message": "Abandon mutexes held by terminated fibers (#642) (#675)\n\nSRFI-18 requires that when a thread terminates while holding a mutex,\nthe mutex becomes unlocked and abandoned. The read side (mutex-state,\nmutex-lock!) already handled the abandoned flag correctly, but nothing\never set it to true.\n\nAdd abandonFiberMutexes() which walks the GC object lists to find and\nmark mutexes owned by a given fiber. Call it from thread-terminate!,\nthreadEntryFn (OS thread exit), and all three cooperative scheduler\nloops (runSchedulerUntilDone/Mutex/CondVar) on fiber completion/error.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-01T16:27:18+05:30",
+          "tree_id": "a2e4c80a02219b0d7b65dab34b97b1405d7b4ca1",
+          "url": "https://github.com/kaappi/kaappi/commit/cdd00fbe50e72d5395f6cf506b62d67c628d3b33"
+        },
+        "date": 1782904164738,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.971054,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.557509,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.836696,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.17799,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.007333,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.032283,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.451861,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.066951,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.849613,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.744707,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.099788,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.239293,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 2.369102,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.792915,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.04315,
             "unit": "seconds"
           }
         ]
