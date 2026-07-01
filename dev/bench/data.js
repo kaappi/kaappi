@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1782899689086,
+  "lastUpdate": 1782900857041,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
@@ -4058,6 +4058,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.04162,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "069ad033571bdd8daf81549c2ca1e714da706263",
+          "message": "Merge pull request #673 from kaappi/fix/644-case-bytecode-bloat\n\nReduce case per-datum bytecode from ~39 to ~21 bytes, raising clause limit",
+          "timestamp": "2026-07-01T15:32:17+05:30",
+          "tree_id": "dbab56a24b1bf2f01e374c4b30653022c38c8c85",
+          "url": "https://github.com/kaappi/kaappi/commit/069ad033571bdd8daf81549c2ca1e714da706263"
+        },
+        "date": 1782900856710,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.926255,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.248305,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.826325,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.132032,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.007273,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.032368,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.450205,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.066075,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.853403,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.737828,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.095638,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.235373,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 2.366697,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.78322,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.04535,
             "unit": "seconds"
           }
         ]
