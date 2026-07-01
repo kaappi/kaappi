@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1782904165090,
+  "lastUpdate": 1782905095031,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
@@ -4355,6 +4355,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.04315,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "distinct": true,
+          "id": "84148985079576f48a5ca79bd770e76187a20288",
+          "message": "Add dev doc for Claude Code harness setup\n\nDocuments hooks, permissions, path-scoped rules, skills, and the\nkaappi-dev ecosystem plugin with their configuration, interaction\nmodel, and extension guide.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-01T16:41:35+05:30",
+          "tree_id": "03b0192402cbabe0c289bff202f55aa318213247",
+          "url": "https://github.com/kaappi/kaappi/commit/84148985079576f48a5ca79bd770e76187a20288"
+        },
+        "date": 1782905094071,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.286471,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.369657,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.827619,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.301921,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.007009,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.03284,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.458845,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.069492,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 4.000269,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.775052,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.105369,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.222777,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 2.411092,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.650194,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.042018,
             "unit": "seconds"
           }
         ]
