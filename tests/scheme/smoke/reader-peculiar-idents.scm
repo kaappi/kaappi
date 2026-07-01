@@ -1,0 +1,51 @@
+;; Regression test for #647: peculiar identifiers like ->foo
+;; truncated to just the sign character.
+
+;; Arrow-style identifiers (most common real-world case)
+(define ->string (lambda (x) x))
+(display (eq? '->string '->string))
+(display " ")
+
+;; Peculiar identifiers with various special-initial chars after sign
+(display (symbol->string (read (open-input-string "->foo"))))
+(display " ")
+(display (symbol->string (read (open-input-string "-<tag>"))))
+(display " ")
+(display (symbol->string (read (open-input-string "+>="))))
+(display " ")
+(display (symbol->string (read (open-input-string "-!default"))))
+(display " ")
+(display (symbol->string (read (open-input-string "-$var"))))
+(display " ")
+(display (symbol->string (read (open-input-string "-%pct"))))
+(display " ")
+(display (symbol->string (read (open-input-string "-&ref"))))
+(display " ")
+(display (symbol->string (read (open-input-string "-*glob"))))
+(display " ")
+(display (symbol->string (read (open-input-string "-/path"))))
+(display " ")
+(display (symbol->string (read (open-input-string "-:key"))))
+(display " ")
+(display (symbol->string (read (open-input-string "-=eq"))))
+(display " ")
+(display (symbol->string (read (open-input-string "-?pred"))))
+(display " ")
+(display (symbol->string (read (open-input-string "-^up"))))
+(display " ")
+(display (symbol->string (read (open-input-string "-_priv"))))
+(display " ")
+(display (symbol->string (read (open-input-string "-~approx"))))
+(display " ")
+
+;; + prefix too
+(display (symbol->string (read (open-input-string "+>cmp"))))
+(display " ")
+(display (symbol->string (read (open-input-string "+!bang"))))
+(display " ")
+
+;; These already worked (letter/dot/sign after sign) — sanity check
+(display (symbol->string (read (open-input-string "-foo"))))
+(display " ")
+(display (symbol->string (read (open-input-string "+.z"))))
+(newline)

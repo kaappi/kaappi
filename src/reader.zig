@@ -320,7 +320,7 @@ pub const Reader = struct {
                 return self.foldAndReturnSymbol(self.source[start..self.pos]);
             }
             // +i, -i, peculiar identifiers with sign subsequent
-            if (isSpecialSubsequent(self.source[self.pos]) or std.ascii.isAlphabetic(self.source[self.pos])) {
+            if (isInitial(self.source[self.pos]) or isSpecialSubsequent(self.source[self.pos])) {
                 while (self.pos < self.source.len and isSubsequent(self.source[self.pos])) {
                     self.pos += 1;
                 }
