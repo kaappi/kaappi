@@ -12,7 +12,8 @@ on:
       - '.github/workflows/benchmark-pr.yml'
 
 permissions:
-  contents: write
+  contents: read
+  pull-requests: write
 
 jobs:
   benchmark-pr:
@@ -41,7 +42,7 @@ jobs:
           git checkout ${{ github.event.pull_request.head.sha }}
 
       - name: Compare and comment
-        uses: openpgpjs/github-action-pull-request-benchmark@v1
+        uses: kaappi/github-action-pull-request-benchmark@v1
         with:
           tool: 'raw'
           pr-benchmark-file-path: pr-results.json
