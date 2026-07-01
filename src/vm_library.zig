@@ -931,9 +931,7 @@ pub fn handleDefineLibrary(vm: *VM, args: Value) VMError!Value {
                 id_list = types.cdr(id_list);
             }
         } else if (std.mem.eql(u8, decl_name, "import")) {
-            _ = handleImportInto(vm, lib_env, types.cdr(declaration)) catch |err| {
-                if (err != VMError.CompileError) return err;
-            };
+            _ = handleImportInto(vm, lib_env, types.cdr(declaration)) catch return VMError.CompileError;
         } else if (std.mem.eql(u8, decl_name, "begin")) {
             try compileLibBeginBlock(vm, lib_env, types.cdr(declaration));
         } else if (std.mem.eql(u8, decl_name, "include") or std.mem.eql(u8, decl_name, "include-ci")) {
@@ -1167,9 +1165,7 @@ fn includeLibraryDeclarations(
                     id_list = types.cdr(id_list);
                 }
             } else if (std.mem.eql(u8, decl_name, "import")) {
-                _ = handleImportInto(vm, lib_env, types.cdr(declaration)) catch |err| {
-                    if (err != VMError.CompileError) return err;
-                };
+                _ = handleImportInto(vm, lib_env, types.cdr(declaration)) catch return VMError.CompileError;
             } else if (std.mem.eql(u8, decl_name, "begin")) {
                 try compileLibBeginBlock(vm, lib_env, types.cdr(declaration));
             } else if (std.mem.eql(u8, decl_name, "include") or std.mem.eql(u8, decl_name, "include-ci")) {
