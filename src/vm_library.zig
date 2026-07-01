@@ -429,8 +429,9 @@ fn tryLoadLibraryFromFile(vm: *VM, name_list: Value) !void {
     const source = readFileContents(allocator, sld_path) catch return error.UndefinedVariable;
     defer allocator.free(source);
 
-    // Record for bundling
-    recordFileForBundle(vm, sld_path, source);
+    // Record for bundling (use rel_path so findBundledSource can locate it
+    // without the compile-time --lib-path prefix)
+    recordFileForBundle(vm, rel_path, source);
 
     const source_hash = bytecode_file.sourceHash(source);
 
@@ -931,7 +932,15 @@ pub fn handleDefineLibrary(vm: *VM, args: Value) VMError!Value {
                 id_list = types.cdr(id_list);
             }
         } else if (std.mem.eql(u8, decl_name, "import")) {
-            _ = handleImportInto(vm, lib_env, types.cdr(declaration)) catch return VMError.CompileError;
+            _ = handleImportInto(vm, lib_env, types.cdr(declaration)) catch |err| {
+                if (err != VMError.CompileError) return err;
+                const detail = vm.getErrorDetail();
+                if (detail.len > 0) {
+                    vm_mod.writeStderr(detail);
+                    vm_mod.writeStderr("\n");
+                    vm.last_error_detail_len = 0;
+                }
+            };
         } else if (std.mem.eql(u8, decl_name, "begin")) {
             try compileLibBeginBlock(vm, lib_env, types.cdr(declaration));
         } else if (std.mem.eql(u8, decl_name, "include") or std.mem.eql(u8, decl_name, "include-ci")) {
