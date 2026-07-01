@@ -392,7 +392,7 @@ fn emitLambdaFunction(self: *LLVMEmitter, name: ?[]const u8, param_names: []cons
     const fn_name = std.fmt.allocPrint(self.allocator, "@lambda_{d}", .{id}) catch return null;
 
     if (name) |n| {
-        self.native_fns.put(n, .{ .llvm_name = fn_name, .arity = @intCast(param_names.len) }) catch {};
+        self.native_fns.put(n, .{ .llvm_name = fn_name, .arity = @intCast(param_names.len), .is_variadic = rest_name != null }) catch {};
     }
 
     var fn_buf: std.ArrayList(u8) = .empty;
