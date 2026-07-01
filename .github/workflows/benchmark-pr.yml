@@ -9,10 +9,11 @@ on:
       - 'lib/**'
       - 'build.zig'
       - 'build.zig.zon'
+      - '.github/workflows/benchmark-pr.yml'
 
 permissions:
-  pull-requests: write
   contents: read
+  pull-requests: write
 
 jobs:
   benchmark-pr:
@@ -41,9 +42,9 @@ jobs:
           git checkout ${{ github.event.pull_request.head.sha }}
 
       - name: Compare and comment
-        uses: openpgpjs/github-action-pull-request-benchmark@v1
+        uses: kaappi/github-action-pull-request-benchmark@v1
         with:
-          tool: 'customSmallerIsBetter'
+          tool: 'raw'
           pr-benchmark-file-path: pr-results.json
           base-benchmark-file-path: base-results.json
           github-token: ${{ secrets.GITHUB_TOKEN }}
