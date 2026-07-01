@@ -77,12 +77,23 @@ pub fn main() !void {
     std.debug.print("capture benchmark: {d} immediately-escaping captures, GC off\n", .{iters});
     std.debug.print("{s:>6} | {s:>22} | {s:>22} | {s:>8}\n", .{ "depth", "call/cc (full)", "call/ec (escape)", "speedup" });
     std.debug.print("-------+------------------------+------------------------+---------\n", .{});
+    var cc_d0: Result = undefined;
+    var ec_d0: Result = undefined;
     for (depths) |d| {
         const cc = try measure(allocator, "call/cc", d, iters);
         const ec = try measure(allocator, "call/ec", d, iters);
+        if (d == 0) {
+            cc_d0 = cc;
+            ec_d0 = ec;
+        }
         std.debug.print(
             "{d:>6} | {d:>9.0} ns  {d:>4} MB | {d:>9.0} ns  {d:>4} MB | {d:>6.1}x\n",
             .{ d, cc.ns_per, cc.heap_mb, ec.ns_per, ec.heap_mb, cc.ns_per / ec.ns_per },
         );
     }
+
+    const cc_secs = cc_d0.ns_per * @as(f64, @floatFromInt(iters)) / 1e9;
+    const ec_secs = ec_d0.ns_per * @as(f64, @floatFromInt(iters)) / 1e9;
+    std.debug.print("name: call_cc, time: {d:.6}, status: ok, min: {d:.6}, max: {d:.6}, iterations: {d}\n", .{ cc_secs, cc_secs, cc_secs, iters });
+    std.debug.print("name: call_ec, time: {d:.6}, status: ok, min: {d:.6}, max: {d:.6}, iterations: {d}\n", .{ ec_secs, ec_secs, ec_secs, iters });
 }

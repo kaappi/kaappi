@@ -229,6 +229,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
         .link_libc = true,
     });
+    bench_mod.addImport("build_options", options.createModule());
     const bench_exe = b.addExecutable(.{
         .name = "bench",
         .root_module = bench_mod,
