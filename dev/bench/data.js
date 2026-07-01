@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1782929205971,
+  "lastUpdate": 1782934948284,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
@@ -4949,6 +4949,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.041717,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "be492c90575a136dcdcf3cc8e54818a6845ddc65",
+          "message": "Merge pull request #702 from kaappi/fix/preamble-replay-gc-700\n\nFix preamble replay GC root and resilient library imports",
+          "timestamp": "2026-07-02T00:59:05+05:30",
+          "tree_id": "ff225c3b3c69f52db8cdb54c5104dab76b7db77a",
+          "url": "https://github.com/kaappi/kaappi/commit/be492c90575a136dcdcf3cc8e54818a6845ddc65"
+        },
+        "date": 1782934947895,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.936612,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.854788,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.832371,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.128476,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.007252,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.03225,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.450968,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.067325,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.861506,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.742095,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.100046,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.234834,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 2.402552,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.742226,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.043144,
             "unit": "seconds"
           }
         ]
