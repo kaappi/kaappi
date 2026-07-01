@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1782878513655,
+  "lastUpdate": 1782879407021,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
@@ -2959,6 +2959,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "gc-pressure",
             "value": 2.407438,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 0,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "bcc7acebcfcb1e32f324231157e86e6b518e82d4",
+          "message": "Fix read-bytevector allocating full k-byte buffer upfront (#638) (#661)\n\nread-bytevector was allocating a buffer of the full requested size k\nbefore reading any data. A large k (e.g. 10^12) caused the process to\nhang attempting the allocation, even when only a few bytes were available.\nThis was exploitable under --sandbox.\n\nSwitch to incremental ArrayList growth (matching read-string's approach)\nso only actually-read bytes are buffered.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-01T09:35:38+05:30",
+          "tree_id": "9ab5392bd87690e2494071a59856f36a0772290c",
+          "url": "https://github.com/kaappi/kaappi/commit/bcc7acebcfcb1e32f324231157e86e6b518e82d4"
+        },
+        "date": 1782879406721,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.918063,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.932419,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.851486,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.162615,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.007652,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.032317,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.451681,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 1.266802,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.908556,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.738665,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.097706,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.246291,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 2.383023,
             "unit": "seconds"
           },
           {
