@@ -43,6 +43,12 @@
 (check "rational literal large den" 1/140737488355328 1/140737488355328)
 (check "rational large den positive" #t (positive? (denominator 1/140737488355328)))
 
+;; Regression for #612: exact division with bignums must produce exact rationals
+(check "/ bignum reciprocal exact" #t (exact? (/ 140737488355329)))
+(check "/ bignum rational" #t (exact? (/ 1 140737488355329)))
+(check "/ bignum non-even division" #t (exact? (/ 100000000000000000000000000 3)))
+(check "/ bignum even division" 2 (/ 6 3))
+
 ;; Regression for #611: rationals with bignum fields must not produce garbage
 (check "add bignum-field rational" #t (number? (+ (exact 0.1) 0)))
 (check "mul bignum-field rational" #t (number? (* (exact 0.1) 1)))
