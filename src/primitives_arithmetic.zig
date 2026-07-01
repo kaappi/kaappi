@@ -603,6 +603,11 @@ fn divFn(args: []const Value) PrimitiveError!Value {
             const r = types.toRational(args[0]);
             return makeRationalReduced(gc, r.denominator, r.numerator);
         }
+        if (types.isBignum(args[0])) {
+            if (bignum_mod.isZero(args[0])) return raiseDivByZero();
+            const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+            return makeRationalReduced(gc, types.makeFixnum(1), args[0]);
+        }
         const a = try toF64Ext(args[0]);
         if (a == 0 and isExactZero(args[0])) return raiseDivByZero();
         return makeFlonumVal(1.0 / a);
@@ -706,15 +711,21 @@ fn divFn(args: []const Value) PrimitiveError!Value {
         if (d == 1) return makeFixnumChecked(n);
         return gc.allocRational(try makeFixnumChecked(n), try makeFixnumChecked(d)) catch return PrimitiveError.OutOfMemory;
     }
-    // Exact integer division with bignums: try quotient to preserve exactness
-    if (anyBignum(args) and !anyFlonum(args) and !anyRational(args) and args.len == 2) {
+    // Exact integer division with bignums: produce exact rational
+    if (anyBignum(args) and !anyFlonum(args) and !anyRational(args)) {
         const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
-        if (bignum_mod.isZero(args[1])) return raiseDivByZero();
-        const rem = bignum_mod.remainder(gc, args[0], args[1]) catch return PrimitiveError.OutOfMemory;
-        if (bignum_mod.isZero(rem)) {
-            const q = bignum_mod.quotient(gc, args[0], args[1]) catch return PrimitiveError.OutOfMemory;
-            return bignum_mod.demote(q);
+        var num_val = args[0];
+        for (args[1..]) |a| {
+            if (bignum_mod.isZero(a)) return raiseDivByZero();
+            const rem = bignum_mod.remainder(gc, num_val, a) catch return PrimitiveError.OutOfMemory;
+            if (bignum_mod.isZero(rem)) {
+                num_val = bignum_mod.quotient(gc, num_val, a) catch return PrimitiveError.OutOfMemory;
+                num_val = bignum_mod.demote(num_val);
+            } else {
+                return makeRationalReduced(gc, num_val, a);
+            }
         }
+        return num_val;
     }
     // At least one flonum or bignum — convert to float
     var result = try toF64Ext(args[0]);
