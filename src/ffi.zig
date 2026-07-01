@@ -43,6 +43,7 @@ fn toCString(v: Value, buf: *[4096]u8) ?[*:0]const u8 {
     if (!types.isString(v)) return null;
     const str = types.toObject(v).as(types.SchemeString);
     if (str.len >= buf.len) return null;
+    if (std.mem.indexOfScalar(u8, str.data[0..str.len], 0) != null) return null;
     @memcpy(buf[0..str.len], str.data[0..str.len]);
     buf[str.len] = 0;
     return @ptrCast(buf[0..str.len :0]);
