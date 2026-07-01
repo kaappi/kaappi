@@ -188,6 +188,9 @@ fn referencesYoung(obj: *Object) bool {
                 if (f.closure) |cls| {
                     if (isYoungPointer(types.makePointer(@ptrCast(cls)))) return true;
                 }
+                if (f.native) |nf| {
+                    if (isYoungPointer(types.makePointer(@ptrCast(nf)))) return true;
+                }
                 const window: usize = if (f.closure) |cls| blk: {
                     const lc = cls.func.locals_count;
                     break :blk if (lc == 0) 256 else @as(usize, lc);
@@ -197,6 +200,16 @@ fn referencesYoung(obj: *Object) bool {
                 while (r < end) : (r += 1) {
                     if (isYoungPointer(fiber.registers[r])) return true;
                 }
+            }
+            for (fiber.handler_stack[0..fiber.handler_count]) |h| {
+                if (isYoungPointer(h.handler)) return true;
+            }
+            for (fiber.wind_stack[0..fiber.wind_count]) |wr| {
+                if (isYoungPointer(wr.before) or isYoungPointer(wr.after)) return true;
+            }
+            var pit = fiber.param_overrides.valueIterator();
+            while (pit.next()) |v| {
+                if (isYoungPointer(v.*)) return true;
             }
         },
         .channel => {
