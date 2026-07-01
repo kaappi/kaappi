@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1782863962088,
+  "lastUpdate": 1782864916126,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
@@ -1771,6 +1771,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "gc-pressure",
             "value": 2.392797,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 0,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2a0aa067d47e9f6eda3a6c56523ca072909eadb1",
+          "message": "Fix makeRationalFromReader using unchecked makeFixnum (#610) (#628)\n\nmakeRationalFromReader used unchecked types.makeFixnum for numerator\nand denominator, silently truncating values outside i48 range. Rational\nliterals like 200000000000000/3 would parse to the wrong value.\n\nUse makeFixnumChecked which promotes to bignum when the value exceeds\ni48 range.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-01T05:33:35+05:30",
+          "tree_id": "dbe20ff8fa193a2802477f504bbe2672e7222b5d",
+          "url": "https://github.com/kaappi/kaappi/commit/2a0aa067d47e9f6eda3a6c56523ca072909eadb1"
+        },
+        "date": 1782864915165,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.289522,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.979513,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.835522,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.484702,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006833,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.032081,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.457592,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 1.14897,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.971325,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.788414,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.100293,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.226291,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 2.409527,
             "unit": "seconds"
           },
           {
