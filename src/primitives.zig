@@ -600,31 +600,28 @@ fn symbolToString(args: []const Value) PrimitiveError!Value {
 
 fn applyFn(args: []const Value) PrimitiveError!Value {
     const vm = @import("vm.zig").vm_instance orelse return PrimitiveError.TypeError; // bare-ok: no VM
+    const gc = gc_instance orelse return PrimitiveError.OutOfMemory;
     const proc = args[0];
     if (!types.isProcedure(proc) and !types.isNativeFn(proc)) return PrimitiveError.TypeError;
 
     // Collect all arguments: args[1..n-1] are individual, args[n-1] is a list
-    var call_args: [256]Value = undefined;
-    var count: usize = 0;
+    var call_args: std.ArrayList(Value) = .empty;
+    defer call_args.deinit(gc.allocator);
 
     // Individual args (everything between proc and the final list)
     for (args[1 .. args.len - 1]) |a| {
-        if (count >= 256) return PrimitiveError.OutOfMemory;
-        call_args[count] = a;
-        count += 1;
+        call_args.append(gc.allocator, a) catch return PrimitiveError.OutOfMemory;
     }
 
     // Flatten the last arg (must be a proper list)
     var rest = args[args.len - 1];
     while (rest != types.NIL) {
         if (!types.isPair(rest)) return PrimitiveError.TypeError;
-        if (count >= 256) return PrimitiveError.OutOfMemory;
-        call_args[count] = types.car(rest);
-        count += 1;
+        call_args.append(gc.allocator, types.car(rest)) catch return PrimitiveError.OutOfMemory;
         rest = types.cdr(rest);
     }
 
-    return vm.callWithArgs(proc, call_args[0..count]) catch |err| {
+    return vm.callWithArgs(proc, call_args.items) catch |err| {
         return switch (err) {
             @import("vm.zig").VMError.ContinuationInvoked => PrimitiveError.ContinuationInvoked,
             @import("vm.zig").VMError.ExceptionRaised => PrimitiveError.ExceptionRaised,
