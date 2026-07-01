@@ -994,7 +994,7 @@ fn createTempFileFn(args: []const Value) PrimitiveError!Value {
 
     // Build template: prefix + XXXXXX + null
     var template_buf: [256]u8 = undefined;
-    if (prefix.len + 7 > template_buf.len) return PrimitiveError.TypeError;
+    if (prefix.len + 7 > template_buf.len) return raiseFileError(gc, "temp file prefix too long", args[0]);
     @memcpy(template_buf[0..prefix.len], prefix);
     @memcpy(template_buf[prefix.len..][0..6], "XXXXXX");
     template_buf[prefix.len + 6] = 0;
