@@ -250,9 +250,9 @@ pub const LLVMEmitter = struct {
         }
 
         const result = try self.freshTemp();
-        const call_prefix: []const u8 = if (is_tail) "tail call" else "call";
 
         if (nargs == 0) {
+            const call_prefix: []const u8 = if (is_tail) "tail call" else "call";
             try self.print("  {s} = {s} i64 @kaappi_call_scheme(ptr %vm, i64 {s}, ptr null, i64 0)\n", .{ result, call_prefix, callee });
         } else {
             const args_alloca = try self.freshTemp();
@@ -264,7 +264,7 @@ pub const LLVMEmitter = struct {
                 try self.print("  store i64 {s}, ptr {s}\n", .{ arg_tmps[i], gep });
             }
 
-            try self.print("  {s} = {s} i64 @kaappi_call_scheme(ptr %vm, i64 {s}, ptr {s}, i64 {d})\n", .{ result, call_prefix, callee, args_alloca, nargs });
+            try self.print("  {s} = call i64 @kaappi_call_scheme(ptr %vm, i64 {s}, ptr {s}, i64 {d})\n", .{ result, callee, args_alloca, nargs });
         }
 
         if (is_tail) {
@@ -819,9 +819,9 @@ pub const LLVMEmitter = struct {
         }
 
         const result = try self.freshTemp();
-        const call_prefix: []const u8 = if (is_tail) "tail call" else "call";
 
         if (nargs == 0) {
+            const call_prefix: []const u8 = if (is_tail) "tail call" else "call";
             try self.print("  {s} = {s} i64 {s}(ptr %vm, ptr null, i64 0, ptr null)\n", .{ result, call_prefix, fn_name });
         } else {
             const args_alloca = try self.freshTemp();
@@ -833,7 +833,7 @@ pub const LLVMEmitter = struct {
                 try self.print("  store i64 {s}, ptr {s}\n", .{ arg_tmps[i], gep });
             }
 
-            try self.print("  {s} = {s} i64 {s}(ptr %vm, ptr {s}, i64 {d}, ptr null)\n", .{ result, call_prefix, fn_name, args_alloca, nargs });
+            try self.print("  {s} = call i64 {s}(ptr %vm, ptr {s}, i64 {d}, ptr null)\n", .{ result, fn_name, args_alloca, nargs });
         }
 
         if (is_tail) {
