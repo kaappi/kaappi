@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1782872755332,
+  "lastUpdate": 1782873697842,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
@@ -2365,6 +2365,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "gc-pressure",
             "value": 2.391093,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 0,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c57cd2ca0f3e190b0621ba94de0d98ee23e3b8b4",
+          "message": "Fix parseBignumString CHUNK_DIGITS overflow for radix 12-36 (#631) (#655)\n\nparseBignumString hardcoded CHUNK_DIGITS=18 for all radices except\n2, 8, and 16. For radix 12+, an 18-digit chunk exceeds u64 max,\ncausing std.fmt.parseInt to overflow and crash with a runtime error\ninstead of returning the correct bignum value.\n\nReplace the hardcoded value with a precomputed lookup table that gives\nthe largest d such that radix^d fits in a u64 for each radix 2-36.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-01T08:00:34+05:30",
+          "tree_id": "f2ad829bef2b24d06629e73ae122e689418cacdb",
+          "url": "https://github.com/kaappi/kaappi/commit/c57cd2ca0f3e190b0621ba94de0d98ee23e3b8b4"
+        },
+        "date": 1782873697402,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.916551,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.363094,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.843564,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.156906,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.007294,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.032088,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.450673,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 1.266395,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.817129,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.746406,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.092842,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.243948,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 2.371597,
             "unit": "seconds"
           },
           {
