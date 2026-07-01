@@ -568,10 +568,10 @@ fn printValueWithDepth(writer: anytype, value: Value, mode: PrintMode, depth: u3
             .complex => {
                 const c = obj.as(types.Complex);
                 var buf: [64]u8 = undefined;
-                if (c.imag == 0.0) {
+                if (c.imag == 0.0 and !std.math.signbit(c.imag)) {
                     try writer.writeAll(formatFlonum(&buf, c.real));
                 } else {
-                    const has_real = c.real != 0.0;
+                    const has_real = c.real != 0.0 or std.math.signbit(c.real);
                     if (has_real) try writer.writeAll(formatComplexPart(&buf, c.real, c.exact_real));
                     const im = c.imag;
                     if (std.math.isNan(im)) {
@@ -579,7 +579,7 @@ fn printValueWithDepth(writer: anytype, value: Value, mode: PrintMode, depth: u3
                     } else if (std.math.isInf(im)) {
                         try writer.writeAll(if (im > 0) "+inf.0i" else "-inf.0i");
                     } else {
-                        try writer.writeByte(if (im < 0) '-' else '+');
+                        try writer.writeByte(if (im < 0 or std.math.signbit(im)) '-' else '+');
                         const mag = @abs(im);
                         if (mag != 1.0 or has_real) try writer.writeAll(formatComplexPart(&buf, mag, c.exact_imag));
                         try writer.writeByte('i');
