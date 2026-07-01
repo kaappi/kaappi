@@ -38,7 +38,7 @@ pub const repl_mod = @import("repl.zig");
 pub const ir_mod = @import("ir.zig");
 pub const llvm_emit = @import("llvm_emit.zig");
 
-pub const version = "0.9.1";
+pub const version = "0.10.0";
 
 fn writeToFd(fd: std.posix.fd_t, bytes: []const u8) void {
     var total: usize = 0;

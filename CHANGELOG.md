@@ -7,6 +7,51 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-07-01
+
+### Added
+- Abandon mutexes held by terminated fibers, per SRFI-18 spec (#642)
+- Detect `thread-join!` on current thread and raise error, per SRFI-18 spec (#643)
+- Remove 256-argument cap from `apply` by using heap-allocated ArrayList (#649)
+- Reduce `case` per-datum bytecode from ~39 to ~21 bytes, raising practical clause limit from ~700 to ~1000+ (#644)
+
+### Fixed
+
+#### GC and threading
+- Fix `referencesYoung` .fiber case missing `handler_stack`, `wind_stack`, `param_overrides`, and `frame.native` — could cause premature remembered-set eviction (#646)
+- Fix `markVMRoots` iterating shared libraries map in child threads without synchronization (#634)
+- Fix `VM.initForThread` sharing parent's Port objects by raw pointer instead of allocating fresh ports per thread (#635)
+- Fix `equal?` exponential blowup on shared DAGs deeper than 128 nodes (#648)
+
+#### LLVM native backend
+- Fix tail call passing pointer to caller's stack alloca — LLVM may reuse the frame, corrupting arguments (#639)
+- Fix `emitDirectCall` skipping arity validation, causing silent wrong results on over/under-application (#636)
+
+#### Reader and compiler
+- Fix reader truncating peculiar identifiers like `->foo` to just the sign character (#647)
+- Fix internal `define-syntax` inside `let`/`letrec` body leaking macro binding into enclosing scope (#651)
+
+#### Strings
+- Fix `string-for-each`/`string-map` byte cursor desync when callback mutates the string via `string-set!` (#645)
+- Fix SRFI-13 `parseStartEnd` and `string-take`/`-drop` silently clamping out-of-range indices instead of raising errors (#640)
+
+#### Arithmetic
+- Fix `parseBignumString` CHUNK_DIGITS overflow for radix 12–36 (#631)
+- Fix complex number printing dropping `-0.0` components (#637)
+
+#### I/O
+- Fix `read-bytevector` allocating full k-byte buffer upfront — a large k caused hangs; exploitable under `--sandbox` (#638)
+
+#### FFI
+- Fix `toCString` silently truncating strings with embedded NUL bytes (#630)
+
+#### LSP
+- Fix LSP crash on negative or oversized line/character position values (#641)
+
+#### Other
+- Fix `create-temp-file` raising uninformative bare TypeError on long prefix (#632)
+- Fix REPL `highlightCallback` misparsing character literals like `#\;` and `#\(` (#633)
+
 ## [0.9.1] - 2026-07-01
 
 ### Fixed
