@@ -643,6 +643,18 @@ pub fn toStringRadix(allocator: std.mem.Allocator, v: Value, radix: u8) ![]u8 {
     return (result.toOwnedSlice(allocator) catch return error.OutOfMemory);
 }
 
+// max d such that radix^d <= u64 max, indexed by radix (2..36)
+//  radix 2:63  3:40  4:31  5:27  6:24  7:22  8:21  9:20  10:19
+// 11:18 12:17 13:17 14:16 15:16 16:15 17:15 18:15 19:14 20:14
+// 21:14 22:14 23:13 24:13 25:13 26:13 27:13 28:13 29:12 30:12
+// 31:12 32:12 33:12 34:12 35:12 36:12
+const max_chunk_digits = [37]u8{
+    0,  0,  63, 40, 31, 27, 24, 22, 21, 20,
+    19, 18, 17, 17, 16, 16, 15, 15, 15, 14,
+    14, 14, 14, 13, 13, 13, 13, 13, 13, 12,
+    12, 12, 12, 12, 12, 12, 12,
+};
+
 /// Parse a decimal string into a bignum Value.
 pub fn parseBignumString(gc: *memory.GC, digits: []const u8, radix: u8) !Value {
     if (digits.len == 0) return types.makeFixnum(0);
@@ -659,12 +671,7 @@ pub fn parseBignumString(gc: *memory.GC, digits: []const u8, radix: u8) !Value {
     const num_digits = digits[start..];
     if (num_digits.len == 0) return types.makeFixnum(0);
 
-    const CHUNK_DIGITS: usize = switch (radix) {
-        2 => 63,
-        8 => 21,
-        16 => 15,
-        else => 18,
-    };
+    const CHUNK_DIGITS: usize = max_chunk_digits[radix];
     const radix_u64: u64 = radix;
 
     var limbs = try gc.allocator.alloc(u64, 1);
