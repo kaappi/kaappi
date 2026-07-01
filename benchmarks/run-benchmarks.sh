@@ -71,12 +71,19 @@ run_bench() {
 run_callcc_bench() {
     local output
     output=$($TIMEOUT_CMD zig build bench 2>&1 || true)
-    # Extract timing from bench output
-    local callcc_time callec_time
-    callcc_time=$(echo "$output" | grep "call/cc" | grep -oE '[0-9]+\.[0-9]+' | head -1 || echo "0")
-    callec_time=$(echo "$output" | grep "call/ec" | grep -oE '[0-9]+\.[0-9]+' | head -1 || echo "0")
-    echo "call_cc ${callcc_time:-0} ok 0 0 1 0 0 0"
-    echo "call_ec ${callec_time:-0} ok 0 0 1 0 0 0"
+
+    local cc_line ec_line
+    cc_line=$(echo "$output" | grep "^name: call_cc," || true)
+    ec_line=$(echo "$output" | grep "^name: call_ec," || true)
+
+    local cc_time cc_status ec_time ec_status
+    cc_time=$(extract_field "$cc_line" "time")
+    cc_status=$(extract_field "$cc_line" "status")
+    ec_time=$(extract_field "$ec_line" "time")
+    ec_status=$(extract_field "$ec_line" "status")
+
+    echo "call_cc ${cc_time:-0} ${cc_status:-fail} 0 0 1 0 0 0"
+    echo "call_ec ${ec_time:-0} ${ec_status:-fail} 0 0 1 0 0 0"
 }
 
 # Collect results
