@@ -1144,7 +1144,7 @@ pub const Compiler = struct {
                     return switch (err) {
                         error.OutOfMemory => CompileError.OutOfMemory,
                         error.ScopeTableFull, error.PatternTooComplex => CompileError.InternalLimit,
-                        error.NoMatchingPattern, error.EllipsisCountMismatch => CompileError.InvalidSyntax,
+                        error.NoMatchingPattern, error.EllipsisCountMismatch, error.EllipsisDepthMismatch => CompileError.InvalidSyntax,
                     };
                 };
                 var expanded_root = expanded;
