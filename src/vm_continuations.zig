@@ -164,14 +164,14 @@ pub fn performWindTransition(vm: *VM, target_winds: []const types.WindRecord, ta
         common += 1;
     }
 
-    // Unwind: call after thunks from current top down to common
-    var i = vm.wind_count;
-    while (i > common) {
-        i -= 1;
-        const after = vm.wind_stack[i].after;
+    // Unwind: call after thunks from current top down to common.
+    // Decrement wind_count before each call so re-entrant wind
+    // transitions (from exceptions in after-thunks) don't re-run it.
+    while (vm.wind_count > common) {
+        vm.wind_count -= 1;
+        const after = vm.wind_stack[vm.wind_count].after;
         _ = try vm.callThunk(after);
     }
-    vm.wind_count = common;
 
     // Rewind: call before thunks from common up to target
     var j = common;
@@ -238,4 +238,5 @@ pub fn restoreContinuation(vm: *VM, cont: *types.Continuation, value: Value) VME
     vm.registers[dst_idx] = value;
     vm.continuation_value = value;
     vm.continuation_invoked = true;
+    vm.continuation_generation +%= 1;
 }
