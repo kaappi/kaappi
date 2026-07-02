@@ -441,17 +441,29 @@ fn mainImpl(init: std.process.Init.Minimal) !void {
                     lib_paths[lib_path_count] = lp;
                     lib_path_count += 1;
                 }
+            } else {
+                writeStderr("--lib-path requires a path argument\n");
+                return;
             }
         } else if (std.mem.eql(u8, arg, "--profile")) {
             profile_mode = true;
         } else if (std.mem.eql(u8, arg, "--profile-json")) {
             profile_mode = true;
             profile_json_path = args.next();
+            if (profile_json_path == null) {
+                writeStderr("--profile-json requires a file path argument\n");
+                return;
+            }
         } else if (std.mem.eql(u8, arg, "--coverage")) {
             coverage_mode = true;
         } else if (std.mem.eql(u8, arg, "--coverage-xml")) {
             coverage_mode = true;
-            if (args.next()) |p| vm.coverage_xml_path = p;
+            if (args.next()) |p| {
+                vm.coverage_xml_path = p;
+            } else {
+                writeStderr("--coverage-xml requires a file path argument\n");
+                return;
+            }
         } else if (std.mem.eql(u8, arg, "--sandbox")) {
             sandbox_mode = true;
         } else if (std.mem.eql(u8, arg, "compile")) {
@@ -462,6 +474,10 @@ fn mainImpl(init: std.process.Init.Minimal) !void {
             emit_llvm_mode = true;
         } else if (std.mem.eql(u8, arg, "-o")) {
             compile_output = args.next();
+            if (compile_output == null) {
+                writeStderr("-o requires a file path argument\n");
+                return;
+            }
         } else if (std.mem.eql(u8, arg, "--disassemble")) {
             disassemble_mode = true;
         } else if (std.mem.eql(u8, arg, "--timeout")) {
@@ -471,11 +487,17 @@ fn mainImpl(init: std.process.Init.Minimal) !void {
                     const clockNs = @import("vm_calls.zig").clockNs;
                     vm.timeout_deadline_ns = clockNs() + ms * 1_000_000;
                 }
+            } else {
+                writeStderr("--timeout requires a milliseconds argument\n");
+                return;
             }
         } else if (std.mem.eql(u8, arg, "--max-memory")) {
             if (args.next()) |mem_str| {
                 const limit = std.fmt.parseInt(usize, mem_str, 10) catch 0;
                 if (limit > 0) gc.memory_limit = limit;
+            } else {
+                writeStderr("--max-memory requires a bytes argument\n");
+                return;
             }
         } else if (std.mem.eql(u8, arg, "--help") or std.mem.eql(u8, arg, "-h")) {
             printUsage();
