@@ -731,6 +731,14 @@ fn logFn(args: []const Value) PrimitiveError!Value {
     // (log z base)
     const z = try toF64(args[0]);
     const base = try toF64(args[1]);
+    if (z < 0.0) {
+        const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+        const mag = @sqrt(z * z);
+        const log_re = @log(mag) / @log(base);
+        const log_im = std.math.pi / @log(base);
+        if (@abs(log_im) < 1e-15) return makeFlonumVal(log_re);
+        return gc.allocComplex(log_re, log_im) catch return PrimitiveError.OutOfMemory;
+    }
     return makeFlonumVal(@log(z) / @log(base));
 }
 
