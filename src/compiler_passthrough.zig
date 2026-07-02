@@ -211,6 +211,14 @@ fn tryConstantFold(self: *Compiler, expr: Value, dst: u16) bool {
 
     if (self.resolveLocal(name) != null) return false;
     if ((self.resolveUpvalue(name) catch null) != null) return false;
+    if (self.globals) |globals| {
+        if (globals.get(name)) |val| {
+            if (!types.isPointer(val)) return false;
+            const obj = types.toObject(val);
+            if (obj.tag != .native_fn) return false;
+            if (!std.mem.eql(u8, obj.as(types.NativeFn).name, name)) return false;
+        }
+    }
 
     const args_pair = types.cdr(expr);
     if (!types.isPair(args_pair)) return false;
