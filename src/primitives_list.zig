@@ -91,16 +91,23 @@ fn listCopyFn(args: []const Value) PrimitiveError!Value {
     if (current == types.NIL) return types.NIL;
     if (!types.isPair(current)) return current; // atoms are returned as-is
 
-    // Collect elements
+    // Collect elements with cycle detection
     var elems: std.ArrayList(Value) = .empty;
     defer elems.deinit(gc.allocator);
+    var slow = current;
+    var fast = current;
+    var step: bool = false;
     while (current != types.NIL) {
-        if (!types.isPair(current)) {
-            // improper list: append the tail
-            break;
-        }
+        if (!types.isPair(current)) break;
         elems.append(gc.allocator, types.car(current)) catch return PrimitiveError.OutOfMemory;
         current = types.cdr(current);
+        if (step) {
+            slow = types.cdr(slow);
+            if (types.isPair(fast)) fast = types.cdr(fast);
+            if (types.isPair(fast)) fast = types.cdr(fast);
+            if (slow == fast and slow != types.NIL) return PrimitiveError.TypeError;
+        }
+        step = !step;
     }
     // Build the copy from the end
     var result: Value = current; // NIL for proper, last cdr for improper
@@ -135,6 +142,9 @@ fn memberFn(args: []const Value) PrimitiveError!Value {
     const compare = if (has_compare) args[2] else types.NIL;
     if (has_compare and !types.isProcedure(compare)) return primitives.typeError("member", "procedure", compare);
     var current = args[1];
+    var slow = current;
+    var fast = current;
+    var step: bool = false;
     while (current != types.NIL) {
         if (!types.isPair(current)) return primitives.typeError("member", "proper list", current);
         if (has_compare) {
@@ -152,16 +162,33 @@ fn memberFn(args: []const Value) PrimitiveError!Value {
             if (deepEqual(args[0], types.car(current))) return current;
         }
         current = types.cdr(current);
+        if (step) {
+            slow = types.cdr(slow);
+            if (types.isPair(fast)) fast = types.cdr(fast);
+            if (types.isPair(fast)) fast = types.cdr(fast);
+            if (slow == fast and slow != types.NIL) return PrimitiveError.TypeError;
+        }
+        step = !step;
     }
     return types.FALSE;
 }
 
 fn memqFn(args: []const Value) PrimitiveError!Value {
     var current = args[1];
+    var slow = current;
+    var fast = current;
+    var step: bool = false;
     while (current != types.NIL) {
         if (!types.isPair(current)) return primitives.typeError("memq", "proper list", current);
         if (args[0] == types.car(current)) return current;
         current = types.cdr(current);
+        if (step) {
+            slow = types.cdr(slow);
+            if (types.isPair(fast)) fast = types.cdr(fast);
+            if (types.isPair(fast)) fast = types.cdr(fast);
+            if (slow == fast and slow != types.NIL) return PrimitiveError.TypeError;
+        }
+        step = !step;
     }
     return types.FALSE;
 }
@@ -203,10 +230,20 @@ fn isEqv(a: Value, b: Value) bool {
 
 fn memvFn(args: []const Value) PrimitiveError!Value {
     var current = args[1];
+    var slow = current;
+    var fast = current;
+    var step: bool = false;
     while (current != types.NIL) {
         if (!types.isPair(current)) return primitives.typeError("memv", "proper list", current);
         if (isEqv(args[0], types.car(current))) return current;
         current = types.cdr(current);
+        if (step) {
+            slow = types.cdr(slow);
+            if (types.isPair(fast)) fast = types.cdr(fast);
+            if (types.isPair(fast)) fast = types.cdr(fast);
+            if (slow == fast and slow != types.NIL) return PrimitiveError.TypeError;
+        }
+        step = !step;
     }
     return types.FALSE;
 }
@@ -216,6 +253,9 @@ fn assocFn(args: []const Value) PrimitiveError!Value {
     const compare = if (has_compare) args[2] else types.NIL;
     if (has_compare and !types.isProcedure(compare)) return primitives.typeError("assoc", "procedure", compare);
     var current = args[1];
+    var slow = current;
+    var fast = current;
+    var step_flag: bool = false;
     while (current != types.NIL) {
         if (!types.isPair(current)) return primitives.typeError("assoc", "association list", current);
         const pair = types.car(current);
@@ -235,30 +275,57 @@ fn assocFn(args: []const Value) PrimitiveError!Value {
             if (deepEqual(args[0], types.car(pair))) return pair;
         }
         current = types.cdr(current);
+        if (step_flag) {
+            slow = types.cdr(slow);
+            if (types.isPair(fast)) fast = types.cdr(fast);
+            if (types.isPair(fast)) fast = types.cdr(fast);
+            if (slow == fast and slow != types.NIL) return PrimitiveError.TypeError;
+        }
+        step_flag = !step_flag;
     }
     return types.FALSE;
 }
 
 fn assqFn(args: []const Value) PrimitiveError!Value {
     var current = args[1];
+    var slow = current;
+    var fast = current;
+    var step: bool = false;
     while (current != types.NIL) {
         if (!types.isPair(current)) return primitives.typeError("assq", "association list", current);
         const pair = types.car(current);
         if (!types.isPair(pair)) return primitives.typeError("assq", "pair", pair);
         if (args[0] == types.car(pair)) return pair;
         current = types.cdr(current);
+        if (step) {
+            slow = types.cdr(slow);
+            if (types.isPair(fast)) fast = types.cdr(fast);
+            if (types.isPair(fast)) fast = types.cdr(fast);
+            if (slow == fast and slow != types.NIL) return PrimitiveError.TypeError;
+        }
+        step = !step;
     }
     return types.FALSE;
 }
 
 fn assvFn(args: []const Value) PrimitiveError!Value {
     var current = args[1];
+    var slow = current;
+    var fast = current;
+    var step: bool = false;
     while (current != types.NIL) {
         if (!types.isPair(current)) return primitives.typeError("assv", "association list", current);
         const pair = types.car(current);
         if (!types.isPair(pair)) return primitives.typeError("assv", "pair", pair);
         if (isEqv(args[0], types.car(pair))) return pair;
         current = types.cdr(current);
+        if (step) {
+            slow = types.cdr(slow);
+            if (types.isPair(fast)) fast = types.cdr(fast);
+            if (types.isPair(fast)) fast = types.cdr(fast);
+            if (slow == fast and slow != types.NIL) return PrimitiveError.TypeError;
+        }
+        step = !step;
     }
     return types.FALSE;
 }
