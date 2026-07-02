@@ -1383,9 +1383,13 @@ fn numeratorFn(args: []const Value) PrimitiveError!Value {
     if (types.isFlonum(args[0])) {
         const f = types.toFlonum(args[0]);
         if (!std.math.isFinite(f)) return args[0];
-        const rat = floatToRational(f);
-        if (rat.den == 0) return args[0];
-        return makeFlonumVal(@floatFromInt(rat.num));
+        if (f == @trunc(f)) return args[0];
+        const exact_val = try exactFn(args);
+        if (types.isRationalObj(exact_val)) {
+            const r = types.toRational(exact_val);
+            return makeFlonumVal(try toF64Ext(r.numerator));
+        }
+        return makeFlonumVal(try toF64Ext(exact_val));
     }
     return primitives.typeError("numerator", "number", args[0]);
 }
@@ -1400,9 +1404,13 @@ fn denominatorFn(args: []const Value) PrimitiveError!Value {
     if (types.isFlonum(args[0])) {
         const f = types.toFlonum(args[0]);
         if (!std.math.isFinite(f)) return makeFlonumVal(1.0);
-        const rat = floatToRational(f);
-        if (rat.den == 0) return makeFlonumVal(1.0);
-        return makeFlonumVal(@floatFromInt(rat.den));
+        if (f == @trunc(f)) return makeFlonumVal(1.0);
+        const exact_val = try exactFn(args);
+        if (types.isRationalObj(exact_val)) {
+            const r = types.toRational(exact_val);
+            return makeFlonumVal(try toF64Ext(r.denominator));
+        }
+        return makeFlonumVal(1.0);
     }
     return primitives.typeError("denominator", "number", args[0]);
 }
