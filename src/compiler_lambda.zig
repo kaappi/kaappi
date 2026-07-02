@@ -101,10 +101,8 @@ pub fn compileBody(self: *Compiler, body: Value) CompileError!void {
     const saved_body_scope = self.in_body_scope;
     self.in_body_scope = true;
 
-    // Pre-scan: register define names so macro expansion can see sibling
-    // defs. Track additions for cleanup.
-    var prescan_names: [64][]const u8 = undefined;
-    var prescan_count: usize = 0;
+    var prescan_names: std.ArrayList([]const u8) = .empty;
+    defer prescan_names.deinit(self.gc.allocator);
     if (self.globals) |globals| {
         var scan = body;
         while (scan != types.NIL and types.isPair(scan)) {
@@ -127,10 +125,7 @@ pub fn compileBody(self: *Compiler, body: Value) CompileError!void {
                             if (def_name) |dn| {
                                 if (!globals.contains(dn)) {
                                     globals.put(dn, types.VOID) catch {};
-                                    if (prescan_count < 64) {
-                                        prescan_names[prescan_count] = dn;
-                                        prescan_count += 1;
-                                    }
+                                    prescan_names.append(self.gc.allocator, dn) catch {};
                                 }
                             }
                         }
@@ -142,7 +137,7 @@ pub fn compileBody(self: *Compiler, body: Value) CompileError!void {
     }
     defer {
         if (self.globals) |globals| {
-            for (prescan_names[0..prescan_count]) |pn| {
+            for (prescan_names.items) |pn| {
                 if (globals.get(pn)) |val| {
                     if (val == types.VOID) _ = globals.remove(pn);
                 }
