@@ -7,6 +7,58 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-07-02
+
+### Added
+- **R7RS eval environments:** `eval` now honors its second argument; added `environment`, `null-environment`, `scheme-report-environment`, and `interaction-environment` procedures (#691)
+- **Vector patterns in syntax-rules:** pattern matching and template instantiation for vector literals in `syntax-rules`
+- **Ellipsis-depth validation:** syntax-rules templates validate that pattern variables are used at correct ellipsis nesting depth
+- **Structural hashing:** `equal?`-based hashing for pairs, vectors, and bytevectors (improves SRFI-69/125 hash table distribution)
+- **R7RS exit with dynamic-wind cleanup:** `exit` runs `dynamic-wind` before/after handlers per spec; `emergency-exit` provides immediate termination without cleanup
+- **`get-environment-variables`:** R7RS process-context procedure returning all environment variables via POSIX environ
+- **Cycle detection in list operations:** `member`, `memq`, `memv`, `assoc`, `assq`, `assv`, and `list-copy` detect circular lists instead of looping infinitely
+- **Syntax-rules pattern variable limit:** raised from 16 to 128 per ellipsis level
+
+### Fixed
+
+#### GC and memory
+- Fix generational GC: mark `Closure.func` in minor collections — unmarked closures could be collected prematurely
+- Fix generational GC: mark `RecordInstance.record_type` in minor collections
+- Fix `hash-table-walk`/`hash-table-fold` use-after-free when callback triggers rehash
+- Fix GC roots in `loadLibrarySource`, `compileFile` preamble replay, and `handleTopLevelForm` (#699, #700)
+
+#### Macro system
+- Fix `let-syntax` referential transparency: free variables in transformer output now resolve in the definition environment
+- Fix macro hygiene for template-introduced bindings whose names shadow built-in procedures
+
+#### Compiler
+- Fix internal-define pre-scan: use dynamic list instead of fixed 64-entry buffer — more than 64 internal defines no longer crashes
+- Fix passthrough constant folding: check globals for redefined primitives before folding (#600 follow-up)
+- Fix `define-values` register corruption with 2+ names in lambda body
+
+#### LLVM native backend
+- Fix native closure compilation: bail out for variadic lambdas instead of generating incorrect code
+- Fix local parameter shadowing in call position — shadowed parameters now use the correct binding
+
+#### Reader
+- Require delimiter after numeric tokens per R7RS (e.g., `1a` is now an error, not parsed as `1`)
+- Fix `char-alphabetic?` misclassifying non-letter Unicode codepoints (e.g., digits, symbols)
+
+#### Hash tables
+- Fix hash-table sentinel collision: `eof-object` and `void` are no longer confused with empty/deleted slots
+
+#### I/O
+- Fix `read-bytevector!` returning wrong value for zero-length target at EOF
+- Fix `writeJsonEscaped`: properly escape backspace (`\b`) and form feed (`\f`)
+
+#### Library loading
+- Fix `handleDefineLibrary` aborting on import errors instead of propagating; fix bundled file paths (#703)
+- Fix `compileFile` preamble skip and GC safety (#699)
+
+#### CLI and REPL
+- Fix `(command-line)` removing hardcoded "kaappi" prefix from output
+- Fix REPL tab completion for Scheme identifiers containing `-`, `?`, `!`, `->` (#676)
+
 ## [0.10.0] - 2026-07-01
 
 ### Added
