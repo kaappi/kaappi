@@ -146,10 +146,35 @@ fn getEnvVar(args: []const Value) PrimitiveError!Value {
     return types.FALSE;
 }
 
+extern var environ: [*:null]?[*:0]const u8;
+
 fn getEnvVars(args: []const Value) PrimitiveError!Value {
     _ = args;
-    // Return empty list for simplicity — full implementation would iterate environ
-    return types.NIL;
+    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+
+    var result: Value = types.NIL;
+    gc.pushRoot(&result) catch return PrimitiveError.OutOfMemory;
+    defer gc.popRoot();
+
+    var pair_val: Value = types.NIL;
+    gc.pushRoot(&pair_val) catch return PrimitiveError.OutOfMemory;
+    defer gc.popRoot();
+
+    var key_val: Value = types.NIL;
+    gc.pushRoot(&key_val) catch return PrimitiveError.OutOfMemory;
+    defer gc.popRoot();
+
+    var i: usize = 0;
+    while (environ[i]) |entry| : (i += 1) {
+        const s = std.mem.span(entry);
+        if (std.mem.indexOfScalar(u8, s, '=')) |eq_pos| {
+            key_val = gc.allocString(s[0..eq_pos]) catch return PrimitiveError.OutOfMemory;
+            const val_str = gc.allocString(s[eq_pos + 1 ..]) catch return PrimitiveError.OutOfMemory;
+            pair_val = gc.allocPair(key_val, val_str) catch return PrimitiveError.OutOfMemory;
+            result = gc.allocPair(pair_val, result) catch return PrimitiveError.OutOfMemory;
+        }
+    }
+    return result;
 }
 
 // ---------------------------------------------------------------------------
