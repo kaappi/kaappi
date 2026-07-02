@@ -189,10 +189,7 @@ fn rationalRound(r: *types.Rational) PrimitiveError!Value {
     const double_rem = bignum_mod.mul(gc, abs_rem, types.makeFixnum(2)) catch return PrimitiveError.OutOfMemory;
     const cmp = bignum_mod.compare(double_rem, r.denominator);
     if (cmp < 0) {
-        return bignum_mod.demote(if (bignum_mod.isNegative(rem))
-            bignum_mod.sub(gc, q, types.makeFixnum(1)) catch return PrimitiveError.OutOfMemory
-        else
-            q);
+        return bignum_mod.demote(q);
     }
     if (cmp > 0) {
         return bignum_mod.demote(if (bignum_mod.isNegative(rem))
