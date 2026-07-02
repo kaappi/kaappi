@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1782970617032,
+  "lastUpdate": 1782971998946,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
@@ -5939,6 +5939,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.043103,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "119d2f057f87667db107c711e28eed4acebcbc7f",
+          "message": "Merge pull request #716 from kaappi/fix/read-bytevector-zero-length-692\n\nFix read-bytevector! EOF for zero-length target and bytevector I/O error names",
+          "timestamp": "2026-07-02T10:47:02+05:30",
+          "tree_id": "7022207f36d8c890e5c016f4e141b0c4a97b5b29",
+          "url": "https://github.com/kaappi/kaappi/commit/119d2f057f87667db107c711e28eed4acebcbc7f"
+        },
+        "date": 1782971998637,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.488639,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.810527,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.820538,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.226829,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006879,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.033398,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.460122,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.071936,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.939321,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.817539,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.103509,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.219614,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 2.408188,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.687591,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.041518,
             "unit": "seconds"
           }
         ]
