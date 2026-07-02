@@ -255,10 +255,14 @@ fn resolveLibraryPath(allocator: std.mem.Allocator, rel_path: []const u8, lib_pa
 }
 
 const LibraryMeta = struct {
-    export_names: [128][]const u8,
-    export_renames: [128]?[]const u8,
-    export_count: usize,
+    export_names: std.ArrayList([]const u8),
+    export_renames: std.ArrayList(?[]const u8),
     lib_name: []const u8,
+
+    fn deinit(self: *LibraryMeta, allocator: std.mem.Allocator) void {
+        self.export_names.deinit(allocator);
+        self.export_renames.deinit(allocator);
+    }
 };
 
 /// Parse a .sld file and extract only the export names and process imports,
@@ -270,9 +274,8 @@ fn extractExportsAndImports(vm: *VM, source: []const u8) !LibraryMeta {
     defer rdr.deinit();
 
     var result: LibraryMeta = .{
-        .export_names = undefined,
-        .export_renames = undefined,
-        .export_count = 0,
+        .export_names = .empty,
+        .export_renames = .empty,
         .lib_name = "",
     };
 
@@ -308,10 +311,9 @@ fn extractExportsAndImports(vm: *VM, source: []const u8) !LibraryMeta {
                 while (id_list != types.NIL) {
                     if (!types.isPair(id_list)) break;
                     const id = types.car(id_list);
-                    if (types.isSymbol(id) and result.export_count < 128) {
-                        result.export_names[result.export_count] = types.symbolName(id);
-                        result.export_renames[result.export_count] = null;
-                        result.export_count += 1;
+                    if (types.isSymbol(id)) {
+                        result.export_names.append(vm.gc.allocator, types.symbolName(id)) catch return error.InvalidSyntax;
+                        result.export_renames.append(vm.gc.allocator, null) catch return error.InvalidSyntax;
                     } else if (types.isPair(id)) {
                         const eh = types.car(id);
                         if (types.isSymbol(eh) and std.mem.eql(u8, types.symbolName(eh), "rename")) {
@@ -321,10 +323,9 @@ fn extractExportsAndImports(vm: *VM, source: []const u8) !LibraryMeta {
                                 const nr = types.cdr(rename_args);
                                 if (types.isPair(nr) and types.isSymbol(os)) {
                                     const ns = types.car(nr);
-                                    if (types.isSymbol(ns) and result.export_count < 128) {
-                                        result.export_names[result.export_count] = types.symbolName(os);
-                                        result.export_renames[result.export_count] = types.symbolName(ns);
-                                        result.export_count += 1;
+                                    if (types.isSymbol(ns)) {
+                                        result.export_names.append(vm.gc.allocator, types.symbolName(os)) catch return error.InvalidSyntax;
+                                        result.export_renames.append(vm.gc.allocator, types.symbolName(ns)) catch return error.InvalidSyntax;
                                     }
                                 }
                             }
@@ -456,11 +457,12 @@ fn tryLoadLibraryFromFile(vm: *VM, name_list: Value) !void {
             defer allocator.free(loaded.funcs);
 
             // Cache hit — re-parse .sld for export/import declarations
-            const meta = extractExportsAndImports(vm, source) catch {
+            var meta = extractExportsAndImports(vm, source) catch {
                 // Fall through to source compilation on parse error
                 loadLibrarySource(vm, source) catch return error.UndefinedVariable;
                 return;
             };
+            defer meta.deinit(allocator);
 
             if (meta.lib_name.len == 0) {
                 // No define-library found — fall through to source compilation
@@ -483,9 +485,9 @@ fn tryLoadLibraryFromFile(vm: *VM, name_list: Value) !void {
             // Register the library with its exports
             var lib = library_mod.Library.initOwned(allocator, meta.lib_name);
             var all_exports_found = true;
-            for (0..meta.export_count) |ei| {
-                const internal = meta.export_names[ei];
-                const exported = meta.export_renames[ei] orelse internal;
+            for (0..meta.export_names.items.len) |ei| {
+                const internal = meta.export_names.items[ei];
+                const exported = meta.export_renames.items[ei] orelse internal;
                 if (vm.globals.get(internal)) |val| {
                     lib.addExport(exported, val) catch {
                         lib.deinit();
@@ -898,9 +900,10 @@ pub fn handleDefineLibrary(vm: *VM, args: Value) VMError!Value {
         vm.pending_lib_env_count -= 1;
     };
 
-    var export_names: [128][]const u8 = undefined;
-    var export_renames: [128]?[]const u8 = undefined;
-    var export_count: usize = 0;
+    var export_names: std.ArrayList([]const u8) = .empty;
+    defer export_names.deinit(vm.gc.allocator);
+    var export_renames: std.ArrayList(?[]const u8) = .empty;
+    defer export_renames.deinit(vm.gc.allocator);
 
     var decl = decls;
     while (decl != types.NIL) {
@@ -918,11 +921,8 @@ pub fn handleDefineLibrary(vm: *VM, args: Value) VMError!Value {
                 if (!types.isPair(id_list)) return VMError.CompileError;
                 const id = types.car(id_list);
                 if (types.isSymbol(id)) {
-                    if (export_count < 128) {
-                        export_names[export_count] = types.symbolName(id);
-                        export_renames[export_count] = null;
-                        export_count += 1;
-                    }
+                    export_names.append(vm.gc.allocator, types.symbolName(id)) catch return VMError.OutOfMemory;
+                    export_renames.append(vm.gc.allocator, null) catch return VMError.OutOfMemory;
                 } else if (types.isPair(id)) {
                     const head = types.car(id);
                     if (types.isSymbol(head) and std.mem.eql(u8, types.symbolName(head), "rename")) {
@@ -932,10 +932,9 @@ pub fn handleDefineLibrary(vm: *VM, args: Value) VMError!Value {
                             const rest = types.cdr(rename_args);
                             if (types.isPair(rest) and types.isSymbol(old_sym)) {
                                 const new_sym = types.car(rest);
-                                if (types.isSymbol(new_sym) and export_count < 128) {
-                                    export_names[export_count] = types.symbolName(old_sym);
-                                    export_renames[export_count] = types.symbolName(new_sym);
-                                    export_count += 1;
+                                if (types.isSymbol(new_sym)) {
+                                    export_names.append(vm.gc.allocator, types.symbolName(old_sym)) catch return VMError.OutOfMemory;
+                                    export_renames.append(vm.gc.allocator, types.symbolName(new_sym)) catch return VMError.OutOfMemory;
                                 }
                             }
                         }
@@ -958,7 +957,7 @@ pub fn handleDefineLibrary(vm: *VM, args: Value) VMError!Value {
         } else if (std.mem.eql(u8, decl_name, "include") or std.mem.eql(u8, decl_name, "include-ci")) {
             try compileLibInclude(vm, lib_env, types.cdr(declaration));
         } else if (std.mem.eql(u8, decl_name, "include-library-declarations")) {
-            try includeLibraryDeclarations(vm, lib_env, types.cdr(declaration), &export_names, &export_renames, &export_count);
+            try includeLibraryDeclarations(vm, lib_env, types.cdr(declaration), &export_names, &export_renames);
         } else if (std.mem.eql(u8, decl_name, "cond-expand")) {
             var clauses = types.cdr(declaration);
             var matched = false;
@@ -1004,9 +1003,9 @@ pub fn handleDefineLibrary(vm: *VM, args: Value) VMError!Value {
     var lib = library_mod.Library.initOwned(vm.gc.allocator, lib_name);
     lib.lib_env = lib_env;
     lib_env_owned = false; // library now owns both lib_env and lib_name
-    for (0..export_count) |i| {
-        const internal_name = export_names[i];
-        const exported_name = export_renames[i] orelse internal_name;
+    for (0..export_names.items.len) |i| {
+        const internal_name = export_names.items[i];
+        const exported_name = export_renames.items[i] orelse internal_name;
         if (lib_env.get(internal_name)) |val| {
             lib.addExport(exported_name, val) catch {
                 lib.deinit();
@@ -1116,9 +1115,8 @@ fn includeLibraryDeclarations(
     vm: *VM,
     lib_env: *std.StringHashMap(Value),
     file_list_val: Value,
-    export_names: *[128][]const u8,
-    export_renames: *[128]?[]const u8,
-    export_count: *usize,
+    export_names: *std.ArrayList([]const u8),
+    export_renames: *std.ArrayList(?[]const u8),
 ) VMError!void {
     var file_list = file_list_val;
     while (file_list != types.NIL) {
@@ -1163,11 +1161,8 @@ fn includeLibraryDeclarations(
                     if (!types.isPair(id_list)) return VMError.CompileError;
                     const id = types.car(id_list);
                     if (types.isSymbol(id)) {
-                        if (export_count.* < 128) {
-                            export_names[export_count.*] = types.symbolName(id);
-                            export_renames[export_count.*] = null;
-                            export_count.* += 1;
-                        }
+                        export_names.append(vm.gc.allocator, types.symbolName(id)) catch return VMError.OutOfMemory;
+                        export_renames.append(vm.gc.allocator, null) catch return VMError.OutOfMemory;
                     } else if (types.isPair(id)) {
                         const rename_head = types.car(id);
                         if (types.isSymbol(rename_head) and std.mem.eql(u8, types.symbolName(rename_head), "rename")) {
@@ -1177,10 +1172,9 @@ fn includeLibraryDeclarations(
                                 const rest = types.cdr(rename_args);
                                 if (types.isPair(rest) and types.isSymbol(internal)) {
                                     const external = types.car(rest);
-                                    if (types.isSymbol(external) and export_count.* < 128) {
-                                        export_names[export_count.*] = types.symbolName(internal);
-                                        export_renames[export_count.*] = types.symbolName(external);
-                                        export_count.* += 1;
+                                    if (types.isSymbol(external)) {
+                                        export_names.append(vm.gc.allocator, types.symbolName(internal)) catch return VMError.OutOfMemory;
+                                        export_renames.append(vm.gc.allocator, types.symbolName(external)) catch return VMError.OutOfMemory;
                                     }
                                 }
                             }
