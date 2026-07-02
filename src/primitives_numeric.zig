@@ -1165,7 +1165,7 @@ fn angleFn(args: []const Value) PrimitiveError!Value {
     }
     if (types.isFlonum(args[0])) {
         const f = types.toFlonum(args[0]);
-        return makeFlonumVal(if (f >= 0.0) 0.0 else std.math.pi);
+        return makeFlonumVal(std.math.atan2(@as(f64, 0.0), f));
     }
     if (types.isBignum(args[0])) {
         return makeFlonumVal(if (bignum_mod.isNegative(args[0])) std.math.pi else 0.0);
