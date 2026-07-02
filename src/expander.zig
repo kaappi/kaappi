@@ -188,6 +188,7 @@ pub const ExpandError = error{
     ScopeTableFull,
     PatternTooComplex,
     EllipsisCountMismatch,
+    EllipsisDepthMismatch,
     OutOfMemory,
 };
 
@@ -650,6 +651,7 @@ fn instantiateEllipsis(gc: *GC, elem_template: Value, rest_template: Value, bind
     var count_set = false;
     for (bindings) |b| {
         if (b.is_list and templateReferencesVar(elem_template, b.name)) {
+            if (b.depth != 1) return ExpandError.EllipsisDepthMismatch;
             if (!count_set) {
                 repeat_count = b.ellipsis_count;
                 count_set = true;
