@@ -242,8 +242,11 @@ pub fn compileBody(self: *Compiler, body: Value) CompileError!void {
                 if (rest == types.NIL) {
                     try self.compileExpr(expr, last_dst, true);
                 } else {
+                    const saved_next = self.next_register;
                     try self.compileExpr(expr, last_dst, false);
-                    self.freeReg();
+                    if (self.next_register == saved_next) {
+                        self.freeReg();
+                    }
                 }
                 current = rest;
             }
@@ -260,8 +263,11 @@ pub fn compileBody(self: *Compiler, body: Value) CompileError!void {
             if (rest == types.NIL) {
                 try self.compileExpr(expr, last_dst, true);
             } else {
+                const saved_next = self.next_register;
                 try self.compileExpr(expr, last_dst, false);
-                self.freeReg();
+                if (self.next_register == saved_next) {
+                    self.freeReg();
+                }
             }
             current = rest;
         }
