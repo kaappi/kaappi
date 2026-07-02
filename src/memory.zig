@@ -1011,6 +1011,21 @@ pub const GC = struct {
         return types.makePointer(@ptrCast(gi));
     }
 
+    pub fn allocEnvironment(self: *GC, env_map: *std.StringHashMap(Value), owned: bool) !Value {
+        try self.maybeCollect();
+        const se = try self.allocator.create(types.SchemeEnvironment);
+        se.* = .{
+            .header = .{ .tag = .scheme_environment },
+            .env = env_map,
+            .owned = owned,
+        };
+        self.bytes_allocated += @sizeOf(types.SchemeEnvironment);
+
+        self.profileAlloc(@sizeOf(types.SchemeEnvironment));
+        self.trackObject(&se.header);
+        return types.makePointer(@ptrCast(se));
+    }
+
     pub fn allocDirectoryObject(self: *GC, dir: *anyopaque, include_dotfiles: bool) !Value {
         try self.maybeCollect();
         const d = try self.allocator.create(types.DirectoryObject);
@@ -1278,6 +1293,7 @@ pub const GC = struct {
             .user_info,
             .group_info,
             .directory_object,
+            .scheme_environment,
             => return error.UncopyableType,
         };
     }

@@ -193,8 +193,27 @@ fn getEnvVars(args: []const Value) PrimitiveError!Value {
 fn evalFn(args: []const Value) PrimitiveError!Value {
     const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError; // bare-ok: no VM
     const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
-    // args[0] = expression, args[1] = environment (optional, ignored)
     const expr = args[0];
+
+    // If an environment specifier is provided, compile in that environment
+    if (args.len > 1 and types.isEnvironment(args[1])) {
+        const se = types.toEnvironment(args[1]);
+        const func = compiler_mod.compileExpressionInEnv(gc, expr, &vm.macros, se.env) catch return PrimitiveError.TypeError;
+        var closure_val = gc.allocClosure(func) catch return PrimitiveError.OutOfMemory;
+        compiler_mod.Compiler.unrootFunction(gc, func);
+        gc.pushRoot(&closure_val) catch return PrimitiveError.OutOfMemory;
+        defer gc.popRoot();
+
+        const result = vm.callWithArgs(closure_val, &[_]Value{}) catch |err| {
+            return switch (err) {
+                vm_mod.VMError.ContinuationInvoked => PrimitiveError.ContinuationInvoked,
+                vm_mod.VMError.ExceptionRaised => PrimitiveError.ExceptionRaised,
+                vm_mod.VMError.OutOfMemory => PrimitiveError.OutOfMemory,
+                else => PrimitiveError.TypeError, // bare-ok: catch fallback
+            };
+        };
+        return result;
+    }
 
     const func = compiler_mod.compileExpressionWithMacros(gc, expr, &vm.macros, &vm.globals) catch return PrimitiveError.TypeError;
     var closure_val = gc.allocClosure(func) catch return PrimitiveError.OutOfMemory;
@@ -202,7 +221,6 @@ fn evalFn(args: []const Value) PrimitiveError!Value {
     gc.pushRoot(&closure_val) catch return PrimitiveError.OutOfMemory;
     defer gc.popRoot();
 
-    // Use callWithArgs to properly nest within the current execution
     const result = vm.callWithArgs(closure_val, &[_]Value{}) catch |err| {
         return switch (err) {
             vm_mod.VMError.ContinuationInvoked => PrimitiveError.ContinuationInvoked,
@@ -215,10 +233,31 @@ fn evalFn(args: []const Value) PrimitiveError!Value {
 }
 
 fn environmentFn(args: []const Value) PrimitiveError!Value {
-    // (environment import-set ...) — return a value representing an environment
-    // Simplified: return a dummy value, eval ignores the environment arg
-    _ = args;
-    return types.VOID;
+    // (environment import-set ...) — R7RS 6.12
+    // Create a new environment containing bindings from the given import sets.
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError; // bare-ok: no VM
+    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const library_mod = @import("library.zig");
+
+    const env_map = gc.allocator.create(std.StringHashMap(Value)) catch return PrimitiveError.OutOfMemory;
+    env_map.* = std.StringHashMap(Value).init(gc.allocator);
+
+    for (args) |import_set| {
+        const lib_name = library_mod.libraryNameToString(gc.allocator, import_set) catch return PrimitiveError.TypeError;
+        defer gc.allocator.free(lib_name);
+
+        // Try loading the library if not already registered
+        const vm_library = @import("vm_library.zig");
+        vm_library.ensureLibraryLoaded(vm, import_set, lib_name) catch return PrimitiveError.TypeError;
+
+        const lib = vm.libraries.get(lib_name) orelse return PrimitiveError.TypeError;
+        var it = lib.exports.iterator();
+        while (it.next()) |entry| {
+            env_map.put(entry.key_ptr.*, entry.value_ptr.*) catch return PrimitiveError.OutOfMemory;
+        }
+    }
+
+    return gc.allocEnvironment(env_map, true) catch return PrimitiveError.OutOfMemory;
 }
 
 // ---------------------------------------------------------------------------
@@ -337,19 +376,38 @@ fn parameterSetDirectFn(args: []const Value) PrimitiveError!Value {
 
 fn interactionEnvironmentFn(args: []const Value) PrimitiveError!Value {
     _ = args;
-    return types.VOID;
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError; // bare-ok: no VM
+    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    return gc.allocEnvironment(&vm.globals, false) catch return PrimitiveError.OutOfMemory;
 }
 
 fn nullEnvironmentFn(args: []const Value) PrimitiveError!Value {
     if (!types.isFixnum(args[0])) return primitives.typeError("null-environment", "integer", args[0]);
     const version = types.toFixnum(args[0]);
     if (version != 5 and version != 7) return primitives.typeError("null-environment", "5 or 7", args[0]);
-    return types.VOID;
+    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+
+    const env_map = gc.allocator.create(std.StringHashMap(Value)) catch return PrimitiveError.OutOfMemory;
+    env_map.* = std.StringHashMap(Value).init(gc.allocator);
+    return gc.allocEnvironment(env_map, true) catch return PrimitiveError.OutOfMemory;
 }
 
 fn schemeReportEnvironmentFn(args: []const Value) PrimitiveError!Value {
     if (!types.isFixnum(args[0])) return primitives.typeError("scheme-report-environment", "integer", args[0]);
     const version = types.toFixnum(args[0]);
     if (version != 5 and version != 7) return primitives.typeError("scheme-report-environment", "5 or 7", args[0]);
-    return types.VOID;
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError; // bare-ok: no VM
+    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+
+    const env_map = gc.allocator.create(std.StringHashMap(Value)) catch return PrimitiveError.OutOfMemory;
+    env_map.* = std.StringHashMap(Value).init(gc.allocator);
+
+    // Import (scheme base) bindings
+    if (vm.libraries.get("scheme.base")) |lib| {
+        var it = lib.exports.iterator();
+        while (it.next()) |entry| {
+            env_map.put(entry.key_ptr.*, entry.value_ptr.*) catch return PrimitiveError.OutOfMemory;
+        }
+    }
+    return gc.allocEnvironment(env_map, true) catch return PrimitiveError.OutOfMemory;
 }

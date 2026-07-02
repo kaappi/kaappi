@@ -724,6 +724,9 @@ fn printValueWithDepth(writer: anytype, value: Value, mode: PrintMode, depth: u3
             .random_source => {
                 try writer.writeAll("#<random-source>");
             },
+            .scheme_environment => {
+                try writer.writeAll("#<environment>");
+            },
         }
     } else {
         try writer.writeAll("#<unknown>");
