@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1782973809170,
+  "lastUpdate": 1782974131624,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
@@ -6830,6 +6830,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.033528,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "46133c006e81d3e3abf8db43256beff72abfd91d",
+          "message": "Merge pull request #726 from kaappi/fix/structural-hash-689\n\nAdd structural hashing for pairs, vectors, and bytevectors",
+          "timestamp": "2026-07-02T11:24:35+05:30",
+          "tree_id": "4b393646e86bc5a21204ddf2ed8a4b7dcb8bff7b",
+          "url": "https://github.com/kaappi/kaappi/commit/46133c006e81d3e3abf8db43256beff72abfd91d"
+        },
+        "date": 1782974131105,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.714941,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.643314,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.750611,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.711641,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006967,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.030901,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.406988,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.066041,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 4.000084,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.549915,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.085415,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.216572,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 2.237363,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 0.904987,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.037933,
             "unit": "seconds"
           }
         ]
