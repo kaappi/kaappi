@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783027211081,
+  "lastUpdate": 1783028090007,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "33c04050c252a875f19be4ba9eda4daeb9e7fe0c",
-          "message": "Fix -o flag stripped from (command-line) in normal runs (#602) (#619)\n\nThe post-file-path argument loop unconditionally intercepted -o and\nswallowed it along with its value, even during normal script execution.\nGuard -o stripping with compile/disassemble/emit-llvm mode flags so\nscripts that accept -o as their own option can see it.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-01T02:57:32+05:30",
-          "tree_id": "0502ffbda6eb53853a1d95b2742b6a554e913ef9",
-          "url": "https://github.com/kaappi/kaappi/commit/33c04050c252a875f19be4ba9eda4daeb9e7fe0c"
-        },
-        "date": 1782855481690,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.982589,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.621045,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.840716,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.319973,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.007228,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.032187,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.445759,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 1.271716,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.886788,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.708867,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.109454,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.239555,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 2.360516,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 0,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.04153,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "892108bb40dc3561e0016a9aae0f2e5f5229a51a",
+          "message": "Fix magnitude on rationals and car/cdr type errors in native backend (#865, #834) (#892)\n\n- magnitude on exact rationals now negates the numerator exactly\n  instead of converting through f64, preserving exactness (#865)\n- runtime_exports car/cdr now abort with a type error message instead\n  of silently returning flonum 0.0 for non-pair arguments (#834)\n\nFixes #865\nFixes #834\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-03T02:17:09+05:30",
+          "tree_id": "9d5a9f6c275fa8a6aa36ce09558a717ea0082538",
+          "url": "https://github.com/kaappi/kaappi/commit/892108bb40dc3561e0016a9aae0f2e5f5229a51a"
+        },
+        "date": 1783028089079,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.345942,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.090389,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.806245,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.138378,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006904,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.0323,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.454029,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.068789,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.955513,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.759864,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.096628,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.21616,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 2.395455,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.663158,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.04343,
             "unit": "seconds"
           }
         ]
