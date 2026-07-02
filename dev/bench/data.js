@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1782985338268,
+  "lastUpdate": 1782985771023,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
@@ -7523,6 +7523,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044111,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "distinct": true,
+          "id": "de6afd864d587eb35eb6e1e8d525f833f1c27a35",
+          "message": "Release v0.11.0",
+          "timestamp": "2026-07-02T15:05:08+05:30",
+          "tree_id": "120134b6fdec50039ce1da42ada0b6a0ec160d6b",
+          "url": "https://github.com/kaappi/kaappi/commit/de6afd864d587eb35eb6e1e8d525f833f1c27a35"
+        },
+        "date": 1782985770621,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.037128,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.982089,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.8612,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.203038,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.007489,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.032064,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.451859,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.067689,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.920175,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.769728,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.094357,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.247221,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 2.444686,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.912491,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.043651,
             "unit": "seconds"
           }
         ]
