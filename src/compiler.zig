@@ -1429,8 +1429,10 @@ pub const Compiler = struct {
 
 pub fn compileExpression(gc: *memory.GC, expr: Value) CompileError!*types.Function {
     var c = try Compiler.init(gc);
+    const roots_base = gc.extra_roots.items.len;
     var ok = false;
     defer {
+        gc.extra_roots.shrinkRetainingCapacity(roots_base);
         if (!ok) Compiler.unrootFunction(gc, c.func);
         c.deinit();
     }
@@ -1445,11 +1447,13 @@ pub fn compileExpressionWithMacros(gc: *memory.GC, expr: Value, vm_macros: *std.
 
 pub fn compileExpressionWithMacrosAt(gc: *memory.GC, expr: Value, vm_macros: *std.StringHashMap(Value), vm_globals: ?*std.StringHashMap(Value), source_line: u32, source_name: ?[]const u8) CompileError!*types.Function {
     var c = try Compiler.init(gc);
+    const roots_base = gc.extra_roots.items.len;
     c.globals = vm_globals;
     c.func.source_line = source_line;
     c.func.source_name = source_name;
     var ok = false;
     defer {
+        gc.extra_roots.shrinkRetainingCapacity(roots_base);
         if (!ok) Compiler.unrootFunction(gc, c.func);
         c.deinit();
     }
@@ -1468,11 +1472,13 @@ pub fn compileExpressionWithMacrosAt(gc: *memory.GC, expr: Value, vm_macros: *st
 
 pub fn compileExpressionInEnv(gc: *memory.GC, expr: Value, vm_macros: *std.StringHashMap(Value), env: *std.StringHashMap(Value)) CompileError!*types.Function {
     var c = try Compiler.init(gc);
+    const roots_base = gc.extra_roots.items.len;
     c.globals = env;
     c.lib_env = env;
     c.restricted_env = true;
     var ok = false;
     defer {
+        gc.extra_roots.shrinkRetainingCapacity(roots_base);
         if (!ok) Compiler.unrootFunction(gc, c.func);
         c.deinit();
     }
