@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1782974258834,
+  "lastUpdate": 1782974630598,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
@@ -7028,6 +7028,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.043795,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f15af2825abe32111e09b25a570cf6b0ec9d0e5b",
+          "message": "Merge pull request #723 from kaappi/fix/numeric-delimiter-679\n\nRequire delimiter after numeric tokens in the reader",
+          "timestamp": "2026-07-02T11:59:32+05:30",
+          "tree_id": "d691aa5fdc3f166c5d2237371f00edbb52a2636f",
+          "url": "https://github.com/kaappi/kaappi/commit/f15af2825abe32111e09b25a570cf6b0ec9d0e5b"
+        },
+        "date": 1782974629744,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.330465,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.096297,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.814762,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.167139,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.00693,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.032303,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.454818,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.069942,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.867841,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.769717,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.107189,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.21507,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 2.428716,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.594102,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.041709,
             "unit": "seconds"
           }
         ]
