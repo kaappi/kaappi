@@ -639,7 +639,7 @@ fn writeJsonEscaped(fd: std.posix.fd_t, s: []const u8) void {
             '\n' => writeToFd(fd, "\\n"),
             '\r' => writeToFd(fd, "\\r"),
             '\t' => writeToFd(fd, "\\t"),
-            0x00...0x07, 0x0B, 0x0E...0x1F => {
+            0x00...0x08, 0x0B, 0x0C, 0x0E...0x1F => {
                 var buf: [6]u8 = undefined;
                 const esc = std.fmt.bufPrint(&buf, "\\u{x:0>4}", .{c}) catch return;
                 writeToFd(fd, esc);
