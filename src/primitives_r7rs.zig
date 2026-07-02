@@ -22,7 +22,7 @@ pub fn registerR7RS(vm: *vm_mod.VM) !void {
     // (scheme process-context)
     try reg(vm, "command-line", &commandLine, .{ .exact = 0 });
     try reg(vm, "exit", &exitFn, .{ .variadic = 0 });
-    try reg(vm, "emergency-exit", &exitFn, .{ .variadic = 0 });
+    try reg(vm, "emergency-exit", &emergencyExitFn, .{ .variadic = 0 });
     try reg(vm, "get-environment-variable", &getEnvVar, .{ .exact = 1 });
     try reg(vm, "get-environment-variables", &getEnvVars, .{ .exact = 0 });
 
@@ -119,14 +119,28 @@ fn commandLine(args: []const Value) PrimitiveError!Value {
     return result;
 }
 
+fn exitCode(args: []const Value) u8 {
+    if (args.len > 0 and types.isFixnum(args[0]))
+        return @intCast(@as(u64, @bitCast(@as(i64, @intCast(types.toFixnum(args[0]) & 0xFF)))));
+    if (args.len > 0 and args[0] == types.FALSE)
+        return 1;
+    return 0;
+}
+
 fn exitFn(args: []const Value) PrimitiveError!Value {
-    const code: u8 = if (args.len > 0 and types.isFixnum(args[0]))
-        @intCast(@as(u64, @bitCast(@as(i64, @intCast(types.toFixnum(args[0]) & 0xFF)))))
-    else if (args.len > 0 and args[0] == types.FALSE)
-        1
-    else
-        0;
+    const code = exitCode(args);
+    if (vm_mod.vm_instance) |vm| {
+        var i = vm.wind_count;
+        while (i > 0) {
+            i -= 1;
+            _ = vm.callWithArgs(vm.wind_stack[i].after, &[_]Value{}) catch {};
+        }
+    }
     std.process.exit(code);
+}
+
+fn emergencyExitFn(args: []const Value) PrimitiveError!Value {
+    std.process.exit(exitCode(args));
 }
 
 fn getEnvVar(args: []const Value) PrimitiveError!Value {
