@@ -243,29 +243,29 @@ fn stringToUtf8(args: []const Value) PrimitiveError!Value {
 // Binary I/O (R7RS 6.13.3)
 // ---------------------------------------------------------------------------
 
-fn getInputPort(args: []const Value, arg_idx: usize) PrimitiveError!*types.Port {
+fn getInputPort(args: []const Value, arg_idx: usize, proc_name: []const u8) PrimitiveError!*types.Port {
     if (args.len > arg_idx) {
-        if (!types.isPort(args[arg_idx])) return primitives.typeError("read-u8", "input port", args[arg_idx]);
+        if (!types.isPort(args[arg_idx])) return primitives.typeError(proc_name, "input port", args[arg_idx]);
         const port = types.toObject(args[arg_idx]).as(types.Port);
-        if (!port.is_input) return primitives.typeError("read-u8", "input port", args[arg_idx]);
-        if (!port.is_open) return primitives.typeError("read-u8", "open port", args[arg_idx]);
+        if (!port.is_input) return primitives.typeError(proc_name, "input port", args[arg_idx]);
+        if (!port.is_open) return primitives.typeError(proc_name, "open port", args[arg_idx]);
         return port;
     }
     const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError; // bare-ok: no VM
-    if (!types.isPort(vm.stdin_port)) return primitives.typeError("read-u8", "input port", vm.stdin_port);
+    if (!types.isPort(vm.stdin_port)) return primitives.typeError(proc_name, "input port", vm.stdin_port);
     return types.toObject(vm.stdin_port).as(types.Port);
 }
 
-fn getOutputPort(args: []const Value, arg_idx: usize) PrimitiveError!*types.Port {
+fn getOutputPort(args: []const Value, arg_idx: usize, proc_name: []const u8) PrimitiveError!*types.Port {
     if (args.len > arg_idx) {
-        if (!types.isPort(args[arg_idx])) return primitives.typeError("write-u8", "output port", args[arg_idx]);
+        if (!types.isPort(args[arg_idx])) return primitives.typeError(proc_name, "output port", args[arg_idx]);
         const port = types.toObject(args[arg_idx]).as(types.Port);
-        if (!port.is_output) return primitives.typeError("write-u8", "output port", args[arg_idx]);
-        if (!port.is_open) return primitives.typeError("write-u8", "open port", args[arg_idx]);
+        if (!port.is_output) return primitives.typeError(proc_name, "output port", args[arg_idx]);
+        if (!port.is_open) return primitives.typeError(proc_name, "open port", args[arg_idx]);
         return port;
     }
     const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError; // bare-ok: no VM
-    if (!types.isPort(vm.stdout_port)) return primitives.typeError("write-u8", "output port", vm.stdout_port);
+    if (!types.isPort(vm.stdout_port)) return primitives.typeError(proc_name, "output port", vm.stdout_port);
     return types.toObject(vm.stdout_port).as(types.Port);
 }
 
@@ -294,13 +294,13 @@ fn portReadOneByte(port: *types.Port) ?u8 {
 }
 
 fn readU8Fn(args: []const Value) PrimitiveError!Value {
-    const port = try getInputPort(args, 0);
+    const port = try getInputPort(args, 0, "read-u8");
     const byte = portReadOneByte(port) orelse return types.EOF;
     return types.makeFixnum(@intCast(byte));
 }
 
 fn peekU8Fn(args: []const Value) PrimitiveError!Value {
-    const port = try getInputPort(args, 0);
+    const port = try getInputPort(args, 0, "peek-u8");
     if (port.peek_byte) |b| {
         return types.makeFixnum(@intCast(b));
     }
@@ -313,7 +313,7 @@ fn writeU8Fn(args: []const Value) PrimitiveError!Value {
     if (!types.isFixnum(args[0])) return primitives.typeError("write-u8", "exact integer 0-255", args[0]);
     const n = types.toFixnum(args[0]);
     if (n < 0 or n > 255) return primitives.typeError("write-u8", "exact integer 0-255", args[0]);
-    const port = try getOutputPort(args, 1);
+    const port = try getOutputPort(args, 1, "write-u8");
     const byte: u8 = @intCast(@as(u64, @bitCast(n)));
     if (port.is_string_port) {
         portWriteBytes(port, &[_]u8{byte});
@@ -345,7 +345,7 @@ fn portWriteBytes(port: *types.Port, bytes: []const u8) void {
 }
 
 fn u8ReadyP(args: []const Value) PrimitiveError!Value {
-    const port = try getInputPort(args, 0);
+    const port = try getInputPort(args, 0, "u8-ready?");
     if (port.peek_byte != null) return types.TRUE;
     if (port.is_string_port) {
         const data = port.string_data orelse return types.TRUE;
@@ -361,7 +361,7 @@ fn readBytevectorFn(args: []const Value) PrimitiveError!Value {
     const k = types.toFixnum(args[0]);
     if (k < 0) return primitives.typeError("read-bytevector", "non-negative integer", args[0]);
     const count: usize = @intCast(@as(u64, @bitCast(k)));
-    const port = try getInputPort(args, 1);
+    const port = try getInputPort(args, 1, "read-bytevector");
 
     if (count == 0) return gc.allocBytevector(&.{}) catch return PrimitiveError.OutOfMemory;
 
@@ -382,7 +382,7 @@ fn writeBytevectorFn(args: []const Value) PrimitiveError!Value {
     // (write-bytevector bv [port [start [end]]])
     if (!types.isBytevector(args[0])) return primitives.typeError("write-bytevector", "bytevector", args[0]);
     const bv = types.toBytevector(args[0]);
-    const port = try getOutputPort(args, 1);
+    const port = try getOutputPort(args, 1, "write-bytevector");
 
     var start: usize = 0;
     var end: usize = bv.data.len;
@@ -444,7 +444,7 @@ fn readBytevectorMut(args: []const Value) PrimitiveError!Value {
     // (read-bytevector! bv port [start [end]])
     if (!types.isBytevector(args[0])) return primitives.typeError("read-bytevector!", "bytevector", args[0]);
     const bv = types.toBytevector(args[0]);
-    const port = try getInputPort(args, 1);
+    const port = try getInputPort(args, 1, "read-bytevector!");
     const len = bv.data.len;
 
     var start: usize = 0;
@@ -469,7 +469,7 @@ fn readBytevectorMut(args: []const Value) PrimitiveError!Value {
         bv.data[start + read_count] = byte;
         read_count += 1;
     }
-    if (read_count == 0 and start == end and len > 0) return types.makeFixnum(0);
+    if (start == end) return types.makeFixnum(0);
     if (read_count == 0) return types.EOF;
     return types.makeFixnum(@intCast(read_count));
 }
