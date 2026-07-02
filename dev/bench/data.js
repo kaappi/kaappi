@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1782972970250,
+  "lastUpdate": 1782973351900,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
@@ -6434,6 +6434,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.042446,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e54a2d23b860946a17d57683ed621556f3729589",
+          "message": "Merge pull request #715 from kaappi/fix/circular-list-hang-688\n\nAdd cycle detection to member/memq/memv/assoc/assq/assv/list-copy",
+          "timestamp": "2026-07-02T11:13:13+05:30",
+          "tree_id": "16788ceebd694088996f8c9278cf4283fb535812",
+          "url": "https://github.com/kaappi/kaappi/commit/e54a2d23b860946a17d57683ed621556f3729589"
+        },
+        "date": 1782973351525,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.921309,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.3734,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.832388,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.155947,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.007379,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.032278,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.450825,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.068264,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.854873,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.74271,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.095305,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.242669,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 2.361999,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.881948,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.043365,
             "unit": "seconds"
           }
         ]
