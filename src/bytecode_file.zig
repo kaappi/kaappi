@@ -37,6 +37,8 @@ const TAG_BYTEVECTOR: u8 = 11;
 const TAG_BIGNUM: u8 = 12;
 const TAG_RATIONAL: u8 = 13;
 const TAG_COMPLEX: u8 = 14;
+const TAG_EOF: u8 = 15;
+const TAG_UNDEFINED: u8 = 16;
 
 pub const BytecodeError = error{
     InvalidMagic,
@@ -262,6 +264,16 @@ fn writeConstant(w: *Writer, allocator: std.mem.Allocator, val: Value, all_funcs
         return;
     }
 
+    if (val == types.EOF) {
+        try w.writeU8(allocator, TAG_EOF);
+        return;
+    }
+
+    if (val == types.UNDEFINED) {
+        try w.writeU8(allocator, TAG_UNDEFINED);
+        return;
+    }
+
     if (types.isChar(val)) {
         try w.writeU8(allocator, TAG_CHAR);
         try w.writeU32(allocator, @as(u32, types.toChar(val)));
@@ -385,6 +397,8 @@ fn readConstant(r: *Reader, gc: *GC, all_funcs: []*Function, depth: u32) !Value 
         },
         TAG_NIL => return types.NIL,
         TAG_VOID => return types.VOID,
+        TAG_EOF => return types.EOF,
+        TAG_UNDEFINED => return types.UNDEFINED,
         TAG_CHAR => {
             const cp = try r.readU32();
             if (cp > 0x10FFFF) return BytecodeError.CorruptedFile;
@@ -1267,7 +1281,7 @@ test "bytecode validation rejects invalid opcode" {
 
     // Function header
     try w.writeU8(allocator, 0); // arity
-    try w.writeU8(allocator, 1); // locals_count
+    try w.writeU16(allocator, 1); // locals_count
     try w.writeU8(allocator, 0); // upvalue_count
     try w.writeU8(allocator, 0); // is_variadic
     try w.writeU16(allocator, 0); // name_len
