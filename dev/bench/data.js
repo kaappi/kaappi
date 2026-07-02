@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783002654332,
+  "lastUpdate": 1783003656762,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
@@ -8810,6 +8810,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.040907,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "17f47a2540e2ca89dfe4f47df1d235c2e08f05e8",
+          "message": "Merge pull request #773 from kaappi/fix/756-760-761-compiler-bugs\n\nFix three compiler bugs: constant limit, apply upvalue, no_collect leak",
+          "timestamp": "2026-07-02T20:03:07+05:30",
+          "tree_id": "a71b89af1f089d7db1a8720a3a4ca7216613d72e",
+          "url": "https://github.com/kaappi/kaappi/commit/17f47a2540e2ca89dfe4f47df1d235c2e08f05e8"
+        },
+        "date": 1783003655452,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.40733,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.158243,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.817077,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.166064,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006906,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.032026,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.451482,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.068845,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.956683,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.755262,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.125567,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.229886,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 2.403078,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.72918,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.043533,
             "unit": "seconds"
           }
         ]
