@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783023962337,
+  "lastUpdate": 1783025724846,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "distinct": true,
-          "id": "e501abd013ff28300824795ababd844a55a7670d",
-          "message": "Release v0.9.0",
-          "timestamp": "2026-06-30T23:42:35+05:30",
-          "tree_id": "21ca6be188ade515c0a695b530d1770a658b000f",
-          "url": "https://github.com/kaappi/kaappi/commit/e501abd013ff28300824795ababd844a55a7670d"
-        },
-        "date": 1782843858252,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.34165,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.614339,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.825836,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.076773,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.00692,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.032896,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.44738,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 1.149978,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.923137,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.761287,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.101479,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.225567,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 2.398376,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 0,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.040961,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d4f638ead29755f8a0dae005a29957b70f414d57",
+          "message": "Fix round on negative exact rationals with fraction < 1/2 (#837) (#888)\n\nWhen 2*|remainder| < denominator the closest integer is the truncated\nquotient q for both signs. The cmp<0 branch incorrectly subtracted 1\nfor negative remainders, rounding away from zero.\n\nFixes #837\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-03T01:59:08+05:30",
+          "tree_id": "fd03601f3c439f87a8b51e4cd08e32227be3aa60",
+          "url": "https://github.com/kaappi/kaappi/commit/d4f638ead29755f8a0dae005a29957b70f414d57"
+        },
+        "date": 1783025724402,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.117446,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.844013,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.84776,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.202937,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.008186,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.032679,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.452491,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.06913,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.867547,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.724983,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.108497,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.249494,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 2.420686,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.884664,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044678,
             "unit": "seconds"
           }
         ]
