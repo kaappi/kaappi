@@ -230,6 +230,7 @@ pub const Function = struct {
     global_cache: ?[]Value = null,
     cache_version: u32 = 0,
     env: ?*std.StringHashMap(Value) = null,
+    env_val: Value = NIL,
     profile_instrs: u64 = 0,
     profile_calls: u64 = 0,
     profile_time_ns: u64 = 0,
@@ -269,6 +270,7 @@ pub const Transformer = struct {
     num_rules: u16,
     captured_locals: []CapturedLocal = &.{},
     def_env: ?*std.StringHashMap(Value) = null,
+    def_env_val: Value = NIL,
     custom_ellipsis: ?[]const u8 = null,
 };
 

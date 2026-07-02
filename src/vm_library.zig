@@ -1051,7 +1051,7 @@ fn compileLibExpr(vm: *VM, lib_env: *std.StringHashMap(Value), expr: Value) VMEr
         return;
     }
 
-    const func = compiler_mod.compileExpressionInEnv(vm.gc, expr, &vm.macros, lib_env) catch return VMError.CompileError;
+    const func = compiler_mod.compileExpressionInEnv(vm.gc, expr, &vm.macros, lib_env, types.NIL) catch return VMError.CompileError;
     if (vm.lib_compile_collect) |collect| {
         collect.append(vm.gc.allocator, func) catch return VMError.OutOfMemory;
     }

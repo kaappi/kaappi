@@ -135,6 +135,7 @@ fn referencesYoung(obj: *Object) bool {
             for (tx.templates) |tmpl| {
                 if (isYoungPointer(tmpl)) return true;
             }
+            if (isYoungPointer(tx.def_env_val)) return true;
         },
         .error_object => {
             const err = obj.as(types.ErrorObject);
@@ -236,6 +237,7 @@ fn referencesYoung(obj: *Object) bool {
                     if (isYoungPointer(c)) return true;
                 }
             }
+            if (isYoungPointer(func.env_val)) return true;
         },
         .native_closure => {
             const nc = obj.as(types.NativeClosure);
@@ -381,6 +383,7 @@ fn markObjectContents(gc: *GC, obj: *Object) void {
             for (tx.literals) |lit| markValue(gc, lit);
             for (tx.patterns) |pat| markValue(gc, pat);
             for (tx.templates) |tmpl| markValue(gc, tmpl);
+            markValue(gc, tx.def_env_val);
         },
         .error_object => {
             const err = obj.as(types.ErrorObject);
@@ -445,6 +448,7 @@ fn markObjectContents(gc: *GC, obj: *Object) void {
             if (func.global_cache) |cache| {
                 for (cache) |c| markValue(gc, c);
             }
+            markValue(gc, func.env_val);
         },
         .native_closure => {
             const nc = obj.as(types.NativeClosure);
@@ -533,6 +537,7 @@ pub fn markValue(gc: *GC, v: Value) void {
             if (func.global_cache) |cache| {
                 for (cache) |c| markValue(gc, c);
             }
+            markValue(gc, func.env_val);
         },
         .transformer => {
             const tx = obj.as(Transformer);
@@ -545,6 +550,7 @@ pub fn markValue(gc: *GC, v: Value) void {
             for (tx.templates) |tmpl| {
                 markValue(gc, tmpl);
             }
+            markValue(gc, tx.def_env_val);
         },
         .error_object => {
             const err = obj.as(types.ErrorObject);

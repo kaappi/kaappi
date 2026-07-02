@@ -563,6 +563,7 @@ pub fn compileLetBody(self: *Compiler, body: Value, dst: u16, is_tail: bool) Com
             const tx = types.toObject(transformer).as(types.Transformer);
             if (self.lib_env) |env| {
                 tx.def_env = env;
+                tx.def_env_val = self.lib_env_val;
             }
             self.macros.put(name, transformer) catch return CompileError.OutOfMemory;
         } else {
