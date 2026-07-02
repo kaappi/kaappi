@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783006889531,
+  "lastUpdate": 1783007800731,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
@@ -9206,6 +9206,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.043503,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "854b35b7f6522af703227e8b49a7c8166a4495dc",
+          "message": "Merge pull request #777 from kaappi/fix/733-737-thottam-bugs\n\nFix five thottam package manager bugs",
+          "timestamp": "2026-07-02T21:13:43+05:30",
+          "tree_id": "29aee9861549401d66870157c62d962cf23450ff",
+          "url": "https://github.com/kaappi/kaappi/commit/854b35b7f6522af703227e8b49a7c8166a4495dc"
+        },
+        "date": 1783007799776,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.343166,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.093269,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.813548,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.239676,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.007042,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.032993,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.454665,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.068651,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.905666,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.766579,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.133409,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.216254,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 2.394627,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.664218,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.041276,
             "unit": "seconds"
           }
         ]
