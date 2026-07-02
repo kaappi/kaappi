@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1782963495233,
+  "lastUpdate": 1782965160329,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
@@ -5444,6 +5444,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.041802,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "3a720c79399b33806e45e8432eec1f98bf8fa2d4",
+          "message": "Merge pull request #710 from kaappi/fix/hash-table-walk-fold-uaf-690\n\nFix hash-table-walk/fold use-after-free when callback triggers rehash",
+          "timestamp": "2026-07-02T09:22:13+05:30",
+          "tree_id": "fcfc167b14d9fed9392d1a97edf1f9675f37f627",
+          "url": "https://github.com/kaappi/kaappi/commit/3a720c79399b33806e45e8432eec1f98bf8fa2d4"
+        },
+        "date": 1782965159846,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.917384,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.986636,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.834447,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.139456,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.007277,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.031982,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.45071,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.066989,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.91385,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.738881,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.108109,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.235107,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 2.376913,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.732191,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.043564,
             "unit": "seconds"
           }
         ]
