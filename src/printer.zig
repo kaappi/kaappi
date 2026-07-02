@@ -1,5 +1,6 @@
 const std = @import("std");
 const types = @import("types.zig");
+const reader_mod = @import("reader.zig");
 const Value = types.Value;
 
 pub const PrintMode = enum {
@@ -253,11 +254,23 @@ fn startsWithIgnoreCase(s: []const u8, prefix: []const u8) bool {
 /// characters, and names that would otherwise read as a number.
 fn symbolNeedsBars(name: []const u8) bool {
     if (name.len == 0) return true;
-    for (name) |c| {
+    var i: usize = 0;
+    while (i < name.len) {
+        const c = name[i];
         switch (c) {
-            0...' ', '(', ')', '[', ']', '{', '}', '"', ';', '|', '\\', '\'', '`', ',', '#' => return true,
+            0...' ', 0x7F, '(', ')', '[', ']', '{', '}', '"', ';', '|', '\\', '\'', '`', ',', '#' => return true,
+            0x80...0xFF => {
+                const seq_len = std.unicode.utf8ByteSequenceLength(c) catch return true;
+                if (i + seq_len > name.len) return true;
+                const cp = std.unicode.utf8Decode(name[i..][0..seq_len]) catch return true;
+                if (cp >= 0x80 and cp <= 0x9F) return true;
+                if (!reader_mod.Reader.isUnicodeLetter(cp)) return true;
+                i += seq_len;
+                continue;
+            },
             else => {},
         }
+        i += 1;
     }
     if (name.len == 1 and name[0] == '.') return true;
 
