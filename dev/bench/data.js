@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783035165050,
+  "lastUpdate": 1783035181212,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "27701f330e24c010e12052b8e1bc9ab539298ea8",
-          "message": "Fix git argument injection in thottam package manager (#614) (#625)\n\nCustom source URLs from ::url specs and kaappi.pkg manifest source:\nfields were passed to git clone/ls-remote as positional arguments\nwithout a '--' separator. A URL starting with '-' would be parsed\nas a git option, enabling argument injection.\n\nAdd '--' end-of-options separator before user-controlled URLs in\ngit clone and git ls-remote invocations. Also reject source URLs\nstarting with '-' at parse time in both parsePkgSpec and manifest\nparsing.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-01T04:40:13+05:30",
-          "tree_id": "acb2773b7e4ff8739daadc0175a23cd293de1bec",
-          "url": "https://github.com/kaappi/kaappi/commit/27701f330e24c010e12052b8e1bc9ab539298ea8"
-        },
-        "date": 1782861609674,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.934002,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.007077,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.828833,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.127833,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.007287,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.032104,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.445251,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 1.267293,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.83112,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.714138,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.100581,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.234551,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 2.370796,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 0,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044541,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e90e67a4c69d0278d5e451806e5d65deb3446b21",
+          "message": "Fix exact denominator 2^47 wrapping and inexact NaN on huge rationals (#842, #848) (#898)\n\n- Change denominator threshold in exactFn from <= 47 to < 47: 2^47\n  overflows i48 fixnum range, producing a negative denominator (#842)\n- When inexact conversion produces NaN from inf/inf, fall back to\n  bignum quotient+remainder for the correct f64 result (#848)\n\nFixes #842\nFixes #848\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-03T04:37:52+05:30",
+          "tree_id": "8f8ef55419cf41e22bc85ec45885d51fb1a31efc",
+          "url": "https://github.com/kaappi/kaappi/commit/e90e67a4c69d0278d5e451806e5d65deb3446b21"
+        },
+        "date": 1783035180547,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.847137,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.625684,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.808531,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.690892,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.007327,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.031611,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.428164,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.066074,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.965717,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.631031,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.09573,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.415896,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 2.253662,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.099904,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.041987,
             "unit": "seconds"
           }
         ]
