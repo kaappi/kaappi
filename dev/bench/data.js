@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1782939652374,
+  "lastUpdate": 1782959663758,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
@@ -5147,6 +5147,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.040691,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e075bc037ce97590165b7f8ed01233af20b211bd",
+          "message": "Merge pull request #706 from kaappi/fix/gc-closure-func-mark-705\n\nFix generational GC: mark Closure.func in minor collections",
+          "timestamp": "2026-07-02T07:51:09+05:30",
+          "tree_id": "2428e5e1703e0ec58193c1328d50092d4c31ab07",
+          "url": "https://github.com/kaappi/kaappi/commit/e075bc037ce97590165b7f8ed01233af20b211bd"
+        },
+        "date": 1782959663390,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.914159,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.825672,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.837485,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.212637,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.00721,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.032418,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.451031,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.067278,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.832124,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.742637,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.106352,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.240905,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 2.381832,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.884105,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044384,
             "unit": "seconds"
           }
         ]
