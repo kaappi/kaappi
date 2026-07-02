@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783004655581,
+  "lastUpdate": 1783005797618,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
@@ -9008,6 +9008,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.034633,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "763b7528ccb59a790ae8727ee4ad0e9dd7774831",
+          "message": "Merge pull request #775 from kaappi/fix/751-string-to-number-complex-exactness\n\nApply exactness prefix to complex number parsing in string->number",
+          "timestamp": "2026-07-02T20:39:06+05:30",
+          "tree_id": "aa7f4be8f333f8ae16a5462c00a2c4bac92b396e",
+          "url": "https://github.com/kaappi/kaappi/commit/763b7528ccb59a790ae8727ee4ad0e9dd7774831"
+        },
+        "date": 1783005796626,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.368776,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.691094,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.831147,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.182093,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.007054,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.032879,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.450923,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.068754,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.938963,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.747131,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.141208,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.228016,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 2.397006,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.657555,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.042149,
             "unit": "seconds"
           }
         ]
