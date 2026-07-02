@@ -1189,7 +1189,11 @@ fn magnitudeFn(args: []const Value) PrimitiveError!Value {
         return bignum_mod.absVal(gc, args[0]) catch return PrimitiveError.OutOfMemory;
     }
     if (types.isRationalObj(args[0])) {
-        return makeFlonumVal(@abs(try toF64Ext(args[0])));
+        const r = types.toRational(args[0]);
+        if (!bignum_mod.isNegative(r.numerator)) return args[0];
+        const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+        const neg_num = bignum_mod.negate(gc, r.numerator) catch return PrimitiveError.OutOfMemory;
+        return arith.makeRationalReduced(gc, neg_num, r.denominator);
     }
     return primitives.typeError("magnitude", "number", args[0]);
 }
