@@ -289,3 +289,13 @@ test "hygiene: multiple macro invocations are independent" {
     try std.testing.expectEqual(@as(i64, 10), types.toFixnum(types.car(result)));
     try std.testing.expectEqual(@as(i64, 10), types.toFixnum(types.car(types.cdr(result))));
 }
+
+test "let-syntax rejects malformed binding without transformer" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    const result = vm.eval("(let-syntax ((my-macro)) 1)");
+    try std.testing.expectError(error.CompileError, result);
+}

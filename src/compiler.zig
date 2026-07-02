@@ -1340,7 +1340,9 @@ pub const Compiler = struct {
 
             const keyword = types.car(binding);
             if (!types.isSymbol(keyword)) return CompileError.InvalidSyntax;
-            const transformer_spec = types.car(types.cdr(binding));
+            const binding_rest = types.cdr(binding);
+            if (!types.isPair(binding_rest)) return CompileError.InvalidSyntax;
+            const transformer_spec = types.car(binding_rest);
             const transformer = passthrough.parseSyntaxRules(self, transformer_spec) catch return CompileError.InvalidSyntax;
 
             const name = types.symbolName(keyword);
