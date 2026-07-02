@@ -507,9 +507,16 @@ pub const Srfi18Time = struct {
 // Hash table (SRFI-69)
 // ---------------------------------------------------------------------------
 
+pub const HashEntryState = enum(u8) {
+    empty,
+    occupied,
+    tombstone,
+};
+
 pub const HashEntry = struct {
     key: Value,
     value: Value,
+    state: HashEntryState = .empty,
 };
 
 pub const HashTable = struct {

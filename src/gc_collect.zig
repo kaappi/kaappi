@@ -105,7 +105,7 @@ fn referencesYoung(obj: *Object) bool {
         .hash_table => {
             const ht = obj.as(HashTable);
             for (ht.entries[0..ht.capacity]) |entry| {
-                if (entry.key != types.VOID and entry.key != types.EOF) {
+                if (entry.state == .occupied) {
                     if (isYoungPointer(entry.key) or isYoungPointer(entry.value)) return true;
                 }
             }
@@ -349,7 +349,7 @@ fn markObjectContents(gc: *GC, obj: *Object) void {
         .hash_table => {
             const ht = obj.as(HashTable);
             for (ht.entries[0..ht.capacity]) |entry| {
-                if (entry.key != types.VOID and entry.key != types.EOF) {
+                if (entry.state == .occupied) {
                     markValue(gc, entry.key);
                     markValue(gc, entry.value);
                 }
@@ -595,7 +595,7 @@ pub fn markValue(gc: *GC, v: Value) void {
         .hash_table => {
             const ht = obj.as(HashTable);
             for (ht.entries[0..ht.capacity]) |entry| {
-                if (entry.key != types.VOID and entry.key != types.EOF) {
+                if (entry.state == .occupied) {
                     markValue(gc, entry.key);
                     markValue(gc, entry.value);
                 }
