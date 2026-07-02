@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783025724846,
+  "lastUpdate": 1783026867212,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "bbe7d318f75a2168a3558b00213b1f8e36f2e8f8",
-          "message": "Fix bare lambda internal define register clobbering (#601) (#615)\n\nIn compileLambdaWithIR, the body loop freed exactly one register after\neach non-final expression. When compileDefineFromIR allocated an extra\nregister for a local variable, that local's slot was reused by the next\nexpression, causing wrong values or runtime type errors.\n\nTrack whether compileFromNode allocated extra registers (for locals) and\nskip freeReg when it did, preserving the local's slot.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-01T01:51:33+05:30",
-          "tree_id": "e683ef80de6dc5d2292545e186055e766355712e",
-          "url": "https://github.com/kaappi/kaappi/commit/bbe7d318f75a2168a3558b00213b1f8e36f2e8f8"
-        },
-        "date": 1782851542821,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.290064,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.220745,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.806455,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.16915,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006945,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.03206,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.452847,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 1.145877,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.94287,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.764609,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.135508,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.219603,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 2.480891,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 0,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044678,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "20b4516b495e2a829f17a5cb94014c8605bb8d51",
+          "message": "Evaluate parameterize param expressions exactly once (#860) (#887)\n\ncompileParameterize spliced each raw param expression into five places\nin the desugared let form: save old, set with converter, read back,\nbefore-thunk, and after-thunk. Introduce a %pp_i binding per parameter\nin a let* that evaluates the param expression once and references the\nbinding variable in all five positions.\n\nFixes #860\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-03T02:05:31+05:30",
+          "tree_id": "766f94654d34c7260e9cd3abedbd43cde3a0e9c2",
+          "url": "https://github.com/kaappi/kaappi/commit/20b4516b495e2a829f17a5cb94014c8605bb8d51"
+        },
+        "date": 1783026866492,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.063376,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.999015,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.835107,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.14628,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.007199,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.032289,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.452291,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.068119,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.945214,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.721822,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.084664,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.234821,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 2.3705,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.813472,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.043652,
             "unit": "seconds"
           }
         ]
