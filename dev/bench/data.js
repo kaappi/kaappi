@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783007800731,
+  "lastUpdate": 1783008816949,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
@@ -9305,6 +9305,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.041276,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "366d47d5e827132ae5567a1b31a14ed27e7e61ef",
+          "message": "Merge pull request #778 from kaappi/fix/740-cli-missing-arg-validation\n\nReport missing arguments for CLI flags",
+          "timestamp": "2026-07-02T21:30:37+05:30",
+          "tree_id": "4f64ee65a07a9ab4c76c076a35b40692909d33f7",
+          "url": "https://github.com/kaappi/kaappi/commit/366d47d5e827132ae5567a1b31a14ed27e7e61ef"
+        },
+        "date": 1783008815973,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.371873,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.579844,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.835918,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.130124,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.00711,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.033114,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.450807,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.068561,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.951821,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.76098,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.134204,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.219826,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 2.380485,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.662825,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.043641,
             "unit": "seconds"
           }
         ]
