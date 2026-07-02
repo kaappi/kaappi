@@ -359,7 +359,7 @@ fn add(args: []const Value) PrimitiveError!Value {
                 a_num = r.numerator;
                 a_den = r.denominator;
             } else {
-                return PrimitiveError.TypeError;
+                return PrimitiveError.TypeError; // bare-ok: rational type guard
             }
             // acc_num/acc_den + a_num/a_den = (acc_num*a_den + a_num*acc_den) / (acc_den*a_den)
             const t1 = bignum_mod.mul(gc, acc_num, a_den) catch return PrimitiveError.OutOfMemory;
@@ -420,7 +420,7 @@ fn sub(args: []const Value) PrimitiveError!Value {
             acc_num = r.numerator;
             acc_den = r.denominator;
         } else {
-            return PrimitiveError.TypeError;
+            return PrimitiveError.TypeError; // bare-ok: rational type guard
         }
         if (args.len == 1) {
             acc_num = bignum_mod.negate(gc, acc_num) catch return PrimitiveError.OutOfMemory;
@@ -450,7 +450,7 @@ fn sub(args: []const Value) PrimitiveError!Value {
                 a_num = r.numerator;
                 a_den = r.denominator;
             } else {
-                return PrimitiveError.TypeError;
+                return PrimitiveError.TypeError; // bare-ok: rational type guard
             }
             const t1 = bignum_mod.mul(gc, acc_num, a_den) catch return PrimitiveError.OutOfMemory;
             const t2 = bignum_mod.mul(gc, a_num, acc_den) catch return PrimitiveError.OutOfMemory;
@@ -530,7 +530,7 @@ fn mul(args: []const Value) PrimitiveError!Value {
                 a_num = r.numerator;
                 a_den = r.denominator;
             } else {
-                return PrimitiveError.TypeError;
+                return PrimitiveError.TypeError; // bare-ok: rational type guard
             }
             acc_num = bignum_mod.mul(gc, acc_num, a_num) catch return PrimitiveError.OutOfMemory;
             acc_den = bignum_mod.mul(gc, acc_den, a_den) catch return PrimitiveError.OutOfMemory;
@@ -612,7 +612,7 @@ fn divFn(args: []const Value) PrimitiveError!Value {
             acc_num = r.numerator;
             acc_den = r.denominator;
         } else {
-            return PrimitiveError.TypeError;
+            return PrimitiveError.TypeError; // bare-ok: rational type guard
         }
         gc.extra_roots.append(gc.allocator, acc_num) catch return PrimitiveError.OutOfMemory;
         gc.extra_roots.append(gc.allocator, acc_den) catch return PrimitiveError.OutOfMemory;
@@ -634,7 +634,7 @@ fn divFn(args: []const Value) PrimitiveError!Value {
                 a_num = r.numerator;
                 a_den = r.denominator;
             } else {
-                return PrimitiveError.TypeError;
+                return PrimitiveError.TypeError; // bare-ok: rational type guard
             }
             if (bignum_mod.isZero(a_num)) return raiseDivByZero();
             // (acc_num/acc_den) / (a_num/a_den) = (acc_num*a_den) / (acc_den*a_num)
