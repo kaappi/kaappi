@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1782995546960,
+  "lastUpdate": 1782996239658,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
@@ -8117,6 +8117,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.04236,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a0cb415334eb05681c0eb7629e5abcfacb2ed3c2",
+          "message": "Merge pull request #766 from kaappi/fix/758-let-syntax-malformed-binding\n\nValidate let-syntax bindings have transformer spec",
+          "timestamp": "2026-07-02T17:59:59+05:30",
+          "tree_id": "6f38bfc11e1c0eaa62f1e4954670f65dcfe1986d",
+          "url": "https://github.com/kaappi/kaappi/commit/a0cb415334eb05681c0eb7629e5abcfacb2ed3c2"
+        },
+        "date": 1782996239276,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.085542,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.63492,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.842555,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.236986,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.007354,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.03174,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.449683,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.068463,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.882544,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.731987,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.095151,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.245178,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 2.414579,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.893307,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.043625,
             "unit": "seconds"
           }
         ]
