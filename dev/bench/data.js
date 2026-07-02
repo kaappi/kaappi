@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1782972851566,
+  "lastUpdate": 1782972940661,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
@@ -6137,6 +6137,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.042019,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "569a55db25571ba8d9d014e3a4871f18aa973ee5",
+          "message": "Merge pull request #718 from kaappi/fix/passthrough-constfold-redefine-698\n\nFix passthrough constant folding: check globals for redefined primitives",
+          "timestamp": "2026-07-02T10:57:31+05:30",
+          "tree_id": "7c41554685134b422db2400203ddc5deddd96bf2",
+          "url": "https://github.com/kaappi/kaappi/commit/569a55db25571ba8d9d014e3a4871f18aa973ee5"
+        },
+        "date": 1782972939744,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.34031,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.314336,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.819156,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.187156,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.00694,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.032848,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.453645,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.068981,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.958149,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.75712,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.104057,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.225479,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 2.425849,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.562052,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.042347,
             "unit": "seconds"
           }
         ]
