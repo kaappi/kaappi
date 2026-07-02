@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1782985771023,
+  "lastUpdate": 1782988957518,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
@@ -7622,6 +7622,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.043651,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e105a9f4ed1e58cacf4f45630cd67cc59aa0d4dc",
+          "message": "Split large source files to stay within 1500-line policy (#732)\n\nExtract self-contained subsystems from main.zig, ir.zig, and memory.zig\ninto dedicated files, following existing codebase patterns:\n\n- main.zig (1493→1173): LLVM emission + native compilation → native_compiler.zig\n- ir.zig (1457→1178): standalone bytecode Emitter → ir_emitter.zig\n- memory.zig (1435→1213): cross-thread deep copy → gc_deep_copy.zig\n\nAll public APIs preserved via re-exports or delegation. CLAUDE.md file\ntables updated to document new files.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-02T15:57:56+05:30",
+          "tree_id": "e81cd64a09c4f6743f7fdcef54a38ef0eaa3b5f5",
+          "url": "https://github.com/kaappi/kaappi/commit/e105a9f4ed1e58cacf4f45630cd67cc59aa0d4dc"
+        },
+        "date": 1782988957020,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.335063,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.210927,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.797634,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.130767,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006827,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.032267,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.448133,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.069358,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.967179,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.772818,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.117854,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.222577,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 2.399284,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.663396,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.041447,
             "unit": "seconds"
           }
         ]
