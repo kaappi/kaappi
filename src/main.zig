@@ -40,7 +40,7 @@ pub const ir_emitter = @import("ir_emitter.zig");
 pub const llvm_emit = @import("llvm_emit.zig");
 pub const native_compiler = @import("native_compiler.zig");
 
-pub const version = "0.11.0";
+pub const version = "0.11.1";
 
 fn writeToFd(fd: std.posix.fd_t, bytes: []const u8) void {
     var total: usize = 0;

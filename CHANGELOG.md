@@ -7,6 +7,51 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.11.1] - 2026-07-02
+
+### Fixed
+
+#### GC and memory
+- Fix GC safety in vm_library: root AST before `handleImport`, write barrier in cond-expand splicing, root parsed declarations before compilation (#754, #757, #759)
+- Add GC write barrier in vector constant deserialization (#738)
+- Fix GC safety violations in rational arithmetic paths — root intermediate heap values across allocating calls (#747)
+- Fix data race in symbol table marking during SRFI-18 threading — use blocking lock instead of tryLock (#750)
+
+#### Arithmetic
+- Fix exact rational + bignum arithmetic to preserve exactness instead of falling back to inexact float (#746)
+- Fix two-argument `log` to return complex for negative first argument (#752)
+- Fix `angle` to return pi for -0.0 using `atan2` (#748)
+- Fix minInt negation overflow in `abs`, unary minus, and `magnitude` — auto-promote to bignum (#744, #749)
+- Fix `toRationalParts` returning `{0, 1}` for non-numeric types instead of raising a type error (#741)
+- Fix multi-arg bignum division to process all divisors — `(/ (expt 2 100) 3 7)` now produces 2^100/21 (#739)
+- Apply exactness prefix to complex number parsing in `string->number` (#751)
+
+#### Compiler
+- Fix off-by-one in `addConstant`: allow 65536 constants (#756)
+- Check `resolveUpvalue` before applying `apply` tail-call optimization when `apply` is shadowed by a closure variable (#760)
+- Decrement `no_collect` before propagating pushRoot OOM after macro expansion, preventing permanent GC suppression (#761)
+- Validate `let-syntax` bindings have transformer spec (#758)
+
+#### Deep copy
+- Fix deep copy of promise, parameter, and error_object: register in visited map before recursing to prevent infinite recursion on circular structures (#753, #755)
+
+#### Bytecode serialization
+- Handle EOF and UNDEFINED values in writeConstant/readConstant (#743, #745)
+
+#### Package manager (thottam)
+- Add `.git` suffix to `resolveVersion` URL (#733)
+- Check build exit code in `doUpdate` (#734)
+- Track update failures and exit 1 if any failed (#735)
+- Add `--` separator before version in `git checkout` (#736)
+- Validate package name in `doRemove` before path construction (#737)
+
+#### CLI and REPL
+- Make REPL Ctrl-C show fresh prompt instead of exiting (#742)
+- Report missing arguments for CLI flags (`--lib-path`, `-o`, etc.) (#740)
+
+### Changed
+- Split `main.zig`, `ir.zig`, and `memory.zig` into smaller files per 1500-line policy (#732)
+
 ## [0.11.0] - 2026-07-02
 
 ### Added
