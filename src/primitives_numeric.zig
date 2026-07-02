@@ -22,7 +22,7 @@ const gcdTwo = arith.gcdTwo;
 fn safeFloatToExactInt(f: f64) PrimitiveError!Value {
     const min_i64: f64 = @floatFromInt(std.math.minInt(i64));
     const max_i64_f: f64 = @floatFromInt(std.math.maxInt(i64));
-    if (f >= min_i64 and f <= max_i64_f) {
+    if (f >= min_i64 and f < max_i64_f) {
         return try arith.makeFixnumChecked(@intFromFloat(f));
     }
     return floatToBignum(f);
@@ -235,7 +235,7 @@ fn bankersRound(f: f64) f64 {
     if (frac == 0.5) {
         const min_i64: f64 = @floatFromInt(std.math.minInt(i64));
         const max_i64_f: f64 = @floatFromInt(std.math.maxInt(i64));
-        if (floored >= min_i64 and floored <= max_i64_f) {
+        if (floored >= min_i64 and floored < max_i64_f) {
             const i: i64 = @intFromFloat(floored);
             return if (@mod(i, @as(i64, 2)) != 0) @ceil(f) else floored;
         }
@@ -965,7 +965,7 @@ fn applyExactness(gc: *@import("memory.zig").GC, val: Value, exactness: Exactnes
                 }
                 const min_i64: f64 = @floatFromInt(std.math.minInt(i64));
                 const max_i64_f: f64 = @floatFromInt(std.math.maxInt(i64));
-                if (num < min_i64 or num > max_i64_f or den < min_i64 or den > max_i64_f) {
+                if (num < min_i64 or num >= max_i64_f or den < min_i64 or den >= max_i64_f) {
                     return try safeFloatToExactInt(f);
                 }
                 const n: i64 = @intFromFloat(num);
@@ -1041,13 +1041,30 @@ fn stringToNumber(args: []const Value) PrimitiveError!Value {
         if (slash_pos > 0 and slash_pos + 1 < s.len) {
             const num_str = s[0..slash_pos];
             const den_str = s[slash_pos + 1 ..];
-            if (std.fmt.parseInt(i64, num_str, radix)) |num| {
-                if (std.fmt.parseInt(i64, den_str, radix)) |den| {
-                    if (den == 0) return types.FALSE;
-                    const result = arith.makeRationalFromReader(gc, num, den) catch return PrimitiveError.OutOfMemory;
-                    return applyExactness(gc, result, exactness);
-                } else |_| {}
-            } else |_| {}
+            const num_val: Value = if (std.fmt.parseInt(i64, num_str, radix)) |num|
+                try arith.makeFixnumChecked(num)
+            else |err| blk: {
+                if (err != error.Overflow) break :blk types.FALSE;
+                break :blk bignum_mod.parseBignumString(gc, num_str, radix) catch |e| switch (e) {
+                    error.InvalidCharacter => types.FALSE,
+                    else => return PrimitiveError.OutOfMemory,
+                };
+            };
+            if (num_val == types.FALSE) return types.FALSE;
+            const den_val: Value = if (std.fmt.parseInt(i64, den_str, radix)) |den| blk: {
+                if (den == 0) return types.FALSE;
+                break :blk try arith.makeFixnumChecked(den);
+            } else |err| blk: {
+                if (err != error.Overflow) break :blk types.FALSE;
+                break :blk bignum_mod.parseBignumString(gc, den_str, radix) catch |e| switch (e) {
+                    error.InvalidCharacter => types.FALSE,
+                    else => return PrimitiveError.OutOfMemory,
+                };
+            };
+            if (den_val == types.FALSE) return types.FALSE;
+            if (bignum_mod.isZero(den_val)) return types.FALSE;
+            const result = arith.makeRationalReduced(gc, num_val, den_val) catch return PrimitiveError.OutOfMemory;
+            return applyExactness(gc, result, exactness);
         }
     }
 
@@ -1345,7 +1362,7 @@ pub fn floatToRational(f: f64) struct { num: i64, den: i64 } {
     const min_i64: f64 = @floatFromInt(std.math.minInt(i64));
     const max_i64_f: f64 = @floatFromInt(std.math.maxInt(i64));
     if (f == @trunc(f)) {
-        if (f >= min_i64 and f <= max_i64_f) return .{ .num = @intFromFloat(f), .den = 1 };
+        if (f >= min_i64 and f < max_i64_f) return .{ .num = @intFromFloat(f), .den = 1 };
         return .{ .num = 0, .den = 0 };
     }
     const sign: i64 = if (f < 0) -1 else 1;
