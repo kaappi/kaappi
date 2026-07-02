@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1782966840157,
+  "lastUpdate": 1782967382485,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
@@ -5642,6 +5642,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.042716,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "49714b6475c16d61a38f4df0afda7c9250eefaa6",
+          "message": "Merge pull request #711 from kaappi/fix/define-values-register-corruption-687\n\nFix define-values register corruption with 2+ names in lambda body",
+          "timestamp": "2026-07-02T09:58:21+05:30",
+          "tree_id": "0009a6c31a0c80bfaefe6c76445eea7b9e8c6306",
+          "url": "https://github.com/kaappi/kaappi/commit/49714b6475c16d61a38f4df0afda7c9250eefaa6"
+        },
+        "date": 1782967382185,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.375057,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.919361,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.851167,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.209583,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.0074,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.033458,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.462059,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.070208,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 4.104614,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.78763,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.136156,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.231973,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 2.467582,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.741011,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.046543,
             "unit": "seconds"
           }
         ]
