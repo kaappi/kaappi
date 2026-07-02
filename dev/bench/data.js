@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1782984263056,
+  "lastUpdate": 1782985338268,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
@@ -7424,6 +7424,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.041644,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "9039b9bd31be2839d4d94f03cf2d1c8865e4bc49",
+          "message": "Merge pull request #731 from kaappi/fix/eval-environment-691\n\nImplement eval environment-specifier and environment procedures",
+          "timestamp": "2026-07-02T14:57:25+05:30",
+          "tree_id": "44d3f4307a639523d56d29c821d44d41bb627170",
+          "url": "https://github.com/kaappi/kaappi/commit/9039b9bd31be2839d4d94f03cf2d1c8865e4bc49"
+        },
+        "date": 1782985337449,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.025842,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.909044,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.854735,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.17815,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.007281,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.032198,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.45158,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.067721,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.875921,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.769721,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.097727,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.248871,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 2.466544,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.737687,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044111,
             "unit": "seconds"
           }
         ]
