@@ -319,7 +319,7 @@ fn exactFn(args: []const Value) PrimitiveError!Value {
         defer _ = gc.extra_roots.pop();
         // Build denominator 2^neg_exp
         const den_val = blk: {
-            if (neg_exp <= 47) {
+            if (neg_exp < 47) {
                 break :blk types.makeFixnum(@as(i64, 1) << @intCast(neg_exp));
             }
             const word_shift = neg_exp / 64;
@@ -360,7 +360,15 @@ fn inexactFn(args: []const Value) PrimitiveError!Value {
         const r = types.toRational(args[0]);
         const n = try toF64Ext(r.numerator);
         const d = try toF64Ext(r.denominator);
-        return makeFlonumVal(n / d);
+        const result = n / d;
+        if (!std.math.isNan(result)) return makeFlonumVal(result);
+        // Both overflow to inf — use bignum division for the integer part
+        const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+        const q = bignum_mod.quotient(gc, r.numerator, r.denominator) catch return PrimitiveError.OutOfMemory;
+        const q_f = try toF64Ext(q);
+        const rem = bignum_mod.remainder(gc, r.numerator, r.denominator) catch return PrimitiveError.OutOfMemory;
+        const rem_f = try toF64Ext(rem);
+        return makeFlonumVal(q_f + rem_f / d);
     }
     if (types.isComplex(args[0])) {
         const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
