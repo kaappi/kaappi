@@ -277,12 +277,15 @@ fn extractExportsAndImports(vm: *VM, source: []const u8) !LibraryMeta {
     };
 
     while (rdr.hasMore() catch return error.InvalidSyntax) {
-        const expr = rdr.readDatum() catch return error.InvalidSyntax;
+        var expr = rdr.readDatum() catch return error.InvalidSyntax;
 
         if (!types.isPair(expr)) continue;
         const head = types.car(expr);
         if (!types.isSymbol(head)) continue;
         if (!std.mem.eql(u8, types.symbolName(head), "define-library")) continue;
+
+        vm.gc.pushRoot(&expr) catch return error.InvalidSyntax;
+        defer vm.gc.popRoot();
 
         const args = types.cdr(expr);
         if (!types.isPair(args)) continue;
@@ -983,6 +986,7 @@ pub fn handleDefineLibrary(vm: *VM, args: Value) VMError!Value {
                     if (last_pair != types.NIL) {
                         const remaining = types.cdr(decl);
                         types.setCdr(last_pair, remaining);
+                        vm.gc.writeBarrier(types.toObject(last_pair), remaining);
                         decl = spliced;
                         continue;
                     } else {
@@ -1145,7 +1149,9 @@ fn includeLibraryDeclarations(
         defer file_reader.deinit();
 
         while (file_reader.hasMore() catch return VMError.CompileError) {
-            const declaration = file_reader.readDatum() catch return VMError.CompileError;
+            var declaration = file_reader.readDatum() catch return VMError.CompileError;
+            vm.gc.pushRoot(&declaration) catch return VMError.CompileError;
+            defer vm.gc.popRoot();
             if (!types.isPair(declaration)) return VMError.CompileError;
             const decl_head = types.car(declaration);
             if (!types.isSymbol(decl_head)) return VMError.CompileError;
