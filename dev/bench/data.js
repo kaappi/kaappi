@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1782992319178,
+  "lastUpdate": 1782993446103,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
@@ -7820,6 +7820,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.040424,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "6d1e35accd69ed91ce79ba44a6c2c3fcbbdd7c57",
+          "message": "Merge pull request #763 from kaappi/fix/747-gc-safety-rational-arithmetic\n\nFix GC safety violations in rational arithmetic paths",
+          "timestamp": "2026-07-02T17:14:22+05:30",
+          "tree_id": "619bc395fdb30a3c2812ef9135b5c674ee5a90be",
+          "url": "https://github.com/kaappi/kaappi/commit/6d1e35accd69ed91ce79ba44a6c2c3fcbbdd7c57"
+        },
+        "date": 1782993445225,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.14574,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.149654,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.650383,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.039568,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.00568,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.024568,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.354096,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.052425,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.297497,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.346018,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 0.862947,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.193276,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.854496,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.379998,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.036411,
             "unit": "seconds"
           }
         ]
