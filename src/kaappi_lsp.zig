@@ -448,7 +448,7 @@ fn handleHover(allocator: std.mem.Allocator, vm: *vm_mod.VM, id: []const u8, par
 
     var arity_buf: [32]u8 = undefined;
     if (getArity(val, &arity_buf)) |arity| {
-        md.appendSlice(allocator, "\\n\\nArity: ") catch {};
+        md.appendSlice(allocator, "\n\nArity: ") catch {};
         md.appendSlice(allocator, arity) catch {};
     }
 
@@ -484,7 +484,7 @@ fn handleDocumentSymbol(allocator: std.mem.Allocator, vm: *vm_mod.VM, id: []cons
 
         if (std.mem.eql(u8, form, "define")) {
             const rest = types.cdr(expr);
-            if (rest == types.NIL) continue;
+            if (rest == types.NIL or !types.isPair(rest)) continue;
             const target = types.car(rest);
             if (types.isSymbol(target)) {
                 name = types.symbolName(target);
@@ -592,7 +592,7 @@ fn findDefineLocation(expr: types.Value, name: []const u8, form_line: u32) ?u32 
 
     if (std.mem.eql(u8, form, "define")) {
         const rest = types.cdr(expr);
-        if (rest == types.NIL) return null;
+        if (rest == types.NIL or !types.isPair(rest)) return null;
         const target = types.car(rest);
         if (types.isSymbol(target) and std.mem.eql(u8, types.symbolName(target), name)) {
             return form_line;
@@ -892,6 +892,8 @@ pub fn main(init: std.process.Init.Minimal) !void {
             handleDefinition(allocator, &vm, id orelse "0", msg);
         } else if (std.mem.eql(u8, method, "textDocument/references")) {
             handleReferences(allocator, &vm, id orelse "0", msg);
+        } else if (id != null) {
+            sendError(allocator, id.?, -32601, "MethodNotFound");
         }
     }
 
