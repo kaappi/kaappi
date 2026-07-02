@@ -1047,10 +1047,12 @@ fn stringToNumber(args: []const Value) PrimitiveError!Value {
 
             // Pure imaginary: +i, -i
             if (std.mem.eql(u8, body, "+")) {
-                return gc.allocComplex(0.0, 1.0) catch return PrimitiveError.OutOfMemory;
+                const c = gc.allocComplex(0.0, 1.0) catch return PrimitiveError.OutOfMemory;
+                return applyExactness(gc, c, exactness);
             }
             if (std.mem.eql(u8, body, "-")) {
-                return gc.allocComplex(0.0, -1.0) catch return PrimitiveError.OutOfMemory;
+                const c = gc.allocComplex(0.0, -1.0) catch return PrimitiveError.OutOfMemory;
+                return applyExactness(gc, c, exactness);
             }
 
             // Find the split point: last +/- that isn't at position 0 and isn't in an exponent
@@ -1081,13 +1083,15 @@ fn stringToNumber(args: []const Value) PrimitiveError!Value {
                         return types.FALSE;
                     };
                 }
-                return gc.allocComplex(real_val, imag_val) catch return PrimitiveError.OutOfMemory;
+                const c = gc.allocComplex(real_val, imag_val) catch return PrimitiveError.OutOfMemory;
+                return applyExactness(gc, c, exactness);
             } else {
                 // No split found — pure imaginary like +3i or -2.5i
                 const imag_val = std.fmt.parseFloat(f64, body) catch {
                     return types.FALSE;
                 };
-                return gc.allocComplex(0.0, imag_val) catch return PrimitiveError.OutOfMemory;
+                const c = gc.allocComplex(0.0, imag_val) catch return PrimitiveError.OutOfMemory;
+                return applyExactness(gc, c, exactness);
             }
         }
     }
