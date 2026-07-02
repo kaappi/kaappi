@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783029045681,
+  "lastUpdate": 1783029080016,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "5060ba647fd05fea337a4e424aededbaf738684b",
-          "message": "Reject denormalized bignum in bytecode reader (#607) (#622)\n\nreadConstant's TAG_BIGNUM branch accepted bignums with a zero top limb,\nviolating the normalization invariant. Downstream comparisons and\narithmetic would produce wrong results for such values.\n\nAdd a check that the most-significant limb is non-zero, rejecting\ncorrupt .sbc files that contain denormalized bignums.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-01T03:43:12+05:30",
-          "tree_id": "5e846be7f95434a25711c118b0005c36a7b1f581",
-          "url": "https://github.com/kaappi/kaappi/commit/5060ba647fd05fea337a4e424aededbaf738684b"
-        },
-        "date": 1782858214643,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.72289,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.763132,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.760534,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.607777,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006989,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.031279,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.409562,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 1.071558,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.988581,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.559614,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.083833,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.222061,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 2.248547,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 0,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.039227,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "dc9183c19ca7848b4664588b13f81469f875b1d4",
+          "message": "Rewrite rational arithmetic paths to handle bignums without early return (#894)\n\n* Rewrite rational arithmetic paths to handle bignums without early return (#838, #839)\n\nThe rational paths for +, -, *, / used a fixnum-based accumulator that\nreturned early when encountering bignums, dropping remaining arguments.\nReplace with Value-based accumulation using bignum arithmetic throughout,\nso all arguments are processed correctly regardless of type mix.\n\nFixes #838\nFixes #839\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Add bare-ok annotations to rational type guards\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-03T02:42:21+05:30",
+          "tree_id": "d1a0cfbc9f8e5ae7b093c664c00aa78b6f42f341",
+          "url": "https://github.com/kaappi/kaappi/commit/dc9183c19ca7848b4664588b13f81469f875b1d4"
+        },
+        "date": 1783029079113,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.437316,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.709914,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.841897,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.174451,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.007066,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.032841,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.469577,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.070812,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.967133,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.788835,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.161677,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.430956,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 2.405708,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.704534,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.041686,
             "unit": "seconds"
           }
         ]
