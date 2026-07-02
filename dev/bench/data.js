@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783022722604,
+  "lastUpdate": 1783023955332,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "distinct": true,
-          "id": "3b2b51372d2c049c8f6ad839dd6fb9560c719534",
-          "message": "Update benchmark dev docs with full suite and CI integration\n\nRewrite the benchmarks section in docs/dev/testing.md to cover:\n- All 13 Scheme benchmarks with subsystem and purpose\n- run-benchmarks.sh usage (table and JSON modes)\n- compare-benchmarks.sh for local comparison\n- CI integration (push-to-main trend tracking, PR comparison)\n- Trend dashboard URL and how to read the charts\n- Guide for interpreting results (noise, step changes)\n- How to add a new benchmark\n\nAlso update CI table to include benchmark-pr workflow.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-06-30T23:17:13+05:30",
-          "tree_id": "37ff5acf7c9c3fe7d7c7d9eb4212525cfb807875",
-          "url": "https://github.com/kaappi/kaappi/commit/3b2b51372d2c049c8f6ad839dd6fb9560c719534"
-        },
-        "date": 1782842275451,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.940598,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.868951,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.826699,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.108899,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.007276,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.03188,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.445979,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 1.265317,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.832364,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.711074,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.101515,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.235368,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 2.364011,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 0,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.041505,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "269901be085746ed594e744f23d904725f697071",
+          "message": "Root bignum intermediates in Euclid loops to prevent use-after-free (#843) (#885)\n\nThe GCD loops in gcdFn, makeRationalReduced, and lcmFn held unrooted\nbignum intermediates across allocating bignum_mod calls. When GC\ntriggered inside the loop, freed limbs produced silently wrong results\nat default threshold. Root b_val/abs_num/g via extra_roots and keep\nthem updated each iteration.\n\nFixes #843\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-03T01:41:10+05:30",
+          "tree_id": "a738630ff194b19440b7d7fe3b84ad97872bd8ea",
+          "url": "https://github.com/kaappi/kaappi/commit/269901be085746ed594e744f23d904725f697071"
+        },
+        "date": 1783023954364,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.403191,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.378606,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.811537,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.144946,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006977,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.032222,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.453859,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.069819,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.93457,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.748918,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.150095,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.217368,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 2.418883,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.702608,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.042165,
             "unit": "seconds"
           }
         ]
