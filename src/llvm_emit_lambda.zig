@@ -40,6 +40,8 @@ fn tryCompilePureLambdaAsNativeClosure(self: *LLVMEmitter, data: ir.LambdaData) 
         plist = types.cdr(plist);
     }
 
+    if (rest_name != null) return null;
+
     var body_ir = ir.IR.init(self.allocator);
     defer body_ir.deinit();
     var body_nodes: [64]*ir.Node = undefined;
