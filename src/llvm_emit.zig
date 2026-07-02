@@ -333,6 +333,18 @@ pub const LLVMEmitter = struct {
         return last;
     }
 
+    fn emitLetFallback(self: *LLVMEmitter, args: Value, sequential: bool) EmitError![]const u8 {
+        const keyword = if (sequential) "let*" else "let";
+        const printed = printer.valueToString(self.allocator, args, .write) catch return error.OutOfMemory;
+        defer self.allocator.free(printed);
+        const source = std.fmt.allocPrint(self.allocator, "({s} {s})", .{ keyword, printed }) catch return error.OutOfMemory;
+        defer self.allocator.free(source);
+        const str_name = try self.internString(source);
+        const tmp = try self.freshTemp();
+        try self.print("  {s} = call i64 @kaappi_eval(ptr %vm, ptr {s}, i64 {d})\n", .{ tmp, str_name, source.len });
+        return tmp;
+    }
+
     fn emitLet(self: *LLVMEmitter, args: Value, sequential: bool, is_tail: bool) EmitError![]const u8 {
         const bindings = types.car(args);
         const body_list = types.cdr(args);
@@ -352,7 +364,7 @@ pub const LLVMEmitter = struct {
                 if (count >= 32) {
                     self.locals.?.deinit();
                     self.locals = saved_locals;
-                    return self.emitSexprEvalValue(args);
+                    return self.emitLetFallback(args, sequential);
                 }
                 const binding = types.car(blist);
                 const var_sym = types.car(binding);
@@ -360,13 +372,13 @@ pub const LLVMEmitter = struct {
                 if (!types.isSymbol(var_sym)) {
                     self.locals.?.deinit();
                     self.locals = saved_locals;
-                    return self.emitSexprEvalValue(args);
+                    return self.emitLetFallback(args, sequential);
                 }
 
                 const node = ir.lowerSingleExpr(self.allocator, init_expr) catch {
                     self.locals.?.deinit();
                     self.locals = saved_locals;
-                    return self.emitSexprEvalValue(args);
+                    return self.emitLetFallback(args, sequential);
                 };
                 init_vals[count] = try self.emitNode(node);
                 var_names[count] = types.symbolName(var_sym);
@@ -389,13 +401,13 @@ pub const LLVMEmitter = struct {
                 if (!types.isSymbol(var_sym)) {
                     self.locals.?.deinit();
                     self.locals = saved_locals;
-                    return self.emitSexprEvalValue(args);
+                    return self.emitLetFallback(args, sequential);
                 }
 
                 const node = ir.lowerSingleExpr(self.allocator, init_expr) catch {
                     self.locals.?.deinit();
                     self.locals = saved_locals;
-                    return self.emitSexprEvalValue(args);
+                    return self.emitLetFallback(args, sequential);
                 };
                 const val = try self.emitNode(node);
                 const alloca = try self.freshTemp();
