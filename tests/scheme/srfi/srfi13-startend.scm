@@ -52,15 +52,15 @@
 (check "string-contains start" 4 (string-contains "xxabcd" "cd" 2))
 (check "string-contains start end miss" #f (string-contains "abcdef" "ef" 0 4))
 
-;; --- string-prefix? with start/end ---
+;; --- string-prefix? with start/end (SRFI-13: start1/end1 apply to s1) ---
 (check "string-prefix? basic" #t (string-prefix? "ab" "abcdef"))
-(check "string-prefix? start" #t (string-prefix? "cd" "abcdef" 2))
-(check "string-prefix? start miss" #f (string-prefix? "ab" "abcdef" 2))
+(check "string-prefix? s1 range" #t (string-prefix? "hello" "hell" 0 2))
+(check "string-prefix? s1 skip" #t (string-prefix? "xxab" "abcdef" 2))
 
-;; --- string-suffix? with start/end ---
+;; --- string-suffix? with start/end (SRFI-13: start1/end1 apply to s1) ---
 (check "string-suffix? basic" #t (string-suffix? "ef" "abcdef"))
-(check "string-suffix? end" #t (string-suffix? "cd" "abcdef" 0 4))
-(check "string-suffix? end miss" #f (string-suffix? "ef" "abcdef" 0 4))
+(check "string-suffix? s1 range" #t (string-suffix? "hello" "llo" 2))
+(check "string-suffix? s1 end miss" #f (string-suffix? "xy" "abcdef" 0 1))
 
 ;; --- string-every with start/end ---
 (check "string-every full" #t (string-every char-lower-case? "abc"))
