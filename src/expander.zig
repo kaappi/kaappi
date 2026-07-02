@@ -35,49 +35,17 @@ fn isEllipsis(name: []const u8) bool {
 /// variables. The compiler recognizes hygienic renames via
 /// effective_name stripping.
 const well_known_forms = [_][]const u8{
-    // Special forms
-    "begin",                          "define",              "set!",               "lambda",
-    "let*",                           "letrec",              "letrec*",            "quote",
-    "quasiquote",                     "unquote",             "unquote-splicing",   "define-syntax",
-    "let-syntax",                     "letrec-syntax",       "syntax-rules",       "define-record-type",
-    "define-values",                  "let-values",          "let*-values",        "case-lambda",
-    "cond-expand",                    "cond",                "case",               "and",
-    "or",                             "when",                "unless",             "do",
-    "guard",                          "delay",               "delay-force",        "parameterize",
-    "syntax-error",                   "include",             "include-ci",         "define-library",
-    "import",                         "export",
-    // Tail-form keywords
-                 "else",               "=>",
-    // Built-in procedures commonly used in macro templates
-    "cons",                           "car",                 "cdr",                "list",
-    "append",                         "map",                 "for-each",           "+",
-    "-",                              "*",                   "/",                  "=",
-    "<",                              ">",                   "<=",                 ">=",
-    "not",                            "null?",               "pair?",              "boolean?",
-    "number?",                        "symbol?",             "string?",            "char?",
-    "vector?",                        "procedure?",          "port?",              "eof-object?",
-    "eq?",                            "eqv?",                "equal?",             "zero?",
-    "positive?",                      "negative?",           "even?",              "odd?",
-    "abs",                            "min",                 "max",                "length",
-    "reverse",                        "memq",                "memv",               "assq",
-    "assv",                           "values",              "call-with-values",   "apply",
-    "call-with-current-continuation", "call/cc",             "dynamic-wind",       "with-exception-handler",
-    "raise",                          "raise-continuable",   "error",              "error-object?",
-    "display",                        "newline",             "write",              "read",
-    "open-input-file",                "open-output-file",    "close-input-port",   "close-output-port",
-    "current-input-port",             "current-output-port", "current-error-port", "string-ref",
-    "string-set!",                    "string-length",       "substring",          "string-append",
-    "string->number",                 "number->string",      "string->symbol",     "symbol->string",
-    "string-copy",                    "string-copy!",        "vector-ref",         "vector-set!",
-    "vector-length",                  "make-vector",         "vector->list",       "list->vector",
-    "make-string",                    "string->list",        "list->string",       "char->integer",
-    "integer->char",                  "exact",               "inexact",            "floor",
-    "ceiling",                        "truncate",            "round",              "modulo",
-    "remainder",                      "quotient",            "gcd",                "lcm",
-    "expt",                           "sqrt",                "make-parameter",     "make-promise",
-    "force",                          "boolean=?",           "char=?",             "char<?",
-    "char>?",                         "string=?",            "string<?",           "...",
-    "_",
+    "begin",         "define",        "set!",             "lambda",
+    "let*",          "letrec",        "letrec*",          "quote",
+    "quasiquote",    "unquote",       "unquote-splicing", "define-syntax",
+    "let-syntax",    "letrec-syntax", "syntax-rules",     "define-record-type",
+    "define-values", "let-values",    "let*-values",      "case-lambda",
+    "cond-expand",   "cond",          "case",             "and",
+    "or",            "when",          "unless",           "do",
+    "guard",         "delay",         "delay-force",      "parameterize",
+    "syntax-error",  "include",       "include-ci",       "define-library",
+    "import",        "export",        "else",             "=>",
+    "...",           "_",
 };
 
 pub fn isWellKnown(name: []const u8) bool {
@@ -551,13 +519,74 @@ fn instantiateTemplate(gc: *GC, template: Value, bindings: []Binding, intro_scop
         return instantiateNestedSyntaxRules(gc, template, bindings, intro_scope, literals, macro_keyword, globals, macros);
     }
 
+    // Detect binding forms and set binding-position flag for variable names
+    const BINDING_FLAG: u32 = 0x20000000;
+    if (types.isSymbol(elem)) {
+        const form_name = types.symbolName(elem);
+        const is_let_form = std.mem.eql(u8, form_name, "let") or
+            std.mem.eql(u8, form_name, "let*") or
+            std.mem.eql(u8, form_name, "letrec") or
+            std.mem.eql(u8, form_name, "letrec*");
+        if (is_let_form) {
+            const new_car = try instantiateTemplate(gc, elem, bindings, intro_scope, literals, macro_keyword, globals, macros);
+            var car_root = new_car;
+            try gc.pushRoot(&car_root);
+            defer gc.popRoot();
+            const let_rest = types.cdr(template);
+            if (let_rest != types.NIL and types.isPair(let_rest)) {
+                const binding_list = types.car(let_rest);
+                const body = types.cdr(let_rest);
+                const new_bindings = try instantiateLetBindings(gc, binding_list, bindings, intro_scope | BINDING_FLAG, literals, macro_keyword, globals, macros);
+                var bindings_root = new_bindings;
+                try gc.pushRoot(&bindings_root);
+                defer gc.popRoot();
+                const new_body = try instantiateTemplate(gc, body, bindings, intro_scope & ~BINDING_FLAG, literals, macro_keyword, globals, macros);
+                var body_root = new_body;
+                try gc.pushRoot(&body_root);
+                defer gc.popRoot();
+                const inner = try gc.allocPair(bindings_root, body_root);
+                return gc.allocPair(car_root, inner);
+            }
+        }
+    }
+
     // Regular pair: recurse
-    const new_car = try instantiateTemplate(gc, types.car(template), bindings, intro_scope, literals, macro_keyword, globals, macros);
+    const new_car = try instantiateTemplate(gc, types.car(template), bindings, intro_scope & ~BINDING_FLAG, literals, macro_keyword, globals, macros);
     var car_root = new_car;
     try gc.pushRoot(&car_root);
     defer gc.popRoot();
-    const new_cdr = try instantiateTemplate(gc, types.cdr(template), bindings, intro_scope, literals, macro_keyword, globals, macros);
+    const new_cdr = try instantiateTemplate(gc, types.cdr(template), bindings, intro_scope & ~BINDING_FLAG, literals, macro_keyword, globals, macros);
     return gc.allocPair(car_root, new_cdr);
+}
+
+fn instantiateLetBindings(gc: *GC, binding_list: Value, bindings: []Binding, scope: u32, literals: []const Value, macro_keyword: ?[]const u8, globals: ?*std.StringHashMap(Value), macros: ?*const std.StringHashMap(Value)) !Value {
+    if (binding_list == types.NIL) return types.NIL;
+    if (!types.isPair(binding_list)) return instantiateTemplate(gc, binding_list, bindings, scope, literals, macro_keyword, globals, macros);
+    const pair = types.car(binding_list);
+    if (!types.isPair(pair)) {
+        const new_pair = try instantiateTemplate(gc, pair, bindings, scope, literals, macro_keyword, globals, macros);
+        var pair_root = new_pair;
+        try gc.pushRoot(&pair_root);
+        defer gc.popRoot();
+        const new_rest = try instantiateLetBindings(gc, types.cdr(binding_list), bindings, scope, literals, macro_keyword, globals, macros);
+        return gc.allocPair(pair_root, new_rest);
+    }
+    const var_name = types.car(pair);
+    const init_and_rest = types.cdr(pair);
+    const new_var = try instantiateTemplate(gc, var_name, bindings, scope, literals, macro_keyword, globals, macros);
+    var var_root = new_var;
+    try gc.pushRoot(&var_root);
+    defer gc.popRoot();
+    const new_init = try instantiateTemplate(gc, init_and_rest, bindings, scope & ~@as(u32, 0x20000000), literals, macro_keyword, globals, macros);
+    var init_root = new_init;
+    try gc.pushRoot(&init_root);
+    defer gc.popRoot();
+    const new_pair = try gc.allocPair(var_root, init_root);
+    var np_root = new_pair;
+    try gc.pushRoot(&np_root);
+    defer gc.popRoot();
+    const new_rest = try instantiateLetBindings(gc, types.cdr(binding_list), bindings, scope, literals, macro_keyword, globals, macros);
+    return gc.allocPair(np_root, new_rest);
 }
 
 fn instantiateNestedSyntaxRules(gc: *GC, template: Value, bindings: []Binding, intro_scope: u32, literals: []const Value, macro_keyword: ?[]const u8, globals: ?*std.StringHashMap(Value), macros: ?*const std.StringHashMap(Value)) (std.mem.Allocator.Error || ExpandError)!Value {
@@ -710,28 +739,27 @@ fn substitutePatternVarsOnly(gc: *GC, template: Value, bindings: []Binding) !Val
 }
 
 fn renameForHygiene(gc: *GC, name: []const u8, scope: u32, globals: ?*std.StringHashMap(Value)) !Value {
-    // Skip renaming inside quote contexts (not ellipsis escape — hygiene still applies there)
     const QUOTE_FLAG: u32 = 0x40000000;
+    const BINDING_FLAG: u32 = 0x20000000;
     if ((scope & QUOTE_FLAG) != 0) return gc.allocSymbol(name);
-    // If the name exists as a global binding, keep it as-is.
-    // This preserves referential transparency AND allows set! to
-    // mutate the original global (aliasing would create a separate binding).
+    const in_binding = (scope & BINDING_FLAG) != 0;
+    const clean_scope = scope & ~BINDING_FLAG;
     if (globals) |g| {
         if (g.get(name)) |val| {
-            if (types.isProcedure(val) or types.isTransformer(val) or val == types.VOID) return gc.allocSymbol(name);
+            if (types.isProcedure(val) or types.isTransformer(val)) {
+                if (!in_binding) return gc.allocSymbol(name);
+            }
         }
     }
-    // Also check the VM's global environment for procedures and macros
     const vm_mod = @import("vm.zig");
     if (vm_mod.vm_instance) |vm| {
         if (vm.globals.get(name)) |val| {
-            if (types.isProcedure(val) or types.isTransformer(val)) return gc.allocSymbol(name);
+            if (types.isTransformer(val)) return gc.allocSymbol(name);
         }
     }
 
-    // Check if we already renamed this (name, scope) pair
     for (scope_table[0..scope_table_count]) |entry| {
-        if (entry.scope == scope and std.mem.eql(u8, entry.original_name, name)) {
+        if (entry.scope == clean_scope and std.mem.eql(u8, entry.original_name, name)) {
             return gc.allocSymbol(entry.renamed_to);
         }
     }
@@ -748,7 +776,7 @@ fn renameForHygiene(gc: *GC, name: []const u8, scope: u32, globals: ?*std.String
     if (scope_table_count >= MAX_SCOPE_ENTRIES) return ExpandError.ScopeTableFull;
     scope_table[scope_table_count] = .{
         .original_name = name,
-        .scope = scope,
+        .scope = clean_scope,
         .renamed_to = renamed_persistent,
     };
     scope_table_count += 1;

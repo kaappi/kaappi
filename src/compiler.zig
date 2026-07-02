@@ -1066,6 +1066,10 @@ pub const Compiler = struct {
                 const TempGlobal = struct { name: []const u8, old_val: ?Value, was_present: bool };
                 var temp_globals: [128]TempGlobal = undefined;
                 var temp_global_count: usize = 0;
+                // Track non-procedure global free vars that need local injection
+                // to prevent shadowing by use-site locals (R7RS 4.3.1).
+                var global_free_names: [64][]const u8 = undefined;
+                var global_free_count: usize = 0;
                 if (self.globals) |g| {
                     for (tx.captured_locals) |cap| {
                         if (!g.contains(cap.name) and temp_global_count < 128) {
@@ -1111,6 +1115,11 @@ pub const Compiler = struct {
                                         temp_global_count += 1;
                                         g.put(cname, types.VOID) catch {};
                                     }
+                                    // Track for local injection after expansion
+                                    if (global_free_count < 64) {
+                                        global_free_names[global_free_count] = cname;
+                                        global_free_count += 1;
+                                    }
                                 }
                             }
                         }
@@ -1142,13 +1151,39 @@ pub const Compiler = struct {
                 try self.gc.pushRoot(&expanded_root);
                 defer self.gc.popRoot();
                 self.gc.no_collect -= 1;
-                // Inject captured locals from the macro definition site
                 const saved_locals_len = self.locals.items.len;
                 for (tx.captured_locals) |cap| {
                     self.locals.append(self.gc.allocator, .{
                         .name = cap.name,
                         .depth = self.scope_depth,
                         .slot = cap.slot,
+                    }) catch {};
+                }
+                injectHygienicCapturedLocals(self, expanded_root, tx.captured_locals);
+                // Inject non-procedure global free vars as locals so
+                // use-site locals don't shadow the definition-site
+                // global binding (R7RS 4.3.1 referential transparency).
+                for (global_free_names[0..global_free_count]) |gname| {
+                    // Skip if already covered by captured_locals
+                    var already_captured = false;
+                    for (tx.captured_locals) |cap| {
+                        if (std.mem.eql(u8, cap.name, gname)) {
+                            already_captured = true;
+                            break;
+                        }
+                    }
+                    if (already_captured) continue;
+                    // Load the global value into a fresh register
+                    const gslot = self.allocReg() catch continue;
+                    const gsym = self.gc.allocSymbol(gname) catch continue;
+                    const gsym_idx = self.addConstant(gsym) catch continue;
+                    self.emitOp(.get_global) catch continue;
+                    self.emitU16(gslot) catch continue;
+                    self.emitU16(gsym_idx) catch continue;
+                    self.locals.append(self.gc.allocator, .{
+                        .name = gname,
+                        .depth = self.scope_depth,
+                        .slot = gslot,
                     }) catch {};
                 }
                 const result_err = self.compileExpr(expanded_root, dst, is_tail);
@@ -1227,6 +1262,54 @@ pub const Compiler = struct {
         // define-syntax returns void
         try self.emitOp(.load_void);
         try self.emitU16(dst);
+    }
+
+    fn stripHygPrefix(name: []const u8) []const u8 {
+        var n = name;
+        while (std.mem.startsWith(u8, n, "__hyg_")) {
+            if (std.mem.indexOfScalar(u8, n[6..], '_')) |sep| {
+                n = n[6 + sep + 1 ..];
+            } else break;
+        }
+        return n;
+    }
+
+    fn injectHygienicCapturedLocals(self: *Compiler, expr: Value, captured: []const types.CapturedLocal) void {
+        if (captured.len == 0) return;
+        injectHygCapturedWalk(self, expr, captured);
+    }
+
+    fn injectHygCapturedWalk(self: *Compiler, expr: Value, captured: []const types.CapturedLocal) void {
+        if (types.isSymbol(expr)) {
+            const name = types.symbolName(expr);
+            if (!std.mem.startsWith(u8, name, "__hyg_")) return;
+            const base = stripHygPrefix(name);
+            if (base.len == name.len) return;
+            for (captured) |cap| {
+                if (std.mem.eql(u8, cap.name, base)) {
+                    var already = false;
+                    for (self.locals.items) |loc| {
+                        if (std.mem.eql(u8, loc.name, name)) {
+                            already = true;
+                            break;
+                        }
+                    }
+                    if (!already) {
+                        self.locals.append(self.gc.allocator, .{
+                            .name = name,
+                            .depth = self.scope_depth,
+                            .slot = cap.slot,
+                        }) catch {};
+                    }
+                    return;
+                }
+            }
+            return;
+        }
+        if (types.isPair(expr)) {
+            injectHygCapturedWalk(self, types.car(expr), captured);
+            injectHygCapturedWalk(self, types.cdr(expr), captured);
+        }
     }
 
     fn compileLetSyntax(self: *Compiler, args: Value, dst: u16, is_tail: bool) CompileError!void {
