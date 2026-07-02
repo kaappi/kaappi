@@ -137,6 +137,7 @@ pub const IR = struct {
     allocator: std.mem.Allocator,
     nodes: std.ArrayList(*Node),
     globals: ?*const std.StringHashMap(Value) = null,
+    restricted_env: bool = false, // true when compiling in a restricted environment (environment procedure)
 
     pub fn init(allocator: std.mem.Allocator) IR {
         return .{
@@ -147,7 +148,12 @@ pub const IR = struct {
 
     fn isRedefined(self: *const IR, name: []const u8) bool {
         const g = self.globals orelse return false;
-        const val = g.get(name) orelse return false;
+        const val = g.get(name) orelse {
+            // In a restricted environment, missing names mean "not available".
+            // Return true so the IR does not inline the primitive; the VM
+            // will raise "undefined variable" at runtime.
+            return self.restricted_env;
+        };
         if (!types.isPointer(val)) return true;
         const obj = types.toObject(val);
         if (obj.tag != .native_fn) return true;

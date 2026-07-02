@@ -67,6 +67,13 @@ pub fn handleImport(vm: *VM, args: Value) VMError!Value {
     return handleImportInto(vm, &vm.globals, args);
 }
 
+/// Ensure a library is loaded and registered. If already in vm.libraries, no-op.
+/// Otherwise tries to load from an .sld file. Used by `environment` procedure.
+pub fn ensureLibraryLoaded(vm: *VM, import_set: Value, lib_name: []const u8) !void {
+    if (vm.libraries.get(lib_name) != null) return;
+    tryLoadLibraryFromFile(vm, import_set) catch return error.CompileError;
+}
+
 fn processImportSet(vm: *VM, target: *std.StringHashMap(Value), import_set: Value) !void {
     if (!types.isPair(import_set)) return error.InvalidSyntax;
 

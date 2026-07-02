@@ -137,6 +137,7 @@ pub const ObjectTag = enum(u6) {
     condition_variable = 33,
     srfi18_time = 34,
     native_closure = 35,
+    scheme_environment = 36,
 };
 
 pub const Object = struct {
@@ -594,6 +595,12 @@ pub const RandomSource = struct {
     prng: std.Random.DefaultPrng,
 };
 
+pub const SchemeEnvironment = struct {
+    header: Object,
+    env: *std.StringHashMap(Value),
+    owned: bool = true, // false for interaction-environment (don't free the map)
+};
+
 // ---------------------------------------------------------------------------
 // Type predicates on Value
 // ---------------------------------------------------------------------------
@@ -814,6 +821,14 @@ pub fn toDirectoryObject(v: Value) *DirectoryObject {
 
 pub fn isRandomSource(v: Value) bool {
     return isPointer(v) and toObject(v).tag == .random_source;
+}
+
+pub fn isEnvironment(v: Value) bool {
+    return isPointer(v) and toObject(v).tag == .scheme_environment;
+}
+
+pub fn toEnvironment(v: Value) *SchemeEnvironment {
+    return toObject(v).as(SchemeEnvironment);
 }
 
 pub fn isNumber(v: Value) bool {

@@ -46,6 +46,7 @@ pub const Compiler = struct {
     macros: std.StringHashMap(Value),
     globals: ?*std.StringHashMap(Value) = null,
     lib_env: ?*std.StringHashMap(Value) = null,
+    restricted_env: bool = false, // true for restricted environments (null-environment, environment)
     scope_depth: u16 = 0,
     next_register: u16 = 0,
     parent: ?*Compiler = null,
@@ -96,6 +97,7 @@ pub const Compiler = struct {
             .macros = std.StringHashMap(Value).init(parent.gc.allocator),
             .globals = parent.globals,
             .lib_env = parent.lib_env,
+            .restricted_env = parent.restricted_env,
             .parent = parent,
         };
     }
@@ -269,6 +271,7 @@ pub const Compiler = struct {
         // Lower AST to IR, run analysis and optimizations, then emit bytecode.
         var ir = ir_mod.IR.init(self.gc.allocator);
         ir.globals = self.globals;
+        ir.restricted_env = self.restricted_env;
         defer ir.deinit();
         var root = try ir_mod.lowerWithMacros(&ir, expr_root, &self.macros);
 
@@ -545,6 +548,7 @@ pub const Compiler = struct {
             // Lower each body expression through IR
             var ir = ir_mod.IR.init(child.gc.allocator);
             ir.globals = child.globals;
+            ir.restricted_env = child.restricted_env;
             defer ir.deinit();
             var root = try ir_mod.lowerWithMacros(&ir, expr, &child.macros);
             ir_mod.markTailPositions(root, rest == types.NIL);
@@ -604,6 +608,7 @@ pub const Compiler = struct {
         // Lower the value expression through IR for optimization
         var ir = ir_mod.IR.init(self.gc.allocator);
         ir.globals = self.globals;
+        ir.restricted_env = self.restricted_env;
         defer ir.deinit();
         var val_root = try ir_mod.lowerWithMacros(&ir, data.value, &self.macros);
         ir_mod.identifyPrimitives(val_root);
@@ -653,6 +658,7 @@ pub const Compiler = struct {
         // Lower the value expression through IR for optimization
         var ir = ir_mod.IR.init(self.gc.allocator);
         ir.globals = self.globals;
+        ir.restricted_env = self.restricted_env;
         defer ir.deinit();
         var val_root = try ir_mod.lowerWithMacros(&ir, data.value, &self.macros);
         ir_mod.identifyPrimitives(val_root);
@@ -798,6 +804,7 @@ pub const Compiler = struct {
             // Lower each expression through the IR pipeline.
             var ir = ir_mod.IR.init(self.gc.allocator);
             ir.globals = self.globals;
+            ir.restricted_env = self.restricted_env;
             defer ir.deinit();
             var root = try ir_mod.lowerWithMacros(&ir, expr, &self.macros);
             ir_mod.markTailPositions(root, false);
@@ -1456,6 +1463,7 @@ pub fn compileExpressionInEnv(gc: *memory.GC, expr: Value, vm_macros: *std.Strin
     var c = try Compiler.init(gc);
     c.globals = env;
     c.lib_env = env;
+    c.restricted_env = true;
     var ok = false;
     defer {
         if (!ok) Compiler.unrootFunction(gc, c.func);

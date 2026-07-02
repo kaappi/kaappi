@@ -243,6 +243,13 @@ fn referencesYoung(obj: *Object) bool {
                 if (isYoungPointer(uv)) return true;
             }
         },
+        .scheme_environment => {
+            const se = obj.as(types.SchemeEnvironment);
+            var vit = se.env.valueIterator();
+            while (vit.next()) |val| {
+                if (isYoungPointer(val.*)) return true;
+            }
+        },
         .symbol, .string, .native_fn, .flonum, .port, .complex, .bytevector, .bignum, .record_type, .ffi_library, .file_info, .user_info, .group_info, .directory_object, .random_source, .srfi18_time => {},
     }
     return false;
@@ -443,6 +450,11 @@ fn markObjectContents(gc: *GC, obj: *Object) void {
             const nc = obj.as(types.NativeClosure);
             for (nc.upvalues) |uv| markValue(gc, uv);
         },
+        .scheme_environment => {
+            const se = obj.as(types.SchemeEnvironment);
+            var vit = se.env.valueIterator();
+            while (vit.next()) |val| markValue(gc, val.*);
+        },
         .symbol, .string, .native_fn, .flonum, .port, .complex, .bytevector, .bignum, .record_type, .ffi_library, .file_info, .user_info, .group_info, .directory_object, .random_source, .srfi18_time => {},
     }
 }
@@ -640,6 +652,11 @@ pub fn markValue(gc: *GC, v: Value) void {
             const nc = obj.as(types.NativeClosure);
             for (nc.upvalues) |uv| markValue(gc, uv);
         },
+        .scheme_environment => {
+            const se = obj.as(types.SchemeEnvironment);
+            var vit = se.env.valueIterator();
+            while (vit.next()) |val| markValue(gc, val.*);
+        },
         .symbol, .string, .native_fn, .flonum, .port, .complex, .bytevector, .bignum, .file_info, .user_info, .group_info, .directory_object, .random_source, .srfi18_time => {},
     }
 }
@@ -739,6 +756,7 @@ fn objectSize(obj: *Object) usize {
         .mutex => @sizeOf(types.Mutex),
         .condition_variable => @sizeOf(types.ConditionVariable),
         .srfi18_time => @sizeOf(types.Srfi18Time),
+        .scheme_environment => @sizeOf(types.SchemeEnvironment),
     };
 }
 
@@ -950,6 +968,14 @@ pub fn freeObject(gc: *GC, obj: *Object) void {
         },
         .srfi18_time => {
             gc.allocator.destroy(obj.as(types.Srfi18Time));
+        },
+        .scheme_environment => {
+            const se = obj.as(types.SchemeEnvironment);
+            if (se.owned) {
+                se.env.deinit();
+                gc.allocator.destroy(se.env);
+            }
+            gc.allocator.destroy(se);
         },
     }
 }
