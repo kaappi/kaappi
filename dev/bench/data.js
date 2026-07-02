@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1782998438570,
+  "lastUpdate": 1782999430380,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
@@ -8414,6 +8414,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.04018,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c39666762db2fce8d1112de933b858c9eade4733",
+          "message": "Merge pull request #769 from kaappi/fix/741-toRationalParts-type-check\n\nFix toRationalParts to return null for non-numeric types",
+          "timestamp": "2026-07-02T18:52:33+05:30",
+          "tree_id": "d7216b929b5c8661be7c90a9d542ec7036c9e32a",
+          "url": "https://github.com/kaappi/kaappi/commit/c39666762db2fce8d1112de933b858c9eade4733"
+        },
+        "date": 1782999429981,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.07035,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.499165,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.837135,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.20506,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.007413,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.031991,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.453595,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.067819,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.847524,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.739223,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.094877,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.24348,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 2.405332,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.872201,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.043396,
             "unit": "seconds"
           }
         ]
