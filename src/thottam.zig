@@ -766,7 +766,7 @@ fn doInstall(
     if (install_version) |v| {
         if (isConstraintSpec(v)) {
             const clone_url = parsed.source orelse blk: {
-                break :blk std.fmt.allocPrint(allocator, "{s}/{s}", .{ config.org, pkg }) catch "";
+                break :blk std.fmt.allocPrint(allocator, "{s}/{s}.git", .{ config.org, pkg }) catch return error.OutOfMemory;
             };
             if (resolveVersion(allocator, clone_url, v)) |resolved| {
                 writeStdout("  Resolved ");
@@ -816,7 +816,7 @@ fn doInstall(
     if (install_version) |v| {
         printBuf(&buf, "  Checking out {s}...\n", .{v});
         runGit(allocator, &.{ "-C", pkg_dir, "fetch", "--quiet", "--tags" }) catch {};
-        runGit(allocator, &.{ "-C", pkg_dir, "checkout", "--quiet", v }) catch {
+        runGit(allocator, &.{ "-C", pkg_dir, "checkout", "--quiet", "--", v }) catch {
             printErrColor(Color.red, "  Failed to checkout version\n");
             return error.GitFailed;
         };
@@ -882,6 +882,14 @@ fn doInstall(
 }
 
 fn doRemove(allocator: std.mem.Allocator, config: Config, pkg: []const u8) !void {
+    if (!isValidPkgName(pkg)) {
+        printErrColor(Color.red, "error: ");
+        writeStderr("invalid package name '");
+        writeStderr(pkg);
+        writeStderr("' (only alphanumeric, '-', '_' allowed)\n");
+        return error.InvalidPackageName;
+    }
+
     if (!isInstalled(allocator, config.installed, pkg)) {
         printErrColor(Color.red, pkg);
         writeStderr(" is not installed\n");
@@ -1000,7 +1008,13 @@ fn doUpdate(allocator: std.mem.Allocator, config: Config, pkg: ?[]const u8) !voi
         if (getPkgManifest(allocator, config.src_dir, p)) |manifest| {
             defer manifest.deinit(allocator);
             if (manifest.build_cmd) |build_cmd| {
-                _ = runPassthrough(allocator, &.{ "/bin/sh", "-c", build_cmd }, pkg_dir) catch {};
+                var build_buf: [256]u8 = undefined;
+                printBuf(&build_buf, "  Building {s}...\n", .{p});
+                const exit_code = runPassthrough(allocator, &.{ "/bin/sh", "-c", build_cmd }, pkg_dir) catch 1;
+                if (exit_code != 0) {
+                    printErrColor(Color.red, "  Build failed\n");
+                    return error.BuildFailed;
+                }
             }
         }
 
@@ -1043,8 +1057,15 @@ fn doUpdate(allocator: std.mem.Allocator, config: Config, pkg: ?[]const u8) !voi
             }
         }
 
+        var any_failed = false;
         for (packages.items) |p| {
-            doUpdate(allocator, config, p) catch {};
+            doUpdate(allocator, config, p) catch {
+                any_failed = true;
+            };
+        }
+        if (any_failed) {
+            printErrColor(Color.red, "Some packages failed to update\n");
+            std.process.exit(1);
         }
     }
 }
