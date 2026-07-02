@@ -319,21 +319,39 @@ fn threadYieldFn(_: []const Value) PrimitiveError!Value {
 }
 
 fn threadSleepFn(args: []const Value) PrimitiveError!Value {
-    if (args[0] == types.FALSE) return PrimitiveError.TypeError;
-    const deadline = try timeoutToDeadlineNs(args[0]);
-    const dn = deadline orelse return types.VOID;
-    if (dn == 0) return types.VOID;
-
-    const ctx = try ensureScheduler();
-    const fiber = ctx.vm.current_fiber orelse return types.VOID;
-
-    fiber.deadline_ns = dn;
-    fiber.timed_out = false;
-    fiber.status = .waiting;
-    fiber.waiting_on = types.VOID;
-    ctx.vm.yielded = true;
-
+    if (args[0] == types.FALSE) return PrimitiveError.TypeError; // bare-ok: type guard
+    const seconds = try getSleepSeconds(args[0]);
+    if (seconds <= 0) return types.VOID;
+    const total_ns: u64 = @intFromFloat(@max(0.0, seconds * 1e9));
+    var ts: std.c.timespec = .{
+        .sec = @intCast(total_ns / 1_000_000_000),
+        .nsec = @intCast(total_ns % 1_000_000_000),
+    };
+    while (true) {
+        const ret = std.c.nanosleep(&ts, &ts);
+        if (ret == 0) break;
+        if (std.posix.errno(ret) != .INTR) break;
+    }
     return types.VOID;
+}
+
+fn getSleepSeconds(v: Value) PrimitiveError!f64 {
+    if (types.isFixnum(v)) return @floatFromInt(types.toFixnum(v));
+    if (types.isFlonum(v)) return types.toFlonum(v);
+    if (types.isRationalObj(v)) {
+        const r = types.toRational(v);
+        const n = primitives.toF64(r.numerator) catch return PrimitiveError.TypeError; // bare-ok: type guard
+        const d = primitives.toF64(r.denominator) catch return PrimitiveError.TypeError; // bare-ok: type guard
+        return n / d;
+    }
+    if (types.isPointer(v) and types.toObject(v).tag == .srfi18_time) {
+        const t = types.toObject(v).as(types.Srfi18Time);
+        var ts: std.c.timespec = undefined;
+        _ = std.c.clock_gettime(.REALTIME, &ts);
+        const now: f64 = @as(f64, @floatFromInt(ts.sec)) + @as(f64, @floatFromInt(ts.nsec)) / 1e9;
+        return t.seconds - now;
+    }
+    return PrimitiveError.TypeError; // bare-ok: type guard
 }
 
 fn threadTerminateFn(args: []const Value) PrimitiveError!Value {
