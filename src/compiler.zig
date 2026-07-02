@@ -46,6 +46,7 @@ pub const Compiler = struct {
     macros: std.StringHashMap(Value),
     globals: ?*std.StringHashMap(Value) = null,
     lib_env: ?*std.StringHashMap(Value) = null,
+    lib_env_val: Value = types.NIL,
     restricted_env: bool = false, // true for restricted environments (null-environment, environment)
     scope_depth: u16 = 0,
     next_register: u16 = 0,
@@ -86,6 +87,7 @@ pub const Compiler = struct {
     pub fn initChild(parent: *Compiler) CompileError!Compiler {
         const func = parent.gc.allocFunction() catch return CompileError.OutOfMemory;
         func.env = parent.lib_env;
+        func.env_val = parent.lib_env_val;
         func.source_line = parent.func.source_line;
         func.source_name = parent.func.source_name;
         parent.gc.extra_roots.append(parent.gc.allocator, types.makePointer(@ptrCast(func))) catch return CompileError.OutOfMemory;
@@ -97,6 +99,7 @@ pub const Compiler = struct {
             .macros = std.StringHashMap(Value).init(parent.gc.allocator),
             .globals = parent.globals,
             .lib_env = parent.lib_env,
+            .lib_env_val = parent.lib_env_val,
             .restricted_env = parent.restricted_env,
             .parent = parent,
         };
@@ -1266,6 +1269,7 @@ pub const Compiler = struct {
         const tx = types.toObject(transformer).as(types.Transformer);
         if (self.lib_env) |env| {
             tx.def_env = env;
+            tx.def_env_val = self.lib_env_val;
         }
 
         // Store in macro table
@@ -1466,10 +1470,11 @@ pub fn compileExpressionWithMacrosAt(gc: *memory.GC, expr: Value, vm_macros: *st
     return c.func;
 }
 
-pub fn compileExpressionInEnv(gc: *memory.GC, expr: Value, vm_macros: *std.StringHashMap(Value), env: *std.StringHashMap(Value)) CompileError!*types.Function {
+pub fn compileExpressionInEnv(gc: *memory.GC, expr: Value, vm_macros: *std.StringHashMap(Value), env: *std.StringHashMap(Value), env_val: Value) CompileError!*types.Function {
     var c = try Compiler.init(gc);
     c.globals = env;
     c.lib_env = env;
+    c.lib_env_val = env_val;
     c.restricted_env = true;
     var ok = false;
     defer {
@@ -1482,6 +1487,7 @@ pub fn compileExpressionInEnv(gc: *memory.GC, expr: Value, vm_macros: *std.Strin
     }
     try c.compile(expr);
     c.func.env = env;
+    c.func.env_val = env_val;
     var out_it = c.macros.iterator();
     while (out_it.next()) |entry| {
         vm_macros.put(entry.key_ptr.*, entry.value_ptr.*) catch return CompileError.OutOfMemory;

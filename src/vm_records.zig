@@ -182,7 +182,7 @@ pub fn handleDefineRecordType(vm: *VM, args: Value) VMError!Value {
         body_list = define_expr;
 
         const func = if (vm.current_lib_env) |env|
-            compiler_mod.compileExpressionInEnv(vm.gc, define_expr, &vm.macros, env) catch return VMError.CompileError
+            compiler_mod.compileExpressionInEnv(vm.gc, define_expr, &vm.macros, env, types.NIL) catch return VMError.CompileError
         else
             compiler_mod.compileExpressionWithMacros(vm.gc, define_expr, &vm.macros, &vm.globals) catch return VMError.CompileError;
         const func_val = types.makePointer(@ptrCast(func));
@@ -209,7 +209,7 @@ pub fn handleDefineRecordType(vm: *VM, args: Value) VMError!Value {
         defer vm.gc.popRoot();
 
         const func = if (vm.current_lib_env) |env|
-            compiler_mod.compileExpressionInEnv(vm.gc, define_expr, &vm.macros, env) catch return VMError.CompileError
+            compiler_mod.compileExpressionInEnv(vm.gc, define_expr, &vm.macros, env, types.NIL) catch return VMError.CompileError
         else
             compiler_mod.compileExpressionWithMacros(vm.gc, define_expr, &vm.macros, &vm.globals) catch return VMError.CompileError;
         define_expr = types.makePointer(@ptrCast(func));
@@ -237,7 +237,7 @@ pub fn handleDefineRecordType(vm: *VM, args: Value) VMError!Value {
             defer vm.gc.popRoot();
 
             const func = if (vm.current_lib_env) |env|
-                compiler_mod.compileExpressionInEnv(vm.gc, define_expr, &vm.macros, env) catch return VMError.CompileError
+                compiler_mod.compileExpressionInEnv(vm.gc, define_expr, &vm.macros, env, types.NIL) catch return VMError.CompileError
             else
                 compiler_mod.compileExpressionWithMacros(vm.gc, define_expr, &vm.macros, &vm.globals) catch return VMError.CompileError;
             define_expr = types.makePointer(@ptrCast(func));
@@ -264,7 +264,7 @@ pub fn handleDefineRecordType(vm: *VM, args: Value) VMError!Value {
             defer vm.gc.popRoot();
 
             const func = if (vm.current_lib_env) |env|
-                compiler_mod.compileExpressionInEnv(vm.gc, define_expr, &vm.macros, env) catch return VMError.CompileError
+                compiler_mod.compileExpressionInEnv(vm.gc, define_expr, &vm.macros, env, types.NIL) catch return VMError.CompileError
             else
                 compiler_mod.compileExpressionWithMacros(vm.gc, define_expr, &vm.macros, &vm.globals) catch return VMError.CompileError;
             define_expr = types.makePointer(@ptrCast(func));

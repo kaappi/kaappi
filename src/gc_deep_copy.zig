@@ -90,6 +90,7 @@ fn deepCopyValue(gc: *GC, src: Value, visited: *std.AutoHashMap(usize, Value)) !
             new_func.source_name = func.source_name;
             new_func.global_cache = null;
             new_func.env = null;
+            new_func.env_val = types.NIL;
             if (func.name) |name| {
                 if (func.owns_name) {
                     const dup = try gc.allocator.alloc(u8, name.len);
@@ -212,6 +213,7 @@ fn deepCopyValue(gc: *GC, src: Value, visited: *std.AutoHashMap(usize, Value)) !
                 new_tx.captured_locals = gc.allocator.dupe(types.CapturedLocal, t.captured_locals) catch &.{};
             }
             new_tx.def_env = t.def_env;
+            new_tx.def_env_val = t.def_env_val;
             return new_val;
         },
         .native_fn, .native_closure, .ffi_library, .ffi_function => src,
