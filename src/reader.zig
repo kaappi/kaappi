@@ -302,7 +302,10 @@ pub const Reader = struct {
     const reader_datum = @import("reader_datum.zig");
 
     fn readNumber(self: *Reader) ReadError!Token {
-        return reader_tokens.readNumber(self);
+        const tok = try reader_tokens.readNumber(self);
+        if (self.pos < self.source.len and !isDelimiter(self.source[self.pos]))
+            return ReadError.UnexpectedChar;
+        return tok;
     }
 
     fn foldAndReturnSymbol(self: *Reader, sym_text: []const u8) ReadError!Token {
@@ -528,7 +531,10 @@ pub const Reader = struct {
     }
 
     fn readIntegerWithRadix(self: *Reader, radix: u8) ReadError!Token {
-        return reader_tokens.readIntegerWithRadix(self, radix);
+        const tok = try reader_tokens.readIntegerWithRadix(self, radix);
+        if (self.pos < self.source.len and !isDelimiter(self.source[self.pos]))
+            return ReadError.UnexpectedChar;
+        return tok;
     }
 
     fn readCharacter(self: *Reader) ReadError!Token {
