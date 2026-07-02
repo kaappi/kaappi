@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1782971998946,
+  "lastUpdate": 1782972851566,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
@@ -6038,6 +6038,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.041518,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b5a077358582849709fea43257902939c349698b",
+          "message": "Merge pull request #717 from kaappi/fix/json-escape-control-chars-677\n\nFix writeJsonEscaped: escape 0x08 and 0x0C control characters",
+          "timestamp": "2026-07-02T10:50:06+05:30",
+          "tree_id": "8f491fe7960f90dc9354c4561cc4f77d05c5ed62",
+          "url": "https://github.com/kaappi/kaappi/commit/b5a077358582849709fea43257902939c349698b"
+        },
+        "date": 1782972850658,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.327907,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.675051,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.836993,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.177766,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006884,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.032126,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.452673,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.068768,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.874466,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.755155,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.089725,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.222873,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 2.438837,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.690909,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.042019,
             "unit": "seconds"
           }
         ]
