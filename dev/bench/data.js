@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1782997263338,
+  "lastUpdate": 1782998438570,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
@@ -8315,6 +8315,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.0414,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ea840f439ac4c086033bb4a1fc54034a1540500c",
+          "message": "Merge pull request #768 from kaappi/fix/739-bignum-division-remaining-args\n\nFix multi-arg bignum division to process all divisors",
+          "timestamp": "2026-07-02T18:35:10+05:30",
+          "tree_id": "63218596afcc16a46c3a664f8217272fdd71d167",
+          "url": "https://github.com/kaappi/kaappi/commit/ea840f439ac4c086033bb4a1fc54034a1540500c"
+        },
+        "date": 1782998438013,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.852748,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.451669,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.769898,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.874245,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.007058,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.031236,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.415919,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.066316,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.977299,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.654523,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.066534,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.220076,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 2.287624,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 0.963797,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.04018,
             "unit": "seconds"
           }
         ]
