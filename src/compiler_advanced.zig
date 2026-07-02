@@ -157,6 +157,9 @@ pub fn compileCase(self: *Compiler, args: Value, dst: u16, is_tail: bool) Compil
             break;
         }
 
+        // Empty datum list (() body) is allowed by R7RS — dead code, skip
+        if (datums == types.NIL) continue;
+
         // For each datum in the clause, compare with key
         // If any matches, jump to clause body
         if (!types.isPair(datums)) return CompileError.InvalidSyntax;
