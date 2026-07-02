@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783010309291,
+  "lastUpdate": 1783011106296,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
@@ -9602,6 +9602,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.043805,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "distinct": true,
+          "id": "d46986f0d06ba330f89809acc9eb2ba13d60a863",
+          "message": "Update release skill for mkdocs-macros version sync\n\nStep 4 now bumps kaappi_version in mkdocs.yml instead of\nediting download.md directly. Step 10 stages mkdocs.yml.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-02T22:07:19+05:30",
+          "tree_id": "cb9fdbf0b29243fc431bd0802ff024e5dd00db64",
+          "url": "https://github.com/kaappi/kaappi/commit/d46986f0d06ba330f89809acc9eb2ba13d60a863"
+        },
+        "date": 1783011105296,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.355773,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.027501,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.84185,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.096089,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.007027,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.03351,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.452477,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.069574,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.954109,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.749107,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.153937,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.229201,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 2.41425,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.832269,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.043391,
             "unit": "seconds"
           }
         ]
