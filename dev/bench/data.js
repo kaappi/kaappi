@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1782996239658,
+  "lastUpdate": 1782997263338,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
@@ -8216,6 +8216,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.043625,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "de46a5001f4fd585b2596aead08cba71c31d13df",
+          "message": "Merge pull request #767 from kaappi/fix/753-deep-copy-visited-registration\n\nFix deep copy: register in visited before recursing, use allocMultipleValues",
+          "timestamp": "2026-07-02T18:17:16+05:30",
+          "tree_id": "62a0c97808338975e655c5a4c6858174e46e84a7",
+          "url": "https://github.com/kaappi/kaappi/commit/de46a5001f4fd585b2596aead08cba71c31d13df"
+        },
+        "date": 1782997261934,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.512465,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.516953,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.830673,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.174437,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006966,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.032003,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.452539,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.06979,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.936718,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.777235,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.086369,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.229303,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 2.392614,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.728887,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.0414,
             "unit": "seconds"
           }
         ]
