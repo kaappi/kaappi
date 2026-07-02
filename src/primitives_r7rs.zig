@@ -105,17 +105,12 @@ fn commandLine(args: []const Value) PrimitiveError!Value {
     gc.pushRoot(&str_val) catch return PrimitiveError.OutOfMemory;
     defer gc.popRoot();
 
-    // Build list in reverse: script args then program name at the front.
     var i = vm.command_line_args.len;
     while (i > 0) {
         i -= 1;
         str_val = gc.allocString(vm.command_line_args[i]) catch return PrimitiveError.OutOfMemory;
         result = gc.allocPair(str_val, result) catch return PrimitiveError.OutOfMemory;
     }
-
-    // Prepend program name.
-    str_val = gc.allocString("kaappi") catch return PrimitiveError.OutOfMemory;
-    result = gc.allocPair(str_val, result) catch return PrimitiveError.OutOfMemory;
     return result;
 }
 
