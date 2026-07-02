@@ -74,20 +74,22 @@ fn stringContainsFn(args: []const Value) PrimitiveError!Value {
     return types.FALSE;
 }
 
-// (string-prefix? prefix s [start end])
+// (string-prefix? s1 s2 [start1 end1 start2 end2])
 fn stringPrefixPFn(args: []const Value) PrimitiveError!Value {
-    const prefix = try getStringSlice(args[0]);
-    const full_s = try getStringSlice(args[1]);
-    const range = try parseStartEnd(full_s, args, 2);
-    return if (std.mem.startsWith(u8, range.data, prefix)) types.TRUE else types.FALSE;
+    const full_s1 = try getStringSlice(args[0]);
+    const full_s2 = try getStringSlice(args[1]);
+    const s1_range = try parseStartEnd(full_s1, args, 2);
+    const s2_range = try parseStartEnd(full_s2, args, 4);
+    return if (std.mem.startsWith(u8, s2_range.data, s1_range.data)) types.TRUE else types.FALSE;
 }
 
-// (string-suffix? suffix s [start end])
+// (string-suffix? s1 s2 [start1 end1 start2 end2])
 fn stringSuffixPFn(args: []const Value) PrimitiveError!Value {
-    const suffix = try getStringSlice(args[0]);
-    const full_s = try getStringSlice(args[1]);
-    const range = try parseStartEnd(full_s, args, 2);
-    return if (std.mem.endsWith(u8, range.data, suffix)) types.TRUE else types.FALSE;
+    const full_s1 = try getStringSlice(args[0]);
+    const full_s2 = try getStringSlice(args[1]);
+    const s1_range = try parseStartEnd(full_s1, args, 2);
+    const s2_range = try parseStartEnd(full_s2, args, 4);
+    return if (std.mem.endsWith(u8, s2_range.data, s1_range.data)) types.TRUE else types.FALSE;
 }
 
 fn isWhitespace(c: u8) bool {
