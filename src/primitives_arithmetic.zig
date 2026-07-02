@@ -332,10 +332,13 @@ fn add(args: []const Value) PrimitiveError!Value {
                 return makeFlonumVal(f);
             }
             if (types.isBignum(a)) {
-                // Fall back to float for bignum + rational
-                var f: f64 = @as(f64, @floatFromInt(n)) / @as(f64, @floatFromInt(d));
-                f += bignum_mod.toF64(a);
-                return makeFlonumVal(f);
+                // Convert accumulator to rational, then use bignum add
+                const acc_num = try makeFixnumChecked(n);
+                const acc_den = try makeFixnumChecked(d);
+                // a + n/d = (a*d + n) / d
+                const ad = bignum_mod.mul(gc, a, acc_den) catch return PrimitiveError.OutOfMemory;
+                const sum_num = bignum_mod.add(gc, ad, acc_num) catch return PrimitiveError.OutOfMemory;
+                return makeRationalReduced(gc, sum_num, acc_den);
             }
             const parts = toRationalParts(a) orelse {
                 var f: f64 = @as(f64, @floatFromInt(n)) / @as(f64, @floatFromInt(d));
@@ -440,9 +443,12 @@ fn sub(args: []const Value) PrimitiveError!Value {
                 return makeFlonumVal(f);
             }
             if (types.isBignum(a)) {
-                var f: f64 = @as(f64, @floatFromInt(n)) / @as(f64, @floatFromInt(d));
-                f -= bignum_mod.toF64(a);
-                return makeFlonumVal(f);
+                const acc_num = try makeFixnumChecked(n);
+                const acc_den = try makeFixnumChecked(d);
+                // n/d - a = (n - a*d) / d
+                const ad = bignum_mod.mul(gc, a, acc_den) catch return PrimitiveError.OutOfMemory;
+                const diff_num = bignum_mod.sub(gc, acc_num, ad) catch return PrimitiveError.OutOfMemory;
+                return makeRationalReduced(gc, diff_num, acc_den);
             }
             const parts = toRationalParts(a) orelse {
                 var f: f64 = @as(f64, @floatFromInt(n)) / @as(f64, @floatFromInt(d));
@@ -532,9 +538,11 @@ fn mul(args: []const Value) PrimitiveError!Value {
                 return makeFlonumVal(f);
             }
             if (types.isBignum(a)) {
-                var f: f64 = @as(f64, @floatFromInt(n)) / @as(f64, @floatFromInt(d));
-                f *= bignum_mod.toF64(a);
-                return makeFlonumVal(f);
+                const acc_num = try makeFixnumChecked(n);
+                const acc_den = try makeFixnumChecked(d);
+                // (n/d) * a = (n*a) / d
+                const prod_num = bignum_mod.mul(gc, acc_num, a) catch return PrimitiveError.OutOfMemory;
+                return makeRationalReduced(gc, prod_num, acc_den);
             }
             const parts = toRationalParts(a) orelse {
                 var f: f64 = @as(f64, @floatFromInt(n)) / @as(f64, @floatFromInt(d));
@@ -649,9 +657,11 @@ fn divFn(args: []const Value) PrimitiveError!Value {
         var d = first_parts.den;
         for (args[1..]) |a| {
             if (types.isBignum(a)) {
-                var f: f64 = @as(f64, @floatFromInt(n)) / @as(f64, @floatFromInt(d));
-                f /= bignum_mod.toF64(a);
-                return makeFlonumVal(f);
+                const acc_num = try makeFixnumChecked(n);
+                const acc_den = try makeFixnumChecked(d);
+                // (n/d) / a = n / (d*a)
+                const new_den = bignum_mod.mul(gc, acc_den, a) catch return PrimitiveError.OutOfMemory;
+                return makeRationalReduced(gc, acc_num, new_den);
             }
             const parts = toRationalParts(a) orelse {
                 var f: f64 = @as(f64, @floatFromInt(n)) / @as(f64, @floatFromInt(d));
