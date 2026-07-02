@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783023955332,
+  "lastUpdate": 1783023962337,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "distinct": true,
-          "id": "963547cf2dcb3cf78ad5e7052878bdd2a4e6c729",
-          "message": "Add benchmark dashboard link to README and fix URL in dev docs\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-06-30T23:32:10+05:30",
-          "tree_id": "b2f63cfbcc856b8e088c0265c056c1039eb2b9bd",
-          "url": "https://github.com/kaappi/kaappi/commit/963547cf2dcb3cf78ad5e7052878bdd2a4e6c729"
-        },
-        "date": 1782843206991,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.051828,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.077453,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.644783,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 3.974102,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.005621,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.025354,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.347045,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.982734,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.308706,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.342052,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 0.858158,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.190826,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.832203,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 0,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.042165,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "455db2bdddd72f0f313327e8dd1afa1ab0bafa84",
+          "message": "Clean up child function roots after single-expression compilation (#832) (#886)\n\ninitChild appends every child function (one per lambda, case-lambda\nclause, delay, named-let) to gc.extra_roots, but nothing removed\nthem on the single-expression compile path. Record extra_roots.len\nafter Compiler.init and shrink back in the defer block of all three\ncompileExpression* wrappers, matching the pattern compileMultiple\nalready uses.\n\nFixes #832\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-03T01:41:15+05:30",
+          "tree_id": "695f7869f0bef39914dcb69ecd79a78b60df1b3d",
+          "url": "https://github.com/kaappi/kaappi/commit/455db2bdddd72f0f313327e8dd1afa1ab0bafa84"
+        },
+        "date": 1783023962013,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.310725,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.384861,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.830756,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.468741,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.00704,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.031824,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.458402,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.070224,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.916975,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.778384,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.082814,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.216779,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 2.415502,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.684399,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.040961,
             "unit": "seconds"
           }
         ]
