@@ -782,7 +782,11 @@ fn divFn(args: []const Value) PrimitiveError!Value {
 }
 
 fn quotient(args: []const Value) PrimitiveError!Value {
-    if (types.isBignum(args[0]) or types.isBignum(args[1])) {
+    if ((types.isBignum(args[0]) or types.isBignum(args[1])) and
+        !types.isFlonum(args[0]) and !types.isFlonum(args[1]))
+    {
+        if (!types.isFixnum(args[0]) and !types.isBignum(args[0])) return numberTypeError(args[0]);
+        if (!types.isFixnum(args[1]) and !types.isBignum(args[1])) return numberTypeError(args[1]);
         const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
         if (bignum_mod.isZero(args[1])) return raiseDivByZero();
         return bignum_mod.quotient(gc, args[0], args[1]) catch return PrimitiveError.OutOfMemory;
@@ -800,7 +804,11 @@ fn quotient(args: []const Value) PrimitiveError!Value {
 }
 
 fn remainder(args: []const Value) PrimitiveError!Value {
-    if (types.isBignum(args[0]) or types.isBignum(args[1])) {
+    if ((types.isBignum(args[0]) or types.isBignum(args[1])) and
+        !types.isFlonum(args[0]) and !types.isFlonum(args[1]))
+    {
+        if (!types.isFixnum(args[0]) and !types.isBignum(args[0])) return numberTypeError(args[0]);
+        if (!types.isFixnum(args[1]) and !types.isBignum(args[1])) return numberTypeError(args[1]);
         const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
         if (bignum_mod.isZero(args[1])) return raiseDivByZero();
         return bignum_mod.remainder(gc, args[0], args[1]) catch return PrimitiveError.OutOfMemory;
@@ -818,7 +826,11 @@ fn remainder(args: []const Value) PrimitiveError!Value {
 }
 
 fn modulo(args: []const Value) PrimitiveError!Value {
-    if (types.isBignum(args[0]) or types.isBignum(args[1])) {
+    if ((types.isBignum(args[0]) or types.isBignum(args[1])) and
+        !types.isFlonum(args[0]) and !types.isFlonum(args[1]))
+    {
+        if (!types.isFixnum(args[0]) and !types.isBignum(args[0])) return numberTypeError(args[0]);
+        if (!types.isFixnum(args[1]) and !types.isBignum(args[1])) return numberTypeError(args[1]);
         const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
         if (bignum_mod.isZero(args[1])) return raiseDivByZero();
         const rem = bignum_mod.remainder(gc, args[0], args[1]) catch return PrimitiveError.OutOfMemory;
@@ -1213,15 +1225,25 @@ pub fn gcdTwo(a_in: i64, b_in: i64) i64 {
 
 fn gcdFn(args: []const Value) PrimitiveError!Value {
     if (args.len == 0) return types.makeFixnum(0);
+    if (anyFlonum(args)) {
+        var result: f64 = @abs(try toF64Ext(args[0]));
+        for (args[1..]) |a| {
+            const b = @abs(try toF64Ext(a));
+            result = gcdF64(result, b);
+        }
+        return makeFlonumVal(result);
+    }
     if (anyBignum(args)) {
         // Bignum GCD: use Euclidean algorithm with bignum ops
         const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+        if (!types.isFixnum(args[0]) and !types.isBignum(args[0])) return numberTypeError(args[0]);
         var result = bignum_mod.absVal(gc, args[0]) catch return PrimitiveError.OutOfMemory;
         gc.extra_roots.append(gc.allocator, result) catch return PrimitiveError.OutOfMemory;
         defer {
             if (gc.extra_roots.items.len > 0) _ = gc.extra_roots.pop();
         }
         for (args[1..]) |a| {
+            if (!types.isFixnum(a) and !types.isBignum(a)) return numberTypeError(a);
             var b_val = bignum_mod.absVal(gc, a) catch return PrimitiveError.OutOfMemory;
             gc.extra_roots.append(gc.allocator, b_val) catch return PrimitiveError.OutOfMemory;
             while (!bignum_mod.isZero(b_val)) {
@@ -1235,14 +1257,6 @@ fn gcdFn(args: []const Value) PrimitiveError!Value {
             _ = gc.extra_roots.pop();
         }
         return result;
-    }
-    if (anyFlonum(args)) {
-        var result: f64 = @abs(try toF64Ext(args[0]));
-        for (args[1..]) |a| {
-            const b = @abs(try toF64Ext(a));
-            result = gcdF64(result, b);
-        }
-        return makeFlonumVal(result);
     }
     if (!types.isFixnum(args[0])) return PrimitiveError.TypeError;
     var result = types.toFixnum(args[0]);
