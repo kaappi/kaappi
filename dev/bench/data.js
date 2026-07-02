@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1782999430380,
+  "lastUpdate": 1783000504732,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
@@ -8513,6 +8513,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.043396,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "0f6077ea8bf113f90d448599d502f4c41e7828e0",
+          "message": "Merge pull request #770 from kaappi/fix/744-749-minint-negation-overflow\n\nFix minInt negation overflow in abs, unary minus, and magnitude",
+          "timestamp": "2026-07-02T19:10:16+05:30",
+          "tree_id": "fb9a02317f492691012d5e424dcc231d0911451f",
+          "url": "https://github.com/kaappi/kaappi/commit/0f6077ea8bf113f90d448599d502f4c41e7828e0"
+        },
+        "date": 1783000503746,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.378545,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.63294,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.7967,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.210395,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.007019,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.031866,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.455989,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.070265,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.900664,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.769213,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.091136,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.217188,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 2.398314,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.657373,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.042194,
             "unit": "seconds"
           }
         ]
