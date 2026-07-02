@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1782967382485,
+  "lastUpdate": 1782967452649,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
@@ -5741,6 +5741,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.046543,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "121c84f4d07973062f17dabdaedc3747e9b548c9",
+          "message": "Merge pull request #714 from kaappi/fix/llvm-variadic-closure-arity-685\n\nFix LLVM backend: bail out of native closure for variadic lambdas",
+          "timestamp": "2026-07-02T09:59:17+05:30",
+          "tree_id": "b153ddc6d7ddc9d88596f4fe0e4f864d0210c388",
+          "url": "https://github.com/kaappi/kaappi/commit/121c84f4d07973062f17dabdaedc3747e9b548c9"
+        },
+        "date": 1782967452354,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.31773,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.634279,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.8231,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.169299,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006901,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.032105,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.452867,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.067964,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.907801,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.770253,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.099019,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.218847,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 2.427323,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.607504,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.041828,
             "unit": "seconds"
           }
         ]
