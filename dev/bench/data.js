@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1782974910472,
+  "lastUpdate": 1782982555437,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
@@ -7226,6 +7226,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.042179,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "bce120a495603e1296c4ad52ec3be36cdd7f91d1",
+          "message": "Merge pull request #728 from kaappi/fix/hygiene-well-known-bindings-681\n\nFix macro hygiene for template-introduced bindings named after built-ins",
+          "timestamp": "2026-07-02T14:12:10+05:30",
+          "tree_id": "1ad6232abd759deea54f27668b2b15098e599c8e",
+          "url": "https://github.com/kaappi/kaappi/commit/bce120a495603e1296c4ad52ec3be36cdd7f91d1"
+        },
+        "date": 1782982554482,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.307495,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.579283,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.825794,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.132175,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.00692,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.032201,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.453717,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.069841,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.923879,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.78038,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.079902,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.225037,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 2.39964,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.705803,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.041668,
             "unit": "seconds"
           }
         ]
