@@ -143,7 +143,9 @@ Exceptions: auto-generated data files (`unicode_tables.zig`) are exempt.
 | File | Lines | Responsibility |
 |------|-------|---------------|
 | `types.zig` | ~500 | Value type, heap object structs, ObjectTag enum, opcodes |
-| `memory.zig` | ~800 | Generational GC allocator, alloc/mark/free for all heap types, write barrier |
+| `memory.zig` | ~1200 | GC struct, heap type allocators, write barrier, rooting |
+| `gc_collect.zig` | — | GC mark/sweep/free (delegated from memory.zig) |
+| `gc_deep_copy.zig` | — | Cross-thread deep copy (delegated from memory.zig) |
 | `reader.zig` | ~700 | Tokenizer, S-expression parser, Unicode lexing |
 | `expander.zig` | ~320 | Macro expansion engine (syntax-rules) |
 | `printer.zig` | ~300 | Value → string (write mode and display mode) |
@@ -152,6 +154,7 @@ Exceptions: auto-generated data files (`unicode_tables.zig`) are exempt.
 | File | Responsibility |
 |------|---------------|
 | `ir.zig` | IR node types (33), AST→IR lowering, 3 analysis passes, 5 optimization passes |
+| `ir_emitter.zig` | Standalone IR → bytecode emitter (used by Stage 1 parity tests) |
 | `compiler.zig` | Core: IR pipeline orchestration (`compile()` lowers to IR, runs passes, emits via `compileFromNode()`), retains `compileExpr()` for passthrough forms, scope/register management |
 | `compiler_lambda.zig` | lambda, define, set!, begin, delay, delay-force, body compilation |
 | `compiler_conditionals.zig` | and, or, when, unless, cond, cond-expand |
@@ -205,6 +208,7 @@ Exceptions: auto-generated data files (`unicode_tables.zig`) are exempt.
 | `disassembler.zig` | Bytecode disassembler for `(disassemble proc)` |
 | `linenoise.zig` | Zig FFI wrapper for vendored linenoise C library |
 | `main.zig` | Entry point, REPL loop with linenoise, file execution, CLI flags, `pub const version` |
+| `native_compiler.zig` | LLVM IR emission, native binary compilation, C compiler discovery, linker invocation |
 | `thottam.zig` | Package manager binary (thottam): install, remove, list, update, verify |
 | `llvm_emit.zig` | LLVM IR text emitter (walks IR nodes, produces `.ll` files) |
 | `runtime_exports.zig` | C-ABI bridge for LLVM native backend (8 exported functions) |
