@@ -70,7 +70,7 @@ fn toRationalParts(v: Value) ?RatParts {
         if (!types.isFixnum(r.numerator) or !types.isFixnum(r.denominator)) return null;
         return .{ .num = types.toFixnum(r.numerator), .den = types.toFixnum(r.denominator) };
     }
-    return .{ .num = 0, .den = 1 };
+    return null;
 }
 
 fn allocRationalRooted(gc: *@import("memory.zig").GC, n: i64, d: i64) PrimitiveError!Value {
