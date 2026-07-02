@@ -64,6 +64,12 @@ fn snapshotLiveEntries(gc: *GC, ht: *HashTable) ?[]HashEntry {
 }
 
 pub fn valueHash(key: Value) usize {
+    return valueHashDepth(key, 0);
+}
+
+const MAX_HASH_DEPTH = 8;
+
+fn valueHashDepth(key: Value, depth: usize) usize {
     if (types.isFixnum(key)) {
         return @truncate(@as(u64, @bitCast(types.toFixnum(key))) *% 2654435761);
     }
@@ -85,6 +91,25 @@ pub fn valueHash(key: Value) usize {
     if (key == types.TRUE) return 1;
     if (key == types.FALSE) return 0;
     if (key == types.NIL) return 2;
+    if (depth >= MAX_HASH_DEPTH) return @truncate(key *% 2654435761);
+    if (types.isPair(key)) {
+        const h1 = valueHashDepth(types.car(key), depth + 1);
+        const h2 = valueHashDepth(types.cdr(key), depth + 1);
+        return h1 *% 31 +% h2;
+    }
+    if (types.isVector(key)) {
+        const vec = types.toObject(key).as(types.Vector);
+        var h: usize = vec.data.len *% 2654435761;
+        const limit = @min(vec.data.len, 4);
+        for (vec.data[0..limit]) |v| h = h *% 31 +% valueHashDepth(v, depth + 1);
+        return h;
+    }
+    if (types.isBytevector(key)) {
+        const bv = types.toBytevector(key);
+        var h: usize = bv.data.len *% 2654435761;
+        for (bv.data) |b| h = h *% 31 +% b;
+        return h;
+    }
     return @truncate(key *% 2654435761);
 }
 
