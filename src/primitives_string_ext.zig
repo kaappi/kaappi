@@ -623,8 +623,8 @@ fn stringReplaceFn(args: []const Value) PrimitiveError!Value {
     const start: usize = @intCast(sv);
     const end: usize = @intCast(ev);
     if (start > end) return primitives.typeError("string-replace", "valid index range (start <= end)", args[2]);
-    const byte_start = pstr.utf8IndexToByteOffset(data1, start) orelse data1.len;
-    const byte_end = pstr.utf8IndexToByteOffset(data1, end) orelse data1.len;
+    const byte_start = pstr.utf8IndexToByteOffset(data1, start) orelse return PrimitiveError.IndexOutOfBounds;
+    const byte_end = pstr.utf8IndexToByteOffset(data1, end) orelse return PrimitiveError.IndexOutOfBounds;
     const new_len = byte_start + data2.len + (data1.len - byte_end);
     const alloc_buf = gc.allocator.alloc(u8, new_len) catch return PrimitiveError.OutOfMemory;
     defer gc.allocator.free(alloc_buf);

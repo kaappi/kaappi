@@ -1059,7 +1059,10 @@ fn stringToNumber(args: []const Value) PrimitiveError!Value {
         return applyExactness(gc, result, exactness);
     } else |err| {
         if (err == error.Overflow) {
-            const result = bignum_mod.parseBignumString(gc, s, radix) catch return PrimitiveError.OutOfMemory;
+            const result = bignum_mod.parseBignumString(gc, s, radix) catch |e| switch (e) {
+                error.InvalidCharacter => return types.FALSE,
+                else => return PrimitiveError.OutOfMemory,
+            };
             return applyExactness(gc, result, exactness);
         }
     }
