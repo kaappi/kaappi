@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783035528138,
+  "lastUpdate": 1783035549699,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "e04b06a898728c19602adae030efa479a1d90ea5",
-          "message": "Fix exact division with bignums returning flonum instead of rational (#612) (#629)\n\nTwo paths in divFn silently degraded exact results to flonum when\nbignums were involved:\n\n1. Single-arg reciprocal (/ bignum) fell through to the float path\n   instead of producing an exact rational 1/bignum.\n\n2. Multi-arg bignum division only handled the args.len==2 exact-divide\n   case; non-even division fell through to float.\n\nAdd bignum case to single-arg reciprocal using makeRationalReduced,\nand extend multi-arg bignum path to produce exact rationals when\ndivision is not even.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-01T05:46:59+05:30",
-          "tree_id": "1ec1a382e6fe33c1d355cc4f7ede74ba57729175",
-          "url": "https://github.com/kaappi/kaappi/commit/e04b06a898728c19602adae030efa479a1d90ea5"
-        },
-        "date": 1782865647537,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.726466,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.760755,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.761779,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.956502,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.007232,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.030926,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.412124,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 1.074722,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.987335,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.568858,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.091656,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.218687,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 2.225906,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 0,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.042078,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "5ce50bba34870b449f74e8605caebe746f27295f",
+          "message": "Fix symbolNeedsBars to catch DEL, C1 controls, and non-letter Unicode (#857) (#902)\n\nThe check missed DEL (0x7F), C1 controls (U+0080-U+009F), and\nnon-letter Unicode codepoints (e.g. arrows), printing symbols bare\nthat the reader can't parse back. Add DEL to the explicit switch,\ndecode multi-byte UTF-8 sequences, and check against the reader's\nisUnicodeLetter.\n\nFixes #857\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-03T04:38:14+05:30",
+          "tree_id": "329db3d7cc5fc5288db06f14018c95308b0f131e",
+          "url": "https://github.com/kaappi/kaappi/commit/5ce50bba34870b449f74e8605caebe746f27295f"
+        },
+        "date": 1783035548689,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.474053,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.535364,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.83917,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.166719,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006917,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.032692,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.46379,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.070609,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.948697,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.786734,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.124755,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.434151,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 2.399373,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.718164,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.042681,
             "unit": "seconds"
           }
         ]
