@@ -136,22 +136,29 @@ fn deepCopyValue(gc: *GC, src: Value, visited: *std.AutoHashMap(usize, Value)) !
         },
         .promise => {
             const p = obj.as(types.Promise);
-            const nv = try deepCopyValue(gc, p.value, visited);
-            return try gc.allocPromise(p.forced, nv);
+            const new_val = try gc.allocPromise(p.forced, types.NIL);
+            try visited.put(src_ptr, new_val);
+            const new_p = types.toObject(new_val).as(types.Promise);
+            new_p.value = try deepCopyValue(gc, p.value, visited);
+            return new_val;
         },
         .parameter => {
             const p = obj.as(types.ParameterObject);
-            const val = try deepCopyValue(gc, p.value, visited);
-            const conv = try deepCopyValue(gc, p.converter, visited);
-            return try gc.allocParameter(val, conv);
+            const new_val = try gc.allocParameter(types.NIL, types.NIL);
+            try visited.put(src_ptr, new_val);
+            const new_p = types.toObject(new_val).as(types.ParameterObject);
+            new_p.value = try deepCopyValue(gc, p.value, visited);
+            new_p.converter = try deepCopyValue(gc, p.converter, visited);
+            return new_val;
         },
         .error_object => {
             const e = obj.as(types.ErrorObject);
-            const msg = try deepCopyValue(gc, e.message, visited);
-            const irr = try deepCopyValue(gc, e.irritants, visited);
-            const new_val = try gc.allocErrorObject(msg, irr);
+            const new_val = try gc.allocErrorObject(types.NIL, types.NIL);
+            try visited.put(src_ptr, new_val);
             const new_e = types.toObject(new_val).as(types.ErrorObject);
             new_e.error_type = e.error_type;
+            new_e.message = try deepCopyValue(gc, e.message, visited);
+            new_e.irritants = try deepCopyValue(gc, e.irritants, visited);
             new_e.uncaught_reason = try deepCopyValue(gc, e.uncaught_reason, visited);
             return new_val;
         },
@@ -176,14 +183,13 @@ fn deepCopyValue(gc: *GC, src: Value, visited: *std.AutoHashMap(usize, Value)) !
         },
         .multiple_values => {
             const mv = obj.as(types.MultipleValues);
-            const vals = try gc.allocator.alloc(Value, mv.values.len);
+            const new_val = try gc.allocMultipleValues(mv.values);
+            try visited.put(src_ptr, new_val);
+            const new_mv = types.toObject(new_val).as(types.MultipleValues);
             for (mv.values, 0..) |v, i| {
-                vals[i] = try deepCopyValue(gc, v, visited);
+                new_mv.values[i] = try deepCopyValue(gc, v, visited);
             }
-            const new_mv = try gc.allocator.create(types.MultipleValues);
-            new_mv.* = .{ .header = .{ .tag = .multiple_values }, .values = vals };
-            gc.trackObject(&new_mv.header);
-            return types.makePointer(@ptrCast(new_mv));
+            return new_val;
         },
         .transformer => {
             const t = obj.as(types.Transformer);
