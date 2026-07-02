@@ -167,12 +167,14 @@ export fn kaappi_fixnum_eq(a: u64, b: u64) callconv(.c) u64 {
 
 export fn kaappi_car(v: u64) callconv(.c) u64 {
     if (types.isPair(v)) return types.car(v);
-    return 0;
+    _ = std.posix.system.write(2, "car: not a pair\n", 16);
+    std.process.exit(1);
 }
 
 export fn kaappi_cdr(v: u64) callconv(.c) u64 {
     if (types.isPair(v)) return types.cdr(v);
-    return 0;
+    _ = std.posix.system.write(2, "cdr: not a pair\n", 16);
+    std.process.exit(1);
 }
 
 export fn kaappi_cons(a: u64, b: u64) callconv(.c) u64 {
