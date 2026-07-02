@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783029080016,
+  "lastUpdate": 1783029151163,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "41c36da6dfd1017a14d9f32273ecf755ecf9582a",
-          "message": "Fix bytecode symbol name length write/read mismatch (#609) (#623)\n\nThe writer used unchecked @intCast(sym.name.len) to u16 for symbol and\nfunction name lengths, panicking on names > 65535 bytes in ReleaseSafe.\nThe reader rejects names > MAX_SYMBOL_BYTES (4096), creating a\nwrite/read mismatch for names 4097-65535 bytes.\n\nAdd MAX_SYMBOL_BYTES validation on the write side for both symbol\nconstants and function names, matching the reader's limit and\npreventing the @intCast panic.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-01T04:03:23+05:30",
-          "tree_id": "5d7554c6fb0229f17c836375292208c06feba3cc",
-          "url": "https://github.com/kaappi/kaappi/commit/41c36da6dfd1017a14d9f32273ecf755ecf9582a"
-        },
-        "date": 1782859451478,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.299026,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.214066,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.80275,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.114234,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006872,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.033777,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.451519,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 1.146434,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.955723,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.761095,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.173383,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.215993,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 2.406879,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 0,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.041686,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "bc69689eef0fd88d20cdd4cea88ab4e48ec02543",
+          "message": "Fix exact/numerator/denominator abort on flonum 2^63 and bignum rational parsing (#846, #853) (#896)\n\n- Use strict < instead of <= for i64 max comparison in safeFloatToExactInt,\n  floatToRational, and applyExactness — maxInt(i64) rounds up to 2^63 in\n  f64, so the <= check passed but @intFromFloat panicked (#846)\n- Parse rational numerator/denominator with parseBignumString when\n  parseInt overflows i64, instead of falling through to the integer\n  parser which chokes on the '/' (#853)\n\nFixes #846\nFixes #853\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-03T02:47:47+05:30",
+          "tree_id": "aa8575a29f44a50750ff782cc0535c3022a09a8d",
+          "url": "https://github.com/kaappi/kaappi/commit/bc69689eef0fd88d20cdd4cea88ab4e48ec02543"
+        },
+        "date": 1783029150176,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.417239,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.352951,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.828206,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.125884,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006926,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.032637,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.46679,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.070606,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 4.009012,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.789051,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.149397,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.431986,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 2.451426,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.68087,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.041852,
             "unit": "seconds"
           }
         ]
