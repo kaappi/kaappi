@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783017906389,
+  "lastUpdate": 1783019375292,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
@@ -9800,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044159,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "866067e364b0fa542fa0cc06997dbdf09e786461",
+          "message": "Replace fixed-size export arrays with dynamic ArrayLists in define-library (#862) (#882)\n\nThe 128-entry stack arrays for export_names/export_renames silently\ndropped any exports past the cap. Libraries with >128 exports (like\nscheme.base with ~250) would lose the tail entries. Switched to\nstd.ArrayList in handleDefineLibrary, extractExportsAndImports, and\nincludeLibraryDeclarations so libraries can export arbitrarily many\nidentifiers.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-03T00:24:42+05:30",
+          "tree_id": "dda475e06f7ca2629270f144d62ce82d9e55cf6f",
+          "url": "https://github.com/kaappi/kaappi/commit/866067e364b0fa542fa0cc06997dbdf09e786461"
+        },
+        "date": 1783019374925,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.371118,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.471331,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.80772,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.162128,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006806,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.032052,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.450735,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.069982,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.927631,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.76315,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.080364,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.221564,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 2.391285,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.683312,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.041081,
             "unit": "seconds"
           }
         ]
