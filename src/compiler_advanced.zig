@@ -46,7 +46,7 @@ pub fn compileGuard(self: *Compiler, args: Value, dst: u16, is_tail: bool) Compi
 
     var cond_clauses = clauses;
     if (!has_else) {
-        const raise_sym = gc.allocSymbol("raise") catch return CompileError.OutOfMemory;
+        const raise_sym = gc.allocSymbol("raise-continuable") catch return CompileError.OutOfMemory;
         const raise_call = gc.allocPair(raise_sym, gc.allocPair(var_sym, types.NIL) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory;
         const else_sym = gc.allocSymbol("else") catch return CompileError.OutOfMemory;
         const else_clause = gc.allocPair(else_sym, gc.allocPair(raise_call, types.NIL) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory;
