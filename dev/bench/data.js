@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783028090007,
+  "lastUpdate": 1783028586505,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "a862510cc9147b1a3b39c21911139bc35bcb7acf",
-          "message": "Fix deepCopyValue record_instance missing cycle guard (#606) (#620)\n\nThe .record_instance arm was the only compound arm that never registered\nin the visited map, causing infinite recursion (stack overflow) on cyclic\nrecords and broken sharing on DAGs during cross-thread deep copy.\n\nAllocate the new instance with empty fields first, register in visited,\nthen deep-copy fields into the pre-allocated instance — matching the\npattern used by .pair, .vector, .closure, and all other compound arms.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-01T03:12:35+05:30",
-          "tree_id": "d25185b14d3ef19bf1ff47a6d179cf3d58aea7df",
-          "url": "https://github.com/kaappi/kaappi/commit/a862510cc9147b1a3b39c21911139bc35bcb7acf"
-        },
-        "date": 1782856398185,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.301084,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.905477,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.806341,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.071405,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.00703,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.032132,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.450828,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 1.143958,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.959639,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.757745,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.131186,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.216239,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 2.404597,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 0,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.04343,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c0a0804664ec129cc5e99f7b93f395ef19baba17",
+          "message": "Fix LSP: MethodNotFound response, hover newlines, dotted define crash (#873, #871, #869) (#895)\n\n- Reply with JSON-RPC MethodNotFound (-32601) for unrecognized request\n  methods instead of silently dropping them (#873)\n- Use actual newline characters in hover markdown instead of escaped\n  literal \\n sequences (#871)\n- Guard types.car calls on define cdr with isPair check to prevent\n  crash on dotted top-level forms like (define . 5) (#869)\n\nFixes #873\nFixes #871\nFixes #869\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-03T02:34:30+05:30",
+          "tree_id": "30909a6c0b947aa8b30fc67c8549f93de66673ad",
+          "url": "https://github.com/kaappi/kaappi/commit/c0a0804664ec129cc5e99f7b93f395ef19baba17"
+        },
+        "date": 1783028586069,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.36426,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.513452,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.812944,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.192829,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006941,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.032333,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.452686,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.068819,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.941414,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.759291,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.087104,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.22229,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 2.388879,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.709635,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.041606,
             "unit": "seconds"
           }
         ]
