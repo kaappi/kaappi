@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783026969247,
+  "lastUpdate": 1783027211081,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "97cf45868d645130bf92f55e0a79c017b76ba769",
-          "message": "Fix constant folding ignoring redefined primitives (#600) (#618)\n\nThe IR constant folding and boolean simplification passes folded calls\nto + - * = < > <= >= zero? not by symbol name without checking whether\nthe user had redefined those bindings at the top level.\n\nAdd a globals field to the IR struct and check whether each operator\nis still bound to its original NativeFn before folding. Thread the\ncompiler's globals map through to all IR construction sites.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-01T02:42:31+05:30",
-          "tree_id": "af69a099f5c225918e2b6eed977b816269be994f",
-          "url": "https://github.com/kaappi/kaappi/commit/97cf45868d645130bf92f55e0a79c017b76ba769"
-        },
-        "date": 1782854660088,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.768732,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.651305,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.749468,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.713156,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006954,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.031298,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.409207,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 1.070329,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.998459,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.601257,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.070799,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.218283,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 2.251927,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 0,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.043265,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "12209c3454b6aba485860910b4e7df46bcb2668e",
+          "message": "Validate operand types in quotient/remainder/modulo/gcd bignum paths (#890)\n\n* Fix case-lambda 32-clause limit, case empty datum, case-lambda hygiene (#840, #854, #836)\n\nThree related fixes in compiler_advanced.zig:\n- Replace fixed 32-element clause_buf array with dynamic ArrayList so\n  case-lambda supports any number of clauses (#840)\n- Allow empty datum list (() body) in case clauses as dead code per\n  R7RS grammar (#854)\n- Use unforgeable %cl_args/%cl_n symbols in case-lambda desugaring to\n  avoid capturing user variables named args or n (#836)\n\nFixes #840\nFixes #854\nFixes #836\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Guard bignum branches against flonum and non-number arguments\n\nquotient, remainder, modulo, and gcd had bignum fast-paths that fired\nwhen either operand was a bignum, but assumed the other operand was\nalso a fixnum or bignum.  When the other argument was a flonum, the\ncode called bignum.viewOf which invoked types.toBignum on the flonum,\npanicking.  Non-number arguments (e.g. strings) produced garbage.\n\nFix by adding flonum exclusion guards to the bignum branches in\nquotient/remainder/modulo (matching the pattern already used by the\ndivision operator), and by moving the anyFlonum check before the\nanyBignum check in gcdFn (matching lcmFn).  Also add explicit type\nvalidation for non-number arguments in all four functions' bignum\npaths.\n\nFixes #841\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-03T02:13:57+05:30",
+          "tree_id": "b1219ac8d060e75b25a2d8b178e638f59771b049",
+          "url": "https://github.com/kaappi/kaappi/commit/12209c3454b6aba485860910b4e7df46bcb2668e"
+        },
+        "date": 1783027210027,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.300445,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.300335,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.807237,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.14028,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.007996,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.032351,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.454989,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.070767,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.922368,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.753169,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.084636,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.218449,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 2.387348,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.712753,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.04153,
             "unit": "seconds"
           }
         ]
