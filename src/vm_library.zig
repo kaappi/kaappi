@@ -565,7 +565,21 @@ fn evalLibFeatureReq(vm: *VM, req: Value) bool {
             const lib_name_list = types.car(rest);
             const lib_name = library_mod.libraryNameToString(vm.gc.allocator, lib_name_list) catch return false;
             defer vm.gc.allocator.free(lib_name);
-            return vm.libraries.get(lib_name) != null;
+            if (vm.libraries.get(lib_name) != null) return true;
+            // Check if a .sld file exists on the library path
+            var path_buf: [512]u8 = undefined;
+            const rel_path = buildLibRelPath(lib_name_list, &path_buf) catch return false;
+            for (vm.lib_paths) |dir| {
+                var full_buf: [1024:0]u8 = undefined;
+                const full_len = std.fmt.bufPrint(&full_buf, "{s}/{s}", .{ dir, rel_path }) catch continue;
+                full_buf[full_len.len] = 0;
+                const fd = std.posix.system.open(@ptrCast(&full_buf), .{}, @as(u32, 0));
+                if (fd >= 0) {
+                    _ = std.posix.system.close(fd);
+                    return true;
+                }
+            }
+            return false;
         }
     }
     return false;
