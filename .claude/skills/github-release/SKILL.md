@@ -87,9 +87,9 @@ const version = "X.Y.Z";
 .version = "X.Y.Z",
 ```
 
-**`../kaappi.github.io/docs/download.md` line 1:**
-```markdown
-# Download Kaappi vX.Y.Z
+**`../kaappi.github.io/mkdocs.yml` (in `extra:` section):**
+```yaml
+  kaappi_version: X.Y.Z
 ```
 
 ## Step 5: Build verification
@@ -165,13 +165,14 @@ tour, and downloads page:
 ```bash
 cd ../kaappi.github.io
 cp ../kaappi/zig-out/bin/kaappi.wasm docs/wasm/kaappi.wasm
-git add docs/wasm/kaappi.wasm docs/download.md
-git commit -m "Update playground WASM binary and downloads page to vX.Y.Z"
+git add docs/wasm/kaappi.wasm mkdocs.yml
+git commit -m "Update playground WASM binary and version to vX.Y.Z"
 git push
 ```
 
-This updates `/playground/`, `/tour/` (shared WASM binary), and
-`/download/` (version in heading). Verify at `kaappi-lang.org/playground/`
+This updates `/playground/`, `/tour/` (shared WASM binary), and the version
+shown on `/download/`, `/guide/first-program/`, and `/guide/repl/` (all read
+from `kaappi_version` in `mkdocs.yml`). Verify at `kaappi-lang.org/playground/`
 and `kaappi-lang.org/download/` after GitHub Pages deploys.
 
 ## Error recovery
