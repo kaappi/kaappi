@@ -73,6 +73,17 @@ fn toRationalParts(v: Value) ?RatParts {
     return .{ .num = 0, .den = 1 };
 }
 
+fn allocRationalRooted(gc: *@import("memory.zig").GC, n: i64, d: i64) PrimitiveError!Value {
+    var num = try makeFixnumChecked(n);
+    gc.extra_roots.append(gc.allocator, num) catch return PrimitiveError.OutOfMemory;
+    defer {
+        if (gc.extra_roots.items.len > 0) _ = gc.extra_roots.pop();
+    }
+    const den = try makeFixnumChecked(d);
+    num = gc.extra_roots.items[gc.extra_roots.items.len - 1];
+    return gc.allocRational(num, den) catch return PrimitiveError.OutOfMemory;
+}
+
 /// Construct a reduced rational (or integer if den divides num).
 /// Always ensures: denominator > 0, gcd(|num|,den) == 1, den==1 => fixnum.
 pub fn makeRationalReduced(gc: *@import("memory.zig").GC, num_val: Value, den_val: Value) PrimitiveError!Value {
@@ -97,9 +108,7 @@ pub fn makeRationalReduced(gc: *@import("memory.zig").GC, num_val: Value, den_va
         n = @divExact(n, g);
         d = @divExact(d, g);
         if (d == 1) return try makeFixnumChecked(n);
-        const num = try makeFixnumChecked(n);
-        const den = try makeFixnumChecked(d);
-        return gc.allocRational(num, den) catch return PrimitiveError.OutOfMemory;
+        return allocRationalRooted(gc, n, d);
     }
     // Bignum-containing case: check for zero denominator
     if (bignum_mod.isZero(den_val)) return raiseDivByZero();
@@ -107,11 +116,20 @@ pub fn makeRationalReduced(gc: *@import("memory.zig").GC, num_val: Value, den_va
 
     var num = num_val;
     var den = den_val;
+    // Root num and den across all bignum allocations below.
+    gc.extra_roots.append(gc.allocator, num) catch return PrimitiveError.OutOfMemory;
+    gc.extra_roots.append(gc.allocator, den) catch return PrimitiveError.OutOfMemory;
+    defer {
+        if (gc.extra_roots.items.len > 0) _ = gc.extra_roots.pop();
+        if (gc.extra_roots.items.len > 0) _ = gc.extra_roots.pop();
+    }
 
     // Ensure positive denominator
     if (bignum_mod.isNegative(den)) {
         num = bignum_mod.negate(gc, num) catch return PrimitiveError.OutOfMemory;
+        gc.extra_roots.items[gc.extra_roots.items.len - 2] = num;
         den = bignum_mod.negate(gc, den) catch return PrimitiveError.OutOfMemory;
+        gc.extra_roots.items[gc.extra_roots.items.len - 1] = den;
     }
 
     // Reduce by GCD
@@ -126,7 +144,9 @@ pub fn makeRationalReduced(gc: *@import("memory.zig").GC, num_val: Value, den_va
     // g is now gcd(|num|, den)
     if (!bignum_mod.isZero(g) and bignum_mod.compare(g, types.makeFixnum(1)) != 0) {
         num = bignum_mod.quotient(gc, num, g) catch return PrimitiveError.OutOfMemory;
+        gc.extra_roots.items[gc.extra_roots.items.len - 2] = num;
         den = bignum_mod.quotient(gc, den, g) catch return PrimitiveError.OutOfMemory;
+        gc.extra_roots.items[gc.extra_roots.items.len - 1] = den;
     }
 
     // Demote to fixnum if possible
@@ -217,9 +237,7 @@ pub fn makeRationalFromReader(gc: *@import("memory.zig").GC, num: i64, den: i64)
     n = @divExact(n, g);
     d = @divExact(d, g);
     if (d == 1) return try makeFixnumChecked(n);
-    const num_val = try makeFixnumChecked(n);
-    const den_val = try makeFixnumChecked(d);
-    return gc.allocRational(num_val, den_val);
+    return allocRationalRooted(gc, n, d);
 }
 
 // ---------------------------------------------------------------------------
@@ -354,9 +372,7 @@ fn add(args: []const Value) PrimitiveError!Value {
             n = -n;
             d = -d;
         }
-        const num = try makeFixnumChecked(n);
-        const den = try makeFixnumChecked(d);
-        return gc.allocRational(num, den) catch return PrimitiveError.OutOfMemory;
+        return allocRationalRooted(gc, n, d);
     }
     if (anyBignum(args)) return bignumAddAll(args);
     // Fixnum path with overflow detection
@@ -462,9 +478,7 @@ fn sub(args: []const Value) PrimitiveError!Value {
             n = -n;
             d = -d;
         }
-        const num = try makeFixnumChecked(n);
-        const den = try makeFixnumChecked(d);
-        return gc.allocRational(num, den) catch return PrimitiveError.OutOfMemory;
+        return allocRationalRooted(gc, n, d);
     }
     if (anyBignum(args)) return bignumSubAll(args);
     if (!types.isFixnum(args[0]) and !types.isRationalObj(args[0])) return numberTypeError(args[0]);
@@ -551,9 +565,7 @@ fn mul(args: []const Value) PrimitiveError!Value {
             d = -d;
         }
         if (d == 1) return try makeFixnumChecked(n);
-        const num = try makeFixnumChecked(n);
-        const den = try makeFixnumChecked(d);
-        return gc.allocRational(num, den) catch return PrimitiveError.OutOfMemory;
+        return allocRationalRooted(gc, n, d);
     }
     if (anyBignum(args)) return bignumMulAll(args);
     var product: i64 = 1;
@@ -671,9 +683,7 @@ fn divFn(args: []const Value) PrimitiveError!Value {
         }
         if (n == 0) return types.makeFixnum(0);
         if (d == 1) return try makeFixnumChecked(n);
-        const num = try makeFixnumChecked(n);
-        const den = try makeFixnumChecked(d);
-        return gc.allocRational(num, den) catch return PrimitiveError.OutOfMemory;
+        return allocRationalRooted(gc, n, d);
     }
     // All exact integers (fixnum or bignum) — try exact division, produce rational if needed
     if (!anyFlonum(args) and !anyBignum(args) and !anyRational(args)) {
@@ -709,18 +719,23 @@ fn divFn(args: []const Value) PrimitiveError!Value {
         }
         if (n == 0) return types.makeFixnum(0);
         if (d == 1) return makeFixnumChecked(n);
-        return gc.allocRational(try makeFixnumChecked(n), try makeFixnumChecked(d)) catch return PrimitiveError.OutOfMemory;
+        return allocRationalRooted(gc, n, d);
     }
     // Exact integer division with bignums: produce exact rational
     if (anyBignum(args) and !anyFlonum(args) and !anyRational(args)) {
         const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
         var num_val = args[0];
+        gc.extra_roots.append(gc.allocator, num_val) catch return PrimitiveError.OutOfMemory;
+        defer {
+            if (gc.extra_roots.items.len > 0) _ = gc.extra_roots.pop();
+        }
         for (args[1..]) |a| {
             if (bignum_mod.isZero(a)) return raiseDivByZero();
             const rem = bignum_mod.remainder(gc, num_val, a) catch return PrimitiveError.OutOfMemory;
             if (bignum_mod.isZero(rem)) {
                 num_val = bignum_mod.quotient(gc, num_val, a) catch return PrimitiveError.OutOfMemory;
                 num_val = bignum_mod.demote(num_val);
+                gc.extra_roots.items[gc.extra_roots.items.len - 1] = num_val;
             } else {
                 return makeRationalReduced(gc, num_val, a);
             }
@@ -847,10 +862,16 @@ fn cmpPair(a: Value, b: Value) PrimitiveError!i8 {
             const mantissa: i64 = @intCast(mantissa_bits | 0x0010000000000000);
             if (exp >= 0) {
                 var exact = gc.allocBignumFromI64(mantissa) catch return PrimitiveError.OutOfMemory;
+                gc.extra_roots.append(gc.allocator, exact) catch return PrimitiveError.OutOfMemory;
+                defer {
+                    if (gc.extra_roots.items.len > 0) _ = gc.extra_roots.pop();
+                }
                 const two = types.makeFixnum(2);
                 const shift = types.makeFixnum(exp);
                 const scale = bignum_mod.expt(gc, two, shift) catch return PrimitiveError.OutOfMemory;
+                exact = gc.extra_roots.items[gc.extra_roots.items.len - 1];
                 exact = bignum_mod.mul(gc, exact, scale) catch return PrimitiveError.OutOfMemory;
+                gc.extra_roots.items[gc.extra_roots.items.len - 1] = exact;
                 if (fb < 0) exact = bignum_mod.negate(gc, exact) catch return PrimitiveError.OutOfMemory;
                 return bignum_mod.compare(a, exact);
             }
@@ -1022,7 +1043,12 @@ fn absVal(args: []const Value) PrimitiveError!Value {
         }
         if (types.isBignum(r.numerator)) {
             if (bignum_mod.isNegative(r.numerator)) {
-                const abs_num = bignum_mod.absVal(gc, r.numerator) catch return PrimitiveError.OutOfMemory;
+                var abs_num = bignum_mod.absVal(gc, r.numerator) catch return PrimitiveError.OutOfMemory;
+                gc.extra_roots.append(gc.allocator, abs_num) catch return PrimitiveError.OutOfMemory;
+                defer {
+                    if (gc.extra_roots.items.len > 0) _ = gc.extra_roots.pop();
+                }
+                abs_num = gc.extra_roots.items[gc.extra_roots.items.len - 1];
                 return gc.allocRational(abs_num, r.denominator) catch return PrimitiveError.OutOfMemory;
             }
             return args[0];
@@ -1161,6 +1187,10 @@ fn gcdFn(args: []const Value) PrimitiveError!Value {
         // Bignum GCD: use Euclidean algorithm with bignum ops
         const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
         var result = bignum_mod.absVal(gc, args[0]) catch return PrimitiveError.OutOfMemory;
+        gc.extra_roots.append(gc.allocator, result) catch return PrimitiveError.OutOfMemory;
+        defer {
+            if (gc.extra_roots.items.len > 0) _ = gc.extra_roots.pop();
+        }
         for (args[1..]) |a| {
             var b_val = bignum_mod.absVal(gc, a) catch return PrimitiveError.OutOfMemory;
             while (!bignum_mod.isZero(b_val)) {
@@ -1168,6 +1198,7 @@ fn gcdFn(args: []const Value) PrimitiveError!Value {
                 b_val = bignum_mod.remainder(gc, result, b_val) catch return PrimitiveError.OutOfMemory;
                 b_val = bignum_mod.absVal(gc, b_val) catch return PrimitiveError.OutOfMemory;
                 result = t;
+                gc.extra_roots.items[gc.extra_roots.items.len - 1] = result;
             }
         }
         return result;
@@ -1209,6 +1240,10 @@ fn lcmFn(args: []const Value) PrimitiveError!Value {
         // Bignum LCM: lcm(a,b) = |a*b| / gcd(a,b)
         const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
         var result = bignum_mod.absVal(gc, args[0]) catch return PrimitiveError.OutOfMemory;
+        gc.extra_roots.append(gc.allocator, result) catch return PrimitiveError.OutOfMemory;
+        defer {
+            if (gc.extra_roots.items.len > 0) _ = gc.extra_roots.pop();
+        }
         for (args[1..]) |a| {
             const b_abs = bignum_mod.absVal(gc, a) catch return PrimitiveError.OutOfMemory;
             const gcd_args = [_]Value{ result, b_abs };
@@ -1219,6 +1254,7 @@ fn lcmFn(args: []const Value) PrimitiveError!Value {
                 const q = bignum_mod.quotient(gc, result, g) catch return PrimitiveError.OutOfMemory;
                 result = bignum_mod.mul(gc, q, b_abs) catch return PrimitiveError.OutOfMemory;
             }
+            gc.extra_roots.items[gc.extra_roots.items.len - 1] = result;
         }
         return result;
     }
@@ -1239,6 +1275,10 @@ fn lcmFn(args: []const Value) PrimitiveError!Value {
             if (ov[1] != 0) {
                 const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
                 var big_result = bignum_mod.mul(gc, try makeFixnumChecked(partial), try makeFixnumChecked(abs_b)) catch return PrimitiveError.OutOfMemory;
+                gc.extra_roots.append(gc.allocator, big_result) catch return PrimitiveError.OutOfMemory;
+                defer {
+                    if (gc.extra_roots.items.len > 0) _ = gc.extra_roots.pop();
+                }
                 idx += 1;
                 while (idx < args.len) : (idx += 1) {
                     const b_abs = bignum_mod.absVal(gc, args[idx]) catch return PrimitiveError.OutOfMemory;
@@ -1250,6 +1290,7 @@ fn lcmFn(args: []const Value) PrimitiveError!Value {
                         const q = bignum_mod.quotient(gc, big_result, g2) catch return PrimitiveError.OutOfMemory;
                         big_result = bignum_mod.mul(gc, q, b_abs) catch return PrimitiveError.OutOfMemory;
                     }
+                    gc.extra_roots.items[gc.extra_roots.items.len - 1] = big_result;
                 }
                 return big_result;
             }
