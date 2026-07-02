@@ -76,12 +76,18 @@ fn toRationalParts(v: Value) ?RatParts {
 fn allocRationalRooted(gc: *@import("memory.zig").GC, n: i64, d: i64) PrimitiveError!Value {
     var num = try makeFixnumChecked(n);
     gc.extra_roots.append(gc.allocator, num) catch return PrimitiveError.OutOfMemory;
-    defer {
-        if (gc.extra_roots.items.len > 0) _ = gc.extra_roots.pop();
-    }
-    const den = try makeFixnumChecked(d);
-    num = gc.extra_roots.items[gc.extra_roots.items.len - 1];
-    return gc.allocRational(num, den) catch return PrimitiveError.OutOfMemory;
+    var den = try makeFixnumChecked(d);
+    gc.extra_roots.append(gc.allocator, den) catch return PrimitiveError.OutOfMemory;
+    num = gc.extra_roots.items[gc.extra_roots.items.len - 2];
+    den = gc.extra_roots.items[gc.extra_roots.items.len - 1];
+    const result = gc.allocRational(num, den) catch {
+        _ = gc.extra_roots.pop();
+        _ = gc.extra_roots.pop();
+        return PrimitiveError.OutOfMemory;
+    };
+    _ = gc.extra_roots.pop();
+    _ = gc.extra_roots.pop();
+    return result;
 }
 
 /// Construct a reduced rational (or integer if den divides num).
@@ -132,15 +138,21 @@ pub fn makeRationalReduced(gc: *@import("memory.zig").GC, num_val: Value, den_va
         gc.extra_roots.items[gc.extra_roots.items.len - 1] = den;
     }
 
-    // Reduce by GCD
+    // Reduce by GCD — root abs_num and g across allocating calls
     var abs_num = bignum_mod.absVal(gc, num) catch return PrimitiveError.OutOfMemory;
+    gc.extra_roots.append(gc.allocator, abs_num) catch return PrimitiveError.OutOfMemory;
     var g = den;
+    gc.extra_roots.append(gc.allocator, g) catch return PrimitiveError.OutOfMemory;
     while (!bignum_mod.isZero(abs_num)) {
         const t = abs_num;
         abs_num = bignum_mod.remainder(gc, g, abs_num) catch return PrimitiveError.OutOfMemory;
         abs_num = bignum_mod.absVal(gc, abs_num) catch return PrimitiveError.OutOfMemory;
         g = t;
+        gc.extra_roots.items[gc.extra_roots.items.len - 2] = abs_num;
+        gc.extra_roots.items[gc.extra_roots.items.len - 1] = g;
     }
+    _ = gc.extra_roots.pop();
+    _ = gc.extra_roots.pop();
     // g is now gcd(|num|, den)
     if (!bignum_mod.isZero(g) and bignum_mod.compare(g, types.makeFixnum(1)) != 0) {
         num = bignum_mod.quotient(gc, num, g) catch return PrimitiveError.OutOfMemory;
@@ -1211,13 +1223,16 @@ fn gcdFn(args: []const Value) PrimitiveError!Value {
         }
         for (args[1..]) |a| {
             var b_val = bignum_mod.absVal(gc, a) catch return PrimitiveError.OutOfMemory;
+            gc.extra_roots.append(gc.allocator, b_val) catch return PrimitiveError.OutOfMemory;
             while (!bignum_mod.isZero(b_val)) {
                 const t = b_val;
                 b_val = bignum_mod.remainder(gc, result, b_val) catch return PrimitiveError.OutOfMemory;
                 b_val = bignum_mod.absVal(gc, b_val) catch return PrimitiveError.OutOfMemory;
                 result = t;
-                gc.extra_roots.items[gc.extra_roots.items.len - 1] = result;
+                gc.extra_roots.items[gc.extra_roots.items.len - 2] = result;
+                gc.extra_roots.items[gc.extra_roots.items.len - 1] = b_val;
             }
+            _ = gc.extra_roots.pop();
         }
         return result;
     }
@@ -1263,15 +1278,19 @@ fn lcmFn(args: []const Value) PrimitiveError!Value {
             if (gc.extra_roots.items.len > 0) _ = gc.extra_roots.pop();
         }
         for (args[1..]) |a| {
-            const b_abs = bignum_mod.absVal(gc, a) catch return PrimitiveError.OutOfMemory;
+            var b_abs = bignum_mod.absVal(gc, a) catch return PrimitiveError.OutOfMemory;
+            gc.extra_roots.append(gc.allocator, b_abs) catch return PrimitiveError.OutOfMemory;
             const gcd_args = [_]Value{ result, b_abs };
             const g = try gcdFn(&gcd_args);
+            b_abs = gc.extra_roots.items[gc.extra_roots.items.len - 1];
             if (bignum_mod.isZero(g)) {
                 result = types.makeFixnum(0);
             } else {
                 const q = bignum_mod.quotient(gc, result, g) catch return PrimitiveError.OutOfMemory;
+                b_abs = gc.extra_roots.items[gc.extra_roots.items.len - 1];
                 result = bignum_mod.mul(gc, q, b_abs) catch return PrimitiveError.OutOfMemory;
             }
+            _ = gc.extra_roots.pop();
             gc.extra_roots.items[gc.extra_roots.items.len - 1] = result;
         }
         return result;
