@@ -430,8 +430,8 @@ fn sub(args: []const Value) PrimitiveError!Value {
         var d = first_parts.den;
         if (args.len == 1) {
             // Negate
-            if (d == 1) return types.makeFixnum(-n);
-            return gc.allocRational(types.makeFixnum(-n), types.makeFixnum(d)) catch return PrimitiveError.OutOfMemory;
+            if (d == 1) return makeFixnumChecked(-n);
+            return allocRationalRooted(gc, -n, d);
         }
         for (args[1..]) |a| {
             if (types.isFlonum(a)) {
@@ -1046,7 +1046,8 @@ fn absVal(args: []const Value) PrimitiveError!Value {
         if (types.isFixnum(r.numerator)) {
             const n = types.toFixnum(r.numerator);
             if (n >= 0) return args[0];
-            return gc.allocRational(types.makeFixnum(-n), r.denominator) catch return PrimitiveError.OutOfMemory;
+            const abs_num = try makeFixnumChecked(-n);
+            return gc.allocRational(abs_num, r.denominator) catch return PrimitiveError.OutOfMemory;
         }
         if (types.isBignum(r.numerator)) {
             if (bignum_mod.isNegative(r.numerator)) {
