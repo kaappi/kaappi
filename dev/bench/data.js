@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1782965160329,
+  "lastUpdate": 1782966840157,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
@@ -5543,6 +5543,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.043564,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "bbe94b530daa5911e202d9a513ead86461638cf4",
+          "message": "Merge pull request #712 from kaappi/fix/llvm-call-shadowing-684\n\nFix LLVM backend: respect local parameter shadowing in call position",
+          "timestamp": "2026-07-02T09:49:49+05:30",
+          "tree_id": "98696614c19a32ed4ebdbc289b550e71b3f4f654",
+          "url": "https://github.com/kaappi/kaappi/commit/bbe94b530daa5911e202d9a513ead86461638cf4"
+        },
+        "date": 1782966839699,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.317937,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.191905,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.811156,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.119621,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006908,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.032748,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.453038,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.067626,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.952613,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.776169,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.084564,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.223503,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 2.404937,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.692975,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.042716,
             "unit": "seconds"
           }
         ]
