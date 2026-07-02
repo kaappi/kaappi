@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1782974131624,
+  "lastUpdate": 1782974258834,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
@@ -6929,6 +6929,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.037933,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "323e984d854c5f921ccd8d5d4754b53ba15ea92b",
+          "message": "Merge pull request #727 from kaappi/fix/expander-vector-patterns-680\n\nAdd vector pattern and template support to syntax-rules",
+          "timestamp": "2026-07-02T11:54:15+05:30",
+          "tree_id": "f1a29fae4502042f768843f1039d83ead8fea57c",
+          "url": "https://github.com/kaappi/kaappi/commit/323e984d854c5f921ccd8d5d4754b53ba15ea92b"
+        },
+        "date": 1782974258453,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.954144,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.766438,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.829511,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.145083,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.007849,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.032039,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.451203,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.067403,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.886271,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.741466,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.10974,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.246496,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 2.38319,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.872852,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.043795,
             "unit": "seconds"
           }
         ]
