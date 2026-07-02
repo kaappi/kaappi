@@ -157,7 +157,7 @@ pub const Reader = struct {
     }
 
     // Unicode letter classification for identifier support
-    fn isUnicodeLetter(cp: u21) bool {
+    pub fn isUnicodeLetter(cp: u21) bool {
         if (cp <= 127) return std.ascii.isAlphabetic(@intCast(cp));
         if (cp >= 0xC0 and cp <= 0xFF and cp != 0xD7 and cp != 0xF7) return true;
         if (cp >= 0x100 and cp <= 0x24F) return true;
