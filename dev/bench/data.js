@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783035181212,
+  "lastUpdate": 1783035228786,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "d9ae2cb0b718512ed96298d815bc4c9359d1906d",
-          "message": "Fix isConstraintSpec panic on empty-after-trim version (#613) (#626)\n\nisConstraintSpec checked ver.len == 0 but then trimmed quotes and\nindexed clean[0] without rechecking length. A version like @\"\"\nproduced an empty slice after trim, panicking on the index.\n\nAdd a clean.len == 0 check after trimming.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-01T04:51:16+05:30",
-          "tree_id": "aa1b624f1f8dbfea4a879112aa4a3634155d5c86",
-          "url": "https://github.com/kaappi/kaappi/commit/d9ae2cb0b718512ed96298d815bc4c9359d1906d"
-        },
-        "date": 1782862238901,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.337738,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.735064,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.812484,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.097224,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.007047,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.032656,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.448938,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 1.14696,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 4.021738,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.763251,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.113738,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.222006,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 2.412035,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 0,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.041987,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "99deadb5da7cbf1184cbe4d3073887c2d469d294",
+          "message": "Use raise-continuable for unmatched guard clauses (#845) (#897)\n\nR7RS 4.2.7 requires guard to re-raise unmatched conditions with\nraise-continuable, not raise. The else clause appended by compileGuard\nused raise, making continuable exceptions non-continuable.\n\nFixes #845\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-03T04:37:46+05:30",
+          "tree_id": "709442dc77c51c74796f0d8de0226d1f097bddbe",
+          "url": "https://github.com/kaappi/kaappi/commit/99deadb5da7cbf1184cbe4d3073887c2d469d294"
+        },
+        "date": 1783035227980,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.483729,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.23807,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.853116,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.148783,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.007187,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.03283,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.468193,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.070618,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.970989,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.792576,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.152429,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.435904,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 2.41284,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.702136,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.042616,
             "unit": "seconds"
           }
         ]
