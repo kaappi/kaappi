@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1782973351900,
+  "lastUpdate": 1782973600208,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
@@ -6533,6 +6533,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.043365,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "80e7b3d751f8eec80788832aa8196f7d4fb978b0",
+          "message": "Merge pull request #722 from kaappi/fix/expander-patvar-limit-683\n\nRaise syntax-rules pattern variable limit from 16 to 128 per ellipsis",
+          "timestamp": "2026-07-02T11:15:46+05:30",
+          "tree_id": "810a413876f61c91bac8b818bdca386b8858fb78",
+          "url": "https://github.com/kaappi/kaappi/commit/80e7b3d751f8eec80788832aa8196f7d4fb978b0"
+        },
+        "date": 1782973599833,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.960282,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 10.023793,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.840746,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.172997,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.007275,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.032056,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.451248,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.067672,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.827836,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.741348,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.115467,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.240966,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 2.375821,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.898095,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.043802,
             "unit": "seconds"
           }
         ]
