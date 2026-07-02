@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1782972959541,
+  "lastUpdate": 1782972970250,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
@@ -6335,6 +6335,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.042757,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "6d80cab547a1ac34036296c0a88ea4033fe5639d",
+          "message": "Merge pull request #719 from kaappi/fix/prescan-names-overflow-686\n\nFix internal-define pre-scan: use dynamic list instead of fixed 64-entry buffer",
+          "timestamp": "2026-07-02T11:07:58+05:30",
+          "tree_id": "8fd2f289d405c5a2c6b66fe934382620f66495fe",
+          "url": "https://github.com/kaappi/kaappi/commit/6d80cab547a1ac34036296c0a88ea4033fe5639d"
+        },
+        "date": 1782972969901,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.327602,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.041099,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.835998,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.203009,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.00698,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.032485,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.457338,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.069767,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.839675,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.77709,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.105783,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.225499,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 2.43747,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.737176,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.042446,
             "unit": "seconds"
           }
         ]
