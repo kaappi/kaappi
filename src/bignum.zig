@@ -686,7 +686,10 @@ pub fn parseBignumString(gc: *memory.GC, digits: []const u8, radix: u8) !Value {
         const chunk_str = num_digits[pos .. pos + chunk_size];
 
         // Parse the chunk
-        const chunk_val = std.fmt.parseInt(u64, chunk_str, radix) catch return error.OutOfMemory;
+        const chunk_val = std.fmt.parseInt(u64, chunk_str, radix) catch |e| switch (e) {
+            error.InvalidCharacter => return error.InvalidCharacter,
+            else => return error.OutOfMemory,
+        };
 
         // Compute the multiplier (radix^chunk_size)
         var multiplier: u64 = 1;
