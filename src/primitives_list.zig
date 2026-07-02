@@ -105,7 +105,7 @@ fn listCopyFn(args: []const Value) PrimitiveError!Value {
             slow = types.cdr(slow);
             if (types.isPair(fast)) fast = types.cdr(fast);
             if (types.isPair(fast)) fast = types.cdr(fast);
-            if (slow == fast and slow != types.NIL) return PrimitiveError.TypeError;
+            if (slow == fast and slow != types.NIL) return PrimitiveError.TypeError; // bare-ok: circular list
         }
         step = !step;
     }
@@ -166,7 +166,7 @@ fn memberFn(args: []const Value) PrimitiveError!Value {
             slow = types.cdr(slow);
             if (types.isPair(fast)) fast = types.cdr(fast);
             if (types.isPair(fast)) fast = types.cdr(fast);
-            if (slow == fast and slow != types.NIL) return PrimitiveError.TypeError;
+            if (slow == fast and slow != types.NIL) return PrimitiveError.TypeError; // bare-ok: circular list
         }
         step = !step;
     }
@@ -186,7 +186,7 @@ fn memqFn(args: []const Value) PrimitiveError!Value {
             slow = types.cdr(slow);
             if (types.isPair(fast)) fast = types.cdr(fast);
             if (types.isPair(fast)) fast = types.cdr(fast);
-            if (slow == fast and slow != types.NIL) return PrimitiveError.TypeError;
+            if (slow == fast and slow != types.NIL) return PrimitiveError.TypeError; // bare-ok: circular list
         }
         step = !step;
     }
@@ -241,7 +241,7 @@ fn memvFn(args: []const Value) PrimitiveError!Value {
             slow = types.cdr(slow);
             if (types.isPair(fast)) fast = types.cdr(fast);
             if (types.isPair(fast)) fast = types.cdr(fast);
-            if (slow == fast and slow != types.NIL) return PrimitiveError.TypeError;
+            if (slow == fast and slow != types.NIL) return PrimitiveError.TypeError; // bare-ok: circular list
         }
         step = !step;
     }
@@ -279,7 +279,7 @@ fn assocFn(args: []const Value) PrimitiveError!Value {
             slow = types.cdr(slow);
             if (types.isPair(fast)) fast = types.cdr(fast);
             if (types.isPair(fast)) fast = types.cdr(fast);
-            if (slow == fast and slow != types.NIL) return PrimitiveError.TypeError;
+            if (slow == fast and slow != types.NIL) return PrimitiveError.TypeError; // bare-ok: circular list
         }
         step_flag = !step_flag;
     }
@@ -301,7 +301,7 @@ fn assqFn(args: []const Value) PrimitiveError!Value {
             slow = types.cdr(slow);
             if (types.isPair(fast)) fast = types.cdr(fast);
             if (types.isPair(fast)) fast = types.cdr(fast);
-            if (slow == fast and slow != types.NIL) return PrimitiveError.TypeError;
+            if (slow == fast and slow != types.NIL) return PrimitiveError.TypeError; // bare-ok: circular list
         }
         step = !step;
     }
@@ -323,7 +323,7 @@ fn assvFn(args: []const Value) PrimitiveError!Value {
             slow = types.cdr(slow);
             if (types.isPair(fast)) fast = types.cdr(fast);
             if (types.isPair(fast)) fast = types.cdr(fast);
-            if (slow == fast and slow != types.NIL) return PrimitiveError.TypeError;
+            if (slow == fast and slow != types.NIL) return PrimitiveError.TypeError; // bare-ok: circular list
         }
         step = !step;
     }
