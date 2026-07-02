@@ -533,11 +533,13 @@ pub fn repl(vm: *vm_mod.VM) !void {
         }
         if (std.mem.startsWith(u8, debug_trimmed, ",step ")) {
             const step_expr = debug_trimmed[6..];
+            const saved_debug = vm.debug_mode;
+            const saved_step = vm.step_mode;
             vm.debug_mode = true;
             vm.step_mode = .step;
             evalInput(vm, allocator, step_expr);
-            vm.debug_mode = false;
-            vm.step_mode = .none;
+            vm.debug_mode = saved_debug;
+            vm.step_mode = saved_step;
             input_buf.clearRetainingCapacity();
             continue;
         }
