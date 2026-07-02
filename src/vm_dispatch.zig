@@ -14,6 +14,16 @@ const vm_debug = @import("vm_debug.zig");
 const vm_library = @import("vm_library.zig");
 const vm_records = @import("vm_records.zig");
 
+fn stripHygienicPrefix(name: []const u8) []const u8 {
+    var n = name;
+    while (std.mem.startsWith(u8, n, "__hyg_")) {
+        if (std.mem.indexOfScalar(u8, n[6..], '_')) |sep| {
+            n = n[6 + sep + 1 ..];
+        } else break;
+    }
+    return n;
+}
+
 pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) VMError!Value {
     while (self.frame_count > target_frame_count) {
         if (self.yielded) {
@@ -140,6 +150,13 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                 const val = env.get(name) orelse blk: {
                     if (func.env != null) {
                         if (self.globals.get(name)) |gval| break :blk gval;
+                    }
+                    const base = stripHygienicPrefix(name);
+                    if (base.len != name.len) {
+                        if (env.get(base)) |bval| break :blk bval;
+                        if (env != &self.globals) {
+                            if (self.globals.get(base)) |gval| break :blk gval;
+                        }
                     }
                     if (self.findSimilarName(name)) |suggestion| {
                         self.setErrorDetail("undefined variable '{s}'. Did you mean '{s}'?", .{ name, suggestion });
@@ -755,7 +772,11 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                             const sym = try constantAt(self, the_func, sym_idx);
                             if (!types.isSymbol(sym)) return VMError.InvalidBytecode;
                             const name = types.symbolName(sym);
-                            const val = env.get(name) orelse {
+                            const val = env.get(name) orelse val_blk: {
+                                const b = stripHygienicPrefix(name);
+                                if (b.len != name.len) {
+                                    if (env.get(b)) |bval| break :val_blk bval;
+                                }
                                 if (self.findSimilarName(name)) |sug| {
                                     self.setErrorDetail("undefined variable '{s}'. Did you mean '{s}'?", .{ name, sug });
                                 } else {
@@ -772,7 +793,11 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                         const sym = try constantAt(self, the_func, sym_idx);
                         if (!types.isSymbol(sym)) return VMError.InvalidBytecode;
                         const name = types.symbolName(sym);
-                        const val = env.get(name) orelse {
+                        const val = env.get(name) orelse val_blk2: {
+                            const b = stripHygienicPrefix(name);
+                            if (b.len != name.len) {
+                                if (env.get(b)) |bval| break :val_blk2 bval;
+                            }
                             if (self.findSimilarName(name)) |sug| {
                                 self.setErrorDetail("undefined variable '{s}'. Did you mean '{s}'?", .{ name, sug });
                             } else {
@@ -875,7 +900,11 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                     const sym = try constantAt(self, func, sym_idx);
                     if (!types.isSymbol(sym)) return VMError.InvalidBytecode;
                     const name = types.symbolName(sym);
-                    callee = env.get(name) orelse {
+                    callee = env.get(name) orelse callee_blk: {
+                        const b = stripHygienicPrefix(name);
+                        if (b.len != name.len) {
+                            if (env.get(b)) |bval| break :callee_blk bval;
+                        }
                         if (self.findSimilarName(name)) |sug| {
                             self.setErrorDetail("undefined variable '{s}'. Did you mean '{s}'?", .{ name, sug });
                         } else {
