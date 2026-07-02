@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1782959663758,
+  "lastUpdate": 1782961693006,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
@@ -5246,6 +5246,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044384,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "cdb110dc7d352cd90eb598893dfd338973eda296",
+          "message": "Merge pull request #707 from kaappi/fix/load-library-source-gc-root-705\n\nRoot expr in loadLibrarySource before handleTopLevelForm",
+          "timestamp": "2026-07-02T08:24:53+05:30",
+          "tree_id": "53e94782dcb284cc1492cb8ceda98cd5a6a7873a",
+          "url": "https://github.com/kaappi/kaappi/commit/cdb110dc7d352cd90eb598893dfd338973eda296"
+        },
+        "date": 1782961692665,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.34445,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.801096,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.82582,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.111884,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006875,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.032309,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.456568,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.069091,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.989646,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.791706,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.092541,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.223517,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 2.420228,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.741455,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.041773,
             "unit": "seconds"
           }
         ]
