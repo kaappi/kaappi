@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783026867212,
+  "lastUpdate": 1783026891901,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "5d85dcc4bdc91fdcc5f1a2d4c014c6b4ffc7b212",
-          "message": "Fix string->number \"#e<large>\" process abort (#604) (#616)\n\napplyExactness used unchecked @intFromFloat(trunc) to i64 for the exact\ninteger path, panicking when the float exceeded i64 range. Use\nsafeFloatToExactInt which promotes to bignum for large values.\n\nAlso guard the non-integer rational path against i64 overflow on the\nscaled numerator.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-01T02:07:24+05:30",
-          "tree_id": "4bd93ff65678eb5e1081ea4645519f8de30c1ada",
-          "url": "https://github.com/kaappi/kaappi/commit/5d85dcc4bdc91fdcc5f1a2d4c014c6b4ffc7b212"
-        },
-        "date": 1782852555102,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.280017,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.398782,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.803834,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.126977,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006905,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.03288,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.451942,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 1.147251,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.914398,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.762804,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.105122,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.218831,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 2.412188,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 0,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.043652,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "937a1d2a715d559fbcb980e278ddec71776067d0",
+          "message": "Allow empty datum list in case clauses (#854) (#889)\n\nR7RS grammar permits case clauses with an empty datum list like\n(() body). Previously Kaappi rejected these with a syntax error because\nthe isPair check fails on NIL. The clause can never match, so the fix\nsimply skips it as dead code.\n\nFixes #854\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-03T02:05:19+05:30",
+          "tree_id": "be8af94f2dc3a83005d93e91245e6e5ccdfe7b6f",
+          "url": "https://github.com/kaappi/kaappi/commit/937a1d2a715d559fbcb980e278ddec71776067d0"
+        },
+        "date": 1783026891098,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.303773,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.01428,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.804079,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.310151,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.007007,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.032367,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.452369,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.070263,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.901575,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.753499,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.130232,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.222801,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 2.425757,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.706817,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.0417,
             "unit": "seconds"
           }
         ]
