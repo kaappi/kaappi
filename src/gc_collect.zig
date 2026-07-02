@@ -469,16 +469,17 @@ fn markRoots(gc: *GC) void {
     // Mark active FFI callback closures
     const ffi_cb = @import("ffi_callback.zig");
     ffi_cb.markCallbackRoots(gc);
-    // Mark interned symbols. Use tryLock to avoid deadlock when GC is
-    // triggered from within allocSymbol (which already holds the mutex).
-    // If we can't get the lock, symbol values are already reachable via
-    // the globals map -- they won't be collected.
-    const got_sym_lock = memory_mod.symbol_mutex.tryLock();
+    // Mark interned symbols. Use a blocking lock to prevent iterating
+    // while a child thread's put() rehashes the HashMap. Deadlock is not
+    // possible: the parent thread never holds symbol_mutex (only child
+    // threads acquire it in allocSymbol when shared_symbols != null),
+    // and allocSymbol does not call maybeCollect.
+    memory_mod.spinLock(&memory_mod.symbol_mutex);
+    defer memory_mod.spinUnlock(&memory_mod.symbol_mutex);
     var it = gc.symbols.valueIterator();
     while (it.next()) |v| {
         markValue(gc, v.*);
     }
-    if (got_sym_lock) memory_mod.symbol_mutex.unlock();
     // Mark VM-owned roots (live registers, call frames, handlers, winds).
     if (gc.root_marker) |mark| mark(gc);
 }

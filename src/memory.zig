@@ -52,10 +52,10 @@ pub const GcStats = struct {
 
 pub var symbol_mutex: std.atomic.Mutex = .unlocked;
 
-fn spinLock(m: *std.atomic.Mutex) void {
+pub fn spinLock(m: *std.atomic.Mutex) void {
     while (!m.tryLock()) std.atomic.spinLoopHint();
 }
-fn spinUnlock(m: *std.atomic.Mutex) void {
+pub fn spinUnlock(m: *std.atomic.Mutex) void {
     m.unlock();
 }
 
