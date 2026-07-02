@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783000504732,
+  "lastUpdate": 1783001555890,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
@@ -8612,6 +8612,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.042194,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f7c3a7b05060c2d04a565d4ed971a9240d4da0ba",
+          "message": "Merge pull request #771 from kaappi/fix/748-angle-negative-zero\n\nFix angle to return pi for -0.0",
+          "timestamp": "2026-07-02T19:27:54+05:30",
+          "tree_id": "021d599d05b36c3c27701aa3a21eea631fca32a7",
+          "url": "https://github.com/kaappi/kaappi/commit/f7c3a7b05060c2d04a565d4ed971a9240d4da0ba"
+        },
+        "date": 1783001554990,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.418419,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.042608,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.805739,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.274766,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006919,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.03177,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.454665,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.070073,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.924884,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.762921,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.093588,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.218324,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 2.395217,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.591051,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.04061,
             "unit": "seconds"
           }
         ]
