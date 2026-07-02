@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783003656762,
+  "lastUpdate": 1783004655581,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
@@ -8909,6 +8909,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.043533,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e9909f1ffcb729c2614e06e668bcedb15ebb642f",
+          "message": "Merge pull request #774 from kaappi/fix/746-rational-bignum-exact\n\nFix exact rational + bignum arithmetic to preserve exactness",
+          "timestamp": "2026-07-02T20:21:24+05:30",
+          "tree_id": "d1f9378b75af74cc2c16ce1f4464d3e0449bc0ac",
+          "url": "https://github.com/kaappi/kaappi/commit/e9909f1ffcb729c2614e06e668bcedb15ebb642f"
+        },
+        "date": 1783004654699,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.189668,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.256914,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.666391,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.039243,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006163,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.02451,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.357061,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.053106,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.328882,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.35112,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 0.84503,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.193858,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.855652,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.41965,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.034633,
             "unit": "seconds"
           }
         ]
