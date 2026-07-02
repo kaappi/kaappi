@@ -54,7 +54,7 @@ fn completionCallback(buf: [*c]const u8, lc: [*c]ln.c.linenoiseCompletions) call
             ",env ",   ",profile ",    ",expand ",   ",gc",
             ",break ", ",breakpoints", ",delete ",   ",step ",
             ",help",   ",quit",        ",exit",      ",version",
-            ",load ",  ",import ",     ",dis ",
+            ",load ",  ",import ",     ",dis ",      ",condition ",
         };
         for (&commands) |cmd| {
             if (std.mem.startsWith(u8, std.mem.span(cmd), line)) {
@@ -685,6 +685,7 @@ pub fn repl(vm: *vm_mod.VM) !void {
                 \\  ,breakpoints      List active breakpoints
                 \\  ,delete all       Clear all breakpoints
                 \\  ,step <expr>      Evaluate with single-stepping
+                \\  ,condition <id> <expr>  Set breakpoint condition
                 \\
                 \\ -- System:
                 \\  ,gc               Show GC statistics
@@ -831,6 +832,7 @@ fn getCommandUsage(input: []const u8) ?[]const u8 {
         .{ .name = ",import", .usage = "usage: ,import <lib>  (e.g. ,import (srfi 1))\n" },
         .{ .name = ",dis", .usage = "usage: ,dis <expr>\n" },
         .{ .name = ",delete", .usage = "usage: ,delete all\n" },
+        .{ .name = ",condition", .usage = "usage: ,condition <id> <expr>\n" },
     };
     for (&commands) |entry| {
         if (std.mem.eql(u8, cmd, entry.name)) return entry.usage;
