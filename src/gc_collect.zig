@@ -111,6 +111,7 @@ fn referencesYoung(obj: *Object) bool {
         },
         .closure => {
             const cls = obj.as(Closure);
+            if (isYoungPointer(types.makePointer(@ptrCast(cls.func)))) return true;
             for (cls.upvalues) |uv| {
                 if (isYoungPointer(uv)) return true;
             }
@@ -341,6 +342,7 @@ fn markObjectContents(gc: *GC, obj: *Object) void {
         },
         .closure => {
             const cls = obj.as(Closure);
+            markValue(gc, types.makePointer(@ptrCast(cls.func)));
             for (cls.upvalues) |uv| markValue(gc, uv);
         },
         .hash_table => {
