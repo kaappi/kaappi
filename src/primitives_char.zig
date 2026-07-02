@@ -69,20 +69,27 @@ fn isUnicodeLetter(cp: u21) bool {
     if (cp >= 0x100 and cp <= 0x24F) return true;
     // IPA Extensions
     if (cp >= 0x250 and cp <= 0x2AF) return true;
-    // Greek and Coptic
-    if (cp >= 0x370 and cp <= 0x3FF) return true;
+    // Greek and Coptic (exclude 0x037E question mark, 0x0384/0x0385 tonos)
+    if (cp >= 0x370 and cp <= 0x3FF and cp != 0x37E and cp != 0x384 and cp != 0x385) return true;
     // Cyrillic
     if (cp >= 0x400 and cp <= 0x4FF) return true;
     // Cyrillic Supplement
     if (cp >= 0x500 and cp <= 0x52F) return true;
-    // Armenian
-    if (cp >= 0x530 and cp <= 0x58F) return true;
+    // Armenian (exclude 0x0589 full stop, 0x058A hyphen)
+    if (cp >= 0x530 and cp <= 0x58F and cp != 0x589 and cp != 0x58A) return true;
     // Hebrew (letters range)
     if (cp >= 0x5D0 and cp <= 0x5EA) return true;
-    // Arabic
-    if (cp >= 0x600 and cp <= 0x6FF) return true;
-    // Devanagari
-    if (cp >= 0x900 and cp <= 0x97F) return true;
+    // Arabic (letters only: exclude digits 0x660-0x669, punctuation, combining marks)
+    if (cp >= 0x620 and cp <= 0x64A) return true;
+    if (cp >= 0x66E and cp <= 0x66F) return true;
+    if (cp >= 0x671 and cp <= 0x6D3) return true;
+    if (cp == 0x6D5 or cp == 0x6E5 or cp == 0x6E6 or cp == 0x6EE or cp == 0x6EF) return true;
+    if (cp >= 0x6FA and cp <= 0x6FC) return true;
+    // Devanagari (letters only: exclude digits 0x966-0x96F, danda 0x964/0x965, vowel signs)
+    if (cp >= 0x904 and cp <= 0x939) return true;
+    if (cp == 0x93D or cp == 0x950) return true;
+    if (cp >= 0x958 and cp <= 0x961) return true;
+    if (cp >= 0x972 and cp <= 0x97F) return true;
     // Thai
     if (cp >= 0x0E01 and cp <= 0x0E3A) return true;
     // Georgian
