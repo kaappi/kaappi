@@ -47,10 +47,6 @@ fn getHashTable(proc: []const u8, v: Value) PrimitiveError!*HashTable {
     return types.toHashTable(v);
 }
 
-// Sentinels: VOID = empty slot, EOF = tombstone (deleted)
-const EMPTY: Value = types.VOID;
-const TOMBSTONE: Value = types.EOF;
-
 const GC = @import("memory.zig").GC;
 
 fn snapshotLiveEntries(gc: *GC, ht: *HashTable) ?[]HashEntry {
@@ -58,7 +54,7 @@ fn snapshotLiveEntries(gc: *GC, ht: *HashTable) ?[]HashEntry {
     const buf = gc.allocator.alloc(HashEntry, ht.count) catch return null;
     var idx: usize = 0;
     for (ht.entries[0..ht.capacity]) |entry| {
-        if (entry.key != EMPTY and entry.key != TOMBSTONE) {
+        if (entry.state == .occupied) {
             buf[idx] = entry;
             idx += 1;
             if (idx >= ht.count) break;
@@ -92,36 +88,34 @@ pub fn valueHash(key: Value) usize {
     return @truncate(key *% 2654435761);
 }
 
-/// Find bucket index of key, or null if not found.
 fn findKey(ht: *HashTable, key: Value) ?usize {
     if (ht.capacity == 0) return null;
     const mask = ht.capacity - 1;
     var idx = valueHash(key) & mask;
     var probes: usize = 0;
     while (probes < ht.capacity) {
-        const k = ht.entries[idx].key;
-        if (k == EMPTY) return null; // empty slot = key not present
-        if (k != TOMBSTONE and primitives.deepEqual(k, key)) return idx;
+        const entry = &ht.entries[idx];
+        if (entry.state == .empty) return null;
+        if (entry.state == .occupied and primitives.deepEqual(entry.key, key)) return idx;
         idx = (idx + 1) & mask;
         probes += 1;
     }
     return null;
 }
 
-/// Find slot for insertion: returns index of matching key, first tombstone, or empty slot.
 fn findSlot(ht: *HashTable, key: Value) struct { idx: usize, found: bool } {
     const mask = ht.capacity - 1;
     var idx = valueHash(key) & mask;
     var first_tombstone: ?usize = null;
     var probes: usize = 0;
     while (probes < ht.capacity) {
-        const k = ht.entries[idx].key;
-        if (k == EMPTY) {
+        const entry = &ht.entries[idx];
+        if (entry.state == .empty) {
             return .{ .idx = first_tombstone orelse idx, .found = false };
         }
-        if (k == TOMBSTONE) {
+        if (entry.state == .tombstone) {
             if (first_tombstone == null) first_tombstone = idx;
-        } else if (primitives.deepEqual(k, key)) {
+        } else if (primitives.deepEqual(entry.key, key)) {
             return .{ .idx = idx, .found = true };
         }
         idx = (idx + 1) & mask;
@@ -135,17 +129,15 @@ fn rehash(ht: *HashTable) PrimitiveError!void {
     const new_cap = if (ht.capacity == 0) 8 else ht.capacity * 2;
     const new_entries = gc.allocator.alloc(HashEntry, new_cap) catch return PrimitiveError.OutOfMemory;
     for (new_entries) |*e| {
-        e.key = EMPTY;
-        e.value = EMPTY;
+        e.* = .{ .key = 0, .value = 0, .state = .empty };
     }
     const old_entries = ht.entries;
     const old_cap = ht.capacity;
     ht.entries = new_entries;
     ht.capacity = new_cap;
     ht.count = 0;
-    // Re-insert all live entries
     for (old_entries[0..old_cap]) |entry| {
-        if (entry.key != EMPTY and entry.key != TOMBSTONE) {
+        if (entry.state == .occupied) {
             const slot = findSlot(ht, entry.key);
             ht.entries[slot.idx] = entry;
             ht.count += 1;
@@ -213,7 +205,7 @@ fn hashTableSetFn(args: []const Value) PrimitiveError!Value {
     if (slot.found) {
         ht.entries[slot.idx].value = args[2];
     } else {
-        ht.entries[slot.idx] = .{ .key = args[1], .value = args[2] };
+        ht.entries[slot.idx] = .{ .key = args[1], .value = args[2], .state = .occupied };
         ht.count += 1;
     }
     return types.VOID;
@@ -223,8 +215,9 @@ fn hashTableSetFn(args: []const Value) PrimitiveError!Value {
 fn hashTableDeleteFn(args: []const Value) PrimitiveError!Value {
     const ht = try getHashTable("hash-table-delete!", args[0]);
     if (findKey(ht, args[1])) |idx| {
-        ht.entries[idx].key = TOMBSTONE;
-        ht.entries[idx].value = EMPTY;
+        ht.entries[idx].state = .tombstone;
+        ht.entries[idx].key = 0;
+        ht.entries[idx].value = 0;
         ht.count -= 1;
     }
     return types.VOID;
@@ -250,7 +243,7 @@ fn hashTableKeysFn(args: []const Value) PrimitiveError!Value {
     gc.pushRoot(&result) catch return PrimitiveError.OutOfMemory;
     defer gc.popRoot();
     for (ht.entries[0..ht.capacity]) |entry| {
-        if (entry.key != EMPTY and entry.key != TOMBSTONE) {
+        if (entry.state == .occupied) {
             result = gc.allocPair(entry.key, result) catch return PrimitiveError.OutOfMemory;
         }
     }
@@ -265,7 +258,7 @@ fn hashTableValuesFn(args: []const Value) PrimitiveError!Value {
     gc.pushRoot(&result) catch return PrimitiveError.OutOfMemory;
     defer gc.popRoot();
     for (ht.entries[0..ht.capacity]) |entry| {
-        if (entry.key != EMPTY and entry.key != TOMBSTONE) {
+        if (entry.state == .occupied) {
             result = gc.allocPair(entry.value, result) catch return PrimitiveError.OutOfMemory;
         }
     }
@@ -304,7 +297,7 @@ fn hashTableToAlistFn(args: []const Value) PrimitiveError!Value {
     gc.pushRoot(&result) catch return PrimitiveError.OutOfMemory;
     defer gc.popRoot();
     for (ht.entries[0..ht.capacity]) |entry| {
-        if (entry.key != EMPTY and entry.key != TOMBSTONE) {
+        if (entry.state == .occupied) {
             var pair = gc.allocPair(entry.key, entry.value) catch return PrimitiveError.OutOfMemory;
             gc.pushRoot(&pair) catch return PrimitiveError.OutOfMemory;
             result = gc.allocPair(pair, result) catch {
@@ -518,7 +511,7 @@ fn hashTableMergeFn(args: []const Value) PrimitiveError!Value {
 
     const gc = primitives.gc_instance;
     for (ht2.entries[0..ht2.capacity]) |entry| {
-        if (entry.key == EMPTY or entry.key == TOMBSTONE) continue;
+        if (entry.state != .occupied) continue;
         const slot = findSlot(ht1, entry.key);
         if (gc) |g| {
             g.writeBarrier(types.toObject(args[0]), entry.key);

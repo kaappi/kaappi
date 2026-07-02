@@ -94,7 +94,7 @@ test "deepCopy hash_table" {
     const value = types.makeFixnum(99);
     const hash = std.hash.Wyhash.hash(0, std.mem.asBytes(&key));
     const idx = hash & (ht.capacity - 1);
-    ht.entries[idx] = .{ .key = key, .value = value };
+    ht.entries[idx] = .{ .key = key, .value = value, .state = .occupied };
     ht.count = 1;
 
     const copied = try gc2.deepCopy(ht_val);
@@ -103,7 +103,7 @@ test "deepCopy hash_table" {
     try std.testing.expectEqual(@as(usize, 1), cht.count);
     var found = false;
     for (cht.entries[0..cht.capacity]) |entry| {
-        if (entry.key == key) {
+        if (entry.state == .occupied and entry.key == key) {
             try std.testing.expectEqual(value, entry.value);
             found = true;
         }

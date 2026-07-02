@@ -854,10 +854,8 @@ pub const GC = struct {
         }
         const entries = try self.allocator.alloc(HashEntry, cap);
         errdefer self.allocator.free(entries);
-        // Initialize all entries as empty (key=VOID sentinel)
         for (entries) |*e| {
-            e.key = types.VOID;
-            e.value = types.VOID;
+            e.* = .{ .key = 0, .value = 0, .state = .empty };
         }
         const ht = try self.allocator.create(HashTable);
         ht.* = .{
@@ -1173,14 +1171,14 @@ pub const GC = struct {
                 try visited.put(src_ptr, new_val);
                 const new_ht = types.toObject(new_val).as(types.HashTable);
                 for (ht.entries[0..ht.capacity]) |entry| {
-                    if (entry.key != types.VOID and entry.key != types.EOF) {
+                    if (entry.state == .occupied) {
                         const nk = try self.deepCopyValue(entry.key, visited);
                         const nv = try self.deepCopyValue(entry.value, visited);
                         var idx = hashtable.valueHash(nk) & (new_ht.capacity - 1);
-                        while (new_ht.entries[idx].key != types.VOID) {
+                        while (new_ht.entries[idx].state == .occupied) {
                             idx = (idx + 1) & (new_ht.capacity - 1);
                         }
-                        new_ht.entries[idx] = .{ .key = nk, .value = nv };
+                        new_ht.entries[idx] = .{ .key = nk, .value = nv, .state = .occupied };
                         new_ht.count += 1;
                     }
                 }
