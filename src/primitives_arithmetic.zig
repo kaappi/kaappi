@@ -725,7 +725,12 @@ fn divFn(args: []const Value) PrimitiveError!Value {
     if (anyBignum(args) and !anyFlonum(args) and !anyRational(args)) {
         const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
         var num_val = args[0];
+        var den_val: Value = types.makeFixnum(1);
         gc.extra_roots.append(gc.allocator, num_val) catch return PrimitiveError.OutOfMemory;
+        defer {
+            if (gc.extra_roots.items.len > 0) _ = gc.extra_roots.pop();
+        }
+        gc.extra_roots.append(gc.allocator, den_val) catch return PrimitiveError.OutOfMemory;
         defer {
             if (gc.extra_roots.items.len > 0) _ = gc.extra_roots.pop();
         }
@@ -735,12 +740,14 @@ fn divFn(args: []const Value) PrimitiveError!Value {
             if (bignum_mod.isZero(rem)) {
                 num_val = bignum_mod.quotient(gc, num_val, a) catch return PrimitiveError.OutOfMemory;
                 num_val = bignum_mod.demote(num_val);
-                gc.extra_roots.items[gc.extra_roots.items.len - 1] = num_val;
+                gc.extra_roots.items[gc.extra_roots.items.len - 2] = num_val;
             } else {
-                return makeRationalReduced(gc, num_val, a);
+                den_val = bignum_mod.mul(gc, den_val, a) catch return PrimitiveError.OutOfMemory;
+                gc.extra_roots.items[gc.extra_roots.items.len - 1] = den_val;
             }
         }
-        return num_val;
+        if (types.isFixnum(den_val) and types.toFixnum(den_val) == 1) return num_val;
+        return makeRationalReduced(gc, num_val, den_val);
     }
     // At least one flonum or bignum — convert to float
     var result = try toF64Ext(args[0]);
