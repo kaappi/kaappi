@@ -92,18 +92,61 @@ fn jsonUnescape(allocator: std.mem.Allocator, raw: []const u8) ?[]const u8 {
     while (i < raw.len) {
         if (raw[i] == '\\' and i + 1 < raw.len) {
             i += 1;
-            buf[out] = switch (raw[i]) {
-                'n' => '\n',
-                'r' => '\r',
-                't' => '\t',
-                '"' => '"',
-                '\\' => '\\',
-                '/' => '/',
-                'b' => 0x08,
-                'f' => 0x0C,
-                else => raw[i],
-            };
-            out += 1;
+            switch (raw[i]) {
+                'n' => {
+                    buf[out] = '\n';
+                    out += 1;
+                },
+                'r' => {
+                    buf[out] = '\r';
+                    out += 1;
+                },
+                't' => {
+                    buf[out] = '\t';
+                    out += 1;
+                },
+                '"' => {
+                    buf[out] = '"';
+                    out += 1;
+                },
+                '\\' => {
+                    buf[out] = '\\';
+                    out += 1;
+                },
+                '/' => {
+                    buf[out] = '/';
+                    out += 1;
+                },
+                'b' => {
+                    buf[out] = 0x08;
+                    out += 1;
+                },
+                'f' => {
+                    buf[out] = 0x0C;
+                    out += 1;
+                },
+                'u' => {
+                    if (i + 4 < raw.len) {
+                        const hex = raw[i + 1 .. i + 5];
+                        const cp = std.fmt.parseInt(u21, hex, 16) catch {
+                            buf[out] = 'u';
+                            out += 1;
+                            i += 1;
+                            continue;
+                        };
+                        const len = std.unicode.utf8Encode(cp, buf[out..][0..4]) catch 0;
+                        out += len;
+                        i += 4;
+                    } else {
+                        buf[out] = 'u';
+                        out += 1;
+                    }
+                },
+                else => {
+                    buf[out] = raw[i];
+                    out += 1;
+                },
+            }
         } else {
             buf[out] = raw[i];
             out += 1;
@@ -366,7 +409,7 @@ fn getArity(val: types.Value, buf: *[32]u8) ?[]const u8 {
 
 fn handleInitialize(allocator: std.mem.Allocator, id: []const u8) void {
     sendResponse(allocator, id,
-        \\{"capabilities":{"positionEncoding":"utf-8","textDocumentSync":1,"completionProvider":{"resolveProvider":false,"triggerCharacters":[]},"hoverProvider":true,"documentSymbolProvider":true,"definitionProvider":true,"referencesProvider":true},"serverInfo":{"name":"kaappi-lsp","version":"0.1.0"}}
+        \\{"capabilities":{"textDocumentSync":1,"completionProvider":{"resolveProvider":false,"triggerCharacters":[]},"hoverProvider":true,"documentSymbolProvider":true,"definitionProvider":true,"referencesProvider":true},"serverInfo":{"name":"kaappi-lsp","version":"0.1.0"}}
     );
 }
 
