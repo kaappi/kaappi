@@ -419,6 +419,14 @@ pub fn repl(vm: *vm_mod.VM) !void {
     while (true) {
         const prompt: [*:0]const u8 = if (input_buf.items.len > 0) "  ... " else "kaappi> ";
         const line_ptr = ln.linenoise(prompt) orelse {
+            const err = std.c._errno().*;
+            if (err == @intFromEnum(std.posix.E.AGAIN)) {
+                if (input_buf.items.len > 0) {
+                    input_buf.clearRetainingCapacity();
+                }
+                writeStdout("\n");
+                continue;
+            }
             if (input_buf.items.len > 0) {
                 input_buf.clearRetainingCapacity();
                 writeStdout("\n");
