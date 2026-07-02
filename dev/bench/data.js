@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1782982555437,
+  "lastUpdate": 1782984263056,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
@@ -7325,6 +7325,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.041668,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "73c0bab53400bb072684a5768e26dbcdcf51e135",
+          "message": "Merge pull request #730 from kaappi/fix/ellipsis-depth-validation-682\n\nAdd ellipsis-depth validation to syntax-rules templates",
+          "timestamp": "2026-07-02T14:40:08+05:30",
+          "tree_id": "2913bdb77264d05071ba4c306daac5a9ac329fa7",
+          "url": "https://github.com/kaappi/kaappi/commit/73c0bab53400bb072684a5768e26dbcdcf51e135"
+        },
+        "date": 1782984262721,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.33364,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.102242,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.846822,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.201585,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.007292,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.032408,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.453551,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.070508,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.994749,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.777488,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.104595,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.22921,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 2.442369,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.710963,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.041644,
             "unit": "seconds"
           }
         ]
