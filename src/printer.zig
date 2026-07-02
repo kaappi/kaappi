@@ -792,6 +792,11 @@ fn ppValue(writer: anytype, value: Value, indent: u16, width: u16) anyerror!void
     var cur = value;
     while (cur != types.NIL) {
         if (!types.isPair(cur)) {
+            if (!first) {
+                try writer.writeByte('\n');
+                var sp: u16 = 0;
+                while (sp < new_indent) : (sp += 1) try writer.writeByte(' ');
+            }
             try writer.writeAll(". ");
             try ppValue(writer, cur, new_indent, width);
             break;
