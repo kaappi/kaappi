@@ -183,7 +183,9 @@ fn loadLibrarySource(vm: *VM, source: []const u8) !void {
     defer rdr.deinit();
 
     while (rdr.hasMore() catch return error.InvalidSyntax) {
-        const expr = rdr.readDatum() catch return error.InvalidSyntax;
+        var expr = rdr.readDatum() catch return error.InvalidSyntax;
+        vm.gc.pushRoot(&expr) catch return error.OutOfMemory;
+        defer vm.gc.popRoot();
 
         if (vm.handleTopLevelForm(expr)) |result| {
             _ = result catch |err| return err;
