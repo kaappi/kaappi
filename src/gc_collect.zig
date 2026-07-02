@@ -97,6 +97,7 @@ fn referencesYoung(obj: *Object) bool {
         },
         .record_instance => {
             const ri = obj.as(RecordInstance);
+            if (isYoungPointer(types.makePointer(@ptrCast(ri.record_type)))) return true;
             for (ri.fields) |field| {
                 if (isYoungPointer(field)) return true;
             }
@@ -356,6 +357,7 @@ fn markObjectContents(gc: *GC, obj: *Object) void {
         },
         .record_instance => {
             const ri = obj.as(RecordInstance);
+            markValue(gc, types.makePointer(@ptrCast(ri.record_type)));
             for (ri.fields) |field| markValue(gc, field);
         },
         .promise => {
