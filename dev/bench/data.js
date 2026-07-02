@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783005797618,
+  "lastUpdate": 1783006889531,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
@@ -9107,6 +9107,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.042149,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "7e8e606ae76f0c5a8a0bc265b9862e9dd4cfd53e",
+          "message": "Merge pull request #776 from kaappi/fix/743-745-bytecode-file-bugs\n\nFix bytecode serialization: handle EOF/UNDEFINED, fix test header",
+          "timestamp": "2026-07-02T20:56:50+05:30",
+          "tree_id": "e1b026e7a1ac8180e2037e31593b170ef317e369",
+          "url": "https://github.com/kaappi/kaappi/commit/7e8e606ae76f0c5a8a0bc265b9862e9dd4cfd53e"
+        },
+        "date": 1783006889149,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.077227,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.322485,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.839034,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.407076,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.008165,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.0319,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.454301,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.067627,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.94721,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.773229,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.091379,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.235536,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 2.384362,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.82369,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.043503,
             "unit": "seconds"
           }
         ]
