@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783035549699,
+  "lastUpdate": 1783035684594,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "distinct": true,
-          "id": "9ae0cca1874d8816c1a7ccf4acc1ff21dd0e8ca2",
-          "message": "Release v0.9.1",
-          "timestamp": "2026-07-01T06:17:51+05:30",
-          "tree_id": "9d4922c6b7d890183345793b42978b9442a3ae73",
-          "url": "https://github.com/kaappi/kaappi/commit/9ae0cca1874d8816c1a7ccf4acc1ff21dd0e8ca2"
-        },
-        "date": 1782867673638,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.931141,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.345162,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.829258,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.447235,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.00724,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.032498,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.445777,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 1.265114,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.829556,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.726059,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.09341,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.239784,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 2.37417,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 0,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.042681,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "71174a32da54021aeb5685b39aecdde2487b7fb4",
+          "message": "Fix numerator/denominator on flonums to use exact dyadic fraction (#858) (#903)\n\nUse exactFn to convert the flonum to its exact rational representation,\nthen extract numerator/denominator from it — instead of using the\napproximate floatToRational which caps the denominator at 10^6.\n\nFixes #858\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-03T04:38:19+05:30",
+          "tree_id": "3c3bbf8ca80a298ecbe9087dc34253d23a5408b5",
+          "url": "https://github.com/kaappi/kaappi/commit/71174a32da54021aeb5685b39aecdde2487b7fb4"
+        },
+        "date": 1783035683572,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.41501,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.286739,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.829875,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.109556,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006867,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.033369,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.462347,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.069017,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.972698,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.772826,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.193045,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.436442,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 2.383636,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.689366,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.042457,
             "unit": "seconds"
           }
         ]
