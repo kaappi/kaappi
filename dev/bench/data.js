@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1782967452649,
+  "lastUpdate": 1782970617032,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
@@ -5840,6 +5840,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.041828,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2b55a6ac19f20f5eb3ba31f1090fef824df0c06b",
+          "message": "Merge pull request #713 from kaappi/fix/hashtable-sentinel-collision-694\n\nFix hash-table sentinel collision with eof-object and void keys",
+          "timestamp": "2026-07-02T10:40:12+05:30",
+          "tree_id": "abbe7a3755221e840f2b00ce930bf93327c9c812",
+          "url": "https://github.com/kaappi/kaappi/commit/2b55a6ac19f20f5eb3ba31f1090fef824df0c06b"
+        },
+        "date": 1782970616461,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.904355,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.588297,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.848322,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.168177,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.007386,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.032332,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.452034,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.067948,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.850046,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.743418,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.091241,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.244286,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 2.389366,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.740639,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.043103,
             "unit": "seconds"
           }
         ]
