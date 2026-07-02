@@ -411,9 +411,11 @@ fn readConstant(r: *Reader, gc: *GC, all_funcs: []*Function, depth: u32) !Value 
             var vec_val = gc.allocVectorFill(len, types.NIL) catch return BytecodeError.OutOfMemory;
             try gc.pushRoot(&vec_val);
             defer gc.popRoot();
-            const vec = types.toVector(vec_val);
             for (0..len) |i| {
-                vec.data[i] = try readConstant(r, gc, all_funcs, depth + 1);
+                const elem = try readConstant(r, gc, all_funcs, depth + 1);
+                const vec = types.toVector(vec_val);
+                vec.data[i] = elem;
+                gc.writeBarrier(types.toObject(vec_val), elem);
             }
             return vec_val;
         },
