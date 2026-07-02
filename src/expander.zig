@@ -117,6 +117,33 @@ var scope_table_count: usize = 0;
 const MAX_BINDINGS = 128;
 const MAX_ELLIPSIS_VALUES = 1024;
 
+fn vectorToList(gc: *GC, data: []const Value) !Value {
+    var result: Value = types.NIL;
+    var i = data.len;
+    while (i > 0) {
+        i -= 1;
+        result = try gc.allocPair(data[i], result);
+    }
+    return result;
+}
+
+fn listToVector(gc: *GC, list: Value) !Value {
+    var len: usize = 0;
+    var cur = list;
+    while (cur != types.NIL and types.isPair(cur)) {
+        len += 1;
+        cur = types.cdr(cur);
+    }
+    const data = try gc.allocator.alloc(Value, len);
+    defer gc.allocator.free(data);
+    cur = list;
+    for (0..len) |idx| {
+        data[idx] = types.car(cur);
+        cur = types.cdr(cur);
+    }
+    return gc.allocVector(data);
+}
+
 const Binding = struct {
     name: []const u8,
     value: Value,
@@ -248,6 +275,17 @@ fn matchPattern(pattern: Value, input: Value, literals: []const Value, bindings:
 
     // Nil matches nil
     if (pattern == types.NIL) return input == types.NIL;
+
+    // Vector pattern: #(p1 ... pn) matches a vector input
+    if (types.isVector(pattern)) {
+        if (!types.isVector(input)) return false;
+        const the_gc = gc orelse return false;
+        const pvec = types.toObject(pattern).as(types.Vector);
+        const ivec = types.toObject(input).as(types.Vector);
+        const plist = vectorToList(the_gc, pvec.data) catch return false;
+        const ilist = vectorToList(the_gc, ivec.data) catch return false;
+        return matchListPattern(plist, ilist, literals, bindings, count, gc);
+    }
 
     // List pattern
     if (types.isPair(pattern)) {
@@ -407,6 +445,12 @@ fn collectPatternVars(pattern: Value, literals: []const Value, names: *[128][]co
         collectPatternVars(types.car(pattern), literals, names, count, overflowed);
         collectPatternVars(types.cdr(pattern), literals, names, count, overflowed);
     }
+    if (types.isVector(pattern)) {
+        const vec = types.toObject(pattern).as(types.Vector);
+        for (vec.data) |elem| {
+            collectPatternVars(elem, literals, names, count, overflowed);
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -454,6 +498,13 @@ fn instantiateTemplate(gc: *GC, template: Value, bindings: []Binding, intro_scop
 
         // 5. Template-introduced identifier -- rename for hygiene
         return renameForHygiene(gc, name, intro_scope, globals);
+    }
+
+    if (types.isVector(template)) {
+        const vec = types.toObject(template).as(types.Vector);
+        const as_list = vectorToList(gc, vec.data) catch return error.OutOfMemory;
+        const result_list = try instantiateTemplate(gc, as_list, bindings, intro_scope, literals, macro_keyword, globals, macros);
+        return listToVector(gc, result_list) catch return error.OutOfMemory;
     }
 
     if (!types.isPair(template)) return template;
