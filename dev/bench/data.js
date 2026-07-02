@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1782972940661,
+  "lastUpdate": 1782972959541,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
@@ -6236,6 +6236,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.042347,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d0f85fcae74b35d5dc7a4baa1222bc49b8192387",
+          "message": "Merge pull request #721 from kaappi/fix/get-env-vars-696\n\nImplement get-environment-variables using POSIX environ",
+          "timestamp": "2026-07-02T11:04:14+05:30",
+          "tree_id": "a7902f9c0f812e825be41b13b1d2bcb95a87c3c6",
+          "url": "https://github.com/kaappi/kaappi/commit/d0f85fcae74b35d5dc7a4baa1222bc49b8192387"
+        },
+        "date": 1782972958611,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.324692,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.655496,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.835694,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.259524,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.00688,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.032545,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.461962,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.069816,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.907574,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.780093,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.103295,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.224936,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 2.43122,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.65074,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.042757,
             "unit": "seconds"
           }
         ]
