@@ -137,7 +137,7 @@ pub const Compiler = struct {
         for (self.func.constants.items, 0..) |c, i| {
             if (c == value) return @intCast(i);
         }
-        if (self.func.constants.items.len >= 65535) return CompileError.TooManyConstants;
+        if (self.func.constants.items.len >= 65536) return CompileError.TooManyConstants;
         self.func.constants.append(self.gc.allocator, value) catch return CompileError.OutOfMemory;
         return @intCast(self.func.constants.items.len - 1);
     }
@@ -1155,7 +1155,10 @@ pub const Compiler = struct {
                     };
                 };
                 var expanded_root = expanded;
-                try self.gc.pushRoot(&expanded_root);
+                self.gc.pushRoot(&expanded_root) catch {
+                    self.gc.no_collect -= 1;
+                    return CompileError.OutOfMemory;
+                };
                 defer self.gc.popRoot();
                 self.gc.no_collect -= 1;
                 const saved_locals_len = self.locals.items.len;
@@ -1203,7 +1206,9 @@ pub const Compiler = struct {
         }
 
         if (is_tail and types.isSymbol(head) and std.mem.eql(u8, types.symbolName(head), "apply")) {
-            if (self.resolveLocal(types.symbolName(head)) == null) {
+            if (self.resolveLocal(types.symbolName(head)) == null and
+                (try self.resolveUpvalue(types.symbolName(head))) == null)
+            {
                 return passthrough.compileApplyTail(self, expr, dst);
             }
         }
