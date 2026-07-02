@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783035523378,
+  "lastUpdate": 1783035528138,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "2a0aa067d47e9f6eda3a6c56523ca072909eadb1",
-          "message": "Fix makeRationalFromReader using unchecked makeFixnum (#610) (#628)\n\nmakeRationalFromReader used unchecked types.makeFixnum for numerator\nand denominator, silently truncating values outside i48 range. Rational\nliterals like 200000000000000/3 would parse to the wrong value.\n\nUse makeFixnumChecked which promotes to bignum when the value exceeds\ni48 range.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-01T05:33:35+05:30",
-          "tree_id": "dbe20ff8fa193a2802477f504bbe2672e7222b5d",
-          "url": "https://github.com/kaappi/kaappi/commit/2a0aa067d47e9f6eda3a6c56523ca072909eadb1"
-        },
-        "date": 1782864915165,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.289522,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.979513,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.835522,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.484702,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006833,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.032081,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.457592,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 1.14897,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.971325,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.788414,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.100293,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.226291,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 2.409527,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 0,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.042479,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "084da1e7188029fb421de724f78d2ff6e5995635",
+          "message": "Fix LSP positionEncoding rejection and jsonUnescape \\uXXXX (#866, #872) (#901)\n\n- Remove hardcoded positionEncoding:\"utf-8\" from initialize response;\n  vscode-languageclient rejects any encoding other than utf-16 (#866)\n- Decode \\uXXXX escape sequences in jsonUnescape to UTF-8 instead of\n  treating 'u' as a literal character (#872)\n\nFixes #866\nFixes #872\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-03T04:38:09+05:30",
+          "tree_id": "e98d2c97c814d3a8ca9969c68276658df70e201a",
+          "url": "https://github.com/kaappi/kaappi/commit/084da1e7188029fb421de724f78d2ff6e5995635"
+        },
+        "date": 1783035527191,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.428522,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.161366,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.829608,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.172501,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006974,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.032596,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.465955,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.070292,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.973716,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.807573,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.120789,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.42957,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 2.407308,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.685882,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.042078,
             "unit": "seconds"
           }
         ]
