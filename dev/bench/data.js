@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1782988957518,
+  "lastUpdate": 1782992319178,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
@@ -7721,6 +7721,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.041447,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "11739e2d8f83563d62d431af12ca2558f9a699f4",
+          "message": "Merge pull request #762 from kaappi/fix/750-symbol-table-data-race\n\nFix data race in symbol table marking during SRFI-18 threading",
+          "timestamp": "2026-07-02T16:54:09+05:30",
+          "tree_id": "d6260db0f9ff20357c0d434e0069cedb0a3ea709",
+          "url": "https://github.com/kaappi/kaappi/commit/11739e2d8f83563d62d431af12ca2558f9a699f4"
+        },
+        "date": 1782992318822,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.347325,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.167486,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.809202,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.154391,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006924,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.032776,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.452729,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.068688,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 4.054155,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.780425,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.106407,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.215237,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 2.404556,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.544435,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.040424,
             "unit": "seconds"
           }
         ]
