@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1782993446103,
+  "lastUpdate": 1782994520685,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
@@ -7919,6 +7919,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.036411,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "1540b39536391575d0f671e702697255006a5802",
+          "message": "Merge pull request #764 from kaappi/fix/738-bytecode-vector-write-barrier\n\nAdd GC write barrier in vector constant deserialization",
+          "timestamp": "2026-07-02T17:31:19+05:30",
+          "tree_id": "cc832526386d8d7968402cbd8c477d7875c66cf4",
+          "url": "https://github.com/kaappi/kaappi/commit/1540b39536391575d0f671e702697255006a5802"
+        },
+        "date": 1782994519225,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.360054,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.764725,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.843077,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.528675,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.007107,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.032022,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.453924,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.070386,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.975268,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.773088,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.083003,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.227958,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 2.43747,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.660326,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.043486,
             "unit": "seconds"
           }
         ]
