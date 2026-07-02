@@ -1139,7 +1139,7 @@ fn magnitudeFn(args: []const Value) PrimitiveError!Value {
     }
     if (types.isFixnum(args[0])) {
         const n = types.toFixnum(args[0]);
-        return if (n < 0) types.makeFixnum(-n) else args[0];
+        return if (n < 0) try arith.makeFixnumChecked(-n) else args[0];
     }
     if (types.isFlonum(args[0])) {
         return makeFlonumVal(@abs(types.toFlonum(args[0])));
