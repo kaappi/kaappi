@@ -1202,5 +1202,6 @@ fn isLibTopLevelForm(expr: Value) bool {
     const name = types.symbolName(head);
     if (std.mem.eql(u8, name, "define-record-type")) return true;
     if (std.mem.eql(u8, name, "define-values")) return true;
+    if (std.mem.eql(u8, name, "include")) return true;
     return false;
 }
