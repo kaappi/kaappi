@@ -198,7 +198,7 @@ fn evalFn(args: []const Value) PrimitiveError!Value {
     // If an environment specifier is provided, compile in that environment
     if (args.len > 1 and types.isEnvironment(args[1])) {
         const se = types.toEnvironment(args[1]);
-        const func = compiler_mod.compileExpressionInEnv(gc, expr, &vm.macros, se.env) catch return PrimitiveError.TypeError;
+        const func = compiler_mod.compileExpressionInEnv(gc, expr, &vm.macros, se.env) catch return PrimitiveError.TypeError; // bare-ok: compile error
         var closure_val = gc.allocClosure(func) catch return PrimitiveError.OutOfMemory;
         compiler_mod.Compiler.unrootFunction(gc, func);
         gc.pushRoot(&closure_val) catch return PrimitiveError.OutOfMemory;
@@ -243,14 +243,12 @@ fn environmentFn(args: []const Value) PrimitiveError!Value {
     env_map.* = std.StringHashMap(Value).init(gc.allocator);
 
     for (args) |import_set| {
-        const lib_name = library_mod.libraryNameToString(gc.allocator, import_set) catch return PrimitiveError.TypeError;
+        const lib_name = library_mod.libraryNameToString(gc.allocator, import_set) catch return PrimitiveError.TypeError; // bare-ok: invalid import set
         defer gc.allocator.free(lib_name);
 
-        // Try loading the library if not already registered
         const vm_library = @import("vm_library.zig");
-        vm_library.ensureLibraryLoaded(vm, import_set, lib_name) catch return PrimitiveError.TypeError;
-
-        const lib = vm.libraries.get(lib_name) orelse return PrimitiveError.TypeError;
+        vm_library.ensureLibraryLoaded(vm, import_set, lib_name) catch return PrimitiveError.TypeError; // bare-ok: library load failure
+        const lib = vm.libraries.get(lib_name) orelse return PrimitiveError.TypeError; // bare-ok: library not found
         var it = lib.exports.iterator();
         while (it.next()) |entry| {
             env_map.put(entry.key_ptr.*, entry.value_ptr.*) catch return PrimitiveError.OutOfMemory;
