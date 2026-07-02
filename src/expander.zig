@@ -322,8 +322,7 @@ fn matchEllipsis(elem_pattern: Value, rest_pattern: Value, input: Value, literal
     if (input_len < rest_len) return false;
     const repeat_count = input_len - rest_len;
 
-    // Collect pattern variable names from elem_pattern
-    var elem_var_names: [16][]const u8 = undefined;
+    var elem_var_names: [128][]const u8 = undefined;
     var elem_var_count: usize = 0;
     var var_overflow = false;
     collectPatternVars(elem_pattern, literals, &elem_var_names, &elem_var_count, &var_overflow);
@@ -386,20 +385,16 @@ fn matchEllipsis(elem_pattern: Value, rest_pattern: Value, input: Value, literal
     return matchListPattern(rest_pattern, inp, literals, bindings, count, gc);
 }
 
-fn collectPatternVars(pattern: Value, literals: []const Value, names: *[16][]const u8, count: *usize, overflowed: *bool) void {
+fn collectPatternVars(pattern: Value, literals: []const Value, names: *[128][]const u8, count: *usize, overflowed: *bool) void {
     if (types.isSymbol(pattern)) {
         const name = types.symbolName(pattern);
-        // Skip underscore
         if (std.mem.eql(u8, name, "_")) return;
-        // Skip literals
         for (literals) |lit| {
             if (types.isSymbol(lit) and std.mem.eql(u8, types.symbolName(lit), name))
                 return;
         }
-        // Skip ellipsis
         if (isEllipsis(name)) return;
-        // Add pattern variable
-        if (count.* >= 16) {
+        if (count.* >= 128) {
             overflowed.* = true;
             return;
         }
@@ -517,7 +512,7 @@ fn instantiateTemplate(gc: *GC, template: Value, bindings: []Binding, intro_scop
 fn instantiateNestedSyntaxRules(gc: *GC, template: Value, bindings: []Binding, intro_scope: u32, literals: []const Value, macro_keyword: ?[]const u8, globals: ?*std.StringHashMap(Value), macros: ?*const std.StringHashMap(Value)) (std.mem.Allocator.Error || ExpandError)!Value {
     // template = (syntax-rules (lits...) (pat tmpl) ...)
     // Collect inner pattern variable names to exclude from outer bindings
-    var inner_pvs: [16][]const u8 = undefined;
+    var inner_pvs: [128][]const u8 = undefined;
     var inner_pv_count: usize = 0;
     const sr_rest = types.cdr(template); // skip 'syntax-rules'
     if (sr_rest != types.NIL and types.isPair(sr_rest)) {
