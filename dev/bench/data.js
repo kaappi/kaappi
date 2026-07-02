@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783011106296,
+  "lastUpdate": 1783017906389,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
@@ -9701,6 +9701,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.043391,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "147f66f56a1685e95dcefa43daf54f7f19fbceaa",
+          "message": "Root intermediate values across allocations in primitives_numeric.zig (#861) (#881)\n\nMultiple functions held unrooted heap Values across GC-triggering\nallocations — if maybeCollect fired between allocations, the earlier\nvalues were swept, leading to corrupted rationals or crashes under\nmemory pressure. Fixed by registering intermediates in gc.extra_roots\nbefore any subsequent allocation.\n\nFunctions fixed: rationalFloor, rationalCeiling, rationalRound, exactFn\n(flonum and complex branches), exptFn (rational branch), squareFn\n(rational branch), exactIntegerSqrt (bignum branch — Newton loop,\ndownward/upward adjustments, final allocMultipleValues), floorQuotient,\nfloorRemainder, floorDivide, and truncateDivide.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-03T00:00:31+05:30",
+          "tree_id": "3cba80bc878b319aa95456dad45bf8fbf908bd64",
+          "url": "https://github.com/kaappi/kaappi/commit/147f66f56a1685e95dcefa43daf54f7f19fbceaa"
+        },
+        "date": 1783017905847,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.09884,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.475029,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.84557,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.189513,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.007462,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.03183,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.456783,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.067662,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.844206,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.741782,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.093629,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.238195,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 2.39618,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.772031,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044159,
             "unit": "seconds"
           }
         ]
