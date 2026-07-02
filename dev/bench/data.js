@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1782973702780,
+  "lastUpdate": 1782973809170,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
@@ -6731,6 +6731,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.041263,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "36335ad2ed9cfadf9ea44f3a9e259350d5a6bd02",
+          "message": "Merge pull request #724 from kaappi/fix/char-alphabetic-unicode-678\n\nFix char-alphabetic? misclassifying non-letter codepoints",
+          "timestamp": "2026-07-02T11:24:29+05:30",
+          "tree_id": "e85b055822e9c892c2d7ea458849c97add0dc004",
+          "url": "https://github.com/kaappi/kaappi/commit/36335ad2ed9cfadf9ea44f3a9e259350d5a6bd02"
+        },
+        "date": 1782973808704,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.030207,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.652867,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.671522,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.231495,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.005574,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.024902,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.35674,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.052834,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.294255,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.34767,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 0.855895,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.182351,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.833118,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.240076,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.033528,
             "unit": "seconds"
           }
         ]
