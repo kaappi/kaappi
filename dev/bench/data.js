@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783029151163,
+  "lastUpdate": 1783035165050,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "0f6dab1dafafb65a7e3d0c789f1d40134600b34f",
-          "message": "Fix macro import leaking entire def_env into importer (#608) (#624)\n\nimportBinding copied the macro's entire definition-site environment\n(def_env) into the importing namespace, leaking all private library\nbindings — even those never referenced by any template.\n\nNow uses collectFreeRefs/collectSymbols to compute which names the\ntemplates actually reference, and only copies those from def_env.\nUnreferenced private helpers are no longer visible in the importer.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-01T04:25:36+05:30",
-          "tree_id": "d6ca31acfbe0e92072c42365fa2a5d181f799aa7",
-          "url": "https://github.com/kaappi/kaappi/commit/0f6dab1dafafb65a7e3d0c789f1d40134600b34f"
-        },
-        "date": 1782860771435,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.076912,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.958762,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.762294,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.826171,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006295,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.030661,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.422829,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 1.074203,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.814122,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.638099,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.027224,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.202926,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 2.241188,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 0,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.041852,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "5ede035daed736f88cd83590c4d4854a19b5caa0",
+          "message": "Register ,condition in REPL help, tab completion, and usage table (#828) (#899)\n\nThe command worked but was missing from the completion array,\nthe ,help output, and getCommandUsage, so typing ,condition\nwithout args printed \"unknown command\" instead of usage.\n\nFixes #828\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-03T04:37:57+05:30",
+          "tree_id": "82c8e837e62d32a73660e90113be3ede5129db6c",
+          "url": "https://github.com/kaappi/kaappi/commit/5ede035daed736f88cd83590c4d4854a19b5caa0"
+        },
+        "date": 1783035164258,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.117737,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.313768,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.848327,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.173514,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.007288,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.032403,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.466394,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.06869,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.896626,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.77156,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.139014,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.471481,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 2.394978,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.876987,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044541,
             "unit": "seconds"
           }
         ]
