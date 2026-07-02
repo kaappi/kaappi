@@ -157,6 +157,22 @@ pub const LLVMEmitter = struct {
         return tmp;
     }
 
+    fn isNameShadowed(self: *LLVMEmitter, name: []const u8) bool {
+        if (self.locals) |loc| {
+            if (loc.get(name) != null) return true;
+        }
+        if (self.rest_param_name) |rp_name| {
+            if (std.mem.eql(u8, name, rp_name)) return true;
+        }
+        if (self.params) |p| {
+            if (p.get(name) != null) return true;
+        }
+        if (self.upvalues) |uv| {
+            if (uv.get(name) != null) return true;
+        }
+        return false;
+    }
+
     fn emitGlobalRef(self: *LLVMEmitter, sym: Value) EmitError![]const u8 {
         if (!types.isSymbol(sym)) return error.UnsupportedNodeType;
         const name = types.symbolName(sym);
@@ -210,7 +226,9 @@ pub const LLVMEmitter = struct {
         if (call.operator.tag == .global_ref and types.isSymbol(call.operator.data.global_ref)) {
             const op_name = types.symbolName(call.operator.data.global_ref);
 
-            if (is_tail) {
+            const is_shadowed = self.isNameShadowed(op_name);
+
+            if (!is_shadowed and is_tail) {
                 if (self.current_fn_name) |fn_name| {
                     if (self.body_label) |body_lbl| {
                         if (std.mem.eql(u8, op_name, fn_name)) {
@@ -224,20 +242,24 @@ pub const LLVMEmitter = struct {
                 }
             }
 
-            if (self.native_fns.get(op_name)) |native| {
-                const arity_ok = if (native.is_variadic)
-                    call.args.len >= native.arity
-                else
-                    call.args.len == native.arity;
-                if (arity_ok) {
-                    return self.emitDirectCall(native.llvm_name, call.args, is_tail);
+            if (!is_shadowed) {
+                if (self.native_fns.get(op_name)) |native| {
+                    const arity_ok = if (native.is_variadic)
+                        call.args.len >= native.arity
+                    else
+                        call.args.len == native.arity;
+                    if (arity_ok) {
+                        return self.emitDirectCall(native.llvm_name, call.args, is_tail);
+                    }
                 }
             }
-            if (call.args.len == 2) {
-                if (self.tryEmitInlineBinary(op_name, call.args)) |result| return result;
-            }
-            if (call.args.len == 1) {
-                if (self.tryEmitInlineUnary(op_name, call.args[0])) |result| return result;
+            if (!is_shadowed) {
+                if (call.args.len == 2) {
+                    if (self.tryEmitInlineBinary(op_name, call.args)) |result| return result;
+                }
+                if (call.args.len == 1) {
+                    if (self.tryEmitInlineUnary(op_name, call.args[0])) |result| return result;
+                }
             }
         }
 
