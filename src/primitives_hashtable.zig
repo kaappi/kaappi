@@ -51,6 +51,22 @@ fn getHashTable(proc: []const u8, v: Value) PrimitiveError!*HashTable {
 const EMPTY: Value = types.VOID;
 const TOMBSTONE: Value = types.EOF;
 
+const GC = @import("memory.zig").GC;
+
+fn snapshotLiveEntries(gc: *GC, ht: *HashTable) ?[]HashEntry {
+    if (ht.count == 0) return gc.allocator.alloc(HashEntry, 0) catch return null;
+    const buf = gc.allocator.alloc(HashEntry, ht.count) catch return null;
+    var idx: usize = 0;
+    for (ht.entries[0..ht.capacity]) |entry| {
+        if (entry.key != EMPTY and entry.key != TOMBSTONE) {
+            buf[idx] = entry;
+            idx += 1;
+            if (idx >= ht.count) break;
+        }
+    }
+    return buf[0..idx];
+}
+
 pub fn valueHash(key: Value) usize {
     if (types.isFixnum(key)) {
         return @truncate(@as(u64, @bitCast(types.toFixnum(key))) *% 2654435761);
@@ -259,21 +275,23 @@ fn hashTableValuesFn(args: []const Value) PrimitiveError!Value {
 // (hash-table-walk ht proc) — call (proc key value) for each entry
 fn hashTableWalkFn(args: []const Value) PrimitiveError!Value {
     const vm = vm_mod.vm_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
     const ht = try getHashTable("hash-table-walk", args[0]);
     const proc = args[1];
 
-    for (ht.entries[0..ht.capacity]) |entry| {
-        if (entry.key != EMPTY and entry.key != TOMBSTONE) {
-            const call_args = [2]Value{ entry.key, entry.value };
-            _ = vm.callWithArgs(proc, &call_args) catch |err| {
-                return switch (err) {
-                    vm_mod.VMError.ContinuationInvoked => PrimitiveError.ContinuationInvoked,
-                    vm_mod.VMError.ExceptionRaised => PrimitiveError.ExceptionRaised,
-                    vm_mod.VMError.OutOfMemory => PrimitiveError.OutOfMemory,
-                    else => PrimitiveError.TypeError, // bare-ok: catch fallback
-                };
+    const snapshot = snapshotLiveEntries(gc, ht) orelse return PrimitiveError.OutOfMemory;
+    defer gc.allocator.free(snapshot);
+
+    for (snapshot) |entry| {
+        const call_args = [2]Value{ entry.key, entry.value };
+        _ = vm.callWithArgs(proc, &call_args) catch |err| {
+            return switch (err) {
+                vm_mod.VMError.ContinuationInvoked => PrimitiveError.ContinuationInvoked,
+                vm_mod.VMError.ExceptionRaised => PrimitiveError.ExceptionRaised,
+                vm_mod.VMError.OutOfMemory => PrimitiveError.OutOfMemory,
+                else => PrimitiveError.TypeError, // bare-ok: catch fallback
             };
-        }
+        };
     }
     return types.VOID;
 }
@@ -470,22 +488,24 @@ fn hashTableRefDefaultFn(args: []const Value) PrimitiveError!Value {
 // (hash-table-fold ht f init) — fold over hash table entries
 fn hashTableFoldFn(args: []const Value) PrimitiveError!Value {
     const vm = vm_mod.vm_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
     const ht = try getHashTable("hash-table-fold", args[0]);
     const proc = args[1];
     var acc = args[2];
 
-    for (ht.entries[0..ht.capacity]) |entry| {
-        if (entry.key != EMPTY and entry.key != TOMBSTONE) {
-            const call_args = [3]Value{ entry.key, entry.value, acc };
-            acc = vm.callWithArgs(proc, &call_args) catch |err| {
-                return switch (err) {
-                    vm_mod.VMError.ContinuationInvoked => PrimitiveError.ContinuationInvoked,
-                    vm_mod.VMError.ExceptionRaised => PrimitiveError.ExceptionRaised,
-                    vm_mod.VMError.OutOfMemory => PrimitiveError.OutOfMemory,
-                    else => PrimitiveError.TypeError, // bare-ok: catch fallback
-                };
+    const snapshot = snapshotLiveEntries(gc, ht) orelse return PrimitiveError.OutOfMemory;
+    defer gc.allocator.free(snapshot);
+
+    for (snapshot) |entry| {
+        const call_args = [3]Value{ entry.key, entry.value, acc };
+        acc = vm.callWithArgs(proc, &call_args) catch |err| {
+            return switch (err) {
+                vm_mod.VMError.ContinuationInvoked => PrimitiveError.ContinuationInvoked,
+                vm_mod.VMError.ExceptionRaised => PrimitiveError.ExceptionRaised,
+                vm_mod.VMError.OutOfMemory => PrimitiveError.OutOfMemory,
+                else => PrimitiveError.TypeError, // bare-ok: catch fallback
             };
-        }
+        };
     }
     return acc;
 }
