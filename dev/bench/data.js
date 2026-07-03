@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783064470237,
+  "lastUpdate": 1783065823233,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "e075bc037ce97590165b7f8ed01233af20b211bd",
-          "message": "Merge pull request #706 from kaappi/fix/gc-closure-func-mark-705\n\nFix generational GC: mark Closure.func in minor collections",
-          "timestamp": "2026-07-02T07:51:09+05:30",
-          "tree_id": "2428e5e1703e0ec58193c1328d50092d4c31ab07",
-          "url": "https://github.com/kaappi/kaappi/commit/e075bc037ce97590165b7f8ed01233af20b211bd"
-        },
-        "date": 1782959663390,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.914159,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.825672,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.837485,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.212637,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.00721,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.032418,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.451031,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.067278,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.832124,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.742637,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.106352,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.240905,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 2.381832,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.884105,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044384,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044435,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "5da1588bd339a8bde2430f3cd8ff0ce75073cdb5",
+          "message": "Fix SRFI-64 suite silently asserting nothing; flip exit code on script errors (#929)\n\n* Fix SRFI-64 suite silently asserting nothing; flip exit code on script errors\n\nThe entire tests/scheme/ suite (except the R7RS suite) was a silent no-op:\nevery SRFI-64 assertion errored at runtime yet files exited 0, so\nrun-all.sh reported all 237 files as PASS. Three stacked bugs, present\nsince before v0.10.0:\n\n1. importBinding copied an exported macro's template free references from\n   the defining library's env only one level deep. test-assert expands\n   into the internal macro %test-comp1body, whose own references\n   (%test-on-test-begin etc.) were never copied, so use-site expansions\n   hit \"undefined variable\". Free references are now copied transitively\n   through macro-to-macro chains with cycle protection.\n\n2. renameForHygiene checked the global-procedure preservation heuristic\n   before the scope table, so a template binding named after a builtin\n   ((let ((exp expected)) ... exp)) renamed the binder but resolved body\n   references to the global builtin: every test compared against\n   #<builtin exp>. The scope table is now consulted first.\n\n3. set_global lacked the stripHygienicPrefix fallback that get_global and\n   call_global already had, so template (set! counter ...) writes to\n   definition-site globals failed as unbound __hyg_N_ names.\n\nSeparately, uncaught read/compile/runtime errors in scripts (file or\nstdin) now flip the process exit code so run-all.sh can never report PASS\non errored files again. Explicit (exit N) still wins; the REPL is\nunaffected. This immediately surfaced ~10 pre-existing product bugs that\nthe dead suite had been hiding (call/cc escapes, hash-table-update!/\ndefault, case-lambda arg binding, SRFI-35 condition macro, SRFI-133\nvector-partition, library declaration bugs, srfi18 hang) — tracked\nseparately; CI stays red until they land.\n\nTest changes: ellipsis-mismatch.scm's negative case moved to\nerror-format.sh (the mismatch is rejected at expansion/compile time,\nwhich guard cannot catch and which now fails the process); run-all.sh's\nretry with the removed --no-jit flag dropped.\n\nFixes #924\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n* Fix two Linux-only failures surfaced by exit-code enforcement\n\nBoth bugs were invisible on Linux CI because uncaught errors exited 0:\n\n- validateMode bounded modes by maxInt(mode_t), which is u16 on macOS but\n  u32 on Linux, so set-file-mode/set-umask! accepted out-of-range values\n  like 100000 on Linux. POSIX permission modes use only the low 12 bits;\n  bound by 0o7777 on all platforms.\n\n- ffi-open never tried a \".so\" suffix outside ~/.kaappi/lib: bare names\n  like \"libm\" only got as-is and \".dylib\" attempts, so opening a system\n  library by basename never worked on Linux. Try \".dylib\", \".so\", and\n  \".so.6\" (glibc's core libraries ship an unversioned .so that is a\n  linker script dlopen cannot load).\n\nCovered by the existing tests/scheme/ffi/ suite and\ntests/scheme/smoke/filesystem-intcast.scm, which now run with live\nassertions and exit codes on both platforms.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-03T07:48:29Z",
+          "tree_id": "1cd7389d513066772b1f054c2ed07802fdbf4538",
+          "url": "https://github.com/kaappi/kaappi/commit/5da1588bd339a8bde2430f3cd8ff0ce75073cdb5"
+        },
+        "date": 1783065822482,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.177806,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.480099,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.880288,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.197468,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.007433,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.03291,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.475234,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.068026,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 4.008486,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.779305,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.154403,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.474594,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 2.400894,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.893595,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044238,
             "unit": "seconds"
           }
         ]
