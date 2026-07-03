@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783079233927,
+  "lastUpdate": 1783079857971,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "36335ad2ed9cfadf9ea44f3a9e259350d5a6bd02",
-          "message": "Merge pull request #724 from kaappi/fix/char-alphabetic-unicode-678\n\nFix char-alphabetic? misclassifying non-letter codepoints",
-          "timestamp": "2026-07-02T11:24:29+05:30",
-          "tree_id": "e85b055822e9c892c2d7ea458849c97add0dc004",
-          "url": "https://github.com/kaappi/kaappi/commit/36335ad2ed9cfadf9ea44f3a9e259350d5a6bd02"
-        },
-        "date": 1782973808704,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.030207,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.652867,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.671522,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.231495,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.005574,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.024902,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.35674,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.052834,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.294255,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.34767,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 0.855895,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.182351,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.833118,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.240076,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.033528,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.04434,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "8764f2ee6a6948fa258f544aad92dbaebe8e7a1c",
+          "message": "Scope library-body define-syntax macros to their library (#877) (#957)\n\ndefine-syntax inside a library begin block registered the macro directly\ninto the process-global vm.macros table while the library body was being\ncompiled. Two observable bugs followed: unexported library-body macros\nbecame usable by all code once the library loaded (even when the importer\nfiltered them out), and loading a library silently clobbered a same-named\nmacro the program had explicitly imported from another library.\n\nLibrary-body macros now live in the per-library lib_env (already GC-rooted\nand already home to imported transformers) instead of vm.macros:\n\n- compileDefineSyntax stores a library-top-level macro in lib_env.\n- compileLibExpr seeds the compiler's macro table from lib_env's transformer\n  entries, so a library body compiles hermetically without reading or\n  writing the global macro table.\n- Export resolution reads lib_env only; the vm.macros fallback (which only\n  worked because of the leak) is removed.\n- copyTransformerFreeRefs registers an exported macro's transitively\n  referenced private helper macros into the importer's macro namespace on\n  demand, so use-site expansion still resolves them (e.g. SRFI-64\n  test-assert -> %test-comp1body). importBinding remains the only path into\n  vm.macros.\n\nRegression test tests/scheme/smoke/library-macro-leak-877.scm with lib877/\nfixtures covers the leak, the clobber, cross-library macro import, and an\nexported macro that expands through a private helper.\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
+          "timestamp": "2026-07-03T11:39:07Z",
+          "tree_id": "9a620a1617bc3164e3f0f2bc65fbebbb9bc48de9",
+          "url": "https://github.com/kaappi/kaappi/commit/8764f2ee6a6948fa258f544aad92dbaebe8e7a1c"
+        },
+        "date": 1783079857552,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.356066,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.032669,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.837357,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.107023,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006922,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.032676,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.459661,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.069938,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 4.071946,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.76575,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.169058,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.435768,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 2.363463,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.741131,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.042563,
             "unit": "seconds"
           }
         ]
