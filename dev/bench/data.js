@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783089417899,
+  "lastUpdate": 1783089931318,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "e105a9f4ed1e58cacf4f45630cd67cc59aa0d4dc",
-          "message": "Split large source files to stay within 1500-line policy (#732)\n\nExtract self-contained subsystems from main.zig, ir.zig, and memory.zig\ninto dedicated files, following existing codebase patterns:\n\n- main.zig (1493→1173): LLVM emission + native compilation → native_compiler.zig\n- ir.zig (1457→1178): standalone bytecode Emitter → ir_emitter.zig\n- memory.zig (1435→1213): cross-thread deep copy → gc_deep_copy.zig\n\nAll public APIs preserved via re-exports or delegation. CLAUDE.md file\ntables updated to document new files.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-02T15:57:56+05:30",
-          "tree_id": "e81cd64a09c4f6743f7fdcef54a38ef0eaa3b5f5",
-          "url": "https://github.com/kaappi/kaappi/commit/e105a9f4ed1e58cacf4f45630cd67cc59aa0d4dc"
-        },
-        "date": 1782988957020,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.335063,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.210927,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.797634,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.130767,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006827,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.032267,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.448133,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.069358,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.967179,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.772818,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.117854,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.222577,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 2.399284,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.663396,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.041447,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.041752,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "6c4e79d34cf9ba6ea7b0012d92f56624750493e2",
+          "message": "Fix fiber scheduler returning void for multi-stage channel pipelines (#978)\n\nA blocked channel-receive drives other fibers from inside its own native\nframe, so a nested scheduler could never resume an outer blocked fiber\n(only LIFO unwinding worked). With two or more pipeline stages the inner\nstage exhausted schedule() and runSchedulerUntil silently returned VOID,\nso downstream stages computed on garbage and consumer loops spun forever.\nFibers permanently blocked at program end likewise never terminated.\n\nPark-and-retry: a fiber that cannot progress parks (.waiting on the\nchannel) and the dispatch loop rewinds ip to the call instruction before\nunwinding with Yielded, so channel-receive re-executes when the fiber is\nrescheduled. channel-send wakes all fibers parked on that channel. A\nblocked main program, or a receive/fiber-join that can never be satisfied,\nnow raises a catchable deadlock error instead of returning void. Parking\nis gated by dispatched_from_scheduler so a fiber blocked inside a native\ncallback (map/for-each/eval) errors rather than corrupting Zig frames.\napply and callWithArgs now propagate the park signal instead of mangling\nit into a type/bytecode error. Fibers still parked when the main program\nends are discarded (Go-style); documented in README and CHANGELOG.\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-03T14:29:47Z",
+          "tree_id": "c018cfd0689404ee2d6dbb9be494790cd1e67ac7",
+          "url": "https://github.com/kaappi/kaappi/commit/6c4e79d34cf9ba6ea7b0012d92f56624750493e2"
+        },
+        "date": 1783089930826,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.117935,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 10.344523,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.897675,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.44524,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.007436,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.033987,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.49212,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.06927,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.993184,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.879716,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.193595,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.484571,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.729093,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.906995,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044843,
             "unit": "seconds"
           }
         ]
