@@ -765,7 +765,13 @@ fn renameForHygiene(gc: *GC, name: []const u8, scope: u32, globals: ?*std.String
     if (globals) |g| {
         if (g.get(name)) |val| {
             if (types.isProcedure(val) or types.isTransformer(val)) {
-                if (!in_binding) return gc.allocSymbol(name);
+                // A template binding of the same name in this expansion
+                // shadows the global procedure (e.g. a template let variable
+                // named exp must not resolve to the builtin exp), so the
+                // reference must follow the rename recorded for the binding.
+                if (!in_binding and !scopeTableContains(clean_scope, name)) {
+                    return gc.allocSymbol(name);
+                }
             } else if (val == types.VOID) {
                 // VOID entries are sentinels planted by the compiler's body
                 // prescan (compileBody/compileLetBody) for internal defines
