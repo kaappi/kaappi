@@ -25,13 +25,47 @@ fn deepCopyValue(gc: *GC, src: Value, visited: *std.AutoHashMap(usize, Value)) !
     const obj = types.toObject(src);
     return switch (obj.tag) {
         .pair => {
-            const pair = obj.as(types.Pair);
-            const new_val = try gc.allocPair(types.NIL, types.NIL);
-            try visited.put(src_ptr, new_val);
-            const new_pair = types.toObject(new_val).as(types.Pair);
-            new_pair.car = try deepCopyValue(gc, pair.car, visited);
-            new_pair.cdr = try deepCopyValue(gc, pair.cdr, visited);
-            return new_val;
+            // Iterate the cdr spine in a loop rather than recursing on it, so
+            // copying a flat list of N elements uses O(1) native stack frames
+            // instead of N (issue #801). Only the car branch recurses, bounding
+            // native recursion by structural nesting depth, not list length.
+            // The GC marker was fixed the same way for issue #864.
+            const head_new = try gc.allocPair(types.NIL, types.NIL);
+            try visited.put(src_ptr, head_new);
+
+            var src_pair = obj.as(types.Pair);
+            var dst_pair = types.toObject(head_new).as(types.Pair);
+            while (true) {
+                dst_pair.car = try deepCopyValue(gc, src_pair.car, visited);
+
+                const cdr = src_pair.cdr;
+                if (!types.isPointer(cdr)) {
+                    // Immediate tail (nil for a proper list, or a non-pointer
+                    // improper tail) -- copy directly, no allocation.
+                    dst_pair.cdr = cdr;
+                    break;
+                }
+                const cdr_obj = types.toObject(cdr);
+                if (cdr_obj.tag != .pair) {
+                    // Improper list ending in a heap object -- recurse once.
+                    dst_pair.cdr = try deepCopyValue(gc, cdr, visited);
+                    break;
+                }
+                const cdr_ptr = @intFromPtr(cdr_obj);
+                if (visited.get(cdr_ptr)) |already| {
+                    // Shared or cyclic cdr already copied -- reuse it.
+                    dst_pair.cdr = already;
+                    break;
+                }
+                // Extend the spine: allocate the next pair, register it in
+                // `visited` before copying its car so cycles resolve correctly.
+                const next_new = try gc.allocPair(types.NIL, types.NIL);
+                dst_pair.cdr = next_new;
+                try visited.put(cdr_ptr, next_new);
+                src_pair = cdr_obj.as(types.Pair);
+                dst_pair = types.toObject(next_new).as(types.Pair);
+            }
+            return head_new;
         },
         .symbol => try gc.allocSymbol(obj.as(types.Symbol).name),
         .string => {

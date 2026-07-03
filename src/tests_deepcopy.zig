@@ -61,6 +61,71 @@ test "deepCopy nested list" {
     try std.testing.expectEqual(types.NIL, p3.cdr);
 }
 
+test "deepCopy long flat list does not overflow the stack (issue #801)" {
+    var gc1 = memory.GC.init(std.testing.allocator);
+    defer gc1.deinit();
+    var gc2 = memory.GC.init(std.testing.allocator);
+    defer gc2.deinit();
+
+    // Build a proper list (0 1 2 ... n-1) with n well past the ~15k element
+    // native-stack-overflow threshold reported in #801. Before the fix, the
+    // cdr-spine recursion in deepCopyValue crashed the process here.
+    const n: i64 = 200_000;
+    var lst = types.NIL;
+    try gc1.pushRoot(&lst); // keep the partial list alive across collections
+    defer gc1.popRoot();
+    var i: i64 = n - 1;
+    while (i >= 0) : (i -= 1) {
+        lst = try gc1.allocPair(types.makeFixnum(i), lst);
+    }
+
+    const copied = try gc2.deepCopy(lst);
+    try std.testing.expect(lst != copied);
+
+    // Walk the copy: verify every element and the length, and confirm it is a
+    // fresh structure (independent heap objects).
+    var count: i64 = 0;
+    var cur = copied;
+    while (types.isPointer(cur) and types.toObject(cur).tag == .pair) {
+        const p = types.toObject(cur).as(types.Pair);
+        try std.testing.expectEqual(types.makeFixnum(count), p.car);
+        count += 1;
+        cur = p.cdr;
+    }
+    try std.testing.expectEqual(n, count);
+    try std.testing.expectEqual(types.NIL, cur);
+}
+
+test "deepCopy long improper list preserves the tail (issue #801)" {
+    var gc1 = memory.GC.init(std.testing.allocator);
+    defer gc1.deinit();
+    var gc2 = memory.GC.init(std.testing.allocator);
+    defer gc2.deinit();
+
+    // Long list ending in a non-nil immediate tail exercises the loop's
+    // "immediate cdr" break path at depth.
+    const n: i64 = 100_000;
+    var lst = types.makeFixnum(-1);
+    try gc1.pushRoot(&lst);
+    defer gc1.popRoot();
+    var i: i64 = n - 1;
+    while (i >= 0) : (i -= 1) {
+        lst = try gc1.allocPair(types.makeFixnum(i), lst);
+    }
+
+    const copied = try gc2.deepCopy(lst);
+    var count: i64 = 0;
+    var cur = copied;
+    while (types.isPointer(cur) and types.toObject(cur).tag == .pair) {
+        const p = types.toObject(cur).as(types.Pair);
+        try std.testing.expectEqual(types.makeFixnum(count), p.car);
+        count += 1;
+        cur = p.cdr;
+    }
+    try std.testing.expectEqual(n, count);
+    try std.testing.expectEqual(types.makeFixnum(-1), cur);
+}
+
 test "deepCopy vector" {
     var gc1 = memory.GC.init(std.testing.allocator);
     defer gc1.deinit();
