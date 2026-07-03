@@ -57,6 +57,12 @@ pub const Compiler = struct {
     lib_env: ?*std.StringHashMap(Value) = null,
     lib_env_val: Value = types.NIL,
     restricted_env: bool = false, // true for restricted environments (null-environment, environment)
+    // Names that are `set!` somewhere in the top-level form being compiled.
+    // Owned by the top-level compile() frame and inherited by child compilers
+    // so nested lambda bodies see the same suppression set. Consulted by the
+    // constant folders (IR and legacy) to avoid folding calls to a name that
+    // may be reassigned before the call executes.
+    set_targets: ?*const std.StringHashMap(void) = null,
     scope_depth: u16 = 0,
     next_register: u16 = 0,
     parent: ?*Compiler = null,
@@ -117,6 +123,7 @@ pub const Compiler = struct {
             .lib_env = parent.lib_env,
             .lib_env_val = parent.lib_env_val,
             .restricted_env = parent.restricted_env,
+            .set_targets = parent.set_targets,
             .parent = parent,
         };
     }
@@ -358,11 +365,21 @@ pub const Compiler = struct {
         try self.gc.pushRoot(&expr_root);
         defer self.gc.popRoot();
 
+        // Scan the whole top-level form for `set!` targets so the constant
+        // folders never fold a call to a name that is reassigned within it
+        // (including in nested lambda bodies, which inherit this set).
+        var set_targets = std.StringHashMap(void).init(self.gc.allocator);
+        defer set_targets.deinit();
+        try collectSetTargets(expr_root, &set_targets);
+        self.set_targets = &set_targets;
+        defer self.set_targets = null;
+
         // Lower AST to IR, run analysis and optimizations, then emit bytecode.
         var ir = ir_mod.IR.init(self.gc.allocator);
         ir.globals = self.globals;
         ir.restricted_env = self.restricted_env;
         ir.compiler = self;
+        ir.set_targets = self.set_targets;
         defer ir.deinit();
         var root = try ir_mod.lowerWithMacros(&ir, expr_root, &self.macros);
 
@@ -641,6 +658,7 @@ pub const Compiler = struct {
             ir.globals = child.globals;
             ir.restricted_env = child.restricted_env;
             ir.compiler = &child;
+            ir.set_targets = child.set_targets;
             defer ir.deinit();
             var root = try ir_mod.lowerWithMacros(&ir, expr, &child.macros);
             ir_mod.markTailPositions(root, rest == types.NIL);
@@ -702,6 +720,7 @@ pub const Compiler = struct {
         ir.globals = self.globals;
         ir.restricted_env = self.restricted_env;
         ir.compiler = self;
+        ir.set_targets = self.set_targets;
         defer ir.deinit();
         var val_root = try ir_mod.lowerWithMacros(&ir, data.value, &self.macros);
         ir_mod.identifyPrimitives(val_root);
@@ -753,6 +772,7 @@ pub const Compiler = struct {
         ir.globals = self.globals;
         ir.restricted_env = self.restricted_env;
         ir.compiler = self;
+        ir.set_targets = self.set_targets;
         defer ir.deinit();
         var val_root = try ir_mod.lowerWithMacros(&ir, data.value, &self.macros);
         ir_mod.identifyPrimitives(val_root);
@@ -900,6 +920,7 @@ pub const Compiler = struct {
             ir.globals = self.globals;
             ir.restricted_env = self.restricted_env;
             ir.compiler = self;
+            ir.set_targets = self.set_targets;
             defer ir.deinit();
             var root = try ir_mod.lowerWithMacros(&ir, expr, &self.macros);
             ir_mod.markTailPositions(root, false);
@@ -1539,6 +1560,46 @@ pub const Compiler = struct {
         }
     }
 };
+
+/// Strip hygiene-rename prefixes (`__hyg_<n>_`) so macro-introduced `set!`
+/// forms are recognized. Mirrors the stripping in ir.lowerFormWithMacros.
+fn effectiveSymbolName(name: []const u8) []const u8 {
+    var n = name;
+    while (std.mem.startsWith(u8, n, "__hyg_")) {
+        if (std.mem.indexOfScalar(u8, n[6..], '_')) |sep| {
+            n = n[6 + sep + 1 ..];
+        } else break;
+    }
+    return n;
+}
+
+/// Recursively collect the symbol names that appear as the target of a
+/// `(set! <name> ...)` anywhere in `expr` into `out`. Used to suppress
+/// constant folding of those names within the enclosing form (see
+/// Compiler.set_targets). Conservative: it scans every sub-form except the
+/// interior of `quote`d data. Iterates the cdr spine to stay bounded on long
+/// lists and only recurses into car sub-forms.
+fn collectSetTargets(expr: Value, out: *std.StringHashMap(void)) CompileError!void {
+    var cur = expr;
+    while (types.isPair(cur)) {
+        const head = types.car(cur);
+        if (types.isSymbol(head)) {
+            const hname = effectiveSymbolName(types.symbolName(head));
+            if (std.mem.eql(u8, hname, "quote")) return; // literal data, not code
+            if (std.mem.eql(u8, hname, "set!")) {
+                const rest = types.cdr(cur);
+                if (types.isPair(rest)) {
+                    const target = types.car(rest);
+                    if (types.isSymbol(target)) {
+                        out.put(types.symbolName(target), {}) catch return CompileError.OutOfMemory;
+                    }
+                }
+            }
+        }
+        try collectSetTargets(head, out);
+        cur = types.cdr(cur);
+    }
+}
 
 // ---------------------------------------------------------------------------
 // Convenience functions
