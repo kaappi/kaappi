@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783035870114,
+  "lastUpdate": 1783037914793,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "1b14fa3384b8718835dfc1653b92a5bc22d60fe5",
-          "message": "Fix markVMRoots iterating shared libraries map in child threads (#634) (#653)\n\nmarkVMRoots correctly gated globals/macros marking on owns_globals to\nprevent child thread GC from iterating the parent's shared maps without\nsynchronization. However, vm.libraries.libraries was marked\nunconditionally despite being shared the same way via initForThread.\n\nGate library marking on owns_globals to match globals/macros treatment.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-01T07:29:06+05:30",
-          "tree_id": "e7213ae2dbd9b630f4975f82e3e50e246209438f",
-          "url": "https://github.com/kaappi/kaappi/commit/1b14fa3384b8718835dfc1653b92a5bc22d60fe5"
-        },
-        "date": 1782871878797,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.929088,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.101289,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.836618,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.17059,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.007313,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.032221,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.450705,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 1.265232,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.875575,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.746552,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.100246,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.23727,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 2.36895,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 0,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.026463,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "afd73eb469fa68dffabd61a505a00235a1fe7787",
+          "message": "Fix continuation restore escape misdetection and dynamic-wind double-run (#870, #875) (#905)\n\nAdd continuation_generation counter to VM, bumped on every full\ncontinuation restore. callThunk/callHandler/callWithArgs check this\ngeneration to distinguish full restores (which replace the entire VM\nstate) from escape continuations (which unwind the current stack).\nWithout this, dynamicWindFn's normal-return path ran wind_count -= 1\non a replaced wind stack, causing an underflow panic.\n\nAlso fix performWindTransition to decrement wind_count before calling\neach after-thunk, preventing re-entrant wind transitions from running\nthe same after-thunk twice.\n\nFixes #870\nFixes #875\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-03T05:09:07+05:30",
+          "tree_id": "61a1df36faba088752b6d528d215bc11ffbac964",
+          "url": "https://github.com/kaappi/kaappi/commit/afd73eb469fa68dffabd61a505a00235a1fe7787"
+        },
+        "date": 1783037914430,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.377735,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.637531,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.853401,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.115428,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.007094,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.032878,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.476403,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.071322,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.952945,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.811083,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.135253,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.437143,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 2.449001,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.710761,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.043257,
             "unit": "seconds"
           }
         ]
