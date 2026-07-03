@@ -385,3 +385,29 @@ test "import scheme file" {
     try std.testing.expectEqual(types.TRUE, try vm.eval("(procedure? open-output-file)"));
     try std.testing.expectEqual(types.TRUE, try vm.eval("(procedure? file-exists?)"));
 }
+
+test "read-string 0 on non-exhausted port returns empty string, not eof (issue #815)" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    _ = try vm.eval("(define p (open-input-string \"abc\"))");
+
+    // k = 0 with input available: empty string, NOT eof
+    const zero = try vm.eval("(read-string 0 p)");
+    try std.testing.expect(types.isString(zero));
+    const zstr = types.toObject(zero).as(types.SchemeString);
+    try std.testing.expectEqualStrings("", zstr.data[0..zstr.len]);
+    try std.testing.expectEqual(types.FALSE, try vm.eval("(eof-object? (read-string 0 p))"));
+
+    // Reading remaining characters still works normally afterwards.
+    const all = try vm.eval("(read-string 3 p)");
+    const astr = types.toObject(all).as(types.SchemeString);
+    try std.testing.expectEqualStrings("abc", astr.data[0..astr.len]);
+
+    // k > 0 at EOF still returns eof.
+    try std.testing.expectEqual(types.TRUE, try vm.eval("(eof-object? (read-string 3 p))"));
+    // k = 0 at EOF returns empty string (port exhausted, but zero requested).
+    try std.testing.expectEqual(types.FALSE, try vm.eval("(eof-object? (read-string 0 p))"));
+}

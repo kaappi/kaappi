@@ -760,6 +760,10 @@ fn readStringFn(args: []const Value) PrimitiveError!Value {
     const count: usize = @intCast(@as(u64, @bitCast(k)));
     const port = try getInputPort(args, 1, "read-string");
 
+    // (read-string 0 port) yields "" -- characters are "available" only when
+    // k > 0, so k = 0 never signals EOF (mirrors read-bytevector, issue #281).
+    if (count == 0) return gc.allocString("") catch return PrimitiveError.OutOfMemory;
+
     var result: std.ArrayList(u8) = .empty;
     defer result.deinit(gc.allocator);
 
