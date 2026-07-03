@@ -258,67 +258,51 @@ pub fn compileNamedLet(self: *Compiler, args: Value, dst: u16, is_tail: bool) Co
         formals = self.gc.allocPair(var_names[i], formals) catch return CompileError.OutOfMemory;
     }
 
-    // Named let uses a global for the loop procedure. Use a unique gensym'd
-    // name to prevent collisions when multiple named lets use the same name.
+    // Bind the loop procedure to a boxed local (single-binding letrec) so the
+    // loop lambda captures itself as an upvalue. It used to be bound to a
+    // gensym'd global (__nlet_N_name), but executing that define_global from
+    // an SRFI-18 child thread wrote a child-heap closure into the shared
+    // globals map, leaving a dangling global after the child heap was freed
+    // (issue #958). A local also stops polluting the global namespace. The
+    // gensym rename is kept so nested named lets reusing a name stay distinct.
     const unique_sym = try makeUniqueLoopName(self.gc, types.symbolName(loop_name));
     const renamed_body = try renameInBody(self.gc, body, types.symbolName(loop_name), unique_sym);
     const renamed_lambda_args = self.gc.allocPair(formals, renamed_body) catch return CompileError.OutOfMemory;
 
-    // Use a fresh register for the closure to avoid overwriting live locals
-    // (e.g., when dst=0 and a parameter is also at register 0).
-    const loop_reg = try self.allocReg();
+    self.beginScope();
 
+    // Mirror compileLetrec: void-init the slot, bind, box, then assign.
+    const loop_reg = try self.allocReg();
     try self.emitOp(.load_void);
     try self.emitU16(loop_reg);
-    const name_sym_idx = try self.addConstant(unique_sym);
-    try self.emitOp(.define_global);
-    try self.emitU16(name_sym_idx);
+    try self.addLocal(types.symbolName(unique_sym), loop_reg);
+    try self.markLocalBoxedBySlot(loop_reg);
+
+    const tmp_reg = try self.allocReg();
+    try self.compileLambda(renamed_lambda_args, tmp_reg, types.symbolName(unique_sym));
+    try self.emitOp(.set_box_local);
     try self.emitU16(loop_reg);
+    try self.emitU16(tmp_reg);
+    self.freeReg(); // tmp_reg
 
-    try self.compileLambda(renamed_lambda_args, loop_reg, types.symbolName(unique_sym));
-
-    try self.emitOp(.define_global);
-    try self.emitU16(name_sym_idx);
-    try self.emitU16(loop_reg);
-
-    // Compile the initial call
-    const call_base = try self.allocReg();
-    self.freeReg();
-
-    if (call_base != loop_reg) {
-        try self.emitOp(.move);
-        try self.emitU16(call_base);
-        try self.emitU16(loop_reg);
+    // Compile the initial call (UNIQ init ...) through the normal call path:
+    // it reads the boxed local and handles tail position.
+    var call_expr: Value = types.NIL;
+    {
+        self.gc.no_collect += 1;
+        defer self.gc.no_collect -= 1;
+        var j = param_count;
+        while (j > 0) {
+            j -= 1;
+            call_expr = self.gc.allocPair(init_exprs[j], call_expr) catch return CompileError.OutOfMemory;
+        }
+        call_expr = self.gc.allocPair(unique_sym, call_expr) catch return CompileError.OutOfMemory;
     }
+    self.gc.pushRoot(&call_expr) catch return CompileError.OutOfMemory;
+    defer self.gc.popRoot();
+    try self.compileExpr(call_expr, dst, is_tail);
 
-    if (param_count > 255) return CompileError.InternalLimit;
-    const nargs: u8 = @intCast(param_count);
-    for (0..param_count) |j| {
-        const arg_reg = try self.allocReg();
-        _ = arg_reg;
-        try self.compileExpr(init_exprs[j], call_base + 1 + @as(u16, @intCast(j)), false);
-    }
-
-    if (is_tail) {
-        try self.emitOp(.tail_call);
-    } else {
-        try self.emitOp(.call);
-    }
-    try self.emitU16(call_base);
-    try self.emit(nargs);
-
-    // Result goes to dst
-    if (call_base != dst) {
-        try self.emitOp(.move);
-        try self.emitU16(dst);
-        try self.emitU16(call_base);
-    }
-
-    var k: u8 = 0;
-    while (k < nargs) : (k += 1) {
-        self.freeReg();
-    }
-    self.freeReg(); // free loop_reg
+    self.endScope();
 }
 
 // Collect the names of variables that are referenced free inside a nested

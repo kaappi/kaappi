@@ -145,6 +145,13 @@ pub const Object = struct {
     marked: bool = false,
     generation: u1 = 0,
     survive_count: u2 = 0,
+    /// Id of the GC that tracks (and will free) this object. Marking skips
+    /// objects owned by another GC: an SRFI-18 child thread's heap can
+    /// reference parent-heap objects (shared globals, interned symbols,
+    /// closures being executed), and writing mark bits on those would corrupt
+    /// the parent GC's mark state — under-marking sweeps live objects (#958).
+    /// Fits in existing struct padding, so it adds no size.
+    owner: u32 = 0,
     next: ?*Object = null,
     // Force 8-byte alignment so all heap objects satisfy the pointer tag
     // check (v & 7 == 0). Without this, wasm32 allocators may return
