@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783112857431,
+  "lastUpdate": 1783113429196,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "222eafcfd8a9cff9f764c1b2c2547da070f1d6f4",
-          "message": "Add missing separator before dotted tail in pretty-printer (#863) (#883)\n\nppValue's dotted-tail branch wrote \". \" directly after the previous\nelement with no newline/indent, fusing the dot with the preceding\ntoken (e.g. \"symbol. 3\" reads back as symbol \"symbol.\" not a dotted\npair). Now emits newline + indent before \". \" in multi-line mode,\nmatching the separator used between regular elements.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-03T00:45:18+05:30",
-          "tree_id": "8ffd81145d011c120ce207432ffd24877a0d38ac",
-          "url": "https://github.com/kaappi/kaappi/commit/222eafcfd8a9cff9f764c1b2c2547da070f1d6f4"
-        },
-        "date": 1783020595048,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.404462,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.504334,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.80948,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.185307,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.007149,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.03207,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.453482,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.069728,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 4.025847,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.776839,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.093213,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.217169,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 2.400619,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.522748,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.04132,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.043034,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c0dae669c57025d101a12ac946d8a3c4668e11c9",
+          "message": "Honour timeout/timeout-val in thread-join! for OS threads (#878) (#1000)\n\nthread-join! ignored timeout and timeout-val arguments for OS-backed\nthreads (blocked unconditionally via std.Thread.join) and returned void\nimmediately for never-started threads. Parse timeout args before the\nOS/fiber branch, poll fiber.status with atomic loads in a 1ms sleep\nloop for the OS-thread and never-started paths, and extract reapOsThread\nto share cleanup between both cases.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-03T21:00:09Z",
+          "tree_id": "eca742daff20d7dcf1fd46d88f115268d8cfe743",
+          "url": "https://github.com/kaappi/kaappi/commit/c0dae669c57025d101a12ac946d8a3c4668e11c9"
+        },
+        "date": 1783113428300,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.05658,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.72429,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.925347,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.603052,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006851,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.034564,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.496548,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.06951,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.969804,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.850141,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.180468,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.475972,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.712364,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.839422,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.045613,
             "unit": "seconds"
           }
         ]
