@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783106874088,
+  "lastUpdate": 1783107712673,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "e9909f1ffcb729c2614e06e668bcedb15ebb642f",
-          "message": "Merge pull request #774 from kaappi/fix/746-rational-bignum-exact\n\nFix exact rational + bignum arithmetic to preserve exactness",
-          "timestamp": "2026-07-02T20:21:24+05:30",
-          "tree_id": "d1f9378b75af74cc2c16ce1f4464d3e0449bc0ac",
-          "url": "https://github.com/kaappi/kaappi/commit/e9909f1ffcb729c2614e06e668bcedb15ebb642f"
-        },
-        "date": 1783004654699,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.189668,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.256914,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.666391,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.039243,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006163,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.02451,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.357061,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.053106,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.328882,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.35112,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 0.84503,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.193858,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.855652,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.41965,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.034633,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.025103,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a96df06b28bff7c41beab9ff2d98f6086f57084a",
+          "message": "Fix >255 vector args overflowing fixed arg buffers (#802) (#991)\n\nNine vector primitives used fixed [256]Value or [257]Value stack buffers\nthat overflowed when called with >255 vector arguments via apply,\ncausing a ReleaseSafe bounds-check panic (or silent stack corruption in\nReleaseFast). Replace each with a stack-fast/heap-fallback pattern:\nuse the stack buffer for the common case (<=256 args), heap-allocate\nvia gc.allocator when the count exceeds it.\n\nAffected: vector-map, vector-for-each, vector-count, vector-any,\nvector-every, vector-index, vector-index-right, vector-unfold,\nvector-unfold-right.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-04T00:56:40+05:30",
+          "tree_id": "c41ebc1df7fe154888682ae12f2d4ea2e3d11841",
+          "url": "https://github.com/kaappi/kaappi/commit/a96df06b28bff7c41beab9ff2d98f6086f57084a"
+        },
+        "date": 1783107711522,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.362081,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.179497,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.836222,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.311199,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006383,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.033232,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.48717,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.071002,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 4.057323,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.818846,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.191159,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.431398,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.793752,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.672232,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.042121,
             "unit": "seconds"
           }
         ]
