@@ -65,11 +65,14 @@ Record the **droplet ID** immediately — it is needed for cleanup.
 
 ## Provision and test
 
-Run the full workflow over SSH with a 20-minute timeout. Replace `<BRANCH>`
-with the actual branch name from pre-flight.
+Run provisioning and tests as **separate SSH commands** so that a single
+long-running step doesn't hit the Bash tool timeout (14 min). Replace
+`<BRANCH>` with the actual branch name from pre-flight.
+
+### 4a. Provision
 
 ```bash
-timeout 1200 ssh -i ~/.ssh/id_rsa \
+ssh -i ~/.ssh/id_rsa \
   -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
   root@$IP 'bash -s' << 'REMOTE'
 set -euo pipefail
@@ -77,38 +80,50 @@ set -euo pipefail
 echo "==== Installing Zig 0.16 ===="
 cd /tmp
 curl -sL https://ziglang.org/download/0.16.0/zig-x86_64-linux-0.16.0.tar.xz | tar xJ -C /opt
-ln -s /opt/zig-x86_64-linux-0.16.0/zig /usr/local/bin/zig
+ln -sf /opt/zig-x86_64-linux-0.16.0/zig /usr/local/bin/zig
 zig version
 
-echo ""
+echo "==== Waiting for apt lock ===="
+while fuser /var/lib/apt/lists/lock >/dev/null 2>&1 || \
+      fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1; do
+  sleep 5
+done
+
 echo "==== Installing dependencies ===="
 apt-get update -qq
 apt-get install -y -qq git make gcc libc6-dev > /dev/null 2>&1
 
-echo ""
 echo "==== Cloning repo (branch: <BRANCH>) ===="
 git clone --depth 1 --branch <BRANCH> https://github.com/kaappi/kaappi.git /workspace
-cd /workspace
-
-echo ""
-echo "==== Building ===="
-zig build 2>&1 && echo "BUILD: OK" || { echo "BUILD: FAIL"; exit 1; }
-
-echo ""
-echo "==== Unit Tests ===="
-zig build test 2>&1
-
-echo ""
-echo "==== Scheme Tests ===="
-bash tests/scheme/run-all.sh 2>&1
-
-echo ""
-echo "==== ALL DONE ===="
+echo "PROVISION: OK"
 REMOTE
 ```
 
-If the SSH command times out (exit code 124), report **TIMEOUT** and proceed
-directly to cleanup.
+### 4b. Build
+
+```bash
+ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+  root@$IP 'cd /workspace && zig build 2>&1 && echo "BUILD: OK" || echo "BUILD: FAIL"'
+```
+
+### 4c. Unit tests
+
+```bash
+ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+  root@$IP 'cd /workspace && zig build test 2>&1'
+```
+
+### 4d. Scheme tests
+
+```bash
+ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+  -o ServerAliveInterval=30 -o ServerAliveCountMax=40 \
+  root@$IP 'cd /workspace && bash tests/scheme/run-all.sh 2>&1'
+```
+
+The Scheme suite includes compile tests (`zig build -Dbundle`) that rebuild
+the full binary — expect ~5 minutes on 2 vCPUs. Use `ServerAliveInterval`
+to keep the connection open during long compiles.
 
 ## Report results
 
@@ -131,7 +146,8 @@ so they can destroy it manually via the DigitalOcean console.
 
 ## Notes
 
-- **Cost**: `s-2vcpu-4gb` is ~$0.03/hr. A full test run takes 5–10 minutes.
+- **Cost**: `s-2vcpu-4gb` is ~$0.03/hr. A full test run takes 10–15 minutes
+  (the compile tests rebuild the full binary, which is slow on 2 vCPUs).
 - **SSH key**: uses `~/.ssh/id_rsa`. The matching public key must be on the
   DigitalOcean account (upload via web console → Settings → Security).
 - **Complements /linux-test**: that skill uses podman for aarch64 native +
