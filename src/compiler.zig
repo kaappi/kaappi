@@ -289,6 +289,9 @@ pub const Compiler = struct {
                 return @intCast(i);
             }
         }
+        // upvalue_count and upvalue indices are u16; refuse to overflow rather
+        // than panic on the @intCast below (mirrors the register cap in allocReg).
+        if (self.upvalues.items.len >= std.math.maxInt(u16)) return CompileError.TooManyLocals;
         self.upvalues.append(self.gc.allocator, .{ .index = index, .is_local = is_local }) catch return CompileError.OutOfMemory;
         self.func.upvalue_count = @intCast(self.upvalues.items.len);
         return @intCast(self.upvalues.items.len - 1);

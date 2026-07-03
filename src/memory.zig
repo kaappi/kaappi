@@ -277,9 +277,10 @@ pub const GC = struct {
             .func = func,
             .upvalues = upvalues,
         };
-        self.bytes_allocated += @sizeOf(Closure) + upvalue_count * @sizeOf(Value);
+        const closure_bytes = @sizeOf(Closure) + @as(usize, upvalue_count) * @sizeOf(Value);
+        self.bytes_allocated += closure_bytes;
 
-        self.profileAlloc(@sizeOf(Closure) + upvalue_count * @sizeOf(Value));
+        self.profileAlloc(closure_bytes);
         self.trackObject(&cls.header);
         return types.makePointer(@ptrCast(cls));
     }

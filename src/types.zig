@@ -219,7 +219,7 @@ pub const Function = struct {
     constants: std.ArrayList(Value),
     arity: u8,
     locals_count: u16 = 0,
-    upvalue_count: u8 = 0,
+    upvalue_count: u16 = 0,
     is_variadic: bool = false,
     name: ?[]const u8 = null,
     owns_name: bool = false,
