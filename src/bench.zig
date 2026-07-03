@@ -35,7 +35,7 @@ fn measure(allocator: std.mem.Allocator, prim: []const u8, depth: u32, iters: u3
     defer vm.deinit();
     try primitives.registerAll(&vm);
     primitives.setGCInstance(&gc);
-    try library.registerStandardLibraries(&vm.libraries, &vm.globals);
+    try library.registerStandardLibraries(&vm.libraries, vm.globals);
 
     // at-depth builds `depth` real (non-tail) frames to elevate the register
     // base; cap runs a tail loop performing `iters` escaping captures.

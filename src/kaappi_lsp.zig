@@ -790,7 +790,7 @@ fn runDiagnostics(allocator: std.mem.Allocator, vm: *vm_mod.VM, uri: []const u8,
         };
 
         // Compile phase
-        _ = compiler.compileExpressionWithMacrosAt(vm.gc, expr, &vm.macros, &vm.globals, 0, uri) catch {
+        _ = compiler.compileExpressionWithMacrosAt(vm.gc, expr, &vm.macros, vm.globals, 0, uri) catch {
             const lc = r.getLineCol();
             if (has_diag) diag_buf.append(allocator, ',') catch {};
             has_diag = true;
@@ -883,7 +883,7 @@ pub fn main(init: std.process.Init.Minimal) !void {
     defer vm.deinit();
     try primitives.registerAll(&vm);
     primitives.setGCInstance(&gc);
-    try library.registerStandardLibraries(&vm.libraries, &vm.globals);
+    try library.registerStandardLibraries(&vm.libraries, vm.globals);
 
     var initialized = false;
 

@@ -3,6 +3,7 @@ const types = @import("types.zig");
 const memory = @import("memory.zig");
 const compiler_mod = @import("compiler.zig");
 const passthrough = @import("compiler_passthrough.zig");
+const vm_mod = @import("vm.zig");
 const Value = types.Value;
 const Compiler = compiler_mod.Compiler;
 const CompileError = compiler_mod.CompileError;
@@ -532,6 +533,10 @@ pub fn compileLetBody(self: *Compiler, body: Value, dst: u16, is_tail: bool) Com
     var prescan_names: [64][]const u8 = undefined;
     var prescan_count: usize = 0;
     if (self.globals) |globals| {
+        // Structural puts into the (possibly shared) globals map — exclude
+        // SRFI-18 child-thread readers while sentinels are planted (#958).
+        const glk = vm_mod.acquireGlobalsWrite(globals);
+        defer vm_mod.releaseGlobalsWrite(glk);
         var scan = body;
         while (scan != types.NIL and types.isPair(scan)) {
             const form = types.car(scan);
@@ -569,6 +574,7 @@ pub fn compileLetBody(self: *Compiler, body: Value, dst: u16, is_tail: bool) Com
     defer {
         // Clean up pre-scanned names that are still VOID (not actually defined)
         if (self.globals) |globals| {
+            const glk = vm_mod.acquireGlobalsWrite(globals);
             for (prescan_names[0..prescan_count]) |pn| {
                 if (globals.get(pn)) |val| {
                     if (val == types.VOID) {
@@ -576,6 +582,7 @@ pub fn compileLetBody(self: *Compiler, body: Value, dst: u16, is_tail: bool) Com
                     }
                 }
             }
+            vm_mod.releaseGlobalsWrite(glk);
         }
     }
 

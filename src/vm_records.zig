@@ -103,9 +103,12 @@ pub fn handleDefineRecordType(vm: *VM, args: Value) VMError!Value {
     // Intern the name via allocSymbol so it persists
     const internal_sym = vm.gc.allocSymbol(internal_name_buf) catch return VMError.OutOfMemory;
     const internal_name = types.symbolName(internal_sym);
-    const target_env: *std.StringHashMap(Value) = vm.current_lib_env orelse &vm.globals;
-    target_env.put(internal_name, rt_val) catch return VMError.OutOfMemory;
-    if (vm.current_lib_env == null) vm.global_version +%= 1;
+    if (vm.current_lib_env) |lib_env| {
+        lib_env.put(internal_name, rt_val) catch return VMError.OutOfMemory;
+    } else {
+        // Locked structural put + version bump (#958).
+        vm.defineGlobal(internal_name, rt_val) catch return VMError.OutOfMemory;
+    }
 
     // Map constructor field names to their indices in the all_fields array
     var ctor_field_indices: [256]usize = undefined;
@@ -184,7 +187,7 @@ pub fn handleDefineRecordType(vm: *VM, args: Value) VMError!Value {
         const func = if (vm.current_lib_env) |env|
             compiler_mod.compileExpressionInEnv(vm.gc, define_expr, &vm.macros, env, types.NIL) catch return VMError.CompileError
         else
-            compiler_mod.compileExpressionWithMacros(vm.gc, define_expr, &vm.macros, &vm.globals) catch return VMError.CompileError;
+            compiler_mod.compileExpressionWithMacros(vm.gc, define_expr, &vm.macros, vm.globals) catch return VMError.CompileError;
         const func_val = types.makePointer(@ptrCast(func));
         body_list = func_val;
         compiler_mod.Compiler.unrootFunction(vm.gc, func);
@@ -211,7 +214,7 @@ pub fn handleDefineRecordType(vm: *VM, args: Value) VMError!Value {
         const func = if (vm.current_lib_env) |env|
             compiler_mod.compileExpressionInEnv(vm.gc, define_expr, &vm.macros, env, types.NIL) catch return VMError.CompileError
         else
-            compiler_mod.compileExpressionWithMacros(vm.gc, define_expr, &vm.macros, &vm.globals) catch return VMError.CompileError;
+            compiler_mod.compileExpressionWithMacros(vm.gc, define_expr, &vm.macros, vm.globals) catch return VMError.CompileError;
         define_expr = types.makePointer(@ptrCast(func));
         compiler_mod.Compiler.unrootFunction(vm.gc, func);
         _ = vm.execute(func) catch |err| return err;
@@ -239,7 +242,7 @@ pub fn handleDefineRecordType(vm: *VM, args: Value) VMError!Value {
             const func = if (vm.current_lib_env) |env|
                 compiler_mod.compileExpressionInEnv(vm.gc, define_expr, &vm.macros, env, types.NIL) catch return VMError.CompileError
             else
-                compiler_mod.compileExpressionWithMacros(vm.gc, define_expr, &vm.macros, &vm.globals) catch return VMError.CompileError;
+                compiler_mod.compileExpressionWithMacros(vm.gc, define_expr, &vm.macros, vm.globals) catch return VMError.CompileError;
             define_expr = types.makePointer(@ptrCast(func));
             compiler_mod.Compiler.unrootFunction(vm.gc, func);
             _ = vm.execute(func) catch |err| return err;
@@ -266,7 +269,7 @@ pub fn handleDefineRecordType(vm: *VM, args: Value) VMError!Value {
             const func = if (vm.current_lib_env) |env|
                 compiler_mod.compileExpressionInEnv(vm.gc, define_expr, &vm.macros, env, types.NIL) catch return VMError.CompileError
             else
-                compiler_mod.compileExpressionWithMacros(vm.gc, define_expr, &vm.macros, &vm.globals) catch return VMError.CompileError;
+                compiler_mod.compileExpressionWithMacros(vm.gc, define_expr, &vm.macros, vm.globals) catch return VMError.CompileError;
             define_expr = types.makePointer(@ptrCast(func));
             compiler_mod.Compiler.unrootFunction(vm.gc, func);
             _ = vm.execute(func) catch |err| return err;

@@ -2,6 +2,7 @@ const std = @import("std");
 const types = @import("types.zig");
 const memory = @import("memory.zig");
 const compiler_mod = @import("compiler.zig");
+const vm_mod = @import("vm.zig");
 
 const Value = types.Value;
 const OpCode = types.OpCode;
@@ -181,6 +182,8 @@ pub const IR = struct {
             if (st.contains(name)) return true;
         }
         const g = self.globals orelse return false;
+        const glk = vm_mod.acquireGlobalsRead(g);
+        defer vm_mod.releaseGlobalsRead(glk);
         const val = g.get(name) orelse {
             // In a restricted environment, missing names mean "not available".
             // Return true so the IR does not inline the primitive; the VM

@@ -743,7 +743,7 @@ pub fn repl(vm: *vm_mod.VM) !void {
             if (types.isPair(expr) and types.isSymbol(types.car(expr))) {
                 const ename = types.symbolName(types.car(expr));
                 if (vm.macros.get(ename)) |transformer| {
-                    const expanded = expander.expandMacro(vm.gc, expr, transformer, &vm.globals, &vm.macros) catch {
+                    const expanded = expander.expandMacro(vm.gc, expr, transformer, vm.globals, &vm.macros) catch {
                         writeStderr("expansion error\n");
                         input_buf.clearRetainingCapacity();
                         continue;
@@ -994,13 +994,13 @@ fn evalInputInner(vm: *vm_mod.VM, allocator: std.mem.Allocator, input: []const u
                     writeStdout("\n");
                 }
                 if (mode == .store_last) {
-                    vm.globals.put("_", dr) catch {};
+                    vm.globalsPut("_", dr) catch {};
                 }
             }
             continue;
         }
 
-        const func = compiler.compileExpressionWithMacrosAt(vm.gc, expr, &vm.macros, &vm.globals, 0, "<repl>") catch |err| {
+        const func = compiler.compileExpressionWithMacrosAt(vm.gc, expr, &vm.macros, vm.globals, 0, "<repl>") catch |err| {
             const lc = r.getLineCol();
             var errbuf: [256]u8 = undefined;
             const s = std.fmt.bufPrint(&errbuf, "<repl>:{d}: compile error: {}\n", .{ lc.line, err }) catch "compile error\n";
@@ -1057,7 +1057,7 @@ fn evalInputInner(vm: *vm_mod.VM, allocator: std.mem.Allocator, input: []const u
                 writeStdout("\n");
             }
             if (mode == .store_last) {
-                vm.globals.put("_", result) catch {};
+                vm.globalsPut("_", result) catch {};
             }
         }
     }

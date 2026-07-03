@@ -121,7 +121,10 @@ fn callPredOrCharset(pred: Value, cp: u21) PrimitiveError!bool {
 
     // If pred is a record instance, try char-set-contains?
     if (types.isRecordInstance(pred)) {
-        const cs_contains = vm.globals.get("char-set-contains?") orelse return PrimitiveError.TypeError;
+        vm.lockGlobalsShared();
+        const cs_contains_opt = vm.globals.get("char-set-contains?");
+        vm.unlockGlobalsShared();
+        const cs_contains = cs_contains_opt orelse return PrimitiveError.TypeError;
         const result = vm.callWithArgs(cs_contains, &[_]Value{ pred, char_val }) catch |err| {
             return switch (err) {
                 vm_mod.VMError.ContinuationInvoked => PrimitiveError.ContinuationInvoked,

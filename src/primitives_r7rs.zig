@@ -215,7 +215,7 @@ fn evalFn(args: []const Value) PrimitiveError!Value {
         return result;
     }
 
-    const func = compiler_mod.compileExpressionWithMacros(gc, expr, &vm.macros, &vm.globals) catch return PrimitiveError.TypeError;
+    const func = compiler_mod.compileExpressionWithMacros(gc, expr, &vm.macros, vm.globals) catch return PrimitiveError.TypeError;
     var closure_val = gc.allocClosure(func) catch return PrimitiveError.OutOfMemory;
     compiler_mod.Compiler.unrootFunction(gc, func);
     gc.pushRoot(&closure_val) catch return PrimitiveError.OutOfMemory;
@@ -309,7 +309,7 @@ fn loadFn(args: []const Value) PrimitiveError!Value {
     while (reader.hasMore() catch return PrimitiveError.TypeError) { // bare-ok: reader error in load
         const expr = reader.readDatum() catch return PrimitiveError.TypeError;
 
-        const func = compiler_mod.compileExpressionWithMacros(gc, expr, &vm.macros, &vm.globals) catch return PrimitiveError.TypeError;
+        const func = compiler_mod.compileExpressionWithMacros(gc, expr, &vm.macros, vm.globals) catch return PrimitiveError.TypeError;
         {
             var func_val = types.makePointer(@ptrCast(func));
             gc.pushRoot(&func_val) catch return PrimitiveError.OutOfMemory;
@@ -376,7 +376,7 @@ fn interactionEnvironmentFn(args: []const Value) PrimitiveError!Value {
     _ = args;
     const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError; // bare-ok: no VM
     const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
-    return gc.allocEnvironment(&vm.globals, false) catch return PrimitiveError.OutOfMemory;
+    return gc.allocEnvironment(vm.globals, false) catch return PrimitiveError.OutOfMemory;
 }
 
 fn nullEnvironmentFn(args: []const Value) PrimitiveError!Value {

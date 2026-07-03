@@ -254,7 +254,7 @@ fn mainImpl(init: std.process.Init.Minimal) !void {
     if (comptime is_wasm) {
         try primitives.registerAll(vm);
         primitives.setGCInstance(&gc);
-        try library.registerStandardLibraries(&vm.libraries, &vm.globals);
+        try library.registerStandardLibraries(&vm.libraries, vm.globals);
 
         var wasi_args = try init.args.iterateAllocator(allocator);
         defer wasi_args.deinit();
@@ -279,12 +279,12 @@ fn mainImpl(init: std.process.Init.Minimal) !void {
     if (is_sandboxed) {
         try primitives.registerSandboxed(vm);
         primitives.setGCInstance(&gc);
-        try library.registerSandboxedLibraries(&vm.libraries, &vm.globals);
+        try library.registerSandboxedLibraries(&vm.libraries, vm.globals);
         vm.sandbox_mode = true;
     } else {
         try primitives.registerAll(vm);
         primitives.setGCInstance(&gc);
-        try library.registerStandardLibraries(&vm.libraries, &vm.globals);
+        try library.registerStandardLibraries(&vm.libraries, vm.globals);
     }
 
     // Standalone mode: run embedded bytecode and exit
@@ -847,7 +847,7 @@ fn runFile(vm: *vm_mod.VM, path: []const u8) !void {
             continue;
         }
 
-        const func = compiler.compileExpressionWithMacrosAt(vm.gc, expr, &vm.macros, &vm.globals, datum_lc.line, path) catch |err| {
+        const func = compiler.compileExpressionWithMacrosAt(vm.gc, expr, &vm.macros, vm.globals, datum_lc.line, path) catch |err| {
             var errbuf: [256]u8 = undefined;
             const s = std.fmt.bufPrint(&errbuf, "{s}:{d}: compile error: {}\n", .{ path, datum_lc.line, err }) catch "compile error\n";
             writeStderr(s);
@@ -983,7 +983,7 @@ fn runStdin(vm: *vm_mod.VM) !void {
             continue;
         }
 
-        const func = compiler.compileExpressionWithMacrosAt(vm.gc, expr, &vm.macros, &vm.globals, 0, "<stdin>") catch |err| {
+        const func = compiler.compileExpressionWithMacrosAt(vm.gc, expr, &vm.macros, vm.globals, 0, "<stdin>") catch |err| {
             const lc = r.getLineCol();
             var errbuf: [256]u8 = undefined;
             const s = std.fmt.bufPrint(&errbuf, "<stdin>:{d}: compile error: {}\n", .{ lc.line, err }) catch "compile error\n";
@@ -1082,7 +1082,7 @@ fn disassembleFile(vm: *vm_mod.VM, path: []const u8) !void {
             continue;
         }
 
-        const func = compiler.compileExpressionWithMacrosAt(vm.gc, expr, &vm.macros, &vm.globals, datum_lc.line, path) catch |err| {
+        const func = compiler.compileExpressionWithMacrosAt(vm.gc, expr, &vm.macros, vm.globals, datum_lc.line, path) catch |err| {
             var errbuf: [256]u8 = undefined;
             const s = std.fmt.bufPrint(&errbuf, "{s}:{d}: compile error: {}\n", .{ path, datum_lc.line, err }) catch "compile error\n";
             writeStderr(s);
@@ -1179,7 +1179,7 @@ fn compileFile(vm: *vm_mod.VM, path: []const u8, output_path: ?[]const u8) !void
             continue;
         }
 
-        const func = compiler.compileExpressionWithMacrosAt(vm.gc, expr, &vm.macros, &vm.globals, datum_lc.line, path) catch |err| {
+        const func = compiler.compileExpressionWithMacrosAt(vm.gc, expr, &vm.macros, vm.globals, datum_lc.line, path) catch |err| {
             var errbuf: [256]u8 = undefined;
             const s = std.fmt.bufPrint(&errbuf, "{s}:{d}: compile error: {}\n", .{ path, datum_lc.line, err }) catch "compile error\n";
             writeStderr(s);

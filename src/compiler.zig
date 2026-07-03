@@ -6,6 +6,7 @@ const forms = @import("compiler_forms.zig");
 const advanced = @import("compiler_advanced.zig");
 const passthrough = @import("compiler_passthrough.zig");
 const ir_mod = @import("ir.zig");
+const vm_mod = @import("vm.zig");
 const Value = types.Value;
 const OpCode = types.OpCode;
 
@@ -1208,6 +1209,13 @@ pub const Compiler = struct {
                 var global_free_names: [64][]const u8 = undefined;
                 var global_free_count: usize = 0;
                 if (self.globals) |g| {
+                    // The sentinel puts below structurally mutate the globals
+                    // map when g is the VM's shared one — exclude SRFI-18
+                    // child-thread readers for the whole dance (#958). glk is
+                    // non-null exactly when g is the current thread's shared
+                    // globals map.
+                    const glk = vm_mod.acquireGlobalsWrite(g);
+                    defer vm_mod.releaseGlobalsWrite(glk);
                     for (tx.captured_locals) |cap| {
                         if (!g.contains(cap.name) and temp_global_count < 128) {
                             temp_globals[temp_global_count] = .{ .name = cap.name, .old_val = null, .was_present = false };
@@ -1227,8 +1235,7 @@ pub const Compiler = struct {
                     }
                     // Temporarily mark non-procedure free globals as VOID so
                     // renameForHygiene preserves them.
-                    const vm_mod2 = @import("vm.zig");
-                    if (vm_mod2.vm_instance) |vm| {
+                    if (vm_mod.vm_instance) |vm| {
                         var cand_names: [64][]const u8 = undefined;
                         var cand_count: usize = 0;
                         var pv_names: [64][]const u8 = undefined;
@@ -1243,7 +1250,16 @@ pub const Compiler = struct {
                         }
                         for (cand_names[0..cand_count]) |cname| {
                             const in_g = g.get(cname);
-                            const in_vm = if (vm.globals.count() > 0) vm.globals.get(cname) else null;
+                            // glk != null means g IS the shared globals map
+                            // and we already hold its exclusive lock; else
+                            // this read needs its own child-thread lock.
+                            const in_vm = if (glk != null)
+                                (if (vm.globals.count() > 0) vm.globals.get(cname) else null)
+                            else in_vm_blk: {
+                                vm.lockGlobalsShared();
+                                defer vm.unlockGlobalsShared();
+                                break :in_vm_blk if (vm.globals.count() > 0) vm.globals.get(cname) else null;
+                            };
                             const existing = in_g orelse in_vm;
                             if (existing) |val| {
                                 if (!types.isProcedure(val) and !types.isTransformer(val) and val != types.VOID) {
@@ -1263,6 +1279,7 @@ pub const Compiler = struct {
                     }
                 }
                 defer if (self.globals) |g| {
+                    const glk = vm_mod.acquireGlobalsWrite(g);
                     for (temp_globals[0..temp_global_count]) |tg| {
                         if (tg.was_present) {
                             g.put(tg.name, tg.old_val.?) catch {};
@@ -1270,6 +1287,7 @@ pub const Compiler = struct {
                             _ = g.remove(tg.name);
                         }
                     }
+                    vm_mod.releaseGlobalsWrite(glk);
                 };
                 // Suppress GC during expansion: the expanded form isn't
                 // rooted until pushRoot below, so a collection triggered

@@ -27,7 +27,7 @@ export fn kaappi_runtime_init() callconv(.c) ?*vm_mod.VM {
         return null;
     };
     primitives.setGCInstance(&rt_gc);
-    library.registerStandardLibraries(&vm.libraries, &vm.globals) catch {
+    library.registerStandardLibraries(&vm.libraries, vm.globals) catch {
         vm.deinit();
         allocator.destroy(vm);
         return null;

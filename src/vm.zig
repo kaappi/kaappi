@@ -43,6 +43,81 @@ pub fn setVMInstance(vm: *VM) void {
     vm_instance = vm;
 }
 
+/// Minimal portable reader-writer spinlock (Zig 0.16 has no blocking
+/// std.Thread.RwLock; std.Io.RwLock needs an Io instance). Same approach as
+/// memory.zig's symbol_mutex spinlock. Writer-preferring: once a writer sets
+/// its bit, new readers spin, existing readers drain, then the writer runs.
+/// Critical sections here are single hash-map operations, so spinning is
+/// bounded and short. Not reentrant — never nest acquisitions.
+pub const GlobalsRwLock = struct {
+    /// Bit 31 = writer holds/wants the lock; low 31 bits = active readers.
+    state: std.atomic.Value(u32) = .init(0),
+
+    const WRITER: u32 = 0x8000_0000;
+
+    pub fn lockShared(self: *GlobalsRwLock) void {
+        while (true) {
+            const s = self.state.load(.monotonic);
+            if (s & WRITER == 0) {
+                if (self.state.cmpxchgWeak(s, s + 1, .acquire, .monotonic) == null) return;
+            }
+            std.atomic.spinLoopHint();
+        }
+    }
+
+    pub fn unlockShared(self: *GlobalsRwLock) void {
+        _ = self.state.fetchSub(1, .release);
+    }
+
+    pub fn lock(self: *GlobalsRwLock) void {
+        // Claim the writer bit (excludes other writers, stops new readers) …
+        while (true) {
+            const s = self.state.load(.monotonic);
+            if (s & WRITER == 0) {
+                if (self.state.cmpxchgWeak(s, s | WRITER, .acquire, .monotonic) == null) break;
+            }
+            std.atomic.spinLoopHint();
+        }
+        // … then wait for in-flight readers to drain.
+        while (self.state.load(.acquire) != WRITER) std.atomic.spinLoopHint();
+    }
+
+    pub fn unlock(self: *GlobalsRwLock) void {
+        self.state.store(0, .release);
+    }
+};
+
+/// Take the exclusive globals lock if `map` is the current thread's shared
+/// globals map, for compile-time code that only holds a map pointer (body
+/// prescans, macro-expansion temp globals). Returns the lock to hand to
+/// releaseGlobalsWrite, or null when no locking applies: `map` is a library
+/// env, or no VM is registered on this thread yet (startup — no child
+/// threads can exist before the first execute()).
+pub fn acquireGlobalsWrite(map: *const std.StringHashMap(Value)) ?*GlobalsRwLock {
+    const vm = vm_instance orelse return null;
+    if (@as(*const std.StringHashMap(Value), vm.globals) != map) return null;
+    vm.globals_lock.lock();
+    return vm.globals_lock;
+}
+
+pub fn releaseGlobalsWrite(lock: ?*GlobalsRwLock) void {
+    if (lock) |l| l.unlock();
+}
+
+/// Shared-lock counterpart of acquireGlobalsWrite for read-only compile-time
+/// access. No-ops on the owner thread (its reads cannot race its own writes).
+pub fn acquireGlobalsRead(map: *const std.StringHashMap(Value)) ?*GlobalsRwLock {
+    const vm = vm_instance orelse return null;
+    if (vm.owns_globals) return null;
+    if (@as(*const std.StringHashMap(Value), vm.globals) != map) return null;
+    vm.globals_lock.lockShared();
+    return vm.globals_lock;
+}
+
+pub fn releaseGlobalsRead(lock: ?*GlobalsRwLock) void {
+    if (lock) |l| l.unlockShared();
+}
+
 /// Mark the VM's live roots during a GC cycle: the register window of every
 /// active call frame, the frame closures, the exception-handler stack,
 /// dynamic-wind thunks, the in-flight exception, and the global/macro tables.
@@ -187,7 +262,23 @@ pub const VM = struct {
     registers: []Value,
     frames: []CallFrame,
     frame_count: usize = 0,
-    globals: std.StringHashMap(Value),
+    /// Heap-allocated and shared BY POINTER with SRFI-18 child-thread VMs
+    /// (initForThread), so a parent-side rehash is seen by children instead
+    /// of leaving them on a freed bucket array (#958). Access protocol
+    /// (globals_lock):
+    ///   - structural mutation (put/remove — may rehash and free the bucket
+    ///     array) takes the exclusive lock, on any thread;
+    ///   - child threads (owns_globals == false) take the shared lock for
+    ///     every map read;
+    ///   - the owner thread reads lock-free: it is the only thread expected
+    ///     to structurally mutate the map, so its own reads cannot race.
+    /// Known gap: a child that defines globals via `eval` takes the exclusive
+    /// lock (protecting other children), but the owner's lock-free reads can
+    /// still race such writes — same limitation PR #968 documented for child
+    /// writes. The `macros` and `libraries` maps are still shared by struct
+    /// copy and have the analogous (much rarer) staleness hazard.
+    globals: *std.StringHashMap(Value),
+    globals_lock: *GlobalsRwLock,
     macros: std.StringHashMap(Value),
     output: std.ArrayList(u8),
     libraries: library_mod.LibraryRegistry,
@@ -267,11 +358,18 @@ pub const VM = struct {
         errdefer gc.allocator.free(frames);
         const registers = try gc.allocator.alloc(Value, INITIAL_REGISTER_CAPACITY);
         errdefer gc.allocator.free(registers);
+        const globals_map = try gc.allocator.create(std.StringHashMap(Value));
+        errdefer gc.allocator.destroy(globals_map);
+        globals_map.* = std.StringHashMap(Value).init(gc.allocator);
+        const globals_lock = try gc.allocator.create(GlobalsRwLock);
+        errdefer gc.allocator.destroy(globals_lock);
+        globals_lock.* = .{};
         var vm = VM{
             .gc = gc,
             .frames = frames,
             .registers = registers,
-            .globals = std.StringHashMap(Value).init(gc.allocator),
+            .globals = globals_map,
+            .globals_lock = globals_lock,
             .macros = std.StringHashMap(Value).init(gc.allocator),
             .output = .empty,
             .libraries = library_mod.LibraryRegistry.init(gc.allocator),
@@ -300,7 +398,12 @@ pub const VM = struct {
             .gc = gc,
             .frames = frames,
             .registers = registers,
+            // Shared by pointer: the child sees the parent's map through
+            // every rehash. Reads on this VM take the shared lock (see the
+            // `globals` field doc); a struct copy here would leave the child
+            // on a freed bucket array after the first parent-side rehash.
             .globals = parent.globals,
+            .globals_lock = parent.globals_lock,
             .macros = parent.macros,
             .output = .empty,
             .libraries = parent.libraries,
@@ -332,6 +435,8 @@ pub const VM = struct {
         }
         if (self.owns_globals) {
             self.globals.deinit();
+            self.gc.allocator.destroy(self.globals);
+            self.gc.allocator.destroy(self.globals_lock);
             self.macros.deinit();
             self.libraries.deinit();
         }
@@ -408,6 +513,10 @@ pub const VM = struct {
     pub fn findSimilarName(self: *VM, name: []const u8) ?[]const u8 {
         var best: ?[]const u8 = null;
         var best_dist: usize = 4;
+        // Locks internally — callers (dispatch error paths) must not hold
+        // the globals lock when calling this.
+        self.lockGlobalsShared();
+        defer self.unlockGlobalsShared();
         var iter = self.globals.keyIterator();
         while (iter.next()) |key| {
             const candidate = key.*;
@@ -512,8 +621,31 @@ pub const VM = struct {
         return self.last_stack_trace[0..self.last_stack_trace_len];
     }
 
-    pub fn defineGlobal(self: *VM, name: []const u8, value: Value) !void {
+    // -- Shared-globals locking (see the `globals` field doc) --
+
+    /// Take the globals read lock if this VM shares another VM's globals
+    /// (SRFI-18 child thread). The owner reads lock-free. Never nest: a
+    /// second lockShared while a writer is queued can deadlock.
+    pub inline fn lockGlobalsShared(self: *VM) void {
+        if (!self.owns_globals) self.globals_lock.lockShared();
+    }
+
+    pub inline fn unlockGlobalsShared(self: *VM) void {
+        if (!self.owns_globals) self.globals_lock.unlockShared();
+    }
+
+    /// Insert/overwrite a globals binding under the exclusive lock, so a
+    /// concurrent child-thread reader never observes a rehash in progress.
+    /// Does not bump global_version — use defineGlobal for definition
+    /// semantics.
+    pub fn globalsPut(self: *VM, name: []const u8, value: Value) !void {
+        self.globals_lock.lock();
+        defer self.globals_lock.unlock();
         try self.globals.put(name, value);
+    }
+
+    pub fn defineGlobal(self: *VM, name: []const u8, value: Value) !void {
+        try self.globalsPut(name, value);
         self.global_version +%= 1;
     }
 
