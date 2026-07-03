@@ -3,7 +3,6 @@ const types = @import("types.zig");
 const memory = @import("memory.zig");
 const compiler_mod = @import("compiler.zig");
 const library_mod = @import("library.zig");
-const bytecode_file = @import("bytecode_file.zig");
 const Value = types.Value;
 
 const passthrough = @import("compiler_passthrough.zig");
@@ -271,102 +270,6 @@ pub fn libraryFileExists(vm: *VM, name_list: Value) bool {
     return false;
 }
 
-const LibraryMeta = struct {
-    export_names: std.ArrayList([]const u8),
-    export_renames: std.ArrayList(?[]const u8),
-    lib_name: []const u8,
-
-    fn deinit(self: *LibraryMeta, allocator: std.mem.Allocator) void {
-        self.export_names.deinit(allocator);
-        self.export_renames.deinit(allocator);
-    }
-};
-
-/// Parse a .sld file and extract only the export names and process imports,
-/// without compiling or evaluating begin blocks.
-/// Used on cache hit to reconstruct the library's export table.
-fn extractExportsAndImports(vm: *VM, source: []const u8) !LibraryMeta {
-    const reader_mod = @import("reader.zig");
-    var rdr = reader_mod.Reader.init(vm.gc, source);
-    defer rdr.deinit();
-
-    var result: LibraryMeta = .{
-        .export_names = .empty,
-        .export_renames = .empty,
-        .lib_name = "",
-    };
-
-    while (rdr.hasMore() catch return error.InvalidSyntax) {
-        var expr = rdr.readDatum() catch return error.InvalidSyntax;
-
-        if (!types.isPair(expr)) continue;
-        const head = types.car(expr);
-        if (!types.isSymbol(head)) continue;
-        if (!std.mem.eql(u8, types.symbolName(head), "define-library")) continue;
-
-        vm.gc.pushRoot(&expr) catch return error.InvalidSyntax;
-        defer vm.gc.popRoot();
-
-        const args = types.cdr(expr);
-        if (!types.isPair(args)) continue;
-        const name_list = types.car(args);
-        result.lib_name = library_mod.libraryNameToString(vm.gc.allocator, name_list) catch return error.InvalidSyntax;
-
-        var decl = types.cdr(args);
-        while (decl != types.NIL) {
-            if (!types.isPair(decl)) break;
-            const declaration = types.car(decl);
-            decl = types.cdr(decl);
-
-            if (!types.isPair(declaration)) continue;
-            const decl_head = types.car(declaration);
-            if (!types.isSymbol(decl_head)) continue;
-            const decl_name = types.symbolName(decl_head);
-
-            if (std.mem.eql(u8, decl_name, "export")) {
-                var id_list = types.cdr(declaration);
-                while (id_list != types.NIL) {
-                    if (!types.isPair(id_list)) break;
-                    const id = types.car(id_list);
-                    if (types.isSymbol(id)) {
-                        result.export_names.append(vm.gc.allocator, types.symbolName(id)) catch return error.InvalidSyntax;
-                        result.export_renames.append(vm.gc.allocator, null) catch return error.InvalidSyntax;
-                    } else if (types.isPair(id)) {
-                        const eh = types.car(id);
-                        if (types.isSymbol(eh) and std.mem.eql(u8, types.symbolName(eh), "rename")) {
-                            const rename_args = types.cdr(id);
-                            if (types.isPair(rename_args)) {
-                                const os = types.car(rename_args);
-                                const nr = types.cdr(rename_args);
-                                if (types.isPair(nr) and types.isSymbol(os)) {
-                                    const ns = types.car(nr);
-                                    if (types.isSymbol(ns)) {
-                                        result.export_names.append(vm.gc.allocator, types.symbolName(os)) catch return error.InvalidSyntax;
-                                        result.export_renames.append(vm.gc.allocator, types.symbolName(ns)) catch return error.InvalidSyntax;
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    id_list = types.cdr(id_list);
-                }
-            } else if (std.mem.eql(u8, decl_name, "import")) {
-                // Process imports so dependencies are available for cached code
-                _ = handleImport(vm, types.cdr(declaration)) catch {};
-            }
-        }
-        break; // Only process the first define-library form
-    }
-
-    return result;
-}
-
-/// Try to load a library from a .sld file on disk.
-/// Search order: ./rel_path, ./lib/rel_path, then each vm.lib_paths entry
-/// (--lib-path flags, the script's directory, ~/.kaappi/lib).
-/// Uses .sbc caching: on cache hit, executes cached bytecode and re-parses
-/// the .sld for export/import declarations. On cache miss, compiles normally
-/// and saves the .sbc file.
 /// Try to find a library's .sld source in bundled files, using the same
 /// search order as resolveLibraryPath.
 fn findBundledSource(bf: *std.StringHashMap([]const u8), rel_path: []const u8, lib_paths: []const []const u8) ?struct { path: []const u8, source: []const u8 } {
@@ -422,6 +325,9 @@ fn recordFileForBundle(vm: *VM, path: []const u8, content: []const u8) void {
     }
 }
 
+/// Try to load a library from a .sld file on disk.
+/// Search order: ./rel_path, ./lib/rel_path, then each vm.lib_paths entry
+/// (--lib-path flags, the script's directory, ~/.kaappi/lib).
 fn tryLoadLibraryFromFile(vm: *VM, name_list: Value) !void {
     if (vm.sandbox_mode) {
         vm.setErrorDetail("sandbox: cannot load library from file", .{});
@@ -464,74 +370,13 @@ fn tryLoadLibraryFromFile(vm: *VM, name_list: Value) !void {
     // without the compile-time --lib-path prefix)
     recordFileForBundle(vm, rel_path, source);
 
-    const source_hash = bytecode_file.sourceHash(source);
-
-    // Try .sbc cache
-    const sbc_path = bytecode_file.getSbcPath(allocator, sld_path) catch null;
-    defer if (sbc_path) |p| allocator.free(p);
-
-    if (sbc_path) |sp| {
-        if (bytecode_file.readFileWithTopLevel(vm.gc, source_hash, sp) catch null) |loaded| {
-            defer allocator.free(loaded.funcs);
-
-            // Cache hit — re-parse .sld for export/import declarations
-            var meta = extractExportsAndImports(vm, source) catch {
-                // Fall through to source compilation on parse error
-                loadLibrarySource(vm, source) catch return error.UndefinedVariable;
-                return;
-            };
-            defer meta.deinit(allocator);
-
-            if (meta.lib_name.len == 0) {
-                // No define-library found — fall through to source compilation
-                loadLibrarySource(vm, source) catch return error.UndefinedVariable;
-                return;
-            }
-
-            // Execute cached functions (they define globals)
-            const top_count = @min(loaded.top_level_count, @as(u32, @intCast(loaded.funcs.len)));
-            for (loaded.funcs[0..top_count]) |func| {
-                var func_val = types.makePointer(@ptrCast(func));
-                vm.gc.pushRoot(&func_val) catch return error.OutOfMemory;
-                _ = vm.execute(func) catch {
-                    vm.gc.popRoot();
-                    continue;
-                };
-                vm.gc.popRoot();
-            }
-
-            // Register the library with its exports
-            var lib = library_mod.Library.initOwned(allocator, meta.lib_name);
-            var all_exports_found = true;
-            for (0..meta.export_names.items.len) |ei| {
-                const internal = meta.export_names.items[ei];
-                const exported = meta.export_renames.items[ei] orelse internal;
-                if (vm.globals.get(internal)) |val| {
-                    lib.addExport(exported, val) catch {
-                        lib.deinit();
-                        return error.OutOfMemory;
-                    };
-                } else {
-                    // Macro exports can't be restored from cached bytecode
-                    all_exports_found = false;
-                    break;
-                }
-            }
-            if (all_exports_found) {
-                vm.libraries.register(lib) catch {
-                    lib.deinit();
-                    return error.OutOfMemory;
-                };
-                return;
-            }
-            // Cache didn't restore all exports (macros) — fall through to source compilation
-            lib.deinit();
-        }
-    }
-
-    // Compile from source (skip .sbc caching for .sld files — collected function
-    // pointers can be freed by GC during library loading, causing use-after-free
-    // in the serializer)
+    // No .sbc caching for .sld files, in either direction. Writing was
+    // disabled because collected function pointers can be freed by GC during
+    // library loading (use-after-free in the serializer). The old cache-read
+    // path reconstructed the export table by re-parsing the .sld top level,
+    // silently dropping exports from include-library-declarations and
+    // cond-expand — if caching is ever reintroduced, serialize the export
+    // table into the .sbc instead of re-deriving it from source.
     loadLibrarySource(vm, source) catch {
         return error.UndefinedVariable;
     };
