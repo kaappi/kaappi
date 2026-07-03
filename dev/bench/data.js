@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783074766235,
+  "lastUpdate": 1783074886945,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "d0f85fcae74b35d5dc7a4baa1222bc49b8192387",
-          "message": "Merge pull request #721 from kaappi/fix/get-env-vars-696\n\nImplement get-environment-variables using POSIX environ",
-          "timestamp": "2026-07-02T11:04:14+05:30",
-          "tree_id": "a7902f9c0f812e825be41b13b1d2bcb95a87c3c6",
-          "url": "https://github.com/kaappi/kaappi/commit/d0f85fcae74b35d5dc7a4baa1222bc49b8192387"
-        },
-        "date": 1782972958611,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.324692,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.655496,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.835694,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.259524,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.00688,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.032545,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.461962,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.069816,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.907574,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.780093,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.103295,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.224936,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 2.43122,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.65074,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.042757,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.042899,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "fbaf9fb6239701b13ce2a6f78555e93278c4bfd6",
+          "message": "Fix panic on closures capturing 27+ variables (#809) (#953)\n\nTwo distinct u8-overflow panics on legal programs:\n\n- allocClosure computed its byte accounting in u8 arithmetic\n  (upvalue_count is u8), overflowing at 27 captures (27*8 + 40 > 255)\n  and aborting the process on every closure creation. Widen the\n  arithmetic to usize.\n\n- addUpvalue @intCast'd the upvalue count into a u8 upvalue_count field,\n  panicking past 255 captures. Widen upvalue_count to u16 (matching the\n  u16 locals_count and the u16 upvalue index already used in the\n  bytecode) so 256+ captures work, and cap the count gracefully at the\n  u16 limit with a CompileError instead of a panic.\n\nSerializing upvalue_count as u16 bumps the .sbc format to v5; stale v4\ncaches are rejected on version mismatch and recompiled.\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
+          "timestamp": "2026-07-03T10:18:34Z",
+          "tree_id": "6a7cb02e578ea6ac468f99cf52a7e56a9cfcfffc",
+          "url": "https://github.com/kaappi/kaappi/commit/fbaf9fb6239701b13ce2a6f78555e93278c4bfd6"
+        },
+        "date": 1783074886547,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.414608,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.489819,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.80338,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.120654,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006838,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.032412,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.457598,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.069546,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 4.093353,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.749161,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.149048,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.426738,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 2.33876,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.661713,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.042034,
             "unit": "seconds"
           }
         ]
