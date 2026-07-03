@@ -544,16 +544,37 @@ fn exactIntegerSqrt(args: []const Value) PrimitiveError!Value {
     if (types.isBignum(args[0])) {
         if (bignum_mod.isNegative(args[0])) return primitives.typeError("exact-integer-sqrt", "non-negative integer", args[0]);
         const n = args[0];
-        const approx = @sqrt(bignum_mod.toF64(n));
-        const approx_i: i64 = if (approx >= @as(f64, @floatFromInt(std.math.maxInt(i48))))
-            std.math.maxInt(i48)
-        else if (approx < 1.0)
-            1
-        else
-            @intFromFloat(approx);
-        var s: Value = types.makeFixnum(approx_i);
-        if (approx >= @as(f64, @floatFromInt(std.math.maxInt(i48)))) {
-            s = n;
+        // Use f64 sqrt as initial guess. When the number is too large
+        // for f64, compute bit-length and use (n >> shift) for the
+        // approximation, then shift the result back.
+        const f64_val = bignum_mod.toF64(n);
+        var s: Value = undefined;
+        if (std.math.isInf(f64_val)) {
+            // Estimate bit length from limb count, use n >> (bits-52)
+            // rounded to even, then sqrt, then shift result back.
+            const bn = types.toBignum(n);
+            const bit_len: u32 = @intCast(bn.len * 64);
+            const shift: u32 = ((bit_len - 52) + 1) & ~@as(u32, 1);
+            // Divide by 2^shift using bignum quotient with a power of 2
+            var pow2 = types.makeFixnum(1);
+            var i: u32 = 0;
+            while (i < shift) : (i += 1) {
+                pow2 = bignum_mod.mul(gc, pow2, types.makeFixnum(2)) catch return PrimitiveError.OutOfMemory;
+            }
+            const shifted = bignum_mod.quotient(gc, n, pow2) catch return PrimitiveError.OutOfMemory;
+            const approx = @sqrt(bignum_mod.toF64(shifted));
+            const approx_i: i64 = if (approx < 1.0) 1 else @intFromFloat(approx);
+            var approx_val = try arith.makeFixnumChecked(approx_i);
+            // Multiply by 2^(shift/2) to get back
+            var j: u32 = 0;
+            while (j < shift / 2) : (j += 1) {
+                approx_val = bignum_mod.mul(gc, approx_val, types.makeFixnum(2)) catch return PrimitiveError.OutOfMemory;
+            }
+            s = approx_val;
+        } else {
+            const approx = @sqrt(f64_val);
+            const approx_i: i64 = if (approx < 1.0) 1 else if (approx >= @as(f64, @floatFromInt(std.math.maxInt(i48)))) std.math.maxInt(i48) else @intFromFloat(approx);
+            s = try arith.makeFixnumChecked(approx_i);
         }
         gc.extra_roots.append(gc.allocator, s) catch return PrimitiveError.OutOfMemory;
         defer _ = gc.extra_roots.pop();

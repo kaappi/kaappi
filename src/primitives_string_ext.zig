@@ -359,7 +359,7 @@ fn stringJoinFn(args: []const Value) PrimitiveError!Value {
     const delim: []const u8 = if (args.len > 1)
         (try getStringSlice(args[1]))
     else
-        "";
+        " ";
 
     // Calculate total length
     var total: usize = 0;
