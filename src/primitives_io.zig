@@ -723,9 +723,16 @@ fn fileExistsP(args: []const Value) PrimitiveError!Value {
     const path_z = gc.allocator.dupeZ(u8, path) catch return PrimitiveError.OutOfMemory;
     defer gc.allocator.free(path_z);
 
-    var stat_buf: std.c.Stat = undefined;
-    if (std.c.fstatat(std.posix.AT.FDCWD, path_z, &stat_buf, 0) != 0)
-        return types.FALSE;
+    if (comptime @import("builtin").os.tag == .linux) {
+        const linux = std.os.linux;
+        var sx: linux.Statx = undefined;
+        const rc = linux.statx(@bitCast(@as(i32, std.posix.AT.FDCWD)), path_z, 0, linux.STATX.BASIC_STATS, &sx);
+        if (rc > @as(usize, std.math.maxInt(isize))) return types.FALSE;
+    } else {
+        var stat_buf: std.c.Stat = undefined;
+        if (std.c.fstatat(std.posix.AT.FDCWD, path_z, &stat_buf, 0) != 0)
+            return types.FALSE;
+    }
     return types.TRUE;
 }
 
