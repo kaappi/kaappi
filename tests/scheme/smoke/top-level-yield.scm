@@ -8,9 +8,17 @@
 ;; Bug 2: when the main fiber's form completed inside a nested scheduler
 ;; loop (a blocked fiber's native primitive resuming it via runUntil), the
 ;; top-level form's value was replaced by the spawned fiber's thunk result.
+;;
+;; Bug 3: parameter values set before the scheduler existed (stored in the
+;; VM-level overrides) became invisible once spawn created the scheduler,
+;; because parameter reads only consulted the current fiber's override map.
+;;
+;; Manual counters instead of SRFI-64: the SRFI-64 shim is broken pending
+;; PR #929 (test-equal expands to an undefined %test-on-test-begin).
 
 (import (scheme base)
         (scheme write)
+        (scheme process-context)
         (kaappi fibers)
         (srfi 18))
 
@@ -27,6 +35,11 @@
         (display " expected=") (write expected)
         (newline))))
 
+;; Bug 3: parameter set before the scheduler exists must stay visible after
+;; spawn lazily creates it, both on the main fiber and in spawned fibers.
+(define p (make-parameter 1))
+(define setp (p 2))
+
 ;; Bug 1: top-level define with a yielding body. Without the fix this
 ;; aborts with error.Yielded and x is never defined.
 (define x (let ((f (spawn (lambda () 12345))))
@@ -35,6 +48,9 @@
             99))
 
 (check "define with yielding body" x 99)
+(check "parameter visible after scheduler creation" (p) 2)
+(check "spawned fiber inherits pre-scheduler parameter"
+       (fiber-join (spawn (lambda () (p)))) 2)
 
 ;; Bug 2: the main fiber completes its form inside the nested scheduler
 ;; loop run by the spawned fiber's blocking mutex-lock!. The form's value
@@ -55,4 +71,4 @@
 
 (display pass) (display " passed, ") (display fail) (display " failed")
 (newline)
-(when (> fail 0) (error "top-level yield tests failed" fail))
+(when (> fail 0) (exit 1))

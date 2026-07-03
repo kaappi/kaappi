@@ -230,3 +230,25 @@ test "top-level form value is the main fiber's result after nested resume" {
     const fiber_result = try vm.eval("(fiber-join f)");
     try std.testing.expectEqual(@as(i64, 12345), types.toFixnum(fiber_result));
 }
+
+test "parameter set before scheduler creation stays visible" {
+    // Regression: values set while no fiber exists live in the VM-level
+    // override map; once spawn lazily created the scheduler, parameter
+    // reads consulted only the (empty) main fiber's map and fell back to
+    // the parameter's default.
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    _ = try vm.eval(
+        \\(define p (make-parameter 1))
+        \\(p 2)
+        \\(define f (spawn (lambda () (p))))
+    );
+    const main_val = try vm.eval("(p)");
+    try std.testing.expectEqual(@as(i64, 2), types.toFixnum(main_val));
+
+    const fiber_val = try vm.eval("(fiber-join f)");
+    try std.testing.expectEqual(@as(i64, 2), types.toFixnum(fiber_val));
+}
