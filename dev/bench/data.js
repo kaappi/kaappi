@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783089931318,
+  "lastUpdate": 1783092136486,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "11739e2d8f83563d62d431af12ca2558f9a699f4",
-          "message": "Merge pull request #762 from kaappi/fix/750-symbol-table-data-race\n\nFix data race in symbol table marking during SRFI-18 threading",
-          "timestamp": "2026-07-02T16:54:09+05:30",
-          "tree_id": "d6260db0f9ff20357c0d434e0069cedb0a3ea709",
-          "url": "https://github.com/kaappi/kaappi/commit/11739e2d8f83563d62d431af12ca2558f9a699f4"
-        },
-        "date": 1782992318822,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.347325,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.167486,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.809202,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.154391,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006924,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.032776,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.452729,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.068688,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 4.054155,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.780425,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.106407,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.215237,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 2.404556,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.544435,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.040424,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044843,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f8278f87d7b615b6fa93643f30165ce5110746f2",
+          "message": "Make current-input/output/error-port parameter objects (#811) (#979)\n\nR7RS 6.13.1 requires these to be parameter objects so parameterize\ncan redirect I/O. They were plain native procedures, causing an\narity error on (parameterize ((current-output-port sp)) ...).\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-03T15:07:09Z",
+          "tree_id": "43ece44619c44a48df9ed79146937e645901006e",
+          "url": "https://github.com/kaappi/kaappi/commit/f8278f87d7b615b6fa93643f30165ce5110746f2"
+        },
+        "date": 1783092135368,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.367426,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.306662,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.836833,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.655807,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006435,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.032834,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.474559,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.070498,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 4.032065,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.82363,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.183313,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.431704,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.805781,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.727365,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.043759,
             "unit": "seconds"
           }
         ]
