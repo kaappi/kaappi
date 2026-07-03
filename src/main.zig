@@ -97,6 +97,21 @@ fn writeStderr(bytes: []const u8) void {
     writeToFd(2, bytes);
 }
 
+/// Exit code for command-line usage errors (missing flag argument, unknown
+/// option, unknown completions shell). Follows the common getopt convention
+/// of 2, distinct from the 1 used for script read/compile/runtime errors, so
+/// callers can tell "you invoked kaappi wrong" apart from "your program failed".
+const USAGE_ERROR_EXIT: u8 = 2;
+
+/// Report a command-line usage error and terminate the process with
+/// `USAGE_ERROR_EXIT`. Mirrors how `(exit n)` exits directly via
+/// `std.process.exit`; usage errors are detected before any real work begins,
+/// so there is nothing to unwind.
+fn usageError(msg: []const u8) noreturn {
+    writeStderr(msg);
+    std.process.exit(USAGE_ERROR_EXIT);
+}
+
 fn printSourceSnippet(source: []const u8, line: u32) void {
     if (line == 0 or source.len == 0) return;
     var current_line: u32 = 1;
@@ -293,15 +308,14 @@ fn mainImpl(init: std.process.Init.Minimal) !void {
                 if (sa_iter.next()) |shell| {
                     if (@import("completions.zig").kaappi(shell)) |script| {
                         writeStdout(script);
-                    } else {
-                        writeStderr("unknown shell: ");
-                        writeStderr(shell);
-                        writeStderr("\nSupported: bash, zsh, fish\n");
+                        return;
                     }
-                } else {
-                    writeStderr("--completions requires a shell name (bash, zsh, fish)\n");
+                    writeStderr("unknown shell: ");
+                    writeStderr(shell);
+                    writeStderr("\nSupported: bash, zsh, fish\n");
+                    std.process.exit(USAGE_ERROR_EXIT);
                 }
-                return;
+                usageError("--completions requires a shell name (bash, zsh, fish)\n");
             } else if (std.mem.eql(u8, arg, "--gc-stats")) {
                 sa_gc_stats = true;
             } else if (std.mem.eql(u8, arg, "--profile")) {
@@ -310,7 +324,11 @@ fn mainImpl(init: std.process.Init.Minimal) !void {
                 sa_coverage = true;
             } else if (std.mem.eql(u8, arg, "--coverage-xml")) {
                 sa_coverage = true;
-                if (sa_iter.next()) |p| vm.coverage_xml_path = p;
+                if (sa_iter.next()) |p| {
+                    vm.coverage_xml_path = p;
+                } else {
+                    usageError("--coverage-xml requires a file path argument\n");
+                }
             } else {
                 if (sa_count < 64) {
                     sa[sa_count] = arg;
@@ -334,9 +352,11 @@ fn mainImpl(init: std.process.Init.Minimal) !void {
 
         const loaded = bytecode_file.readFromBuffer(&gc, bytecode_data) catch {
             writeStderr("fatal: corrupted embedded bytecode\n");
+            script_had_error = true;
             return;
         } orelse {
             writeStderr("fatal: invalid embedded bytecode (wrong version or format)\n");
+            script_had_error = true;
             return;
         };
         defer allocator.free(loaded.funcs);
@@ -372,6 +392,7 @@ fn mainImpl(init: std.process.Init.Minimal) !void {
                     defer gc.popRoot();
                     if (vm.handleTopLevelForm(expr)) |top_result| {
                         _ = top_result catch |err| {
+                            script_had_error = true;
                             const detail = vm.getErrorDetail();
                             if (detail.len > 0) {
                                 writeStderr("preamble error: ");
@@ -395,6 +416,7 @@ fn mainImpl(init: std.process.Init.Minimal) !void {
             vm.gc.pushRoot(&func_val) catch return error.OutOfMemory;
             const result = vm.execute(func) catch |err| {
                 vm.gc.popRoot();
+                script_had_error = true;
                 const detail = vm.getErrorDetail();
                 if (detail.len > 0) {
                     writeStderr(detail);
@@ -451,8 +473,7 @@ fn mainImpl(init: std.process.Init.Minimal) !void {
                     lib_path_count += 1;
                 }
             } else {
-                writeStderr("--lib-path requires a path argument\n");
-                return;
+                usageError("--lib-path requires a path argument\n");
             }
         } else if (std.mem.eql(u8, arg, "--profile")) {
             profile_mode = true;
@@ -460,8 +481,7 @@ fn mainImpl(init: std.process.Init.Minimal) !void {
             profile_mode = true;
             profile_json_path = args.next();
             if (profile_json_path == null) {
-                writeStderr("--profile-json requires a file path argument\n");
-                return;
+                usageError("--profile-json requires a file path argument\n");
             }
         } else if (std.mem.eql(u8, arg, "--coverage")) {
             coverage_mode = true;
@@ -470,8 +490,7 @@ fn mainImpl(init: std.process.Init.Minimal) !void {
             if (args.next()) |p| {
                 vm.coverage_xml_path = p;
             } else {
-                writeStderr("--coverage-xml requires a file path argument\n");
-                return;
+                usageError("--coverage-xml requires a file path argument\n");
             }
         } else if (std.mem.eql(u8, arg, "--sandbox")) {
             sandbox_mode = true;
@@ -484,8 +503,7 @@ fn mainImpl(init: std.process.Init.Minimal) !void {
         } else if (std.mem.eql(u8, arg, "-o")) {
             compile_output = args.next();
             if (compile_output == null) {
-                writeStderr("-o requires a file path argument\n");
-                return;
+                usageError("-o requires a file path argument\n");
             }
         } else if (std.mem.eql(u8, arg, "--disassemble")) {
             disassemble_mode = true;
@@ -497,16 +515,14 @@ fn mainImpl(init: std.process.Init.Minimal) !void {
                     vm.timeout_deadline_ns = clockNs() + ms * 1_000_000;
                 }
             } else {
-                writeStderr("--timeout requires a milliseconds argument\n");
-                return;
+                usageError("--timeout requires a milliseconds argument\n");
             }
         } else if (std.mem.eql(u8, arg, "--max-memory")) {
             if (args.next()) |mem_str| {
                 const limit = std.fmt.parseInt(usize, mem_str, 10) catch 0;
                 if (limit > 0) gc.memory_limit = limit;
             } else {
-                writeStderr("--max-memory requires a bytes argument\n");
-                return;
+                usageError("--max-memory requires a bytes argument\n");
             }
         } else if (std.mem.eql(u8, arg, "--help") or std.mem.eql(u8, arg, "-h")) {
             printUsage();
@@ -518,15 +534,23 @@ fn mainImpl(init: std.process.Init.Minimal) !void {
             if (args.next()) |shell| {
                 if (@import("completions.zig").kaappi(shell)) |script| {
                     writeStdout(script);
-                } else {
-                    writeStderr("unknown shell: ");
-                    writeStderr(shell);
-                    writeStderr("\nSupported: bash, zsh, fish\n");
+                    return;
                 }
-            } else {
-                writeStderr("--completions requires a shell name (bash, zsh, fish)\n");
+                writeStderr("unknown shell: ");
+                writeStderr(shell);
+                writeStderr("\nSupported: bash, zsh, fish\n");
+                std.process.exit(USAGE_ERROR_EXIT);
             }
-            return;
+            usageError("--completions requires a shell name (bash, zsh, fish)\n");
+        } else if (arg.len > 1 and arg[0] == '-') {
+            // Unknown flag. Treating it as a script filename hides the typo
+            // (the caller sees "Error opening file '--typo'" or a silent no-op),
+            // so reject it as a usage error instead. A lone "-" is left to fall
+            // through as a (nonexistent) filename to preserve prior behavior.
+            writeStderr("unknown option: ");
+            writeStderr(arg);
+            writeStderr("\nRun 'kaappi --help' for usage.\n");
+            std.process.exit(USAGE_ERROR_EXIT);
         } else {
             file_path = arg;
             break;
@@ -628,7 +652,9 @@ fn mainImpl(init: std.process.Init.Minimal) !void {
         if (file_path) |fp| {
             try native_compiler.compileNative(vm, fp, compile_output);
         } else {
-            writeStdout("Usage: kaappi compile <file.scm> [-o output]\n");
+            // A build subcommand with no file is misuse, not a help request:
+            // fail loudly so a caller with an empty "$FILE" variable notices.
+            usageError("Usage: kaappi compile <file.scm> [-o output]\n");
         }
         return;
     }
@@ -637,19 +663,19 @@ fn mainImpl(init: std.process.Init.Minimal) !void {
         if (file_path) |fp| {
             try disassembleFile(vm, fp);
         } else {
-            writeStdout("Usage: kaappi --disassemble <file.scm>\n");
+            usageError("Usage: kaappi --disassemble <file.scm>\n");
         }
     } else if (compile_mode) {
         if (file_path) |fp| {
             try compileFile(vm, fp, compile_output);
         } else {
-            writeStdout("Usage: kaappi --compile <file.scm> [-o output.sbc]\n");
+            usageError("Usage: kaappi --compile <file.scm> [-o output.sbc]\n");
         }
     } else if (emit_llvm_mode) {
         if (file_path) |fp| {
             try native_compiler.emitLlvmFile(vm, fp, compile_output);
         } else {
-            writeStdout("Usage: kaappi --emit-llvm <file.scm> [-o output.ll]\n");
+            usageError("Usage: kaappi --emit-llvm <file.scm> [-o output.ll]\n");
         }
     } else if (file_path) |fp| {
         try runFile(vm, fp);
@@ -1007,7 +1033,10 @@ fn runStdin(vm: *vm_mod.VM) !void {
 
 fn disassembleFile(vm: *vm_mod.VM, path: []const u8) !void {
     const allocator = vm.gc.allocator;
-    const source = readFileContents(allocator, path) catch return;
+    const source = readFileContents(allocator, path) catch {
+        script_had_error = true;
+        return;
+    };
     defer allocator.free(source);
 
     const saved_lib_dir = vm.current_lib_dir;
@@ -1022,6 +1051,7 @@ fn disassembleFile(vm: *vm_mod.VM, path: []const u8) !void {
         var errbuf: [256]u8 = undefined;
         const s = std.fmt.bufPrint(&errbuf, "{s}:{d}:{d}: read error: {}\n", .{ path, lc.line, lc.col, err }) catch "read error\n";
         writeStderr(s);
+        script_had_error = true;
         return;
     }) {
         const datum_lc = r.getLineCol();
@@ -1030,11 +1060,13 @@ fn disassembleFile(vm: *vm_mod.VM, path: []const u8) !void {
             var errbuf: [256]u8 = undefined;
             const s = std.fmt.bufPrint(&errbuf, "{s}:{d}:{d}: read error: {}\n", .{ path, lc.line, lc.col, err }) catch "read error\n";
             writeStderr(s);
+            script_had_error = true;
             return;
         };
 
         if (vm.handleTopLevelForm(expr)) |top_result| {
             _ = top_result catch |err| {
+                script_had_error = true;
                 const detail = vm.getErrorDetail();
                 if (detail.len > 0) {
                     var errbuf: [256]u8 = undefined;
@@ -1054,6 +1086,7 @@ fn disassembleFile(vm: *vm_mod.VM, path: []const u8) !void {
             var errbuf: [256]u8 = undefined;
             const s = std.fmt.bufPrint(&errbuf, "{s}:{d}: compile error: {}\n", .{ path, datum_lc.line, err }) catch "compile error\n";
             writeStderr(s);
+            script_had_error = true;
             continue;
         };
 
@@ -1065,6 +1098,7 @@ fn disassembleFile(vm: *vm_mod.VM, path: []const u8) !void {
 fn compileFile(vm: *vm_mod.VM, path: []const u8, output_path: ?[]const u8) !void {
     const allocator = vm.gc.allocator;
     const source = readFileContents(allocator, path) catch {
+        script_had_error = true;
         return;
     };
     defer allocator.free(source);
@@ -1107,6 +1141,7 @@ fn compileFile(vm: *vm_mod.VM, path: []const u8, output_path: ?[]const u8) !void
         var errbuf: [256]u8 = undefined;
         const s = std.fmt.bufPrint(&errbuf, "{s}:{d}:{d}: read error: {}\n", .{ path, lc.line, lc.col, err }) catch "read error\n";
         writeStderr(s);
+        script_had_error = true;
         return;
     }) {
         const datum_lc = r.getLineCol();
@@ -1115,6 +1150,7 @@ fn compileFile(vm: *vm_mod.VM, path: []const u8, output_path: ?[]const u8) !void
             var errbuf: [256]u8 = undefined;
             const s = std.fmt.bufPrint(&errbuf, "{s}:{d}:{d}: read error: {}\n", .{ path, lc.line, lc.col, err }) catch "read error\n";
             writeStderr(s);
+            script_had_error = true;
             return;
         };
 
@@ -1124,6 +1160,7 @@ fn compileFile(vm: *vm_mod.VM, path: []const u8, output_path: ?[]const u8) !void
         if (vm.handleTopLevelForm(expr)) |top_result| {
             const form_src = printer.valueToString(allocator, expr, .write) catch continue;
             _ = top_result catch |err| {
+                script_had_error = true;
                 const detail = vm.getErrorDetail();
                 if (detail.len > 0) {
                     var errbuf: [256]u8 = undefined;
@@ -1146,6 +1183,7 @@ fn compileFile(vm: *vm_mod.VM, path: []const u8, output_path: ?[]const u8) !void
             var errbuf: [256]u8 = undefined;
             const s = std.fmt.bufPrint(&errbuf, "{s}:{d}: compile error: {}\n", .{ path, datum_lc.line, err }) catch "compile error\n";
             writeStderr(s);
+            script_had_error = true;
             continue;
         };
 
@@ -1156,11 +1194,13 @@ fn compileFile(vm: *vm_mod.VM, path: []const u8, output_path: ?[]const u8) !void
         const sbc_path = if (output_path) |op|
             allocator.dupe(u8, op) catch {
                 writeStderr("Error creating output path\n");
+                script_had_error = true;
                 return;
             }
         else
             getSbcPath(allocator, path) catch {
                 writeStderr("Error creating output path\n");
+                script_had_error = true;
                 return;
             };
         defer allocator.free(sbc_path);
@@ -1176,11 +1216,13 @@ fn compileFile(vm: *vm_mod.VM, path: []const u8, output_path: ?[]const u8) !void
                 sbc_path,
             ) catch {
                 writeStderr("Error writing bytecode file\n");
+                script_had_error = true;
                 return;
             };
         } else {
             bytecode_file.writeFileWithTopLevel(allocator, compiled_funcs.items, source_hash, sbc_path) catch {
                 writeStderr("Error writing bytecode file\n");
+                script_had_error = true;
                 return;
             };
         }
