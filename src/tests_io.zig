@@ -212,6 +212,44 @@ test "file-exists?" {
     ));
 }
 
+test "file-exists? returns #t for unreadable files" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    const path: [*:0]const u8 = "/tmp/kaappi-test-noperm.txt";
+
+    // Create a file via Scheme, then remove all permissions
+    _ = try vm.eval(
+        \\(let ((p (open-output-file "/tmp/kaappi-test-noperm.txt"))) (close-port p))
+    );
+    if (std.c.chmod(path, 0o000) != 0) return error.SkipZigTest;
+    defer _ = std.posix.system.unlink(path);
+
+    try std.testing.expectEqual(types.TRUE, try vm.eval(
+        \\(file-exists? "/tmp/kaappi-test-noperm.txt")
+    ));
+}
+
+test "file-exists? returns #t for FIFOs" {
+    if (comptime @import("builtin").os.tag == .wasi) return error.SkipZigTest;
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    const path: [*:0]const u8 = "/tmp/kaappi-test-fifo";
+    _ = std.posix.system.unlink(path);
+    const mkfifo = @extern(*const fn ([*:0]const u8, std.c.mode_t) callconv(.c) c_int, .{ .name = "mkfifo" });
+    if (mkfifo(path, 0o644) != 0) return error.SkipZigTest;
+    defer _ = std.posix.system.unlink(path);
+
+    try std.testing.expectEqual(types.TRUE, try vm.eval(
+        \\(file-exists? "/tmp/kaappi-test-fifo")
+    ));
+}
+
 test "read datum from file" {
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();

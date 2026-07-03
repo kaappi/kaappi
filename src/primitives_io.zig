@@ -723,10 +723,9 @@ fn fileExistsP(args: []const Value) PrimitiveError!Value {
     const path_z = gc.allocator.dupeZ(u8, path) catch return PrimitiveError.OutOfMemory;
     defer gc.allocator.free(path_z);
 
-    const fd = std.posix.openat(std.posix.AT.FDCWD, path_z, .{}, 0) catch {
+    var stat_buf: std.c.Stat = undefined;
+    if (std.c.fstatat(std.posix.AT.FDCWD, path_z, &stat_buf, 0) != 0)
         return types.FALSE;
-    };
-    _ = std.posix.system.close(fd);
     return types.TRUE;
 }
 
