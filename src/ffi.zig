@@ -37,6 +37,29 @@ fn toCheckedInt(comptime T: type, v: Value) error{TypeError}!T {
     return std.math.cast(T, wide) orelse return error.TypeError;
 }
 
+fn toUnsignedArgOpt(v: Value) ?u64 {
+    if (v == types.TRUE) return 1;
+    if (v == types.FALSE) return 0;
+    if (types.isBignum(v)) {
+        const bn = types.toBignum(v);
+        if (bn.len == 0) return 0;
+        if (bn.len > 1) return null;
+        if (!bn.positive) return null;
+        return bn.limbs[0];
+    }
+    const fixnum = types.toFixnum(v);
+    if (fixnum < 0) return null;
+    return @intCast(fixnum);
+}
+
+fn toLongArg(v: Value, declared: FfiType) error{TypeError}!c_long {
+    if (declared == .uint64 or declared == .size_type) {
+        const unsigned = toUnsignedArgOpt(v) orelse return error.TypeError;
+        return @bitCast(unsigned);
+    }
+    return toCheckedInt(c_long, v);
+}
+
 /// C-truthiness of a value bound to a `bool` FFI parameter. `validateArg`
 /// guarantees such a value is #t, #f, a fixnum, or a bignum, so any nonzero
 /// integer is true and zero is false.
@@ -163,8 +186,12 @@ fn validateArg(v: Value, t: FfiType) bool {
 }
 
 fn checkNarrowIntRange(v: Value, declared: FfiType) error{TypeError}!void {
+    if (declared == .uint64 or declared == .size_type) {
+        if (toUnsignedArgOpt(v) == null) return error.TypeError;
+        return;
+    }
     const wide = switch (declared) {
-        .int8, .uint8, .int16, .uint16, .char_type, .uint32, .uint64, .size_type => toIntArgOpt(v) orelse return error.TypeError,
+        .int8, .uint8, .int16, .uint16, .char_type, .uint32 => toIntArgOpt(v) orelse return error.TypeError,
         else => return,
     };
     switch (declared) {
@@ -182,9 +209,6 @@ fn checkNarrowIntRange(v: Value, declared: FfiType) error{TypeError}!void {
         },
         .uint32 => {
             if (wide < 0 or wide > std.math.maxInt(u32)) return error.TypeError;
-        },
-        .uint64, .size_type => {
-            if (wide < 0) return error.TypeError;
         },
         else => {},
     }
@@ -340,7 +364,7 @@ fn callFfi1(ffi_fn: *types.FfiFunction, args: []const Value, gc: *memory.GC) !Va
     // long -> long
     if (p0 == .long and rt == .long) {
         const f: *const fn (c_long) callconv(.c) c_long = @ptrCast(@alignCast(ffi_fn.symbol));
-        const result = f(try toCheckedInt(c_long, args[0]));
+        const result = f(try toLongArg(args[0], ffi_fn.param_types[0]));
         return marshalLongOrUlong(result, ffi_fn.return_type, gc);
     }
 
@@ -446,14 +470,14 @@ fn callFfi1(ffi_fn: *types.FfiFunction, args: []const Value, gc: *memory.GC) !Va
     // long -> pointer
     if (p0 == .long and rt == .pointer) {
         const f: *const fn (c_long) callconv(.c) ?*anyopaque = @ptrCast(@alignCast(ffi_fn.symbol));
-        const result = f(try toCheckedInt(c_long, args[0]));
+        const result = f(try toLongArg(args[0], ffi_fn.param_types[0]));
         return marshalPointerReturn(result, gc);
     }
 
     // long -> void
     if (p0 == .long and rt == .void_type) {
         const f: *const fn (c_long) callconv(.c) void = @ptrCast(@alignCast(ffi_fn.symbol));
-        f(try toCheckedInt(c_long, args[0]));
+        f(try toLongArg(args[0], ffi_fn.param_types[0]));
         return types.VOID;
     }
 
@@ -525,7 +549,7 @@ fn callFfi2(ffi_fn: *types.FfiFunction, args: []const Value, gc: *memory.GC) !Va
     // (long, long) -> long
     if (p0 == .long and p1 == .long and rt == .long) {
         const f: *const fn (c_long, c_long) callconv(.c) c_long = @ptrCast(@alignCast(ffi_fn.symbol));
-        const result = f(try toCheckedInt(c_long, args[0]), try toCheckedInt(c_long, args[1]));
+        const result = f(try toLongArg(args[0], ffi_fn.param_types[0]), try toLongArg(args[1], ffi_fn.param_types[1]));
         return marshalLongOrUlong(result, ffi_fn.return_type, gc);
     }
 
@@ -621,28 +645,28 @@ fn callFfi2(ffi_fn: *types.FfiFunction, args: []const Value, gc: *memory.GC) !Va
     // (pointer, long) -> pointer (realloc, etc.)
     if (p0 == .pointer and p1 == .long and rt == .pointer) {
         const f: *const fn (?*anyopaque, c_long) callconv(.c) ?*anyopaque = @ptrCast(@alignCast(ffi_fn.symbol));
-        const result = f(marshalToPointer(args[0]), try toCheckedInt(c_long, args[1]));
+        const result = f(marshalToPointer(args[0]), try toLongArg(args[1], ffi_fn.param_types[1]));
         return marshalPointerReturn(result, gc);
     }
 
     // (pointer, long) -> int
     if (p0 == .pointer and p1 == .long and rt == .int) {
         const f: *const fn (?*anyopaque, c_long) callconv(.c) c_int = @ptrCast(@alignCast(ffi_fn.symbol));
-        const result = f(marshalToPointer(args[0]), try toCheckedInt(c_long, args[1]));
+        const result = f(marshalToPointer(args[0]), try toLongArg(args[1], ffi_fn.param_types[1]));
         return types.makeFixnum(@intCast(result));
     }
 
     // (pointer, long) -> void
     if (p0 == .pointer and p1 == .long and rt == .void_type) {
         const f: *const fn (?*anyopaque, c_long) callconv(.c) void = @ptrCast(@alignCast(ffi_fn.symbol));
-        f(marshalToPointer(args[0]), try toCheckedInt(c_long, args[1]));
+        f(marshalToPointer(args[0]), try toLongArg(args[1], ffi_fn.param_types[1]));
         return types.VOID;
     }
 
     // (pointer, long) -> long
     if (p0 == .pointer and p1 == .long and rt == .long) {
         const f: *const fn (?*anyopaque, c_long) callconv(.c) c_long = @ptrCast(@alignCast(ffi_fn.symbol));
-        const result = f(marshalToPointer(args[0]), try toCheckedInt(c_long, args[1]));
+        const result = f(marshalToPointer(args[0]), try toLongArg(args[1], ffi_fn.param_types[1]));
         return marshalLongOrUlong(result, ffi_fn.return_type, gc);
     }
 
@@ -694,7 +718,7 @@ fn callFfi2(ffi_fn: *types.FfiFunction, args: []const Value, gc: *memory.GC) !Va
     // (long, long) -> pointer
     if (p0 == .long and p1 == .long and rt == .pointer) {
         const f: *const fn (c_long, c_long) callconv(.c) ?*anyopaque = @ptrCast(@alignCast(ffi_fn.symbol));
-        const result = f(try toCheckedInt(c_long, args[0]), try toCheckedInt(c_long, args[1]));
+        const result = f(try toLongArg(args[0], ffi_fn.param_types[0]), try toLongArg(args[1], ffi_fn.param_types[1]));
         return marshalPointerReturn(result, gc);
     }
 
@@ -748,21 +772,21 @@ fn callFfi3(ffi_fn: *types.FfiFunction, args: []const Value, gc: *memory.GC) !Va
     // (pointer, pointer, long) -> pointer (memcpy, memmove, etc.)
     if (p0 == .pointer and p1 == .pointer and p2 == .long and rt == .pointer) {
         const f: *const fn (?*anyopaque, ?*anyopaque, c_long) callconv(.c) ?*anyopaque = @ptrCast(@alignCast(ffi_fn.symbol));
-        const result = f(marshalToPointer(args[0]), marshalToPointer(args[1]), try toCheckedInt(c_long, args[2]));
+        const result = f(marshalToPointer(args[0]), marshalToPointer(args[1]), try toLongArg(args[2], ffi_fn.param_types[2]));
         return marshalPointerReturn(result, gc);
     }
 
     // (pointer, int, long) -> pointer (memset, etc.)
     if (p0 == .pointer and p1 == .int and p2 == .long and rt == .pointer) {
         const f: *const fn (?*anyopaque, c_int, c_long) callconv(.c) ?*anyopaque = @ptrCast(@alignCast(ffi_fn.symbol));
-        const result = f(marshalToPointer(args[0]), try toCheckedInt(c_int, args[1]), try toCheckedInt(c_long, args[2]));
+        const result = f(marshalToPointer(args[0]), try toCheckedInt(c_int, args[1]), try toLongArg(args[2], ffi_fn.param_types[2]));
         return marshalPointerReturn(result, gc);
     }
 
     // (pointer, long, pointer) -> long (fread/fwrite patterns)
     if (p0 == .pointer and p1 == .long and p2 == .pointer and rt == .long) {
         const f: *const fn (?*anyopaque, c_long, ?*anyopaque) callconv(.c) c_long = @ptrCast(@alignCast(ffi_fn.symbol));
-        const result = f(marshalToPointer(args[0]), try toCheckedInt(c_long, args[1]), marshalToPointer(args[2]));
+        const result = f(marshalToPointer(args[0]), try toLongArg(args[1], ffi_fn.param_types[1]), marshalToPointer(args[2]));
         return marshalLongOrUlong(result, ffi_fn.return_type, gc);
     }
 
@@ -790,14 +814,14 @@ fn callFfi3(ffi_fn: *types.FfiFunction, args: []const Value, gc: *memory.GC) !Va
     // (pointer, pointer, long) -> int
     if (p0 == .pointer and p1 == .pointer and p2 == .long and rt == .int) {
         const f: *const fn (?*anyopaque, ?*anyopaque, c_long) callconv(.c) c_int = @ptrCast(@alignCast(ffi_fn.symbol));
-        const result = f(marshalToPointer(args[0]), marshalToPointer(args[1]), try toCheckedInt(c_long, args[2]));
+        const result = f(marshalToPointer(args[0]), marshalToPointer(args[1]), try toLongArg(args[2], ffi_fn.param_types[2]));
         return types.makeFixnum(@intCast(result));
     }
 
     // (pointer, pointer, long) -> void
     if (p0 == .pointer and p1 == .pointer and p2 == .long and rt == .void_type) {
         const f: *const fn (?*anyopaque, ?*anyopaque, c_long) callconv(.c) void = @ptrCast(@alignCast(ffi_fn.symbol));
-        f(marshalToPointer(args[0]), marshalToPointer(args[1]), try toCheckedInt(c_long, args[2]));
+        f(marshalToPointer(args[0]), marshalToPointer(args[1]), try toLongArg(args[2], ffi_fn.param_types[2]));
         return types.VOID;
     }
 
@@ -839,7 +863,7 @@ fn callFfi4(ffi_fn: *types.FfiFunction, args: []const Value, gc: *memory.GC) !Va
     if (p0 == .pointer and p1 == .long and p2 == .long and p3 == .pointer and rt == .void_type) {
         const f: *const fn (?*anyopaque, c_long, c_long, ?*anyopaque) callconv(.c) void =
             @ptrCast(@alignCast(ffi_fn.symbol));
-        f(marshalToPointer(args[0]), try toCheckedInt(c_long, args[1]), try toCheckedInt(c_long, args[2]), marshalToPointer(args[3]));
+        f(marshalToPointer(args[0]), try toLongArg(args[1], ffi_fn.param_types[1]), try toLongArg(args[2], ffi_fn.param_types[2]), marshalToPointer(args[3]));
         return types.VOID;
     }
 
@@ -849,7 +873,7 @@ fn callFfi4(ffi_fn: *types.FfiFunction, args: []const Value, gc: *memory.GC) !Va
             @ptrCast(@alignCast(ffi_fn.symbol));
         const ptr0 = marshalToPointer(args[0]) orelse return error.TypeError;
         const ptr3 = marshalToPointer(args[3]) orelse return error.TypeError;
-        const result = f(ptr0, try toCheckedInt(c_long, args[1]), try toCheckedInt(c_long, args[2]), ptr3);
+        const result = f(ptr0, try toLongArg(args[1], ffi_fn.param_types[1]), try toLongArg(args[2], ffi_fn.param_types[2]), ptr3);
         return types.makeFixnum(@intCast(result));
     }
 
@@ -870,7 +894,7 @@ fn callFfi4(ffi_fn: *types.FfiFunction, args: []const Value, gc: *memory.GC) !Va
     if (p0 == .pointer and p1 == .pointer and p2 == .long and p3 == .long and rt == .pointer) {
         const f: *const fn (?*anyopaque, ?*anyopaque, c_long, c_long) callconv(.c) ?*anyopaque =
             @ptrCast(@alignCast(ffi_fn.symbol));
-        const result = f(marshalToPointer(args[0]), marshalToPointer(args[1]), try toCheckedInt(c_long, args[2]), try toCheckedInt(c_long, args[3]));
+        const result = f(marshalToPointer(args[0]), marshalToPointer(args[1]), try toLongArg(args[2], ffi_fn.param_types[2]), try toLongArg(args[3], ffi_fn.param_types[3]));
         return marshalPointerReturn(result, gc);
     }
 
@@ -878,7 +902,7 @@ fn callFfi4(ffi_fn: *types.FfiFunction, args: []const Value, gc: *memory.GC) !Va
     if (p0 == .pointer and p1 == .long and p2 == .long and p3 == .long and rt == .int) {
         const f: *const fn (?*anyopaque, c_long, c_long, c_long) callconv(.c) c_int =
             @ptrCast(@alignCast(ffi_fn.symbol));
-        const result = f(marshalToPointer(args[0]), try toCheckedInt(c_long, args[1]), try toCheckedInt(c_long, args[2]), try toCheckedInt(c_long, args[3]));
+        const result = f(marshalToPointer(args[0]), try toLongArg(args[1], ffi_fn.param_types[1]), try toLongArg(args[2], ffi_fn.param_types[2]), try toLongArg(args[3], ffi_fn.param_types[3]));
         return types.makeFixnum(@intCast(result));
     }
 
@@ -951,7 +975,7 @@ fn callFfi5(ffi_fn: *types.FfiFunction, args: []const Value, gc: *memory.GC) !Va
     // (pointer, pointer, long, int, pointer) -> int — sendto
     if (p0 == .pointer and p1 == .pointer and p2 == .long and p3 == .int and p4 == .pointer and rt == .int) {
         const f: *const fn (?*anyopaque, ?*anyopaque, c_long, c_int, ?*anyopaque) callconv(.c) c_int = @ptrCast(@alignCast(ffi_fn.symbol));
-        const result = f(marshalToPointer(args[0]), marshalToPointer(args[1]), try toCheckedInt(c_long, args[2]), try toCheckedInt(c_int, args[3]), marshalToPointer(args[4]));
+        const result = f(marshalToPointer(args[0]), marshalToPointer(args[1]), try toLongArg(args[2], ffi_fn.param_types[2]), try toCheckedInt(c_int, args[3]), marshalToPointer(args[4]));
         return types.makeFixnum(@intCast(result));
     }
 
@@ -1264,4 +1288,96 @@ test "checkNarrowIntRange: non-narrow types pass through" {
     try checkNarrowIntRange(types.makeFixnum(-5000000000), .long);
     try checkNarrowIntRange(types.makeFixnum(999999), .int32);
     try checkNarrowIntRange(types.makeFixnum(-999999), .int64);
+}
+
+test "toUnsignedArgOpt: fixnum values" {
+    try std.testing.expectEqual(@as(?u64, 0), toUnsignedArgOpt(types.makeFixnum(0)));
+    try std.testing.expectEqual(@as(?u64, 42), toUnsignedArgOpt(types.makeFixnum(42)));
+    try std.testing.expectEqual(@as(?u64, null), toUnsignedArgOpt(types.makeFixnum(-1)));
+}
+
+test "toUnsignedArgOpt: booleans" {
+    try std.testing.expectEqual(@as(?u64, 1), toUnsignedArgOpt(types.TRUE));
+    try std.testing.expectEqual(@as(?u64, 0), toUnsignedArgOpt(types.FALSE));
+}
+
+test "toUnsignedArgOpt: bignum full u64 range" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+
+    const val_2_63: u64 = 1 << 63;
+    const limbs_63 = [1]u64{val_2_63};
+    const bn_2_63 = try gc.allocBignumFromLimbs(&limbs_63, 1, true);
+    try std.testing.expectEqual(@as(?u64, val_2_63), toUnsignedArgOpt(bn_2_63));
+
+    const val_max: u64 = std.math.maxInt(u64);
+    const limbs_max = [1]u64{val_max};
+    const bn_max = try gc.allocBignumFromLimbs(&limbs_max, 1, true);
+    try std.testing.expectEqual(@as(?u64, val_max), toUnsignedArgOpt(bn_max));
+}
+
+test "toUnsignedArgOpt: rejects negative and multi-limb bignums" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+
+    const neg = try gc.allocBignumFromI64(-42);
+    try std.testing.expectEqual(@as(?u64, null), toUnsignedArgOpt(neg));
+
+    const limbs_multi = [2]u64{ 1, 1 };
+    const multi = try gc.allocBignumFromLimbs(&limbs_multi, 2, true);
+    try std.testing.expectEqual(@as(?u64, null), toUnsignedArgOpt(multi));
+}
+
+test "toLongArg: signed types use signed path" {
+    const v = types.makeFixnum(42);
+    try std.testing.expectEqual(@as(c_long, 42), try toLongArg(v, .long));
+    try std.testing.expectEqual(@as(c_long, 42), try toLongArg(v, .int64));
+}
+
+test "toLongArg: uint64 accepts values >= 2^63" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+
+    const val: u64 = (1 << 63) + 1;
+    const limbs = [1]u64{val};
+    const bn = try gc.allocBignumFromLimbs(&limbs, 1, true);
+    const result = try toLongArg(bn, .uint64);
+    const round_trip: u64 = @bitCast(result);
+    try std.testing.expectEqual(val, round_trip);
+}
+
+test "toLongArg: size_type accepts values >= 2^63" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+
+    const val: u64 = std.math.maxInt(u64);
+    const limbs = [1]u64{val};
+    const bn = try gc.allocBignumFromLimbs(&limbs, 1, true);
+    const result = try toLongArg(bn, .size_type);
+    const round_trip: u64 = @bitCast(result);
+    try std.testing.expectEqual(val, round_trip);
+}
+
+test "toLongArg: uint64 rejects negative" {
+    try std.testing.expectError(error.TypeError, toLongArg(types.makeFixnum(-1), .uint64));
+}
+
+test "checkNarrowIntRange: uint64 accepts bignum >= 2^63" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+
+    const val: u64 = 1 << 63;
+    const limbs = [1]u64{val};
+    const bn = try gc.allocBignumFromLimbs(&limbs, 1, true);
+    try checkNarrowIntRange(bn, .uint64);
+    try checkNarrowIntRange(bn, .size_type);
+}
+
+test "checkNarrowIntRange: uint64 rejects negative bignum" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+
+    const neg = try gc.allocBignumFromI64(-1);
+    try std.testing.expectError(error.TypeError, checkNarrowIntRange(neg, .uint64));
+    try std.testing.expectError(error.TypeError, checkNarrowIntRange(neg, .size_type));
 }
