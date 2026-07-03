@@ -112,6 +112,25 @@ fn usageError(msg: []const u8) noreturn {
     std.process.exit(USAGE_ERROR_EXIT);
 }
 
+// Multiple values print one per line, matching other Scheme REPLs
+// (Chez, Guile, Racket, Chibi). Void results print nothing.
+fn printTopLevelResult(allocator: std.mem.Allocator, result: types.Value) void {
+    if (types.isMultipleValues(result)) {
+        const mv = types.toObject(result).as(types.MultipleValues);
+        for (mv.values) |val| printSingleResult(allocator, val);
+    } else {
+        printSingleResult(allocator, result);
+    }
+}
+
+fn printSingleResult(allocator: std.mem.Allocator, value: types.Value) void {
+    if (value == types.VOID) return;
+    const s = printer.valueToString(allocator, value, .write) catch return;
+    defer allocator.free(s);
+    writeStdout(s);
+    writeStdout("\n");
+}
+
 fn printSourceSnippet(source: []const u8, line: u32) void {
     if (line == 0 or source.len == 0) return;
     var current_line: u32 = 1;
@@ -431,17 +450,7 @@ fn mainImpl(init: std.process.Init.Minimal) !void {
             };
             vm.gc.popRoot();
 
-            var display_result = result;
-            if (types.isMultipleValues(display_result)) {
-                const mv = types.toObject(display_result).as(types.MultipleValues);
-                display_result = if (mv.values.len > 0) mv.values[0] else types.VOID;
-            }
-            if (display_result != types.VOID) {
-                const s = printer.valueToString(allocator, display_result, .write) catch continue;
-                defer allocator.free(s);
-                writeStdout(s);
-                writeStdout("\n");
-            }
+            printTopLevelResult(allocator, result);
         }
         return;
     }
@@ -773,17 +782,7 @@ fn runFile(vm: *vm_mod.VM, path: []const u8) !void {
                 };
                 vm.gc.popRoot();
 
-                var display_result = result;
-                if (types.isMultipleValues(display_result)) {
-                    const mv = types.toObject(display_result).as(types.MultipleValues);
-                    display_result = if (mv.values.len > 0) mv.values[0] else types.VOID;
-                }
-                if (display_result != types.VOID) {
-                    const s = printer.valueToString(allocator, display_result, .write) catch continue;
-                    defer allocator.free(s);
-                    writeStdout(s);
-                    writeStdout("\n");
-                }
+                printTopLevelResult(allocator, result);
             }
             return;
         }
@@ -833,17 +832,7 @@ fn runFile(vm: *vm_mod.VM, path: []const u8) !void {
                 vm.last_error_detail_len = 0;
                 continue;
             };
-            var dr = result;
-            if (types.isMultipleValues(dr)) {
-                const mv = types.toObject(dr).as(types.MultipleValues);
-                dr = if (mv.values.len > 0) mv.values[0] else types.VOID;
-            }
-            if (dr != types.VOID) {
-                const s = printer.valueToString(allocator, dr, .write) catch continue;
-                defer allocator.free(s);
-                writeStdout(s);
-                writeStdout("\n");
-            }
+            printTopLevelResult(allocator, result);
             continue;
         }
 
@@ -901,18 +890,7 @@ fn runFile(vm: *vm_mod.VM, path: []const u8) !void {
         };
         vm.gc.popRoot();
 
-        // Unwrap MultipleValues for display (extract first value)
-        var display_result = result;
-        if (types.isMultipleValues(display_result)) {
-            const mv = types.toObject(display_result).as(types.MultipleValues);
-            display_result = if (mv.values.len > 0) mv.values[0] else types.VOID;
-        }
-        if (display_result != types.VOID) {
-            const s = printer.valueToString(allocator, display_result, .write) catch continue;
-            defer allocator.free(s);
-            writeStdout(s);
-            writeStdout("\n");
-        }
+        printTopLevelResult(allocator, result);
     }
 
     // Cache compiled bytecode (skip when imports are used — GC may have freed
@@ -969,17 +947,7 @@ fn runStdin(vm: *vm_mod.VM) !void {
                 vm.last_error_detail_len = 0;
                 continue;
             };
-            var dr = result;
-            if (types.isMultipleValues(dr)) {
-                const mv = types.toObject(dr).as(types.MultipleValues);
-                dr = if (mv.values.len > 0) mv.values[0] else types.VOID;
-            }
-            if (dr != types.VOID) {
-                const s = printer.valueToString(allocator, dr, .write) catch continue;
-                defer allocator.free(s);
-                writeStdout(s);
-                writeStdout("\n");
-            }
+            printTopLevelResult(allocator, result);
             continue;
         }
 
@@ -1017,17 +985,7 @@ fn runStdin(vm: *vm_mod.VM) !void {
         };
         vm.gc.popRoot();
 
-        var display_result = result;
-        if (types.isMultipleValues(display_result)) {
-            const mv = types.toObject(display_result).as(types.MultipleValues);
-            display_result = if (mv.values.len > 0) mv.values[0] else types.VOID;
-        }
-        if (display_result != types.VOID) {
-            const s = printer.valueToString(allocator, display_result, .write) catch continue;
-            defer allocator.free(s);
-            writeStdout(s);
-            writeStdout("\n");
-        }
+        printTopLevelResult(allocator, result);
     }
 }
 
