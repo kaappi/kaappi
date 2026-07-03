@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783061968746,
+  "lastUpdate": 1783062163217,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "6acfb198d3f2b9b3eb251647da55dd9be391b743",
-          "message": "Merge pull request #701 from kaappi/fix/compile-file-preamble-gc-699\n\nFix compileFile preamble skip and GC safety",
-          "timestamp": "2026-07-01T23:23:55+05:30",
-          "tree_id": "5a07c0cc08fb2bc4620b084cda4796aff71905c7",
-          "url": "https://github.com/kaappi/kaappi/commit/6acfb198d3f2b9b3eb251647da55dd9be391b743"
-        },
-        "date": 1782929205583,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.284543,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.438707,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.841655,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.360958,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006903,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.033053,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.460731,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.067944,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.978866,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.776718,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.084244,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.225177,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 2.429693,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.641361,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.041717,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.042991,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "35b95cc2699fc03cf157f48edf98f49556df3fb7",
+          "message": "Fail the Scheme suite when a test file times out (#938)\n\nrun-all.sh labeled per-file 60s timeouts as SKIP and the final exit\ncheck only counted FAILs, so a hanging test file left the suite green.\nThis let tests/scheme/srfi/srfi18.scm hang unnoticed for months.\n\nTimeouts now print a TIMEOUT label with the test's partial output,\ncount into the fail total, and make the suite exit 1. The R7RS awk\nparsing is unaffected — it only scrapes the chibi-test \"N pass, N fail\"\nlines, never the per-file labels.\n\nVerified: clean run passes (242 files, exit 0); an injected\ninfinite-loop test file produces TIMEOUT and exit 1.\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-03T06:50:58Z",
+          "tree_id": "5451ebd3c04017fd8e0cf5ee879969f12ea3ef66",
+          "url": "https://github.com/kaappi/kaappi/commit/35b95cc2699fc03cf157f48edf98f49556df3fb7"
+        },
+        "date": 1783062162789,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.515096,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.879477,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.853667,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.191275,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006981,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.034464,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.471075,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.070591,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 4.156449,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.814415,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.244337,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.434849,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 2.432455,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.706288,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.043164,
             "unit": "seconds"
           }
         ]
