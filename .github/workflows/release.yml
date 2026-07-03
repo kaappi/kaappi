@@ -144,7 +144,7 @@ jobs:
           GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
 
       - name: Bundle portable libraries
-        run: tar czf kaappi-lib.tar.gz lib/srfi/ lib/chibi/ lib/scheme/ LICENSE
+        run: tar czf kaappi-lib.tar.gz lib/srfi/ lib/chibi/ LICENSE
 
       - name: Collect binaries, generate checksums, and sign
         run: |
