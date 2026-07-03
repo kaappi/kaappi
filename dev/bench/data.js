@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783113429196,
+  "lastUpdate": 1783115302772,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "53f786ed3b11e852dbfbe635aa7bab297ba25e03",
-          "message": "Trace environment Value in Function/Transformer to prevent use-after-free (#867) (#884)\n\nFunction.env stores a raw pointer to a SchemeEnvironment's hashmap, but\nmarkValue never traced the SchemeEnvironment — once unreachable, the GC\nfreed the map while live closures still referenced it. Add env_val (and\ndef_env_val for Transformer) fields that hold the GC-managed Value, and\ntrace them in all three marking functions (hasYoungRefs, minor-GC, full-GC).\n\nFixes #867\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-03T01:21:21+05:30",
-          "tree_id": "af4b54c2a6c8f12f5aa32452a9d53a285bc32113",
-          "url": "https://github.com/kaappi/kaappi/commit/53f786ed3b11e852dbfbe635aa7bab297ba25e03"
-        },
-        "date": 1783022721663,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.319565,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.644688,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.812332,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.146265,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.00692,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.03233,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.454222,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.07002,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.926441,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.753928,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.089639,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.221289,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 2.399843,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.712467,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.041505,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.045613,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "6b27b2d7dde014b4899ce081bdd17c8cab625ec6",
+          "message": "Fix string-titlecase word boundaries and Unicode case mapping (#824) (#1002)\n\nWord boundaries now trigger on any non-cased character (not just ASCII\nwhitespace), matching SRFI-13 semantics. Case mapping uses the full\nUnicode tables instead of byte-level ASCII ±32.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-03T21:29:19Z",
+          "tree_id": "6fcb1ff39c6b3e04b35a4218011935f5a8093217",
+          "url": "https://github.com/kaappi/kaappi/commit/6b27b2d7dde014b4899ce081bdd17c8cab625ec6"
+        },
+        "date": 1783115301624,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.865635,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.518167,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.813215,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.962323,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006733,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.032269,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.434908,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.066895,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 4.131933,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.632835,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.162007,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.403443,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.657597,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 0.964341,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.040046,
             "unit": "seconds"
           }
         ]
