@@ -367,9 +367,12 @@ thottam remove kaappi-web                                     # uninstall
 - Copies `.sld` files to `~/.kaappi/lib/` (preserving directory structure)
 - Copies `.dylib`/`.so` to `~/.kaappi/lib/`
 
-**Auto-discovery:** `main.zig` automatically adds `~/.kaappi/lib` to the
-library search path. `ffi-open` also searches `~/.kaappi/lib/` for native
-libraries. No `--lib-path` or `DYLD_LIBRARY_PATH` needed after install.
+**Auto-discovery:** `main.zig` automatically adds the script's own directory
+and `~/.kaappi/lib` to the library search path (after any `--lib-path`
+entries), so a program can import libraries that live next to it regardless
+of the working directory. `ffi-open` also searches `~/.kaappi/lib/` for
+native libraries. No `--lib-path` or `DYLD_LIBRARY_PATH` needed after
+install.
 
 **Package manifest** (`kaappi.pkg`):
 ```

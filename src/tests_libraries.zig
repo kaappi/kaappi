@@ -200,3 +200,51 @@ test "define-library with dotted name" {
     const result = try vm.eval("(add5 10)");
     try std.testing.expectEqual(@as(i64, 15), types.toFixnum(result));
 }
+
+// Regression tests for #868: cond-expand (library ...) must detect .sld
+// libraries that are loadable but not yet imported, using the same search
+// order as import itself (libraryFileExists in vm_library.zig).
+test "cond-expand (library ...) detects an unloaded .sld on the lib path" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    try tmp.dir.createDirPath(std.testing.io, "condlib");
+    try tmp.dir.writeFile(std.testing.io, .{
+        .sub_path = "condlib/feature.sld",
+        .data = "(define-library (condlib feature) (export feature-value) (begin (define feature-value 7)))",
+    });
+    const dir_path = try tmp.dir.realPathFileAlloc(std.testing.io, ".", std.testing.allocator);
+    defer std.testing.allocator.free(dir_path);
+
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+    vm_mod.setVMInstance(&vm);
+    vm.lib_paths = &[_][]const u8{dir_path};
+
+    // Expression context: checked by the compiler's evalFeatureReq.
+    const r1 = try vm.eval("(cond-expand ((library (condlib feature)) 1) (else 0))");
+    try std.testing.expectEqual(@as(i64, 1), types.toFixnum(r1));
+
+    // Unknown libraries must stay undetected.
+    const r2 = try vm.eval("(cond-expand ((library (condlib nonexistent)) 1) (else 0))");
+    try std.testing.expectEqual(@as(i64, 0), types.toFixnum(r2));
+
+    // Declaration context: checked by evalLibFeatureReq inside define-library.
+    _ = try vm.eval(
+        \\(define-library (test condlib-probe)
+        \\  (import (scheme base))
+        \\  (export probe)
+        \\  (cond-expand
+        \\    ((library (condlib feature)) (begin (define probe 1)))
+        \\    (else (begin (define probe 0)))))
+    );
+    _ = try vm.eval("(import (test condlib-probe))");
+    const r3 = try vm.eval("probe");
+    try std.testing.expectEqual(@as(i64, 1), types.toFixnum(r3));
+
+    // A library detected by cond-expand must actually import.
+    _ = try vm.eval("(import (condlib feature))");
+    const r4 = try vm.eval("feature-value");
+    try std.testing.expectEqual(@as(i64, 7), types.toFixnum(r4));
+}

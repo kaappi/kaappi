@@ -254,6 +254,23 @@ fn resolveLibraryPath(allocator: std.mem.Allocator, rel_path: []const u8, lib_pa
     return null;
 }
 
+/// Check whether a library could be loaded from disk (or the bundled files of
+/// a standalone binary), using the same search order as import. Used by the
+/// cond-expand (library ...) feature checks so they agree with what import
+/// can actually resolve.
+pub fn libraryFileExists(vm: *VM, name_list: Value) bool {
+    var path_buf: [512]u8 = undefined;
+    const rel_path = buildLibRelPath(name_list, &path_buf) catch return false;
+    if (vm.bundled_files) |bf| {
+        if (findBundledSource(bf, rel_path, vm.lib_paths) != null) return true;
+    }
+    if (resolveLibraryPath(vm.gc.allocator, rel_path, vm.lib_paths)) |p| {
+        vm.gc.allocator.free(p);
+        return true;
+    }
+    return false;
+}
+
 const LibraryMeta = struct {
     export_names: std.ArrayList([]const u8),
     export_renames: std.ArrayList(?[]const u8),
@@ -345,7 +362,8 @@ fn extractExportsAndImports(vm: *VM, source: []const u8) !LibraryMeta {
 }
 
 /// Try to load a library from a .sld file on disk.
-/// Search order: ./rel_path, ./lib/rel_path, then each --lib-path entry.
+/// Search order: ./rel_path, ./lib/rel_path, then each vm.lib_paths entry
+/// (--lib-path flags, the script's directory, ~/.kaappi/lib).
 /// Uses .sbc caching: on cache hit, executes cached bytecode and re-parses
 /// the .sld for export/import declarations. On cache miss, compiles normally
 /// and saves the .sbc file.
@@ -566,20 +584,7 @@ fn evalLibFeatureReq(vm: *VM, req: Value) bool {
             const lib_name = library_mod.libraryNameToString(vm.gc.allocator, lib_name_list) catch return false;
             defer vm.gc.allocator.free(lib_name);
             if (vm.libraries.get(lib_name) != null) return true;
-            // Check if a .sld file exists on the library path
-            var path_buf: [512]u8 = undefined;
-            const rel_path = buildLibRelPath(lib_name_list, &path_buf) catch return false;
-            for (vm.lib_paths) |dir| {
-                var full_buf: [1024:0]u8 = undefined;
-                const full_len = std.fmt.bufPrint(&full_buf, "{s}/{s}", .{ dir, rel_path }) catch continue;
-                full_buf[full_len.len] = 0;
-                const fd = std.posix.system.open(@ptrCast(&full_buf), .{}, @as(u32, 0));
-                if (fd >= 0) {
-                    _ = std.posix.system.close(fd);
-                    return true;
-                }
-            }
-            return false;
+            return libraryFileExists(vm, lib_name_list);
         }
     }
     return false;
