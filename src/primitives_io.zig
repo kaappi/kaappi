@@ -677,22 +677,49 @@ fn readDatumFn(args: []const Value) PrimitiveError!Value {
         port.peek_extra_len -= 1;
     }
 
-    // Read from fd (appends after any buffered data)
+    // Read from fd, parsing incrementally so that interactive terminals
+    // return as soon as a complete datum is available (#847).
     var tmp: [4096]u8 = undefined;
     while (true) {
+        // Try to parse a datum from what we already have.
+        if (buf.items.len > 0) {
+            var reader = reader_mod.Reader.init(gc, buf.items);
+            defer reader.deinit();
+            const result = parseDatumForRead(&reader);
+            if (result) |maybe_datum| {
+                if (maybe_datum) |datum| {
+                    // Save unconsumed bytes back to port buffer.
+                    const remaining = buf.items[reader.pos..];
+                    if (remaining.len > 0) {
+                        const saved = gc.allocator.alloc(u8, remaining.len) catch return PrimitiveError.OutOfMemory;
+                        @memcpy(saved, remaining);
+                        port.read_buf = saved;
+                        port.read_buf_len = remaining.len;
+                    }
+                    return datum;
+                }
+                // Buffer was only whitespace/comments — discard and read more.
+                buf.clearRetainingCapacity();
+            } else |err| {
+                if (err != reader_mod.ReadError.UnexpectedEof)
+                    return if (err == reader_mod.ReadError.OutOfMemory) PrimitiveError.OutOfMemory else raiseReadError(gc);
+                // Incomplete datum — fall through to read more.
+            }
+        }
+
         const raw_n = std.posix.system.read(port.fd, &tmp, tmp.len);
         if (raw_n < 0) {
             if (std.posix.errno(raw_n) == .INTR) continue;
             break;
         }
-        if (raw_n == 0) break;
+        if (raw_n == 0) break; // EOF
         const n: usize = @intCast(raw_n);
         buf.appendSlice(gc.allocator, tmp[0..n]) catch return PrimitiveError.OutOfMemory;
     }
 
+    // Reached EOF — parse whatever remains.
     if (buf.items.len == 0) return types.EOF;
 
-    // Parse one datum
     var reader = reader_mod.Reader.init(gc, buf.items);
     defer reader.deinit();
     const maybe_datum = parseDatumForRead(&reader) catch |err| {
@@ -701,7 +728,6 @@ fn readDatumFn(args: []const Value) PrimitiveError!Value {
     };
     const datum = maybe_datum orelse return types.EOF;
 
-    // Save unconsumed bytes back to port buffer
     const remaining = buf.items[reader.pos..];
     if (remaining.len > 0) {
         const saved = gc.allocator.alloc(u8, remaining.len) catch return PrimitiveError.OutOfMemory;
