@@ -51,6 +51,11 @@ pub const Library = struct {
 pub const LibraryRegistry = struct {
     allocator: std.mem.Allocator,
     libraries: std.StringHashMap(Library),
+    /// Environments of replaced libraries. Closures compiled in a library's
+    /// begin block hold `Function.env` pointers to its lib_env and can
+    /// outlive the library (escaping via import into vm.globals), so a
+    /// replaced env must stay alive until the registry is torn down (#820).
+    retired_envs: std.ArrayList(*std.StringHashMap(Value)) = .empty,
 
     pub fn init(allocator: std.mem.Allocator) LibraryRegistry {
         return .{
@@ -65,12 +70,21 @@ pub const LibraryRegistry = struct {
             lib.deinit();
         }
         self.libraries.deinit();
+        for (self.retired_envs.items) |env| {
+            env.deinit();
+            self.allocator.destroy(env);
+        }
+        self.retired_envs.deinit(self.allocator);
     }
 
     /// Register a new library (or replace an existing one).
     pub fn register(self: *LibraryRegistry, lib: Library) !void {
         const gop = try self.libraries.getOrPut(lib.name);
         if (gop.found_existing) {
+            if (gop.value_ptr.lib_env) |env| {
+                try self.retired_envs.append(self.allocator, env);
+                gop.value_ptr.lib_env = null;
+            }
             gop.value_ptr.deinit();
             gop.key_ptr.* = lib.name;
         }

@@ -345,3 +345,70 @@ test "imported macro chain resolves library-internal bindings" {
     const result = try vm.eval("(outer 41)");
     try std.testing.expectEqual(@as(i64, 42), types.toFixnum(result));
 }
+
+test "re-registering a library keeps old closures' lib_env alive (#820)" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    // f closes over the library env to look up the non-exported `secret`.
+    _ = try vm.eval(
+        \\(define-library (foo bar)
+        \\  (import (scheme base))
+        \\  (export f)
+        \\  (begin
+        \\    (define secret 42)
+        \\    (define (f) secret)))
+    );
+    _ = try vm.eval("(import (foo bar))");
+    try std.testing.expectEqual(@as(i64, 42), types.toFixnum(try vm.eval("(f)")));
+
+    // Re-register the same library name; the old lib_env must be retired,
+    // not freed, because f still references it via Function.env.
+    _ = try vm.eval(
+        \\(define-library (foo bar)
+        \\  (import (scheme base))
+        \\  (export g)
+        \\  (begin (define (g) 99)))
+    );
+
+    // Calling the stale closure must still resolve `secret` in the old env.
+    try std.testing.expectEqual(@as(i64, 42), types.toFixnum(try vm.eval("(f)")));
+
+    // And the replacement library works normally.
+    _ = try vm.eval("(import (foo bar))");
+    try std.testing.expectEqual(@as(i64, 99), types.toFixnum(try vm.eval("(g)")));
+}
+
+test "retired lib_env values survive GC (#820)" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    _ = try vm.eval(
+        \\(define-library (gc lib)
+        \\  (import (scheme base))
+        \\  (export get)
+        \\  (begin
+        \\    (define stash (list 1 2 3))
+        \\    (define (get) stash)))
+    );
+    _ = try vm.eval("(import (gc lib))");
+    _ = try vm.eval(
+        \\(define-library (gc lib)
+        \\  (import (scheme base))
+        \\  (export other)
+        \\  (begin (define (other) 0)))
+    );
+
+    // Allocation churn to force collections; `stash` is only reachable
+    // through the retired env, which markVMRoots must trace.
+    _ = try vm.eval(
+        \\(let churn ((n 50000) (acc '()))
+        \\  (if (= n 0) acc (churn (- n 1) (cons n acc))))
+    );
+    const result = try vm.eval("(length (get))");
+    try std.testing.expectEqual(@as(i64, 3), types.toFixnum(result));
+}

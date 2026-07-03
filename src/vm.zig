@@ -105,6 +105,12 @@ fn markVMRoots(gc: *memory.GC) void {
                 while (eit2.next()) |v| gc.markValue(v.*);
             }
         }
+        // Envs of replaced libraries stay reachable through closures that
+        // were compiled against them (#820).
+        for (vm.libraries.retired_envs.items) |env| {
+            var eit = env.valueIterator();
+            while (eit.next()) |v| gc.markValue(v.*);
+        }
     }
 
     // Mark library environments being built by handleDefineLibrary
