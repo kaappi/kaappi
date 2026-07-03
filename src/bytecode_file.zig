@@ -2,6 +2,7 @@ const std = @import("std");
 const is_wasm = @import("builtin").os.tag == .wasi;
 const types = @import("types.zig");
 const memory = @import("memory.zig");
+const main = @import("main.zig");
 const Value = types.Value;
 const Function = types.Function;
 const OpCode = types.OpCode;
@@ -9,7 +10,7 @@ const GC = memory.GC;
 
 // File format constants
 const MAGIC = [4]u8{ 'K', 'P', 'B', 'C' };
-const VERSION: u16 = 5;
+const VERSION: u16 = 6;
 const MAX_FUNCTIONS: u32 = 16_384;
 const MAX_TOP_LEVEL_FUNCTIONS: u32 = 4_096;
 const MAX_CODE_BYTES: u32 = 4_194_304;
@@ -614,6 +615,7 @@ fn writeFunctionsToBuffer(w: *Writer, allocator: std.mem.Allocator, top_level_fu
     try w.writeBytes(allocator, &MAGIC);
     try w.writeU16(allocator, VERSION);
     try w.writeU64(allocator, source_hash);
+    try w.writeU64(allocator, compilerHash());
     try w.writeU32(allocator, @intCast(all_funcs.len));
     try w.writeU32(allocator, @intCast(top_level_funcs.len));
 
@@ -725,20 +727,23 @@ pub const DeserializeResult = struct {
 fn deserializeFromBuffer(gc: *GC, data: []const u8, expected_hash: ?u64) !?DeserializeResult {
     const allocator = gc.allocator;
 
-    if (data.len < 22) return null;
+    if (data.len < 30) return null;
 
     var r = Reader{ .data = data, .pos = 0 };
 
     const magic = r.readBytes(4) catch return null;
     if (!std.mem.eql(u8, magic, &MAGIC)) return null;
 
-    const version = r.readU16() catch return null;
-    if (version != VERSION) return null;
+    const ver = r.readU16() catch return null;
+    if (ver != VERSION) return null;
 
     const file_hash = r.readU64() catch return null;
     if (expected_hash) |eh| {
         if (file_hash != eh) return null;
     }
+
+    const file_compiler_hash = r.readU64() catch return null;
+    if (file_compiler_hash != compilerHash()) return null;
 
     const func_count = r.readU32() catch return null;
     if (func_count == 0 or func_count > MAX_FUNCTIONS) return null;
@@ -924,6 +929,10 @@ pub fn readFileWithTopLevel(gc: *GC, source_hash: u64, path: []const u8) !?Deser
 
 pub fn sourceHash(source: []const u8) u64 {
     return std.hash.Wyhash.hash(0, source);
+}
+
+pub fn compilerHash() u64 {
+    return std.hash.Wyhash.hash(0, main.version);
 }
 
 // ---------------------------------------------------------------------------
@@ -1166,6 +1175,26 @@ test "source hash computation" {
     try std.testing.expect(h1 != h3);
 }
 
+test "stale compiler version rejects cache" {
+    const allocator = std.testing.allocator;
+    var gc = GC.init(allocator);
+    defer gc.deinit();
+
+    var w = Writer{ .buf = .empty };
+    defer w.buf.deinit(allocator);
+
+    const hash: u64 = 0xCAFE;
+    try w.writeBytes(allocator, &MAGIC);
+    try w.writeU16(allocator, VERSION);
+    try w.writeU64(allocator, hash);
+    try w.writeU64(allocator, compilerHash() +% 1); // different compiler version
+    try w.writeU32(allocator, 1);
+    try w.writeU32(allocator, 1);
+
+    const result = try deserializeFromBuffer(&gc, w.buf.items, hash);
+    try std.testing.expect(result == null);
+}
+
 test "bytecode validation rejects oversized function count header" {
     const allocator = std.testing.allocator;
     var gc = GC.init(allocator);
@@ -1178,6 +1207,7 @@ test "bytecode validation rejects oversized function count header" {
     try w.writeBytes(allocator, &MAGIC);
     try w.writeU16(allocator, VERSION);
     try w.writeU64(allocator, hash);
+    try w.writeU64(allocator, compilerHash());
     try w.writeU32(allocator, @as(u32, @intCast(MAX_FUNCTIONS + 1)));
     try w.writeU32(allocator, 1);
 
@@ -1289,6 +1319,7 @@ test "bytecode validation rejects invalid opcode" {
     try w.writeBytes(allocator, &MAGIC);
     try w.writeU16(allocator, VERSION);
     try w.writeU64(allocator, hash);
+    try w.writeU64(allocator, compilerHash());
     try w.writeU32(allocator, 1); // function count
     try w.writeU32(allocator, 1); // top-level count
 
