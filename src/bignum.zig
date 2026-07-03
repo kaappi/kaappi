@@ -487,14 +487,20 @@ pub fn toF64(v: Value) f64 {
     const bn = types.toBignum(v);
     if (bn.len == 0) return 0.0;
 
-    // Reconstruct from limbs (most significant first for precision)
-    var result: f64 = 0.0;
-    const scale: f64 = @floatFromInt(@as(u128, 1) << 64);
-    var i: usize = bn.len;
-    while (i > 0) {
-        i -= 1;
-        result = result * scale + @as(f64, @floatFromInt(bn.limbs[i]));
+    if (bn.len == 1) {
+        const r: f64 = @floatFromInt(bn.limbs[0]);
+        return if (bn.positive) r else -r;
     }
+    const hi = bn.limbs[bn.len - 1];
+    const lo = bn.limbs[bn.len - 2];
+    var sticky: u64 = 0;
+    for (bn.limbs[0 .. bn.len - 2]) |limb| sticky |= limb;
+    const lo_adj: u64 = if (sticky != 0 and lo & 1 == 0) lo | 1 else lo;
+    const combined: u128 = (@as(u128, hi) << 64) | @as(u128, lo_adj);
+    var result: f64 = @floatFromInt(combined);
+    const remaining: u32 = @intCast((bn.len - 2) * 64);
+    const scale: f64 = std.math.scalbn(@as(f64, 1.0), @as(i32, @intCast(remaining)));
+    result *= scale;
     if (!bn.positive) result = -result;
     return result;
 }
