@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783117512539,
+  "lastUpdate": 1783117527789,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "c6937e893bde9d615ea926770850867acd84a070",
-          "message": "Fix string-replace index clamping and bignum parse error propagation (#830, #835) (#893)\n\n- string-replace now raises IndexOutOfBounds for out-of-range start/end\n  instead of silently clamping to string length (#830)\n- parseBignumString propagates InvalidCharacter distinctly from\n  OutOfMemory so string->number returns #f for invalid bignum strings\n  instead of raising a runtime error (#835)\n\nFixes #830\nFixes #835\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-03T02:06:26+05:30",
-          "tree_id": "adf47791ea319346d40671136194a44844af2872",
-          "url": "https://github.com/kaappi/kaappi/commit/c6937e893bde9d615ea926770850867acd84a070"
-        },
-        "date": 1783026968263,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.332108,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.884146,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.83373,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.133959,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006963,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.032641,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.450071,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.069964,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.882953,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.745723,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.098574,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.234906,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 2.427971,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.751613,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.043265,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.042836,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "53f8841269e8e8e88afaa7b1cf74a612f5bae3a0",
+          "message": "Stop --sandbox pre-scan at filename boundary (#783) (#1007)\n\nThe pre-scan that decides sandboxing before primitive registration was\nscanning all of argv, including script arguments after the filename.\nA script invoked as `kaappi script.scm --sandbox` would silently enter\nsandbox mode, breaking the script.\n\nMake the pre-scan respect the same positional contract as the main flag\nloop: skip argv[0], recognize all interpreter flags (consuming values\nfor flags that take one), and stop at the first unrecognized argument\n(the filename).\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-04T03:39:58+05:30",
+          "tree_id": "7a636eaf467646453e91096a3883f47b827a9540",
+          "url": "https://github.com/kaappi/kaappi/commit/53f8841269e8e8e88afaa7b1cf74a612f5bae3a0"
+        },
+        "date": 1783117527258,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.461033,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.559308,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.83719,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.928924,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006478,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.033561,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.4759,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.070046,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 4.142734,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.825221,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.198581,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.438663,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.806302,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.817726,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.043847,
             "unit": "seconds"
           }
         ]
