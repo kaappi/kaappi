@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783040644192,
+  "lastUpdate": 1783040692139,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "bcc7acebcfcb1e32f324231157e86e6b518e82d4",
-          "message": "Fix read-bytevector allocating full k-byte buffer upfront (#638) (#661)\n\nread-bytevector was allocating a buffer of the full requested size k\nbefore reading any data. A large k (e.g. 10^12) caused the process to\nhang attempting the allocation, even when only a few bytes were available.\nThis was exploitable under --sandbox.\n\nSwitch to incremental ArrayList growth (matching read-string's approach)\nso only actually-read bytes are buffered.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-01T09:35:38+05:30",
-          "tree_id": "9ab5392bd87690e2494071a59856f36a0772290c",
-          "url": "https://github.com/kaappi/kaappi/commit/bcc7acebcfcb1e32f324231157e86e6b518e82d4"
-        },
-        "date": 1782879406721,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.918063,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.932419,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.851486,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.162615,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.007652,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.032317,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.451681,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 1.266802,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.908556,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.738665,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.097706,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.246291,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 2.383023,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 0,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044868,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "38b06874a5c9cd83707d163f4f69e0f25aab05c7",
+          "message": "Restore debug_mode after ,step instead of unconditionally disabling (#914)\n\n* Restore debug_mode after ,step instead of unconditionally disabling (#823)\n\n,step was setting debug_mode=false after the expression, which\ncleared breakpoints set via ,break. Save and restore the prior state.\n\nFixes #823\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Add regression test for ,step preserving debug_mode (#823)\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-03T00:42:23Z",
+          "tree_id": "f29af25b1ff16e7732963133d096bce598a85a80",
+          "url": "https://github.com/kaappi/kaappi/commit/38b06874a5c9cd83707d163f4f69e0f25aab05c7"
+        },
+        "date": 1783040691767,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.070075,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.944975,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.858913,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.157747,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.007288,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.033425,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.469985,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.068453,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.877332,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.804636,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.244022,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.472156,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 2.419222,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.813476,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044186,
             "unit": "seconds"
           }
         ]
