@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783101787031,
+  "lastUpdate": 1783105963261,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "f7c3a7b05060c2d04a565d4ed971a9240d4da0ba",
-          "message": "Merge pull request #771 from kaappi/fix/748-angle-negative-zero\n\nFix angle to return pi for -0.0",
-          "timestamp": "2026-07-02T19:27:54+05:30",
-          "tree_id": "021d599d05b36c3c27701aa3a21eea631fca32a7",
-          "url": "https://github.com/kaappi/kaappi/commit/f7c3a7b05060c2d04a565d4ed971a9240d4da0ba"
-        },
-        "date": 1783001554990,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.418419,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.042608,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.805739,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.274766,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006919,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.03177,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.454665,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.070073,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.924884,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.762921,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.093588,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.218324,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 2.395217,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.591051,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.04061,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.047092,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ec52ce609de58764897322d61d09e0f8e926ad8e",
+          "message": "Preserve string/bytevector eq? identity in thread deep copy (#807) (#988)\n\ndeepCopyValue was missing visited.put for .string and .bytevector,\nso shared references to the same mutable object became independent\ncopies across thread boundaries, breaking eq? identity and shared\nmutation semantics.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-03T18:57:47Z",
+          "tree_id": "077cd3714f78461559fdb43d20ba437fb12a2616",
+          "url": "https://github.com/kaappi/kaappi/commit/ec52ce609de58764897322d61d09e0f8e926ad8e"
+        },
+        "date": 1783105962298,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.377379,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.549459,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.844822,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.286881,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006374,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.033512,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.471267,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.070966,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 4.062632,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.836409,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.207119,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.429883,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.786084,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.667394,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.043313,
             "unit": "seconds"
           }
         ]
