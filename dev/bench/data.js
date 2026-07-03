@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783115302772,
+  "lastUpdate": 1783115356481,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "269901be085746ed594e744f23d904725f697071",
-          "message": "Root bignum intermediates in Euclid loops to prevent use-after-free (#843) (#885)\n\nThe GCD loops in gcdFn, makeRationalReduced, and lcmFn held unrooted\nbignum intermediates across allocating bignum_mod calls. When GC\ntriggered inside the loop, freed limbs produced silently wrong results\nat default threshold. Root b_val/abs_num/g via extra_roots and keep\nthem updated each iteration.\n\nFixes #843\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-03T01:41:10+05:30",
-          "tree_id": "a738630ff194b19440b7d7fe3b84ad97872bd8ea",
-          "url": "https://github.com/kaappi/kaappi/commit/269901be085746ed594e744f23d904725f697071"
-        },
-        "date": 1783023954364,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.403191,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.378606,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.811537,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.144946,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006977,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.032222,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.453859,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.069819,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.93457,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.748918,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.150095,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.217368,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 2.418883,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.702608,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.042165,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.040046,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2cca1cc81439727cf5d2d579b5ffda8de320eecc",
+          "message": "Fix peek-char returning raw lead byte for multi-byte UTF-8 on fd ports (#798) (#1001)\n\nWhen peek_byte held a multi-byte UTF-8 lead byte (e.g. after read-line\npushed back the byte following \\r), peekCharFn fell through to returning\nthe raw lead byte as a Latin-1 character instead of decoding the full\nUTF-8 sequence. Add an else branch that temporarily clears peek_byte,\nreads continuation bytes from the fd via readOneByte, restores peek_byte,\nand stashes the continuation bytes in peek_extra for subsequent read-char.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-03T21:29:32Z",
+          "tree_id": "9695834586976ed668728dd34bd9b9d5c20912d7",
+          "url": "https://github.com/kaappi/kaappi/commit/2cca1cc81439727cf5d2d579b5ffda8de320eecc"
+        },
+        "date": 1783115355583,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.949674,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.572518,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.815625,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.96942,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006542,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.03228,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.430245,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.06692,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 4.159785,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.627032,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.140897,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.406365,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.682373,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.028364,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.041096,
             "unit": "seconds"
           }
         ]
