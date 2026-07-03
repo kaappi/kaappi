@@ -78,6 +78,13 @@
   (check "alist size" (hash-table-size ht) 2)
   (check "->alist length" (length (hash-table->alist ht)) 2))
 
+;;; alist->hash-table accepts SRFI-69 optional equality and hash arguments
+(let ((ht (alist->hash-table '((a . 1) (b . 2)) equal?)))
+  (check "alist w/ equality arg populated" (hash-table-ref ht 'b) 2)
+  (check "alist w/ equality arg size" (hash-table-size ht) 2))
+(let ((ht (alist->hash-table '((a . 1)) equal? hash)))
+  (check "alist w/ equality+hash args" (hash-table-ref ht 'a) 1))
+
 ;;; Summary
 (display pass) (display " passed, ") (display fail) (display " failed")
 (newline)

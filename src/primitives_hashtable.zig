@@ -24,7 +24,7 @@ pub fn registerHashTable(vm: *vm_mod.VM) !void {
     try reg(vm, "hash-table-values", &hashTableValuesFn, .{ .exact = 1 });
     try reg(vm, "hash-table-walk", &hashTableWalkFn, .{ .exact = 2 });
     try reg(vm, "hash-table->alist", &hashTableToAlistFn, .{ .exact = 1 });
-    try reg(vm, "alist->hash-table", &alistToHashTableFn, .{ .exact = 1 });
+    try reg(vm, "alist->hash-table", &alistToHashTableFn, .{ .variadic = 1 });
     try reg(vm, "hash-table-copy", &hashTableCopyFn, .{ .exact = 1 });
     try reg(vm, "hash-table-update!/default", &hashTableUpdateDefaultFn, .{ .exact = 4 });
     try reg(vm, "hash", &hashFn, .{ .variadic = 1 });
@@ -335,7 +335,8 @@ fn hashTableToAlistFn(args: []const Value) PrimitiveError!Value {
     return result;
 }
 
-// (alist->hash-table alist)
+// (alist->hash-table alist) or (alist->hash-table alist equal-proc hash-proc)
+// The optional comparator/hash args are accepted and ignored, like make-hash-table.
 fn alistToHashTableFn(args: []const Value) PrimitiveError!Value {
     const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
     var current = args[0];
