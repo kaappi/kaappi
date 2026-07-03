@@ -97,6 +97,32 @@
 (check "downcase Ⰰ" #\ⰰ (char-downcase #\Ⰰ))  ; 0x2C00 -> 0x2C30
 (check "upcase ⰰ" #\Ⰰ (char-upcase #\ⰰ))     ; 0x2C30 -> 0x2C00
 
+;; --- Warang Citi (SMP) ---
+(check "downcase 𑢠" #\𑣀 (char-downcase #\𑢠))  ; 0x118A0 -> 0x118C0
+(check "upcase 𑣀" #\𑢠 (char-upcase #\𑣀))     ; 0x118C0 -> 0x118A0
+(check "upper? 𑢠" #t (char-upper-case? #\𑢠))
+(check "lower? 𑣀" #t (char-lower-case? #\𑣀))
+
+;; --- Cyrillic Supplement ---
+(check "upcase ԁ" #\Ԁ (char-upcase #\ԁ))      ; 0x0501 -> 0x0500
+(check "downcase Ԁ" #\ԁ (char-downcase #\Ԁ))   ; 0x0500 -> 0x0501
+
+;; --- char-alphabetic? for all bicameral scripts ---
+(check "alpha? Coptic Ⲁ" #t (char-alphabetic? #\Ⲁ))
+(check "alpha? Coptic ⲁ" #t (char-alphabetic? #\ⲁ))
+(check "alpha? Glagolitic Ⰰ" #t (char-alphabetic? #\Ⰰ))
+(check "alpha? Glagolitic ⰰ" #t (char-alphabetic? #\ⰰ))
+(check "alpha? Cherokee Ꭰ" #t (char-alphabetic? #\Ꭰ))
+(check "alpha? Cherokee ꭰ" #t (char-alphabetic? #\ꭰ))
+(check "alpha? Deseret 𐐀" #t (char-alphabetic? #\𐐀))
+(check "alpha? Deseret 𐐨" #t (char-alphabetic? #\𐐨))
+(check "alpha? Osage 𐓀" #t (char-alphabetic? #\𐓀))
+(check "alpha? Osage 𐓨" #t (char-alphabetic? #\𐓨))
+(check "alpha? Warang Citi 𑢠" #t (char-alphabetic? #\𑢠))
+(check "alpha? Warang Citi 𑣀" #t (char-alphabetic? #\𑣀))
+(check "alpha? Adlam 𞤀" #t (char-alphabetic? #\𞤀))
+(check "alpha? Adlam 𞤢" #t (char-alphabetic? #\𞤢))
+
 ;; --- Case folding (char-foldcase) ---
 (check "foldcase A" #\a (char-foldcase #\A))
 (check "foldcase Σ" #\σ (char-foldcase #\Σ))

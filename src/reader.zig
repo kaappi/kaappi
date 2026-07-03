@@ -1,6 +1,7 @@
 const std = @import("std");
 const types = @import("types.zig");
 const memory = @import("memory.zig");
+const unicode = @import("unicode_tables.zig");
 const Value = types.Value;
 
 pub const ReadError = error{
@@ -177,8 +178,22 @@ pub const Reader = struct {
         if (cp >= 0x4E00 and cp <= 0x9FFF) return true;
         if (cp >= 0xAC00 and cp <= 0xD7AF) return true;
         if (cp >= 0x3400 and cp <= 0x4DBF) return true;
+        if (cp >= 0x1C90 and cp <= 0x1CBA) return true;
         if (cp >= 0x1E00 and cp <= 0x1EFF) return true;
         if (cp >= 0x1F00 and cp <= 0x1FFF) return true;
+        if (cp >= 0x13A0 and cp <= 0x13F5) return true;
+        if (cp >= 0xAB70 and cp <= 0xABBF) return true;
+        if (cp >= 0x2C00 and cp <= 0x2C5F) return true;
+        if (cp >= 0x2C80 and cp <= 0x2CF3) return true;
+        if (cp >= 0x10400 and cp <= 0x1044F) return true;
+        if (cp >= 0x104B0 and cp <= 0x104FB) return true;
+        if (cp >= 0x118A0 and cp <= 0x118DF) return true;
+        if (cp >= 0x1E900 and cp <= 0x1E943) return true;
+        // Fall back to Unicode case tables: any cased letter is alphabetic
+        if (unicode.findLower(cp) != null) return true;
+        if (unicode.findUpper(cp) != null) return true;
+        if (unicode.containsU21(&unicode.extra_uppercase, cp)) return true;
+        if (unicode.containsU21(&unicode.extra_lowercase, cp)) return true;
         return false;
     }
 
