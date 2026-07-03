@@ -121,7 +121,7 @@ offset, so it tolerates much greater depth before (also unbounded) overflow.
 ## Cross-references
 
 - Surfaced alongside the GC reachability fix — see
-  [gc-reachability-bug.md](gc-reachability-bug.md) ("Unrelated pre-existing
+  [2026-06-17-gc-reachability-bug.md](2026-06-17-gc-reachability-bug.md) ("Unrelated pre-existing
   crashes").
 - The other suite crash found at the same time was the unrelated `string-copy!`
   `@memcpy` aliasing panic (since fixed).

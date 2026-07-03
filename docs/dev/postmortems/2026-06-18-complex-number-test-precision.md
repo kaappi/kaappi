@@ -1,8 +1,14 @@
 # Complex Number Test Precision Mismatch
 
+Postmortem of an R7RS suite failure: the failure was in the test
+framework's comparison, not in `make-polar`.
+
 ## Status
 
-**Not yet fixed.** One R7RS test failure in section 6.2 Numbers.
+**Fixed** (2026-06-18, commit 82407ab). `test-approx=?` in
+`lib/chibi/test.sld` now compares complex numbers component-wise, exactly
+as proposed below. Section 6.2 Numbers passes in full (211/211 as of
+2026-07-03).
 
 ## Failing test
 
@@ -40,8 +46,8 @@ case.
 
 ## Fix
 
-Extend `test-approx=?` in `lib/chibi/test.sld` to compare complex numbers
-component-wise:
+`test-approx=?` in `lib/chibi/test.sld` was extended to compare complex
+numbers component-wise:
 
 ```scheme
 (define (test-approx=? a b)
@@ -66,7 +72,6 @@ was simply written with fewer significant digits.
 
 ## Verification
 
-After fixing:
 ```scheme
 (test 0.54030230586814+0.841470984807897i (make-polar 1 1))  ;=> PASS
 ```

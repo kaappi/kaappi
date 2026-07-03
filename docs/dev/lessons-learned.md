@@ -1,6 +1,6 @@
 # Lessons Learned
 
-Hard-won insights from building Kaappi. Each section describes a class of bug, how it manifested, and the fix — so future contributors (and future-us) don't rediscover them.
+Hard-won insights from building Kaappi. Each section describes a class of bug, how it manifested, and the fix — so future contributors (and future-us) don't rediscover them. Bugs with a full investigation write-up link to it in [postmortems/](postmortems/); the entry here is the summary.
 
 ---
 
@@ -43,6 +43,8 @@ Hard-won insights from building Kaappi. Each section describes a class of bug, h
 **Files:** `src/vm.zig` — `get_global` handler, `set_global` handler
 
 **Lesson:** Per-entry versioning or full invalidation — no middle ground. A single version stamp for the whole cache creates false validity for stale entries.
+
+The same cache had a second, independent problem — it wasn't traced by the GC, and the version-bump discipline that made that safe was unguarded. See [postmortems/2026-06-17-global-cache-not-gc-traced.md](postmortems/2026-06-17-global-cache-not-gc-traced.md).
 
 ---
 
@@ -130,17 +132,13 @@ Hard-won insights from building Kaappi. Each section describes a class of bug, h
 
 **Symptom:** String literals displayed as `0xAA` (DebugAllocator poison) after heavy file I/O. Only happened under specific allocation pressure patterns.
 
-**Root cause:** The reader and compiler held in-flight source data (S-expression trees) in unrooted local variables across allocations that trigger `maybeCollect()`. `allocPair` runs `maybeCollect()` BEFORE allocating, so any heap Value passed as an argument is vulnerable if not rooted. Two gaps:
-- **Reader:** `readList`/`readListTail` passed the tail to `allocPair(car, rest)` with `rest` unrooted
-- **Compiler:** `compile(expr)` walked the expression tree without rooting it; macro expansion created fresh unrooted forms
-
-**Fix:** Root all in-flight data across allocation boundaries using `gc.pushRoot`/`gc.popRoot` and `gc.extra_roots`. The initial workaround (skipping immutable strings in sweep) was removed once the real root cause was fixed.
+**Root cause:** The reader and compiler held in-flight source data (S-expression trees) in unrooted local variables across allocations that can trigger `maybeCollect()`.
 
 **Lesson:** Every Value held across ANY function call that might allocate must be rooted. `allocPair`, `allocString`, `allocSymbol`, `allocClosure`, `allocVector` all call `maybeCollect()` before allocating. The GC can run at any of these points.
 
 **Files:** `src/reader_datum.zig`, `src/compiler.zig`, `src/memory.zig`
 
-See `docs/dev/gc-reachability-bug.md` for the full investigation.
+Full investigation: [postmortems/2026-06-17-gc-reachability-bug.md](postmortems/2026-06-17-gc-reachability-bug.md).
 
 ---
 
@@ -153,8 +151,44 @@ See `docs/dev/gc-reachability-bug.md` for the full investigation.
 - **`call_global` superinstruction** (+10%): Fuse `get_global` + `call` into one opcode for non-tail calls. Saves one bytecode dispatch per call.
 
 **What didn't work:**
-- **NaN-boxing**: Would reduce fixnum range from i63 to i51, breaking R7RS integer semantics. Only ~5% gain for high complexity.
-- **`tail_call_global` superinstruction**: Caused 2x regression due to frame reuse semantics conflicting with the superinstruction's register layout.
+- **`tail_call_global` superinstruction**: Attempted and reverted — the real blocker was callee-type dispatch, not register layout. The shipped alternative, `self_tail_call` (~23% on tak), covers the hot self-recursion case. Full analysis: [decisions/self-tail-call-optimization.md](decisions/self-tail-call-optimization.md).
 - **Per-entry cache versioning**: Considered for the global cache, but full-cache clearing on version mismatch is simpler and just as effective.
 
-**Total improvement:** fib(35) from 2.69s to ~2.0s (26% faster).
+**Rejected, then shipped anyway:**
+- **NaN-boxing**: Rejected at the time over fixnum-range fears (a naive scheme would cut fixnums from i63 to i51). Shipped 2026-06-25 with a 48-bit fixnum payload and automatic bignum promotion, which preserves R7RS integer semantics — and made flonums allocation-free. The lesson: a rejected design can become viable when one blocking assumption (here, that range loss breaks semantics) is removed by another mechanism (bignum auto-promotion).
+
+**Total improvement (pre-NaN-boxing):** fib(35) from 2.69s to ~2.0s (26% faster).
+
+---
+
+## 12. Overflow checks must use the payload width, not the machine word
+
+**Symptom:** Arithmetic results in the gap between the fixnum payload boundary and the i64 boundary silently wrapped when encoded.
+
+**Root cause:** Overflow detection used Zig's `@addWithOverflow` on `i64`, which only fires at the i64 boundary — not at the (narrower) fixnum payload boundary.
+
+**Lesson:** With a tagged or boxed representation, arithmetic overflow checks must test the payload range, then promote (to bignum) — the machine-word overflow flag is the wrong boundary.
+
+Full write-up: [postmortems/2026-06-18-fixnum-overflow-promotion.md](postmortems/2026-06-18-fixnum-overflow-promotion.md).
+
+---
+
+## 13. Fixed-capacity VM arrays vs deep recursion
+
+**Symptom:** Deeply nested non-tail recursion overflowed the fixed register file and frame stack.
+
+**Fix (two phases):** First bounds checks with an adaptive stride at all re-entrant call sites, then growable heap-allocated frame and register arrays (double-on-overflow, with hard caps).
+
+**Lesson:** Any fixed-capacity runtime structure sized by "should be enough" will be exceeded by real programs; make it growable and keep the cap as a safety valve, not a working limit.
+
+Full write-up: [postmortems/2026-06-17-deep-recursion-register-overflow.md](postmortems/2026-06-17-deep-recursion-register-overflow.md).
+
+---
+
+## 14. Test-framework equality must handle every numeric type
+
+**Symptom:** One R7RS "failure" that was actually a bug in the test harness — `test-approx=?` applied tolerance only to reals, so complex numbers fell through to exact bitwise `equal?`.
+
+**Lesson:** Approximate comparison must recurse into compound numeric types (component-wise for complex); when a conformance test fails, suspect the comparison machinery as well as the implementation.
+
+Full write-up: [postmortems/2026-06-18-complex-number-test-precision.md](postmortems/2026-06-18-complex-number-test-precision.md).

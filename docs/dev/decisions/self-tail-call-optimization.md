@@ -2,7 +2,8 @@
 
 ## Status
 
-**Option A implemented.** The `self_tail_call` opcode is in place: self-recursive
+**Option A implemented** (2026-06-18, commit 26414d5). The `self_tail_call`
+opcode is in place: self-recursive
 tail calls (direct `define` recursion and named `let` loops) compile to a
 dedicated instruction that copies arguments to the frame base and resets the
 instruction pointer, skipping the global lookup, type check, and arity check.
@@ -302,13 +303,14 @@ copy). Option C: both.
 
 ## Key files
 
+(Paths current as of 2026-07-03; function names in the analysis above are
+as they were at decision time — call compilation now goes through
+`compileCallFromIR`/`compileCallGlobalFromIR`.)
+
 | Component | Location |
 |-----------|----------|
-| Tail-call exclusion | `src/compiler.zig:845` (`!is_tail` guard) |
-| `compileCallGlobal` | `src/compiler.zig:933` |
-| `compileCall` | `src/compiler.zig:839` |
-| `tail_call_global` handler | `src/vm.zig:1166` |
-| `tail_call` handler | `src/vm.zig:794` |
-| OpCode enum | `src/types.zig:683` |
-| Benchmarks doc | `docs/benchmarks.md` |
-| Lessons learned | `docs/dev/lessons-learned.md:157` |
+| Call compilation | `src/compiler.zig` (`compileCallFromIR`, `compileCallGlobalFromIR`) |
+| `tail_call` / `tail_call_global` handlers | `src/vm_dispatch.zig` |
+| OpCode enum | `src/types.zig` |
+| Benchmarks | `benchmarks/` (`run-benchmarks.sh`) |
+| Lessons learned | [../lessons-learned.md](../lessons-learned.md#11-performance-what-worked-and-what-didnt) |
