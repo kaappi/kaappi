@@ -752,6 +752,7 @@ fn vectorUnfoldFn(args: []const Value) PrimitiveError!Value {
         // Result should be (values elem new-seed1 new-seed2 ...)
         if (types.isMultipleValues(result)) {
             const mv = types.toObject(result).as(types.MultipleValues);
+            if (mv.values.len == 0) return primitives.typeError("vector-unfold", "at least one return value from step procedure", result);
             new_data[i] = mv.values[0];
             for (0..seeds.items.len) |j| {
                 if (j + 1 < mv.values.len) {
@@ -802,7 +803,8 @@ fn vectorUnfoldRightFn(args: []const Value) PrimitiveError!Value {
         const result = try callVM(f, call_args_buf[0 .. 1 + seeds.items.len]);
         if (types.isMultipleValues(result)) {
             const mv = types.toObject(result).as(types.MultipleValues);
-            if (mv.values.len > 0) new_data[i] = mv.values[0];
+            if (mv.values.len == 0) return primitives.typeError("vector-unfold-right", "at least one return value from step procedure", result);
+            new_data[i] = mv.values[0];
             for (mv.values[1..], 0..) |v, si| {
                 if (si < seeds.items.len) seeds.items[si] = v;
             }
