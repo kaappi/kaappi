@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783110251223,
+  "lastUpdate": 1783110694654,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "ad1c37212a50379cd6b03ecad6290810162c055f",
-          "message": "Merge pull request #779 from kaappi/fix/742-repl-ctrl-c-behavior\n\nMake REPL Ctrl-C show fresh prompt instead of exiting",
-          "timestamp": "2026-07-02T21:47:02+05:30",
-          "tree_id": "61cc331d48db0517dafdf8b028a391bba45ae0cc",
-          "url": "https://github.com/kaappi/kaappi/commit/ad1c37212a50379cd6b03ecad6290810162c055f"
-        },
-        "date": 1783009898118,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.333023,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.247848,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.803822,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.094411,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006928,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.032159,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.449361,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.068566,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.925906,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.748824,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.161697,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.220219,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 2.377162,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.668132,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.040597,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044513,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "1cd5d84bb55442e63b447342fa737ce2cfc690dc",
+          "message": "Accept full unsigned 64-bit range for uint64/size_t FFI arguments (#794) (#992)\n\nThe argument-direction marshaling forced uint64 and size_t parameters\nthrough the signed i64 path (toCheckedInt → toIntArgOpt), rejecting\nany value ≥ 2^63.  The return direction already handled the full\nunsigned range via marshalLongOrUlong; this adds the symmetric path\nfor arguments via toLongArg/toUnsignedArgOpt and fixes checkNarrowIntRange\nto validate unsigned types through the unsigned conversion.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-03T20:09:51Z",
+          "tree_id": "e78eaac850d926a250e163796662b52d81136ed6",
+          "url": "https://github.com/kaappi/kaappi/commit/1cd5d84bb55442e63b447342fa737ce2cfc690dc"
+        },
+        "date": 1783110693636,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.128215,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.93514,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.689633,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.255103,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.005319,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.026384,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.37974,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.054329,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.403329,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.460348,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 0.917382,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.370792,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.316103,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.284763,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.034941,
             "unit": "seconds"
           }
         ]
