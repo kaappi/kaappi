@@ -170,3 +170,47 @@ test "nested guard" {
     );
     try std.testing.expectEqual(@as(i64, 11), types.toFixnum(result));
 }
+
+test "uncaught (error ...) formats message and irritants into error detail" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    const result = vm.eval("(error \"index out of range\" 5)");
+    try std.testing.expectError(VMError.ExceptionRaised, result);
+    try std.testing.expectEqualStrings("index out of range 5", vm.getErrorDetail());
+}
+
+test "uncaught raise of non-error value reports the raised value" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    const result = vm.eval("(raise 42)");
+    try std.testing.expectError(VMError.ExceptionRaised, result);
+    try std.testing.expectEqualStrings("uncaught exception: 42", vm.getErrorDetail());
+}
+
+test "uncaught (error ...) with string irritant writes the irritant" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    const result = vm.eval("(error \"bad input\" \"foo\" 7)");
+    try std.testing.expectError(VMError.ExceptionRaised, result);
+    try std.testing.expectEqualStrings("bad input \"foo\" 7", vm.getErrorDetail());
+}
+
+test "caught exception does not populate error detail" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    const result = try vm.eval("(guard (e (#t 'ok)) (error \"boom\" 1))");
+    try std.testing.expect(types.isSymbol(result));
+    try std.testing.expectEqualStrings("", vm.getErrorDetail());
+}

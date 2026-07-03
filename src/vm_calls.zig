@@ -131,6 +131,7 @@ pub fn execute(vm: *VM, func: *types.Function) VMError!Value {
             vm.profile_time_depth = 0;
             vm.gc.profile_alloc_target = null;
         }
+        vm.noteUncaughtException(err);
         vm.resetExecutionState();
         return err;
     };
