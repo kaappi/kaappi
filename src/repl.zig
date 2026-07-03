@@ -13,6 +13,15 @@ const ln = if (is_wasm) struct {} else @import("linenoise.zig");
 const version = @import("main.zig").version;
 
 var repl_vm: ?*vm_mod.VM = null;
+var terminal_width: u16 = 80;
+
+fn getTerminalWidth() u16 {
+    if (comptime is_wasm) return 80;
+    var ws: std.posix.winsize = .{ .row = 0, .col = 0, .xpixel = 0, .ypixel = 0 };
+    const ret = std.c.ioctl(1, std.c.T.IOCGWINSZ, @intFromPtr(&ws));
+    if (ret == 0 and ws.col > 0) return ws.col;
+    return 80;
+}
 
 fn writeToFd(fd: std.posix.fd_t, bytes: []const u8) void {
     var total: usize = 0;
@@ -395,6 +404,7 @@ pub fn repl(vm: *vm_mod.VM) !void {
     writeStdout("Kaappi Scheme v" ++ version ++ "\n");
     writeStdout("Type ,help for commands, ,quit to exit.\n\n");
 
+    terminal_width = getTerminalWidth();
     repl_vm = vm;
     ln.setMultiLine(true);
     ln.historySetMaxLen(1000);
@@ -940,7 +950,7 @@ const EvalMode = enum { normal, store_last, show_type };
 fn printValuesLines(allocator: std.mem.Allocator, values: []const types.Value) void {
     for (values) |val| {
         if (val == types.VOID) continue;
-        const s = printer.prettyPrint(allocator, val, 80) catch
+        const s = printer.prettyPrint(allocator, val, terminal_width) catch
             (printer.valueToString(allocator, val, .write) catch continue);
         defer allocator.free(s);
         writeStdout(s);
@@ -1008,7 +1018,8 @@ fn evalInputInner(vm: *vm_mod.VM, allocator: std.mem.Allocator, input: []const u
                     writeStdout(getTypeName(dr));
                     writeStdout("\n");
                 } else {
-                    const s = printer.valueToString(allocator, dr, .write) catch continue;
+                    const s = printer.prettyPrint(allocator, dr, terminal_width) catch
+                        (printer.valueToString(allocator, dr, .write) catch continue);
                     defer allocator.free(s);
                     writeStdout(s);
                     writeStdout("\n");
@@ -1082,7 +1093,7 @@ fn evalInputInner(vm: *vm_mod.VM, allocator: std.mem.Allocator, input: []const u
                 writeStdout(getTypeName(display_result));
                 writeStdout("\n");
             } else {
-                const s = printer.prettyPrint(allocator, display_result, 80) catch
+                const s = printer.prettyPrint(allocator, display_result, terminal_width) catch
                     (printer.valueToString(allocator, display_result, .write) catch continue);
                 defer allocator.free(s);
                 writeStdout(s);
