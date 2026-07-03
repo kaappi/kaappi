@@ -48,18 +48,12 @@ investigations.
 | [fixnum-overflow-promotion](postmortems/2026-06-18-fixnum-overflow-promotion.md) | Arithmetic results in the fixnum/i64 gap silently wrapped | Fixed 2026-06-18 |
 | [complex-number-test-precision](postmortems/2026-06-18-complex-number-test-precision.md) | `test-approx=?` didn't compare complex numbers component-wise | Fixed 2026-06-18 |
 
-## Known issues (open)
-
-| Document | Issue |
-|----------|-------|
-| [nested-define-syntax-hygiene.md](nested-define-syntax-hygiene.md) | Macro-generating macros: inner `syntax-rules` pattern variables not scoped opaquely |
-
 ## Reference notes
 
 | Document | Contents |
 |----------|----------|
-| [bytecode-disassembler.md](bytecode-disassembler.md) | Instruction set reference (31 opcodes) and disassembler design notes |
-| [repl-enhancements.md](repl-enhancements.md) | REPL current state: comma commands, line editing, completion |
+| [bytecode.md](bytecode.md) | Bytecode instruction set (32 opcodes), encoding, disassembler |
+| [repl.md](repl.md) | REPL reference: line editing, comma commands, completion |
 | [unicode-case-mapping.md](unicode-case-mapping.md) | Case-conversion coverage by script |
 
 ## Policy

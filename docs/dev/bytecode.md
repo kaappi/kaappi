@@ -1,20 +1,15 @@
-# Bytecode Disassembler
+# Bytecode
 
-## Overview
+Instruction set reference and disassembler. The single source of truth for
+the ISA — the `/bytecode-isa` skill points here.
 
-`(disassemble <proc>)` is implemented in `src/disassembler.zig`, and the
-`--disassemble` CLI flag compiles a file's top-level forms and prints their
-bytecode instead of executing them. Both shipped 2026-06-18 (commit 96410f9).
+## Instruction set
 
-The "Proposed output format" and "Implementation plan" sections below are
-the original design notes, kept because they still describe how the
-disassembler works. The instruction set reference is current.
-
-## Instruction set reference
-
-31 opcodes, register-based, variable-length encoding. Operands are u8
+32 opcodes, register-based, variable-length encoding. Operands are u8
 (register/slot) or u16 (constant index, big-endian). Jump offsets are i16
-(signed, relative to the instruction after the jump).
+(signed, relative to the instruction after the jump). Defined in the
+`OpCode` enum in `src/types.zig`; executed by the dispatch loop in
+`src/vm_dispatch.zig`.
 
 | # | Opcode | Operands | Bytes | Description |
 |---|--------|----------|-------|-------------|
@@ -49,6 +44,11 @@ disassembler works. The instruction set reference is current.
 | 28 | `box_local` | reg:u8 | 2 | Wrap register in pair for mutation |
 | 29 | `get_box_local` | dst:u8, reg:u8 | 3 | Read car of boxed register |
 | 30 | `set_box_local` | reg:u8, src:u8 | 3 | Write car of boxed register |
+| 31 | `self_tail_call` | base:u8, nargs:u8 | 3 | Self-recursive tail call: copy args to frame base, reset IP |
+
+`self_tail_call` skips the global lookup, type check, and arity check for
+direct self-recursion and named `let` loops — see
+[decisions/self-tail-call-optimization.md](decisions/self-tail-call-optimization.md).
 
 ### Encoding details
 
@@ -60,7 +60,7 @@ disassembler works. The instruction set reference is current.
 
 ## Available metadata per function
 
-The `Function` struct (`src/types.zig:172-188`) provides:
+The `Function` struct (`src/types.zig`) provides:
 
 | Field | Type | Use in disassembly |
 |-------|------|--------------------|
@@ -75,7 +75,16 @@ The `Function` struct (`src/types.zig:172-188`) provides:
 | `debug_locals` | `[]DebugLocal` | Map register slots to variable names |
 | `code` | `ArrayList(u8)` | Bytecode to disassemble |
 
-## Proposed output format
+## Disassembler
+
+Implemented in `src/disassembler.zig`. Three entry points:
+
+- `(disassemble <proc>)` — Scheme procedure
+- `,dis <expr>` — REPL command
+- `kaappi --disassemble file.scm` — compiles each top-level form and
+  prints its bytecode instead of executing it
+
+### Output format
 
 ```
 ; Function: fib
@@ -94,77 +103,20 @@ The `Function` struct (`src/types.zig:172-188`) provides:
   001d  tail_call_global r4, fib, 1       ; (fib ...) [tail]
 ```
 
-Key formatting choices:
+Formatting choices:
 - Hex offsets for jump target calculation
 - Register names (`r0`, `r1`, ...) with `debug_locals` annotations where available
 - Symbol names resolved from constant pool (not raw indices)
 - Jump targets shown as absolute offsets
-- Comments for common patterns
-
-## Implementation plan
-
-### Step 1: Disassembly function in a new file `src/disassembler.zig`
-
-```zig
-pub fn disassemble(func: *types.Function, writer: anytype) void {
-    // Print header (name, source, arity, constants)
-    // Walk code byte-by-byte, decode each instruction
-    // For each: print offset, opcode name, formatted operands
-}
-```
-
-The function walks `func.code.items`, matching on `@as(OpCode,
-@enumFromInt(code[ip]))`, decoding operands with the same read patterns as
-the VM (`readU8`/`readU16`), and printing formatted output.
-
-### Step 2: Register as a Scheme procedure
-
-In `src/primitives_r7rs.zig` (or a new `primitives_debug.zig`):
-
-```zig
-fn disassembleFn(args: []const Value) PrimitiveError!Value {
-    if (!types.isClosure(args[0])) return PrimitiveError.TypeError;
-    const closure = types.toObject(args[0]).as(types.Closure);
-    disassembler.disassemble(closure.func, stderr_writer);
-    return types.VOID;
-}
-```
-
-Register as `(disassemble <proc>)` in `(scheme base)` or a `(kaappi debug)`
-library.
-
-### Step 3: CLI flag `--disassemble`
-
-In `src/main.zig`, add a `--disassemble` flag that compiles each top-level
-form and prints its bytecode instead of executing it.
-
-### Step 4: Nested function display
-
-When a constant pool entry is a Function (for inner lambdas), recursively
-disassemble it indented under the parent, or print a reference like
-`<fn:fib@0012>`.
-
-## Existing infrastructure to reuse
-
-- `printer.valueToString()` — format constant pool values for display
-- `types.symbolName()` — resolve symbol indices to names
-- `debug_locals` — map register slots to source variable names
-- `vm_debug.zig` — stepping debugger (does NOT disassemble, but shows
-  function names and local values via the same metadata)
-
-## Complexity
-
-Low-medium. The core disassembler is a ~150-line switch statement mirroring
-the VM's dispatch loop but printing instead of executing. The CLI flag and
-Scheme procedure registration are ~20 lines each.
 
 ## Key files
 
 | Component | Location |
 |-----------|----------|
-| OpCode enum | `src/types.zig:683-715` |
-| VM decode loop | `src/vm.zig:613-1282` |
-| Instruction encoding | `src/compiler.zig:99-115` |
-| Function struct | `src/types.zig:172-188` |
+| OpCode enum | `src/types.zig` |
+| VM dispatch loop | `src/vm_dispatch.zig` (`runUntil`) |
+| Instruction encoding | `src/compiler.zig` |
+| Function struct | `src/types.zig` |
+| Disassembler | `src/disassembler.zig` |
 | Value printer | `src/printer.zig` |
-| Debug commands | `src/vm_debug.zig` |
+| Stepping debugger | `src/vm_debug.zig` |
