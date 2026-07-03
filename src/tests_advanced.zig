@@ -224,6 +224,71 @@ test "case-lambda dispatch by arity" {
     try std.testing.expectEqual(@as(i64, 7), types.toFixnum(r2));
 }
 
+test "case-lambda does not capture user variables named n or args" {
+    // Regression: the desugaring bound its internal rest-args list to `args`
+    // and the argument count to `n`, shadowing user variables of those names
+    // inside clause bodies (#836).
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    _ = try vm.eval("(define n 42)");
+    _ = try vm.eval("(define f (case-lambda ((x) (+ x n))))");
+    const r1 = try vm.eval("(f 1)");
+    try std.testing.expectEqual(@as(i64, 43), types.toFixnum(r1));
+
+    _ = try vm.eval("(define args 100)");
+    _ = try vm.eval("(define g (case-lambda ((x) (+ x args))))");
+    const r2 = try vm.eval("(g 1)");
+    try std.testing.expectEqual(@as(i64, 101), types.toFixnum(r2));
+
+    // Rest-arg clauses go through the same desugaring
+    _ = try vm.eval("(define h (case-lambda ((x . rest) (+ x n args))))");
+    const r3 = try vm.eval("(h 1 2 3)");
+    try std.testing.expectEqual(@as(i64, 143), types.toFixnum(r3));
+}
+
+test "case-lambda dispatches to clauses beyond the 32nd" {
+    // Regression: a fixed 32-entry buffer silently dropped later clauses, so
+    // calls matching them fell through to the wrong-number-of-arguments error.
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    const alloc = std.testing.allocator;
+    var src: std.ArrayList(u8) = .empty;
+    defer src.deinit(alloc);
+
+    // (define f (case-lambda (() 0) ((a0) 1) ((a0 a1) 2) ... arity 33))
+    try src.appendSlice(alloc, "(define f (case-lambda");
+    var arity: usize = 0;
+    while (arity < 34) : (arity += 1) {
+        try src.appendSlice(alloc, " ((");
+        var j: usize = 0;
+        while (j < arity) : (j += 1) {
+            var buf: [16]u8 = undefined;
+            try src.appendSlice(alloc, try std.fmt.bufPrint(&buf, " a{d}", .{j}));
+        }
+        var buf: [16]u8 = undefined;
+        try src.appendSlice(alloc, try std.fmt.bufPrint(&buf, ") {d})", .{arity}));
+    }
+    try src.appendSlice(alloc, "))");
+    _ = try vm.eval(src.items);
+
+    src.clearRetainingCapacity();
+    try src.appendSlice(alloc, "(f");
+    var k: usize = 0;
+    while (k < 33) : (k += 1) {
+        try src.appendSlice(alloc, " 1");
+    }
+    try src.appendSlice(alloc, ")");
+
+    const result = try vm.eval(src.items);
+    try std.testing.expectEqual(@as(i64, 33), types.toFixnum(result));
+}
+
 // ---------------------------------------------------------------------------
 // Complex number tests
 // ---------------------------------------------------------------------------

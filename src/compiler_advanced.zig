@@ -820,12 +820,13 @@ pub fn compileParameterize(self: *Compiler, args: Value, dst: u16, is_tail: bool
 
 /// Compile (case-lambda (formals body ...) ...)
 ///
-/// Desugars to:
-/// (lambda args
-///   (let ((n (length args)))
+/// Desugars to (internal names %-prefixed so clause bodies referencing
+/// user variables named `args` or `n` are not captured):
+/// (lambda %cl-args
+///   (let ((%cl-n (length %cl-args)))
 ///     (cond
-///       ((= n arity1) (apply (lambda formals1 body1...) args))
-///       ((= n arity2) (apply (lambda formals2 body2...) args))
+///       ((= %cl-n arity1) (apply (lambda formals1 body1...) %cl-args))
+///       ((= %cl-n arity2) (apply (lambda formals2 body2...) %cl-args))
 ///       ...
 ///       (else (error "wrong number of arguments")))))
 pub fn compileCaseLambda(self: *Compiler, args: Value, dst: u16) CompileError!void {
@@ -841,14 +842,16 @@ pub fn compileCaseLambda(self: *Compiler, args: Value, dst: u16) CompileError!vo
     const apply_sym = try gc.allocSymbol("apply");
     const else_sym = try gc.allocSymbol("else");
     const error_sym = try gc.allocSymbol("error");
-    const args_sym = try gc.allocSymbol("args");
-    const n_sym = try gc.allocSymbol("n");
+    const args_sym = try gc.allocSymbol("%cl-args");
+    const n_sym = try gc.allocSymbol("%cl-n");
 
     var cond_clauses: Value = types.NIL;
     var clause_list = args;
 
-    var clause_buf: [32]Value = undefined;
-    var clause_count: usize = 0;
+    // Values collected here stay reachable because no_collect is held until
+    // after the desugared form is fully built.
+    var clause_buf: std.ArrayList(Value) = .empty;
+    defer clause_buf.deinit(gc.allocator);
 
     while (clause_list != types.NIL) {
         if (!types.isPair(clause_list)) return CompileError.InvalidSyntax;
@@ -880,10 +883,7 @@ pub fn compileCaseLambda(self: *Compiler, args: Value, dst: u16) CompileError!vo
         // ((= n arity) (apply ...))
         const cond_clause = try gc.allocPair(test_expr, try gc.allocPair(apply_call, types.NIL));
 
-        if (clause_count < 32) {
-            clause_buf[clause_count] = cond_clause;
-            clause_count += 1;
-        }
+        clause_buf.append(gc.allocator, cond_clause) catch return CompileError.OutOfMemory;
     }
 
     // Build else clause: (else (error "wrong number of arguments"))
@@ -893,10 +893,10 @@ pub fn compileCaseLambda(self: *Compiler, args: Value, dst: u16) CompileError!vo
 
     // Build cond clauses list (in order) ending with else
     cond_clauses = try gc.allocPair(else_clause, types.NIL);
-    var ci = clause_count;
+    var ci = clause_buf.items.len;
     while (ci > 0) {
         ci -= 1;
-        cond_clauses = try gc.allocPair(clause_buf[ci], cond_clauses);
+        cond_clauses = try gc.allocPair(clause_buf.items[ci], cond_clauses);
     }
 
     // Build: (cond clauses...)
