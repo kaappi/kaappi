@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783110156792,
+  "lastUpdate": 1783110251223,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "366d47d5e827132ae5567a1b31a14ed27e7e61ef",
-          "message": "Merge pull request #778 from kaappi/fix/740-cli-missing-arg-validation\n\nReport missing arguments for CLI flags",
-          "timestamp": "2026-07-02T21:30:37+05:30",
-          "tree_id": "4f64ee65a07a9ab4c76c076a35b40692909d33f7",
-          "url": "https://github.com/kaappi/kaappi/commit/366d47d5e827132ae5567a1b31a14ed27e7e61ef"
-        },
-        "date": 1783008815973,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.371873,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.579844,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.835918,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.130124,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.00711,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.033114,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.450807,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.068561,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.951821,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.76098,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.134204,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.219826,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 2.380485,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.662825,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.043641,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044527,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "7f426c63e8a56c7765d5fdec77d60bfcdc2af99c",
+          "message": "Skip .sbc bytecode cache in sandbox mode (#785) (#995)\n\n--sandbox promises no filesystem side effects, but runFile\nunconditionally wrote (and read) .sbc cache files. Gate the cache\npath on vm.sandbox_mode so sandboxed runs neither load nor create\nbytecode cache files on disk.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-03T20:08:39Z",
+          "tree_id": "d50a9a69d2ce43949c84e404f42e3cd23029df1a",
+          "url": "https://github.com/kaappi/kaappi/commit/7f426c63e8a56c7765d5fdec77d60bfcdc2af99c"
+        },
+        "date": 1783110250113,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.424794,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.252022,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.885283,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.340292,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006598,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.033991,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.495121,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.07198,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 4.128189,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.904936,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.187441,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.441043,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.799112,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.770158,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044513,
             "unit": "seconds"
           }
         ]
