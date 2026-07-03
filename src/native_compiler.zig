@@ -79,6 +79,13 @@ pub fn emitLlvmFile(vm: *vm_mod.VM, path: []const u8, output_path: ?[]const u8) 
     var ir_instance = ir_mod.IR.init(allocator);
     defer ir_instance.deinit();
 
+    // Track names that are targets of define or set! in previous top-level
+    // forms so constant folding does not inline primitive semantics for a
+    // name that will be rebound at runtime (#822).
+    var redefined_names = std.StringHashMap(void).init(allocator);
+    defer redefined_names.deinit();
+    ir_instance.set_targets = &redefined_names;
+
     while (r.hasMore() catch |err| {
         const lc = r.getLineCol();
         var errbuf: [256]u8 = undefined;
@@ -137,6 +144,10 @@ pub fn emitLlvmFile(vm: *vm_mod.VM, path: []const u8, output_path: ?[]const u8) 
         root = ir_mod.simplifyBegin(&ir_instance, root);
 
         ir_nodes.append(allocator, root) catch return;
+
+        // Record any define/set! target from this form so that the next
+        // form's constant folding does not assume the primitive is unmodified.
+        collectRedefinedNames(expr, &redefined_names);
     }
 
     var emitter = llvm_emit.LLVMEmitter.init(allocator);
@@ -297,6 +308,37 @@ fn getExeRelativeLibDir(allocator: std.mem.Allocator) ?[]const u8 {
     if (checkLibDir(allocator, lib_dir)) return lib_dir;
     allocator.free(lib_dir);
     return null;
+}
+
+fn collectRedefinedNames(expr: types.Value, map: *std.StringHashMap(void)) void {
+    if (!types.isPair(expr)) return;
+    const head = types.car(expr);
+    if (!types.isSymbol(head)) return;
+    const form = types.symbolName(head);
+
+    if (std.mem.eql(u8, form, "define")) {
+        const rest = types.cdr(expr);
+        if (rest == types.NIL or !types.isPair(rest)) return;
+        const target = types.car(rest);
+        if (types.isSymbol(target)) {
+            map.put(types.symbolName(target), {}) catch {};
+        } else if (types.isPair(target) and types.isSymbol(types.car(target))) {
+            map.put(types.symbolName(types.car(target)), {}) catch {};
+        }
+    } else if (std.mem.eql(u8, form, "set!")) {
+        const rest = types.cdr(expr);
+        if (rest == types.NIL or !types.isPair(rest)) return;
+        const target = types.car(rest);
+        if (types.isSymbol(target)) {
+            map.put(types.symbolName(target), {}) catch {};
+        }
+    } else if (std.mem.eql(u8, form, "begin")) {
+        var body = types.cdr(expr);
+        while (body != types.NIL and types.isPair(body)) {
+            collectRedefinedNames(types.car(body), map);
+            body = types.cdr(body);
+        }
+    }
 }
 
 fn checkLibDir(allocator: std.mem.Allocator, dir: []const u8) bool {
