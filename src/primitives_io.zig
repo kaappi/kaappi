@@ -502,6 +502,22 @@ fn peekCharFn(args: []const Value) PrimitiveError!Value {
                 const cp = std.unicode.utf8Decode(utf8_buf[0..seq_len]) catch return types.makeChar(@intCast(b));
                 return types.makeChar(cp);
             }
+        } else {
+            var utf8_buf: [4]u8 = undefined;
+            utf8_buf[0] = b;
+            port.peek_byte = null;
+            var i: usize = 1;
+            while (i < seq_len) : (i += 1) {
+                utf8_buf[i] = readOneByte(port) orelse break;
+            }
+            port.peek_byte = b;
+            if (i >= seq_len) {
+                const extra_len = seq_len - 1;
+                for (0..extra_len) |j| port.peek_extra[j] = utf8_buf[j + 1];
+                port.peek_extra_len = @intCast(extra_len);
+                const cp = std.unicode.utf8Decode(utf8_buf[0..seq_len]) catch return types.makeChar(@intCast(b));
+                return types.makeChar(cp);
+            }
         }
         return types.makeChar(@intCast(b));
     }
