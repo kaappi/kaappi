@@ -21,7 +21,11 @@ const is_linux = @import("builtin").os.tag == .linux;
 fn validateMode(gc: *GC, val: Value) PrimitiveError!std.c.mode_t {
     if (!types.isFixnum(val)) return primitives.typeError("set-file-mode", "integer", val);
     const n = types.toFixnum(val);
-    if (n < 0 or n > std.math.maxInt(std.c.mode_t)) {
+    // POSIX permission modes use only the low 12 bits (07777). Bounding by
+    // maxInt(mode_t) is platform-dependent: mode_t is u16 on macOS but u32
+    // on Linux, so out-of-range values were rejected on one and silently
+    // passed to chmod on the other.
+    if (n < 0 or n > 0o7777) {
         _ = try raiseFileError(gc, "mode value out of range", val);
         unreachable;
     }
