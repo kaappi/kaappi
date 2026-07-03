@@ -53,6 +53,18 @@
 (check-error "create-directory negative mode"
   (lambda () (create-directory "/tmp/kaappi-intcast-dir" -1)))
 
+;; Regression test for #800: nice with an out-of-range integer must raise a
+;; recoverable Scheme error instead of panicking the interpreter (SIGABRT).
+;; The delta is cast to a C int, so values outside i32 range are rejected.
+(check-error "nice too large"
+  (lambda () (nice 4294967296)))
+
+(check-error "nice negative out of range"
+  (lambda () (nice -2147483649)))
+
+;; nice with a valid in-range delta must still return an integer.
+(check "nice valid" (integer? (nice 0)) #t)
+
 ;; Clean up
 (delete-file test-file)
 
