@@ -93,7 +93,7 @@ fn stringSuffixPFn(args: []const Value) PrimitiveError!Value {
 }
 
 fn isWhitespace(c: u8) bool {
-    return c == ' ' or c == '\t' or c == '\n' or c == '\r';
+    return c == ' ' or c == '\t' or c == '\n' or c == '\r' or c == 0x0B or c == 0x0C;
 }
 
 /// Call a predicate or char-set-contains? with a character.
