@@ -244,6 +244,13 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                 if (func.env == null) {
                     self.global_version +%= 1;
                     if (func.global_cache) |cache| {
+                        // Bumping global_version invalidates every function's
+                        // cache, including this one's other entries. Clear the
+                        // whole cache before revalidating the written slot —
+                        // stamping cache_version without the memset would
+                        // re-bless entries cached before an unrelated rebinding,
+                        // serving them stale (issue #812). Mirrors get_global.
+                        @memset(cache, types.VOID);
                         if (sym_idx < cache.len) cache[sym_idx] = val;
                         func.cache_version = self.global_version;
                     }
@@ -264,6 +271,10 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                 if (func.env == null) {
                     self.global_version +%= 1;
                     if (func.global_cache) |cache| {
+                        // See set_global: clear the whole cache before
+                        // revalidating so unrelated stale entries aren't
+                        // re-blessed by the version stamp (issue #812).
+                        @memset(cache, types.VOID);
                         if (sym_idx < cache.len) cache[sym_idx] = val;
                         func.cache_version = self.global_version;
                     }
