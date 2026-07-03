@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783092136486,
+  "lastUpdate": 1783092224150,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "6d1e35accd69ed91ce79ba44a6c2c3fcbbdd7c57",
-          "message": "Merge pull request #763 from kaappi/fix/747-gc-safety-rational-arithmetic\n\nFix GC safety violations in rational arithmetic paths",
-          "timestamp": "2026-07-02T17:14:22+05:30",
-          "tree_id": "619bc395fdb30a3c2812ef9135b5c674ee5a90be",
-          "url": "https://github.com/kaappi/kaappi/commit/6d1e35accd69ed91ce79ba44a6c2c3fcbbdd7c57"
-        },
-        "date": 1782993445225,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.14574,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.149654,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.650383,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.039568,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.00568,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.024568,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.354096,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.052425,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.297497,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.346018,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 0.862947,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.193276,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.854496,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.379998,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.036411,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.043759,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ee8d0580532300c15f131502f9bd64e6c9e34062",
+          "message": "Range-check FFI args against declared narrow int types (#795) (#980)\n\nnormalizeType() collapsed int8/uint8/int16/uint16/uint32/char into\ncarrier types (int/long) before validation, so toCheckedInt only\nenforced the carrier's range. A uint8 parameter silently accepted\nany value in c_int range, and uint32 accepted any c_long value,\ndelivering wrapped values to C.\n\nAdd checkNarrowIntRange() that validates arguments against the\ndeclared FfiType's exact range in validateArgs(), before dispatch.\n\nCloses #795\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-03T15:07:03Z",
+          "tree_id": "40a5dcf53551f7d0633e61c4d1847a2136bd1233",
+          "url": "https://github.com/kaappi/kaappi/commit/ee8d0580532300c15f131502f9bd64e6c9e34062"
+        },
+        "date": 1783092223585,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.508836,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.469554,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.707962,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.462116,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.005943,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.026361,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.39044,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.054332,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.391952,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.456798,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 0.914774,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.377163,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.328424,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.438486,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.035398,
             "unit": "seconds"
           }
         ]
