@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783087793635,
+  "lastUpdate": 1783087891292,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "73c0bab53400bb072684a5768e26dbcdcf51e135",
-          "message": "Merge pull request #730 from kaappi/fix/ellipsis-depth-validation-682\n\nAdd ellipsis-depth validation to syntax-rules templates",
-          "timestamp": "2026-07-02T14:40:08+05:30",
-          "tree_id": "2913bdb77264d05071ba4c306daac5a9ac329fa7",
-          "url": "https://github.com/kaappi/kaappi/commit/73c0bab53400bb072684a5768e26dbcdcf51e135"
-        },
-        "date": 1782984262721,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.33364,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.102242,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.846822,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.201585,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.007292,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.032408,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.453551,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.070508,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.994749,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.777488,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.104595,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.22921,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 2.442369,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.710963,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.041644,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.043413,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "3fd0eaa77f4d70ed1d1c907ccc862c19366618a2",
+          "message": "Show message and irritants for uncaught user-raised errors (#976)\n\nAn uncaught (error \"msg\" irritants...) printed only the raw Zig error\nname (\"runtime error: error.ExceptionRaised\") because execute()'s error\npath calls resetExecutionState(), which discards current_exception\nbefore the top-level printers in main.zig/repl.zig can read it — so\ngetErrorDetail() was empty and they fell back to the error name.\n\nPopulate the error detail from the pending exception in execute()'s\nerror path, before the reset. Error objects format as\n\"message irritant1 irritant2 ...\" (message displayed, irritants\nwritten); other raised values as \"uncaught exception: <value>\". Native\ndiagnostics are never overridden: the dispatch loop zeroes the detail\nbuffer before each native call, so a non-empty buffer at raise time is\nalways a specific native error. Exceptions caught by guard or\nwith-exception-handler are consumed inside run() and never reach this\npath, and SRFI-18 threads use callWithArgs, so thread-join! exception\npropagation is unaffected.\n\nSince every top-level form runs through execute() — script files, the\n.sbc cache path, bundled binaries, the interactive REPL, piped stdin,\nand library bodies executed during import — one hook fixes all modes.\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-03T13:55:31Z",
+          "tree_id": "5ab5942aaa7fbb10d41a592c77d74db701f9f4c7",
+          "url": "https://github.com/kaappi/kaappi/commit/3fd0eaa77f4d70ed1d1c907ccc862c19366618a2"
+        },
+        "date": 1783087890401,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.355309,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.204224,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.853905,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.249334,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006729,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.034282,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.472,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.071484,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 4.036805,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.826168,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.201482,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.433041,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.8026,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.700222,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.041938,
             "unit": "seconds"
           }
         ]
