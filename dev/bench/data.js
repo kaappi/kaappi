@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783075386846,
+  "lastUpdate": 1783076560862,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "e54a2d23b860946a17d57683ed621556f3729589",
-          "message": "Merge pull request #715 from kaappi/fix/circular-list-hang-688\n\nAdd cycle detection to member/memq/memv/assoc/assq/assv/list-copy",
-          "timestamp": "2026-07-02T11:13:13+05:30",
-          "tree_id": "16788ceebd694088996f8c9278cf4283fb535812",
-          "url": "https://github.com/kaappi/kaappi/commit/e54a2d23b860946a17d57683ed621556f3729589"
-        },
-        "date": 1782973351525,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.921309,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.3734,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.832388,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.155947,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.007379,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.032278,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.450825,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.068264,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.854873,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.74271,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.095305,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.242669,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 2.361999,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.881948,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.043365,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044719,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "9e00a482162eb61bf89834e1d5f68c6aae393f8d",
+          "message": "Respect lexical shadowing of primitives in IR constant folding (#790) (#956)\n\nThe IR constant-folding and boolean-simplification passes guarded only\nagainst global redefinition of primitives via isRedefined(), which\nconsults the globals map. Lambda parameters that shadow +, -, *, <, =,\nzero?, not, etc. are lexical bindings the globals map never sees, so\nfolds fired using the built-in's semantics and produced silently wrong\nresults — e.g. ((lambda (+) (+ 1 2)) -) yielded 3 instead of -1.\n\nLambda bodies are lowered through the IR by compileLambdaWithIR, which\nregisters parameters as compiler locals but never told the IR about\nthem. Teach isRedefined about lexical scope:\n\n- Add Compiler.isLexicallyBound, a side-effect-free predicate that walks\n  the compiler's locals and parent chain (unlike resolveUpvalue, which\n  registers upvalues). Point IR.compiler at the enclosing compiler at\n  every IR.init site so isRedefined can consult it.\n- The LLVM native backend has no Compiler, so add IR.bound_names and\n  pass each lambda's own parameter names from llvm_emit_lambda.zig; it\n  exhibited the same bug.\n\nThe check only makes folding more conservative, so it can never\nintroduce an incorrect fold. Regression tests (Zig unit tests, a smoke\ntest, and a native-compile test) fail on the pre-fix build and pass\nafter. The smoke test uses the manual-check procedure-argument style\nbecause SRFI-64's test-eqv forces the already-correct legacy path.\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
+          "timestamp": "2026-07-03T10:47:31Z",
+          "tree_id": "3eef50bdc514f90e8132ad58925f7ef3d213aca9",
+          "url": "https://github.com/kaappi/kaappi/commit/9e00a482162eb61bf89834e1d5f68c6aae393f8d"
+        },
+        "date": 1783076559432,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.283,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.560388,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.811222,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.07354,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006992,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.033351,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.45549,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.069022,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 4.031157,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.765381,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.219944,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.42745,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 2.368875,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.645482,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.040841,
             "unit": "seconds"
           }
         ]
