@@ -6,6 +6,7 @@ const memory = @import("memory.zig");
 const library_mod = @import("library.zig");
 const primitives_mod = @import("primitives.zig");
 const vm_mod = @import("vm.zig");
+const bytecode_file = @import("bytecode_file.zig");
 
 test "import scheme base" {
     var gc = memory.GC.init(std.testing.allocator);
@@ -247,4 +248,71 @@ test "cond-expand (library ...) detects an unloaded .sld on the lib path" {
     _ = try vm.eval("(import (condlib feature))");
     const r4 = try vm.eval("feature-value");
     try std.testing.expectEqual(@as(i64, 7), types.toFixnum(r4));
+}
+
+// Regression test: a .sld library must load with all its exports even when a
+// hash-matching .sbc sits next to it. The old cache-read path in
+// tryLoadLibraryFromFile accepted such a file and reconstructed exports by
+// re-parsing the .sld top level only — silently dropping exports declared via
+// include-library-declarations or nested in cond-expand, so the import
+// succeeded with no bindings. .sbc files are now ignored for .sld libraries.
+test "stale .sbc next to .sld must not drop include-library-declarations exports" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    try tmp.dir.createDirPath(std.testing.io, "cachedlib");
+
+    const sld_source =
+        \\(define-library (cachedlib mylib)
+        \\  (import (scheme base))
+        \\  (include-library-declarations "decls.scm")
+        \\  (cond-expand
+        \\    (kaappi (export extra) (begin (define extra 99))))
+        \\  (begin (define answer 42)))
+    ;
+    try tmp.dir.writeFile(std.testing.io, .{
+        .sub_path = "cachedlib/mylib.sld",
+        .data = sld_source,
+    });
+    try tmp.dir.writeFile(std.testing.io, .{
+        .sub_path = "cachedlib/decls.scm",
+        .data = "(export answer)",
+    });
+    const dir_path = try tmp.dir.realPathFileAlloc(std.testing.io, ".", std.testing.allocator);
+    defer std.testing.allocator.free(dir_path);
+
+    // Hand-build a valid .sbc with a matching source hash — exactly what the
+    // removed cache-read path treated as a cache hit. Its single top-level
+    // function just returns void, so on a bogus cache hit the library body
+    // never runs and no exports get defined.
+    const sbc_path = try std.fmt.allocPrint(std.testing.allocator, "{s}/cachedlib/mylib.sbc", .{dir_path});
+    defer std.testing.allocator.free(sbc_path);
+    {
+        var sbc_gc = memory.GC.init(std.testing.allocator);
+        defer sbc_gc.deinit();
+        const func = try sbc_gc.allocFunction();
+        try func.code.append(std.testing.allocator, @intFromEnum(types.OpCode.load_void));
+        try func.code.append(std.testing.allocator, 0); // dst high
+        try func.code.append(std.testing.allocator, 0); // dst low
+        try func.code.append(std.testing.allocator, @intFromEnum(types.OpCode.@"return"));
+        try func.code.append(std.testing.allocator, 0); // src high
+        try func.code.append(std.testing.allocator, 0); // src low
+        func.locals_count = 1;
+        var funcs_arr = [_]*types.Function{func};
+        try bytecode_file.writeFileWithTopLevel(std.testing.allocator, &funcs_arr, bytecode_file.sourceHash(sld_source), sbc_path);
+    }
+
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+    vm_mod.setVMInstance(&vm);
+    vm.lib_paths = &[_][]const u8{dir_path};
+
+    _ = try vm.eval("(import (cachedlib mylib))");
+    try std.testing.expectEqual(@as(i64, 42), types.toFixnum(try vm.eval("answer")));
+    try std.testing.expectEqual(@as(i64, 99), types.toFixnum(try vm.eval("extra")));
+
+    // Importing again must serve the registered library, exports intact.
+    _ = try vm.eval("(import (cachedlib mylib))");
+    try std.testing.expectEqual(@as(i64, 42), types.toFixnum(try vm.eval("answer")));
 }
