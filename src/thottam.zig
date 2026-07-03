@@ -722,6 +722,33 @@ fn printErrColor(comptime color: []const u8, text: []const u8) void {
     if (use_color) writeStderr(Color.reset);
 }
 
+/// Record `pkg` in the install cycle/dedup guard. Returns true if it was newly
+/// inserted, false if already present.
+///
+/// The key is stored as a private copy because `pkg` often aliases memory the
+/// map must outlive: for a transitive dependency it is a sub-slice of the
+/// caller's `manifest.depends`, which `manifest.deinit` frees when that
+/// caller's install frame unwinds — while this map is still live and probed by
+/// later `doInstall` calls. Storing the slice directly leaves dangling keys
+/// (use-after-free on every later bucket probe). Keys are freed by
+/// `freeVisited` when the map is torn down.
+fn markVisited(allocator: std.mem.Allocator, visited: *std.StringHashMap(void), pkg: []const u8) !bool {
+    if (visited.get(pkg) != null) return false;
+    const key = try allocator.dupe(u8, pkg);
+    visited.put(key, {}) catch |err| {
+        allocator.free(key);
+        return err;
+    };
+    return true;
+}
+
+/// Free the owned keys inserted by `markVisited`, then deinit the map.
+fn freeVisited(allocator: std.mem.Allocator, visited: *std.StringHashMap(void)) void {
+    var it = visited.keyIterator();
+    while (it.next()) |k| allocator.free(k.*);
+    visited.deinit();
+}
+
 fn doInstall(
     allocator: std.mem.Allocator,
     config: Config,
@@ -741,8 +768,7 @@ fn doInstall(
         return error.InvalidPackageName;
     }
 
-    if (visited.get(pkg) != null) return;
-    try visited.put(pkg, {});
+    if (!try markVisited(allocator, visited, pkg)) return;
 
     if (isInstalled(allocator, config.installed, pkg)) {
         writeStdout("  ");
@@ -1242,7 +1268,7 @@ pub fn main(init: std.process.Init.Minimal) !void {
             std.process.exit(1);
         };
         var visited = std.StringHashMap(void).init(allocator);
-        defer visited.deinit();
+        defer freeVisited(allocator, &visited);
         doInstall(allocator, config, spec, locked_mode, &visited) catch |err| {
             if (err == error.GitFailed or err == error.BuildFailed) std.process.exit(1);
             return err;
@@ -1339,6 +1365,30 @@ test "parseField" {
     try std.testing.expectEqualStrings("value", parseField("key:  value  ", "key:").?);
     try std.testing.expect(parseField("other: value", "key:") == null);
     try std.testing.expect(parseField("", "key:") == null);
+}
+
+test "markVisited copies keys so freed dependency names stay valid (issue #784)" {
+    // Regression for #784: doInstall's visited guard stored package-name keys
+    // by reference. For a transitive dependency the name is a sub-slice of the
+    // caller's manifest.depends buffer, which is freed when that caller's
+    // install frame unwinds — leaving a dangling key that later probes read
+    // (use-after-free) and that silently breaks the dedup guard.
+    const allocator = std.testing.allocator;
+    var visited = std.StringHashMap(void).init(allocator);
+    defer freeVisited(allocator, &visited);
+
+    // A dependency name living in a manifest.depends buffer: record it, then
+    // overwrite and free the buffer to mimic manifest.deinit reclaiming it.
+    const dep = try allocator.dupe(u8, "rd");
+    try std.testing.expect(try markVisited(allocator, &visited, dep));
+    @memset(dep, 0xaa);
+    allocator.free(dep);
+
+    // A second parent depending on the same package must still be recognized
+    // as visited without relying on the freed buffer's bytes.
+    try std.testing.expect(!try markVisited(allocator, &visited, "rd"));
+    // And a genuinely new package is still inserted.
+    try std.testing.expect(try markVisited(allocator, &visited, "re"));
 }
 
 test "caret constraint: major > 0 locks major" {
