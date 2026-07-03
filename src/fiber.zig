@@ -239,6 +239,20 @@ pub const FiberScheduler = struct {
         }
     }
 
+    /// Wake every fiber parked on this channel (status .waiting via the
+    /// channel-receive retry protocol). Waking all is safe: each re-executes
+    /// channel-receive and re-parks if the channel is empty again.
+    pub fn wakeChannelWaiters(self: *FiberScheduler, ch_val: Value) void {
+        for (self.fibers[0..self.fiber_count]) |f| {
+            if (f) |fiber| {
+                if (fiber.status == .waiting and fiber.waiting_on == ch_val) {
+                    fiber.status = .suspended;
+                    fiber.waiting_on = types.VOID;
+                }
+            }
+        }
+    }
+
     pub fn wakeMutexWaiters(self: *FiberScheduler, mutex_val: Value) void {
         for (self.fibers[0..self.fiber_count]) |f| {
             if (f) |fiber| {

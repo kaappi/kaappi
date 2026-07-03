@@ -347,6 +347,20 @@ pub const VM = struct {
     scheduler: ?*@import("fiber.zig").FiberScheduler = null,
     current_fiber: ?*@import("fiber.zig").Fiber = null,
     yielded: bool = false,
+    /// Set by a blocking primitive (channel-receive, fiber-join) together with
+    /// error.Yielded: the dispatch loop must rewind ip to the start of the
+    /// calling instruction so the primitive re-executes when the fiber is
+    /// rescheduled, instead of resuming with an unwritten result register.
+    yield_retry: bool = false,
+    /// Set by a scheduler loop immediately before its runUntil(0, 0) call;
+    /// consumed by runUntil on entry into dispatched_from_scheduler.
+    sched_dispatch_pending: bool = false,
+    /// True while the innermost active runUntil was invoked directly by a
+    /// fiber scheduler loop. Blocking primitives may only park the current
+    /// fiber with yield_retry when this is set — otherwise Zig-native frames
+    /// (map/for-each callbacks, eval) sit between the fiber's bytecode and
+    /// the scheduler, and a retry would corrupt them.
+    dispatched_from_scheduler: bool = false,
     /// For child OS threads (SRFI-18): points at the parent-heap fiber's
     /// `terminated` flag. Checked at the periodic dispatch-loop safepoint so
     /// thread-terminate! from another thread can stop this VM. Written by the
@@ -1073,6 +1087,11 @@ pub const VM = struct {
                     error.OutOfMemory => VMError.OutOfMemory,
                     error.ExceptionRaised => VMError.ExceptionRaised,
                     error.ContinuationInvoked => VMError.ContinuationInvoked,
+                    // A blocking primitive parked the current fiber
+                    // (yield_retry); the signal must reach the dispatch site
+                    // of the forwarding native (e.g. apply) intact so the
+                    // whole forwarding call is retried on wake.
+                    error.Yielded => VMError.Yielded,
                     else => VMError.InvalidBytecode,
                 };
             };
@@ -1127,6 +1146,9 @@ pub const VM = struct {
         self.current_exception = null;
         self.continuation_invoked = false;
         self.continuation_value = types.VOID;
+        self.yield_retry = false;
+        self.sched_dispatch_pending = false;
+        self.dispatched_from_scheduler = false;
     }
 
     const vm_calls = @import("vm_calls.zig");

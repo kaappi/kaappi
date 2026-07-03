@@ -251,6 +251,17 @@ Green threads (fibers) for cooperative multitasking within one OS thread:
 (display (channel-receive ch))  ;=> hello from fiber
 ```
 
+Scheduling is cooperative: spawned fibers run when the main program blocks
+(`channel-receive` on an empty channel, `fiber-join`) or calls `(yield)`.
+A fiber that blocks on an empty channel is parked and woken by the next
+`channel-send` on that channel. When the main program ends, fibers that are
+still parked (e.g. workers that never received a stop sentinel) are simply
+discarded and the process exits — like goroutines in Go. If the main program
+blocks on a channel that no runnable or parked-and-wakeable fiber can ever
+send to, `channel-receive` raises a deadlock error (an `error` object,
+catchable with `guard`); the same applies to `fiber-join` on a fiber that can
+never complete.
+
 Real OS threads via SRFI-18 — each thread gets its own VM and GC, enabling
 true parallel I/O (e.g., thread-per-connection servers):
 
@@ -334,6 +345,16 @@ capture — negligible for most programs, but noticeable if continuations are
 captured in tight inner loops. Continuations captured in one top-level REPL
 expression cannot re-enter subsequent top-level expressions (standard behavior
 shared by Guile, Chibi, Chicken, Chez, and Racket).
+
+### Fibers
+
+A fiber that blocks on an empty channel inside a callback driven by a native
+higher-order procedure (`map`, `for-each`, `dynamic-wind`, `eval`, ...) cannot
+be parked: the native call's state lives on the Zig stack and cannot be
+suspended. If other fibers are runnable the scheduler still makes progress,
+but if the blocked receive is the only thing left it raises a deadlock error
+instead of suspending. Move blocking `channel-receive` calls into plain
+Scheme loops (named `let`, `do`) when a fiber must wait inside iteration.
 
 ### OS threads (SRFI-18)
 
