@@ -164,11 +164,24 @@ pub const GC = struct {
     }
 
     pub fn allocSymbol(self: *GC, name: []const u8) !Value {
+        // `is_child` means this GC aliases the parent's symbol table via
+        // `shared_symbols`; the parent GC (shared_symbols == null) owns that
+        // very table as its own `symbols` field. Both sides are therefore
+        // concurrent readers/writers of one StringHashMap whenever an SRFI-18
+        // child thread is alive, so the lock must be taken *unconditionally* —
+        // not just by children. `StringHashMap.put` can rehash (realloc + free
+        // of the bucket array), and an unlocked parent-side get/put racing a
+        // child's locked access corrupts the map (issue #797).
+        //
+        // Deadlock-free by the same argument as gc_collect.zig markRoots (which
+        // also takes symbol_mutex while iterating the table): allocSymbol never
+        // calls maybeCollect, so a thread can never re-enter GC marking — which
+        // acquires this same non-reentrant lock — while holding it here.
+        const is_child = self.shared_symbols != null;
         const sym_table = self.shared_symbols orelse &self.symbols;
-        const shared = self.shared_symbols != null;
 
-        if (shared) spinLock(&symbol_mutex);
-        defer if (shared) spinUnlock(&symbol_mutex);
+        spinLock(&symbol_mutex);
+        defer spinUnlock(&symbol_mutex);
 
         if (sym_table.get(name)) |existing| return existing;
 
@@ -181,7 +194,7 @@ pub const GC = struct {
         self.bytes_allocated += @sizeOf(Symbol) + name.len;
         self.profileAlloc(@sizeOf(Symbol) + name.len);
 
-        if (!shared) self.trackObject(&sym.header);
+        if (!is_child) self.trackObject(&sym.header);
 
         const val = types.makePointer(@ptrCast(sym));
         try sym_table.put(owned_name, val);
