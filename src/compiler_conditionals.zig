@@ -368,9 +368,24 @@ pub fn evalFeatureReq(self: *Compiler, req: Value) bool {
             for (known_libs) |l| {
                 if (std.mem.eql(u8, lib_name, l)) return true;
             }
-            // Also check the VM's live library registry via globals
-            // The compiler doesn't have direct VM access, so check if
-            // the library exists on disk as a .sld file
+            // Check the VM's live library registry and .sld files on disk
+            const vm_mod = @import("vm.zig");
+            if (vm_mod.vm_instance) |vm| {
+                if (vm.libraries.get(lib_name) != null) return true;
+                const vm_library_mod = @import("vm_library.zig");
+                var path_buf: [512]u8 = undefined;
+                const rel_path = vm_library_mod.buildLibRelPath(lib_name_list, &path_buf) catch return false;
+                for (vm.lib_paths) |dir| {
+                    var full_buf: [1024:0]u8 = undefined;
+                    const full_len = std.fmt.bufPrint(&full_buf, "{s}/{s}", .{ dir, rel_path }) catch continue;
+                    full_buf[full_len.len] = 0;
+                    const fd = std.posix.system.open(@ptrCast(&full_buf), .{}, @as(u32, 0));
+                    if (fd >= 0) {
+                        _ = std.posix.system.close(fd);
+                        return true;
+                    }
+                }
+            }
             return false;
         }
     }
