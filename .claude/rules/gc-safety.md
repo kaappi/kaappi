@@ -33,3 +33,5 @@ gc.popRoot();
 ```
 
 Stress-test with `-Dgc-threshold=1` to force collection on every allocation.
+
+Rationale and full patterns: `docs/dev/gc-safety-and-error-handling.md`.

@@ -223,9 +223,10 @@ missing type dispatch).
 
 ### `/bytecode-isa`
 
-Reference for the bytecode instruction set. Lists all 19 opcodes with their
-encoding format (1-byte opcode + variable operands), operands, and semantics.
-Covers closure upvalue encoding. Used when working on the compiler or VM.
+Reference for the bytecode instruction set. Points at
+[bytecode.md](bytecode.md) (the single source of truth for the 32-opcode
+table and encodings) and carries the adding-a-new-opcode checklist. Used
+when working on the compiler or VM.
 
 ### `/github-release`
 

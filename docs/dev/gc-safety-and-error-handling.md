@@ -3,14 +3,20 @@
 Patterns contributors must follow to keep the runtime correct under
 garbage collection pressure and to propagate errors consistently.
 
+The terse checklist version of the GC rules lives in
+`.claude/rules/gc-safety.md` (auto-loaded by the Claude Code harness when
+editing GC-sensitive files). This document is the rationale behind those
+rules — keep the two in sync.
+
 ---
 
 ## GC Safety
 
-The garbage collector uses mark-and-sweep. It scans a root set (VM
-registers, the root stack, globals, macros) and frees any heap object
-not reachable from a root. GC can trigger during **any** `alloc*` call
-in `memory.zig`.
+The garbage collector is generational (young and old generations, minor
+and full collections) with mark-and-sweep at its core. It scans a root
+set (VM registers, the root stack, globals, macros) and frees any heap
+object not reachable from a root. GC can trigger during **any** `alloc*`
+call in `memory.zig`.
 
 ### The dangerous pattern
 
@@ -68,6 +74,38 @@ keeps it alive.
 
 6. **Fixnums, booleans, characters, nil, void are safe.** These are
    immediates (encoded in the NaN-boxed u64), not heap objects.
+
+7. **Root `Function*` before `vm.execute()`.** `execute()` allocates a
+   closure wrapper internally, so an unrooted Function can be collected
+   out from under the call.
+
+### The write barrier
+
+Because the collector is generational, minor collections scan only the
+young generation plus a remembered set of old objects that point into
+it. Mutating a field of a heap object (set-car!, set-cdr!, vector-set!,
+hash-table-set!, record field mutation) can create an old→young
+reference the minor collection would otherwise never see — the young
+object would be freed while still reachable.
+
+After storing a Value into a heap object field, call:
+
+```zig
+gc.writeBarrier(container, new_val);
+```
+
+where `container` is the heap object being mutated. The barrier records
+the old→young edge in the remembered set. Omitting it does not fail
+immediately — it corrupts the heap only when a minor collection happens
+to run before the next full collection, which is why these bugs surface
+as rare, allocation-pattern-sensitive crashes.
+
+### Stress testing
+
+Build with `-Dgc-threshold=1` to force a collection on every allocation.
+This turns "rare, timing-dependent" rooting and barrier bugs into
+deterministic failures. Every new allocation pattern in a loop should
+also get a stress test — see `tests/scheme/smoke/gc-rooting-stress.scm`.
 
 ### Where to look
 

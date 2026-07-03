@@ -432,6 +432,9 @@ independently and the child heap is freed after `thread-join!`.
 
 The repo includes a Claude Code harness (hooks, permissions, path-scoped rules,
 and skills) that enforces conventions automatically during AI-assisted development.
+This section is the summary; `docs/dev/claude-code-harness.md` is the full
+documentation (every component, how they interact, how to extend them) — when
+changing the harness, update both.
 
 ### Hooks (`.claude/settings.json`)
 
