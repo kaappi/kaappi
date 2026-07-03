@@ -1,6 +1,7 @@
 const std = @import("std");
 const types = @import("types.zig");
 const reader_mod = @import("reader.zig");
+const primitives_char = @import("primitives_char.zig");
 const Reader = reader_mod.Reader;
 const ReadError = reader_mod.ReadError;
 const Token = reader_mod.Token;
@@ -225,9 +226,39 @@ pub fn foldAndReturnSymbol(self: *Reader, sym_text: []const u8) ReadError!Token 
     if (sym_text.len > Reader.MAX_TOKEN_BYTES) return ReadError.TokenTooLong;
     const text = if (self.fold_case) blk: {
         self.token_buf.clearRetainingCapacity();
-        for (sym_text) |ch| {
+        var i: usize = 0;
+        while (i < sym_text.len) {
             if (self.token_buf.items.len >= Reader.MAX_TOKEN_BYTES) return ReadError.TokenTooLong;
-            self.token_buf.append(self.gc.allocator, std.ascii.toLower(ch)) catch return ReadError.OutOfMemory;
+            const byte = sym_text[i];
+            if (byte < 0x80) {
+                self.token_buf.append(self.gc.allocator, std.ascii.toLower(byte)) catch return ReadError.OutOfMemory;
+                i += 1;
+            } else {
+                const seq_len = std.unicode.utf8ByteSequenceLength(byte) catch {
+                    self.token_buf.append(self.gc.allocator, byte) catch return ReadError.OutOfMemory;
+                    i += 1;
+                    continue;
+                };
+                if (i + seq_len > sym_text.len) {
+                    self.token_buf.append(self.gc.allocator, byte) catch return ReadError.OutOfMemory;
+                    i += 1;
+                    continue;
+                }
+                const cp = std.unicode.utf8Decode(sym_text[i .. i + seq_len]) catch {
+                    self.token_buf.append(self.gc.allocator, byte) catch return ReadError.OutOfMemory;
+                    i += 1;
+                    continue;
+                };
+                const folded = primitives_char.charFoldcase(cp);
+                var enc_buf: [4]u8 = undefined;
+                const enc_len = std.unicode.utf8Encode(folded, &enc_buf) catch {
+                    self.token_buf.append(self.gc.allocator, byte) catch return ReadError.OutOfMemory;
+                    i += 1;
+                    continue;
+                };
+                self.token_buf.appendSlice(self.gc.allocator, enc_buf[0..enc_len]) catch return ReadError.OutOfMemory;
+                i += seq_len;
+            }
         }
         break :blk self.token_buf.items;
     } else sym_text;
