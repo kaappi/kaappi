@@ -91,6 +91,17 @@ fn tryCompileNativeClosure(self: *LLVMEmitter, data: ir.LambdaData) ?[]const u8 
     if (body_list == types.NIL) return null;
     if (!types.isPair(formals_val) and formals_val != types.NIL) return null;
 
+    // A closure copies its captured variables by value into an upvalue array,
+    // so a set! (or internal define) that mutates a captured binding cannot be
+    // represented natively. Reject any body containing set!/define and let the
+    // interpreter handle it (#819).
+    {
+        var be = body_list;
+        while (be != types.NIL and types.isPair(be)) : (be = types.cdr(be)) {
+            if (sexprContainsSetOrDefine(types.car(be))) return null;
+        }
+    }
+
     var param_names: [16][]const u8 = undefined;
     var arity: u8 = 0;
     var plist = formals_val;
@@ -425,21 +436,26 @@ fn emitLambdaFunction(self: *LLVMEmitter, name: ?[]const u8, param_names: []cons
     const saved_block = self.current_block;
     const saved_rest_alloca = self.rest_param_alloca;
     const saved_rest_name = self.rest_param_name;
+    const saved_locals = self.locals;
     self.buf = fn_buf;
     self.tmp_counter = 0;
     self.label_counter = 0;
+    // The new function is a fresh scope: an enclosing scope's local allocas are
+    // not valid SSA values here, so start with no locals (nested `let`s in this
+    // body install their own).
+    self.locals = null;
 
     var p = std.StringHashMap(u8).init(self.allocator);
     for (param_names, 0..) |pname, i| {
         p.put(pname, @intCast(i)) catch {
-            restoreState(self, saved_buf, saved_params, saved_tmp, saved_label, saved_fn_name, saved_body_label, saved_block, saved_rest_alloca, saved_rest_name);
+            restoreState(self, saved_buf, saved_params, saved_tmp, saved_label, saved_fn_name, saved_body_label, saved_block, saved_rest_alloca, saved_rest_name, saved_locals);
             return null;
         };
     }
     self.params = p;
 
     const body_lbl = std.fmt.allocPrint(self.allocator, "body_{d}", .{id}) catch {
-        restoreState(self, saved_buf, saved_params, saved_tmp, saved_label, saved_fn_name, saved_body_label, saved_block, saved_rest_alloca, saved_rest_name);
+        restoreState(self, saved_buf, saved_params, saved_tmp, saved_label, saved_fn_name, saved_body_label, saved_block, saved_rest_alloca, saved_rest_name, saved_locals);
         p.deinit();
         return null;
     };
@@ -450,20 +466,20 @@ fn emitLambdaFunction(self: *LLVMEmitter, name: ?[]const u8, param_names: []cons
     self.rest_param_name = rest_name;
 
     const header = std.fmt.allocPrint(self.allocator, "; {s}\ndefine i64 {s}(ptr %vm, ptr %args, i64 %nargs, ptr %upvalues) {{\nentry:\n  br label %{s}\n{s}:\n", .{ name orelse "(lambda)", fn_name, body_lbl, body_lbl }) catch {
-        restoreState(self, saved_buf, saved_params, saved_tmp, saved_label, saved_fn_name, saved_body_label, saved_block, saved_rest_alloca, saved_rest_name);
+        restoreState(self, saved_buf, saved_params, saved_tmp, saved_label, saved_fn_name, saved_body_label, saved_block, saved_rest_alloca, saved_rest_name, saved_locals);
         p.deinit();
         return null;
     };
     defer self.allocator.free(header);
     self.write(header) catch {
-        restoreState(self, saved_buf, saved_params, saved_tmp, saved_label, saved_fn_name, saved_body_label, saved_block, saved_rest_alloca, saved_rest_name);
+        restoreState(self, saved_buf, saved_params, saved_tmp, saved_label, saved_fn_name, saved_body_label, saved_block, saved_rest_alloca, saved_rest_name, saved_locals);
         p.deinit();
         return null;
     };
 
     if (rest_name != null) {
         emitRestListBuilder(self, param_names.len) catch {
-            restoreState(self, saved_buf, saved_params, saved_tmp, saved_label, saved_fn_name, saved_body_label, saved_block, saved_rest_alloca, saved_rest_name);
+            restoreState(self, saved_buf, saved_params, saved_tmp, saved_label, saved_fn_name, saved_body_label, saved_block, saved_rest_alloca, saved_rest_name, saved_locals);
             p.deinit();
             fn_buf.deinit(self.allocator);
             return null;
@@ -473,7 +489,7 @@ fn emitLambdaFunction(self: *LLVMEmitter, name: ?[]const u8, param_names: []cons
     var last_val: []const u8 = "";
     for (body_nodes) |node| {
         last_val = self.emitNode(node) catch {
-            restoreState(self, saved_buf, saved_params, saved_tmp, saved_label, saved_fn_name, saved_body_label, saved_block, saved_rest_alloca, saved_rest_name);
+            restoreState(self, saved_buf, saved_params, saved_tmp, saved_label, saved_fn_name, saved_body_label, saved_block, saved_rest_alloca, saved_rest_name, saved_locals);
             p.deinit();
             fn_buf.deinit(self.allocator);
             return null;
@@ -481,14 +497,14 @@ fn emitLambdaFunction(self: *LLVMEmitter, name: ?[]const u8, param_names: []cons
     }
 
     self.print("  ret i64 {s}\n}}\n", .{last_val}) catch {
-        restoreState(self, saved_buf, saved_params, saved_tmp, saved_label, saved_fn_name, saved_body_label, saved_block, saved_rest_alloca, saved_rest_name);
+        restoreState(self, saved_buf, saved_params, saved_tmp, saved_label, saved_fn_name, saved_body_label, saved_block, saved_rest_alloca, saved_rest_name, saved_locals);
         p.deinit();
         fn_buf.deinit(self.allocator);
         return null;
     };
 
     fn_buf = self.buf;
-    restoreState(self, saved_buf, saved_params, saved_tmp, saved_label, saved_fn_name, saved_body_label, saved_block, saved_rest_alloca, saved_rest_name);
+    restoreState(self, saved_buf, saved_params, saved_tmp, saved_label, saved_fn_name, saved_body_label, saved_block, saved_rest_alloca, saved_rest_name, saved_locals);
     p.deinit();
 
     const fn_def = fn_buf.toOwnedSlice(self.allocator) catch return null;
@@ -497,7 +513,7 @@ fn emitLambdaFunction(self: *LLVMEmitter, name: ?[]const u8, param_names: []cons
     return fn_name;
 }
 
-fn restoreState(self: *LLVMEmitter, buf: std.ArrayList(u8), params: ?std.StringHashMap(u8), tmp: u32, label: u32, fn_name: ?[]const u8, body_label: ?[]const u8, block: []const u8, rest_alloca: ?[]const u8, rp_name: ?[]const u8) void {
+fn restoreState(self: *LLVMEmitter, buf: std.ArrayList(u8), params: ?std.StringHashMap(u8), tmp: u32, label: u32, fn_name: ?[]const u8, body_label: ?[]const u8, block: []const u8, rest_alloca: ?[]const u8, rp_name: ?[]const u8, locals: ?std.StringHashMap([]const u8)) void {
     self.buf = buf;
     self.params = params;
     self.tmp_counter = tmp;
@@ -507,6 +523,7 @@ fn restoreState(self: *LLVMEmitter, buf: std.ArrayList(u8), params: ?std.StringH
     self.current_block = block;
     self.rest_param_alloca = rest_alloca;
     self.rest_param_name = rp_name;
+    self.locals = locals;
 }
 
 fn emitRestListBuilder(self: *LLVMEmitter, fixed_arity: usize) EmitError!void {
@@ -562,6 +579,24 @@ fn emitRestListBuilder(self: *LLVMEmitter, fixed_arity: usize) EmitError!void {
 
 // --- Free variable analysis helpers (standalone, no self) ---
 
+// True if the raw S-expression contains a set! or define form anywhere (not
+// descending into quoted data). Used to reject closure bodies that mutate or
+// rebind captured state, which the native upvalue-copy model cannot express.
+fn sexprContainsSetOrDefine(expr: types.Value) bool {
+    if (!types.isPair(expr)) return false;
+    const head = types.car(expr);
+    if (types.isSymbol(head)) {
+        const h = types.symbolName(head);
+        if (std.mem.eql(u8, h, "set!") or std.mem.eql(u8, h, "define")) return true;
+        if (std.mem.eql(u8, h, "quote")) return false;
+    }
+    var cur = expr;
+    while (types.isPair(cur)) : (cur = types.cdr(cur)) {
+        if (sexprContainsSetOrDefine(types.car(cur))) return true;
+    }
+    return false;
+}
+
 fn hasFreeVars(nodes: []const *ir.Node, params: []const []const u8) bool {
     for (nodes) |node| {
         if (nodeHasFreeVars(node, params)) return true;
@@ -606,9 +641,40 @@ fn nodeHasFreeVars(node: *const ir.Node, params: []const []const u8) bool {
             if (nodeHasFreeVars(node.data.unless_form.test_expr, params)) return true;
             return hasFreeVars(node.data.unless_form.body, params);
         },
+        .set_form => {
+            // A set! is safe to compile in a body with no upvalues only when
+            // both the target and the value stay within our params/globals.
+            // Otherwise it mutates (or reads) a captured lexical variable that
+            // the native slot-store cannot reach, so disqualify and let the
+            // interpreter handle it. The value is a raw S-expr; a compound
+            // value is treated conservatively as possibly capturing (#819).
+            if (!types.isSymbol(node.data.set_form.name)) return true;
+            if (!valueIsBoundOrLiteral(node.data.set_form.name, params)) return true;
+            if (!valueIsBoundOrLiteral(node.data.set_form.value, params)) return true;
+            return false;
+        },
+        // An internal define introduces a binding that the native lambda-body
+        // emitter cannot install (it has no locals map), so it would leak to a
+        // global. Disqualify and fall back to the interpreter.
+        .define => return true,
         .constant => return false,
         else => return false,
     }
+}
+
+// A raw S-expr value that is trivially safe to reference inside a natively
+// compiled body with no upvalues: a literal, or a symbol that names one of our
+// params or a known global. Anything else (a compound expression, or a symbol
+// naming a captured lexical variable) is treated as unsafe.
+fn valueIsBoundOrLiteral(value: types.Value, params: []const []const u8) bool {
+    if (types.isSymbol(value)) {
+        const name = types.symbolName(value);
+        for (params) |p| {
+            if (std.mem.eql(u8, name, p)) return true;
+        }
+        return ir.isKnownGlobal(name);
+    }
+    return !types.isPair(value);
 }
 
 fn collectFreeVars(nodes: []const *ir.Node, params: []const []const u8, buf: *[16][]const u8, count: *usize) void {

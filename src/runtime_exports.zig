@@ -66,6 +66,23 @@ export fn kaappi_define_global(vm: ?*vm_mod.VM, name_ptr: [*]const u8, name_len:
     };
 }
 
+// set! on a global variable: mutate an existing binding, or error if the
+// variable is unbound (matching the interpreter's set! semantics). Distinct
+// from kaappi_define_global, which always creates/overwrites a binding.
+export fn kaappi_set_global(vm: ?*vm_mod.VM, name_ptr: [*]const u8, name_len: u64, val: u64) callconv(.c) void {
+    const v = vm orelse return;
+    const len: usize = @intCast(name_len);
+    const name = name_ptr[0..len];
+    if (v.globals.getPtr(name)) |ptr| {
+        ptr.* = val;
+    } else {
+        _ = std.posix.system.write(2, "set!: unbound variable '", 24);
+        _ = std.posix.system.write(2, name_ptr, len);
+        _ = std.posix.system.write(2, "'\n", 2);
+        std.process.exit(1);
+    }
+}
+
 export fn kaappi_make_string(vm: ?*vm_mod.VM, str_ptr: [*]const u8, str_len: u64) callconv(.c) u64 {
     const v = vm orelse return 0;
     const len: usize = @intCast(str_len);

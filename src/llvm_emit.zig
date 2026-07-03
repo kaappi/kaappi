@@ -652,17 +652,75 @@ pub const LLVMEmitter = struct {
     fn emitSet(self: *LLVMEmitter, data: ir.SetData) EmitError![]const u8 {
         if (!types.isSymbol(data.name)) return error.UnsupportedNodeType;
         const name = types.symbolName(data.name);
+        // Evaluate the new value with lexical scope respected, then store it
+        // into whichever slot `name` resolves to (local alloca, parameter,
+        // rest parameter, upvalue, or global). The old code always evaluated
+        // the value in the global environment and rebound a global (#819).
+        const val = try self.emitScopedValue(data.value);
+        try self.emitStoreToVariable(name, val);
+        return self.emitVoid();
+    }
+
+    fn inLexicalScope(self: *LLVMEmitter) bool {
+        return self.params != null or self.locals != null or
+            self.rest_param_name != null or self.upvalues != null;
+    }
+
+    // Emit a value expression, resolving variable references against the
+    // current lexical scope (params, locals, upvalues) rather than assuming
+    // the global environment.
+    fn emitScopedValue(self: *LLVMEmitter, value: Value) EmitError![]const u8 {
+        if (types.isSymbol(value)) return self.emitGlobalRef(value);
+        if (!types.isPair(value)) return self.emitConstant(value);
+        // At the top level there are no lexical bindings, so evaluate the value
+        // in the global environment via kaappi_eval. That also expands macro
+        // calls correctly; the standalone IR lowering below runs without a
+        // macro table and would mis-lower a top-level (set! x (some-macro ...)).
+        if (!self.inLexicalScope()) return self.emitEvalExpr(value);
+        const node = ir.lowerSingleExpr(self.allocator, value) catch return self.emitEvalExpr(value);
+        return self.emitNode(node);
+    }
+
+    // Store `val` into the slot that `name` denotes in the current scope.
+    // Resolution order mirrors emitGlobalRef's read path so writes and reads
+    // reach the same binding.
+    fn emitStoreToVariable(self: *LLVMEmitter, name: []const u8, val: []const u8) EmitError!void {
+        if (self.locals) |loc| {
+            if (loc.get(name)) |alloca_name| {
+                try self.print("  store i64 {s}, ptr {s}\n", .{ val, alloca_name });
+                return;
+            }
+        }
+        if (self.rest_param_name) |rp_name| {
+            if (std.mem.eql(u8, name, rp_name)) {
+                try self.print("  store i64 {s}, ptr {s}\n", .{ val, self.rest_param_alloca.? });
+                return;
+            }
+        }
+        if (self.params) |p| {
+            if (p.get(name)) |idx| {
+                const gep = try self.freshTemp();
+                try self.print("  {s} = getelementptr i64, ptr %args, i64 {d}\n", .{ gep, idx });
+                try self.print("  store i64 {s}, ptr {s}\n", .{ val, gep });
+                return;
+            }
+        }
+        if (self.upvalues) |uv| {
+            if (uv.get(name)) |idx| {
+                const gep = try self.freshTemp();
+                try self.print("  {s} = getelementptr i64, ptr %upvalues, i64 {d}\n", .{ gep, idx });
+                try self.print("  store i64 {s}, ptr {s}\n", .{ val, gep });
+                return;
+            }
+        }
+        // Not a lexical binding: set! an existing global, erroring if unbound.
         const sym_name = try self.internSymbol(name);
+        try self.print("  call void @kaappi_set_global(ptr %vm, ptr {s}, i64 {d}, i64 {s})\n", .{ sym_name, name.len, val });
+    }
 
-        const val = if (types.isPair(data.value))
-            try self.emitEvalExpr(data.value)
-        else if (types.isSymbol(data.value))
-            try self.emitGlobalRef(data.value)
-        else
-            try self.emitConstant(data.value);
-
-        try self.print("  call void @kaappi_define_global(ptr %vm, ptr {s}, i64 {d}, i64 {s})\n", .{ sym_name, name.len, val });
-
+    // Emit an SSA temp holding the unspecified/void value (the result of set!
+    // and define).
+    fn emitVoid(self: *LLVMEmitter) EmitError![]const u8 {
         const result = try self.freshTemp();
         const void_val: i64 = @bitCast(types.VOID);
         try self.print("  {s} = add i64 0, {d}\n", .{ result, void_val });
@@ -765,6 +823,23 @@ pub const LLVMEmitter = struct {
     fn emitDefine(self: *LLVMEmitter, data: ir.DefineData) EmitError![]const u8 {
         if (!types.isSymbol(data.name)) return error.UnsupportedNodeType;
         const name = types.symbolName(data.name);
+
+        // Internal define inside a natively compiled lexical scope (a `let`
+        // body). self.locals is only populated while emitLet emits a body, so
+        // top-level and lambda-body defines fall through to the global path.
+        // Create a fresh local binding so the define shadows any global of the
+        // same name for the rest of the body, instead of overwriting it (#819).
+        if (self.locals != null) {
+            const alloca = try self.freshTemp();
+            try self.print("  {s} = alloca i64, align 8\n", .{alloca});
+            // Register before emitting the value so a self/mutual reference in
+            // the initializer resolves to this binding (letrec*-style).
+            self.locals.?.put(name, alloca) catch return error.OutOfMemory;
+            const val = try self.emitScopedValue(data.value);
+            try self.print("  store i64 {s}, ptr {s}\n", .{ val, alloca });
+            return self.emitVoid();
+        }
+
         const sym_name = try self.internSymbol(name);
 
         if (types.isPair(data.value)) {
@@ -784,10 +859,7 @@ pub const LLVMEmitter = struct {
 
         try self.print("  call void @kaappi_define_global(ptr %vm, ptr {s}, i64 {d}, i64 {s})\n", .{ sym_name, name.len, val });
 
-        const result = try self.freshTemp();
-        const void_val: i64 = @bitCast(types.VOID);
-        try self.print("  {s} = add i64 0, {d}\n", .{ result, void_val });
-        return result;
+        return self.emitVoid();
     }
 
     const lambda = @import("llvm_emit_lambda.zig");
@@ -957,6 +1029,7 @@ pub const LLVMEmitter = struct {
         try self.write("declare i64 @kaappi_global_lookup(ptr, ptr, i64)\n");
         try self.write("declare i64 @kaappi_call_scheme(ptr, i64, ptr, i64)\n");
         try self.write("declare void @kaappi_define_global(ptr, ptr, i64, i64)\n");
+        try self.write("declare void @kaappi_set_global(ptr, ptr, i64, i64)\n");
         try self.write("declare i64 @kaappi_make_string(ptr, ptr, i64)\n");
         try self.write("declare i64 @kaappi_intern_symbol(ptr, ptr, i64)\n");
         try self.write("declare i64 @kaappi_fixnum_add(i64, i64)\n");
