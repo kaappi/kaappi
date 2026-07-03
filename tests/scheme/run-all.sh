@@ -13,7 +13,7 @@ KAAPPI=zig-out/bin/kaappi
 TIMEOUT=60
 PASS=0
 FAIL=0
-SKIP=0
+TIMEDOUT=0
 R7RS_PASS=0
 R7RS_FAIL=0
 R7RS_STATUS_FAIL=0
@@ -29,8 +29,9 @@ run_file() {
     else
         kill "$pid" 2>/dev/null || true
         wait "$pid" 2>/dev/null || true
-        echo "  SKIP  $file  (timeout after ${TIMEOUT}s)"
-        SKIP=$((SKIP + 1))
+        echo "  TIMEOUT  $file  (killed after ${TIMEOUT}s)"
+        cat /tmp/kaappi-test-out
+        TIMEDOUT=$((TIMEDOUT + 1))
         return
     fi
     if [[ $status -eq 0 ]]; then
@@ -133,10 +134,10 @@ fi
 
 echo ""
 echo "=== Summary ==="
-echo "  Scheme files: $PASS pass, $FAIL fail, $SKIP skip"
+echo "  Scheme files: $PASS pass, $FAIL fail, $TIMEDOUT timeout"
 echo "  R7RS suite:   $R7RS_PASS pass, $R7RS_FAIL fail"
-echo "  Total:        $((PASS + R7RS_PASS)) pass, $((FAIL + R7RS_FAIL + R7RS_STATUS_FAIL)) fail, $SKIP skip"
+echo "  Total:        $((PASS + R7RS_PASS)) pass, $((FAIL + R7RS_FAIL + R7RS_STATUS_FAIL + TIMEDOUT)) fail ($TIMEDOUT from timeouts)"
 
-if [[ $FAIL -gt 0 || $R7RS_FAIL -gt 0 || $R7RS_STATUS_FAIL -gt 0 ]]; then
+if [[ $FAIL -gt 0 || $TIMEDOUT -gt 0 || $R7RS_FAIL -gt 0 || $R7RS_STATUS_FAIL -gt 0 ]]; then
     exit 1
 fi
