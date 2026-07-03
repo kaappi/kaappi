@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783080576665,
+  "lastUpdate": 1783082623359,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "f15af2825abe32111e09b25a570cf6b0ec9d0e5b",
-          "message": "Merge pull request #723 from kaappi/fix/numeric-delimiter-679\n\nRequire delimiter after numeric tokens in the reader",
-          "timestamp": "2026-07-02T11:59:32+05:30",
-          "tree_id": "d691aa5fdc3f166c5d2237371f00edbb52a2636f",
-          "url": "https://github.com/kaappi/kaappi/commit/f15af2825abe32111e09b25a570cf6b0ec9d0e5b"
-        },
-        "date": 1782974629744,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.330465,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.096297,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.814762,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.167139,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.00693,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.032303,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.454818,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.069942,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.867841,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.769717,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.107189,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.21507,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 2.428716,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.594102,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.041709,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.041167,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "aca967d30d6a7a00fcc3ec6d5317993971d8cd20",
+          "message": "Exit non-zero on CLI usage and compile/standalone errors (#964)\n\nThe interpreter exited 0 for every kind of failure except an explicit\n(exit n), so shell scripts, Makefiles, and CI could not detect that\nkaappi was misinvoked or that a build/bundled step failed. Script\nread/compile/runtime errors already flip the exit code (#929); this\nextends the same guarantee to the remaining silent paths.\n\nCommand-line usage errors now exit 2 (getopt convention, distinct from\nthe 1 used for script failures): a missing argument to a value-taking\nflag (--lib-path, --timeout, --max-memory, -o, --coverage-xml,\n--profile-json, --completions), an unknown --completions shell, a\nbuild/inspect mode invoked with no file, and — new — an unknown flag,\nwhich was previously swallowed as a script filename and hid the typo.\n\nCompile-time and bundled-app failures now exit 1: --compile and\n--disassemble read/compile errors, and standalone-binary runtime,\npreamble, and corrupt-embedded-bytecode errors.\n\nExtends tests/scheme/errors/exit-code.sh with 19 new cases covering the\nusage and compile-mode paths.\n\nFixes #781\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
+          "timestamp": "2026-07-03T12:30:04Z",
+          "tree_id": "49409ee6240e0c301736349f213976f85a98df25",
+          "url": "https://github.com/kaappi/kaappi/commit/aca967d30d6a7a00fcc3ec6d5317993971d8cd20"
+        },
+        "date": 1783082622317,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.41391,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.020468,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.837705,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.217694,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006831,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.032636,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.465618,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.070615,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 4.172703,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.76798,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.159241,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.434992,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 2.379835,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.720767,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.048273,
             "unit": "seconds"
           }
         ]
