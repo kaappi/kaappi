@@ -37,6 +37,17 @@ fn toCheckedInt(comptime T: type, v: Value) error{TypeError}!T {
     return std.math.cast(T, wide) orelse return error.TypeError;
 }
 
+/// C-truthiness of a value bound to a `bool` FFI parameter. `validateArg`
+/// guarantees such a value is #t, #f, a fixnum, or a bignum, so any nonzero
+/// integer is true and zero is false.
+fn boolArgIsTrue(v: Value) bool {
+    if (v == types.TRUE) return true;
+    if (v == types.FALSE) return false;
+    if (types.isFixnum(v)) return types.toFixnum(v) != 0;
+    if (types.isBignum(v)) return types.toBignum(v).len != 0;
+    return false;
+}
+
 /// Convert a Scheme string Value to a null-terminated C string using a stack buffer.
 /// Returns null if the value is not a string or the string is too long.
 fn toCString(v: Value, buf: *[4096]u8) ?[*:0]const u8 {
@@ -159,6 +170,29 @@ fn validateArgs(ffi_fn: *types.FfiFunction, args: []const Value) !void {
     }
 }
 
+/// Coerce every `bool` argument to exactly #t/#f before dispatch so that only
+/// 0 or 1 is loaded into the C `_Bool` trampoline parameter. Passing any other
+/// integer is undefined behavior at the C ABI level and traps under
+/// UBSan-instrumented libraries (e.g. those built with `zig cc`). This mirrors
+/// the return direction, which normalizes any nonzero result to #t. `args.len`
+/// equals `param_count` (arity is checked by every caller); over-arity calls
+/// pass through untouched because the dispatch `switch` rejects them.
+fn normalizeBoolArgs(ffi_fn: *types.FfiFunction, args: []const Value, buf: *[5]Value) []const Value {
+    if (args.len > buf.len) return args;
+    var has_bool = false;
+    for (ffi_fn.param_types[0..args.len]) |t| {
+        if (t == .bool_type) has_bool = true;
+    }
+    if (!has_bool) return args;
+    for (args, 0..) |v, i| {
+        buf[i] = if (ffi_fn.param_types[i] == .bool_type)
+            (if (boolArgIsTrue(v)) types.TRUE else types.FALSE)
+        else
+            v;
+    }
+    return buf[0..args.len];
+}
+
 /// Main FFI call dispatcher. Routes to arity-specific handlers.
 pub fn callFfi(ffi_fn: *types.FfiFunction, args: []const Value, gc: *memory.GC) !Value {
     if (types.isFfiLibrary(ffi_fn.library)) {
@@ -166,13 +200,15 @@ pub fn callFfi(ffi_fn: *types.FfiFunction, args: []const Value, gc: *memory.GC) 
         if (lib.handle == null) return error.TypeError;
     }
     try validateArgs(ffi_fn, args);
+    var bool_buf: [5]Value = undefined;
+    const call_args = normalizeBoolArgs(ffi_fn, args, &bool_buf);
     const result = switch (ffi_fn.param_count) {
         0 => try callFfi0(ffi_fn, gc),
-        1 => try callFfi1(ffi_fn, args, gc),
-        2 => try callFfi2(ffi_fn, args, gc),
-        3 => try callFfi3(ffi_fn, args, gc),
-        4 => try callFfi4(ffi_fn, args, gc),
-        5 => try callFfi5(ffi_fn, args, gc),
+        1 => try callFfi1(ffi_fn, call_args, gc),
+        2 => try callFfi2(ffi_fn, call_args, gc),
+        3 => try callFfi3(ffi_fn, call_args, gc),
+        4 => try callFfi4(ffi_fn, call_args, gc),
+        5 => try callFfi5(ffi_fn, call_args, gc),
         else => return error.TypeError,
     };
     if (ffi_fn.return_type == .bool_type) {
