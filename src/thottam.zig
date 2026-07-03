@@ -500,6 +500,18 @@ fn runGitCapture(allocator: std.mem.Allocator, args: []const []const u8) ![]u8 {
     return runCapture(allocator, argv.items, null);
 }
 
+/// Check out a pinned version (tag or SHA) in an already-cloned package repo.
+///
+/// Uses `--end-of-options` (git 2.24+), NOT `--`: everything after `--` is a
+/// pathspec, so `git checkout -- v1.0.0` restores a file named "v1.0.0" instead
+/// of switching to that ref — which fails for any repo lacking such a file, and
+/// silently checks out the file (never the ref) for any repo that has one
+/// (issue #780). `--end-of-options` stops flag parsing while still treating the
+/// argument as a revision, keeping the option-injection guard from #736.
+fn checkoutVersion(allocator: std.mem.Allocator, pkg_dir: []const u8, v: []const u8) !void {
+    return runGit(allocator, &.{ "-C", pkg_dir, "checkout", "--quiet", "--end-of-options", v });
+}
+
 fn isInstalled(allocator: std.mem.Allocator, installed_path: []const u8, pkg: []const u8) bool {
     const content = readFile(allocator, installed_path) catch return false;
     defer allocator.free(content);
@@ -842,7 +854,7 @@ fn doInstall(
     if (install_version) |v| {
         printBuf(&buf, "  Checking out {s}...\n", .{v});
         runGit(allocator, &.{ "-C", pkg_dir, "fetch", "--quiet", "--tags" }) catch {};
-        runGit(allocator, &.{ "-C", pkg_dir, "checkout", "--quiet", "--", v }) catch {
+        checkoutVersion(allocator, pkg_dir, v) catch {
             printErrColor(Color.red, "  Failed to checkout version\n");
             return error.GitFailed;
         };
@@ -1422,4 +1434,46 @@ test "dylib_ext is correct for platform" {
     } else {
         try std.testing.expectEqualStrings(".so", dylib_ext);
     }
+}
+
+test "checkoutVersion resolves a pinned tag as a ref, not a pathspec (issue #780)" {
+    // Regression for #780: the pinned-install checkout used
+    // `git checkout -- <v>`, but arguments after `--` are pathspecs, so the
+    // tag/SHA was treated as a filename and every version-pinned install failed
+    // with "pathspec '<v>' did not match any file(s)". The fix uses
+    // `--end-of-options`, which still resolves <v> as a revision.
+    const allocator = std.testing.allocator;
+
+    // runGit shells out to /usr/bin/git; skip if it isn't present.
+    if (!fileExists(allocator, "/usr/bin/git")) return error.SkipZigTest;
+
+    // Unique temp repo path; `git init` creates the directory for us.
+    const base = getenv("TMPDIR") orelse "/tmp";
+    const repo = try std.fmt.allocPrint(allocator, "{s}/kaappi-thottam-780-{d}", .{ base, std.c.getpid() });
+    defer allocator.free(repo);
+    defer removeDir(allocator, repo) catch {};
+    // Start clean in case a prior aborted run left this path behind.
+    removeDir(allocator, repo) catch {};
+
+    // Two tagged commits; HEAD starts on v1.1.0. Pass identity and gpgsign via
+    // -c so the test doesn't depend on the ambient git config.
+    runGit(allocator, &.{ "init", "-q", repo }) catch return error.SkipZigTest;
+    try runGit(allocator, &.{ "-C", repo, "-c", "user.email=t@example.com", "-c", "user.name=Test", "-c", "commit.gpgsign=false", "commit", "-q", "--allow-empty", "-m", "one" });
+    try runGit(allocator, &.{ "-C", repo, "tag", "v1.0.0" });
+    try runGit(allocator, &.{ "-C", repo, "-c", "user.email=t@example.com", "-c", "user.name=Test", "-c", "commit.gpgsign=false", "commit", "-q", "--allow-empty", "-m", "two" });
+    try runGit(allocator, &.{ "-C", repo, "tag", "v1.1.0" });
+
+    // Checking out the older tag must switch HEAD to that tag's commit.
+    try checkoutVersion(allocator, repo, "v1.0.0");
+
+    const head = try runGitCapture(allocator, &.{ "-C", repo, "rev-parse", "HEAD" });
+    defer allocator.free(head);
+    const want = try runGitCapture(allocator, &.{ "-C", repo, "rev-parse", "v1.0.0^{commit}" });
+    defer allocator.free(want);
+    try std.testing.expectEqualStrings(want, head);
+
+    // And it genuinely moved off v1.1.0 (guards against a no-op "pass").
+    const v11 = try runGitCapture(allocator, &.{ "-C", repo, "rev-parse", "v1.1.0^{commit}" });
+    defer allocator.free(v11);
+    try std.testing.expect(!std.mem.eql(u8, head, v11));
 }

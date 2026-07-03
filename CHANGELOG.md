@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+#### Package manager (thottam)
+- Fix version-pinned installs always failing with "Failed to checkout version": `git checkout -- <ref>` treats the ref as a pathspec, so use `--end-of-options` to keep the option-injection guard while resolving `<ref>` as a revision. Affected `install pkg@v1.0.0`, semver constraints, and `--locked` installs (#780)
+
 ## [0.11.1] - 2026-07-02
 
 ### Fixed
