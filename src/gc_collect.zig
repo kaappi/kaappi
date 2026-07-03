@@ -474,10 +474,11 @@ fn markRoots(gc: *GC) void {
     const ffi_cb = @import("ffi_callback.zig");
     ffi_cb.markCallbackRoots(gc);
     // Mark interned symbols. Use a blocking lock to prevent iterating
-    // while a child thread's put() rehashes the HashMap. Deadlock is not
-    // possible: the parent thread never holds symbol_mutex (only child
-    // threads acquire it in allocSymbol when shared_symbols != null),
-    // and allocSymbol does not call maybeCollect.
+    // while another thread's put() rehashes the HashMap. Deadlock is not
+    // possible: allocSymbol — the only other acquirer of symbol_mutex, taken
+    // unconditionally by parent and child alike — never calls maybeCollect,
+    // so a thread can never enter GC marking (which takes this same lock)
+    // while already holding it in allocSymbol.
     memory_mod.spinLock(&memory_mod.symbol_mutex);
     defer memory_mod.spinUnlock(&memory_mod.symbol_mutex);
     var it = gc.symbols.valueIterator();
