@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783040325519,
+  "lastUpdate": 1783040619328,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "a051a2398ef618bc69ae20c771bbfc086cb38876",
-          "message": "Fix create-temp-file raising uninformative bare TypeError (#632) (#659)\n\ncreate-temp-file returned a bare PrimitiveError.TypeError when the\nprefix was too long, producing \"type error in 'create-temp-file'\" with\nno irritants. Every other error path in this file uses raiseFileError\nto produce descriptive messages.\n\nReplace with raiseFileError(\"temp file prefix too long\", args[0]) to\ngive callers a clear message with the prefix as the irritant.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-01T09:01:32+05:30",
-          "tree_id": "1af7a6f2f5e69adabe824cd91cab21fc38d17344",
-          "url": "https://github.com/kaappi/kaappi/commit/a051a2398ef618bc69ae20c771bbfc086cb38876"
-        },
-        "date": 1782877334272,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.964873,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.783237,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.743659,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.866665,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006885,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.032294,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.415296,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 1.064491,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.670926,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.634268,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.027396,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.201584,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 2.238171,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 0,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044733,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "bcba05cea8ae18a08e733b9334bc058ba739b827",
+          "message": "Stop flattening newlines in REPL history entries (#915)\n\n* Stop flattening newlines in REPL history entries (#821)\n\nReplacing newlines with spaces corrupted entries containing line\ncomments, making recalled history evaluate differently.\n\nFixes #821\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Add regression test for REPL history newline preservation (#821)\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-03T00:36:00Z",
+          "tree_id": "5abde1f473ed39df42b73a256f073d8bc41e3c00",
+          "url": "https://github.com/kaappi/kaappi/commit/bcba05cea8ae18a08e733b9334bc058ba739b827"
+        },
+        "date": 1783040618256,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.437748,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.395941,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.865634,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.172208,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.007124,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.033528,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.478015,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.071111,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 4.093852,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.84398,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.168974,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.438039,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 2.494222,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.724566,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.043007,
             "unit": "seconds"
           }
         ]
