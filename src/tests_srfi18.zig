@@ -7,6 +7,58 @@ const primitives = @import("primitives.zig");
 const srfi18 = @import("primitives_srfi18.zig");
 const vm_mod = @import("vm.zig");
 
+// Regression for the #958 globals read race: VM.initForThread used to share
+// the parent's globals map by struct copy, so the child's copied header kept
+// pointing at the old bucket array after any parent-side rehash — every
+// subsequent child lookup read freed memory and never saw newer bindings.
+// Sharing by pointer makes the child's view track the parent's map across
+// rehashes. This test is single-threaded on purpose: it checks the sharing
+// mechanics deterministically, without depending on race timing.
+test "child VM globals view survives parent-side rehash (#958)" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    var child_gc = memory.GC.initForThread(std.testing.allocator, &gc);
+    defer child_gc.deinit();
+    var child_vm = try vm_mod.VM.initForThread(&child_gc, &vm);
+    defer child_vm.deinit();
+
+    try vm.defineGlobal("race-counter", types.makeFixnum(1));
+
+    // Force the parent's globals map through several rehashes.
+    var names: std.ArrayList([]u8) = .empty;
+    defer {
+        for (names.items) |n| std.testing.allocator.free(n);
+        names.deinit(std.testing.allocator);
+    }
+    var i: usize = 0;
+    while (i < 4000) : (i += 1) {
+        const name = try std.fmt.allocPrint(std.testing.allocator, "rehash-global-{d}", .{i});
+        try names.append(std.testing.allocator, name);
+        try vm.defineGlobal(name, types.makeFixnum(@intCast(i)));
+    }
+
+    // A binding added after the rehashes must be visible to the child.
+    try vm.defineGlobal("late-global", types.makeFixnum(4242));
+    const late = child_vm.globals.get("late-global");
+    try std.testing.expect(late != null);
+    try std.testing.expectEqual(@as(i64, 4242), types.toFixnum(late.?));
+
+    // An in-place update of a pre-existing binding lands in the parent's
+    // current bucket array; the child must read that array, not a stale copy.
+    try vm.defineGlobal("race-counter", types.makeFixnum(99));
+    const counter = child_vm.globals.get("race-counter");
+    try std.testing.expect(counter != null);
+    try std.testing.expectEqual(@as(i64, 99), types.toFixnum(counter.?));
+
+    // A binding defined mid-rehash-burst must be visible too.
+    const mid = child_vm.globals.get(names.items[2000]);
+    try std.testing.expect(mid != null);
+    try std.testing.expectEqual(@as(i64, 2000), types.toFixnum(mid.?));
+}
+
 // Regression test: thread-terminate! on a busy-looping OS thread must stop
 // it so thread-join! returns (raising terminated-thread-exception) instead of
 // blocking forever in pthread_join. The child VM polls fiber.terminated at

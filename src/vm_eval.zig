@@ -20,7 +20,7 @@ pub fn eval(vm: *VM, source: []const u8) VMError!Value {
             last_result = result catch |err| return err;
             continue;
         }
-        const func = compiler_mod.compileExpressionWithMacros(vm.gc, expr, &vm.macros, &vm.globals) catch return VMError.CompileError;
+        const func = compiler_mod.compileExpressionWithMacros(vm.gc, expr, &vm.macros, vm.globals) catch return VMError.CompileError;
         {
             var func_val = types.makePointer(@ptrCast(func));
             vm.gc.pushRoot(&func_val) catch return VMError.OutOfMemory;
@@ -59,7 +59,7 @@ fn handleTopLevelBegin(vm: *VM, body: Value) VMError!Value {
         if (handleTopLevelForm(vm, form)) |result| {
             last = result catch |err| return err;
         } else {
-            const func = compiler_mod.compileExpressionWithMacros(vm.gc, form, &vm.macros, &vm.globals) catch return VMError.CompileError;
+            const func = compiler_mod.compileExpressionWithMacros(vm.gc, form, &vm.macros, vm.globals) catch return VMError.CompileError;
             var func_val = types.makePointer(@ptrCast(func));
             vm.gc.pushRoot(&func_val) catch return VMError.OutOfMemory;
             defer vm.gc.popRoot();
@@ -80,7 +80,7 @@ fn handleDefineValues(vm: *VM, args: Value) VMError!Value {
     if (!types.isPair(rest)) return VMError.CompileError;
     const expr = types.car(rest);
 
-    const func = compiler_mod.compileExpressionWithMacros(vm.gc, expr, &vm.macros, &vm.globals) catch return VMError.CompileError;
+    const func = compiler_mod.compileExpressionWithMacros(vm.gc, expr, &vm.macros, vm.globals) catch return VMError.CompileError;
     var func_val = types.makePointer(@ptrCast(func));
     vm.gc.pushRoot(&func_val) catch return VMError.OutOfMemory;
     defer vm.gc.popRoot();
@@ -103,8 +103,7 @@ fn handleDefineValues(vm: *VM, args: Value) VMError!Value {
                 j -= 1;
                 list = vm.gc.allocPair(mv2.values[j], list) catch return VMError.OutOfMemory;
             }
-            vm.globals.put(types.symbolName(formals), list) catch return VMError.OutOfMemory;
-            vm.global_version +%= 1;
+            vm.defineGlobal(types.symbolName(formals), list) catch return VMError.OutOfMemory;
         } else {
             var formal = formals;
             var i: usize = 0;
@@ -125,8 +124,7 @@ fn handleDefineValues(vm: *VM, args: Value) VMError!Value {
                         j -= 1;
                         rest_list = vm.gc.allocPair(mv2.values[j], rest_list) catch return VMError.OutOfMemory;
                     }
-                    vm.globals.put(types.symbolName(formal), rest_list) catch return VMError.OutOfMemory;
-                    vm.global_version +%= 1;
+                    vm.defineGlobal(types.symbolName(formal), rest_list) catch return VMError.OutOfMemory;
                     formal = types.NIL;
                     i = mv.values.len;
                     break;
@@ -134,8 +132,7 @@ fn handleDefineValues(vm: *VM, args: Value) VMError!Value {
                 if (!types.isPair(formal)) return VMError.CompileError;
                 const var_sym = types.car(formal);
                 if (!types.isSymbol(var_sym)) return VMError.CompileError;
-                vm.globals.put(types.symbolName(var_sym), mv.values[i]) catch return VMError.OutOfMemory;
-                vm.global_version +%= 1;
+                vm.defineGlobal(types.symbolName(var_sym), mv.values[i]) catch return VMError.OutOfMemory;
                 formal = types.cdr(formal);
                 i += 1;
             }
@@ -151,17 +148,14 @@ fn handleDefineValues(vm: *VM, args: Value) VMError!Value {
             vm.gc.pushRoot(&result_root) catch return VMError.OutOfMemory;
             defer vm.gc.popRoot();
             const list = vm.gc.allocPair(result_root, types.NIL) catch return VMError.OutOfMemory;
-            vm.globals.put(types.symbolName(formals), list) catch return VMError.OutOfMemory;
-            vm.global_version +%= 1;
+            vm.defineGlobal(types.symbolName(formals), list) catch return VMError.OutOfMemory;
         } else if (types.isPair(formals)) {
             const var_sym = types.car(formals);
             if (types.isSymbol(var_sym)) {
-                vm.globals.put(types.symbolName(var_sym), result) catch return VMError.OutOfMemory;
-                vm.global_version +%= 1;
+                vm.defineGlobal(types.symbolName(var_sym), result) catch return VMError.OutOfMemory;
                 const next = types.cdr(formals);
                 if (types.isSymbol(next)) {
-                    vm.globals.put(types.symbolName(next), types.NIL) catch return VMError.OutOfMemory;
-                    vm.global_version +%= 1;
+                    vm.defineGlobal(types.symbolName(next), types.NIL) catch return VMError.OutOfMemory;
                 }
             }
         }

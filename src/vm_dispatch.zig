@@ -161,7 +161,7 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                 const closure = frame.closure orelse return VMError.InvalidBytecode;
                 const func = closure.func;
                 const dst_idx = try registerIndex(self, frame.base, dst);
-                const env: *std.StringHashMap(Value) = func.env orelse &self.globals;
+                const env: *std.StringHashMap(Value) = func.env orelse self.globals;
                 if (func.env == null) {
                     if (func.global_cache) |cache| {
                         if (func.cache_version == self.global_version and
@@ -179,25 +179,28 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                 const sym = try constantAt(self, func, sym_idx);
                 if (!types.isSymbol(sym)) return VMError.InvalidBytecode;
                 const name = types.symbolName(sym);
-                const val = env.get(name) orelse blk: {
+                // Map reads under the child-thread shared lock; the error
+                // path runs after release (findSimilarName locks internally).
+                self.lockGlobalsShared();
+                const found: ?Value = env.get(name) orelse blk: {
                     if (func.env != null) {
                         if (self.globals.get(name)) |gval| break :blk gval;
                     }
                     const base = stripHygienicPrefix(name);
                     if (base.len != name.len) {
                         if (env.get(base)) |bval| break :blk bval;
-                        if (env != &self.globals) {
+                        if (env != self.globals) {
                             if (self.globals.get(base)) |gval| break :blk gval;
                         }
                     }
+                    break :blk null;
+                };
+                self.unlockGlobalsShared();
+                const val = found orelse {
                     if (self.findSimilarName(name)) |suggestion| {
                         self.setErrorDetail("undefined variable '{s}'. Did you mean '{s}'?", .{ name, suggestion });
                     } else {
-                        if (self.findSimilarName(name)) |sug| {
-                            self.setErrorDetail("undefined variable '{s}'. Did you mean '{s}'?", .{ name, sug });
-                        } else {
-                            self.setErrorDetail("undefined variable '{s}'", .{name});
-                        }
+                        self.setErrorDetail("undefined variable '{s}'", .{name});
                     }
                     return VMError.UndefinedVariable;
                 };
@@ -220,27 +223,38 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                 const closure = frame.closure orelse return VMError.InvalidBytecode;
                 const func = closure.func;
                 const src_idx = try registerIndex(self, frame.base, src);
-                const env: *std.StringHashMap(Value) = func.env orelse &self.globals;
+                const env: *std.StringHashMap(Value) = func.env orelse self.globals;
                 const sym = try constantAt(self, func, sym_idx);
                 if (!types.isSymbol(sym)) return VMError.InvalidBytecode;
                 const name = types.symbolName(sym);
+                const val = self.registers[src_idx];
                 // Mirror get_global's hygienic-prefix fallback: a template
                 // set! to a definition-site global compiles as set_global on
                 // the renamed name (__hyg_N_foo); writes must reach the same
                 // binding reads resolve to.
-                const ptr = env.getPtr(name) orelse blk: {
+                //
+                // Both the getPtr and the store through it stay inside the
+                // locked region: a parent-side rehash between them would
+                // leave `ptr` dangling on a child thread. The store itself
+                // is an in-place update (no rehash), so the shared lock is
+                // sufficient.
+                self.lockGlobalsShared();
+                const ptr: ?*Value = env.getPtr(name) orelse blk: {
                     const base = stripHygienicPrefix(name);
                     if (base.len != name.len) {
                         if (env.getPtr(base)) |bptr| break :blk bptr;
-                        if (env != &self.globals) {
+                        if (env != self.globals) {
                             if (self.globals.getPtr(base)) |gptr| break :blk gptr;
                         }
                     }
+                    break :blk null;
+                };
+                if (ptr) |p| p.* = val;
+                self.unlockGlobalsShared();
+                if (ptr == null) {
                     self.setErrorDetail("set!: unbound variable '{s}'", .{name});
                     return VMError.UndefinedVariable;
-                };
-                const val = self.registers[src_idx];
-                ptr.* = val;
+                }
                 if (func.env == null) {
                     self.global_version +%= 1;
                     if (func.global_cache) |cache| {
@@ -262,12 +276,20 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                 const closure = frame.closure orelse return VMError.InvalidBytecode;
                 const func = closure.func;
                 const src_idx = try registerIndex(self, frame.base, src);
-                const env: *std.StringHashMap(Value) = func.env orelse &self.globals;
+                const env: *std.StringHashMap(Value) = func.env orelse self.globals;
                 const sym = try constantAt(self, func, sym_idx);
                 if (!types.isSymbol(sym)) return VMError.InvalidBytecode;
                 const name = types.symbolName(sym);
                 const val = self.registers[src_idx];
-                env.put(name, val) catch return VMError.OutOfMemory;
+                if (env == self.globals) {
+                    // Structural mutation of the shared globals map: may
+                    // rehash, so it must exclude child-thread readers.
+                    self.globals_lock.lock();
+                    defer self.globals_lock.unlock();
+                    env.put(name, val) catch return VMError.OutOfMemory;
+                } else {
+                    env.put(name, val) catch return VMError.OutOfMemory;
+                }
                 if (func.env == null) {
                     self.global_version +%= 1;
                     if (func.global_cache) |cache| {
@@ -825,7 +847,7 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                 const nargs = readU8(self, frame);
                 const the_closure = frame.closure orelse return VMError.InvalidBytecode;
                 const the_func = the_closure.func;
-                const env: *std.StringHashMap(Value) = the_func.env orelse &self.globals;
+                const env: *std.StringHashMap(Value) = the_func.env orelse self.globals;
                 const base_wide = @as(usize, frame.base) + @as(usize, base_reg);
                 try ensureCallWindow(self, base_wide, nargs);
                 const base: u32 = try toBase(base_wide);
@@ -840,11 +862,16 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                             const sym = try constantAt(self, the_func, sym_idx);
                             if (!types.isSymbol(sym)) return VMError.InvalidBytecode;
                             const name = types.symbolName(sym);
-                            const val = env.get(name) orelse val_blk: {
+                            self.lockGlobalsShared();
+                            const found: ?Value = env.get(name) orelse val_blk: {
                                 const b = stripHygienicPrefix(name);
                                 if (b.len != name.len) {
                                     if (env.get(b)) |bval| break :val_blk bval;
                                 }
+                                break :val_blk null;
+                            };
+                            self.unlockGlobalsShared();
+                            const val = found orelse {
                                 if (self.findSimilarName(name)) |sug| {
                                     self.setErrorDetail("undefined variable '{s}'. Did you mean '{s}'?", .{ name, sug });
                                 } else {
@@ -861,11 +888,16 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                         const sym = try constantAt(self, the_func, sym_idx);
                         if (!types.isSymbol(sym)) return VMError.InvalidBytecode;
                         const name = types.symbolName(sym);
-                        const val = env.get(name) orelse val_blk2: {
+                        self.lockGlobalsShared();
+                        const found: ?Value = env.get(name) orelse val_blk2: {
                             const b = stripHygienicPrefix(name);
                             if (b.len != name.len) {
                                 if (env.get(b)) |bval| break :val_blk2 bval;
                             }
+                            break :val_blk2 null;
+                        };
+                        self.unlockGlobalsShared();
+                        const val = found orelse {
                             if (self.findSimilarName(name)) |sug| {
                                 self.setErrorDetail("undefined variable '{s}'. Did you mean '{s}'?", .{ name, sug });
                             } else {
@@ -894,7 +926,10 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                     const sym = try constantAt(self, the_func, sym_idx);
                     if (!types.isSymbol(sym)) return VMError.InvalidBytecode;
                     const name = types.symbolName(sym);
-                    const val = env.get(name) orelse {
+                    self.lockGlobalsShared();
+                    const found = env.get(name);
+                    self.unlockGlobalsShared();
+                    const val = found orelse {
                         if (self.findSimilarName(name)) |sug| {
                             self.setErrorDetail("undefined variable '{s}'. Did you mean '{s}'?", .{ name, sug });
                         } else {
@@ -949,7 +984,7 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                 const nargs = readU8(self, frame);
                 const closure = frame.closure orelse return VMError.InvalidBytecode;
                 const func = closure.func;
-                const env: *std.StringHashMap(Value) = func.env orelse &self.globals;
+                const env: *std.StringHashMap(Value) = func.env orelse self.globals;
                 const abs_base_wide = @as(usize, frame.base) + @as(usize, base_reg);
                 try ensureCallWindow(self, abs_base_wide, nargs);
                 const abs_base: u32 = try toBase(abs_base_wide);
@@ -968,11 +1003,16 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                     const sym = try constantAt(self, func, sym_idx);
                     if (!types.isSymbol(sym)) return VMError.InvalidBytecode;
                     const name = types.symbolName(sym);
-                    callee = env.get(name) orelse callee_blk: {
+                    self.lockGlobalsShared();
+                    const found: ?Value = env.get(name) orelse callee_blk: {
                         const b = stripHygienicPrefix(name);
                         if (b.len != name.len) {
                             if (env.get(b)) |bval| break :callee_blk bval;
                         }
+                        break :callee_blk null;
+                    };
+                    self.unlockGlobalsShared();
+                    callee = found orelse {
                         if (self.findSimilarName(name)) |sug| {
                             self.setErrorDetail("undefined variable '{s}'. Did you mean '{s}'?", .{ name, sug });
                         } else {

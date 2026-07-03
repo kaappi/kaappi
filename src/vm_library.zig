@@ -12,9 +12,18 @@ const VMError = vm_mod.VMError;
 
 /// Import a binding into the target environment, routing macros to vm.macros.
 fn importBinding(vm: *VM, target: *std.StringHashMap(Value), name: []const u8, val: Value) !void {
-    target.put(name, val) catch return error.OutOfMemory;
+    if (target == vm.globals) {
+        // Structural put into the shared globals map — exclude concurrent
+        // child-thread readers (#958). Held only around the put; the
+        // transformer recursion below takes the lock again per insert.
+        vm.globals_lock.lock();
+        defer vm.globals_lock.unlock();
+        target.put(name, val) catch return error.OutOfMemory;
+    } else {
+        target.put(name, val) catch return error.OutOfMemory;
+    }
     if (types.isTransformer(val)) {
-        if (target == &vm.globals) {
+        if (target == vm.globals) {
             vm.macros.put(name, val) catch return error.OutOfMemory;
         }
         const tx = types.toObject(val).as(types.Transformer);
@@ -23,7 +32,7 @@ fn importBinding(vm: *VM, target: *std.StringHashMap(Value), name: []const u8, v
         try copyTransformerFreeRefs(vm, target, tx, &visited, 0);
         return;
     }
-    if (target == &vm.globals) {
+    if (target == vm.globals) {
         vm.global_version +%= 1;
     }
 }
@@ -62,9 +71,19 @@ fn copyTransformerFreeRefs(
         _ = passthrough.collectFreeRefs(tmpl, pv_names[0..pv_count], tx.literals, &free_names, &free_count);
         for (free_names[0..free_count]) |fname| {
             if (env.get(fname)) |fval| {
-                if (!target.contains(fname)) {
+                if (target == vm.globals) {
+                    vm.globals_lock.lock();
+                    const missing = !target.contains(fname);
+                    if (missing) {
+                        target.put(fname, fval) catch {
+                            vm.globals_lock.unlock();
+                            return error.OutOfMemory;
+                        };
+                    }
+                    vm.globals_lock.unlock();
+                    if (missing) vm.global_version +%= 1;
+                } else if (!target.contains(fname)) {
                     target.put(fname, fval) catch return error.OutOfMemory;
-                    if (target == &vm.globals) vm.global_version +%= 1;
                 }
                 if (types.isTransformer(fval)) {
                     // An exported macro may expand into a library-internal
@@ -74,7 +93,7 @@ fn copyTransformerFreeRefs(
                     // so the compiler expands it at the use site. This is the
                     // only leg that reaches vm.macros, keeping importBinding the
                     // sole path into it (issue #877).
-                    if (target == &vm.globals and !vm.macros.contains(fname)) {
+                    if (target == vm.globals and !vm.macros.contains(fname)) {
                         vm.macros.put(fname, fval) catch return error.OutOfMemory;
                     }
                     try copyTransformerFreeRefs(vm, target, types.toObject(fval).as(types.Transformer), visited, depth + 1);
@@ -109,7 +128,7 @@ pub fn handleImportInto(vm: *VM, target: *std.StringHashMap(Value), args: Value)
 
 /// Handle (import import-set ...) — top-level variant that imports into vm.globals.
 pub fn handleImport(vm: *VM, args: Value) VMError!Value {
-    return handleImportInto(vm, &vm.globals, args);
+    return handleImportInto(vm, vm.globals, args);
 }
 
 /// Ensure a library is loaded and registered. If already in vm.libraries, no-op.
@@ -242,7 +261,7 @@ fn loadLibrarySource(vm: *VM, source: []const u8) !void {
         if (vm.handleTopLevelForm(expr)) |result| {
             _ = result catch |err| return err;
         } else {
-            const func = compiler_mod.compileExpressionWithMacros(vm.gc, expr, &vm.macros, &vm.globals) catch return error.InvalidSyntax;
+            const func = compiler_mod.compileExpressionWithMacros(vm.gc, expr, &vm.macros, vm.globals) catch return error.InvalidSyntax;
             var func_val = types.makePointer(@ptrCast(func));
             try vm.gc.pushRoot(&func_val);
             defer vm.gc.popRoot();
@@ -577,7 +596,7 @@ fn evalIncludedForm(vm: *VM, expr: Value, path: []const u8, line: u32) void {
         return;
     }
 
-    const func = compiler_mod.compileExpressionWithMacros(vm.gc, expr, &vm.macros, &vm.globals) catch |err| {
+    const func = compiler_mod.compileExpressionWithMacros(vm.gc, expr, &vm.macros, vm.globals) catch |err| {
         reportIncludeError(vm, path, line, null, err);
         return;
     };

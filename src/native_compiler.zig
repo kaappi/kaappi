@@ -111,7 +111,7 @@ pub fn emitLlvmFile(vm: *vm_mod.VM, path: []const u8, output_path: ?[]const u8) 
                 if (std.mem.eql(u8, form_name, "define-syntax") or
                     std.mem.eql(u8, form_name, "define-record-type"))
                 {
-                    const func = compiler.compileExpressionWithMacros(vm.gc, expr, &vm.macros, &vm.globals) catch continue;
+                    const func = compiler.compileExpressionWithMacros(vm.gc, expr, &vm.macros, vm.globals) catch continue;
                     _ = vm.execute(func) catch {};
                     const passthrough_node = ir_instance.makePassthrough(expr) catch continue;
                     ir_nodes.append(allocator, passthrough_node) catch continue;
