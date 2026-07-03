@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783062163217,
+  "lastUpdate": 1783064140347,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "be492c90575a136dcdcf3cc8e54818a6845ddc65",
-          "message": "Merge pull request #702 from kaappi/fix/preamble-replay-gc-700\n\nFix preamble replay GC root and resilient library imports",
-          "timestamp": "2026-07-02T00:59:05+05:30",
-          "tree_id": "ff225c3b3c69f52db8cdb54c5104dab76b7db77a",
-          "url": "https://github.com/kaappi/kaappi/commit/be492c90575a136dcdcf3cc8e54818a6845ddc65"
-        },
-        "date": 1782934947895,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.936612,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.854788,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.832371,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.128476,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.007252,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.03225,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.450968,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.067325,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.861506,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.742095,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.100046,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.234834,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 2.402552,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.742226,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.043144,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.043164,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "81adb3c0da5b0e8f658783acd52fa78b60fe88b6",
+          "message": "Mark hash-table entries occupied on insert via update!/default and alist->hash-table (#939)\n\nHashEntry.state defaults to .empty, and the insert paths in\nhash-table-update!/default and alist->hash-table omitted the state\nfield when writing new entries. The key and value were stored and the\ncount incremented, but findKey/findSlot treated the slot as empty, so\nthe key was invisible to lookup, duplicate detection in\nalist->hash-table never fired, and the phantom entry was silently\ndropped on the next rehash. hash-table-set! already set the state\nexplicitly, which is why only these two paths were affected.\n\nThe failures were masked until now because uncaught script errors\nexit 0, so the existing srfi69-ext and mutation-write-barrier tests\nreported PASS despite aborting mid-file.\n\nThe regression test uses manual counters with guard and an explicit\n(exit 1) rather than SRFI-64, because SRFI-64 asserts are currently\nbroken (undefined %test-on-test-begin) and would not gate the run.\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-03T07:19:17Z",
+          "tree_id": "9d49880d443471970922b3f4d55cefb1f1d6d19f",
+          "url": "https://github.com/kaappi/kaappi/commit/81adb3c0da5b0e8f658783acd52fa78b60fe88b6"
+        },
+        "date": 1783064139465,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.170938,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.981219,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.873797,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.23229,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.007315,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.033205,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.472981,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.070214,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 4.051218,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.804604,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.165355,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.48531,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 2.400323,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.860237,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.045352,
             "unit": "seconds"
           }
         ]
