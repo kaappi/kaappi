@@ -467,6 +467,26 @@ test "parameterize current-output-port redirects display" {
     try std.testing.expectEqualStrings("hello", s.data[0..s.len]);
 }
 
+test "read after peek-char preserves stream order (#804)" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    const result = try vm.eval(
+        \\(let ((p (open-input-string "(x)abc de")))
+        \\  (let ((r1 (read p)))
+        \\    (let ((pc (peek-char p)))
+        \\      (let ((r2 (read p)))
+        \\        (let ((r3 (read p)))
+        \\          (let ((sp (open-output-string)))
+        \\            (write (list r1 pc r2 r3) sp)
+        \\            (get-output-string sp)))))))
+    );
+    const s = types.toObject(result).as(types.SchemeString);
+    try std.testing.expectEqualStrings("((x) #\\a abc de)", s.data[0..s.len]);
+}
+
 test "parameterize current-input-port redirects read-line" {
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
