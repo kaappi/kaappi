@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783100500835,
+  "lastUpdate": 1783100537474,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "de46a5001f4fd585b2596aead08cba71c31d13df",
-          "message": "Merge pull request #767 from kaappi/fix/753-deep-copy-visited-registration\n\nFix deep copy: register in visited before recursing, use allocMultipleValues",
-          "timestamp": "2026-07-02T18:17:16+05:30",
-          "tree_id": "62a0c97808338975e655c5a4c6858174e46e84a7",
-          "url": "https://github.com/kaappi/kaappi/commit/de46a5001f4fd585b2596aead08cba71c31d13df"
-        },
-        "date": 1782997261934,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.512465,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.516953,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.830673,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.174437,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006966,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.032003,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.452539,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.06979,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.936718,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.777235,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.086369,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.229303,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 2.392614,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.728887,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.0414,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044843,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "47b8e74808341e77cf24572485ab2bbcbf1b3ca8",
+          "message": "Parse fd-backed (read) incrementally instead of draining to EOF (#847) (#984)\n\nreadDatumFn accumulated all bytes until read() returned 0 before\nattempting to parse a datum. On interactive terminals read() never\nreturns 0, so (read) blocked forever. Parse after each chunk instead;\nincomplete datums (UnexpectedEof) loop back for more input.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-03T22:55:45+05:30",
+          "tree_id": "759427182b00c6c7942581dccc152f906884c674",
+          "url": "https://github.com/kaappi/kaappi/commit/47b8e74808341e77cf24572485ab2bbcbf1b3ca8"
+        },
+        "date": 1783100535916,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.387643,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.658667,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.846285,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.498826,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006435,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.033383,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.475821,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.071142,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 4.210739,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.822085,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.198947,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.427575,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.807127,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.709627,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044811,
             "unit": "seconds"
           }
         ]
