@@ -631,14 +631,30 @@ fn raiseReadError(gc: *@import("memory.zig").GC) PrimitiveError!Value {
     return primitives_control.raiseFn(&raise_args);
 }
 
+fn readFromPeekByteOnly(gc: *@import("memory.zig").GC, port: *types.Port) PrimitiveError!Value {
+    const b = port.peek_byte.?;
+    port.peek_byte = null;
+    const source: [1]u8 = .{b};
+    var reader = reader_mod.Reader.init(gc, &source);
+    defer reader.deinit();
+    const maybe_datum = parseDatumForRead(&reader) catch |err| {
+        if (err == reader_mod.ReadError.OutOfMemory) return PrimitiveError.OutOfMemory;
+        return raiseReadError(gc);
+    };
+    return maybe_datum orelse types.EOF;
+}
+
 fn readDatumFn(args: []const Value) PrimitiveError!Value {
     const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
     const port = try getInputPort(args, 0, "read");
 
     // For string ports, read directly from the string data
     if (port.is_string_port) {
-        const data = port.string_data orelse return types.EOF;
-        if (port.string_pos >= data.len) return types.EOF;
+        const data = port.string_data orelse {
+            if (port.peek_byte != null) return readFromPeekByteOnly(gc, port);
+            return types.EOF;
+        };
+        if (port.string_pos >= data.len and port.peek_byte == null) return types.EOF;
 
         // Handle any peeked byte
         var source: []const u8 = data[port.string_pos..];
