@@ -324,7 +324,10 @@ fn storeChildResult(fiber_key: usize, result: Value, exception: ?Value) void {
 
 fn threadYieldFn(_: []const Value) PrimitiveError!Value {
     const vm = vm_mod.vm_instance orelse return PrimitiveError.OutOfMemory;
-    if (vm.scheduler == null) return types.VOID;
+    if (vm.scheduler == null) {
+        std.Thread.yield() catch {};
+        return types.VOID;
+    }
     vm.yielded = true;
     return types.VOID;
 }
