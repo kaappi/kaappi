@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783058613127,
+  "lastUpdate": 1783060047317,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "distinct": true,
-          "id": "84148985079576f48a5ca79bd770e76187a20288",
-          "message": "Add dev doc for Claude Code harness setup\n\nDocuments hooks, permissions, path-scoped rules, skills, and the\nkaappi-dev ecosystem plugin with their configuration, interaction\nmodel, and extension guide.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-01T16:41:35+05:30",
-          "tree_id": "03b0192402cbabe0c289bff202f55aa318213247",
-          "url": "https://github.com/kaappi/kaappi/commit/84148985079576f48a5ca79bd770e76187a20288"
-        },
-        "date": 1782905094071,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.286471,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.369657,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.827619,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.301921,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.007009,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.03284,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.458845,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.069492,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 4.000269,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.775052,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.105369,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.222777,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 2.411092,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.650194,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.042018,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.042166,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "320b3cb4f3a3189e30147b7b05a3019630000954",
+          "message": "Fix thread-terminate! never stopping OS threads, hanging thread-join! (#933)\n\nthread-terminate! only set cooperative-scheduler flags (fiber.terminated,\nwakeWaiters) that a child OS thread spawned by thread-start! never\nobserved, so a looping thunk ran forever and the parent's thread-join!\nblocked indefinitely in pthread_join. This hung tests/scheme/srfi/\nsrfi18.scm with zero output since at least v0.10.0; run-all.sh masked it\nas a 60s-timeout SKIP.\n\nGive child VMs a pointer to the shared fiber.terminated flag and poll it\n(atomically) at the existing 1024-instruction dispatch-loop safepoint,\nso termination adds no hot-path cost. On termination the child unwinds\nwith the new VMError.Terminated, the OS thread exits, and thread-join!\nraises terminated-thread-exception as SRFI-18 specifies.\n\nAlso repair srfi18.scm so it can actually run and fail meaningfully:\n\n- Rewrite the mutex-contention and condvar-signal tests against the\n  cooperative fiber path (spawn). OS threads run on isolated heaps and\n  mutexes/condvars are deliberately uncopyable, so the old OS-thread\n  versions could never pass; add a test pinning that capturing a mutex\n  in a thread thunk raises uncaught-exception at join.\n- Signal failure with (exit 1): a top-level (error ...) exits 0, so the\n  file previously could not fail run-all.sh even when tests failed.\n\nRegression test: tests_srfi18.zig terminates a pure busy-loop OS thread\nand joins it; without the safepoint this hangs zig build test.\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-03T11:43:54+05:30",
+          "tree_id": "ef204a5fee45e209425bfc3abd720ab161e995ec",
+          "url": "https://github.com/kaappi/kaappi/commit/320b3cb4f3a3189e30147b7b05a3019630000954"
+        },
+        "date": 1783060046953,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.413808,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.688596,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.836394,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.200471,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.00696,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.03293,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.466485,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.070334,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.972206,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.816008,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.151927,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.429787,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 2.421177,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.669209,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.042302,
             "unit": "seconds"
           }
         ]
