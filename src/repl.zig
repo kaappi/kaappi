@@ -935,6 +935,19 @@ fn describeSymbol(vm: *vm_mod.VM, allocator: std.mem.Allocator, name: []const u8
 
 const EvalMode = enum { normal, store_last, show_type };
 
+// Multiple values print one per line, matching other Scheme REPLs
+// (Chez, Guile, Racket, Chibi). Void values print nothing.
+fn printValuesLines(allocator: std.mem.Allocator, values: []const types.Value) void {
+    for (values) |val| {
+        if (val == types.VOID) continue;
+        const s = printer.prettyPrint(allocator, val, 80) catch
+            (printer.valueToString(allocator, val, .write) catch continue);
+        defer allocator.free(s);
+        writeStdout(s);
+        writeStdout("\n");
+    }
+}
+
 fn evalInputTyped(vm: *vm_mod.VM, allocator: std.mem.Allocator, input: []const u8, mode: EvalMode) void {
     evalInputInner(vm, allocator, input, mode);
 }
@@ -981,6 +994,13 @@ fn evalInputInner(vm: *vm_mod.VM, allocator: std.mem.Allocator, input: []const u
             if (types.isMultipleValues(dr)) {
                 const mv = types.toObject(dr).as(types.MultipleValues);
                 dr = if (mv.values.len > 0) mv.values[0] else types.VOID;
+                if (mode != .show_type) {
+                    printValuesLines(allocator, mv.values);
+                    if (mode == .store_last and dr != types.VOID) {
+                        vm.globalsPut("_", dr) catch {};
+                    }
+                    continue;
+                }
             }
             if (dr != types.VOID) {
                 if (mode == .show_type) {
@@ -1044,20 +1064,32 @@ fn evalInputInner(vm: *vm_mod.VM, allocator: std.mem.Allocator, input: []const u
         };
         vm.gc.popRoot();
 
-        if (result != types.VOID) {
+        var display_result = result;
+        if (types.isMultipleValues(display_result)) {
+            const mv = types.toObject(display_result).as(types.MultipleValues);
+            display_result = if (mv.values.len > 0) mv.values[0] else types.VOID;
+            if (mode != .show_type) {
+                printValuesLines(allocator, mv.values);
+                if (mode == .store_last and display_result != types.VOID) {
+                    vm.globalsPut("_", display_result) catch {};
+                }
+                continue;
+            }
+        }
+        if (display_result != types.VOID) {
             if (mode == .show_type) {
                 writeStdout("; ");
-                writeStdout(getTypeName(result));
+                writeStdout(getTypeName(display_result));
                 writeStdout("\n");
             } else {
-                const s = printer.prettyPrint(allocator, result, 80) catch
-                    (printer.valueToString(allocator, result, .write) catch continue);
+                const s = printer.prettyPrint(allocator, display_result, 80) catch
+                    (printer.valueToString(allocator, display_result, .write) catch continue);
                 defer allocator.free(s);
                 writeStdout(s);
                 writeStdout("\n");
             }
             if (mode == .store_last) {
-                vm.globalsPut("_", result) catch {};
+                vm.globalsPut("_", display_result) catch {};
             }
         }
     }
