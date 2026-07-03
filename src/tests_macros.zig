@@ -398,3 +398,60 @@ test "hygiene: inner syntax-rules pattern variables shadow outer bindings" {
     try std.testing.expect(types.isSymbol(result));
     try std.testing.expectEqualStrings("x", types.symbolName(result));
 }
+
+test "body scoping: leading define-syntax does not leak past let body" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    const r1 = try vm.eval("(let () (define-syntax m (syntax-rules () ((m) 1))) (m))");
+    try std.testing.expectEqual(@as(i64, 1), types.toFixnum(r1));
+
+    // After the body, m must be an ordinary identifier again.
+    _ = try vm.eval("(define (m) 2)");
+    const r2 = try vm.eval("(m)");
+    try std.testing.expectEqual(@as(i64, 2), types.toFixnum(r2));
+}
+
+test "body scoping: macro-generated define-syntax does not leak past body" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    // (foo bar x) expands mid-body to (define-syntax bar ...); the generated
+    // macro must work for the remainder of the body (R7RS 5.3)...
+    const r1 = try vm.eval(
+        \\(let ()
+        \\  (define-syntax foo
+        \\    (syntax-rules ()
+        \\      ((foo bar y)
+        \\       (define-syntax bar
+        \\         (syntax-rules ()
+        \\           ((bar x) 'y))))))
+        \\  (foo bar x)
+        \\  (bar 1))
+    );
+    try std.testing.expect(types.isSymbol(r1));
+    try std.testing.expectEqualStrings("x", types.symbolName(r1));
+
+    // ...but must not survive the body: a later top-level (bar 1) must call
+    // the global procedure, not expand the leaked macro to 'x.
+    _ = try vm.eval("(define (bar x) 42)");
+    const r2 = try vm.eval("(bar 1)");
+    try std.testing.expectEqual(@as(i64, 42), types.toFixnum(r2));
+}
+
+test "top-level begin: define-syntax persists for later forms" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    // R7RS 5.1: top-level (begin ...) splices, so its define-syntax is a
+    // top-level definition and must remain visible afterwards.
+    _ = try vm.eval("(begin (define-syntax k (syntax-rules () ((k) 7))) #t)");
+    const result = try vm.eval("(k)");
+    try std.testing.expectEqual(@as(i64, 7), types.toFixnum(result));
+}

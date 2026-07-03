@@ -33,6 +33,11 @@ const Upvalue = struct {
     is_local: bool,
 };
 
+const BodyMacro = struct {
+    name: []const u8,
+    saved: ?Value,
+};
+
 const build_options = @import("build_options");
 const MAX_COMPILER_REGISTERS: u16 = std.math.maxInt(u16);
 const MAX_MACRO_EXPANSION_DEPTH: u16 = 256;
@@ -52,6 +57,12 @@ pub const Compiler = struct {
     next_register: u16 = 0,
     parent: ?*Compiler = null,
     in_body_scope: bool = false,
+    // Body-scoped define-syntax tracking (R7RS 5.3): while depth > 0,
+    // compileDefineSyntax records each registration so the enclosing body
+    // restores the macro table on exit. At depth 0 (top level) definitions
+    // persist, which top-level (begin ...) splicing relies on.
+    body_macros: std.ArrayList(BodyMacro) = .empty,
+    body_macro_depth: u16 = 0,
     current_line: u32 = 0,
     macro_expansion_depth: u16 = 0,
     macro_expansion_steps: u32 = 0,
@@ -72,6 +83,7 @@ pub const Compiler = struct {
         self.locals.deinit(self.gc.allocator);
         self.upvalues.deinit(self.gc.allocator);
         self.macros.deinit();
+        self.body_macros.deinit(self.gc.allocator);
     }
 
     pub fn unrootFunction(gc: *memory.GC, func: *types.Function) void {
@@ -103,6 +115,38 @@ pub const Compiler = struct {
             .restricted_env = parent.restricted_env,
             .parent = parent,
         };
+    }
+
+    /// Enter a body scope for define-syntax tracking. Returns a mark for
+    /// the matching endBodyMacroScope.
+    pub fn beginBodyMacroScope(self: *Compiler) usize {
+        self.body_macro_depth += 1;
+        return self.body_macros.items.len;
+    }
+
+    /// Restore macro-table entries registered since the matching
+    /// beginBodyMacroScope, newest first so re-registrations of the same
+    /// name unwind correctly.
+    pub fn endBodyMacroScope(self: *Compiler, mark: usize) void {
+        self.body_macro_depth -= 1;
+        while (self.body_macros.items.len > mark) {
+            const entry = self.body_macros.pop().?;
+            if (entry.saved) |old_val| {
+                self.macros.put(entry.name, old_val) catch {};
+            } else {
+                _ = self.macros.remove(entry.name);
+            }
+        }
+    }
+
+    /// Record a macro registration for restoration at body-scope exit.
+    /// No-op at top level, where define-syntax must persist.
+    pub fn recordBodyMacro(self: *Compiler, name: []const u8) CompileError!void {
+        if (self.body_macro_depth == 0) return;
+        self.body_macros.append(self.gc.allocator, .{
+            .name = name,
+            .saved = self.macros.get(name),
+        }) catch return CompileError.OutOfMemory;
     }
 
     fn lookupMacro(self: *Compiler, name: []const u8) ?Value {
@@ -1279,8 +1323,11 @@ pub const Compiler = struct {
             tx.def_env_val = self.lib_env_val;
         }
 
-        // Store in macro table
-        self.macros.put(types.symbolName(keyword), transformer) catch return CompileError.OutOfMemory;
+        // Store in macro table; inside a body, track the registration so
+        // the enclosing body scope removes it on exit (R7RS 5.3).
+        const name = types.symbolName(keyword);
+        try self.recordBodyMacro(name);
+        self.macros.put(name, transformer) catch return CompileError.OutOfMemory;
 
         // define-syntax returns void
         try self.emitOp(.load_void);
@@ -1387,6 +1434,8 @@ pub const Compiler = struct {
         self.beginScope();
         const saved_body_scope = self.in_body_scope;
         self.in_body_scope = true;
+        const macro_mark = self.beginBodyMacroScope();
+        errdefer self.endBodyMacroScope(macro_mark);
         var current = body;
         while (current != types.NIL) {
             if (!types.isPair(current)) return CompileError.InvalidSyntax;
@@ -1395,6 +1444,7 @@ pub const Compiler = struct {
             const tail = is_tail and current == types.NIL;
             try self.compileExpr(expr, dst, tail);
         }
+        self.endBodyMacroScope(macro_mark);
         self.in_body_scope = saved_body_scope;
         self.endScope();
 
