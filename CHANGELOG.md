@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+#### I/O
+- `read` now signals an error satisfying `read-error?` when end of file is encountered in the middle of an incomplete datum (e.g. `(read (open-input-string "(unclosed"))`), as R7RS 6.13.2 requires, instead of silently returning the EOF object. EOF before any datum begins still returns the EOF object. Applies to both string ports and file ports.
+
 #### Libraries
 - Fix `define-syntax` in a library body registering the macro in the process-global macro table at load time — unexported library-body macros no longer leak to all code, and a macro imported from one library is no longer silently clobbered by loading another library that defines the same name (#877)
 
