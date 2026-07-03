@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783040619328,
+  "lastUpdate": 1783040644192,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "015dfe4e7a54da6bbf816ef8c60b5e632e2e9be4",
-          "message": "Fix tail call passing pointer to caller's stack alloca (#639) (#660)\n\nemitCallNode and emitDirectCall were marking calls as `tail call` even\nwhen arguments were passed via an alloca in the caller's stack frame.\nLLVM tail calls may reuse the caller's stack, invalidating the alloca\npointer and corrupting arguments. Only use `tail call` for zero-argument\ncalls where no stack alloca is needed; calls with arguments use regular\n`call` + `ret` which preserves correct semantics.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-01T09:19:46+05:30",
-          "tree_id": "10fdb2b17d8db3201cbf9bcbc1315b33a401961c",
-          "url": "https://github.com/kaappi/kaappi/commit/015dfe4e7a54da6bbf816ef8c60b5e632e2e9be4"
-        },
-        "date": 1782878513385,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.328567,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.156608,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.807296,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.188098,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006756,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.032196,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.451215,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 1.144765,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.863641,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.771908,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.093119,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.218586,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 2.407438,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 0,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.043007,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a43d8a964d35af0149eeebdd0f50271177480cf4",
+          "message": "Merge pull request #908 from kaappi/fix/859-prettyprint-cycle\n\nAdd depth limit to prettyPrint to prevent hangs on cyclic values",
+          "timestamp": "2026-07-03T06:07:22+05:30",
+          "tree_id": "39c57029e1f04662a46318aef98c8420b1754186",
+          "url": "https://github.com/kaappi/kaappi/commit/a43d8a964d35af0149eeebdd0f50271177480cf4"
+        },
+        "date": 1783040643452,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.072603,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.030833,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.856342,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.334359,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.007289,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.033052,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.467706,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.068372,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.873222,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.785945,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.160868,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.470918,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 2.41051,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.811632,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044868,
             "unit": "seconds"
           }
         ]
