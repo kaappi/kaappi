@@ -31,10 +31,11 @@ fn importBinding(vm: *VM, target: *std.StringHashMap(Value), name: []const u8, v
 /// Copy the free references of a macro's templates from its definition
 /// environment into the import target, so use-site expansions can resolve
 /// library-internal bindings. Follows macro-to-macro references transitively:
-/// an exported macro may expand into internal helper macros (which live in
-/// vm.macros, not the library env) whose own free references must also be
-/// visible at the use site (e.g. SRFI 64 test-assert → %test-comp1body →
-/// %test-on-test-begin).
+/// an exported macro may expand into internal helper macros (which live in the
+/// source library's lib_env) whose own free references must also be visible at
+/// the use site (e.g. SRFI 64 test-assert → %test-comp1body →
+/// %test-on-test-begin). Helper macros are additionally registered in the
+/// importer's macro namespace so the compiler expands them there (issue #877).
 fn copyTransformerFreeRefs(
     vm: *VM,
     target: *std.StringHashMap(Value),
@@ -66,12 +67,22 @@ fn copyTransformerFreeRefs(
                     if (target == &vm.globals) vm.global_version +%= 1;
                 }
                 if (types.isTransformer(fval)) {
+                    // An exported macro may expand into a library-internal
+                    // helper macro (e.g. SRFI 64 test-assert → %test-comp1body).
+                    // The helper lives in the source library's lib_env, not the
+                    // importer's; register it in the importer's macro namespace
+                    // so the compiler expands it at the use site. This is the
+                    // only leg that reaches vm.macros, keeping importBinding the
+                    // sole path into it (issue #877).
+                    if (target == &vm.globals and !vm.macros.contains(fname)) {
+                        vm.macros.put(fname, fval) catch return error.OutOfMemory;
+                    }
                     try copyTransformerFreeRefs(vm, target, types.toObject(fval).as(types.Transformer), visited, depth + 1);
                 }
             } else if (vm.macros.get(fname)) |mval| {
-                // define-syntax in a library body registers the helper in
-                // vm.macros rather than the library env; recurse so the
-                // helper's free references resolve at the use site too.
+                // Fallback: a helper already present in the global macro table
+                // (e.g. imported at the REPL top level). Recurse so its own free
+                // references resolve at the use site too.
                 if (types.isTransformer(mval)) {
                     try copyTransformerFreeRefs(vm, target, types.toObject(mval).as(types.Transformer), visited, depth + 1);
                 }
@@ -905,12 +916,11 @@ pub fn handleDefineLibrary(vm: *VM, args: Value) VMError!Value {
     for (0..export_names.items.len) |i| {
         const internal_name = export_names.items[i];
         const exported_name = export_renames.items[i] orelse internal_name;
+        // Both value definitions and library-body macros live in lib_env
+        // (issue #877), so a single lookup resolves every export. Macros are
+        // no longer sourced from the global vm.macros — that fallback only
+        // worked because define-syntax used to leak process-globally.
         if (lib_env.get(internal_name)) |val| {
-            lib.addExport(exported_name, val) catch {
-                lib.deinit();
-                return VMError.OutOfMemory;
-            };
-        } else if (vm.macros.get(internal_name)) |val| {
             lib.addExport(exported_name, val) catch {
                 lib.deinit();
                 return VMError.OutOfMemory;
@@ -950,7 +960,22 @@ fn compileLibExpr(vm: *VM, lib_env: *std.StringHashMap(Value), expr: Value) VMEr
         return;
     }
 
-    const func = compiler_mod.compileExpressionInEnv(vm.gc, expr, &vm.macros, lib_env, types.NIL) catch return VMError.CompileError;
+    // Compile against a per-library macro table seeded from lib_env rather
+    // than the global vm.macros, so define-syntax in this library's body does
+    // not leak into (nor read from) the process-global macro namespace
+    // (issue #877). The library's own macros are stored in lib_env by
+    // compileDefineSyntax; imported macros already live there too. Seeding
+    // from lib_env's transformer entries makes both visible to the macro
+    // expander for this form without touching vm.macros.
+    var lib_macros = std.StringHashMap(Value).init(vm.gc.allocator);
+    defer lib_macros.deinit();
+    var env_it = lib_env.iterator();
+    while (env_it.next()) |entry| {
+        if (types.isTransformer(entry.value_ptr.*)) {
+            lib_macros.put(entry.key_ptr.*, entry.value_ptr.*) catch return VMError.OutOfMemory;
+        }
+    }
+    const func = compiler_mod.compileExpressionInEnv(vm.gc, expr, &lib_macros, lib_env, types.NIL) catch return VMError.CompileError;
     if (vm.lib_compile_collect) |collect| {
         collect.append(vm.gc.allocator, func) catch return VMError.OutOfMemory;
     }
