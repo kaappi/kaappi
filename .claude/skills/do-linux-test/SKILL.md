@@ -115,15 +115,26 @@ ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null
 
 ### 4d. Scheme tests
 
+Redirect output to a file on the remote so results survive even if the SSH
+stream is interrupted. The Scheme suite includes compile tests
+(`zig build -Dbundle`) that rebuild the full binary — expect ~5 minutes on
+2 vCPUs. Use `ServerAliveInterval` to keep the connection open.
+
 ```bash
 ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
   -o ServerAliveInterval=30 -o ServerAliveCountMax=40 \
-  root@$IP 'cd /workspace && bash tests/scheme/run-all.sh 2>&1'
+  root@$IP 'cd /workspace && bash tests/scheme/run-all.sh > /tmp/scheme-results.txt 2>&1; echo "EXIT: $?"'
 ```
 
-The Scheme suite includes compile tests (`zig build -Dbundle`) that rebuild
-the full binary — expect ~5 minutes on 2 vCPUs. Use `ServerAliveInterval`
-to keep the connection open during long compiles.
+### 4e. Fetch results
+
+```bash
+ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+  root@$IP 'cat /tmp/scheme-results.txt'
+```
+
+If step 4d times out or disconnects, the results file still exists on the
+droplet — reconnect and fetch it.
 
 ## Report results
 
@@ -156,3 +167,9 @@ so they can destroy it manually via the DigitalOcean console.
 - **Stale droplets**: if a session dies mid-test, find and destroy orphans:
   list droplets via `mcp__digitalocean-droplets__droplet-list` and look for
   names starting with `kaappi-test-`.
+- **Bash guard hook**: the local `bash-guard-pre.sh` hook pattern-matches
+  command strings before they reach SSH. Avoid `rm -rf` inside SSH heredocs
+  — the guard blocks it even though it would run on the remote. This is a
+  throwaway droplet, so cleanup before clone is unnecessary anyway.
+- **macOS has no `timeout`**: don't use `timeout N ssh ...`. Instead, split
+  long-running work into separate SSH commands and use `ServerAliveInterval`.
