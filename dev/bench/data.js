@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783115810513,
+  "lastUpdate": 1783116104514,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "d4f638ead29755f8a0dae005a29957b70f414d57",
-          "message": "Fix round on negative exact rationals with fraction < 1/2 (#837) (#888)\n\nWhen 2*|remainder| < denominator the closest integer is the truncated\nquotient q for both signs. The cmp<0 branch incorrectly subtracted 1\nfor negative remainders, rounding away from zero.\n\nFixes #837\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-03T01:59:08+05:30",
-          "tree_id": "fd03601f3c439f87a8b51e4cd08e32227be3aa60",
-          "url": "https://github.com/kaappi/kaappi/commit/d4f638ead29755f8a0dae005a29957b70f414d57"
-        },
-        "date": 1783025724402,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.117446,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.844013,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.84776,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.202937,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.008186,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.032679,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.452491,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.06913,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.867547,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.724983,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.108497,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.249494,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 2.420686,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.884664,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044678,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044955,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "31bf5ab2964ad9081eb1462d5225bb537f3ee496",
+          "message": "Replace fixed 256-node buffers with growable lists in IR lowering (#791) (#1003)\n\nlowerBegin, lowerList, and lowerCondBody used [256]*Node stack buffers\nthat rejected begin/and/or/when/unless forms with more than 256\nsub-expressions. R7RS places no such limit, and macro-generated code\ncan realistically exceed it. Switch to std.ArrayList with the IR\nallocator (the make* constructors already copy the slice).\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-03T21:33:18Z",
+          "tree_id": "c52ebf916668b99453203b155637ba3e82287270",
+          "url": "https://github.com/kaappi/kaappi/commit/31bf5ab2964ad9081eb1462d5225bb537f3ee496"
+        },
+        "date": 1783116103420,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.573637,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.965948,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 1.013047,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.643287,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006919,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.038824,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.534937,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.075989,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 4.5105,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 2.296179,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.222155,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.42454,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 2.10293,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.691702,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.042884,
             "unit": "seconds"
           }
         ]
