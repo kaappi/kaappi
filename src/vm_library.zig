@@ -1054,6 +1054,75 @@ fn compileLibInclude(vm: *VM, lib_env: *std.StringHashMap(Value), file_list_val:
     }
 }
 
+fn processLibDeclaration(
+    vm: *VM,
+    lib_env: *std.StringHashMap(Value),
+    declaration: Value,
+    export_names: *std.ArrayList([]const u8),
+    export_renames: *std.ArrayList(?[]const u8),
+) VMError!void {
+    if (!types.isPair(declaration)) return VMError.CompileError;
+    const decl_head = types.car(declaration);
+    if (!types.isSymbol(decl_head)) return VMError.CompileError;
+    const decl_name = types.symbolName(decl_head);
+
+    if (std.mem.eql(u8, decl_name, "export")) {
+        var id_list = types.cdr(declaration);
+        while (id_list != types.NIL) {
+            if (!types.isPair(id_list)) return VMError.CompileError;
+            const id = types.car(id_list);
+            if (types.isSymbol(id)) {
+                export_names.append(vm.gc.allocator, types.symbolName(id)) catch return VMError.OutOfMemory;
+                export_renames.append(vm.gc.allocator, null) catch return VMError.OutOfMemory;
+            } else if (types.isPair(id)) {
+                const rename_head = types.car(id);
+                if (types.isSymbol(rename_head) and std.mem.eql(u8, types.symbolName(rename_head), "rename")) {
+                    const rename_args = types.cdr(id);
+                    if (types.isPair(rename_args)) {
+                        const internal = types.car(rename_args);
+                        const rest = types.cdr(rename_args);
+                        if (types.isPair(rest) and types.isSymbol(internal)) {
+                            const external = types.car(rest);
+                            if (types.isSymbol(external)) {
+                                export_names.append(vm.gc.allocator, types.symbolName(internal)) catch return VMError.OutOfMemory;
+                                export_renames.append(vm.gc.allocator, types.symbolName(external)) catch return VMError.OutOfMemory;
+                            }
+                        }
+                    }
+                }
+            }
+            id_list = types.cdr(id_list);
+        }
+    } else if (std.mem.eql(u8, decl_name, "import")) {
+        _ = handleImportInto(vm, lib_env, types.cdr(declaration)) catch return VMError.CompileError;
+    } else if (std.mem.eql(u8, decl_name, "begin")) {
+        try compileLibBeginBlock(vm, lib_env, types.cdr(declaration));
+    } else if (std.mem.eql(u8, decl_name, "include") or std.mem.eql(u8, decl_name, "include-ci")) {
+        try compileLibInclude(vm, lib_env, types.cdr(declaration));
+    } else if (std.mem.eql(u8, decl_name, "include-library-declarations")) {
+        try includeLibraryDeclarations(vm, lib_env, types.cdr(declaration), export_names, export_renames);
+    } else if (std.mem.eql(u8, decl_name, "cond-expand")) {
+        var clauses = types.cdr(declaration);
+        while (clauses != types.NIL) {
+            if (!types.isPair(clauses)) break;
+            const clause = types.car(clauses);
+            clauses = types.cdr(clauses);
+            if (!types.isPair(clause)) continue;
+            const feature_req = types.car(clause);
+            var clause_decls = types.cdr(clause);
+            const is_else = types.isSymbol(feature_req) and std.mem.eql(u8, types.symbolName(feature_req), "else");
+            if (is_else or evalLibFeatureReq(vm, feature_req)) {
+                while (clause_decls != types.NIL) {
+                    if (!types.isPair(clause_decls)) break;
+                    try processLibDeclaration(vm, lib_env, types.car(clause_decls), export_names, export_renames);
+                    clause_decls = types.cdr(clause_decls);
+                }
+                break;
+            }
+        }
+    }
+}
+
 fn includeLibraryDeclarations(
     vm: *VM,
     lib_env: *std.StringHashMap(Value),
@@ -1093,45 +1162,7 @@ fn includeLibraryDeclarations(
             var declaration = file_reader.readDatum() catch return VMError.CompileError;
             vm.gc.pushRoot(&declaration) catch return VMError.CompileError;
             defer vm.gc.popRoot();
-            if (!types.isPair(declaration)) return VMError.CompileError;
-            const decl_head = types.car(declaration);
-            if (!types.isSymbol(decl_head)) return VMError.CompileError;
-            const decl_name = types.symbolName(decl_head);
-
-            if (std.mem.eql(u8, decl_name, "export")) {
-                var id_list = types.cdr(declaration);
-                while (id_list != types.NIL) {
-                    if (!types.isPair(id_list)) return VMError.CompileError;
-                    const id = types.car(id_list);
-                    if (types.isSymbol(id)) {
-                        export_names.append(vm.gc.allocator, types.symbolName(id)) catch return VMError.OutOfMemory;
-                        export_renames.append(vm.gc.allocator, null) catch return VMError.OutOfMemory;
-                    } else if (types.isPair(id)) {
-                        const rename_head = types.car(id);
-                        if (types.isSymbol(rename_head) and std.mem.eql(u8, types.symbolName(rename_head), "rename")) {
-                            const rename_args = types.cdr(id);
-                            if (types.isPair(rename_args)) {
-                                const internal = types.car(rename_args);
-                                const rest = types.cdr(rename_args);
-                                if (types.isPair(rest) and types.isSymbol(internal)) {
-                                    const external = types.car(rest);
-                                    if (types.isSymbol(external)) {
-                                        export_names.append(vm.gc.allocator, types.symbolName(internal)) catch return VMError.OutOfMemory;
-                                        export_renames.append(vm.gc.allocator, types.symbolName(external)) catch return VMError.OutOfMemory;
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    id_list = types.cdr(id_list);
-                }
-            } else if (std.mem.eql(u8, decl_name, "import")) {
-                _ = handleImportInto(vm, lib_env, types.cdr(declaration)) catch return VMError.CompileError;
-            } else if (std.mem.eql(u8, decl_name, "begin")) {
-                try compileLibBeginBlock(vm, lib_env, types.cdr(declaration));
-            } else if (std.mem.eql(u8, decl_name, "include") or std.mem.eql(u8, decl_name, "include-ci")) {
-                try compileLibInclude(vm, lib_env, types.cdr(declaration));
-            }
+            try processLibDeclaration(vm, lib_env, declaration, export_names, export_renames);
         }
 
         file_list = types.cdr(file_list);
