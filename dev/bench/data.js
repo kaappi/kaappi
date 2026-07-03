@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783073594490,
+  "lastUpdate": 1783074407537,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "b5a077358582849709fea43257902939c349698b",
-          "message": "Merge pull request #717 from kaappi/fix/json-escape-control-chars-677\n\nFix writeJsonEscaped: escape 0x08 and 0x0C control characters",
-          "timestamp": "2026-07-02T10:50:06+05:30",
-          "tree_id": "8f491fe7960f90dc9354c4561cc4f77d05c5ed62",
-          "url": "https://github.com/kaappi/kaappi/commit/b5a077358582849709fea43257902939c349698b"
-        },
-        "date": 1782972850658,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.327907,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.675051,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.836993,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.177766,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006884,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.032126,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.452673,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.068768,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.874466,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.755155,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.089725,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.222873,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 2.438837,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.690909,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.042019,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044378,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "75616fa48aa96aff5c2a5199a6ab406afd315d9e",
+          "message": "Probe upvalues when checking if a keyword is shadowed (#814) (#951)\n\ncompileForm's shadowing guard consulted only resolveLocal, so a\nsyntactic keyword (if, and, begin, when, ...) shadowed by a variable\nbound in an enclosing function scope — resolving as an upvalue — was\nstill compiled as the special form instead of a procedure call. R7RS\nhas no reserved words: a lexical binding shadows the keyword throughout\nits scope, including inner lambdas. The same-scope case already worked,\nso this was an inconsistency in the implementation's own feature.\n\nMirror the dual local+upvalue check already used for apply (#760) and\nmacro keywords. The cheap effective_name == name comparison is checked\nfirst so hygienic renames short-circuit before touching resolveUpvalue,\nwhose upvalue-registration side effect is harmless for genuinely\nshadowed names (they compile to a call referencing that same upvalue).\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
+          "timestamp": "2026-07-03T10:09:52Z",
+          "tree_id": "c03b70d18cd1ab6c92b391459ceff6dc697dfc81",
+          "url": "https://github.com/kaappi/kaappi/commit/75616fa48aa96aff5c2a5199a6ab406afd315d9e"
+        },
+        "date": 1783074406056,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.398711,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.764434,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.821447,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.122075,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006903,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.03307,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.45569,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.069766,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 4.174123,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.752474,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.161316,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.435763,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 2.368737,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.699147,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.043061,
             "unit": "seconds"
           }
         ]
