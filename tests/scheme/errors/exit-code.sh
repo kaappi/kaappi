@@ -87,6 +87,15 @@ assert_exit_code "--coverage-xml without arg exits 2" 2 "$KAAPPI" --coverage-xml
 assert_exit_code "--profile-json without arg exits 2" 2 "$KAAPPI" --profile-json
 assert_exit_code "--completions without shell exits 2" 2 "$KAAPPI" --completions
 
+# Invalid (non-numeric, zero) values for --timeout / --max-memory are usage errors (#787)
+assert_exit_code "--timeout non-numeric exits 2" 2 "$KAAPPI" --timeout abc "$TMPDIR_TESTS/ok.scm"
+assert_exit_code "--timeout trailing text exits 2" 2 "$KAAPPI" --timeout 5s "$TMPDIR_TESTS/ok.scm"
+assert_exit_code "--timeout zero exits 2" 2 "$KAAPPI" --timeout 0 "$TMPDIR_TESTS/ok.scm"
+assert_exit_code "--timeout negative exits 2" 2 "$KAAPPI" --timeout -1 "$TMPDIR_TESTS/ok.scm"
+assert_exit_code "--max-memory non-numeric exits 2" 2 "$KAAPPI" --max-memory lots "$TMPDIR_TESTS/ok.scm"
+assert_exit_code "--max-memory zero exits 2" 2 "$KAAPPI" --max-memory 0 "$TMPDIR_TESTS/ok.scm"
+assert_exit_code "--max-memory negative exits 2" 2 "$KAAPPI" --max-memory -1 "$TMPDIR_TESTS/ok.scm"
+
 # Unknown completions shell is a usage error
 assert_exit_code "--completions unknown shell exits 2" 2 "$KAAPPI" --completions badshell
 

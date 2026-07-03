@@ -538,18 +538,26 @@ fn mainImpl(init: std.process.Init.Minimal) !void {
             disassemble_mode = true;
         } else if (std.mem.eql(u8, arg, "--timeout")) {
             if (args.next()) |ms_str| {
-                const ms = std.fmt.parseInt(u64, ms_str, 10) catch 0;
-                if (ms > 0) {
-                    const clockNs = @import("vm_calls.zig").clockNs;
-                    vm.timeout_deadline_ns = clockNs() + ms * 1_000_000;
+                const ms = std.fmt.parseInt(u64, ms_str, 10) catch {
+                    usageError("--timeout requires a positive integer milliseconds value\n");
+                };
+                if (ms == 0) {
+                    usageError("--timeout requires a positive integer milliseconds value\n");
                 }
+                const clockNs = @import("vm_calls.zig").clockNs;
+                vm.timeout_deadline_ns = clockNs() + ms * 1_000_000;
             } else {
                 usageError("--timeout requires a milliseconds argument\n");
             }
         } else if (std.mem.eql(u8, arg, "--max-memory")) {
             if (args.next()) |mem_str| {
-                const limit = std.fmt.parseInt(usize, mem_str, 10) catch 0;
-                if (limit > 0) gc.memory_limit = limit;
+                const limit = std.fmt.parseInt(usize, mem_str, 10) catch {
+                    usageError("--max-memory requires a positive integer bytes value\n");
+                };
+                if (limit == 0) {
+                    usageError("--max-memory requires a positive integer bytes value\n");
+                }
+                gc.memory_limit = limit;
             } else {
                 usageError("--max-memory requires a bytes argument\n");
             }
