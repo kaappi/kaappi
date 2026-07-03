@@ -362,7 +362,7 @@ fn alistToHashTableFn(args: []const Value) PrimitiveError!Value {
         // Only add if key not already present (first occurrence wins)
         const slot = findSlot(ht, key);
         if (!slot.found) {
-            ht.entries[slot.idx] = .{ .key = key, .value = value };
+            ht.entries[slot.idx] = .{ .key = key, .value = value, .state = .occupied };
             ht.count += 1;
         }
         current = types.cdr(current);
@@ -413,7 +413,7 @@ fn hashTableUpdateDefaultFn(args: []const Value) PrimitiveError!Value {
     if (slot.found) {
         ht.entries[slot.idx].value = new_val;
     } else {
-        ht.entries[slot.idx] = .{ .key = key, .value = new_val };
+        ht.entries[slot.idx] = .{ .key = key, .value = new_val, .state = .occupied };
         ht.count += 1;
     }
     return types.VOID;
