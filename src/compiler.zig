@@ -1046,8 +1046,15 @@ pub const Compiler = struct {
                 if (std.mem.eql(u8, effective_name, "syntax-rules")) return CompileError.InvalidSyntax;
             } // end if (!is_local)
 
-            // Check if head is a macro keyword
-            if (self.lookupMacro(name)) |transformer| {
+            // Check if head is a macro keyword. A variable binding in scope
+            // shadows the macro (R7RS 5.3: a body's definitions shadow outer
+            // syntactic bindings), so a local or captured binding with the
+            // same name makes this a procedure call instead.
+            const macro_hit: ?Value = if (self.lookupMacro(name)) |t|
+                if (self.resolveLocal(name) != null or (try self.resolveUpvalue(name)) != null) null else t
+            else
+                null;
+            if (macro_hit) |transformer| {
                 if (self.macro_expansion_depth >= MAX_MACRO_EXPANSION_DEPTH or
                     self.macro_expansion_steps >= MAX_MACRO_EXPANSION_STEPS)
                 {

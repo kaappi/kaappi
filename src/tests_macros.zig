@@ -325,6 +325,56 @@ test "hygiene: macro-generating macro shares binding with inner macro" {
     try std.testing.expectEqual(@as(i64, 42), types.toFixnum(result));
 }
 
+test "hygiene: template references sibling define that appears later in body" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    // R7RS 5.3.2: body defines have letrec* scope, so the macro-definition
+    // environment includes bar399 even though it is defined after the macro.
+    // The expander must not hygiene-rename the template's free reference.
+    const result = try vm.eval(
+        \\(let ()
+        \\  (define-syntax foo399
+        \\    (syntax-rules () ((foo399) (bar399))))
+        \\  (define (quux399) (foo399))
+        \\  (define (bar399) 42)
+        \\  (quux399))
+    );
+    try std.testing.expectEqual(@as(i64, 42), types.toFixnum(result));
+}
+
+test "internal define shadows a macro keyword bound outside the body" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    // The first form's (foo bar x) expands to a define-syntax for bar that
+    // escapes the let body. The second form's internal (define bar ...) is a
+    // variable binding for the whole body (R7RS 5.3), so (bar x y) must
+    // compile as a procedure call, not as a use of the leaked macro.
+    _ = try vm.eval(
+        \\(let ()
+        \\  (define-syntax foo
+        \\    (syntax-rules ()
+        \\      ((foo bar y)
+        \\       (define-syntax bar
+        \\         (syntax-rules ()
+        \\           ((bar x) 'y))))))
+        \\  (foo bar x)
+        \\  (bar 1))
+    );
+    const result = try vm.eval(
+        \\(let ((x 5))
+        \\  (define foo (lambda (y) (bar x y)))
+        \\  (define bar (lambda (a b) (+ (* a b) a)))
+        \\  (foo (+ x 3)))
+    );
+    try std.testing.expectEqual(@as(i64, 45), types.toFixnum(result));
+}
+
 test "hygiene: inner syntax-rules pattern variables shadow outer bindings" {
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
