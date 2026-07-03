@@ -180,3 +180,21 @@ test "default-random-source is per-VM" {
     const rs1_again = try vm1.eval("(default-random-source)");
     try std.testing.expectEqual(rs1, rs1_again);
 }
+
+test "vm deinit clears threadlocal vm_instance" {
+    const vm_mod = @import("vm.zig");
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+
+    // execute() registers the VM in the threadlocal
+    _ = try vm.eval("(+ 1 2)");
+    try std.testing.expect(vm_mod.vm_instance == &vm);
+
+    // deinit must unregister it: a stale pointer here is read by the macro
+    // expander (renameForHygiene) during the next VM's first compile, before
+    // that VM's own execute() re-registers the threadlocal — a use-after-free
+    // that crashed the Linux unit-test runs.
+    vm.deinit();
+    try std.testing.expect(vm_mod.vm_instance == null);
+}

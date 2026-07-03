@@ -301,6 +301,11 @@ pub const VM = struct {
     }
 
     pub fn deinit(self: *VM) void {
+        // execute() registers the VM in the threadlocal; without this reset a
+        // later VM on the same thread (e.g. the next unit test) would reach a
+        // freed globals map through vm_instance during compile-time macro
+        // expansion, before its own first execute() re-registers it.
+        if (vm_instance == self) vm_instance = null;
         if (self.scheduler) |sched| {
             self.gc.allocator.destroy(sched);
             self.scheduler = null;
