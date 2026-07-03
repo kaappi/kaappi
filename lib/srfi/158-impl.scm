@@ -5,6 +5,17 @@
     (pred (car ls))
     ((lambda (x) (if x x (any pred (cdr ls)))) (pred (car ls)))))
 
+;; Call each generator in gs once, left to right, collecting the results.
+;; Must be plain Scheme recursion, not (map (lambda (g) (g)) gs): coroutine
+;; generators capture a continuation inside the call, and a continuation
+;; captured under the native map primitive cannot resume once that native
+;; frame has returned.
+(define (%call-generators gs)
+  (if (null? gs)
+    '()
+    (let ((v ((car gs))))
+      (cons v (%call-generators (cdr gs))))))
+
 ;; list->bytevector
 (define (list->bytevector list)
   (let ((vec (make-bytevector (length list) 0)))
@@ -259,13 +270,13 @@
          (if (eof-object? item) item (proc item)))))
     ((proc . gens)
      (lambda ()
-       (let ((items (map (lambda (x) (x)) gens)))
+       (let ((items (%call-generators gens)))
          (if (any eof-object? items) (eof-object) (apply proc items)))))))
     
 ;; gcombine
 (define (gcombine proc seed . gens)
   (lambda ()
-    (define items (map (lambda (x) (x)) gens))
+    (define items (%call-generators gens))
     (if (any eof-object? items)
       (eof-object)
       (let ()
@@ -457,7 +468,7 @@
 ;; generator-fold
 (define (generator-fold f seed . gs)
   (define (inner-fold seed)
-    (let ((vs (map (lambda (g) (g)) gs)))
+    (let ((vs (%call-generators gs)))
      (if (any eof-object? vs)
        seed
        (inner-fold (apply f (append vs (list seed)))))))
@@ -468,7 +479,7 @@
 ;; generator-for-each
 (define (generator-for-each f . gs)
   (let loop ()
-   (let ((vs (map (lambda (g) (g)) gs)))
+   (let ((vs (%call-generators gs)))
     (if (any eof-object? vs)
       (if #f #f)
       (begin (apply f vs)
@@ -477,7 +488,7 @@
 
 (define (generator-map->list f . gs)
   (let loop ((result '()))
-   (let ((vs (map (lambda (g) (g)) gs)))
+   (let ((vs (%call-generators gs)))
     (if (any eof-object? vs)
       (reverse result)
       (loop (cons (apply f vs) result))))))

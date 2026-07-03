@@ -10,7 +10,10 @@
     (define-record-type <right> (right val) right? (val right-val))
     (define-record-type <left> (left val) left? (val left-val))
 
-    (define nothing (make-nothing))
+    ;; Per SRFI-189, nothing is a procedure: (nothing) returns the unique
+    ;; Nothing object.
+    (define %the-nothing (make-nothing))
+    (define (nothing) %the-nothing)
 
     (define (maybe? x) (or (just? x) (nothing? x)))
     (define (either? x) (or (right? x) (left? x)))
@@ -18,13 +21,13 @@
     (define (maybe-ref m) (if (just? m) (just-val m) (error "maybe-ref: nothing")))
     (define (maybe-ref/default m default) (if (just? m) (just-val m) default))
 
-    (define (maybe-map f m) (if (just? m) (just (f (just-val m))) nothing))
+    (define (maybe-map f m) (if (just? m) (just (f (just-val m))) %the-nothing))
     (define (maybe-filter pred m)
-      (if (and (just? m) (pred (just-val m))) m nothing))
-    (define (maybe-bind m f) (if (just? m) (f (just-val m)) nothing))
+      (if (and (just? m) (pred (just-val m))) m %the-nothing))
+    (define (maybe-bind m f) (if (just? m) (f (just-val m)) %the-nothing))
 
     (define (maybe->values m) (if (just? m) (just-val m) (values)))
-    (define (values->maybe . args) (if (null? args) nothing (just (car args))))
+    (define (values->maybe . args) (if (null? args) %the-nothing (just (car args))))
 
     (define (either-ref e) (if (right? e) (right-val e) (error "either-ref: left" (left-val e))))
     (define (either-ref/default e default) (if (right? e) (right-val e) default))

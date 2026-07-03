@@ -27,6 +27,16 @@
 
     ;;; Compile SRE to data structure
 
+    ;; Every named char class %match-class understands. An unknown symbol
+    ;; must be a compile-time error, not a silent match-nothing (a typo
+    ;; like 'digit for 'numeric would otherwise just make every search
+    ;; return #f).
+    (define %class-names
+      '(alphabetic alpha numeric num lower-case lower upper-case upper
+        whitespace white space alphanumeric alphanum alnum
+        punctuation punct word hex-digit xdigit ascii
+        control cntrl graphic graph printing print))
+
     (define (%csre sre gc)
       (cond
         ((string? sre) (list 'lit sre))
@@ -34,7 +44,10 @@
         ((and (symbol? sre) (memq sre '(bos eos bol eol bow eow))) (list 'assert sre))
         ((eq? sre 'any) (list 'any))
         ((eq? sre 'nonl) (list 'nonl))
-        ((symbol? sre) (list 'class sre))
+        ((symbol? sre)
+         (if (memq sre %class-names)
+             (list 'class sre)
+             (error "regexp: unknown character class" sre)))
         ((not (pair? sre)) (error "regexp: invalid SRE" sre))
         (else
          (let ((h (car sre)))

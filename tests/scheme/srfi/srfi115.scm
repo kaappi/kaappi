@@ -127,6 +127,17 @@
 (check-true "valid?" (valid-sre? '(+ "a")))
 (check-true "valid? str" (valid-sre? "hello"))
 
+;; Unknown named char class must raise, not silently match nothing
+;; (regression: (+ digit) returned #f from regexp-search instead of
+;; erroring — 'digit is not a SRFI-115 class, 'numeric/'num is)
+(check-true "unknown class raises"
+  (guard (e (#t #t)) (regexp-search '(+ digit) "age: 25") #f))
+(check-true "unknown class raises in regexp"
+  (guard (e (#t #t)) (regexp 'digits) #f))
+(check-false "valid-sre? unknown class" (valid-sre? '(+ digit)))
+(check-true "known class aliases still valid"
+  (and (valid-sre? '(+ num)) (valid-sre? '(+ alpha)) (valid-sre? '(* space))))
+
 ;; Summary
 (display pass) (display " passed, ") (display fail) (display " failed")
 (newline)
