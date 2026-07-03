@@ -656,16 +656,7 @@ fn readDatumFn(args: []const Value) PrimitiveError!Value {
     var buf: std.ArrayList(u8) = .empty;
     defer buf.deinit(gc.allocator);
 
-    // Consume any existing read buffer first
-    if (port.read_buf) |rb| {
-        const pos = rb.len - port.read_buf_len;
-        buf.appendSlice(gc.allocator, rb[pos .. pos + port.read_buf_len]) catch return PrimitiveError.OutOfMemory;
-        gc.allocator.free(rb);
-        port.read_buf = null;
-        port.read_buf_len = 0;
-    }
-
-    // Consume any peeked bytes
+    // Drain in chronological order: peek_byte → peek_extra → read_buf → fd
     if (port.peek_byte) |b| {
         buf.append(gc.allocator, b) catch return PrimitiveError.OutOfMemory;
         port.peek_byte = null;
@@ -675,6 +666,13 @@ fn readDatumFn(args: []const Value) PrimitiveError!Value {
         port.peek_extra[0] = port.peek_extra[1];
         port.peek_extra[1] = port.peek_extra[2];
         port.peek_extra_len -= 1;
+    }
+    if (port.read_buf) |rb| {
+        const pos = rb.len - port.read_buf_len;
+        buf.appendSlice(gc.allocator, rb[pos .. pos + port.read_buf_len]) catch return PrimitiveError.OutOfMemory;
+        gc.allocator.free(rb);
+        port.read_buf = null;
+        port.read_buf_len = 0;
     }
 
     // Read from fd, parsing incrementally so that interactive terminals
