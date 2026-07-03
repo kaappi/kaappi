@@ -391,6 +391,18 @@ fn threadTerminateFn(args: []const Value) PrimitiveError!Value {
     return types.VOID;
 }
 
+fn sleepNs(ns: u64) void {
+    var ts: std.c.timespec = .{
+        .sec = @intCast(ns / 1_000_000_000),
+        .nsec = @intCast(ns % 1_000_000_000),
+    };
+    while (true) {
+        const ret = std.c.nanosleep(&ts, &ts);
+        if (ret == 0) break;
+        if (std.posix.errno(ret) != .INTR) break;
+    }
+}
+
 fn threadJoinFn(args: []const Value) PrimitiveError!Value {
     if (!types.isFiber(args[0]))
         return primitives.typeError("thread-join!", "thread", args[0]);
@@ -405,70 +417,53 @@ fn threadJoinFn(args: []const Value) PrimitiveError!Value {
         }
     }
 
-    // OS thread path: join, deep-copy result from child heap, free child resources
-    if (target.os_thread) |thread| {
-        thread.join();
-        target.os_thread = null;
-
-        const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
-
-        // Remove the thunk and fiber from extra_roots (added by thread-start!
-        // to keep them alive while the child runs; the child is done now).
-        for (gc.extra_roots.items, 0..) |v, idx| {
-            if (v == target.thunk) {
-                _ = gc.extra_roots.swapRemove(idx);
-                break;
-            }
-        }
-        for (gc.extra_roots.items, 0..) |v, idx| {
-            if (v == args[0]) {
-                _ = gc.extra_roots.swapRemove(idx);
-                break;
-            }
-        }
-        const fiber_key = @intFromPtr(target);
-
-        // Retrieve result/exception from child_resources (stored there to
-        // avoid the parent GC traversing child-heap pointers via the fiber).
-        {
-            while (!child_resources_mutex.tryLock()) {}
-            const entry = child_resources.get(fiber_key);
-            child_resources_mutex.unlock();
-
-            if (entry) |res| {
-                if (target.status == .completed and res.result != types.VOID) {
-                    target.result = gc.deepCopy(res.result) catch |err| {
-                        target.result = types.VOID;
-                        freeChildResources(fiber_key);
-                        if (err == error.UncopyableType) {
-                            return raiseError(.general, "thread-join!: result contains uncopyable type (port, continuation, etc.)", types.VOID);
-                        }
-                        return PrimitiveError.OutOfMemory;
-                    };
-                }
-                if (target.status == .errored) {
-                    if (res.exception) |exc| {
-                        target.current_exception = gc.deepCopy(exc) catch null;
-                    }
-                }
-            }
-        }
-        freeChildResources(fiber_key);
-        return threadJoinResult(target);
-    }
-
-    // Fiber path (existing behavior)
-    var deadline: ?u64 = null;
+    // Parse timeout/timeout-val for all paths (OS thread, never-started, fiber)
+    var deadline_ns: ?u64 = null;
     var has_timeout_val = false;
     var timeout_val: Value = types.VOID;
     if (args.len > 1) {
-        deadline = try timeoutToDeadlineNs(args[1]);
+        deadline_ns = try timeoutToDeadlineNs(args[1]);
         if (args.len > 2) {
             has_timeout_val = true;
             timeout_val = args[2];
         }
     }
 
+    // OS thread path
+    if (target.os_thread != null) {
+        if (deadline_ns) |deadline| {
+            while (@atomicLoad(fiber_mod.FiberStatus, &target.status, .acquire) != .completed and
+                @atomicLoad(fiber_mod.FiberStatus, &target.status, .acquire) != .errored)
+            {
+                if (fiber_mod.clockNs() >= deadline) {
+                    if (has_timeout_val) return timeout_val;
+                    return raiseError(.join_timeout, "thread-join! timed out", types.VOID);
+                }
+                sleepNs(1_000_000);
+            }
+        }
+        return reapOsThread(target, args[0]);
+    }
+
+    // Never-started thread: poll until started+finished or timeout
+    if (target.status == .created) {
+        while (@atomicLoad(fiber_mod.FiberStatus, &target.status, .acquire) != .completed and
+            @atomicLoad(fiber_mod.FiberStatus, &target.status, .acquire) != .errored)
+        {
+            if (deadline_ns) |deadline| {
+                if (fiber_mod.clockNs() >= deadline) {
+                    if (has_timeout_val) return timeout_val;
+                    return raiseError(.join_timeout, "thread-join! timed out", types.VOID);
+                }
+            }
+            sleepNs(1_000_000);
+        }
+        if (target.os_thread != null)
+            return reapOsThread(target, args[0]);
+        return threadJoinResult(target);
+    }
+
+    // Fiber path (cooperative scheduling)
     if (target.status != .completed and target.status != .errored) {
         const ctx = try ensureScheduler();
         const me = ctx.vm.current_fiber orelse return PrimitiveError.OutOfMemory;
@@ -476,7 +471,7 @@ fn threadJoinFn(args: []const Value) PrimitiveError!Value {
         me.waiting_on = args[0];
         me.status = .waiting;
         me.timed_out = false;
-        if (deadline) |d| me.deadline_ns = d;
+        if (deadline_ns) |d| me.deadline_ns = d;
 
         try runSchedulerUntilDone(target);
 
@@ -487,6 +482,59 @@ fn threadJoinFn(args: []const Value) PrimitiveError!Value {
         }
     }
 
+    return threadJoinResult(target);
+}
+
+fn reapOsThread(target: *fiber_mod.Fiber, fiber_val: Value) PrimitiveError!Value {
+    if (target.os_thread) |thread| {
+        thread.join();
+        target.os_thread = null;
+    }
+
+    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+
+    // Remove the thunk and fiber from extra_roots (added by thread-start!
+    // to keep them alive while the child runs; the child is done now).
+    for (gc.extra_roots.items, 0..) |v, idx| {
+        if (v == target.thunk) {
+            _ = gc.extra_roots.swapRemove(idx);
+            break;
+        }
+    }
+    for (gc.extra_roots.items, 0..) |v, idx| {
+        if (v == fiber_val) {
+            _ = gc.extra_roots.swapRemove(idx);
+            break;
+        }
+    }
+    const fiber_key = @intFromPtr(target);
+
+    // Retrieve result/exception from child_resources (stored there to
+    // avoid the parent GC traversing child-heap pointers via the fiber).
+    {
+        while (!child_resources_mutex.tryLock()) {}
+        const entry = child_resources.get(fiber_key);
+        child_resources_mutex.unlock();
+
+        if (entry) |res| {
+            if (target.status == .completed and res.result != types.VOID) {
+                target.result = gc.deepCopy(res.result) catch |err| {
+                    target.result = types.VOID;
+                    freeChildResources(fiber_key);
+                    if (err == error.UncopyableType) {
+                        return raiseError(.general, "thread-join!: result contains uncopyable type (port, continuation, etc.)", types.VOID);
+                    }
+                    return PrimitiveError.OutOfMemory;
+                };
+            }
+            if (target.status == .errored) {
+                if (res.exception) |exc| {
+                    target.current_exception = gc.deepCopy(exc) catch null;
+                }
+            }
+        }
+    }
+    freeChildResources(fiber_key);
     return threadJoinResult(target);
 }
 
