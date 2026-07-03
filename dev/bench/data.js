@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783068619817,
+  "lastUpdate": 1783068856118,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "37eddd451d9f8973461b946511c620bf59db4ba8",
-          "message": "Merge pull request #709 from kaappi/fix/gc-record-type-mark-708\n\nFix generational GC: mark RecordInstance.record_type in minor collections",
-          "timestamp": "2026-07-02T08:54:27+05:30",
-          "tree_id": "5d1b94d62b17397c22484f5f69ff660b12a6b905",
-          "url": "https://github.com/kaappi/kaappi/commit/37eddd451d9f8973461b946511c620bf59db4ba8"
-        },
-        "date": 1782963494766,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.346879,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.507032,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.830392,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.11498,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.007032,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.032528,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.457364,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.067321,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 4.017058,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.788376,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.107728,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.228576,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 2.41844,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.695214,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.041802,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.042438,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "6fab131e061f36ff6dafe393cc28bf3f774c35f0",
+          "message": "Fix SRFI-64 test-end template in tests/scheme/CLAUDE.md (#943)\n\nThe documented template called (test-runner-current) after the outermost\n(test-end ...), but test-end resets the current runner, so the follow-up\ncall no longer returns the runner and test-runner-fail-count raises a type\nerror. Capture the runner before test-end, matching the pattern already\nused by existing smoke tests.\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-03T14:12:09+05:30",
+          "tree_id": "b5037c3d7a22d30796ab0e48a031827682c5d943",
+          "url": "https://github.com/kaappi/kaappi/commit/6fab131e061f36ff6dafe393cc28bf3f774c35f0"
+        },
+        "date": 1783068855009,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.438536,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.167766,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.821226,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.36761,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006886,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.033152,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.462426,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.069545,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 4.113099,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.811679,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.125258,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.430023,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 2.400974,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.503509,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.042063,
             "unit": "seconds"
           }
         ]
