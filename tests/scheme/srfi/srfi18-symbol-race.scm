@@ -14,11 +14,11 @@
 ;; alike). With the fix both threads serialize on symbol_mutex and the script
 ;; prints OK.
 ;;
-;; Note: symbols a *child* interns are not freed (child GCs skip trackObject) —
-;; a separate, pre-existing leak, not what #797 is about. It is only observable
-;; under the Debug leak-checking allocator on a *clean* exit, so it never shows
-;; in CI: the unfixed run panics before teardown (no leak report), and the
-;; fixed run passes (run-all.sh prints test output only on failure).
+;; Note: symbols a *child* interns are a separate concern from #797 — they go
+;; into the parent's shared table and used to leak because child GCs skipped
+;; trackObject for them. That leak is now fixed (child-interned symbols are
+;; handed to the parent GC's foreign_symbols list, freed at parent deinit); see
+;; srfi18-child-symbol-leak.scm and src/tests_srfi18.zig for its regression.
 
 (import (scheme base) (scheme write) (srfi 18))
 

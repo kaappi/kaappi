@@ -29,6 +29,38 @@ test "thread-terminate! stops busy OS thread and join raises terminated" {
     try std.testing.expectEqualStrings("terminated", types.symbolName(result));
 }
 
+// Regression: symbols first interned by an SRFI-18 child thread go into the
+// parent's shared symbol table, but allocSymbol used to skip trackObject for a
+// child GC — so those Symbols landed on no GC's object list. The child's
+// sweep/deinit never freed them (not on its list) and the parent never knew
+// about them, leaking each distinct child-interned symbol's Symbol struct and
+// its name dupe. The fix hands such symbols to the parent GC's foreign_symbols
+// list, freed at the parent's deinit. std.testing.allocator fails this test if
+// any allocation is leaked, so the many distinct child-only symbols below must
+// all be reclaimed.
+test "child thread interning distinct new symbols does not leak" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    const result = try vm.eval(
+        \\(let ((t (make-thread
+        \\           (lambda ()
+        \\             (let loop ((i 0))
+        \\               (if (< i 200)
+        \\                   (begin
+        \\                     (string->symbol
+        \\                      (string-append "child-only-" (number->string i)))
+        \\                     (loop (+ i 1)))
+        \\                   'child-done))))))
+        \\  (thread-start! t)
+        \\  (thread-join! t))
+    );
+    try std.testing.expect(types.isSymbol(result));
+    try std.testing.expectEqualStrings("child-done", types.symbolName(result));
+}
+
 test "abandonFiberMutexes marks owned mutex abandoned" {
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
