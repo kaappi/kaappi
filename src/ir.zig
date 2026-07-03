@@ -139,9 +139,11 @@ pub const IR = struct {
     globals: ?*const std.StringHashMap(Value) = null,
     restricted_env: bool = false, // true when compiling in a restricted environment (environment procedure)
     // Enclosing compiler, when lowering happens inside one. Supplies lexical
-    // scope so isRedefined can see lambda parameters / enclosing locals that
-    // shadow a primitive (issue #790). Null for standalone lowering (Stage 1
-    // parity tests, ir_emitter), where only the globals check applies.
+    // scope so lowering can honor R7RS shadowing: a local or captured binding
+    // of a keyword (if, begin, +, ...) shadows the syntax/primitive, so the
+    // form must lower to an ordinary call rather than a special form or a fold
+    // (issues #788, #790). Null for standalone lowering (Stage 1 parity tests,
+    // ir_emitter), where only the globals check applies.
     compiler: ?*const compiler_mod.Compiler = null,
     // Extra lexically-bound names that shadow primitives, for lowering paths
     // that have no Compiler (the LLVM native backend passes a lambda's own
@@ -410,41 +412,53 @@ fn lowerFormWithMacros(ir: *IR, expr: Value, macros: ?*std.StringHashMap(Value))
             } else break;
         }
 
-        if (std.mem.eql(u8, effective_name, "if")) return lowerIf(ir, types.cdr(expr), macros);
-        if (std.mem.eql(u8, effective_name, "quote")) return lowerQuote(ir, types.cdr(expr));
-        if (std.mem.eql(u8, effective_name, "begin")) return lowerBegin(ir, types.cdr(expr), macros);
-        if (std.mem.eql(u8, effective_name, "lambda")) return ir.makeLambda(types.cdr(expr), null);
-        if (std.mem.eql(u8, effective_name, "let")) return lowerLet(ir, expr);
-        if (std.mem.eql(u8, effective_name, "let*")) return ir.makeLetStar(types.cdr(expr));
-        if (std.mem.eql(u8, effective_name, "letrec")) return ir.makeLetrec(types.cdr(expr));
-        if (std.mem.eql(u8, effective_name, "letrec*")) return ir.makeLetrecStar(types.cdr(expr));
-        if (std.mem.eql(u8, effective_name, "define")) return lowerDefine(ir, expr);
-        if (std.mem.eql(u8, effective_name, "define-values")) return ir.makeSexprNode(.define_values, types.cdr(expr));
-        if (std.mem.eql(u8, effective_name, "set!")) return lowerSet(ir, types.cdr(expr));
-        if (std.mem.eql(u8, effective_name, "and")) return lowerList(ir, types.cdr(expr), .and_form, macros);
-        if (std.mem.eql(u8, effective_name, "or")) return lowerList(ir, types.cdr(expr), .or_form, macros);
-        if (std.mem.eql(u8, effective_name, "when")) return lowerCondBody(ir, types.cdr(expr), .when_form, macros);
-        if (std.mem.eql(u8, effective_name, "unless")) return lowerCondBody(ir, types.cdr(expr), .unless_form, macros);
-        if (std.mem.eql(u8, effective_name, "cond")) return ir.makeSexprNode(.cond, types.cdr(expr));
-        if (std.mem.eql(u8, effective_name, "case")) return ir.makeSexprNode(.case_form, types.cdr(expr));
-        if (std.mem.eql(u8, effective_name, "case-lambda")) return ir.makeSexprNode(.case_lambda, types.cdr(expr));
-        if (std.mem.eql(u8, effective_name, "do")) return ir.makeSexprNode(.do_form, types.cdr(expr));
-        if (std.mem.eql(u8, effective_name, "guard")) return ir.makeSexprNode(.guard, types.cdr(expr));
-        if (std.mem.eql(u8, effective_name, "delay")) return ir.makeSexprNode(.delay, types.cdr(expr));
-        if (std.mem.eql(u8, effective_name, "delay-force")) return ir.makeSexprNode(.delay_force, types.cdr(expr));
-        if (std.mem.eql(u8, effective_name, "quasiquote")) return ir.makeSexprNode(.quasiquote, types.cdr(expr));
-        if (std.mem.eql(u8, effective_name, "parameterize")) return ir.makeSexprNode(.parameterize, types.cdr(expr));
-        if (std.mem.eql(u8, effective_name, "let-values")) return ir.makeSexprNode(.let_values, types.cdr(expr));
-        if (std.mem.eql(u8, effective_name, "let*-values")) return ir.makeSexprNode(.let_star_values, types.cdr(expr));
-        if (std.mem.eql(u8, effective_name, "define-syntax")) return ir.makeSexprNode(.define_syntax, types.cdr(expr));
-        if (std.mem.eql(u8, effective_name, "let-syntax")) return ir.makeSexprNode(.let_syntax, types.cdr(expr));
-        if (std.mem.eql(u8, effective_name, "letrec-syntax")) return ir.makeSexprNode(.letrec_syntax, types.cdr(expr));
-        if (std.mem.eql(u8, effective_name, "cond-expand")) return ir.makeSexprNode(.cond_expand, types.cdr(expr));
+        // R7RS has no reserved words: a lexical binding of a keyword shadows
+        // the syntax. If the (non-hygienic) head names a local or captured
+        // binding in the enclosing compiler scope, treat the form as an
+        // ordinary procedure call instead of a special form or macro use.
+        // Mirrors the `is_shadowed` guard in the legacy compileForm path.
+        // A hygienic rename (effective_name != name) is never shadowed: it
+        // came from a macro template and must keep its special-form meaning.
+        const is_shadowed = std.mem.eql(u8, effective_name, name) and
+            if (ir.compiler) |c| c.isLexicallyBound(name) else false;
 
-        if (isSpecialForm(effective_name)) return ir.makePassthrough(expr);
+        if (!is_shadowed) {
+            if (std.mem.eql(u8, effective_name, "if")) return lowerIf(ir, types.cdr(expr), macros);
+            if (std.mem.eql(u8, effective_name, "quote")) return lowerQuote(ir, types.cdr(expr));
+            if (std.mem.eql(u8, effective_name, "begin")) return lowerBegin(ir, types.cdr(expr), macros);
+            if (std.mem.eql(u8, effective_name, "lambda")) return ir.makeLambda(types.cdr(expr), null);
+            if (std.mem.eql(u8, effective_name, "let")) return lowerLet(ir, expr);
+            if (std.mem.eql(u8, effective_name, "let*")) return ir.makeLetStar(types.cdr(expr));
+            if (std.mem.eql(u8, effective_name, "letrec")) return ir.makeLetrec(types.cdr(expr));
+            if (std.mem.eql(u8, effective_name, "letrec*")) return ir.makeLetrecStar(types.cdr(expr));
+            if (std.mem.eql(u8, effective_name, "define")) return lowerDefine(ir, expr);
+            if (std.mem.eql(u8, effective_name, "define-values")) return ir.makeSexprNode(.define_values, types.cdr(expr));
+            if (std.mem.eql(u8, effective_name, "set!")) return lowerSet(ir, types.cdr(expr));
+            if (std.mem.eql(u8, effective_name, "and")) return lowerList(ir, types.cdr(expr), .and_form, macros);
+            if (std.mem.eql(u8, effective_name, "or")) return lowerList(ir, types.cdr(expr), .or_form, macros);
+            if (std.mem.eql(u8, effective_name, "when")) return lowerCondBody(ir, types.cdr(expr), .when_form, macros);
+            if (std.mem.eql(u8, effective_name, "unless")) return lowerCondBody(ir, types.cdr(expr), .unless_form, macros);
+            if (std.mem.eql(u8, effective_name, "cond")) return ir.makeSexprNode(.cond, types.cdr(expr));
+            if (std.mem.eql(u8, effective_name, "case")) return ir.makeSexprNode(.case_form, types.cdr(expr));
+            if (std.mem.eql(u8, effective_name, "case-lambda")) return ir.makeSexprNode(.case_lambda, types.cdr(expr));
+            if (std.mem.eql(u8, effective_name, "do")) return ir.makeSexprNode(.do_form, types.cdr(expr));
+            if (std.mem.eql(u8, effective_name, "guard")) return ir.makeSexprNode(.guard, types.cdr(expr));
+            if (std.mem.eql(u8, effective_name, "delay")) return ir.makeSexprNode(.delay, types.cdr(expr));
+            if (std.mem.eql(u8, effective_name, "delay-force")) return ir.makeSexprNode(.delay_force, types.cdr(expr));
+            if (std.mem.eql(u8, effective_name, "quasiquote")) return ir.makeSexprNode(.quasiquote, types.cdr(expr));
+            if (std.mem.eql(u8, effective_name, "parameterize")) return ir.makeSexprNode(.parameterize, types.cdr(expr));
+            if (std.mem.eql(u8, effective_name, "let-values")) return ir.makeSexprNode(.let_values, types.cdr(expr));
+            if (std.mem.eql(u8, effective_name, "let*-values")) return ir.makeSexprNode(.let_star_values, types.cdr(expr));
+            if (std.mem.eql(u8, effective_name, "define-syntax")) return ir.makeSexprNode(.define_syntax, types.cdr(expr));
+            if (std.mem.eql(u8, effective_name, "let-syntax")) return ir.makeSexprNode(.let_syntax, types.cdr(expr));
+            if (std.mem.eql(u8, effective_name, "letrec-syntax")) return ir.makeSexprNode(.letrec_syntax, types.cdr(expr));
+            if (std.mem.eql(u8, effective_name, "cond-expand")) return ir.makeSexprNode(.cond_expand, types.cdr(expr));
 
-        if (macros) |m| {
-            if (m.get(effective_name) != null) return ir.makePassthrough(expr);
+            if (isSpecialForm(effective_name)) return ir.makePassthrough(expr);
+
+            if (macros) |m| {
+                if (m.get(effective_name) != null) return ir.makePassthrough(expr);
+            }
         }
 
         if (tryFoldFromAST(ir, expr)) |folded| return folded;
