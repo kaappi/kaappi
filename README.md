@@ -1,26 +1,79 @@
 <p align="center">
-  <img src="https://kaappi.github.io/assets/logo.svg" alt="Kaappi" width="200">
+  <img src="https://kaappi-lang.org/assets/logo.svg" alt="Kaappi" width="200">
 </p>
 
 <h1 align="center">Kaappi</h1>
 
-> **Note:** Kaappi was built with the assistance of AI (Claude by Anthropic).
+<p align="center">
+  A complete <strong>R7RS-small</strong> Scheme implementation, written in <strong>Zig</strong>.
+</p>
 
-A complete **R7RS-small** Scheme implementation written in **Zig**.
+<p align="center">
+  <a href="https://github.com/kaappi/kaappi/actions/workflows/ci.yml"><img src="https://github.com/kaappi/kaappi/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://github.com/kaappi/kaappi/releases/latest"><img src="https://img.shields.io/github/v/release/kaappi/kaappi" alt="Latest release"></a>
+  <a href="https://codecov.io/gh/kaappi/kaappi"><img src="https://codecov.io/gh/kaappi/kaappi/branch/main/graph/badge.svg" alt="Coverage"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT license"></a>
+</p>
 
-Kaappi implements every identifier from [R7RS Appendix A](https://small.r7rs.org/) — 554 built-in procedures, 32 syntax forms, and all 14 standard libraries — plus 72 SRFIs, a C FFI, and a stepping debugger. The runtime uses a bytecode compiler with a register-based VM, generational garbage collection, and stack-copying first-class continuations.
+<p align="center">
+  <a href="https://kaappi-lang.org/">Website</a> ·
+  <a href="https://kaappi-lang.org/playground/">Playground</a> ·
+  <a href="https://kaappi-lang.org/tour/">Tour</a> ·
+  <a href="https://kaappi-lang.org/guide/">Guide</a> ·
+  <a href="https://kaappi-lang.org/download/">Download</a>
+</p>
 
 ---
 
-## Quick start
+Kaappi implements every identifier from [R7RS Appendix A](https://small.r7rs.org/)
+— 579 built-in procedures, 32 syntax forms, and all 14 standard libraries — plus
+72 SRFIs, a C FFI, OS threads and fibers, an LLVM native-code backend, a package
+manager, and a stepping debugger. The runtime is a register-based bytecode VM
+with generational garbage collection and stack-copying first-class continuations.
+
+The name is Malayalam and Tamil for *coffee* — see the
+[FAQ](https://kaappi-lang.org/faq/) for the story.
+
+> **Note:** Kaappi was built with the assistance of AI (Claude by Anthropic).
+
+## Try it
+
+No install needed — run Scheme in your browser at the
+[**playground**](https://kaappi-lang.org/playground/), or take the guided
+12-lesson [**tour**](https://kaappi-lang.org/tour/).
+
+## Installation
+
+### Install script (macOS, Linux)
 
 ```bash
-zig build run                        # Launch the REPL
-zig build run -- program.scm         # Run a Scheme file
-zig build test                       # Run all tests
+curl -fsSL https://kaappi-lang.org/install.sh | bash
 ```
 
-> Requires **Zig 0.16+** and a C toolchain (for the vendored linenoise library).
+This installs `kaappi` and `thottam` (the package manager) to `~/.local/bin/`
+and the standard libraries to `~/.kaappi/lib/`, verifying SHA256 checksums
+along the way.
+
+Prebuilt binaries for every platform are on the
+[releases page](https://github.com/kaappi/kaappi/releases/latest). macOS
+binaries are Developer ID signed and notarized; all releases ship
+`SHA256SUMS` with a GPG signature (`SHA256SUMS.asc`, key at
+[keybase.io/baijum](https://keybase.io/baijum)). See the
+[download page](https://kaappi-lang.org/download/) for manual install and
+verification steps.
+
+### Build from source
+
+Requires **Zig 0.16+** and a C toolchain (for the vendored linenoise library):
+
+```bash
+git clone https://github.com/kaappi/kaappi.git
+cd kaappi
+zig build                            # → zig-out/bin/kaappi
+zig build run                        # launch the REPL
+zig build run -- program.scm         # run a Scheme file
+zig build test                       # run the unit tests
+```
 
 ### Supported platforms
 
@@ -32,22 +85,16 @@ zig build test                       # Run all tests
 | Linux | riscv64 | yes | yes | LLVM backend |
 | WebAssembly | wasm32-wasi | yes | — | interpreter only |
 
-The WASM build (`zig build wasm`) runs in browsers and WASI runtimes. See the
-[playground](https://kaappi-lang.org/playground/) for a live demo.
+The WASM build (`zig build wasm`) runs in browsers and WASI runtimes — it
+powers the [playground](https://kaappi-lang.org/playground/).
 
-Windows is not supported. Kaappi depends on POSIX APIs (mmap, signals) and linenoise (terminal I/O).
+Windows is not supported: Kaappi depends on POSIX APIs (mmap, signals) and
+linenoise (terminal I/O).
 
----
-
-## REPL
-
-The REPL features **syntax highlighting** (keywords, strings, numbers, comments in color), **line editing** (arrow keys, Ctrl-A/E, backspace), **command history** (up/down arrows, persisted to `.kaappi_history`), **tab completion** for all built-in and user-defined symbols, and **multi-line input** with automatic paren balancing.
+## A taste of Kaappi
 
 ```
-$ zig build run
-Kaappi Scheme v0.5.0
-Type ,help for commands, ,quit to exit.
-
+$ kaappi
 kaappi> (define (fib n)
   ...     (if (< n 2) n
   ...         (+ (fib (- n 1)) (fib (- n 2)))))
@@ -63,308 +110,11 @@ kaappi> (char-alphabetic? #\λ)
 #t
 ```
 
----
+The REPL has **syntax highlighting**, **line editing**, **persistent history**
+(`~/.kaappi/history`), **tab completion** for all built-in and user-defined
+symbols, and **multi-line input** with automatic paren balancing.
 
-## Features
-
-### Complete R7RS-small implementation
-
-554 built-in procedures, 32 syntax forms, all 14 standard libraries — every identifier from [Appendix A](https://small.r7rs.org/).
-
-<details>
-<summary>Standard libraries</summary>
-
-| Library | Exports |
-|---------|---------|
-| `(scheme base)` | 230+ procedures and syntax |
-| `(scheme case-lambda)` | `case-lambda` |
-| `(scheme char)` | 22 Unicode character procedures |
-| `(scheme complex)` | 6 complex number procedures |
-| `(scheme cxr)` | 24 car/cdr compositions |
-| `(scheme eval)` | `eval`, `environment` |
-| `(scheme file)` | 10 file I/O procedures |
-| `(scheme inexact)` | 12 transcendental functions |
-| `(scheme lazy)` | `delay`, `force`, promises |
-| `(scheme load)` | `load` |
-| `(scheme process-context)` | `exit`, `command-line`, env vars |
-| `(scheme read)` | `read` |
-| `(scheme time)` | `current-second`, jiffies |
-| `(scheme write)` | `write`, `display`, `write-shared` |
-
-</details>
-
-### Execution
-
-- **Proper tail calls** — `(define (loop n) (loop (+ n 1)))` runs forever without growing the stack
-- **First-class continuations** — multi-shot `call/cc` via stack copying, `dynamic-wind` for cleanup
-- **Exception handling** — `guard`, `raise`, `with-exception-handler`, typed error objects (`file-error?`, `read-error?`)
-
-### Macros and modules
-
-- **Hygienic macros** — `syntax-rules` with scope-based renaming; pattern variables, ellipsis, literals, underscore wildcards; referential transparency for global references
-- **Library system** — `define-library`, `import` with `only`/`except`/`rename`/`prefix`, `.sld` file loading, `cond-expand`
-
-### Data
-
-- **Numeric tower** — fixnum (63-bit), bignum (arbitrary precision), exact rational, flonum (IEEE 754 f64), complex; automatic promotion on overflow
-- **Full Unicode** — UTF-8 strings indexed by codepoint, Unicode character classification (Latin, Greek, Cyrillic, Arabic, Hebrew, CJK, and more), case mapping
-- **Vectors and bytevectors** — `#(1 2 3)` and `#u8(10 20 30)` literals, `map`, `for-each`, `copy`, `append`
-- **Records** — `define-record-type` with constructors, predicates, field accessors and mutators
-- **Ports** — file, string, and bytevector ports; textual and binary I/O; datum labels for shared/circular structures
-
-### Other
-
-- **Lazy evaluation** — `delay`, `delay-force`, `force`, `make-promise`
-- **Multiple values** — `values`, `call-with-values`, `let-values`, `let*-values`
-- **Parameters** — `make-parameter`, `parameterize` with `dynamic-wind` integration
-- **Quasiquote** — `` ` ``, `,`, `,@` with proper splicing and nested quasiquote support
-- **REPL** — syntax highlighting, line editing, persistent history, tab completion, multi-line paren balancing (via [linenoise](https://github.com/antirez/linenoise))
-
-### Beyond R7RS
-
-- **C FFI** — call into shared libraries from Scheme via `(kaappi ffi)`: `ffi-open`, `ffi-fn`, `ffi-close`, plus `ffi-callback` for passing Scheme procedures to C (7 callback signatures, 18 types including explicit-width integers and `size_t`)
-- **LLVM native backend** — compile Scheme programs to native executables via `kaappi compile program.scm -o binary` or `zig build native -Dnative-src=program.scm`; self-tail-call optimization (compiled as loops), variadic parameters, let/let* bindings, direct lambda calls; hybrid continuation strategy
-- **Green threads** — `(kaappi fibers)` with `spawn`, `yield`, `fiber-join`, channels; plus full SRFI-18 compatibility (`make-thread`, mutexes, condition variables)
-- **Profiler** — `kaappi --profile` or `,profile expr` in the REPL; per-function self/total time, call counts, allocation bytes
-- **Standalone binaries** — `zig build -Dbundle-src=program.scm` compiles and embeds bytecode + libraries into a single executable
-- **Sandbox mode** — `kaappi --sandbox` blocks FFI, file I/O, `eval`, `load`, and environment access
-- **Stepping debugger** — set breakpoints with `,break`, conditional breakpoints (`,condition`), watch expressions, step / next / step-out / continue, up/down frame navigation, inspect locals and backtraces from the REPL
-- **Bytecode caching** — compiled `.sbc` files are reloaded when the source is unchanged, skipping the reader, expander, and compiler
-
-### Data types
-
-| Type | Representation | Allocation |
-|------|---------------|------------|
-| Integer | 63-bit fixnum or arbitrary-precision bignum | Fixnum: none (tagged); bignum: heap |
-| Rational | Exact numerator/denominator pair | Heap |
-| Real | IEEE 754 f64 | Heap |
-| Complex | Pair of f64 | Heap |
-| Boolean | `#t` / `#f` | None (immediate) |
-| Character | 21-bit Unicode codepoint | None (immediate) |
-| String | UTF-8 byte array | Heap, codepoint-indexed |
-| Symbol | Interned string | Heap, `eq?`-comparable |
-| Pair | Car/cdr cons cell | Heap |
-| Vector | Value array | Heap, `#(...)` literal syntax |
-| Bytevector | Byte array | Heap, `#u8(...)` literal syntax |
-| Port | File, string, or bytevector | Heap |
-| Procedure | Closure or native function | Heap |
-| Continuation | Saved VM state | Heap (stack-copied) |
-| Promise | Memoized thunk | Heap |
-| Record | User-defined struct | Heap |
-| Parameter | Dynamic binding cell | Heap |
-
----
-
-## Architecture
-
-```
-Source code
-    │
-    ▼
-┌────────┐     ┌──────────┐     ┌──────────┐     ┌──────────┐     ┌────┐
-│ Reader │ ──▶ │ Expander │ ──▶ │ Compiler │ ──▶ │ Bytecode │ ──▶ │ VM │
-│ (UTF-8 │     │ (syntax- │     │ (register│     │          │     │    │
-│  lexer)│     │  rules)  │     │  -based) │     │          │     │    │
-└────────┘     └──────────┘     └──────────┘     └──────────┘     └────┘
-                                                                    │
-                                                              ┌─────┴─────┐
-                                                              │    GC     │
-                                                              │(generatnl)│
-                                                              └───────────┘
-```
-
-| Component | File | Role |
-|-----------|------|------|
-| **Reader** | `reader.zig` | Tokenizer + recursive descent parser. Handles full R7RS lexical syntax including Unicode identifiers, `#\λ` character literals, `#(...)` vectors, `#u8(...)` bytevectors. |
-| **Expander** | `expander.zig` | `syntax-rules` pattern matching with ellipsis, literal identifiers, underscore wildcards. Template instantiation with hygienic renaming. |
-| **Compiler** | `compiler.zig` + 5 sub-modules | Compiles S-expressions to register-based bytecode. Detects tail positions for proper tail call optimization. Handles 32 syntax forms across 6 files. |
-| **VM** | `vm.zig` + 5 sub-modules | Executes bytecode with a growable register file and call frame stack, exception handler stack, and dynamic-wind stack. Supports first-class continuations via stack copying, plus a stepping debugger. |
-| **GC** | `memory.zig` | Generational collector (young/old) with minor and full collections. Write barrier tracks old→young references. Root tracking via `pushRoot`/`popRoot`. Triggered after N allocations. |
-| **Primitives** | 21 `primitives_*.zig` files | 554 built-in procedures organized by domain: arithmetic, strings, vectors, I/O, control flow, etc. |
-
-### Value representation
-
-Values are **NaN-boxed 64-bit words** — flonums, fixnums, booleans, characters,
-and nil all fit in a single u64 with zero heap allocation:
-
-```
-Flonum:    any f64 that is not a NaN             ← stored directly
-Pointer:   0xFFFC | 48-bit pointer               ← heap object
-Fixnum:    0xFFFD | 48-bit signed integer         ← up to ±2^47
-Immediate: 0xFFFE | payload                      ← nil, bool, void, eof, char
-```
-
----
-
-## Building
-
-```bash
-zig build              # Build the kaappi executable
-zig build run          # Build and run the REPL
-zig build test         # Run all unit tests (~150 tests)
-```
-
-The executable is placed in `zig-out/bin/kaappi`.
-
-### Verifying releases
-
-GitHub releases include `SHA256SUMS` and a GPG-signed `SHA256SUMS.asc`. The
-maintainer's public key is at [keybase.io/baijum](https://keybase.io/baijum).
-See the [download page](https://kaappi-lang.org/download/#verifying-releases)
-for full verification steps.
-
-### Running Scheme files
-
-```bash
-# Run a single file
-zig build run -- examples/hello.scm
-
-# Pipe expressions
-echo '(+ 1 2)' | zig build run
-```
-
-### Native compilation (LLVM backend)
-
-Compile Scheme programs to native executables via LLVM IR:
-
-```bash
-# Recommended: single command
-kaappi compile program.scm -o program
-./program
-
-# Via build system
-zig build native -Dnative-src=program.scm
-./zig-out/bin/program
-
-# Manual three-step
-zig build lib                                        # build runtime library
-kaappi --emit-llvm -o program.ll program.scm         # emit LLVM IR
-zig cc -w program.ll -o program \
-    -Lzig-out/lib -lkaappi_rt -lc -lm -lpthread      # link
-```
-
-`kaappi compile` automatically locates `libkaappi_rt.a` (checking `KAAPPI_LIB_DIR`,
-then `<exe_dir>/../lib/`, then `zig-out/lib/`) and invokes the system C compiler.
-For the manual three-step flow, always use `zig cc` (not `clang`) for linking.
-
----
-
-## Project structure
-
-```
-kaappi/
-├── build.zig                      Build configuration
-├── build.zig.zon                  Package manifest
-├── CLAUDE.md                      AI assistant project guide
-├── README.md
-├── CONFORMANCE.md                 R7RS conformance notes
-│
-├── src/
-│   ├── main.zig                   Entry point, REPL, file execution, bytecode cache
-│   ├── types.zig                  Value type, heap objects, opcodes
-│   ├── memory.zig                 GC allocator (mark-and-sweep)
-│   ├── bignum.zig                 Arbitrary-precision integer arithmetic
-│   ├── reader.zig                 S-expression parser (core)
-│   ├── reader_tokens.zig          Tokenizer / UTF-8 lexer
-│   ├── reader_datum.zig           Datum parsing, datum labels
-│   ├── expander.zig               Macro expansion (syntax-rules)
-│   ├── printer.zig                Value → string (write/display)
-│   ├── linenoise.zig              FFI wrapper for C linenoise library
-│   ├── ffi.zig                    FFI call dispatcher (type marshaling)
-│   ├── bytecode_file.zig          Bytecode serialization (.sbc format)
-│   ├── library.zig                Library registry + standard libs
-│   │
-│   ├── ir.zig                     Intermediate representation (33 node types, analysis, optimization)
-│   ├── compiler.zig               Bytecode compiler (IR → bytecode via compileFromNode)
-│   ├── compiler_forms.zig         Re-export hub for derived forms
-│   ├── compiler_conditionals.zig  and, or, cond, when, unless, cond-expand
-│   ├── compiler_bindings.zig      let, letrec, do, let-values
-│   ├── compiler_advanced.zig      case, case-lambda, guard, quasiquote
-│   ├── compiler_lambda.zig        lambda, define, set!, begin, delay
-│   ├── llvm_emit.zig              LLVM IR text emitter (IR → .ll files)
-│   ├── runtime_exports.zig        C-ABI bridge for LLVM native backend
-│   │
-│   ├── vm.zig                     Register VM (core)
-│   ├── vm_eval.zig                eval, top-level form handling
-│   ├── vm_library.zig             import / define-library / .sld loading
-│   ├── vm_records.zig             define-record-type desugaring
-│   ├── vm_continuations.zig       call/cc, dynamic-wind
-│   ├── vm_debug.zig               Stepping debugger (breakpoints, step, locals)
-│   │
-│   ├── primitives.zig             Core primitives + registration hub
-│   ├── primitives_arithmetic.zig  Numeric procedures (+, -, *, /, trig, etc.)
-│   ├── primitives_numeric.zig     Rounding, exactness, exact/inexact conversion
-│   ├── primitives_string.zig      String ops (UTF-8 codepoint-indexed)
-│   ├── primitives_string_ext.zig  SRFI-13 string library (contains, trim, ...)
-│   ├── primitives_char.zig        Unicode char classification + case
-│   ├── primitives_vector.zig      Vector procedures
-│   ├── primitives_bytevector.zig  Bytevector + binary I/O
-│   ├── primitives_list.zig        List operations (list-ref, member, ...)
-│   ├── primitives_srfi1.zig       SRFI-1 list library (fold, filter, iota, ...)
-│   ├── primitives_srfi18.zig      SRFI-18 threads, mutexes, conditions
-│   ├── primitives_hashtable.zig   SRFI-69 hash tables (open-addressing)
-│   ├── primitives_random.zig      SRFI-27 random numbers
-│   ├── primitives_fiber.zig       Fiber-based concurrency
-│   ├── primitives_io.zig          Ports, file I/O, string ports
-│   ├── primitives_filesystem.zig  SRFI-170 POSIX filesystem API
-│   ├── primitives_control.zig     Exceptions, continuations, values
-│   ├── primitives_lazy.zig        delay / force / promises
-│   ├── primitives_cxr.zig         24 car/cdr compositions
-│   ├── primitives_ffi.zig         FFI procedures (ffi-open, ffi-fn, ffi-close)
-│   ├── primitives_r7rs.zig        time, process-context, eval, load
-│   ├── unicode_tables.zig         Unicode 15.1 case mapping tables (auto-generated)
-│   ├── disassembler.zig           Bytecode disassembler
-│   │
-│   ├── testing_helpers.zig        Shared test utilities
-│   └── tests_*.zig                Unit tests by feature (core_eval, macros, io, …)
-│
-├── tests/scheme/                  Scheme-level test suites
-│   ├── r7rs/                      R7RS test suite (1,380 tests via chibi test)
-│   ├── smoke/                     Quick sanity checks (basic, tail-calls, macros, etc.)
-│   ├── compliance/                Targeted conformance tests by topic
-│   ├── continuations/             Advanced call/cc and call/ec edge cases
-│   ├── hygiene/                   Macro hygiene edge cases
-│   ├── srfi/                      SRFI conformance suites
-│   ├── ffi/                       FFI tests
-│   └── run-all.sh                 Run all test suites with summary
-│
-├── lib/srfi/                      Portable SRFI .sld libraries
-├── vendor/linenoise/              Vendored C library (BSD)
-├── testlib/                       Test .sld library files
-└── docs/
-    ├── guide.md                   User guide
-    ├── procedures.md              Procedure reference
-    ├── libraries.md               Library authoring guide
-    ├── dev/                       Architecture, testing, adding-features
-    └── errata-corrected-r7rs.pdf  R7RS specification
-```
-
----
-
-## Examples
-
-### Fibonacci
-
-```scheme
-(define (fib n)
-  (if (< n 2) n
-      (+ (fib (- n 1)) (fib (- n 2)))))
-
-(fib 30) ;=> 832040
-```
-
-### Tail-recursive factorial
-
-```scheme
-(define (factorial n)
-  (let loop ((i n) (acc 1))
-    (if (= i 0) acc
-        (loop (- i 1) (* i acc)))))
-
-(factorial 20) ;=> 2432902008176640000
-```
-
-### Macros
+### Hygienic macros
 
 ```scheme
 (define-syntax my-when
@@ -373,8 +123,7 @@ kaappi/
      (if test (begin body ...)))))
 
 (my-when #t
-  (display "hello ")
-  (display "world")
+  (display "hello world")
   (newline))
 ```
 
@@ -392,7 +141,7 @@ kaappi/
 (cube 5) ;=> 125
 ```
 
-### Continuations
+### First-class continuations
 
 ```scheme
 (define saved #f)
@@ -406,40 +155,63 @@ kaappi/
 ;=> 43
 ```
 
-### Unicode
+## Features
 
-```scheme
-(string-length "héllo")     ;=> 5
-(string-ref "λ-calculus" 0) ;=> #\λ
-(char-alphabetic? #\λ)      ;=> #t
-(string-upcase "héllo")     ;=> "HÉLLO"
-```
+### Complete R7RS-small
 
----
+- **Proper tail calls** — `(define (loop n) (loop (+ n 1)))` runs forever without growing the stack
+- **First-class continuations** — multi-shot `call/cc` via stack copying, `dynamic-wind` for cleanup
+- **Exception handling** — `guard`, `raise`, `with-exception-handler`, typed error objects (`file-error?`, `read-error?`)
+- **Hygienic macros** — `syntax-rules` with scope-based renaming; pattern variables, ellipsis, literals, underscore wildcards
+- **Library system** — `define-library`, `import` with `only`/`except`/`rename`/`prefix`, `.sld` file loading, `cond-expand`
+- **Numeric tower** — fixnum, bignum (arbitrary precision), exact rational, flonum (IEEE 754 f64), complex; automatic promotion on overflow
+- **Full Unicode** — UTF-8 strings indexed by codepoint, Unicode character classification and case mapping
+- **Records, ports, lazy evaluation, multiple values, parameters** — the whole standard, with no known functional gaps
+
+### Beyond the standard
+
+- **72 SRFIs** — 8 built-in, 64 as portable `.sld` libraries (full list in [CONFORMANCE.md](CONFORMANCE.md))
+- **Native binaries** — `kaappi compile program.scm -o program` compiles Scheme to a native executable via LLVM, with self-tail-calls compiled as loops ([details](docs/dev/llvm-backend.md))
+- **Standalone bundles** — `zig build -Dbundle-src=program.scm` embeds bytecode + libraries in a single executable
+- **C FFI** — call shared libraries from Scheme via `(kaappi ffi)`; 18 marshalled types, callbacks for passing Scheme procedures to C
+- **Concurrency** — green threads with channels via `(kaappi fibers)`, plus real OS threads via SRFI-18
+- **Stepping debugger** — breakpoints (with conditions), watch expressions, step/next/step-out, frame navigation, locals — all from the REPL
+- **Profiler** — `kaappi --profile` or `,profile expr`: per-function self/total time, call counts, allocation bytes
+- **Sandbox mode** — `kaappi --sandbox` blocks FFI, file I/O, `eval`, `load`, and environment access
+- **Bytecode caching** — compiled `.sbc` files are reused when the source is unchanged
+- **Editor support** — a bundled LSP server (`kaappi-lsp`) and a [VS Code extension](https://github.com/kaappi/vscode-kaappi)
 
 ## Ecosystem
 
-Kaappi has a growing ecosystem of libraries for web development, databases, and networking. Install them with **thottam** (the Kaappi package manager):
+Kaappi ships **thottam**, a package manager for its growing library ecosystem:
 
 ```bash
 # Install the web framework (auto-installs kaappi-http, kaappi-json, kaappi-net)
 thottam install kaappi-web
 
-# Now just works — no --lib-path flags needed
+# Now it just works — no --lib-path flags needed
 kaappi app.scm
 ```
 
-| Package | Description | Install |
-|---------|-------------|---------|
-| [kaappi-net](https://github.com/kaappi/kaappi-net) | TCP/TLS networking (shared by all network libraries) | `thottam install kaappi-net` |
-| [kaappi-redis](https://github.com/kaappi/kaappi-redis) | Redis client — SET/GET, lists, hashes, pub/sub, pipelining | `thottam install kaappi-redis` |
-| [kaappi-pg](https://github.com/kaappi/kaappi-pg) | PostgreSQL client — DB-API 2.0 style with cursors and type conversion | `thottam install kaappi-pg` |
-| [kaappi-http](https://github.com/kaappi/kaappi-http) | HTTP/HTTPS client + server (pre-fork, threaded) | `thottam install kaappi-http` |
-| [kaappi-json](https://github.com/kaappi/kaappi-json) | JSON parser and serializer | `thottam install kaappi-json` |
-| [kaappi-web](https://github.com/kaappi/kaappi-web) | Web framework — routing, middleware, JSON helpers | `thottam install kaappi-web` |
-| [kaappi-examples](https://github.com/kaappi/kaappi-examples) | REST API, task queue, CRUD app, file server | — |
+| Package | Description |
+|---------|-------------|
+| [kaappi-net](https://github.com/kaappi/kaappi-net) | TCP/TLS networking |
+| [kaappi-http](https://github.com/kaappi/kaappi-http) | HTTP/HTTPS client + server (pre-fork, threaded) |
+| [kaappi-web](https://github.com/kaappi/kaappi-web) | Web framework — routing, middleware, JSON helpers |
+| [kaappi-json](https://github.com/kaappi/kaappi-json) | JSON parser and serializer |
+| [kaappi-pg](https://github.com/kaappi/kaappi-pg) | PostgreSQL client with cursors and type conversion |
+| [kaappi-redis](https://github.com/kaappi/kaappi-redis) | Redis client — lists, hashes, pub/sub, pipelining |
+| [kaappi-examples](https://github.com/kaappi/kaappi-examples) | REST API, task queue, CRUD app, file server |
 
-### Quick example: REST API
+More libraries (CSV, TOML, YAML, logging, templates, testing, crypto, SQLite,
+email, CLI parsing) are listed in the
+[ecosystem docs](https://kaappi-lang.org/ecosystem/).
+
+`thottam install <pkg>` resolves dependencies, supports version constraints
+(`thottam install kaappi-net@">=0.2.0"`), and installs to `~/.kaappi/lib/`
+where libraries are discovered automatically.
+
+### A REST API in a few lines
 
 ```scheme
 (import (kaappi web) (kaappi pg) (kaappi json))
@@ -464,27 +236,9 @@ kaappi app.scm
 (serve (wrap app wrap-json-body wrap-logging wrap-errors) 8080)
 ```
 
-### thottam commands
-
-```bash
-thottam install <package>              # Install a package and its dependencies
-thottam install <pkg>@">=1.0.0"       # Install with version constraint
-thottam remove <package>               # Remove a package
-thottam list                           # List installed packages
-thottam update [package]               # Update one or all packages
-```
-
-Version constraints support `>=`, `>`, `<=`, `<`, `^` (compatible), `~` (patch-level), and comma-separated ranges.
-
-Packages are installed to `~/.kaappi/lib/` and discovered automatically.
-
----
-
 ## Concurrency
 
-### Green threads (fibers)
-
-Cooperative multitasking within a single OS thread:
+Green threads (fibers) for cooperative multitasking within one OS thread:
 
 ```scheme
 (import (kaappi fibers))
@@ -497,9 +251,8 @@ Cooperative multitasking within a single OS thread:
 (display (channel-receive ch))  ;=> hello from fiber
 ```
 
-### OS threads (SRFI-18)
-
-Real OS threads via `pthread_create` — each thread gets its own VM and GC:
+Real OS threads via SRFI-18 — each thread gets its own VM and GC, enabling
+true parallel I/O (e.g., thread-per-connection servers):
 
 ```scheme
 (import (srfi 18))
@@ -513,62 +266,106 @@ Real OS threads via `pthread_create` — each thread gets its own VM and GC:
 (thread-join! t)
 ```
 
-OS threads enable true parallel I/O (e.g., thread-per-connection HTTP servers).
+## Architecture
 
----
+```
+Source → Reader → Expander → IR → Bytecode emission → VM
+         (UTF-8    (syntax-   (analysis +   (register-    (generational GC,
+          lexer)    rules)     optimization   based)        stack-copied
+                               passes)                      continuations)
+```
+
+| Component | Role |
+|-----------|------|
+| **Reader** | Tokenizer + recursive descent parser for the full R7RS lexical syntax, including Unicode identifiers and `#\λ` character literals. |
+| **Expander** | `syntax-rules` pattern matching and hygienic template instantiation. |
+| **IR** | Tree-structured intermediate representation (33 node types) with analysis passes (tail positions, primitives, constants) and optimization passes (constant folding, dead-branch elimination, and more). |
+| **Compiler** | IR → register-based bytecode. |
+| **VM** | Bytecode interpreter with growable register file and frame stack, exception handler and dynamic-wind stacks, stack-copying continuations, and a stepping debugger. |
+| **GC** | Generational collector (young/old) with write barrier for old→young references. |
+
+Values are **NaN-boxed 64-bit words** — flonums, fixnums, booleans, characters,
+and nil all fit in a single u64 with zero heap allocation:
+
+```
+Flonum:    any f64 that is not a NaN     ← stored directly
+Pointer:   0xFFFC | 48-bit pointer       ← heap object
+Fixnum:    0xFFFD | 48-bit signed int    ← up to ±2^47, auto-promotes to bignum
+Immediate: 0xFFFE | payload              ← nil, bool, void, eof, char
+```
+
+The full component map, file layout, and design notes are in
+[docs/dev/architecture.md](docs/dev/architecture.md).
+
+## Testing
+
+```bash
+zig build test                     # Zig unit tests
+bash tests/scheme/run-all.sh       # all Scheme-level suites
+```
+
+The Scheme suites include a 1,391-test R7RS conformance suite (via
+`(chibi test)`), plus targeted suites for compliance, continuations, macro
+hygiene, SRFIs, and the FFI. CI runs on every platform in the support matrix,
+and per-commit performance trends are tracked on the
+[benchmark dashboard](https://kaappi-lang.org/kaappi/dev/bench/).
 
 ## Documentation
 
 | Document | Description |
 |----------|-------------|
-| [User Guide](https://kaappi.github.io/guide/) | Installation, REPL, language tutorial, command-line reference |
-| [Procedure Reference](https://kaappi.github.io/procedures/) | Built-in procedures with arity and descriptions, organized by domain |
-| [Library Reference](https://kaappi.github.io/libraries/) | 72 SRFIs, standard libraries, and how to write your own |
-| [Contributing](CONTRIBUTING.md) | How to build, test, and contribute |
+| [User Guide](https://kaappi-lang.org/guide/) | Installation, REPL, language tutorial, CLI reference |
+| [Procedure Reference](https://kaappi-lang.org/procedures/) | Every built-in procedure, organized by domain |
+| [Cookbook](https://kaappi-lang.org/cookbook/) | Task-oriented recipes: REST APIs, JSON, CSV, SQLite, testing |
+| [Ecosystem](https://kaappi-lang.org/ecosystem/) | thottam and all kaappi-* libraries |
+| [R7RS Conformance](CONFORMANCE.md) | Design choices and per-SRFI coverage details |
 | [Architecture](docs/dev/architecture.md) | Pipeline, value representation, GC, file organization |
 | [Adding Features](docs/dev/adding-features.md) | Step-by-step guides for extending the implementation |
 | [Testing Guide](docs/dev/testing.md) | Unit tests, Scheme tests, benchmarks, CI |
-| [Benchmark Dashboard](https://kaappi-lang.org/kaappi/dev/bench/) | Per-commit performance trends (15 benchmarks) |
-| [R7RS Conformance](CONFORMANCE.md) | Design choices and SRFI coverage |
-
----
-
-## R7RS conformance
-
-Kaappi implements every identifier from R7RS Appendix A with no known functional gaps. 3 intentional architectural decisions are documented (stack-copying continuations, continuation scope, no syntax-case) — all standard across Scheme bytecode interpreters.
-
-See **[CONFORMANCE.md](CONFORMANCE.md)** for design rationale and SRFI coverage details.
-
-### SRFI support
-
-72 SRFIs supported (8 built-in, 64 as portable `.sld` files in `lib/srfi/`):
-
-**Built-in:** 1, 9, 13, 18, 39, 69, 133, 170
-
-**Portable:** 0, 2, 4, 6, 8, 11, 14, 16, 17, 19, 23, 26, 27, 28, 31, 34, 35, 36, 37, 38, 41, 42, 43, 45, 48, 60, 61, 64, 78, 87, 98, 111, 113, 115, 116, 117, 125, 127, 128, 130, 132, 134, 141, 143, 144, 145, 146, 151, 152, 158, 166, 174, 175, 189, 195, 196, 197, 210, 219, 222, 227, 232, 233, 235
-
----
 
 ## Known limitations
 
 ### Continuations
 
-`call/cc` captures continuations by copying the full VM state (registers, call frames, exception handlers, dynamic-wind stack). Cost is O(stack depth) per capture — negligible for most programs, but noticeable if continuations are captured in tight inner loops. Continuations captured in one top-level REPL expression cannot re-enter subsequent top-level expressions (standard behavior shared by Guile, Chibi, Chicken, Chez, and Racket).
+`call/cc` captures continuations by copying the full VM state (registers, call
+frames, exception handlers, dynamic-wind stack). Cost is O(stack depth) per
+capture — negligible for most programs, but noticeable if continuations are
+captured in tight inner loops. Continuations captured in one top-level REPL
+expression cannot re-enter subsequent top-level expressions (standard behavior
+shared by Guile, Chibi, Chicken, Chez, and Racket).
 
 ### OS threads (SRFI-18)
 
-Each OS thread gets its own GC with an independent heap. Values are deep-copied when crossing thread boundaries (at `thread-start!` and `thread-join!`). This means threads cannot share mutable state directly — use channels or return values to communicate. Child threads can allocate and GC independently without affecting the parent.
+Each OS thread gets its own GC with an independent heap. Values are deep-copied
+when crossing thread boundaries (at `thread-start!` and `thread-join!`). This
+means threads cannot share mutable state directly — use channels or return
+values to communicate. Child threads can allocate and GC independently without
+affecting the parent.
 
 ### Macros
 
-Only `syntax-rules` is supported. `syntax-case` was intentionally excluded from R7RS-small and is not implemented.
+Only `syntax-rules` is supported. `syntax-case` was intentionally excluded from
+R7RS-small and is not implemented.
 
 ### SRFI coverage
 
-72 SRFIs are supported. Some built-in SRFIs have minor coverage gaps (e.g., linear-update variants in SRFI-1, `string-xcopy!` in SRFI-13). See [CONFORMANCE.md](CONFORMANCE.md) for per-SRFI details.
+72 SRFIs are supported. Some built-in SRFIs have minor coverage gaps (e.g.,
+linear-update variants in SRFI-1, `string-xcopy!` in SRFI-13). See
+[CONFORMANCE.md](CONFORMANCE.md) for per-SRFI details.
 
----
+## Contributing
+
+Contributions are welcome — bug reports, SRFI implementations, documentation,
+and ecosystem libraries alike.
+
+- [CONTRIBUTING.md](CONTRIBUTING.md) — how to build, test, and submit changes
+- [Code of Conduct](CODE_OF_CONDUCT.md)
+- [Issue tracker](https://github.com/kaappi/kaappi/issues) — bugs and feature requests
+- [Community](https://kaappi-lang.org/community/) — where to ask questions
+
+Every bug fix needs a regression test; see the
+[testing guide](docs/dev/testing.md).
 
 ## License
 
-MIT
+[MIT](LICENSE)
