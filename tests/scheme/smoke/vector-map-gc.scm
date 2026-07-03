@@ -64,6 +64,31 @@
   (check "vector-unfold-right elem 0" (vector-ref out 0) '(0 8))
   (check "vector-unfold-right elem 3" (vector-ref out 3) '(3 1)))
 
+;; Test 6: vector-partition — the predicate mutates the source vector,
+;; displacing each element so its only remaining reference is the invisible
+;; yes/no accumulator, then allocates heavily to force a collection.
+;; Regression for #810 (residual of #335): the classified elements must be
+;; rooted or the first partition element comes back recycled.
+(let ((v (vector (string-copy "keepme000001")
+                 (string-copy "keepme000002")
+                 (string-copy "keepme000003")
+                 (string-copy "keepme000004")
+                 (string-copy "keepme000005")
+                 (string-copy "keepme000006"))))
+  (call-with-values
+    (lambda ()
+      (vector-partition
+       (lambda (x)
+         (vector-fill! v #f)              ; displace all elements from the source
+         (do ((i 0 (+ i 1))) ((= i 20000)) ; churn the heap to force collection
+           (string-copy "REUSEDREUSED"))
+         (string? x))
+       v))
+    (lambda (part n)
+      (check "vector-partition survives predicate mutation"
+             (vector-ref part 0) "keepme000001")
+      (check "vector-partition count" n 1))))
+
 (display pass) (display " passed, ") (display fail) (display " failed")
 (newline)
 (if (> fail 0) (error "vector-map GC tests failed" fail))
