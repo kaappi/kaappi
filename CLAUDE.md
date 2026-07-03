@@ -477,6 +477,7 @@ detailed checklists for GC write barriers, rooting, and compiler form additions.
 | `/github-release` | Full release workflow (version bump, changelog, tag, push, CI verification) |
 | `/r7rs-reader` | R7RS lexical syntax reference for reader changes |
 | `/linux-test` | Build and test on Linux via podman (aarch64, x86_64, riscv64) |
+| `/do-linux-test` | Full test suite on real x86-64 Linux via DigitalOcean droplet |
 
 ### Ecosystem plugin (`kaappi-dev`)
 
