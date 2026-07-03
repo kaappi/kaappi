@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783111897957,
+  "lastUpdate": 1783112857431,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "866067e364b0fa542fa0cc06997dbdf09e786461",
-          "message": "Replace fixed-size export arrays with dynamic ArrayLists in define-library (#862) (#882)\n\nThe 128-entry stack arrays for export_names/export_renames silently\ndropped any exports past the cap. Libraries with >128 exports (like\nscheme.base with ~250) would lose the tail entries. Switched to\nstd.ArrayList in handleDefineLibrary, extractExportsAndImports, and\nincludeLibraryDeclarations so libraries can export arbitrarily many\nidentifiers.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-03T00:24:42+05:30",
-          "tree_id": "dda475e06f7ca2629270f144d62ce82d9e55cf6f",
-          "url": "https://github.com/kaappi/kaappi/commit/866067e364b0fa542fa0cc06997dbdf09e786461"
-        },
-        "date": 1783019374925,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.371118,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.471331,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.80772,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.162128,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006806,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.032052,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.450735,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.069982,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.927631,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.76315,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.080364,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.221564,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 2.391285,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.683312,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.041081,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.043071,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f7cac2503851faf7e2d5dc32b0864739c26801d2",
+          "message": "Handle bignums in types.toF64 to fix FFI double/float marshaling (#793) (#999)\n\ntypes.toF64 had no case for bignums — any bignum fell through to\nreturn 0.0, causing bignum-backed rationals to marshal as 0.0 or\n+inf.0 when passed to C functions expecting double/float arguments.\n\nAdd a bignum check that delegates to bignum.toF64, matching the\npattern already used by primitives.toF64.\n\nCloses #793\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-03T20:50:54Z",
+          "tree_id": "f0b5cb969b6fea6e0d7a004afddcdf78d1709e46",
+          "url": "https://github.com/kaappi/kaappi/commit/f7cac2503851faf7e2d5dc32b0864739c26801d2"
+        },
+        "date": 1783112857000,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.390096,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.979266,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.970473,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.448717,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006672,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.033766,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.480233,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.072198,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 4.09368,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.868217,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.21368,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.444214,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.843022,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.700044,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.043034,
             "unit": "seconds"
           }
         ]
