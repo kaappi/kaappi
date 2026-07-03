@@ -162,6 +162,14 @@ pub fn compileBody(self: *Compiler, body: Value) CompileError!void {
     var def_slots: [MAX_BODY_DEFS]u16 = undefined;
     var def_count: usize = 0;
 
+    // def_inits lives in a stack array the GC cannot see. The (define (name
+    // args...) body) case below allocates fresh lambda pairs into it, and both
+    // the rest of this scan and the phase-2 compileExpr calls allocate, so a
+    // collection would sweep the not-yet-compiled inits (issue #1010). Mirror
+    // them into extra_roots (by value, realloc-safe) for the duration.
+    const roots_base = self.gc.extra_roots.items.len;
+    defer self.gc.extra_roots.shrinkRetainingCapacity(roots_base);
+
     var current = body;
     // Scan leading defines
     while (current != types.NIL and types.isPair(current)) {
@@ -193,8 +201,13 @@ pub fn compileBody(self: *Compiler, body: Value) CompileError!void {
             // Build (lambda (args...) body...) as init expression
             const param_formals = types.cdr(target);
             const lambda_sym = self.gc.allocSymbol("lambda") catch return CompileError.OutOfMemory;
-            const lambda_args = self.gc.allocPair(param_formals, def_rest) catch return CompileError.OutOfMemory;
-            def_inits[def_count] = self.gc.allocPair(lambda_sym, lambda_args) catch return CompileError.OutOfMemory;
+            {
+                var lambda_args = self.gc.allocPair(param_formals, def_rest) catch return CompileError.OutOfMemory;
+                self.gc.pushRoot(&lambda_args) catch return CompileError.OutOfMemory;
+                defer self.gc.popRoot();
+                def_inits[def_count] = self.gc.allocPair(lambda_sym, lambda_args) catch return CompileError.OutOfMemory;
+            }
+            self.gc.extra_roots.append(self.gc.allocator, def_inits[def_count]) catch return CompileError.OutOfMemory;
             def_count += 1;
         } else {
             break;
@@ -331,7 +344,9 @@ pub fn compileDefine(self: *Compiler, args: Value, dst: u16) CompileError!void {
         if (!types.isSymbol(name)) return CompileError.InvalidSyntax;
         const param_formals = types.cdr(target);
 
-        const lambda_args = self.gc.allocPair(param_formals, rest) catch return CompileError.OutOfMemory;
+        var lambda_args = self.gc.allocPair(param_formals, rest) catch return CompileError.OutOfMemory;
+        self.gc.pushRoot(&lambda_args) catch return CompileError.OutOfMemory;
+        defer self.gc.popRoot();
         try compileLambda(self, lambda_args, dst, types.symbolName(name));
 
         if (self.in_body_scope) {
@@ -407,127 +422,135 @@ pub fn compileDefineValues(self: *Compiler, args: Value, dst: u16) CompileError!
 
     // Step 1: emit (define name (if #f #f)) for each name
     for (names_buf[0..name_count]) |name| {
-        const sym = self.gc.allocSymbol(name) catch return CompileError.OutOfMemory;
-        // Build (define name (if #f #f))
-        const void_expr = self.gc.allocPair(types.FALSE, types.NIL) catch return CompileError.OutOfMemory;
-        const if_args = self.gc.allocPair(types.FALSE, void_expr) catch return CompileError.OutOfMemory;
-        const if_sym = self.gc.allocSymbol("if") catch return CompileError.OutOfMemory;
-        const if_form = self.gc.allocPair(if_sym, if_args) catch return CompileError.OutOfMemory;
-        const def_rest = self.gc.allocPair(if_form, types.NIL) catch return CompileError.OutOfMemory;
-        const def_args = self.gc.allocPair(sym, def_rest) catch return CompileError.OutOfMemory;
+        var def_args = try buildVoidDefineArgs(self, name);
+        self.gc.pushRoot(&def_args) catch return CompileError.OutOfMemory;
+        defer self.gc.popRoot();
         try compileDefine(self, def_args, dst);
     }
     if (rest_name) |rn| {
-        if (name_count == 0) {
-            // Single symbol: (define-values x expr) → define x then set! to list
-            const sym = self.gc.allocSymbol(rn) catch return CompileError.OutOfMemory;
-            const void_expr = self.gc.allocPair(types.FALSE, types.NIL) catch return CompileError.OutOfMemory;
-            const if_args = self.gc.allocPair(types.FALSE, void_expr) catch return CompileError.OutOfMemory;
-            const if_sym = self.gc.allocSymbol("if") catch return CompileError.OutOfMemory;
-            const if_form = self.gc.allocPair(if_sym, if_args) catch return CompileError.OutOfMemory;
-            const def_rest = self.gc.allocPair(if_form, types.NIL) catch return CompileError.OutOfMemory;
-            const def_args = self.gc.allocPair(sym, def_rest) catch return CompileError.OutOfMemory;
-            try compileDefine(self, def_args, dst);
-        } else {
-            const sym = self.gc.allocSymbol(rn) catch return CompileError.OutOfMemory;
-            const void_expr = self.gc.allocPair(types.FALSE, types.NIL) catch return CompileError.OutOfMemory;
-            const if_args = self.gc.allocPair(types.FALSE, void_expr) catch return CompileError.OutOfMemory;
-            const if_sym = self.gc.allocSymbol("if") catch return CompileError.OutOfMemory;
-            const if_form = self.gc.allocPair(if_sym, if_args) catch return CompileError.OutOfMemory;
-            const def_rest = self.gc.allocPair(if_form, types.NIL) catch return CompileError.OutOfMemory;
-            const def_args = self.gc.allocPair(sym, def_rest) catch return CompileError.OutOfMemory;
-            try compileDefine(self, def_args, dst);
-        }
+        var def_args = try buildVoidDefineArgs(self, rn);
+        self.gc.pushRoot(&def_args) catch return CompileError.OutOfMemory;
+        defer self.gc.popRoot();
+        try compileDefine(self, def_args, dst);
     }
 
-    // Step 2: Build the consumer lambda params and set! body
-    // Consumer: (lambda (p0 p1 ... [. prest]) (set! x0 p0) (set! x1 p1) ... )
-    var consumer_body: Value = types.NIL;
+    // Steps 2+3 build chains of fresh unrooted pairs, each allocation able to
+    // sweep the previous ones, so collection is disabled for the whole build
+    // (issue #1010). The final form is rooted across the compile that follows.
+    var final_form: Value = types.NIL;
+    const is_single = name_count == 0 and rest_name != null;
+    {
+        self.gc.no_collect += 1;
+        defer self.gc.no_collect -= 1;
 
-    // Build set! forms from right to left
-    if (rest_name) |rn| {
-        if (name_count > 0) {
-            const rn_sym = self.gc.allocSymbol(rn) catch return CompileError.OutOfMemory;
-            const param_sym = self.gc.allocSymbol("__dv_rest") catch return CompileError.OutOfMemory;
+        // Step 2: Build the consumer lambda params and set! body
+        // Consumer: (lambda (p0 p1 ... [. prest]) (set! x0 p0) (set! x1 p1) ... )
+        var consumer_body: Value = types.NIL;
+
+        // Build set! forms from right to left
+        if (rest_name) |rn| {
+            if (name_count > 0) {
+                const rn_sym = self.gc.allocSymbol(rn) catch return CompileError.OutOfMemory;
+                const param_sym = self.gc.allocSymbol("__dv_rest") catch return CompileError.OutOfMemory;
+                const set_rest = self.gc.allocPair(param_sym, types.NIL) catch return CompileError.OutOfMemory;
+                const set_args = self.gc.allocPair(rn_sym, set_rest) catch return CompileError.OutOfMemory;
+                const set_sym = self.gc.allocSymbol("set!") catch return CompileError.OutOfMemory;
+                const set_form = self.gc.allocPair(set_sym, set_args) catch return CompileError.OutOfMemory;
+                consumer_body = self.gc.allocPair(set_form, consumer_body) catch return CompileError.OutOfMemory;
+            }
+        }
+
+        var i = name_count;
+        while (i > 0) {
+            i -= 1;
+            const orig_sym = self.gc.allocSymbol(names_buf[i]) catch return CompileError.OutOfMemory;
+            var param_name_buf: [32]u8 = undefined;
+            const pname = std.fmt.bufPrint(&param_name_buf, "__dv_{d}", .{i}) catch return CompileError.OutOfMemory;
+            const param_sym = self.gc.allocSymbol(pname) catch return CompileError.OutOfMemory;
             const set_rest = self.gc.allocPair(param_sym, types.NIL) catch return CompileError.OutOfMemory;
-            const set_args = self.gc.allocPair(rn_sym, set_rest) catch return CompileError.OutOfMemory;
+            const set_args = self.gc.allocPair(orig_sym, set_rest) catch return CompileError.OutOfMemory;
             const set_sym = self.gc.allocSymbol("set!") catch return CompileError.OutOfMemory;
             const set_form = self.gc.allocPair(set_sym, set_args) catch return CompileError.OutOfMemory;
             consumer_body = self.gc.allocPair(set_form, consumer_body) catch return CompileError.OutOfMemory;
         }
+
+        // Build consumer params list
+        var consumer_params: Value = if (rest_name != null and name_count > 0)
+            self.gc.allocSymbol("__dv_rest") catch return CompileError.OutOfMemory
+        else
+            types.NIL;
+
+        i = name_count;
+        while (i > 0) {
+            i -= 1;
+            var param_name_buf: [32]u8 = undefined;
+            const pname = std.fmt.bufPrint(&param_name_buf, "__dv_{d}", .{i}) catch return CompileError.OutOfMemory;
+            const param_sym = self.gc.allocSymbol(pname) catch return CompileError.OutOfMemory;
+            consumer_params = self.gc.allocPair(param_sym, consumer_params) catch return CompileError.OutOfMemory;
+        }
+
+        if (is_single) {
+            // Single-symbol case: (define-values x expr) needs list conversion
+            // Desugar: (define-values x expr) → (set! x (call-with-values (lambda () expr) list))
+            const rn_sym = self.gc.allocSymbol(rest_name.?) catch return CompileError.OutOfMemory;
+            const list_sym = self.gc.allocSymbol("list") catch return CompileError.OutOfMemory;
+
+            const producer_body = self.gc.allocPair(expr, types.NIL) catch return CompileError.OutOfMemory;
+            const producer_lambda = self.gc.allocPair(types.NIL, producer_body) catch return CompileError.OutOfMemory;
+            const lambda_sym = self.gc.allocSymbol("lambda") catch return CompileError.OutOfMemory;
+            const producer = self.gc.allocPair(lambda_sym, producer_lambda) catch return CompileError.OutOfMemory;
+
+            const cwv_sym = self.gc.allocSymbol("call-with-values") catch return CompileError.OutOfMemory;
+            const cwv_3 = self.gc.allocPair(list_sym, types.NIL) catch return CompileError.OutOfMemory;
+            const cwv_2 = self.gc.allocPair(producer, cwv_3) catch return CompileError.OutOfMemory;
+            const cwv_form = self.gc.allocPair(cwv_sym, cwv_2) catch return CompileError.OutOfMemory;
+
+            const set_rest2 = self.gc.allocPair(cwv_form, types.NIL) catch return CompileError.OutOfMemory;
+            final_form = self.gc.allocPair(rn_sym, set_rest2) catch return CompileError.OutOfMemory;
+        } else {
+            // Build (lambda consumer_params consumer_body...)
+            const consumer_lambda_args = self.gc.allocPair(consumer_params, consumer_body) catch return CompileError.OutOfMemory;
+            const lambda_sym = self.gc.allocSymbol("lambda") catch return CompileError.OutOfMemory;
+            const consumer = self.gc.allocPair(lambda_sym, consumer_lambda_args) catch return CompileError.OutOfMemory;
+
+            // Build (lambda () expr)
+            const producer_body = self.gc.allocPair(expr, types.NIL) catch return CompileError.OutOfMemory;
+            const producer_lambda = self.gc.allocPair(types.NIL, producer_body) catch return CompileError.OutOfMemory;
+            const producer = self.gc.allocPair(lambda_sym, producer_lambda) catch return CompileError.OutOfMemory;
+
+            // Build (call-with-values producer consumer)
+            const cwv_sym = self.gc.allocSymbol("call-with-values") catch return CompileError.OutOfMemory;
+            const cwv_3 = self.gc.allocPair(consumer, types.NIL) catch return CompileError.OutOfMemory;
+            const cwv_2 = self.gc.allocPair(producer, cwv_3) catch return CompileError.OutOfMemory;
+            final_form = self.gc.allocPair(cwv_sym, cwv_2) catch return CompileError.OutOfMemory;
+        }
     }
 
-    var i = name_count;
-    while (i > 0) {
-        i -= 1;
-        const orig_sym = self.gc.allocSymbol(names_buf[i]) catch return CompileError.OutOfMemory;
-        var param_name_buf: [32]u8 = undefined;
-        const pname = std.fmt.bufPrint(&param_name_buf, "__dv_{d}", .{i}) catch return CompileError.OutOfMemory;
-        const param_sym = self.gc.allocSymbol(pname) catch return CompileError.OutOfMemory;
-        const set_rest = self.gc.allocPair(param_sym, types.NIL) catch return CompileError.OutOfMemory;
-        const set_args = self.gc.allocPair(orig_sym, set_rest) catch return CompileError.OutOfMemory;
-        const set_sym = self.gc.allocSymbol("set!") catch return CompileError.OutOfMemory;
-        const set_form = self.gc.allocPair(set_sym, set_args) catch return CompileError.OutOfMemory;
-        consumer_body = self.gc.allocPair(set_form, consumer_body) catch return CompileError.OutOfMemory;
-    }
-
-    // Build consumer params list
-    var consumer_params: Value = if (rest_name != null and name_count > 0)
-        self.gc.allocSymbol("__dv_rest") catch return CompileError.OutOfMemory
-    else
-        types.NIL;
-
-    i = name_count;
-    while (i > 0) {
-        i -= 1;
-        var param_name_buf: [32]u8 = undefined;
-        const pname = std.fmt.bufPrint(&param_name_buf, "__dv_{d}", .{i}) catch return CompileError.OutOfMemory;
-        const param_sym = self.gc.allocSymbol(pname) catch return CompileError.OutOfMemory;
-        consumer_params = self.gc.allocPair(param_sym, consumer_params) catch return CompileError.OutOfMemory;
-    }
-
-    // Single-symbol case: (define-values x expr) needs list conversion
-    if (name_count == 0 and rest_name != null) {
-        // Desugar: (define-values x expr) → (set! x (call-with-values (lambda () expr) list))
-        const rn_sym = self.gc.allocSymbol(rest_name.?) catch return CompileError.OutOfMemory;
-        const list_sym = self.gc.allocSymbol("list") catch return CompileError.OutOfMemory;
-
-        const producer_body = self.gc.allocPair(expr, types.NIL) catch return CompileError.OutOfMemory;
-        const producer_lambda = self.gc.allocPair(types.NIL, producer_body) catch return CompileError.OutOfMemory;
-        const lambda_sym = self.gc.allocSymbol("lambda") catch return CompileError.OutOfMemory;
-        const producer = self.gc.allocPair(lambda_sym, producer_lambda) catch return CompileError.OutOfMemory;
-
-        const cwv_sym = self.gc.allocSymbol("call-with-values") catch return CompileError.OutOfMemory;
-        const cwv_3 = self.gc.allocPair(list_sym, types.NIL) catch return CompileError.OutOfMemory;
-        const cwv_2 = self.gc.allocPair(producer, cwv_3) catch return CompileError.OutOfMemory;
-        const cwv_form = self.gc.allocPair(cwv_sym, cwv_2) catch return CompileError.OutOfMemory;
-
-        const set_rest2 = self.gc.allocPair(cwv_form, types.NIL) catch return CompileError.OutOfMemory;
-        const set_args2 = self.gc.allocPair(rn_sym, set_rest2) catch return CompileError.OutOfMemory;
-        try compileSet(self, set_args2, dst);
+    self.gc.pushRoot(&final_form) catch return CompileError.OutOfMemory;
+    defer self.gc.popRoot();
+    if (is_single) {
+        try compileSet(self, final_form, dst);
         return;
     }
 
-    // Build (lambda consumer_params consumer_body...)
-    const consumer_lambda_args = self.gc.allocPair(consumer_params, consumer_body) catch return CompileError.OutOfMemory;
-    const lambda_sym = self.gc.allocSymbol("lambda") catch return CompileError.OutOfMemory;
-    const consumer = self.gc.allocPair(lambda_sym, consumer_lambda_args) catch return CompileError.OutOfMemory;
-
-    // Build (lambda () expr)
-    const producer_body = self.gc.allocPair(expr, types.NIL) catch return CompileError.OutOfMemory;
-    const producer_lambda = self.gc.allocPair(types.NIL, producer_body) catch return CompileError.OutOfMemory;
-    const producer = self.gc.allocPair(lambda_sym, producer_lambda) catch return CompileError.OutOfMemory;
-
-    // Build (call-with-values producer consumer)
-    const cwv_sym = self.gc.allocSymbol("call-with-values") catch return CompileError.OutOfMemory;
-    const cwv_3 = self.gc.allocPair(consumer, types.NIL) catch return CompileError.OutOfMemory;
-    const cwv_2 = self.gc.allocPair(producer, cwv_3) catch return CompileError.OutOfMemory;
-    const cwv_form = self.gc.allocPair(cwv_sym, cwv_2) catch return CompileError.OutOfMemory;
-
     // Compile the call-with-values expression
-    try self.compileExpr(cwv_form, dst, false);
+    try self.compileExpr(final_form, dst, false);
     try self.emitOp(.load_void);
     try self.emitU16(dst);
+}
+
+/// Build ((name (if #f #f))) define args for define-values pre-definitions,
+/// with collection disabled during the chain of fresh pair allocations.
+fn buildVoidDefineArgs(self: *Compiler, name: []const u8) CompileError!Value {
+    self.gc.no_collect += 1;
+    defer self.gc.no_collect -= 1;
+    const sym = self.gc.allocSymbol(name) catch return CompileError.OutOfMemory;
+    const void_expr = self.gc.allocPair(types.FALSE, types.NIL) catch return CompileError.OutOfMemory;
+    const if_args = self.gc.allocPair(types.FALSE, void_expr) catch return CompileError.OutOfMemory;
+    const if_sym = self.gc.allocSymbol("if") catch return CompileError.OutOfMemory;
+    const if_form = self.gc.allocPair(if_sym, if_args) catch return CompileError.OutOfMemory;
+    const def_rest = self.gc.allocPair(if_form, types.NIL) catch return CompileError.OutOfMemory;
+    return self.gc.allocPair(sym, def_rest) catch return CompileError.OutOfMemory;
 }
 
 pub fn compileSet(self: *Compiler, args: Value, dst: u16) CompileError!void {
