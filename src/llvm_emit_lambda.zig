@@ -20,6 +20,14 @@ fn tryCompilePureLambdaAsNativeClosure(self: *LLVMEmitter, data: ir.LambdaData) 
     if (body_list == types.NIL) return null;
     if (!types.isPair(formals_val) and formals_val != types.NIL) return null;
 
+    // #827: reject if body contains forms needing interpreter eval fallback
+    {
+        var be = body_list;
+        while (be != types.NIL and types.isPair(be)) : (be = types.cdr(be)) {
+            if (sexprNeedsEvalFallback(types.car(be))) return null;
+        }
+    }
+
     var param_names: [16][]const u8 = undefined;
     var arity: u8 = 0;
     var rest_name: ?[]const u8 = null;
@@ -99,6 +107,14 @@ fn tryCompileNativeClosure(self: *LLVMEmitter, data: ir.LambdaData) ?[]const u8 
         var be = body_list;
         while (be != types.NIL and types.isPair(be)) : (be = types.cdr(be)) {
             if (sexprContainsSetOrDefine(types.car(be))) return null;
+        }
+    }
+
+    // #827: reject if body contains forms needing interpreter eval fallback
+    {
+        var be2 = body_list;
+        while (be2 != types.NIL and types.isPair(be2)) : (be2 = types.cdr(be2)) {
+            if (sexprNeedsEvalFallback(types.car(be2))) return null;
         }
     }
 
@@ -313,6 +329,12 @@ pub fn bindParamsAsGlobals(self: *LLVMEmitter) EmitError!void {
 }
 
 fn emitLambdaViaEval(self: *LLVMEmitter, data: ir.LambdaData) EmitError![]const u8 {
+    // #827: Inside a lexical scope with local bindings (a let body),
+    // evaluating the lambda in the global environment would lose those
+    // bindings.  Signal failure so the enclosing let falls back to the
+    // interpreter, which handles scoping correctly.
+    if (self.locals != null) return error.UnsupportedNodeType;
+
     try bindParamsAsGlobals(self);
 
     var source_buf: std.ArrayList(u8) = .empty;
@@ -348,6 +370,14 @@ pub fn tryCompileLambdaNative(self: *LLVMEmitter, data: ir.LambdaData) ?[]const 
 
 pub fn tryCompileDefineFunction(self: *LLVMEmitter, name: []const u8, formals: Value, body: Value) ?[]const u8 {
     if (body == types.NIL) return null;
+
+    // #827: reject if body contains forms needing interpreter eval fallback
+    {
+        var be = body;
+        while (be != types.NIL and types.isPair(be)) : (be = types.cdr(be)) {
+            if (sexprNeedsEvalFallback(types.car(be))) return null;
+        }
+    }
 
     var param_names: [16][]const u8 = undefined;
     var arity: u8 = 0;
@@ -575,6 +605,127 @@ fn emitRestListBuilder(self: *LLVMEmitter, fixed_arity: usize) EmitError!void {
 
     try self.print("{s}:\n", .{done_lbl});
     self.current_block = done_lbl;
+}
+
+// --- Eval-fallback detection helpers ---
+
+// True if `expr` (a raw S-expression) contains any form that the LLVM native
+// backend cannot compile and would dispatch to emitSexprEval.  Used by
+// emitLet and emitLambdaFunction to reject native compilation of the
+// enclosing scope when a sub-form would cross the native/interpreted boundary,
+// losing lexical bindings (#827).
+pub fn sexprNeedsEvalFallback(expr: Value) bool {
+    if (!types.isPair(expr)) return false;
+    const head = types.car(expr);
+    if (types.isSymbol(head)) {
+        const name = types.symbolName(head);
+        if (isEvalFallbackForm(name)) return true;
+        if (std.mem.eql(u8, name, "quote")) return false;
+        // Named let: (let <symbol> ...) — not compiled natively.
+        if (std.mem.eql(u8, name, "let")) {
+            const rest = types.cdr(expr);
+            if (rest != types.NIL and types.isPair(rest) and types.isSymbol(types.car(rest))) return true;
+        }
+    }
+    var cur = expr;
+    while (types.isPair(cur)) : (cur = types.cdr(cur)) {
+        if (sexprNeedsEvalFallback(types.car(cur))) return true;
+    }
+    return false;
+}
+
+fn isEvalFallbackForm(name: []const u8) bool {
+    const forms = [_][]const u8{
+        "letrec",     "letrec*",       "do",
+        "delay",      "delay-force",   "cond",
+        "case",       "case-lambda",   "guard",
+        "quasiquote", "parameterize",  "define-values",
+        "let-values", "let*-values",   "define-syntax",
+        "let-syntax", "letrec-syntax", "cond-expand",
+    };
+    for (forms) |f| {
+        if (std.mem.eql(u8, name, f)) return true;
+    }
+    return false;
+}
+
+// True if `body_list` (a cons list of body expressions) contains a lambda
+// whose body references any name in `local_names` (let-bound variables) that
+// is not shadowed by the lambda's own formals.  Such a lambda cannot be
+// compiled natively inside a let scope: the native closure tiers
+// (tryCompileNativeClosure / tryCompilePureLambdaAsNativeClosure) would
+// reject it, and emitLambdaViaEval would evaluate it in the global
+// environment where the let bindings are invisible (#827).
+pub fn bodyHasCapturingLambda(body_list: Value, local_names: []const []const u8) bool {
+    var expr = body_list;
+    while (expr != types.NIL and types.isPair(expr)) : (expr = types.cdr(expr)) {
+        if (exprHasCapturingLambda(types.car(expr), local_names)) return true;
+    }
+    return false;
+}
+
+fn exprHasCapturingLambda(expr: Value, local_names: []const []const u8) bool {
+    if (!types.isPair(expr)) return false;
+    const head = types.car(expr);
+    if (types.isSymbol(head)) {
+        const name = types.symbolName(head);
+        if (std.mem.eql(u8, name, "lambda")) {
+            const rest = types.cdr(expr);
+            if (rest != types.NIL and types.isPair(rest)) {
+                const formals = types.car(rest);
+                const body = types.cdr(rest);
+                var formal_names: [32][]const u8 = undefined;
+                var formal_count: usize = 0;
+                var flist = formals;
+                while (types.isPair(flist)) : (flist = types.cdr(flist)) {
+                    const f = types.car(flist);
+                    if (types.isSymbol(f) and formal_count < 32) {
+                        formal_names[formal_count] = types.symbolName(f);
+                        formal_count += 1;
+                    }
+                }
+                // Rest-param symbol after dotted pair or bare symbol formals.
+                if (types.isSymbol(flist) and formal_count < 32) {
+                    formal_names[formal_count] = types.symbolName(flist);
+                    formal_count += 1;
+                }
+                if (types.isSymbol(formals) and formal_count < 32) {
+                    formal_names[formal_count] = types.symbolName(formals);
+                    formal_count += 1;
+                }
+                if (sexprReferencesNames(body, local_names, formal_names[0..formal_count])) return true;
+            }
+            return false;
+        }
+        if (std.mem.eql(u8, name, "quote")) return false;
+    }
+    var cur = expr;
+    while (types.isPair(cur)) : (cur = types.cdr(cur)) {
+        if (exprHasCapturingLambda(types.car(cur), local_names)) return true;
+    }
+    return false;
+}
+
+// True if the S-expression references any symbol in `target_names` that is
+// not in `excluded_names`.  Does not descend into quoted data.
+fn sexprReferencesNames(expr: Value, target_names: []const []const u8, excluded_names: []const []const u8) bool {
+    if (types.isSymbol(expr)) {
+        const name = types.symbolName(expr);
+        for (excluded_names) |e| {
+            if (std.mem.eql(u8, name, e)) return false;
+        }
+        for (target_names) |t| {
+            if (std.mem.eql(u8, name, t)) return true;
+        }
+        return false;
+    }
+    if (!types.isPair(expr)) return false;
+    if (types.isSymbol(types.car(expr)) and std.mem.eql(u8, types.symbolName(types.car(expr)), "quote")) return false;
+    var cur = expr;
+    while (types.isPair(cur)) : (cur = types.cdr(cur)) {
+        if (sexprReferencesNames(types.car(cur), target_names, excluded_names)) return true;
+    }
+    return false;
 }
 
 // --- Free variable analysis helpers (standalone, no self) ---
