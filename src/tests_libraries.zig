@@ -102,6 +102,33 @@ test "import prefix" {
     try std.testing.expectEqual(@as(i64, 7), types.toFixnum(result));
 }
 
+test "import scheme r5rs exports full R5RS identifier set" {
+    // Regression for #813: the built-in (scheme r5rs) stub exported only 4
+    // identifiers (null-environment, scheme-report-environment, eval,
+    // interaction-environment). Per R7RS Appendix A it must provide the full
+    // R5RS set. A prefix import exposes the real export table (plain imports
+    // are masked because every primitive is also present in globals).
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    _ = try vm.eval("(import (prefix (scheme r5rs) r5:))");
+
+    // Procedures that were missing from the 4-name stub.
+    try std.testing.expectEqual(@as(i64, 1), types.toFixnum(try vm.eval("(r5:car '(1 2))")));
+    try std.testing.expectEqual(@as(i64, 2), types.toFixnum(try vm.eval("(r5:sqrt 4)")));
+    try std.testing.expectEqual(@as(i64, 6), types.toFixnum(try vm.eval("(r5:+ 1 2 3)")));
+    try std.testing.expectEqual(types.TRUE, try vm.eval("(r5:procedure? r5:map)"));
+    // exact/inexact appear under their R5RS names.
+    try std.testing.expectEqual(types.TRUE, try vm.eval("(r5:procedure? r5:exact->inexact)"));
+    try std.testing.expectEqual(types.TRUE, try vm.eval("(r5:procedure? r5:inexact->exact)"));
+    // The four originally-exported identifiers still resolve.
+    try std.testing.expectEqual(@as(i64, 3), types.toFixnum(try vm.eval("(r5:eval '(+ 1 2) (r5:interaction-environment))")));
+    try std.testing.expectEqual(types.TRUE, try vm.eval("(r5:procedure? r5:null-environment)"));
+    try std.testing.expectEqual(types.TRUE, try vm.eval("(r5:procedure? r5:scheme-report-environment)"));
+}
+
 test "import scheme write" {
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
