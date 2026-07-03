@@ -734,10 +734,17 @@ fn userSupplementaryGidsFn(args: []const Value) PrimitiveError!Value {
 
 fn niceFn(args: []const Value) PrimitiveError!Value {
     const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
-    const delta: c_int = if (args.len > 0 and types.isFixnum(args[0]))
-        @intCast(types.toFixnum(args[0]))
-    else
-        1;
+    var delta: c_int = 1;
+    if (args.len > 0 and types.isFixnum(args[0])) {
+        // Fixnums range up to ±2^47, but nice() takes a C int. An unchecked
+        // @intCast panics (SIGABRT) on out-of-range values in ReleaseSafe;
+        // reject them as a recoverable Scheme error instead.
+        const n = types.toFixnum(args[0]);
+        if (n < std.math.minInt(c_int) or n > std.math.maxInt(c_int)) {
+            return raiseFileError(gc, "nice value out of range", args[0]);
+        }
+        delta = @intCast(n);
+    }
     const e = std.c._errno();
     e.* = 0;
     const result = nice(delta);
