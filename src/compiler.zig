@@ -1385,6 +1385,18 @@ pub const Compiler = struct {
         try self.recordBodyMacro(name);
         self.macros.put(name, transformer) catch return CompileError.OutOfMemory;
 
+        // A define-syntax at a library's top level (not nested in a lambda/let
+        // body scope) is also stored in the library environment. lib_env is
+        // per-library and GC-rooted, so the macro persists across the library's
+        // body forms and is found by lib_env export resolution — without
+        // leaking into the process-global macro table (issue #877). At the REPL
+        // top level lib_env is null, so ordinary define-syntax is unaffected.
+        if (self.body_macro_depth == 0) {
+            if (self.lib_env) |env| {
+                env.put(name, transformer) catch return CompileError.OutOfMemory;
+            }
+        }
+
         // define-syntax returns void
         try self.emitOp(.load_void);
         try self.emitU16(dst);
