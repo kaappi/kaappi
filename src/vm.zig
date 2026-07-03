@@ -26,6 +26,7 @@ pub const VMError = error{
     InvalidArgument,
     Yielded,
     ExecutionTimeout,
+    Terminated,
 };
 
 const build_options = @import("build_options");
@@ -241,6 +242,11 @@ pub const VM = struct {
     scheduler: ?*@import("fiber.zig").FiberScheduler = null,
     current_fiber: ?*@import("fiber.zig").Fiber = null,
     yielded: bool = false,
+    /// For child OS threads (SRFI-18): points at the parent-heap fiber's
+    /// `terminated` flag. Checked at the periodic dispatch-loop safepoint so
+    /// thread-terminate! from another thread can stop this VM. Written by the
+    /// parent thread, read here — access must be atomic.
+    terminate_flag: ?*bool = null,
 
     pub fn init(gc: *memory.GC) !VM {
         const frames = try gc.allocator.alloc(CallFrame, INITIAL_FRAME_CAPACITY);

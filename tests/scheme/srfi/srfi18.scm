@@ -1,4 +1,5 @@
-(import (scheme base) (scheme write) (srfi 18))
+(import (scheme base) (scheme write) (scheme process-context)
+        (srfi 18) (kaappi fibers))
 
 (define pass 0)
 (define fail 0)
@@ -117,21 +118,34 @@
   (mutex-unlock! m)
   (check "mutex-state after unlock" (mutex-state m) 'not-abandoned))
 
-;; --- Mutex contention between threads ---
+;; --- Mutex contention between fibers ---
+;; OS threads (thread-start!) run on isolated heaps and cannot share mutexes
+;; or mutable state, so contention is exercised on the same-heap fiber path.
 (let ((m (make-mutex))
       (result '()))
-  (mutex-lock! m)
-  (let ((t (make-thread
-            (lambda ()
-              (mutex-lock! m)
-              (set! result (cons 'got-lock result))
-              (mutex-unlock! m)))))
-    (thread-start! t)
-    (set! result (cons 'main-holds result))
-    (mutex-unlock! m)
-    (thread-join! t)
-    (check-true "mutex contention: thread got lock"
-      (memq 'got-lock result))))
+  (let* ((holder (spawn (lambda ()
+                          (mutex-lock! m)
+                          (set! result (cons 'holder-locked result))
+                          (thread-yield!)  ; let waiter run and block on m
+                          (set! result (cons 'holder-unlocking result))
+                          (mutex-unlock! m))))
+         (waiter (spawn (lambda ()
+                          (mutex-lock! m)
+                          (set! result (cons 'waiter-locked result))
+                          (mutex-unlock! m)))))
+    (fiber-join holder)
+    (fiber-join waiter)
+    (check "mutex contention: waiter blocked until holder unlocked"
+      (reverse result) '(holder-locked holder-unlocking waiter-locked))))
+
+;; --- OS threads cannot capture sync primitives (isolated heaps) ---
+(let* ((m (make-mutex))
+       (t (make-thread (lambda () (mutex-lock! m)))))
+  (thread-start! t)
+  (check-true "thread thunk capturing mutex raises uncaught-exception"
+    (guard (e (#t (uncaught-exception? e)))
+      (thread-join! t)
+      #f)))
 
 ;; --- Condition variable basics ---
 (check-true "condition-variable?" (condition-variable? (make-condition-variable)))
@@ -144,19 +158,19 @@
   (condition-variable-specific-set! cv 'cv-data)
   (check "condition-variable-specific" (condition-variable-specific cv) 'cv-data))
 
-;; --- Condition variable signal ---
+;; --- Condition variable signal (fiber path; see mutex contention note) ---
 (let ((m (make-mutex))
       (cv (make-condition-variable))
       (ready #f))
-  (let ((t (make-thread
-            (lambda ()
-              (mutex-lock! m)
-              (set! ready #t)
-              (condition-variable-signal! cv)
-              (mutex-unlock! m)))))
+  (let ((f (spawn (lambda ()
+                    (mutex-lock! m)
+                    (set! ready #t)
+                    (condition-variable-signal! cv)
+                    (mutex-unlock! m)))))
     (mutex-lock! m)
-    (thread-start! t)
-    (mutex-unlock! m cv)
+    (check-true "mutex-unlock! with condvar waits and wakes"
+      (mutex-unlock! m cv))
+    (fiber-join f)
     (check-true "condition-variable-signal! wakes waiter" ready)))
 
 ;; --- Time objects ---
@@ -191,11 +205,11 @@
 (check-true "with-exception-handler is available" (procedure? with-exception-handler))
 
 ;; --- Interop: spawn creates thread? objects ---
-(import (kaappi fibers))
 (let ((f (spawn (lambda () 99))))
   (check-true "spawn result is thread?" (thread? f))
   (check "fiber-join on spawned fiber" (fiber-join f) 99))
 
 (display pass) (display " passed, ") (display fail) (display " failed")
 (newline)
-(if (> fail 0) (error "SRFI 18 tests failed" fail))
+;; run-all.sh keys off the exit code; a top-level (error ...) exits 0.
+(when (> fail 0) (exit 1))
