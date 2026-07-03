@@ -331,6 +331,7 @@ fn vectorAppendFn(args: []const Value) PrimitiveError!Value {
 
 fn vectorForEachFn(args: []const Value) PrimitiveError!Value {
     const vm = vm_mod.vm_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
     const proc = args[0];
     if (!types.isProcedure(proc) and !types.isNativeFn(proc)) return primitives.typeError("vector-for-each", "procedure", proc);
 
@@ -346,14 +347,18 @@ fn vectorForEachFn(args: []const Value) PrimitiveError!Value {
     }
 
     // Iterate over elements
-    var call_args: [256]Value = undefined;
+    var stack_buf: [256]Value = undefined;
+    const call_args = if (vec_count > 256)
+        gc.allocator.alloc(Value, vec_count) catch return PrimitiveError.OutOfMemory
+    else
+        stack_buf[0..vec_count];
+    defer if (vec_count > 256) gc.allocator.free(call_args);
     for (0..min_len) |i| {
-        // Build argument list: one element from each vector
         for (0..vec_count) |vi| {
             call_args[vi] = types.toVector(args[1 + vi]).data[i];
         }
 
-        _ = vm.callWithArgs(proc, call_args[0..vec_count]) catch |err| {
+        _ = vm.callWithArgs(proc, call_args) catch |err| {
             return switch (err) {
                 vm_mod.VMError.ContinuationInvoked => PrimitiveError.ContinuationInvoked,
                 vm_mod.VMError.ExceptionRaised => PrimitiveError.ExceptionRaised,
@@ -394,14 +399,18 @@ fn vectorMapFn(args: []const Value) PrimitiveError!Value {
     const roots_base = gc.extra_roots.items.len;
     defer gc.extra_roots.shrinkRetainingCapacity(roots_base);
 
-    var call_args: [256]Value = undefined;
+    var stack_buf: [256]Value = undefined;
+    const call_args = if (vec_count > 256)
+        gc.allocator.alloc(Value, vec_count) catch return PrimitiveError.OutOfMemory
+    else
+        stack_buf[0..vec_count];
+    defer if (vec_count > 256) gc.allocator.free(call_args);
     for (0..min_len) |i| {
-        // Build argument list: one element from each vector
         for (0..vec_count) |vi| {
             call_args[vi] = types.toVector(args[1 + vi]).data[i];
         }
 
-        results[i] = vm.callWithArgs(proc, call_args[0..vec_count]) catch |err| {
+        results[i] = vm.callWithArgs(proc, call_args) catch |err| {
             return switch (err) {
                 vm_mod.VMError.ContinuationInvoked => PrimitiveError.ContinuationInvoked,
                 vm_mod.VMError.ExceptionRaised => PrimitiveError.ExceptionRaised,
@@ -492,6 +501,7 @@ fn vectorEmptyFn(args: []const Value) PrimitiveError!Value {
 
 // (vector-count pred v1 ...)
 fn vectorCountFn(args: []const Value) PrimitiveError!Value {
+    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
     const pred = args[0];
     if (!types.isVector(args[1])) return primitives.typeError("vector-count", "vector", args[1]);
     const vec = types.toVector(args[1]);
@@ -501,9 +511,15 @@ fn vectorCountFn(args: []const Value) PrimitiveError!Value {
         const ev = types.toVector(extra);
         if (ev.data.len < min_len) min_len = ev.data.len;
     }
+    const total_args = args.len - 1;
+    var stack_buf: [256]Value = undefined;
+    const call_args_buf = if (total_args > 256)
+        gc.allocator.alloc(Value, total_args) catch return PrimitiveError.OutOfMemory
+    else
+        stack_buf[0..total_args];
+    defer if (total_args > 256) gc.allocator.free(call_args_buf);
     var n: i64 = 0;
     for (0..min_len) |i| {
-        var call_args_buf: [256]Value = undefined;
         call_args_buf[0] = vec.data[i];
         var arg_count: usize = 1;
         for (args[2..]) |extra| {
@@ -519,11 +535,18 @@ fn vectorCountFn(args: []const Value) PrimitiveError!Value {
 
 // (vector-any pred v1 ...)
 fn vectorAnyFn(args: []const Value) PrimitiveError!Value {
+    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
     const pred = args[0];
     if (!types.isVector(args[1])) return primitives.typeError("vector-any", "vector", args[1]);
     const vec = types.toVector(args[1]);
+    const total_args = args.len - 1;
+    var stack_buf: [256]Value = undefined;
+    const call_args_buf = if (total_args > 256)
+        gc.allocator.alloc(Value, total_args) catch return PrimitiveError.OutOfMemory
+    else
+        stack_buf[0..total_args];
+    defer if (total_args > 256) gc.allocator.free(call_args_buf);
     for (0..vec.data.len) |i| {
-        var call_args_buf: [256]Value = undefined;
         call_args_buf[0] = vec.data[i];
         var arg_count: usize = 1;
         for (args[2..]) |extra| {
@@ -541,12 +564,19 @@ fn vectorAnyFn(args: []const Value) PrimitiveError!Value {
 
 // (vector-every pred v1 ...)
 fn vectorEveryFn(args: []const Value) PrimitiveError!Value {
+    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
     const pred = args[0];
     if (!types.isVector(args[1])) return primitives.typeError("vector-every", "vector", args[1]);
     const vec = types.toVector(args[1]);
+    const total_args = args.len - 1;
+    var stack_buf: [256]Value = undefined;
+    const call_args_buf = if (total_args > 256)
+        gc.allocator.alloc(Value, total_args) catch return PrimitiveError.OutOfMemory
+    else
+        stack_buf[0..total_args];
+    defer if (total_args > 256) gc.allocator.free(call_args_buf);
     var last: Value = types.TRUE;
     for (0..vec.data.len) |i| {
-        var call_args_buf: [256]Value = undefined;
         call_args_buf[0] = vec.data[i];
         var arg_count: usize = 1;
         for (args[2..]) |extra| {
@@ -565,11 +595,18 @@ fn vectorEveryFn(args: []const Value) PrimitiveError!Value {
 
 // (vector-index pred v1 ...)
 fn vectorIndexFn(args: []const Value) PrimitiveError!Value {
+    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
     const pred = args[0];
     if (!types.isVector(args[1])) return primitives.typeError("vector-index", "vector", args[1]);
     const vec = types.toVector(args[1]);
+    const total_args = args.len - 1;
+    var stack_buf: [256]Value = undefined;
+    const call_args_buf = if (total_args > 256)
+        gc.allocator.alloc(Value, total_args) catch return PrimitiveError.OutOfMemory
+    else
+        stack_buf[0..total_args];
+    defer if (total_args > 256) gc.allocator.free(call_args_buf);
     for (0..vec.data.len) |i| {
-        var call_args_buf: [256]Value = undefined;
         call_args_buf[0] = vec.data[i];
         var arg_count: usize = 1;
         for (args[2..]) |extra| {
@@ -587,6 +624,7 @@ fn vectorIndexFn(args: []const Value) PrimitiveError!Value {
 
 // (vector-index-right pred v1 ...)
 fn vectorIndexRightFn(args: []const Value) PrimitiveError!Value {
+    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
     const pred = args[0];
     if (!types.isVector(args[1])) return primitives.typeError("vector-index-right", "vector", args[1]);
     const vec = types.toVector(args[1]);
@@ -596,10 +634,16 @@ fn vectorIndexRightFn(args: []const Value) PrimitiveError!Value {
         const ev = types.toVector(extra);
         if (ev.data.len < min_len) min_len = ev.data.len;
     }
+    const total_args = args.len - 1;
+    var stack_buf: [256]Value = undefined;
+    const call_args_buf = if (total_args > 256)
+        gc.allocator.alloc(Value, total_args) catch return PrimitiveError.OutOfMemory
+    else
+        stack_buf[0..total_args];
+    defer if (total_args > 256) gc.allocator.free(call_args_buf);
     var i = min_len;
     while (i > 0) {
         i -= 1;
-        var call_args_buf: [256]Value = undefined;
         call_args_buf[0] = vec.data[i];
         var arg_count: usize = 1;
         for (args[2..]) |extra| {
@@ -742,13 +786,20 @@ fn vectorUnfoldFn(args: []const Value) PrimitiveError!Value {
     const roots_base = gc.extra_roots.items.len;
     defer gc.extra_roots.shrinkRetainingCapacity(roots_base);
 
+    const call_count = 1 + seeds.items.len;
+    var stack_buf: [257]Value = undefined;
+    const call_args_buf = if (call_count > 257)
+        gc.allocator.alloc(Value, call_count) catch return PrimitiveError.OutOfMemory
+    else
+        stack_buf[0..call_count];
+    defer if (call_count > 257) gc.allocator.free(call_args_buf);
+
     for (0..length) |i| {
-        var call_args_buf: [257]Value = undefined;
         call_args_buf[0] = types.makeFixnum(@intCast(i));
         for (seeds.items, 0..) |s, j| {
             call_args_buf[1 + j] = s;
         }
-        const result = try callVM(f, call_args_buf[0 .. 1 + seeds.items.len]);
+        const result = try callVM(f, call_args_buf);
         // Result should be (values elem new-seed1 new-seed2 ...)
         if (types.isMultipleValues(result)) {
             const mv = types.toObject(result).as(types.MultipleValues);
@@ -791,16 +842,23 @@ fn vectorUnfoldRightFn(args: []const Value) PrimitiveError!Value {
     const roots_base = gc.extra_roots.items.len;
     defer gc.extra_roots.shrinkRetainingCapacity(roots_base);
 
+    const call_count = 1 + seeds.items.len;
+    var stack_buf_r: [257]Value = undefined;
+    const call_args_buf = if (call_count > 257)
+        gc.allocator.alloc(Value, call_count) catch return PrimitiveError.OutOfMemory
+    else
+        stack_buf_r[0..call_count];
+    defer if (call_count > 257) gc.allocator.free(call_args_buf);
+
     // Fill from right to left (index length-1 down to 0)
     var i = length;
     while (i > 0) {
         i -= 1;
-        var call_args_buf: [257]Value = undefined;
         call_args_buf[0] = types.makeFixnum(@intCast(i));
         for (seeds.items, 0..) |s, j| {
             call_args_buf[1 + j] = s;
         }
-        const result = try callVM(f, call_args_buf[0 .. 1 + seeds.items.len]);
+        const result = try callVM(f, call_args_buf);
         if (types.isMultipleValues(result)) {
             const mv = types.toObject(result).as(types.MultipleValues);
             if (mv.values.len == 0) return primitives.typeError("vector-unfold-right", "at least one return value from step procedure", result);
