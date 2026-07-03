@@ -364,6 +364,10 @@ pub const SavedFrame = struct {
     base: u32,
     dst: u16,
     saved_wind_count: u16,
+    // Mirrors CallFrame.returns_to_native (see vm.zig): the frame's result
+    // belongs to a re-entrant native Zig caller, so returning it into a
+    // caller frame register after that native has died is an error.
+    returns_to_native: bool,
     // Frame birth id (see CallFrame.seq in vm.zig). The u64 also forces
     // 8-byte alignment on wasm32, keeping the struct size a multiple of
     // @sizeOf(Value) without manual padding.
