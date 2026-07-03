@@ -297,7 +297,9 @@ pub fn compileQuasiquote(self: *Compiler, args: Value, dst: u16) CompileError!vo
 
 fn compileQQ(self: *Compiler, tmpl: Value, dst: u16, depth: u8) CompileError!void {
     if (types.isVector(tmpl)) {
-        // Vector quasiquote: desugar #(a ,b ,@c d) to (list->vector `(a ,b ,@c d))
+        // Vector quasiquote: compile elements as a list at the current depth,
+        // then call list->vector. This preserves the nesting level so that
+        // inner unquotes at depth > 0 remain literal (#850).
         const gc = self.gc;
         const vec = types.toVector(tmpl);
         // Convert vector elements to a list
@@ -307,12 +309,25 @@ fn compileQQ(self: *Compiler, tmpl: Value, dst: u16, depth: u8) CompileError!voi
             i -= 1;
             list = gc.allocPair(vec.data[i], list) catch return CompileError.OutOfMemory;
         }
-        // Build (list->vector <quasiquoted-list>)
+        // Compile the list at the current quasiquote depth
+        const fn_reg = try self.allocReg();
+        const arg_reg = try self.allocReg();
+        try compileQQ(self, list, arg_reg, depth);
+        // Call list->vector on the result
         const l2v_sym = gc.allocSymbol("list->vector") catch return CompileError.OutOfMemory;
-        const qq_sym = gc.allocSymbol("quasiquote") catch return CompileError.OutOfMemory;
-        const qq_form = gc.allocPair(qq_sym, gc.allocPair(list, types.NIL) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory;
-        const call = gc.allocPair(l2v_sym, gc.allocPair(qq_form, types.NIL) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory;
-        return self.compileExpr(call, dst, false);
+        const l2v_idx = try self.addConstant(l2v_sym);
+        try self.emitOp(.call_global);
+        try self.emitU16(fn_reg);
+        try self.emitU16(l2v_idx);
+        try self.emit(1);
+        if (fn_reg != dst) {
+            try self.emitOp(.move);
+            try self.emitU16(dst);
+            try self.emitU16(fn_reg);
+        }
+        self.freeReg(); // arg_reg
+        self.freeReg(); // fn_reg
+        return;
     }
 
     if (!types.isPair(tmpl)) {
@@ -370,6 +385,47 @@ fn compileQQ(self: *Compiler, tmpl: Value, dst: u16, depth: u8) CompileError!voi
             self.freeReg(); // sym_reg
             return;
         }
+    }
+
+    // Check for (unquote-splicing expr) at non-zero depth (#849).
+    // At depth 0, splicing is handled by compileQQSplicing when it appears
+    // as a list element. At depth > 0, we rebuild the form literally but
+    // compile the subexpression at depth-1 so that inner unquotes at the
+    // outermost level are correctly evaluated.
+    if (types.isSymbol(head) and std.mem.eql(u8, types.symbolName(head), "unquote-splicing") and depth > 0) {
+        const rest = types.cdr(tmpl);
+        if (rest == types.NIL) return CompileError.InvalidSyntax;
+        // Build (unquote-splicing <compiled-inner>) with decremented depth
+        const us_sym_idx = try self.addConstant(head);
+        const sym_reg = try self.allocReg();
+        try self.emitOp(.load_const);
+        try self.emitU16(sym_reg);
+        try self.emitU16(us_sym_idx);
+
+        const inner_reg = try self.allocReg();
+        try compileQQ(self, types.car(rest), inner_reg, depth - 1);
+
+        // Build (inner . ())
+        const nil_reg = try self.allocReg();
+        try self.emitOp(.load_nil);
+        try self.emitU16(nil_reg);
+        const inner_pair_reg = try self.allocReg();
+        try self.emitOp(.cons);
+        try self.emitU16(inner_pair_reg);
+        try self.emitU16(inner_reg);
+        try self.emitU16(nil_reg);
+        self.freeReg(); // nil_reg
+
+        // Build (unquote-splicing inner . ())
+        try self.emitOp(.cons);
+        try self.emitU16(dst);
+        try self.emitU16(sym_reg);
+        try self.emitU16(inner_pair_reg);
+
+        self.freeReg(); // inner_pair_reg
+        self.freeReg(); // inner_reg
+        self.freeReg(); // sym_reg
+        return;
     }
 
     // Check for (quasiquote expr) -- nested quasiquote
@@ -471,6 +527,32 @@ fn compileQQSplicing(self: *Compiler, tmpl: Value, dst: u16, depth: u8) CompileE
     var group_count: usize = 0;
 
     while (types.isPair(current)) {
+        // Detect dotted unquote tail (#852): when the current pair looks
+        // like (unquote <expr>) — car is the unquote symbol and cdr is a
+        // one-element list — this is `. ,<expr>` in the template. Flush
+        // the pending group and add the evaluated expression as the final
+        // segment so that `append` uses it as the tail.
+        if (depth == 0 and types.isSymbol(types.car(current))) {
+            const maybe_uq_name = types.symbolName(types.car(current));
+            if (std.mem.eql(u8, maybe_uq_name, "unquote")) {
+                const uq_args = types.cdr(current);
+                if (types.isPair(uq_args) and types.cdr(uq_args) == types.NIL) {
+                    // Flush pending group
+                    if (group_count > 0) {
+                        if (seg_count >= 64) return CompileError.TooManyLocals;
+                        segments_buf[seg_count] = try buildQQListExpr(gc, quote_sym, list_sym, group_buf[0..group_count]);
+                        seg_count += 1;
+                    }
+                    // Add the evaluated tail expression as the final segment
+                    if (seg_count >= 64) return CompileError.TooManyLocals;
+                    segments_buf[seg_count] = types.car(uq_args);
+                    seg_count += 1;
+                    current = types.NIL;
+                    break;
+                }
+            }
+        }
+
         const elem = types.car(current);
         current = types.cdr(current);
 
