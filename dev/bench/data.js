@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783061299803,
+  "lastUpdate": 1783061968746,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "bcee57c1851cb327dce0cb25bed652687c5f22f1",
-          "message": "Fix REPL tab completion for Scheme identifiers (#676)\n\nThe completion callback was matching global names against the entire\ninput line, so it only worked when the identifier started at position 0.\nExtract the last identifier token by scanning backwards for Scheme\ndelimiters, then match against just that token and reconstruct the full\nline for linenoise.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-01T17:39:56+05:30",
-          "tree_id": "ea96112fe5dcc2686a5df1828d9acfc54a66f9a1",
-          "url": "https://github.com/kaappi/kaappi/commit/bcee57c1851cb327dce0cb25bed652687c5f22f1"
-        },
-        "date": 1782908511197,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.32513,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.423232,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.83013,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.102661,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006862,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.03227,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.455923,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.068453,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.91827,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.773433,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.084402,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.222759,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 2.40171,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.590929,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.040128,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.042439,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d1e9616d0090cfee4c0cb96678e11680a0f85256",
+          "message": "Remove dead .sbc cache-read path for .sld libraries (#937)\n\nWriting .sbc caches for .sld files has been disabled for a while (the\nserializer could hit a use-after-free when GC ran during library\nloading), but tryLoadLibraryFromFile still probed for and accepted\nexisting .sbc files. On such a hit it reconstructed the export table by\nre-parsing only the top level of the .sld, silently dropping exports\ndeclared via include-library-declarations or nested inside cond-expand\nbranches — the import then succeeded with no bindings and every use\nsite failed with \"undefined variable\". The path also looked up exports\nin vm.globals rather than the per-library environment, and any library\nexporting macros fell through to source compilation anyway.\n\nDelete the read path, extractExportsAndImports, and LibraryMeta\nentirely: .sld libraries now always compile from source and a stale or\nhand-built .sbc next to a .sld is ignored. If caching is ever\nreintroduced, the export table should be serialized into the .sbc\ninstead of re-derived from source. Main-program .sbc caching in\nmain.zig is unaffected.\n\nThe regression test hand-builds a hash-matching .sbc next to a .sld\nthat declares its exports through include-library-declarations and\ncond-expand, and verifies both exports survive the import.\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-03T06:45:18Z",
+          "tree_id": "4e67eea0f3066e97da263ee327b15fde069b2ae6",
+          "url": "https://github.com/kaappi/kaappi/commit/d1e9616d0090cfee4c0cb96678e11680a0f85256"
+        },
+        "date": 1783061968341,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.549643,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.130233,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.868504,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.30137,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006967,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.034333,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.472166,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.070924,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 4.146019,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.816356,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.250585,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.437679,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 2.434968,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.749203,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.042991,
             "unit": "seconds"
           }
         ]
