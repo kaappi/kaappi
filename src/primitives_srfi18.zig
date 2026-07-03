@@ -261,6 +261,10 @@ fn threadEntryFn(fiber: *fiber_mod.Fiber, allocator: std.mem.Allocator, parent_g
     vm_mod.vm_instance = child_vm;
     primitives.gc_instance = child_gc;
 
+    // Let thread-terminate! from the parent stop this thread: the dispatch
+    // loop safepoint polls this flag and unwinds with VMError.Terminated.
+    child_vm.terminate_flag = &fiber.terminated;
+
     {
         while (!child_resources_mutex.tryLock()) {}
         defer child_resources_mutex.unlock();
@@ -361,7 +365,8 @@ fn threadTerminateFn(args: []const Value) PrimitiveError!Value {
     const ctx = try ensureScheduler();
     const fiber = types.toObject(args[0]).as(fiber_mod.Fiber);
 
-    fiber.terminated = true;
+    // Atomic: for OS threads the child VM polls this flag concurrently.
+    @atomicStore(bool, &fiber.terminated, true, .monotonic);
 
     if (primitives.gc_instance) |gc| abandonFiberMutexes(gc, fiber, ctx.sched);
 

@@ -7,6 +7,28 @@ const primitives = @import("primitives.zig");
 const srfi18 = @import("primitives_srfi18.zig");
 const vm_mod = @import("vm.zig");
 
+// Regression test: thread-terminate! on a busy-looping OS thread must stop
+// it so thread-join! returns (raising terminated-thread-exception) instead of
+// blocking forever in pthread_join. The child VM polls fiber.terminated at
+// the dispatch-loop safepoint.
+test "thread-terminate! stops busy OS thread and join raises terminated" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    const result = try vm.eval(
+        \\(let ((t (make-thread (lambda () (let loop () (loop))))))
+        \\  (thread-start! t)
+        \\  (thread-terminate! t)
+        \\  (guard (e (#t (if (terminated-thread-exception? e) 'terminated 'other)))
+        \\    (thread-join! t)
+        \\    'no-exception))
+    );
+    try std.testing.expect(types.isSymbol(result));
+    try std.testing.expectEqualStrings("terminated", types.symbolName(result));
+}
+
 test "abandonFiberMutexes marks owned mutex abandoned" {
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
