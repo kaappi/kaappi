@@ -87,6 +87,45 @@
           (loop (cons val acc)))))
   '(15 25))
 
+;; --- generic variadic pipeline builder (kaappi-book shape) ---------------
+;; The book's `pipeline` builds every stage inside one recursive `let loop`,
+;; so each spawned fiber closes over the loop-local `ch` and `procs`. A
+;; two-or-more-stage pipeline built this way used to make the scheduler
+;; return void (the consumer spun forever emitting garbage / the program
+;; dropped remaining forms). Verify it now delivers every value in order.
+(define (pipeline input-ch . stages)
+  (let loop ((ch input-ch) (procs stages))
+    (if (null? procs)
+        ch
+        (let ((out-ch (make-channel)))
+          (spawn (lambda ()
+            (let process ()
+              (let ((val (channel-receive ch)))
+                (unless (eq? val 'eof)
+                  (channel-send out-ch ((car procs) val))
+                  (process))))
+            (channel-send out-ch 'eof)))
+          (loop out-ch (cdr procs))))))
+
+(define gsrc (make-channel))
+(define gout
+  (pipeline gsrc
+            (lambda (x) (* x x))   ; square
+            (lambda (x) (+ x 1))   ; add 1
+            (lambda (x) (* x 10)))) ; scale
+(define gproducer
+  (spawn (lambda ()
+    (for-each (lambda (n) (channel-send gsrc n)) '(1 2 3 4 5))
+    (channel-send gsrc 'eof))))
+
+(check "variadic pipeline (three stages) delivers all values"
+  (let loop ((acc '()))
+    (let ((val (channel-receive gout)))
+      (if (eq? val 'eof)
+          (reverse acc)
+          (loop (cons val acc)))))
+  '(20 50 100 170 260))
+
 ;; --- deadlock with a blocked fiber ---------------------------------------
 ;; Main and a spawned fiber both wait on a channel nobody sends to:
 ;; the main receive must raise, not return an unspecified value.

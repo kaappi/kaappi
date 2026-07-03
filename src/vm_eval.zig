@@ -15,7 +15,11 @@ pub fn eval(vm: *VM, source: []const u8) VMError!Value {
 
     var last_result: Value = types.VOID;
     while (reader.hasMore() catch return VMError.CompileError) {
-        const expr = reader.readDatum() catch return VMError.CompileError;
+        var expr = reader.readDatum() catch return VMError.CompileError;
+        // Root the form: evaluating it (e.g. an import that loads a library)
+        // can trigger GC, which would otherwise reclaim the AST mid-walk.
+        vm.gc.pushRoot(&expr) catch return VMError.OutOfMemory;
+        defer vm.gc.popRoot();
         if (handleTopLevelForm(vm, expr)) |result| {
             last_result = result catch |err| return err;
             continue;

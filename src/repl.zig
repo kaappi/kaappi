@@ -977,13 +977,21 @@ fn evalInputInner(vm: *vm_mod.VM, allocator: std.mem.Allocator, input: []const u
         writeStderr(s);
         break :blk false;
     }) {
-        const expr = r.readDatum() catch |err| {
+        var expr = r.readDatum() catch |err| {
             const lc = r.getLineCol();
             var errbuf: [256]u8 = undefined;
             const s = std.fmt.bufPrint(&errbuf, "<repl>:{d}:{d}: read error: {}\n", .{ lc.line, lc.col, err }) catch "read error\n";
             writeStderr(s);
             break;
         };
+
+        // Root the form: evaluating it (e.g. an import that loads a library)
+        // can trigger GC, which would otherwise reclaim the AST mid-walk.
+        vm.gc.pushRoot(&expr) catch {
+            writeStderr("error: out of memory while rooting expression\n");
+            break;
+        };
+        defer vm.gc.popRoot();
 
         if (vm.handleTopLevelForm(expr)) |top_result| {
             const result = top_result catch |err| {

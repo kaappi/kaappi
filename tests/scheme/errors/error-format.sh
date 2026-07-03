@@ -178,6 +178,29 @@ assert_output_contains "mismatched ellipsis lengths rejected cleanly" \
     '(define-syntax zip (syntax-rules () ((zip (a ...) (b ...)) (quote ((a b) ...))))) (zip (1 2 3) (4 5))' \
     "compile error"
 
+# --- Uncaught exceptions carry message and irritants ---
+echo
+echo "-- Uncaught exceptions --"
+
+assert_output_contains "uncaught (error ...) shows message" \
+    '(error "something went wrong" 42)' 'error: something went wrong 42'
+
+assert_output_contains "uncaught (error ...) writes irritants" \
+    '(error "kaboom" (list 1 2) "x")' 'error: kaboom (1 2) "x"'
+
+assert_output_contains "uncaught raise of non-error object shows the value" \
+    "(raise 'oops)" 'error: uncaught exception: oops'
+
+assert_output_contains "uncaught exception inside procedure shows message" \
+    '(define (f) (error "boom" 1)) (f)' 'error: boom 1'
+
+cat > "$TMPDIR/uncaught.scm" << 'SCHEME'
+(error "script boom" 7)
+SCHEME
+
+assert_file_output_contains "uncaught (error ...) in script shows message" \
+    "$TMPDIR/uncaught.scm" 'error: script boom 7'
+
 rm -rf "$TMPDIR"
 
 echo
