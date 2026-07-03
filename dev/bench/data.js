@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783092338616,
+  "lastUpdate": 1783093407814,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "a38fe8d5a148b2c7a296ca28259b911d3a5b1854",
-          "message": "Merge pull request #765 from kaappi/fix/754-757-759-vm-library-gc-safety\n\nFix GC safety in vm_library: root AST, write barrier, root includes",
-          "timestamp": "2026-07-02T17:48:48+05:30",
-          "tree_id": "755a3f7d38f9284b25ff895f589fe83fa91ab87b",
-          "url": "https://github.com/kaappi/kaappi/commit/a38fe8d5a148b2c7a296ca28259b911d3a5b1854"
-        },
-        "date": 1782995546353,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.38308,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.269825,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.79666,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.179318,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.007103,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.03232,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.452496,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.069126,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.949517,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.752596,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.109162,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.224448,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 2.398286,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.677412,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.04236,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.04296,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "57959cd2407c6ee7b61a33e86ddfa3cdaf1e7fa2",
+          "message": "Handle cond-expand and nested include-library-declarations in ILD (#874) (#982)\n\nincludeLibraryDeclarations only handled export, import, begin, include,\nand include-ci — cond-expand and nested include-library-declarations were\nsilently dropped. Extract per-declaration processing into\nprocessLibDeclaration with all six R7RS library declaration types so\nspliced declarations are handled the same as directly-written ones.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-03T15:28:20Z",
+          "tree_id": "838d712ae1f7bbf3e6e7bc044e8997eb5420257b",
+          "url": "https://github.com/kaappi/kaappi/commit/57959cd2407c6ee7b61a33e86ddfa3cdaf1e7fa2"
+        },
+        "date": 1783093406798,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.152242,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.022722,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.676428,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.850081,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.005233,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.026332,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.377736,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.056153,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.380471,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.437086,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 0.933053,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.369985,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.310105,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.321913,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.035058,
             "unit": "seconds"
           }
         ]
