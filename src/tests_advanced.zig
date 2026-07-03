@@ -610,3 +610,75 @@ test "nested quasiquote double unquote" {
     defer std.testing.allocator.free(s);
     try std.testing.expectEqualStrings("(a (quasiquote (b (unquote 1))))", s);
 }
+
+// ---------------------------------------------------------------------------
+// Closures with many captured variables (#809)
+// ---------------------------------------------------------------------------
+
+// Builds a program of the form
+//   (define f (lambda () (define v0 0) ... (define v{n-1} {n-1})
+//                        (lambda () (+ v0 (+ v1 ... (+ v{n-2} v{n-1}))))))
+//   ((f))
+// The inner lambda captures every v_i as an upvalue, so the returned closure
+// has exactly `n` upvalues. Evaluating it yields 0+1+...+(n-1) = n*(n-1)/2.
+// Pairwise `+` keeps every call under the 256-argument limit so the only thing
+// under test is the upvalue count. Requires n >= 2.
+fn buildManyCaptureProgram(src: *std.ArrayList(u8), n: usize) !void {
+    const a = std.testing.allocator;
+    try src.appendSlice(a, "(define f (lambda ()");
+    var i: usize = 0;
+    while (i < n) : (i += 1) {
+        const line = try std.fmt.allocPrint(a, " (define v{d} {d})", .{ i, i });
+        defer a.free(line);
+        try src.appendSlice(a, line);
+    }
+    try src.appendSlice(a, " (lambda () ");
+    i = 0;
+    while (i + 1 < n) : (i += 1) {
+        const piece = try std.fmt.allocPrint(a, "(+ v{d} ", .{i});
+        defer a.free(piece);
+        try src.appendSlice(a, piece);
+    }
+    const last = try std.fmt.allocPrint(a, "v{d}", .{n - 1});
+    defer a.free(last);
+    try src.appendSlice(a, last);
+    i = 0;
+    while (i + 1 < n) : (i += 1) try src.append(a, ')');
+    try src.appendSlice(a, ")))"); // close inner lambda, outer lambda, define
+    try src.appendSlice(a, " ((f))");
+}
+
+test "closure capturing 27 variables does not overflow byte accounting (#809)" {
+    // Regression: allocClosure computed `@sizeOf(Closure) + upvalue_count *
+    // @sizeOf(Value)` in u8 arithmetic, overflowing (panic) at 27 captures.
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    const n = 27;
+    var src: std.ArrayList(u8) = .empty;
+    defer src.deinit(std.testing.allocator);
+    try buildManyCaptureProgram(&src, n);
+
+    const result = try vm.eval(src.items);
+    try std.testing.expectEqual(@as(i64, n * (n - 1) / 2), types.toFixnum(result));
+}
+
+test "closure capturing more than 255 variables compiles and runs (#809)" {
+    // Regression: addUpvalue did `@intCast` of the upvalue count into a u8
+    // upvalue_count field, panicking (compile-time) past 255 captures. The
+    // field is now u16, matching the u16 upvalue index in the bytecode.
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    const n = 300;
+    var src: std.ArrayList(u8) = .empty;
+    defer src.deinit(std.testing.allocator);
+    try buildManyCaptureProgram(&src, n);
+
+    const result = try vm.eval(src.items);
+    try std.testing.expectEqual(@as(i64, n * (n - 1) / 2), types.toFixnum(result));
+}

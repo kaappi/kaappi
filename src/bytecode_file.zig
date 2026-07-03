@@ -9,7 +9,7 @@ const GC = memory.GC;
 
 // File format constants
 const MAGIC = [4]u8{ 'K', 'P', 'B', 'C' };
-const VERSION: u16 = 4;
+const VERSION: u16 = 5;
 const MAX_FUNCTIONS: u32 = 16_384;
 const MAX_TOP_LEVEL_FUNCTIONS: u32 = 4_096;
 const MAX_CODE_BYTES: u32 = 4_194_304;
@@ -620,7 +620,7 @@ fn writeFunctionsToBuffer(w: *Writer, allocator: std.mem.Allocator, top_level_fu
     for (all_funcs) |func| {
         try w.writeU8(allocator, func.arity);
         try w.writeU16(allocator, func.locals_count);
-        try w.writeU8(allocator, func.upvalue_count);
+        try w.writeU16(allocator, func.upvalue_count);
         try w.writeU8(allocator, if (func.is_variadic) @as(u8, 1) else @as(u8, 0));
 
         if (func.name) |name| {
@@ -761,7 +761,7 @@ fn deserializeFromBuffer(gc: *GC, data: []const u8, expected_hash: ?u64) !?Deser
 
         func.arity = r.readU8() catch return null;
         func.locals_count = r.readU16() catch return null;
-        func.upvalue_count = r.readU8() catch return null;
+        func.upvalue_count = r.readU16() catch return null;
         const variadic_byte = r.readU8() catch return null;
         func.is_variadic = variadic_byte != 0;
 
@@ -1282,7 +1282,7 @@ test "bytecode validation rejects invalid opcode" {
     // Function header
     try w.writeU8(allocator, 0); // arity
     try w.writeU16(allocator, 1); // locals_count
-    try w.writeU8(allocator, 0); // upvalue_count
+    try w.writeU16(allocator, 0); // upvalue_count
     try w.writeU8(allocator, 0); // is_variadic
     try w.writeU16(allocator, 0); // name_len
 
