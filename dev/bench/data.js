@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783100543087,
+  "lastUpdate": 1783100808080,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "c39666762db2fce8d1112de933b858c9eade4733",
-          "message": "Merge pull request #769 from kaappi/fix/741-toRationalParts-type-check\n\nFix toRationalParts to return null for non-numeric types",
-          "timestamp": "2026-07-02T18:52:33+05:30",
-          "tree_id": "d7216b929b5c8661be7c90a9d542ec7036c9e32a",
-          "url": "https://github.com/kaappi/kaappi/commit/c39666762db2fce8d1112de933b858c9eade4733"
-        },
-        "date": 1782999429981,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.07035,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.499165,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.837135,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.20506,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.007413,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.031991,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.453595,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.067819,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.847524,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.739223,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.094877,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.24348,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 2.405332,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.872201,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.043396,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044233,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "aa57b7e16396416567d0ee97afdeb5cc447b03f3",
+          "message": "Fix LLVM backend eval fallback losing lexical environment (#827) (#987)\n\nWhen the native backend compiled a let or lambda body natively but a\nsub-form (cond, do, letrec, etc.) required interpreter eval fallback,\nthe sub-form was serialized and evaluated via kaappi_eval in the global\nenvironment — losing let-bound locals and clobbering same-named globals\nvia bindParamsAsGlobals.\n\nThe fix prevents splitting a lexical scope across the native/interpreted\nboundary:\n\n- emitLet: detect eval-fallback forms and capturing lambdas upfront;\n  fall back to evaluating the entire let form via the interpreter.\n- tryCompileDefineFunction / tryCompileNativeClosure /\n  tryCompilePureLambdaAsNativeClosure: reject native compilation when\n  the body contains forms needing eval fallback.\n- emitLambdaViaEval: return an error inside a let scope so the\n  enclosing let can fall back instead of creating a broken closure.\n- emitLetFallback: fix S-expression serialization that added an extra\n  layer of parentheses around the form args.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-03T22:56:32+05:30",
+          "tree_id": "739d9c6403f6e49522d32fb0a27e217c6011c249",
+          "url": "https://github.com/kaappi/kaappi/commit/aa57b7e16396416567d0ee97afdeb5cc447b03f3"
+        },
+        "date": 1783100806957,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.030117,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.720003,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.904786,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.374021,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.00679,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.033655,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.489111,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.068917,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 4.034128,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.869529,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.188755,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.477124,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.701949,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.899584,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044324,
             "unit": "seconds"
           }
         ]
