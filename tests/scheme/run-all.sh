@@ -118,17 +118,6 @@ if [[ $R7RS_STATUS -ne 0 ]]; then
     echo "--- last 20 lines stdout ---"
     tail -20 /tmp/kaappi-r7rs-stdout 2>/dev/null || true
     echo "--- end crash context ---"
-    # Retry without JIT to isolate JIT-related crashes
-    echo "  Retrying with --no-jit..."
-    set +e
-    R7RS_NOJIT="$("$KAAPPI" --no-jit tests/scheme/r7rs/r7rs-tests.scm 2>&1)"
-    R7RS_NOJIT_STATUS=$?
-    set -e
-    R7RS_NOJIT_PASS=$(printf "%s\n" "$R7RS_NOJIT" | awk '{for (i = 1; i < NF; i++) { w=$(i+1); gsub(",", "", w); if ($i ~ /^[0-9]+$/ && w == "pass") s += $i }} END {print s + 0}')
-    echo "  --no-jit: $R7RS_NOJIT_PASS pass (exit $R7RS_NOJIT_STATUS)"
-    if [[ $R7RS_NOJIT_STATUS -ne 0 ]]; then
-        printf "%s\n" "$R7RS_NOJIT" | tail -40
-    fi
     R7RS_STATUS_FAIL=1
 fi
 

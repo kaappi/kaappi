@@ -52,13 +52,18 @@ fn ffiOpen(args: []const Value) PrimitiveError!Value {
         return gc.allocFfiLibrary(handle, str.data[0..str.len]) catch return PrimitiveError.OutOfMemory;
     }
 
-    // On macOS, try with .dylib suffix
-    if (str.len + 6 < buf.len) {
-        @memcpy(buf[str.len..][0..6], ".dylib");
-        buf[str.len + 6] = 0;
-        const cname2: [*:0]const u8 = @ptrCast(buf[0 .. str.len + 6 :0]);
-        if (std.c.dlopen(cname2, std.c.RTLD{ .LAZY = true })) |handle| {
-            return gc.allocFfiLibrary(handle, str.data[0..str.len]) catch return PrimitiveError.OutOfMemory;
+    // Try platform library suffixes. ".so.6" covers glibc's core libraries
+    // (libm, libc), where the unversioned .so is a linker script that
+    // dlopen cannot load.
+    const platform_suffixes = [_][]const u8{ ".dylib", ".so", ".so.6" };
+    for (platform_suffixes) |suffix| {
+        if (str.len + suffix.len < buf.len) {
+            @memcpy(buf[str.len..][0..suffix.len], suffix);
+            buf[str.len + suffix.len] = 0;
+            const cname2: [*:0]const u8 = @ptrCast(buf[0 .. str.len + suffix.len :0]);
+            if (std.c.dlopen(cname2, std.c.RTLD{ .LAZY = true })) |handle| {
+                return gc.allocFfiLibrary(handle, str.data[0..str.len]) catch return PrimitiveError.OutOfMemory;
+            }
         }
     }
 

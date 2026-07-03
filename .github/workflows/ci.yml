@@ -79,6 +79,9 @@ jobs:
       - name: Error format tests
         run: bash tests/scheme/errors/error-format.sh
 
+      - name: Exit code tests
+        run: bash tests/scheme/errors/exit-code.sh
+
       - name: E2E tests (LLVM native backend)
         if: matrix.optimize == 'ReleaseSafe' && matrix.os != 'macos-latest'
         run: |

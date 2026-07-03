@@ -316,3 +316,32 @@ test "stale .sbc next to .sld must not drop include-library-declarations exports
     _ = try vm.eval("(import (cachedlib mylib))");
     try std.testing.expectEqual(@as(i64, 42), types.toFixnum(try vm.eval("answer")));
 }
+
+test "imported macro chain resolves library-internal bindings" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    // SRFI 64 pattern: an exported macro expands into an internal helper
+    // macro whose template references a non-exported procedure
+    // (test-assert -> %test-comp1body -> %test-on-test-begin). The internal
+    // procedure must be reachable from the use-site expansion even though
+    // only the outer macro was imported.
+    _ = try vm.eval(
+        \\(define-library (chainlib)
+        \\  (import (scheme base))
+        \\  (export outer)
+        \\  (begin
+        \\    (define (%internal x) (+ x 1))
+        \\    (define-syntax %helper
+        \\      (syntax-rules ()
+        \\        ((_ e) (%internal e))))
+        \\    (define-syntax outer
+        \\      (syntax-rules ()
+        \\        ((_ e) (%helper e))))))
+    );
+    _ = try vm.eval("(import (chainlib))");
+    const result = try vm.eval("(outer 41)");
+    try std.testing.expectEqual(@as(i64, 42), types.toFixnum(result));
+}

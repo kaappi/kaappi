@@ -203,8 +203,17 @@ pub fn main(init: std.process.Init.Minimal) !void {
     return mainInner(init);
 }
 
+/// Set when a script (file or stdin) hit an uncaught read/compile/runtime
+/// error that was reported but recovered from. Scripts must exit non-zero in
+/// that case so callers (e.g. tests/scheme/run-all.sh) can detect the failure;
+/// REPL sessions never set this.
+var script_had_error: bool = false;
+
 fn mainInner(init: std.process.Init.Minimal) void {
-    mainImpl(init) catch {};
+    mainImpl(init) catch {
+        std.process.exit(1);
+    };
+    if (script_had_error) std.process.exit(1);
 }
 
 fn mainImpl(init: std.process.Init.Minimal) !void {
@@ -670,6 +679,7 @@ fn runFile(vm: *vm_mod.VM, path: []const u8) !void {
     defer vm.current_lib_dir = saved_lib_dir;
 
     const source = readFileContents(allocator, path) catch {
+        script_had_error = true;
         return;
     };
     defer allocator.free(source);
@@ -721,6 +731,7 @@ fn runFile(vm: *vm_mod.VM, path: []const u8) !void {
                 vm.gc.pushRoot(&func_val) catch return error.OutOfMemory;
                 const result = vm.execute(func) catch |err| {
                     vm.gc.popRoot();
+                    script_had_error = true;
                     const detail = vm.getErrorDetail();
                     if (detail.len > 0) {
                         var errbuf: [256]u8 = undefined;
@@ -765,6 +776,7 @@ fn runFile(vm: *vm_mod.VM, path: []const u8) !void {
         var errbuf: [256]u8 = undefined;
         const s = std.fmt.bufPrint(&errbuf, "{s}:{d}:{d}: read error: {}\n", .{ path, lc.line, lc.col, err }) catch "read error\n";
         writeStderr(s);
+        script_had_error = true;
         return;
     }) {
         const datum_lc = r.getLineCol();
@@ -773,6 +785,7 @@ fn runFile(vm: *vm_mod.VM, path: []const u8) !void {
             var errbuf: [256]u8 = undefined;
             const s = std.fmt.bufPrint(&errbuf, "{s}:{d}:{d}: read error: {}\n", .{ path, lc.line, lc.col, err }) catch "read error\n";
             writeStderr(s);
+            script_had_error = true;
             return;
         };
 
@@ -780,6 +793,7 @@ fn runFile(vm: *vm_mod.VM, path: []const u8) !void {
         if (vm.handleTopLevelForm(expr)) |top_result| {
             has_imports = true;
             const result = top_result catch |err| {
+                script_had_error = true;
                 const detail = vm.getErrorDetail();
                 if (detail.len > 0) {
                     var errbuf: [256]u8 = undefined;
@@ -811,6 +825,7 @@ fn runFile(vm: *vm_mod.VM, path: []const u8) !void {
             var errbuf: [256]u8 = undefined;
             const s = std.fmt.bufPrint(&errbuf, "{s}:{d}: compile error: {}\n", .{ path, datum_lc.line, err }) catch "compile error\n";
             writeStderr(s);
+            script_had_error = true;
             continue;
         };
 
@@ -827,6 +842,7 @@ fn runFile(vm: *vm_mod.VM, path: []const u8) !void {
 
         const result = vm.execute(func) catch |err| {
             vm.gc.popRoot();
+            script_had_error = true;
             const detail = vm.getErrorDetail();
             const err_line = if (vm.last_error_line > 0) vm.last_error_line else datum_lc.line;
             const err_source = vm.last_error_source orelse path;
@@ -886,6 +902,7 @@ fn runStdin(vm: *vm_mod.VM) !void {
     const allocator = vm.gc.allocator;
     const source = readAllStdin(allocator) catch {
         writeStderr("error: failed to read stdin\n");
+        script_had_error = true;
         return;
     };
     defer allocator.free(source);
@@ -898,6 +915,7 @@ fn runStdin(vm: *vm_mod.VM) !void {
         var errbuf: [256]u8 = undefined;
         const s = std.fmt.bufPrint(&errbuf, "<stdin>:{d}:{d}: read error: {}\n", .{ lc.line, lc.col, err }) catch "read error\n";
         writeStderr(s);
+        script_had_error = true;
         return;
     }) {
         const expr = r.readDatum() catch |err| {
@@ -905,11 +923,13 @@ fn runStdin(vm: *vm_mod.VM) !void {
             var errbuf: [256]u8 = undefined;
             const s = std.fmt.bufPrint(&errbuf, "<stdin>:{d}:{d}: read error: {}\n", .{ lc.line, lc.col, err }) catch "read error\n";
             writeStderr(s);
+            script_had_error = true;
             return;
         };
 
         if (vm.handleTopLevelForm(expr)) |top_result| {
             const result = top_result catch |err| {
+                script_had_error = true;
                 const detail = vm.getErrorDetail();
                 if (detail.len > 0) {
                     writeStderr("error: ");
@@ -942,17 +962,20 @@ fn runStdin(vm: *vm_mod.VM) !void {
             var errbuf: [256]u8 = undefined;
             const s = std.fmt.bufPrint(&errbuf, "<stdin>:{d}: compile error: {}\n", .{ lc.line, err }) catch "compile error\n";
             writeStderr(s);
+            script_had_error = true;
             return;
         };
 
         var func_val = types.makePointer(@ptrCast(func));
         vm.gc.pushRoot(&func_val) catch {
             writeStderr("error: out of memory while rooting function\n");
+            script_had_error = true;
             return;
         };
 
         const result = vm.execute(func) catch |err| {
             vm.gc.popRoot();
+            script_had_error = true;
             const detail = vm.getErrorDetail();
             if (detail.len > 0) {
                 writeStderr("error: ");

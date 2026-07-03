@@ -862,7 +862,11 @@ fn doInstall(
     defer allocator.free(lib_src);
     if (dirExists(allocator, lib_src)) {
         writeStdout("  Installing libraries...\n");
-        const src_glob = try std.mem.concat(allocator, u8, &.{ lib_src, "/" });
+        // "src/." copies the directory CONTENTS on both BSD and GNU cp.
+        // A trailing "/" only means that on BSD; GNU cp copies the directory
+        // itself, nesting libraries under lib/lib/ where the loader never
+        // finds them.
+        const src_glob = try std.mem.concat(allocator, u8, &.{ lib_src, "/." });
         defer allocator.free(src_glob);
         const dst_glob = try std.mem.concat(allocator, u8, &.{ config.lib_dir, "/" });
         defer allocator.free(dst_glob);
@@ -1021,7 +1025,8 @@ fn doUpdate(allocator: std.mem.Allocator, config: Config, pkg: ?[]const u8) !voi
         const lib_src = try joinPath(allocator, pkg_dir, "lib");
         defer allocator.free(lib_src);
         if (dirExists(allocator, lib_src)) {
-            const src_glob = try std.mem.concat(allocator, u8, &.{ lib_src, "/" });
+            // "src/." — see doInstall: portable contents-copy for BSD and GNU cp.
+            const src_glob = try std.mem.concat(allocator, u8, &.{ lib_src, "/." });
             defer allocator.free(src_glob);
             const dst_glob = try std.mem.concat(allocator, u8, &.{ config.lib_dir, "/" });
             defer allocator.free(dst_glob);
