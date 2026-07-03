@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783087891292,
+  "lastUpdate": 1783088144639,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "9039b9bd31be2839d4d94f03cf2d1c8865e4bc49",
-          "message": "Merge pull request #731 from kaappi/fix/eval-environment-691\n\nImplement eval environment-specifier and environment procedures",
-          "timestamp": "2026-07-02T14:57:25+05:30",
-          "tree_id": "44d3f4307a639523d56d29c821d44d41bb627170",
-          "url": "https://github.com/kaappi/kaappi/commit/9039b9bd31be2839d4d94f03cf2d1c8865e4bc49"
-        },
-        "date": 1782985337449,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.025842,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.909044,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.854735,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.17815,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.007281,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.032198,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.45158,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.067721,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.875921,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.769721,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.097727,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.248871,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 2.466544,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.737687,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044111,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.041938,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "1ba4e8df6dca95633649ed8e24d1b1632593646d",
+          "message": "Print all values of a multiple-values result at the top level (#972) (#973)\n\nEvery top-level result-printing path truncated a multiple-values result\nto its first value, so (values 3 2) printed just 3. The interactive\nREPL's compiled path was worse: it didn't unwrap at all and echoed the\nraw object (#<values 3 2>). Chez, Guile, Racket, and Chibi all print\neach value on its own line — match that everywhere: interactive REPL,\npiped stdin, file execution (fresh and .sbc-cached), and bundled\nbinaries. (values) and void values print nothing.\n\nThe six copies of the unwrap block in main.zig collapse into one\nprintTopLevelResult helper. In repl.zig the fix must handle .store_last\nmode (the REPL main loop evaluates with it, not .normal); _ still binds\nthe first value and ,type still reports the first value's type.\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-03T14:00:48Z",
+          "tree_id": "c382a3451dffa4760b89d014ea7dfa3f94b4a517",
+          "url": "https://github.com/kaappi/kaappi/commit/1ba4e8df6dca95633649ed8e24d1b1632593646d"
+        },
+        "date": 1783088144202,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.382544,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.860103,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.849179,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.266793,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006396,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.033255,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.475041,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.071496,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 4.161099,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.824731,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.163842,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.441404,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.784368,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.720108,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.045458,
             "unit": "seconds"
           }
         ]
