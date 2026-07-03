@@ -458,3 +458,23 @@ test "thread result containing primitive procedures is callable after join" {
     );
     try std.testing.expectEqual(@as(i64, 42), types.toFixnum(result));
 }
+
+// thread-yield! in a schedulerless child OS thread used to be a silent no-op,
+// causing busy-spin at 100% CPU. After the fix it calls std.Thread.yield()
+// (sched_yield). This test verifies that the yield path coexists with
+// thread-terminate! without leaking error.Yielded (#948).
+test "thread-yield! in child OS thread does not busy-spin or leak Yielded" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    const result = try vm.eval(
+        \\(let ((t (make-thread (lambda () (let loop () (thread-yield!) (loop))))))
+        \\  (thread-start! t)
+        \\  (thread-terminate! t)
+        \\  (guard (e (#t (terminated-thread-exception? e)))
+        \\    (thread-join! t)))
+    );
+    try std.testing.expectEqual(types.TRUE, result);
+}
