@@ -585,6 +585,26 @@ fn writeStringFn(args: []const Value) PrimitiveError!Value {
     return types.VOID;
 }
 
+/// Parses one datum with R7RS 6.13.2 `read` semantics: EOF before any datum
+/// text begins yields null (the caller returns the EOF object); EOF that
+/// interrupts an incomplete datum — including an unterminated comment —
+/// propagates as an error so the caller can signal one satisfying read-error?.
+fn parseDatumForRead(reader: *reader_mod.Reader) reader_mod.ReadError!?Value {
+    if (!try reader.hasMore()) return null;
+    return try reader.readDatum();
+}
+
+fn raiseReadError(gc: *@import("memory.zig").GC) PrimitiveError!Value {
+    var msg = gc.allocString("read error") catch return PrimitiveError.OutOfMemory;
+    gc.pushRoot(&msg) catch return PrimitiveError.OutOfMemory;
+    defer gc.popRoot();
+    const err_obj = gc.allocErrorObject(msg, types.NIL) catch return PrimitiveError.OutOfMemory;
+    const errObj = types.toObject(err_obj).as(types.ErrorObject);
+    errObj.error_type = .read;
+    const raise_args = [1]Value{err_obj};
+    return primitives_control.raiseFn(&raise_args);
+}
+
 fn readDatumFn(args: []const Value) PrimitiveError!Value {
     const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
     const port = try getInputPort(args, 0, "read");
@@ -609,17 +629,11 @@ fn readDatumFn(args: []const Value) PrimitiveError!Value {
 
         var reader = reader_mod.Reader.init(gc, source);
         defer reader.deinit();
-        const datum = reader.readDatum() catch |err| {
-            if (err == reader_mod.ReadError.UnexpectedEof or err == reader_mod.ReadError.OutOfMemory) return types.EOF;
-            var msg = gc.allocString("read error") catch return PrimitiveError.OutOfMemory;
-            gc.pushRoot(&msg) catch return PrimitiveError.OutOfMemory;
-            defer gc.popRoot();
-            const err_obj = gc.allocErrorObject(msg, types.NIL) catch return PrimitiveError.OutOfMemory;
-            const errObj = types.toObject(err_obj).as(types.ErrorObject);
-            errObj.error_type = .read;
-            const raise_args = [1]Value{err_obj};
-            return primitives_control.raiseFn(&raise_args);
+        const maybe_datum = parseDatumForRead(&reader) catch |err| {
+            if (err == reader_mod.ReadError.OutOfMemory) return PrimitiveError.OutOfMemory;
+            return raiseReadError(gc);
         };
+        const datum = maybe_datum orelse return types.EOF;
         // Advance string_pos by amount consumed
         port.string_pos += reader.pos;
         if (combined.items.len > 0 and reader.pos > 0) {
@@ -671,17 +685,11 @@ fn readDatumFn(args: []const Value) PrimitiveError!Value {
     // Parse one datum
     var reader = reader_mod.Reader.init(gc, buf.items);
     defer reader.deinit();
-    const datum = reader.readDatum() catch |err| {
-        if (err == reader_mod.ReadError.UnexpectedEof or err == reader_mod.ReadError.OutOfMemory) return types.EOF;
-        var msg = gc.allocString("read error") catch return PrimitiveError.OutOfMemory;
-        gc.pushRoot(&msg) catch return PrimitiveError.OutOfMemory;
-        defer gc.popRoot();
-        const err_obj = gc.allocErrorObject(msg, types.NIL) catch return PrimitiveError.OutOfMemory;
-        const errObj = types.toObject(err_obj).as(types.ErrorObject);
-        errObj.error_type = .read;
-        const raise_args = [1]Value{err_obj};
-        return primitives_control.raiseFn(&raise_args);
+    const maybe_datum = parseDatumForRead(&reader) catch |err| {
+        if (err == reader_mod.ReadError.OutOfMemory) return PrimitiveError.OutOfMemory;
+        return raiseReadError(gc);
     };
+    const datum = maybe_datum orelse return types.EOF;
 
     // Save unconsumed bytes back to port buffer
     const remaining = buf.items[reader.pos..];
