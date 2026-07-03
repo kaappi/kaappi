@@ -1054,10 +1054,17 @@ pub const Compiler = struct {
                 } else break;
             }
 
-            // If the effective name is a local variable but NOT a hygienic
-            // rename, it's a function call, not a special form.
-            const is_shadowed = self.resolveLocal(name) != null and
-                std.mem.eql(u8, effective_name, name);
+            // If the effective name is a variable binding in scope but NOT a
+            // hygienic rename, it's a function call, not a special form. The
+            // binding may be a same-scope local or an upvalue captured from an
+            // enclosing function, so probe both (mirrors the `apply` and macro
+            // checks below). Probing an upvalue registers it in this function,
+            // but a shadowing name compiles to a call referencing that same
+            // upvalue anyway, so the side effect is harmless. The cheap name
+            // comparison is checked first so hygienic renames short-circuit
+            // without touching the scope-resolution machinery.
+            const is_shadowed = std.mem.eql(u8, effective_name, name) and
+                (self.resolveLocal(name) != null or (try self.resolveUpvalue(name)) != null);
 
             // Primitive forms — only if not shadowed by local binding
             if (!is_shadowed) {

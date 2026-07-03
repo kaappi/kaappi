@@ -547,3 +547,34 @@ test "hygiene: template binding shadows a builtin procedure of the same name" {
     const builtin = try vm.eval("(exact (round (call-exp 0)))");
     try std.testing.expectEqual(@as(i64, 1), types.toFixnum(builtin));
 }
+
+test "keyword shadowed by an enclosing-scope binding compiles as a call inside a lambda (#814)" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    // R7RS has no reserved words: a lexical binding shadows a syntactic
+    // keyword throughout its scope, including inner lambdas. When the
+    // binding lives in an enclosing function scope the reference resolves
+    // as an upvalue, so the shadowing guard in compileForm must probe
+    // resolveUpvalue in addition to resolveLocal. Previously these forms
+    // were still compiled as the special form and returned the wrong value.
+
+    // Control: same-scope shadowing already worked.
+    try std.testing.expectEqual(types.TRUE, try vm.eval("(equal? (let ((if list)) (if 1 2 3)) '(1 2 3))"));
+
+    // Captured (upvalue) shadowing across a lambda boundary.
+    try std.testing.expectEqual(types.TRUE, try vm.eval("(equal? ((let ((if list))    (lambda () (if 1 2 3)))) '(1 2 3))"));
+    try std.testing.expectEqual(types.TRUE, try vm.eval("(equal? ((let ((and list))   (lambda () (and 1 2))))  '(1 2))"));
+    try std.testing.expectEqual(types.TRUE, try vm.eval("(equal? ((let ((begin list)) (lambda () (begin 1 2)))) '(1 2))"));
+    try std.testing.expectEqual(types.TRUE, try vm.eval("(equal? ((let ((when list))  (lambda () (when 1 2))))  '(1 2))"));
+
+    // Two levels deep: the binding resolves as an upvalue-of-an-upvalue.
+    try std.testing.expectEqual(types.TRUE, try vm.eval("(equal? (((let ((if list)) (lambda () (lambda () (if 1 2 3)))))) '(1 2 3))"));
+
+    // A macro that expands to a genuine `if` must still compile it as the
+    // special form; the shadow probe must not disturb hygienic renames.
+    _ = try vm.eval("(define-syntax my-if (syntax-rules () ((_ a b c) (if a b c))))");
+    try std.testing.expectEqualStrings("yes", types.symbolName(try vm.eval("(my-if #t 'yes 'no)")));
+}
