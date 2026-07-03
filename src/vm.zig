@@ -185,6 +185,7 @@ pub const VM = struct {
     wind_count: usize = 0,
     continuation_invoked: bool = false,
     continuation_value: Value = types.VOID,
+    continuation_generation: u32 = 0,
     stdin_port: Value = types.VOID,
     stdout_port: Value = types.VOID,
     stderr_port: Value = types.VOID,
@@ -556,6 +557,7 @@ pub const VM = struct {
             const saved_frame_count = self.frame_count;
             const saved_handler_count = self.handler_count;
             const saved_wind_count = self.wind_count;
+            const saved_cgen = self.continuation_generation;
             self.frames[self.frame_count] = .{
                 .closure = closure,
                 .code = func.code.items,
@@ -568,12 +570,14 @@ pub const VM = struct {
 
             const result = self.runUntil(saved_frame_count, saved_wind_count) catch |err| {
                 if (err == VMError.ContinuationInvoked) {
-                    if (self.frame_count >= saved_frame_count) return self.continuation_value;
+                    if (self.continuation_generation == saved_cgen and self.frame_count >= saved_frame_count) return self.continuation_value;
                     return err;
                 }
-                self.frame_count = saved_frame_count;
-                self.handler_count = saved_handler_count;
-                self.wind_count = saved_wind_count;
+                if (self.continuation_generation == saved_cgen) {
+                    self.frame_count = saved_frame_count;
+                    self.handler_count = saved_handler_count;
+                    self.wind_count = saved_wind_count;
+                }
                 return err;
             };
             return result;
@@ -644,6 +648,7 @@ pub const VM = struct {
             const saved_frame_count = self.frame_count;
             const saved_handler_count = self.handler_count;
             const saved_wind_count = self.wind_count;
+            const saved_cgen = self.continuation_generation;
             self.frames[self.frame_count] = .{
                 .closure = closure,
                 .code = func.code.items,
@@ -658,15 +663,17 @@ pub const VM = struct {
                 if (err == VMError.ContinuationInvoked) {
                     // If the escape continuation targeted a frame within our
                     // scope, the value has been delivered — return it.
-                    if (self.frame_count >= saved_frame_count) {
+                    if (self.continuation_generation == saved_cgen and self.frame_count >= saved_frame_count) {
                         return self.continuation_value;
                     }
                     return err;
                 }
                 // On error, unwind any frames that were pushed during the thunk
-                self.frame_count = saved_frame_count;
-                self.handler_count = saved_handler_count;
-                self.wind_count = saved_wind_count;
+                if (self.continuation_generation == saved_cgen) {
+                    self.frame_count = saved_frame_count;
+                    self.handler_count = saved_handler_count;
+                    self.wind_count = saved_wind_count;
+                }
                 return err;
             };
             return result;
@@ -780,6 +787,7 @@ pub const VM = struct {
             const saved_frame_count = self.frame_count;
             const saved_handler_count = self.handler_count;
             const saved_wind_count = self.wind_count;
+            const saved_cgen = self.continuation_generation;
             self.frames[self.frame_count] = .{
                 .closure = closure,
                 .code = func.code.items,
@@ -792,12 +800,14 @@ pub const VM = struct {
 
             const result = self.runUntil(saved_frame_count, saved_wind_count) catch |err| {
                 if (err == VMError.ContinuationInvoked) {
-                    if (self.frame_count >= saved_frame_count) return self.continuation_value;
+                    if (self.continuation_generation == saved_cgen and self.frame_count >= saved_frame_count) return self.continuation_value;
                     return err;
                 }
-                self.frame_count = saved_frame_count;
-                self.handler_count = saved_handler_count;
-                self.wind_count = saved_wind_count;
+                if (self.continuation_generation == saved_cgen) {
+                    self.frame_count = saved_frame_count;
+                    self.handler_count = saved_handler_count;
+                    self.wind_count = saved_wind_count;
+                }
                 return err;
             };
             return result;
