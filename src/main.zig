@@ -180,6 +180,16 @@ fn readFileContents(allocator: std.mem.Allocator, path: []const u8) ![]u8 {
     }
     defer _ = std.c.close(fd);
 
+    if (comptime !is_wasm) {
+        var stat: std.c.Stat = undefined;
+        if (std.c.fstat(fd, &stat) == 0) {
+            if (stat.mode & std.posix.S.IFMT == std.posix.S.IFDIR) {
+                std.debug.print("Error: '{s}' is a directory\n", .{path});
+                return error.IsDir;
+            }
+        }
+    }
+
     const max_size: usize = 1024 * 1024;
     var result: std.ArrayList(u8) = .empty;
     defer result.deinit(allocator);
@@ -189,8 +199,10 @@ fn readFileContents(allocator: std.mem.Allocator, path: []const u8) ![]u8 {
         const raw = std.c.read(fd, &tmp, tmp.len);
         if (raw == 0) break;
         if (raw < 0) {
-            if (std.posix.errno(raw) == .INTR) continue;
-            break;
+            const e = std.posix.errno(raw);
+            if (e == .INTR) continue;
+            std.debug.print("Error reading file '{s}': {s}\n", .{ path, @tagName(e) });
+            return error.InputOutput;
         }
         const bytes_read: usize = @intCast(raw);
         if (result.items.len + bytes_read > max_size) {
