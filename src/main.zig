@@ -808,7 +808,9 @@ fn runFile(vm: *vm_mod.VM, path: []const u8) !void {
                     var pr = reader.Reader.init(vm.gc, src);
                     defer pr.deinit();
                     while (pr.hasMore() catch break) {
-                        const expr = pr.readDatum() catch break;
+                        var expr = pr.readDatum() catch break;
+                        vm.gc.pushRoot(&expr) catch break;
+                        defer vm.gc.popRoot();
                         if (vm.handleTopLevelForm(expr)) |top_result| {
                             _ = top_result catch {};
                         }
@@ -861,7 +863,7 @@ fn runFile(vm: *vm_mod.VM, path: []const u8) !void {
         return;
     }) {
         const datum_lc = r.getLineCol();
-        const expr = r.readDatum() catch |err| {
+        var expr = r.readDatum() catch |err| {
             const lc = r.getLineCol();
             var errbuf: [256]u8 = undefined;
             const s = std.fmt.bufPrint(&errbuf, "{s}:{d}:{d}: read error: {}\n", .{ path, lc.line, lc.col, err }) catch "read error\n";
@@ -869,6 +871,15 @@ fn runFile(vm: *vm_mod.VM, path: []const u8) !void {
             script_had_error = true;
             return;
         };
+
+        // Root the form: evaluating it (e.g. an import that loads a library)
+        // can trigger GC, which would otherwise reclaim the AST mid-walk.
+        vm.gc.pushRoot(&expr) catch {
+            writeStderr("error: out of memory while rooting expression\n");
+            script_had_error = true;
+            return;
+        };
+        defer vm.gc.popRoot();
 
         // Check for special top-level forms (import, define-library)
         if (vm.handleTopLevelForm(expr)) |top_result| {
@@ -978,7 +989,7 @@ fn runStdin(vm: *vm_mod.VM) !void {
         script_had_error = true;
         return;
     }) {
-        const expr = r.readDatum() catch |err| {
+        var expr = r.readDatum() catch |err| {
             const lc = r.getLineCol();
             var errbuf: [256]u8 = undefined;
             const s = std.fmt.bufPrint(&errbuf, "<stdin>:{d}:{d}: read error: {}\n", .{ lc.line, lc.col, err }) catch "read error\n";
@@ -986,6 +997,15 @@ fn runStdin(vm: *vm_mod.VM) !void {
             script_had_error = true;
             return;
         };
+
+        // Root the form: evaluating it (e.g. an import that loads a library)
+        // can trigger GC, which would otherwise reclaim the AST mid-walk.
+        vm.gc.pushRoot(&expr) catch {
+            writeStderr("error: out of memory while rooting expression\n");
+            script_had_error = true;
+            return;
+        };
+        defer vm.gc.popRoot();
 
         if (vm.handleTopLevelForm(expr)) |top_result| {
             const result = top_result catch |err| {
@@ -1069,7 +1089,7 @@ fn disassembleFile(vm: *vm_mod.VM, path: []const u8) !void {
         return;
     }) {
         const datum_lc = r.getLineCol();
-        const expr = r.readDatum() catch |err| {
+        var expr = r.readDatum() catch |err| {
             const lc = r.getLineCol();
             var errbuf: [256]u8 = undefined;
             const s = std.fmt.bufPrint(&errbuf, "{s}:{d}:{d}: read error: {}\n", .{ path, lc.line, lc.col, err }) catch "read error\n";
@@ -1077,6 +1097,15 @@ fn disassembleFile(vm: *vm_mod.VM, path: []const u8) !void {
             script_had_error = true;
             return;
         };
+
+        // Root the form: evaluating it (e.g. an import that loads a library)
+        // can trigger GC, which would otherwise reclaim the AST mid-walk.
+        vm.gc.pushRoot(&expr) catch {
+            writeStderr("error: out of memory while rooting expression\n");
+            script_had_error = true;
+            return;
+        };
+        defer vm.gc.popRoot();
 
         if (vm.handleTopLevelForm(expr)) |top_result| {
             _ = top_result catch |err| {
