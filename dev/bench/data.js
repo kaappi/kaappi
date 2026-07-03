@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783054251643,
+  "lastUpdate": 1783055256453,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "3ad06e1ad7107c997e72b55fdc1274a30e551277",
-          "message": "Merge pull request #672 from kaappi/fix/649-apply-large-arglist\n\nRemove 256-argument cap from apply by using heap-allocated ArrayList",
-          "timestamp": "2026-07-01T15:12:49+05:30",
-          "tree_id": "01d07f32c3e503d5608dd710eac39f6b95b886ac",
-          "url": "https://github.com/kaappi/kaappi/commit/3ad06e1ad7107c997e72b55fdc1274a30e551277"
-        },
-        "date": 1782899688080,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.304785,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.662472,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.827839,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.187661,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006899,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.032764,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.456977,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.06875,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.923349,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.787183,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.105082,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.222937,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 2.456871,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.626846,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.04162,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.039286,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "06e9e0796d107b78635014d8dcae10f9a7a3e7bb",
+          "message": "Scope macro-generated define-syntax to its body (#928)\n\nA define-syntax produced by macro expansion mid-body (e.g. (foo bar x)\nexpanding to (define-syntax bar ...)) escaped its body scope:\ncompileLetBody's leading scan only tracked syntactically-leading\ndefine-syntax forms, while the expanded form reached compileDefineSyntax\nand entered the macro table untracked. The table is copied back into\nvm.macros after every top-level form, so the generated macro leaked into\nall subsequent top-level code, violating R7RS 5.3 (body syntax\ndefinitions are local to the body).\n\nTrack registrations in a body-macro scope stack on the Compiler:\ncompileDefineSyntax records the prior entry whenever a body scope is\nactive, and compileLetBody / compileLetSyntax push/pop scopes that\nrestore entries newest-first on exit. At depth 0 registrations are not\ntracked, preserving top-level persistence — including R7RS 5.1\n(begin ...) splicing. The leading scan now shares this mechanism,\nremoving its fixed 64-macro limit. Lambda bodies need no change: they\ncompile in a per-lambda child compiler whose macro table is discarded.\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-03T10:22:29+05:30",
+          "tree_id": "cbdacdcab277b143d4c9e774cca778d4667601c7",
+          "url": "https://github.com/kaappi/kaappi/commit/06e9e0796d107b78635014d8dcae10f9a7a3e7bb"
+        },
+        "date": 1783055255704,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.329367,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.821042,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.808324,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.100595,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.007139,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.032143,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.45648,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.068565,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.993302,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.668685,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.136837,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.405775,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 2.273673,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 0.954123,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.03866,
             "unit": "seconds"
           }
         ]
