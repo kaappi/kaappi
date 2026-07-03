@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783100808080,
+  "lastUpdate": 1783101787031,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "0f6077ea8bf113f90d448599d502f4c41e7828e0",
-          "message": "Merge pull request #770 from kaappi/fix/744-749-minint-negation-overflow\n\nFix minInt negation overflow in abs, unary minus, and magnitude",
-          "timestamp": "2026-07-02T19:10:16+05:30",
-          "tree_id": "fb9a02317f492691012d5e424dcc231d0911451f",
-          "url": "https://github.com/kaappi/kaappi/commit/0f6077ea8bf113f90d448599d502f4c41e7828e0"
-        },
-        "date": 1783000503746,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.378545,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.63294,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.7967,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.210395,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.007019,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.031866,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.455989,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.070265,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.900664,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.769213,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.091136,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.217188,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 2.398314,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.657373,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.042194,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044324,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d02f6aad69ddb34f90db7fb84eee0aca637c4bfe",
+          "message": "Guard vector-unfold/unfold-right against empty multiple values (#806) (#986)\n\n* Guard vector-unfold/unfold-right against empty multiple values (#806)\n\nWhen the step procedure returns (values) (zero values), both functions\nindexed into an empty array, aborting the interpreter. Return a catchable\ntype error instead. Also fixes vector-unfold-right leaving new_data[i]\nuninitialized (and subsequently pushed into gc.extra_roots) when the\nguard was false.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Pin wasmtime version in CI to fix broken upstream installer\n\nThe wasmtime.dev/install.sh script broke upstream — it resolves the\nlatest version as \"{\" instead of a real tag, causing the WASM CI job\nto fail. Download the tarball directly from GitHub releases instead.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-03T23:17:55+05:30",
+          "tree_id": "7ff89c1784d7a6c866fb1802ff08ea208ee12f0e",
+          "url": "https://github.com/kaappi/kaappi/commit/d02f6aad69ddb34f90db7fb84eee0aca637c4bfe"
+        },
+        "date": 1783101785923,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.364582,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.7749,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.846535,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.344609,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.00643,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.033246,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.474127,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.071117,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 4.101388,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.819273,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.17145,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.435877,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.804982,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.745325,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.047092,
             "unit": "seconds"
           }
         ]
