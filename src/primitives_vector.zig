@@ -899,6 +899,13 @@ fn vectorPartitionFn(args: []const Value) PrimitiveError!Value {
     var no: std.ArrayList(Value) = .empty;
     defer no.deinit(gc.allocator);
 
+    // The predicate runs arbitrary Scheme and may mutate `vec`, displacing an
+    // element whose only remaining reference is the yes/no accumulator. Those
+    // lists are invisible to the GC, so root every classified element to keep
+    // it alive across later predicate calls (which can trigger collection).
+    const roots_base = gc.extra_roots.items.len;
+    defer gc.extra_roots.shrinkRetainingCapacity(roots_base);
+
     for (vec.data) |elem| {
         const call_args_buf = [1]Value{elem};
         const result = try callVM(pred, &call_args_buf);
@@ -907,6 +914,7 @@ fn vectorPartitionFn(args: []const Value) PrimitiveError!Value {
         } else {
             no.append(gc.allocator, elem) catch return PrimitiveError.OutOfMemory;
         }
+        gc.extra_roots.append(gc.allocator, elem) catch return PrimitiveError.OutOfMemory;
     }
 
     const combined = gc.allocator.alloc(Value, yes.items.len + no.items.len) catch return PrimitiveError.OutOfMemory;
