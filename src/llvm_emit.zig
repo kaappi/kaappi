@@ -17,6 +17,7 @@ pub const LLVMEmitter = struct {
     string_decls: std.ArrayList([]const u8),
     lambda_defs: std.ArrayList([]const u8),
     native_fns: std.StringHashMap(NativeLambda),
+    rebound_globals: std.StringHashMap(void),
     params: ?std.StringHashMap(u8),
     upvalues: ?std.StringHashMap(u8),
     tmp_counter: u32,
@@ -39,6 +40,7 @@ pub const LLVMEmitter = struct {
             .string_decls = .empty,
             .lambda_defs = .empty,
             .native_fns = std.StringHashMap(NativeLambda).init(allocator),
+            .rebound_globals = std.StringHashMap(void).init(allocator),
             .params = null,
             .upvalues = null,
             .tmp_counter = 0,
@@ -56,6 +58,7 @@ pub const LLVMEmitter = struct {
         self.string_decls.deinit(self.allocator);
         self.lambda_defs.deinit(self.allocator);
         self.native_fns.deinit();
+        self.rebound_globals.deinit();
     }
 
     pub fn emitProgram(self: *LLVMEmitter, nodes: []const *ir.Node) EmitError!void {
@@ -253,7 +256,7 @@ pub const LLVMEmitter = struct {
                     }
                 }
             }
-            if (!is_shadowed) {
+            if (!is_shadowed and !self.rebound_globals.contains(op_name)) {
                 if (call.args.len == 2) {
                     if (self.tryEmitInlineBinary(op_name, call.args)) |result| return result;
                 }
@@ -658,6 +661,14 @@ pub const LLVMEmitter = struct {
         // the value in the global environment and rebound a global (#819).
         const val = try self.emitScopedValue(data.value);
         try self.emitStoreToVariable(name, val);
+
+        // When set! targets a global, invalidate the native_fns entry so
+        // later call sites fall back to kaappi_global_lookup (#822).
+        if (!self.isNameShadowed(name)) {
+            _ = self.native_fns.fetchRemove(name);
+            self.rebound_globals.put(name, {}) catch {};
+        }
+
         return self.emitVoid();
     }
 
@@ -812,7 +823,11 @@ pub const LLVMEmitter = struct {
                         const fn_name = types.symbolName(types.car(target));
                         const formals = types.cdr(target);
                         const body = types.cdr(rest);
-                        _ = self.tryCompileDefineFunction(fn_name, formals, body);
+                        _ = self.native_fns.fetchRemove(fn_name);
+                        self.rebound_globals.put(fn_name, {}) catch {};
+                        if (self.tryCompileDefineFunction(fn_name, formals, body) != null) {
+                            _ = self.rebound_globals.fetchRemove(fn_name);
+                        }
                     }
                 }
             }
@@ -842,11 +857,20 @@ pub const LLVMEmitter = struct {
 
         const sym_name = try self.internSymbol(name);
 
+        // Remove any stale native_fns entry before attempting native
+        // compilation; tryCompileLambdaNative re-registers if it succeeds.
+        // Mark the name rebound so inline primitive dispatch is suppressed
+        // for later call sites (#822).
+        _ = self.native_fns.fetchRemove(name);
+        self.rebound_globals.put(name, {}) catch {};
+
         if (types.isPair(data.value)) {
             const head = types.car(data.value);
             if (types.isSymbol(head) and std.mem.eql(u8, types.symbolName(head), "lambda")) {
                 const lambda_data = ir.LambdaData{ .args = types.cdr(data.value), .name = name };
-                _ = self.tryCompileLambdaNative(lambda_data);
+                if (self.tryCompileLambdaNative(lambda_data) != null) {
+                    _ = self.rebound_globals.fetchRemove(name);
+                }
             }
         }
 
