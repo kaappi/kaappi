@@ -745,6 +745,62 @@ test "issue #790: unshadowed operator still folds in a lambda body" {
     try std.testing.expectEqual(@as(i64, 3), types.toFixnum(result));
 }
 
+test "IR lowering: begin with >256 sub-expressions" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+    var src: [300 * 4 + 20]u8 = undefined;
+    var pos: usize = 0;
+    @memcpy(src[pos..][0..7], "(begin ");
+    pos += 7;
+    for (0..300) |i| {
+        const written = std.fmt.bufPrint(src[pos..], "{d} ", .{i}) catch unreachable;
+        pos += written.len;
+    }
+    src[pos - 1] = ')';
+    const result = try vm.eval(src[0..pos]);
+    try std.testing.expectEqual(@as(i64, 299), types.toFixnum(result));
+}
+
+test "IR lowering: and with >256 sub-expressions" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+    var src: [300 * 3 + 20]u8 = undefined;
+    var pos: usize = 0;
+    @memcpy(src[pos..][0..5], "(and ");
+    pos += 5;
+    for (0..299) |_| {
+        @memcpy(src[pos..][0..3], "#t ");
+        pos += 3;
+    }
+    @memcpy(src[pos..][0..3], "42)");
+    pos += 3;
+    const result = try vm.eval(src[0..pos]);
+    try std.testing.expectEqual(@as(i64, 42), types.toFixnum(result));
+}
+
+test "IR lowering: or with >256 sub-expressions" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+    var src: [300 * 3 + 20]u8 = undefined;
+    var pos: usize = 0;
+    @memcpy(src[pos..][0..4], "(or ");
+    pos += 4;
+    for (0..299) |_| {
+        @memcpy(src[pos..][0..3], "#f ");
+        pos += 3;
+    }
+    @memcpy(src[pos..][0..3], "42)");
+    pos += 3;
+    const result = try vm.eval(src[0..pos]);
+    try std.testing.expectEqual(@as(i64, 42), types.toFixnum(result));
+}
+
 fn readExpr(gc: *memory.GC, source: []const u8) !types.Value {
     var reader = reader_mod.Reader.init(gc, source);
     defer reader.deinit();
