@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783070057827,
+  "lastUpdate": 1783070426564,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "bbe94b530daa5911e202d9a513ead86461638cf4",
-          "message": "Merge pull request #712 from kaappi/fix/llvm-call-shadowing-684\n\nFix LLVM backend: respect local parameter shadowing in call position",
-          "timestamp": "2026-07-02T09:49:49+05:30",
-          "tree_id": "98696614c19a32ed4ebdbc289b550e71b3f4f654",
-          "url": "https://github.com/kaappi/kaappi/commit/bbe94b530daa5911e202d9a513ead86461638cf4"
-        },
-        "date": 1782966839699,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.317937,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.191905,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.811156,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.119621,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006908,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.032748,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.453038,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.067626,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.952613,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.776169,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.084564,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.223503,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 2.404937,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.692975,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.042716,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.042229,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "95ff929fbd43ca5797c8bfd22aad05b7567e6dc8",
+          "message": "thottam: copy visited-set keys to fix use-after-free on transitive deps (#947)\n\ndoInstall's cycle/dedup guard stored package-name keys by reference. For\na transitive dependency the name is a sub-slice of the caller's\nmanifest.depends buffer, which manifest.deinit frees when the caller's\ninstall frame unwinds — leaving dangling keys. Every later visited\nget/put bucket probe then read freed memory (use-after-free), and the\ndedup guard silently degraded (a diamond dependency printed \"rd already\ninstalled\" instead of a silent visited-hit early return, only avoiding\ndouble work because installed.txt caught it afterwards).\n\nExtract the guard into markVisited (inserts an owned dupe of the key)\nand freeVisited (frees the keys before deinit), so the map owns its keys\nfor its whole lifetime. Add a regression unit test that records a name,\nfrees the backing buffer, and re-probes — it faults on the dangling key\nwithout the fix.\n\nFixes #784\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
+          "timestamp": "2026-07-03T09:07:56Z",
+          "tree_id": "539d9db0db9cc8bfc956bd8907d3891543c8c619",
+          "url": "https://github.com/kaappi/kaappi/commit/95ff929fbd43ca5797c8bfd22aad05b7567e6dc8"
+        },
+        "date": 1783070426151,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.43612,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.556185,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.852221,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.367714,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.007033,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.032647,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.463596,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.069487,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 4.029979,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.776812,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.153653,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.435214,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 2.390887,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.732848,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.043146,
             "unit": "seconds"
           }
         ]
