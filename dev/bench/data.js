@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783065823233,
+  "lastUpdate": 1783068619817,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "cdb110dc7d352cd90eb598893dfd338973eda296",
-          "message": "Merge pull request #707 from kaappi/fix/load-library-source-gc-root-705\n\nRoot expr in loadLibrarySource before handleTopLevelForm",
-          "timestamp": "2026-07-02T08:24:53+05:30",
-          "tree_id": "53e94782dcb284cc1492cb8ceda98cd5a6a7873a",
-          "url": "https://github.com/kaappi/kaappi/commit/cdb110dc7d352cd90eb598893dfd338973eda296"
-        },
-        "date": 1782961692665,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.34445,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.801096,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.82582,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.111884,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006875,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.032309,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.456568,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.069091,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.989646,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.791706,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.092541,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.223517,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 2.420228,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.741455,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.041773,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044238,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "3864fd83387fb33dc96ed945eac494e3fcd2e84a",
+          "message": "Retire replaced library envs instead of freeing them (#941)\n\nRe-registering a library (a second define-library with the same name)\nfreed the old library's lib_env, but closures compiled in the old\nlibrary's begin block still hold Function.env pointers to it and can\noutlive the library by escaping into vm.globals via import. Calling\nsuch a closure afterwards dereferenced the freed StringHashMap —\nuse-after-free that panics or silently corrupts memory.\n\nDetach the replaced env into a retired_envs list owned by the registry\nand free it only at registry teardown, and trace retired envs in\nmarkVMRoots so values reachable only through them (like non-exported\nlibrary internals) survive GC. The small leak is bounded by the number\nof re-registrations, which only happen when a program or REPL session\nredefines a library.\n\nFixes #820\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-03T14:05:40+05:30",
+          "tree_id": "2d8bc78e631540947c2ca771b718148c275123e5",
+          "url": "https://github.com/kaappi/kaappi/commit/3864fd83387fb33dc96ed945eac494e3fcd2e84a"
+        },
+        "date": 1783068618698,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.423291,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.445179,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.847584,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.382736,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006886,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.033201,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.464549,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.069534,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 4.09876,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.809504,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.136457,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.438357,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 2.485852,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.702144,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.042438,
             "unit": "seconds"
           }
         ]
