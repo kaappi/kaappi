@@ -577,6 +577,47 @@ pub const VM = struct {
         return self.last_error_detail[0..self.last_error_detail_len];
     }
 
+    /// Called from execute()'s error path, before resetExecutionState()
+    /// discards the pending exception. If the escaping error is an uncaught
+    /// Scheme exception and no native error detail was recorded, format the
+    /// exception payload (message + irritants for error objects) into the
+    /// detail buffer so top-level error printers show the message instead of
+    /// the raw Zig error name. Consumes the pending exception.
+    pub fn noteUncaughtException(self: *VM, err: anyerror) void {
+        if (err != error.ExceptionRaised) return;
+        const exc = self.current_exception orelse return;
+        self.current_exception = null;
+        if (self.last_error_detail_len != 0) return;
+
+        const printer = @import("printer.zig");
+        const allocator = self.gc.allocator;
+        var w: std.Io.Writer = .fixed(&self.last_error_detail);
+        if (types.isErrorObject(exc)) {
+            const eo = types.toObject(exc).as(types.ErrorObject);
+            if (printer.valueToString(allocator, eo.message, .display)) |msg| {
+                defer allocator.free(msg);
+                w.writeAll(msg) catch {};
+            } else |_| {}
+            var it = eo.irritants;
+            while (types.isPair(it)) {
+                const pair = types.toObject(it).as(types.Pair);
+                if (printer.valueToString(allocator, pair.car, .write)) |s| {
+                    defer allocator.free(s);
+                    w.writeAll(" ") catch {};
+                    w.writeAll(s) catch {};
+                } else |_| {}
+                it = pair.cdr;
+            }
+        } else {
+            w.writeAll("uncaught exception: ") catch {};
+            if (printer.valueToString(allocator, exc, .write)) |s| {
+                defer allocator.free(s);
+                w.writeAll(s) catch {};
+            } else |_| {}
+        }
+        self.last_error_detail_len = w.buffered().len;
+    }
+
     pub const StackFrame = struct {
         name: ?[]const u8,
         source: ?[]const u8,

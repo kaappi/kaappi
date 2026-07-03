@@ -88,6 +88,25 @@ assert_file_output_contains "runtime error has backtrace" \
 assert_file_output_contains "backtrace has call site" \
     "$TMPDIR/backtrace.scm" "backtrace.scm:"
 
+# --- Uncaught user-raised errors ---
+# An uncaught (error ...) must print its message and irritants, not the
+# raw Zig error name (was: "runtime error: error.ExceptionRaised").
+echo
+echo "-- Uncaught (error ...) --"
+
+cat > "$TMPDIR/uncaught-error.scm" << 'SCHEME'
+(error "index out of range" 5)
+SCHEME
+
+assert_file_output_contains "uncaught (error ...) in script shows message and irritants" \
+    "$TMPDIR/uncaught-error.scm" "index out of range 5"
+
+assert_output_contains "uncaught (error ...) in REPL shows message and irritants" \
+    '(error "index out of range" 5)' "index out of range 5"
+
+assert_output_contains "uncaught raise of non-error value shows the value" \
+    '(raise 42)' "uncaught exception: 42"
+
 # --- Type error details ---
 echo
 echo "-- Type error diagnostics --"
