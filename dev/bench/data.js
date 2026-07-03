@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783082623359,
+  "lastUpdate": 1783087313907,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "11e3cccbbe539bee168523445bb75fc68ee9ab0a",
-          "message": "Merge pull request #720 from kaappi/fix/command-line-format-697\n\nFix command-line: remove hardcoded \"kaappi\" prefix",
-          "timestamp": "2026-07-02T12:04:49+05:30",
-          "tree_id": "b53b09a59cc37748324cc5b4435701700dd6d14d",
-          "url": "https://github.com/kaappi/kaappi/commit/11e3cccbbe539bee168523445bb75fc68ee9ab0a"
-        },
-        "date": 1782974910169,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.303431,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.50892,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.825011,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.255863,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006851,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.032512,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.455483,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.070449,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.872771,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.769234,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.078942,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.217725,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 2.435021,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.706069,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.042179,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.048273,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "62b6b3320330b4996d07796bfed0592e2a09042f",
+          "message": "Use trailing -- instead of --end-of-options in pinned checkout (#969) (#974)\n\ngit checkout only learned --end-of-options in git 2.43; older builds\n(such as the Apple git on the rolled-out macos-latest runner image)\ntreat it as a pathspec and fail with \"pathspec '--end-of-options' did\nnot match any file(s) known to git\", breaking every version-pinned\ninstall and the issue #780 regression test.\n\nSwitch to `git checkout <v> --`, which every git version parses as a\nrevision — even when a file with the same name as the tag exists. Since\n<v> now sits in option-parsing position, reject empty and leading-dash\nversions in checkoutVersion itself to keep the option-injection guard\nfrom #736; no valid tag, branch, or SHA starts with '-'.\n\nStrengthen the #780 test with a tracked file shadowing the tag name so\na pathspec mis-parse fails visibly, and add a #736 guard test.\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-03T13:46:18Z",
+          "tree_id": "d056863cc5e78a9a5b2c62085d1dca457e0b0e4f",
+          "url": "https://github.com/kaappi/kaappi/commit/62b6b3320330b4996d07796bfed0592e2a09042f"
+        },
+        "date": 1783087313044,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.77128,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.562592,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.797874,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.750307,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006948,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.031225,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.415787,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.06549,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 4.100997,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.617474,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.130413,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.404954,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.597503,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 0.963422,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.038464,
             "unit": "seconds"
           }
         ]
