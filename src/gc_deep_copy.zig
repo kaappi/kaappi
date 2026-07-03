@@ -70,7 +70,9 @@ fn deepCopyValue(gc: *GC, src: Value, visited: *std.AutoHashMap(usize, Value)) !
         .symbol => try gc.allocSymbol(obj.as(types.Symbol).name),
         .string => {
             const s = obj.as(types.SchemeString);
-            return try gc.allocString(s.data[0..s.len]);
+            const new_val = try gc.allocString(s.data[0..s.len]);
+            try visited.put(src_ptr, new_val);
+            return new_val;
         },
         .vector => {
             const vec = obj.as(types.Vector);
@@ -82,7 +84,11 @@ fn deepCopyValue(gc: *GC, src: Value, visited: *std.AutoHashMap(usize, Value)) !
             }
             return new_val;
         },
-        .bytevector => try gc.allocBytevector(obj.as(types.Bytevector).data),
+        .bytevector => {
+            const new_val = try gc.allocBytevector(obj.as(types.Bytevector).data);
+            try visited.put(src_ptr, new_val);
+            return new_val;
+        },
         .flonum => try gc.allocFlonum(obj.as(types.Flonum).value),
         .complex => {
             const c = obj.as(types.Complex);
