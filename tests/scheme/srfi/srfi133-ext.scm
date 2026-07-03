@@ -73,9 +73,21 @@
 (check "cumulate *" (vector-cumulate * 1 (vector 1 2 3 4)) (vector 1 2 6 24))
 
 ;;; vector-partition
-(let-values (((yes count) (vector-partition even? (vector 1 2 3 4 5))))
+;; Per SRFI 133, the first value is a vector the SAME SIZE as the input —
+;; satisfying elements first (in order), then the rest (in order). The
+;; second value is the count of satisfying elements.
+(let-values (((part count) (vector-partition even? (vector 1 2 3 4 5))))
   (check "partition count" count 2)
-  (check "partition vec" (vector-length yes) 2))
+  (check "partition vec" part (vector 2 4 1 3 5)))
+(let-values (((part count) (vector-partition even? (vector 2 4 6))))
+  (check "partition all count" count 3)
+  (check "partition all vec" part (vector 2 4 6)))
+(let-values (((part count) (vector-partition even? (vector 1 3 5))))
+  (check "partition none count" count 0)
+  (check "partition none vec" part (vector 1 3 5)))
+(let-values (((part count) (vector-partition even? (vector))))
+  (check "partition empty count" count 0)
+  (check "partition empty vec" part (vector)))
 
 ;;; Standard ops (re-exported)
 (check "vector" (vector 1 2 3) #(1 2 3))
