@@ -518,17 +518,15 @@ fn lowerQuote(ir: *IR, args: Value) CompileError!*Node {
 }
 
 fn lowerBegin(ir: *IR, args: Value, macros: ?*std.StringHashMap(Value)) CompileError!*Node {
-    var buf: [256]*Node = undefined;
-    var count: usize = 0;
+    var nodes: std.ArrayList(*Node) = .empty;
+    defer nodes.deinit(ir.allocator);
     var current = args;
     while (current != types.NIL) {
         if (!types.isPair(current)) return CompileError.InvalidSyntax;
-        if (count >= 256) return CompileError.InternalLimit;
-        buf[count] = try lowerWithMacros(ir, types.car(current), macros);
-        count += 1;
+        nodes.append(ir.allocator, try lowerWithMacros(ir, types.car(current), macros)) catch return CompileError.OutOfMemory;
         current = types.cdr(current);
     }
-    return ir.makeBegin(buf[0..count]);
+    return ir.makeBegin(nodes.items);
 }
 
 fn lowerLet(ir: *IR, expr: Value) CompileError!*Node {
@@ -560,20 +558,18 @@ fn lowerSet(ir: *IR, args: Value) CompileError!*Node {
 }
 
 fn lowerList(ir: *IR, args: Value, tag: NodeTag, macros: ?*std.StringHashMap(Value)) CompileError!*Node {
-    var buf: [256]*Node = undefined;
-    var count: usize = 0;
+    var nodes: std.ArrayList(*Node) = .empty;
+    defer nodes.deinit(ir.allocator);
     var current = args;
     while (current != types.NIL) {
         if (!types.isPair(current)) return CompileError.InvalidSyntax;
-        if (count >= 256) return CompileError.InternalLimit;
-        buf[count] = try lowerWithMacros(ir, types.car(current), macros);
-        count += 1;
+        nodes.append(ir.allocator, try lowerWithMacros(ir, types.car(current), macros)) catch return CompileError.OutOfMemory;
         current = types.cdr(current);
     }
     return switch (tag) {
-        .and_form => ir.makeAnd(buf[0..count]),
-        .or_form => ir.makeOr(buf[0..count]),
-        else => ir.makeBegin(buf[0..count]),
+        .and_form => ir.makeAnd(nodes.items),
+        .or_form => ir.makeOr(nodes.items),
+        else => ir.makeBegin(nodes.items),
     };
 }
 
@@ -581,19 +577,17 @@ fn lowerCondBody(ir: *IR, args: Value, tag: NodeTag, macros: ?*std.StringHashMap
     if (args == types.NIL) return CompileError.InvalidSyntax;
     const test_expr = try lowerWithMacros(ir, types.car(args), macros);
 
-    var buf: [256]*Node = undefined;
-    var count: usize = 0;
+    var nodes: std.ArrayList(*Node) = .empty;
+    defer nodes.deinit(ir.allocator);
     var current = types.cdr(args);
     while (current != types.NIL) {
         if (!types.isPair(current)) return CompileError.InvalidSyntax;
-        if (count >= 256) return CompileError.InternalLimit;
-        buf[count] = try lowerWithMacros(ir, types.car(current), macros);
-        count += 1;
+        nodes.append(ir.allocator, try lowerWithMacros(ir, types.car(current), macros)) catch return CompileError.OutOfMemory;
         current = types.cdr(current);
     }
     return switch (tag) {
-        .when_form => ir.makeWhen(test_expr, buf[0..count]),
-        .unless_form => ir.makeUnless(test_expr, buf[0..count]),
+        .when_form => ir.makeWhen(test_expr, nodes.items),
+        .unless_form => ir.makeUnless(test_expr, nodes.items),
         else => unreachable,
     };
 }
