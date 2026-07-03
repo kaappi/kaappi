@@ -15,16 +15,10 @@
     (newline)
     (exit 1)))
 
-;; Mismatched-length ellipsis — must raise an error, not produce garbage
-(define-syntax zip-mismatched
-  (syntax-rules ()
-    ((zip-mismatched (a ...) (b ...)) (quote ((a b) ...)))))
-
-(guard (exn (#t 'caught))
-  (zip-mismatched (1 2 3) (4 5))
-  (display "FAIL: mismatched ellipsis should have raised an error")
-  (newline)
-  (exit 1))
+;; The mismatched-length negative case (must produce a clean error, not
+;; garbage) is rejected at macro-expansion (compile) time, which guard
+;; cannot catch and which flips the process exit code. It lives in
+;; tests/scheme/errors/error-format.sh instead.
 
 (display "OK")
 (newline)

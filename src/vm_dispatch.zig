@@ -224,19 +224,29 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                 const sym = try constantAt(self, func, sym_idx);
                 if (!types.isSymbol(sym)) return VMError.InvalidBytecode;
                 const name = types.symbolName(sym);
-                if (env.getPtr(name)) |ptr| {
-                    const val = self.registers[src_idx];
-                    ptr.* = val;
-                    if (func.env == null) {
-                        self.global_version +%= 1;
-                        if (func.global_cache) |cache| {
-                            if (sym_idx < cache.len) cache[sym_idx] = val;
-                            func.cache_version = self.global_version;
+                // Mirror get_global's hygienic-prefix fallback: a template
+                // set! to a definition-site global compiles as set_global on
+                // the renamed name (__hyg_N_foo); writes must reach the same
+                // binding reads resolve to.
+                const ptr = env.getPtr(name) orelse blk: {
+                    const base = stripHygienicPrefix(name);
+                    if (base.len != name.len) {
+                        if (env.getPtr(base)) |bptr| break :blk bptr;
+                        if (env != &self.globals) {
+                            if (self.globals.getPtr(base)) |gptr| break :blk gptr;
                         }
                     }
-                } else {
                     self.setErrorDetail("set!: unbound variable '{s}'", .{name});
                     return VMError.UndefinedVariable;
+                };
+                const val = self.registers[src_idx];
+                ptr.* = val;
+                if (func.env == null) {
+                    self.global_version +%= 1;
+                    if (func.global_cache) |cache| {
+                        if (sym_idx < cache.len) cache[sym_idx] = val;
+                        func.cache_version = self.global_version;
+                    }
                 }
             },
             .define_global => {

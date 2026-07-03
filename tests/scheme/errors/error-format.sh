@@ -151,6 +151,14 @@ assert_output_contains "variadic closure arity error shows counts" \
 assert_output_contains "anonymous lambda arity error has no name" \
     '((lambda (x) x) 1 2)' "expected 1 arguments, got 2"
 
+# Issue #78: mismatched-length ellipsis template variables must be rejected
+# with a clean compile error, not read uninitialized memory. (Moved from
+# tests/scheme/smoke/ellipsis-mismatch.scm: the rejection happens at macro
+# expansion time, so guard cannot catch it in-file.)
+assert_output_contains "mismatched ellipsis lengths rejected cleanly" \
+    '(define-syntax zip (syntax-rules () ((zip (a ...) (b ...)) (quote ((a b) ...))))) (zip (1 2 3) (4 5))' \
+    "compile error"
+
 rm -rf "$TMPDIR"
 
 echo

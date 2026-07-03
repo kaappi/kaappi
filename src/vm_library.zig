@@ -18,30 +18,65 @@ fn importBinding(vm: *VM, target: *std.StringHashMap(Value), name: []const u8, v
             vm.macros.put(name, val) catch return error.OutOfMemory;
         }
         const tx = types.toObject(val).as(types.Transformer);
-        if (tx.def_env) |env| {
-            var pv_names: [64][]const u8 = undefined;
-            var pv_count: usize = 0;
-            for (tx.patterns[0..tx.num_rules]) |pat| {
-                if (!passthrough.collectSymbols(pat, &pv_names, &pv_count)) break;
-            }
-            var free_names: [64][]const u8 = undefined;
-            var free_count: usize = 0;
-            for (tx.templates[0..tx.num_rules]) |tmpl| {
-                if (!passthrough.collectFreeRefs(tmpl, pv_names[0..pv_count], tx.literals, &free_names, &free_count)) break;
-            }
-            for (free_names[0..free_count]) |fname| {
-                if (env.get(fname)) |fval| {
-                    if (!target.contains(fname)) {
-                        target.put(fname, fval) catch return error.OutOfMemory;
-                        if (target == &vm.globals) vm.global_version +%= 1;
-                    }
-                }
-            }
-        }
+        var visited = std.AutoHashMap(*types.Transformer, void).init(vm.gc.allocator);
+        defer visited.deinit();
+        try copyTransformerFreeRefs(vm, target, tx, &visited, 0);
         return;
     }
     if (target == &vm.globals) {
         vm.global_version +%= 1;
+    }
+}
+
+/// Copy the free references of a macro's templates from its definition
+/// environment into the import target, so use-site expansions can resolve
+/// library-internal bindings. Follows macro-to-macro references transitively:
+/// an exported macro may expand into internal helper macros (which live in
+/// vm.macros, not the library env) whose own free references must also be
+/// visible at the use site (e.g. SRFI 64 test-assert → %test-comp1body →
+/// %test-on-test-begin).
+fn copyTransformerFreeRefs(
+    vm: *VM,
+    target: *std.StringHashMap(Value),
+    tx: *types.Transformer,
+    visited: *std.AutoHashMap(*types.Transformer, void),
+    depth: u32,
+) !void {
+    if (depth > 32) return;
+    if (visited.contains(tx)) return;
+    visited.put(tx, {}) catch return error.OutOfMemory;
+
+    const env = tx.def_env orelse return;
+
+    var pv_names: [64][]const u8 = undefined;
+    var pv_count: usize = 0;
+    for (tx.patterns[0..tx.num_rules]) |pat| {
+        if (!passthrough.collectSymbols(pat, &pv_names, &pv_count)) break;
+    }
+    for (tx.templates[0..tx.num_rules]) |tmpl| {
+        // Per-template array: bounds each template at 64 free refs instead
+        // of 64 across all rules of the transformer.
+        var free_names: [64][]const u8 = undefined;
+        var free_count: usize = 0;
+        _ = passthrough.collectFreeRefs(tmpl, pv_names[0..pv_count], tx.literals, &free_names, &free_count);
+        for (free_names[0..free_count]) |fname| {
+            if (env.get(fname)) |fval| {
+                if (!target.contains(fname)) {
+                    target.put(fname, fval) catch return error.OutOfMemory;
+                    if (target == &vm.globals) vm.global_version +%= 1;
+                }
+                if (types.isTransformer(fval)) {
+                    try copyTransformerFreeRefs(vm, target, types.toObject(fval).as(types.Transformer), visited, depth + 1);
+                }
+            } else if (vm.macros.get(fname)) |mval| {
+                // define-syntax in a library body registers the helper in
+                // vm.macros rather than the library env; recurse so the
+                // helper's free references resolve at the use site too.
+                if (types.isTransformer(mval)) {
+                    try copyTransformerFreeRefs(vm, target, types.toObject(mval).as(types.Transformer), visited, depth + 1);
+                }
+            }
+        }
     }
 }
 
