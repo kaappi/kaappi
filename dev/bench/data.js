@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783116410937,
+  "lastUpdate": 1783117512539,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "937a1d2a715d559fbcb980e278ddec71776067d0",
-          "message": "Allow empty datum list in case clauses (#854) (#889)\n\nR7RS grammar permits case clauses with an empty datum list like\n(() body). Previously Kaappi rejected these with a syntax error because\nthe isPair check fails on NIL. The clause can never match, so the fix\nsimply skips it as dead code.\n\nFixes #854\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-03T02:05:19+05:30",
-          "tree_id": "be8af94f2dc3a83005d93e91245e6e5ccdfe7b6f",
-          "url": "https://github.com/kaappi/kaappi/commit/937a1d2a715d559fbcb980e278ddec71776067d0"
-        },
-        "date": 1783026891098,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.303773,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.01428,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.804079,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.310151,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.007007,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.032367,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.452369,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.070263,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.901575,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.753499,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.130232,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.222801,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 2.425757,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.706817,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.0417,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.035452,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "72bfacfe3dd05e522af5ad0b792df63745049b08",
+          "message": "Check peek_byte before returning EOF in string-port read (#799) (#1006)\n\nThe string-port branch of readDatumFn returned EOF when string_pos\nreached the end of string_data, without checking whether a pushed-back\nbyte was still pending in peek_byte. This caused (read) to miss the\nlast datum after read-line consumed a \\r or after peek-u8/peek-char.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-04T03:39:42+05:30",
+          "tree_id": "bf139ca15cd123f380c188886dd02b031d4985da",
+          "url": "https://github.com/kaappi/kaappi/commit/72bfacfe3dd05e522af5ad0b792df63745049b08"
+        },
+        "date": 1783117510606,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.392454,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.310006,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.835488,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.301209,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006355,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.035224,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.470844,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.070573,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 4.141828,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.819161,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.179973,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.429005,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.792622,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.517216,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.042836,
             "unit": "seconds"
           }
         ]
