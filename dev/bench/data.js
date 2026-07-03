@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783040316276,
+  "lastUpdate": 1783040325519,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "c5934c0d9ca1dbf7a67a84e37fec3e46d2a393af",
-          "message": "Fix highlightCallback misparses character literals (#633) (#658)\n\nhighlightCallback had no special-casing for #\\ character literals.\nCharacters like #\\; triggered the line-comment branch (painting the\nrest of the line gray), and #\\( / #\\) triggered the paren branch\n(producing extra colored spans).\n\nAdd a #\\ case that consumes the character literal as a single token\n(either one non-alpha character or an alphabetic run for named chars\nlike #\\space), mirroring parenDepth's existing handling.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-01T08:46:30+05:30",
-          "tree_id": "ca24318ab1125819dd8dfde732241ba25d692019",
-          "url": "https://github.com/kaappi/kaappi/commit/c5934c0d9ca1dbf7a67a84e37fec3e46d2a393af"
-        },
-        "date": 1782876440734,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.335746,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.604252,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.818687,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.177203,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006864,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.032294,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.452172,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 1.146198,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.999244,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.761837,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.109618,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.23155,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 2.435521,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 0,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.042469,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "bf7ce0eecdea926abcc06d4dc5b81cd9ee9a65e4",
+          "message": "Add VT and FF to string-trim default whitespace criterion (#913)\n\n* Add VT and FF to string-trim default whitespace criterion (#826)\n\nThe default isWhitespace only checked space/tab/newline/return,\nmissing vertical tab (0x0B) and form feed (0x0C) which SRFI-13\nand char-whitespace? include.\n\nFixes #826\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Add regression test for VT/FF whitespace in string-trim (#826)\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-03T00:34:13Z",
+          "tree_id": "19d281dccfec3fb365325738d946530454bc5f39",
+          "url": "https://github.com/kaappi/kaappi/commit/bf7ce0eecdea926abcc06d4dc5b81cd9ee9a65e4"
+        },
+        "date": 1783040325096,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.126258,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.927293,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.866052,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.166108,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.007366,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.03357,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.469414,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.069008,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.913027,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.830903,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.172944,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.479187,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 2.413765,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.874555,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044733,
             "unit": "seconds"
           }
         ]
