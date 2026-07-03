@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783115356481,
+  "lastUpdate": 1783115810513,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "455db2bdddd72f0f313327e8dd1afa1ab0bafa84",
-          "message": "Clean up child function roots after single-expression compilation (#832) (#886)\n\ninitChild appends every child function (one per lambda, case-lambda\nclause, delay, named-let) to gc.extra_roots, but nothing removed\nthem on the single-expression compile path. Record extra_roots.len\nafter Compiler.init and shrink back in the defer block of all three\ncompileExpression* wrappers, matching the pattern compileMultiple\nalready uses.\n\nFixes #832\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-03T01:41:15+05:30",
-          "tree_id": "695f7869f0bef39914dcb69ecd79a78b60df1b3d",
-          "url": "https://github.com/kaappi/kaappi/commit/455db2bdddd72f0f313327e8dd1afa1ab0bafa84"
-        },
-        "date": 1783023962013,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.310725,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.384861,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.830756,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.468741,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.00704,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.031824,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.458402,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.070224,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.916975,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.778384,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.082814,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.216779,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 2.415502,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.684399,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.040961,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.041096,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "3e65aebfee372f5f7a97b148bf39495c6d4a84cc",
+          "message": "Fix Unicode reader gaps and fold-case for non-ASCII identifiers (#920) (#1004)\n\nThe reader's isUnicodeLetter was missing several bicameral scripts\n(Cherokee, Georgian Mtavruli, Coptic, Glagolitic, Deseret, Osage,\nWarang Citi, Adlam), preventing them from being used as bare\nidentifiers. Add these ranges and a fallback to the Unicode case\ntables so any cased letter is recognized.\n\nThe #!fold-case directive used std.ascii.toLower byte-by-byte, so\nnon-ASCII identifiers were never folded. Replace with UTF-8-aware\ndecoding that applies charFoldcase per codepoint.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-03T21:39:18Z",
+          "tree_id": "691d219e89913c7c3bc40d7cf05c175d7bf34b67",
+          "url": "https://github.com/kaappi/kaappi/commit/3e65aebfee372f5f7a97b148bf39495c6d4a84cc"
+        },
+        "date": 1783115809464,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 5.959407,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.714738,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.842484,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.299795,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006397,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.033123,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.477538,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.070285,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 4.131335,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.835647,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.216942,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.429313,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.782278,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.6949,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044955,
             "unit": "seconds"
           }
         ]
