@@ -250,7 +250,36 @@ fn deepCopyValue(gc: *GC, src: Value, visited: *std.AutoHashMap(usize, Value)) !
             new_tx.def_env_val = t.def_env_val;
             return new_val;
         },
-        .native_fn, .native_closure, .ffi_library, .ffi_function => src,
+        .native_fn => {
+            // The fn pointer and name are static (registered with string
+            // literals, or rodata in a native binary), but the NativeFn object
+            // itself lives in the source heap. Copy it so a thread result
+            // survives the child heap being freed after thread-join!.
+            const nf = obj.as(types.NativeFn);
+            const new_val = try gc.allocNativeFn(nf.name, nf.func, nf.arity);
+            try visited.put(src_ptr, new_val);
+            return new_val;
+        },
+        .native_closure => {
+            // fn_ptr and name are static (code and rodata of a native binary),
+            // but the object and its upvalues live in the source heap.
+            const nc = obj.as(types.NativeClosure);
+            const placeholders = try gc.allocator.alloc(Value, nc.upvalues.len);
+            defer gc.allocator.free(placeholders);
+            @memset(placeholders, types.VOID);
+            const new_val = try gc.allocNativeClosure(nc.fn_ptr, placeholders, nc.arity, nc.name);
+            try visited.put(src_ptr, new_val);
+            const new_nc = types.toObject(new_val).as(types.NativeClosure);
+            for (nc.upvalues, 0..) |uv, i| {
+                new_nc.upvalues[i] = try deepCopyValue(gc, uv, visited);
+            }
+            return new_val;
+        },
+        // FFI objects wrap process-global dlopen handles that cannot be
+        // duplicated per-heap, so they are aliased. Known limitation: an FFI
+        // handle created inside a child thread and returned through
+        // thread-join! dangles once the child heap is freed.
+        .ffi_library, .ffi_function => src,
         .srfi18_time => try gc.allocSrfi18Time(obj.as(types.Srfi18Time).seconds),
         .random_source => {
             const rs = obj.as(types.RandomSource);

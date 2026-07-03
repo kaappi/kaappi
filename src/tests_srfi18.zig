@@ -437,3 +437,24 @@ test "child thread leaves no child-heap values in shared globals (#958)" {
         }
     }
 }
+
+// Thread results are deep-copied child->parent at thread-join!, after which
+// the child heap is freed. deepCopyValue used to alias NativeFn objects
+// instead of copying them, so a result containing a primitive procedure kept
+// a raw pointer across the copy (issue #958 follow-up). The joined procedures
+// must be fresh parent-heap objects that are still callable.
+test "thread result containing primitive procedures is callable after join" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    const result = try vm.eval(
+        \\(let ((t (make-thread (lambda () (list car cdr)))))
+        \\  (thread-start! t)
+        \\  (let ((procs (thread-join! t)))
+        \\    (+ ((car procs) '(30 40))
+        \\       (car ((car (cdr procs)) '(30 12))))))
+    );
+    try std.testing.expectEqual(@as(i64, 42), types.toFixnum(result));
+}
