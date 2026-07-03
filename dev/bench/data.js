@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783048487816,
+  "lastUpdate": 1783050195290,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "0f120bdc88b7e217aee7178f2cf518214afdbad1",
-          "message": "Merge pull request #669 from kaappi/fix/648-equal-dag-hang\n\nFix equal? exponential blowup on shared DAGs deeper than 128 nodes (#648)",
-          "timestamp": "2026-07-01T14:06:07+05:30",
-          "tree_id": "eaba0c3398ce2a8ac5918317fed63967ecefb2c4",
-          "url": "https://github.com/kaappi/kaappi/commit/0f120bdc88b7e217aee7178f2cf518214afdbad1"
-        },
-        "date": 1782895681082,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.913554,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.862007,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.844891,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.211001,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.007455,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.031957,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.450971,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.067127,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.867161,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.741939,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.108537,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.244995,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 2.401654,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.71103,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044238,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.042043,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "distinct": true,
+          "id": "d9aed21d1b7c19c2a3eefc10fa0ce0ee27d16a17",
+          "message": "Direct contributors through Discussions first\n\nIssues and PRs are now restricted to org members to reduce\nAI-generated spam. Update CONTRIBUTING.md with a \"How to get\ninvolved\" section and contributor path, update README Contributing\nsection to lead with Discussions.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-03T09:00:17+05:30",
+          "tree_id": "3b3a0a6f56acf51ce88a98812bce2943b4ef61c4",
+          "url": "https://github.com/kaappi/kaappi/commit/d9aed21d1b7c19c2a3eefc10fa0ce0ee27d16a17"
+        },
+        "date": 1783050194290,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.401283,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.329645,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.870165,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.172236,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.007179,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.033385,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.475494,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.070903,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.927792,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.838007,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.154981,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.431251,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 2.493116,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.596609,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.042054,
             "unit": "seconds"
           }
         ]
