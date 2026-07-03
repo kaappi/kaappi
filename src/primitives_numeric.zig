@@ -953,7 +953,7 @@ pub fn makeComplexOrRealEx(real: f64, imag: f64, exact_real: bool, exact_imag: b
 
 const Exactness = enum { unspecified, exact, inexact };
 
-fn applyExactness(gc: *@import("memory.zig").GC, val: Value, exactness: Exactness) PrimitiveError!Value {
+fn applyExactness(_: *@import("memory.zig").GC, val: Value, exactness: Exactness) PrimitiveError!Value {
     switch (exactness) {
         .unspecified => return val,
         .inexact => {
@@ -980,30 +980,100 @@ fn applyExactness(gc: *@import("memory.zig").GC, val: Value, exactness: Exactnes
             if (types.isFlonum(val)) {
                 const f = types.toFlonum(val);
                 if (std.math.isNan(f) or std.math.isInf(f)) return types.FALSE;
-                const trunc_val = @trunc(f);
-                if (f == trunc_val) {
-                    return try safeFloatToExactInt(trunc_val);
-                }
-                var num = f;
-                var den: f64 = 1.0;
-                var i: u32 = 0;
-                while (i < 15) : (i += 1) {
-                    if (num == @trunc(num)) break;
-                    num *= 10.0;
-                    den *= 10.0;
-                }
-                const min_i64: f64 = @floatFromInt(std.math.minInt(i64));
-                const max_i64_f: f64 = @floatFromInt(std.math.maxInt(i64));
-                if (num < min_i64 or num >= max_i64_f or den < min_i64 or den >= max_i64_f) {
-                    return try safeFloatToExactInt(f);
-                }
-                const n: i64 = @intFromFloat(num);
-                const d: i64 = @intFromFloat(den);
-                return arith.makeRationalFromReader(gc, n, d) catch return PrimitiveError.OutOfMemory;
+                return exactFn(&.{val});
             }
             return val;
         },
     }
+}
+
+fn parseExactDecimal(gc: *@import("memory.zig").GC, s: []const u8) PrimitiveError!?Value {
+    var pos: usize = 0;
+    var negative = false;
+
+    if (pos < s.len and (s[pos] == '+' or s[pos] == '-')) {
+        negative = s[pos] == '-';
+        pos += 1;
+    }
+
+    const int_start = pos;
+    while (pos < s.len and s[pos] >= '0' and s[pos] <= '9') pos += 1;
+    const int_part = s[int_start..pos];
+
+    var frac_part: []const u8 = &.{};
+    if (pos < s.len and s[pos] == '.') {
+        pos += 1;
+        const frac_start = pos;
+        while (pos < s.len and s[pos] >= '0' and s[pos] <= '9') pos += 1;
+        frac_part = s[frac_start..pos];
+    }
+
+    if (int_part.len == 0 and frac_part.len == 0) return null;
+
+    var exponent: i64 = 0;
+    if (pos < s.len and (s[pos] == 'e' or s[pos] == 'E')) {
+        pos += 1;
+        if (pos >= s.len) return null;
+        var exp_neg = false;
+        if (s[pos] == '+' or s[pos] == '-') {
+            exp_neg = s[pos] == '-';
+            pos += 1;
+        }
+        const exp_start = pos;
+        while (pos < s.len and s[pos] >= '0' and s[pos] <= '9') pos += 1;
+        if (pos == exp_start) return null;
+        exponent = std.fmt.parseInt(i64, s[exp_start..pos], 10) catch return null;
+        if (exp_neg) exponent = -exponent;
+    }
+
+    if (pos != s.len) return null;
+
+    const scale = @as(i64, @intCast(frac_part.len)) - exponent;
+
+    // Build mantissa digit string: [sign] int_part ++ frac_part
+    const sign_len: usize = if (negative) 1 else 0;
+    const mantissa_len = sign_len + int_part.len + frac_part.len;
+    if (mantissa_len == 0) return types.makeFixnum(0);
+
+    const buf = gc.allocator.alloc(u8, mantissa_len) catch return PrimitiveError.OutOfMemory;
+    defer gc.allocator.free(buf);
+    var off: usize = 0;
+    if (negative) {
+        buf[0] = '-';
+        off = 1;
+    }
+    @memcpy(buf[off .. off + int_part.len], int_part);
+    @memcpy(buf[off + int_part.len ..], frac_part);
+
+    // Parse mantissa as exact integer
+    var mantissa_val: Value = undefined;
+    if (std.fmt.parseInt(i64, buf, 10)) |n| {
+        if (n == 0) return types.makeFixnum(0);
+        mantissa_val = try arith.makeFixnumChecked(n);
+    } else |err| {
+        if (err == error.Overflow) {
+            mantissa_val = bignum_mod.parseBignumString(gc, buf, 10) catch return PrimitiveError.OutOfMemory;
+            if (bignum_mod.isZero(mantissa_val)) return types.makeFixnum(0);
+        } else return null;
+    }
+
+    if (scale == 0) return mantissa_val;
+
+    // Root mantissa before allocating 10^|scale|
+    gc.extra_roots.append(gc.allocator, mantissa_val) catch return PrimitiveError.OutOfMemory;
+    defer _ = gc.extra_roots.pop();
+
+    const abs_scale: i64 = if (scale < 0) -scale else scale;
+    const pow10 = bignum_mod.expt(gc, types.makeFixnum(10), types.makeFixnum(abs_scale)) catch return PrimitiveError.OutOfMemory;
+    mantissa_val = gc.extra_roots.items[gc.extra_roots.items.len - 1];
+
+    if (scale < 0) {
+        gc.extra_roots.append(gc.allocator, pow10) catch return PrimitiveError.OutOfMemory;
+        defer _ = gc.extra_roots.pop();
+        return bignum_mod.mul(gc, mantissa_val, pow10) catch return PrimitiveError.OutOfMemory;
+    }
+
+    return @as(?Value, try arith.makeRationalReduced(gc, mantissa_val, pow10));
 }
 
 fn stringToNumber(args: []const Value) PrimitiveError!Value {
@@ -1111,6 +1181,10 @@ fn stringToNumber(args: []const Value) PrimitiveError!Value {
     }
 
     if (radix == 10) {
+        if (exactness == .exact) {
+            if (try parseExactDecimal(gc, s)) |v| return v;
+        }
+
         if (std.fmt.parseFloat(f64, s)) |f| {
             return applyExactness(gc, types.makeFlonum(f), exactness);
         } else |_| {}
