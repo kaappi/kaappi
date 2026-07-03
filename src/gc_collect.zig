@@ -489,6 +489,22 @@ fn markRoots(gc: *GC) void {
 }
 
 pub fn markValue(gc: *GC, v: Value) void {
+    // Use an explicit worklist to avoid native stack overflow on deeply
+    // nested pair/vector structures (issue #864). Values that would
+    // previously be handled by a recursive markValue call are pushed
+    // onto the worklist and processed iteratively.
+    var worklist: std.ArrayList(Value) = .empty;
+    defer worklist.deinit(gc.allocator);
+
+    markValueInner(gc, v, &worklist);
+
+    while (worklist.items.len > 0) {
+        const item = worklist.pop().?;
+        markValueInner(gc, item, &worklist);
+    }
+}
+
+fn markValueInner(gc: *GC, v: Value, worklist: *std.ArrayList(Value)) void {
     var cur = v;
     while (true) {
         if (!types.isPointer(cur)) return;
@@ -500,13 +516,13 @@ pub fn markValue(gc: *GC, v: Value) void {
             const pair = obj.as(Pair);
             const car = pair.car;
             const cdr = pair.cdr;
-            // Iterate into whichever child is a pair; recurse on the other.
-            // For proper lists (cdr is pair, car is atom): iterate cdr.
-            // For nested lists like (((...))): iterate car (the deep branch).
             const car_is_ptr = types.isPointer(car);
             const cdr_is_ptr = types.isPointer(cdr);
             if (car_is_ptr and cdr_is_ptr) {
-                markValue(gc, car);
+                // Push car onto worklist instead of recursing -- this is
+                // the key change that prevents stack overflow on deep
+                // structures like (((((...)))))).
+                worklist.append(gc.allocator, car) catch {};
                 cur = cdr;
             } else if (cdr_is_ptr) {
                 cur = cdr;
@@ -524,115 +540,117 @@ pub fn markValue(gc: *GC, v: Value) void {
         .pair => unreachable,
         .closure => {
             const cls = obj.as(Closure);
-            markValue(gc, types.makePointer(@ptrCast(cls.func)));
+            worklist.append(gc.allocator, types.makePointer(@ptrCast(cls.func))) catch {};
             for (cls.upvalues) |uv| {
-                markValue(gc, uv);
+                worklist.append(gc.allocator, uv) catch {};
             }
         },
         .function => {
             const func = obj.as(Function);
             for (func.constants.items) |c| {
-                markValue(gc, c);
+                worklist.append(gc.allocator, c) catch {};
             }
             if (func.global_cache) |cache| {
-                for (cache) |c| markValue(gc, c);
+                for (cache) |c| worklist.append(gc.allocator, c) catch {};
             }
-            markValue(gc, func.env_val);
+            worklist.append(gc.allocator, func.env_val) catch {};
         },
         .transformer => {
             const tx = obj.as(Transformer);
             for (tx.literals) |lit| {
-                markValue(gc, lit);
+                worklist.append(gc.allocator, lit) catch {};
             }
             for (tx.patterns) |pat| {
-                markValue(gc, pat);
+                worklist.append(gc.allocator, pat) catch {};
             }
             for (tx.templates) |tmpl| {
-                markValue(gc, tmpl);
+                worklist.append(gc.allocator, tmpl) catch {};
             }
-            markValue(gc, tx.def_env_val);
+            worklist.append(gc.allocator, tx.def_env_val) catch {};
         },
         .error_object => {
             const err = obj.as(types.ErrorObject);
-            markValue(gc, err.message);
-            markValue(gc, err.irritants);
-            markValue(gc, err.uncaught_reason);
+            worklist.append(gc.allocator, err.message) catch {};
+            worklist.append(gc.allocator, err.irritants) catch {};
+            worklist.append(gc.allocator, err.uncaught_reason) catch {};
         },
         .record_type => {},
         .record_instance => {
             const ri = obj.as(RecordInstance);
-            markValue(gc, types.makePointer(@ptrCast(ri.record_type)));
+            worklist.append(gc.allocator, types.makePointer(@ptrCast(ri.record_type))) catch {};
             for (ri.fields) |field| {
-                markValue(gc, field);
+                worklist.append(gc.allocator, field) catch {};
             }
         },
         .continuation => {
             const cont = obj.as(Continuation);
             for (cont.registers) |reg| {
-                markValue(gc, reg);
+                worklist.append(gc.allocator, reg) catch {};
             }
-            // Mark closures referenced in saved frames
             for (cont.frames[0..cont.frame_count]) |frame| {
                 if (frame.closure) |cls| {
-                    markValue(gc, types.makePointer(@ptrCast(cls)));
+                    worklist.append(gc.allocator, types.makePointer(@ptrCast(cls))) catch {};
                 }
                 if (frame.native) |nf| {
-                    markValue(gc, types.makePointer(@ptrCast(nf)));
+                    worklist.append(gc.allocator, types.makePointer(@ptrCast(nf))) catch {};
                 }
             }
-            // Mark handler procedures
             for (cont.handlers[0..cont.handler_count]) |handler| {
-                markValue(gc, handler.handler);
+                worklist.append(gc.allocator, handler.handler) catch {};
             }
-            // Mark wind stack thunks
             for (cont.wind_records[0..cont.wind_count]) |wr| {
-                markValue(gc, wr.before);
-                markValue(gc, wr.after);
+                worklist.append(gc.allocator, wr.before) catch {};
+                worklist.append(gc.allocator, wr.after) catch {};
             }
         },
         .multiple_values => {
             const mv = obj.as(MultipleValues);
             for (mv.values) |val| {
-                markValue(gc, val);
+                worklist.append(gc.allocator, val) catch {};
             }
         },
         .vector => {
             const vec = obj.as(Vector);
-            for (vec.data) |elem| {
-                markValue(gc, elem);
+            // Push all elements except the last onto the worklist;
+            // iterate the last element directly via tail call.
+            if (vec.data.len > 0) {
+                for (vec.data[0 .. vec.data.len - 1]) |elem| {
+                    worklist.append(gc.allocator, elem) catch {};
+                }
+                markValueInner(gc, vec.data[vec.data.len - 1], worklist);
             }
         },
         .promise => {
             const p = obj.as(Promise);
-            markValue(gc, p.value);
+            worklist.append(gc.allocator, p.value) catch {};
         },
         .parameter => {
             const param = obj.as(types.ParameterObject);
-            markValue(gc, param.value);
-            markValue(gc, param.converter);
+            worklist.append(gc.allocator, param.value) catch {};
+            worklist.append(gc.allocator, param.converter) catch {};
         },
         .hash_table => {
             const ht = obj.as(HashTable);
             for (ht.entries[0..ht.capacity]) |entry| {
                 if (entry.state == .occupied) {
-                    markValue(gc, entry.key);
-                    markValue(gc, entry.value);
+                    worklist.append(gc.allocator, entry.key) catch {};
+                    worklist.append(gc.allocator, entry.value) catch {};
                 }
             }
         },
         .rational => {
             const rat = obj.as(Rational);
-            markValue(gc, rat.numerator);
-            markValue(gc, rat.denominator);
+            worklist.append(gc.allocator, rat.numerator) catch {};
+            worklist.append(gc.allocator, rat.denominator) catch {};
         },
         .ffi_library => {},
         .ffi_function => {
             const ffi_fn = obj.as(FfiFunction);
-            markValue(gc, ffi_fn.library);
+            worklist.append(gc.allocator, ffi_fn.library) catch {};
         },
         .ffi_callback => {
             const cb = obj.as(FfiCallback);
-            markValue(gc, cb.closure);
+            worklist.append(gc.allocator, cb.closure) catch {};
         },
         .fiber => {
             const fiber_mod = @import("fiber.zig");
@@ -641,28 +659,28 @@ pub fn markValue(gc: *GC, v: Value) void {
         },
         .channel => {
             const ch = obj.as(types.Channel);
-            markValue(gc, ch.head);
-            markValue(gc, ch.tail);
+            worklist.append(gc.allocator, ch.head) catch {};
+            worklist.append(gc.allocator, ch.tail) catch {};
         },
         .mutex => {
             const m = obj.as(types.Mutex);
-            markValue(gc, m.name);
-            markValue(gc, m.owner);
-            markValue(gc, m.specific);
+            worklist.append(gc.allocator, m.name) catch {};
+            worklist.append(gc.allocator, m.owner) catch {};
+            worklist.append(gc.allocator, m.specific) catch {};
         },
         .condition_variable => {
             const cv = obj.as(types.ConditionVariable);
-            markValue(gc, cv.name);
-            markValue(gc, cv.specific);
+            worklist.append(gc.allocator, cv.name) catch {};
+            worklist.append(gc.allocator, cv.specific) catch {};
         },
         .native_closure => {
             const nc = obj.as(types.NativeClosure);
-            for (nc.upvalues) |uv| markValue(gc, uv);
+            for (nc.upvalues) |uv| worklist.append(gc.allocator, uv) catch {};
         },
         .scheme_environment => {
             const se = obj.as(types.SchemeEnvironment);
             var vit = se.env.valueIterator();
-            while (vit.next()) |val| markValue(gc, val.*);
+            while (vit.next()) |val| worklist.append(gc.allocator, val.*) catch {};
         },
         .symbol, .string, .native_fn, .flonum, .port, .complex, .bytevector, .bignum, .file_info, .user_info, .group_info, .directory_object, .random_source, .srfi18_time => {},
     }
