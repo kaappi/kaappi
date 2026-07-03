@@ -535,7 +535,19 @@ pub fn compileSet(self: *Compiler, args: Value, dst: u16) CompileError!void {
 
     const name = types.symbolName(target);
     if (self.resolveLocal(name)) |slot| {
-        if (self.isLocalBoxed(name)) {
+        if (self.isLocalGlobalAlias(name)) {
+            // The target is a register alias injected for a macro template's
+            // free reference to a global: the variable itself lives in the
+            // globals map, so write through to it, then refresh the alias
+            // register for subsequent reads within the same expansion.
+            const sym_idx = try self.addConstant(target);
+            try self.emitOp(.set_global);
+            try self.emitU16(sym_idx);
+            try self.emitU16(dst);
+            try self.emitOp(.move);
+            try self.emitU16(slot);
+            try self.emitU16(dst);
+        } else if (self.isLocalBoxed(name)) {
             try self.emitOp(.set_box_local);
             try self.emitU16(slot);
             try self.emitU16(dst);

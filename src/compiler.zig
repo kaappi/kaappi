@@ -26,6 +26,10 @@ const Local = struct {
     depth: u16,
     slot: u16,
     is_boxed: bool = false,
+    // Register alias for a global, injected during macro expansion so a
+    // template's free reference pierces use-site shadowing. set! through
+    // the alias must write back to the global (see compileSet).
+    is_global_alias: bool = false,
 };
 
 const Upvalue = struct {
@@ -240,6 +244,17 @@ pub const Compiler = struct {
             i -= 1;
             if (std.mem.eql(u8, self.locals.items[i].name, name)) {
                 return self.locals.items[i].is_boxed;
+            }
+        }
+        return false;
+    }
+
+    pub fn isLocalGlobalAlias(self: *Compiler, name: []const u8) bool {
+        var i: usize = self.locals.items.len;
+        while (i > 0) {
+            i -= 1;
+            if (std.mem.eql(u8, self.locals.items[i].name, name)) {
+                return self.locals.items[i].is_global_alias;
             }
         }
         return false;
@@ -1248,6 +1263,7 @@ pub const Compiler = struct {
                         .name = gname,
                         .depth = self.scope_depth,
                         .slot = gslot,
+                        .is_global_alias = true,
                     }) catch {};
                 }
                 const result_err = self.compileExpr(expanded_root, dst, is_tail);

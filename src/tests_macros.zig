@@ -470,3 +470,80 @@ test "syntax-rules nested ellipsis: depth-2 pattern variables" {
     const result = try vm.eval("(nest (1 (2 3) (4 5)) (10 (6 7)))");
     try std.testing.expectEqual(@as(i64, 79), types.toFixnum(result));
 }
+
+test "hygiene: template set! of a free global writes through to the global" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    // The compiler injects a register alias for a template's free
+    // reference to a non-procedure global so the reference pierces
+    // use-site shadowing (R7RS 4.3.1). set! through the alias used to
+    // update only the register, silently losing the assignment.
+    _ = try vm.eval("(define count 0)");
+    _ = try vm.eval(
+        \\(define-syntax inc!
+        \\  (syntax-rules ()
+        \\    ((inc!) (set! count (+ count 1)))))
+    );
+    _ = try vm.eval("(inc!)");
+    _ = try vm.eval("(inc!)");
+    const result = try vm.eval("count");
+    try std.testing.expectEqual(@as(i64, 2), types.toFixnum(result));
+
+    // Same expansion inside a lambda body
+    _ = try vm.eval("(define (bump) (inc!))");
+    _ = try vm.eval("(bump)");
+    const result2 = try vm.eval("count");
+    try std.testing.expectEqual(@as(i64, 3), types.toFixnum(result2));
+}
+
+test "hygiene: template set! reaches the global past a use-site shadow" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    _ = try vm.eval("(define counter 0)");
+    _ = try vm.eval(
+        \\(define-syntax bump!
+        \\  (syntax-rules ()
+        \\    ((bump!) (set! counter (+ counter 1)))))
+    );
+    // The use-site local counter must stay untouched; the template's
+    // set! must mutate the definition-site global.
+    const local = try vm.eval("(let ((counter 100)) (bump!) counter)");
+    try std.testing.expectEqual(@as(i64, 100), types.toFixnum(local));
+    const global = try vm.eval("counter");
+    try std.testing.expectEqual(@as(i64, 1), types.toFixnum(global));
+}
+
+test "hygiene: template binding shadows a builtin procedure of the same name" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    // The template binds a variable named exp; references in the
+    // template body must follow the hygienic rename of that binding,
+    // not resolve to the builtin exp procedure. (This broke the SRFI-19
+    // test harness: every `expected` value became #<builtin exp>.)
+    _ = try vm.eval(
+        \\(define-syntax capture-exp
+        \\  (syntax-rules ()
+        \\    ((_ v) (let ((exp v)) exp))))
+    );
+    const result = try vm.eval("(capture-exp 42)");
+    try std.testing.expectEqual(@as(i64, 42), types.toFixnum(result));
+
+    // A template reference without a template binding must still reach
+    // the builtin.
+    _ = try vm.eval(
+        \\(define-syntax call-exp
+        \\  (syntax-rules ()
+        \\    ((_ v) (exp v))))
+    );
+    const builtin = try vm.eval("(exact (round (call-exp 0)))");
+    try std.testing.expectEqual(@as(i64, 1), types.toFixnum(builtin));
+}
