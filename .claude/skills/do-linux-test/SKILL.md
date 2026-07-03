@@ -63,6 +63,26 @@ Record the **droplet ID** immediately — it is needed for cleanup.
    done
    ```
 
+## Arm self-destruct timer
+
+Immediately after SSH is up, install a background process on the droplet
+that deletes itself via the DO API after 55 minutes. This guarantees
+destruction even if the Claude session dies mid-run.
+
+Source the API token locally, then pass it and the droplet ID over SSH:
+
+```bash
+DO_TOKEN=$(source ~/.zshrc 2>/dev/null && echo "$DIGITALOCEAN_API_TOKEN")
+ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+  root@$IP "nohup bash -c 'sleep 3300 && curl -sf -X DELETE \
+    -H \"Authorization: Bearer $DO_TOKEN\" \
+    https://api.digitalocean.com/v2/droplets/<DROPLET_ID>' \
+    > /dev/null 2>&1 &"
+```
+
+The token lives only in the process's memory on a throwaway droplet that
+will be destroyed within the hour.
+
 ## Provision and test
 
 Run provisioning and tests as **separate SSH commands** so that a single
