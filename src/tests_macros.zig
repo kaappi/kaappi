@@ -455,3 +455,18 @@ test "top-level begin: define-syntax persists for later forms" {
     const result = try vm.eval("(k)");
     try std.testing.expectEqual(@as(i64, 7), types.toFixnum(result));
 }
+
+test "syntax-rules nested ellipsis: depth-2 pattern variables" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    // Regression: variables at ellipsis depth 2 (e.g. b, c in
+    // ((a (b c) ...) ...)) were rejected with EllipsisDepthMismatch at the
+    // outer ellipsis instead of being unpacked one level per ellipsis.
+    // Surfaced by SRFI-35's `condition` construction macro.
+    _ = try vm.eval("(define-syntax nest (syntax-rules () ((nest (a (b c) ...) ...) (+ (+ a (* b c) ...) ...))))");
+    const result = try vm.eval("(nest (1 (2 3) (4 5)) (10 (6 7)))");
+    try std.testing.expectEqual(@as(i64, 79), types.toFixnum(result));
+}

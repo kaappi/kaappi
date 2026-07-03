@@ -646,12 +646,14 @@ fn templateReferencesVar(template: Value, name: []const u8) bool {
 
 fn instantiateEllipsis(gc: *GC, elem_template: Value, rest_template: Value, bindings: []Binding, intro_scope: u32, literals: []const Value, macro_keyword: ?[]const u8, globals: ?*std.StringHashMap(Value), macros: ?*const std.StringHashMap(Value)) (std.mem.Allocator.Error || ExpandError)!Value {
     // Find the repeat count from ellipsis bindings referenced in elem_template.
-    // All referenced list bindings must have equal counts (R7RS).
+    // All referenced list bindings must have equal counts (R7RS). Bindings
+    // with depth > 1 (nested ellipses) participate too: their ellipsis_count
+    // at this level is the outer repetition count, and each iteration below
+    // unpacks them one level for the inner ellipsis to consume.
     var repeat_count: usize = 0;
     var count_set = false;
     for (bindings) |b| {
         if (b.is_list and templateReferencesVar(elem_template, b.name)) {
-            if (b.depth != 1) return ExpandError.EllipsisDepthMismatch;
             if (!count_set) {
                 repeat_count = b.ellipsis_count;
                 count_set = true;
