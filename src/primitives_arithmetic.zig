@@ -792,27 +792,92 @@ fn modulo(args: []const Value) PrimitiveError!Value {
     return types.makeFixnum(@mod(types.toFixnum(args[0]), b));
 }
 
+/// True for any exact real: fixnum, bignum, or rational.
+fn isExactReal(v: Value) bool {
+    return types.isFixnum(v) or types.isBignum(v) or types.isRationalObj(v);
+}
+
+/// Numerator of an exact real as a fixnum/bignum Value.
+fn exactNumerator(v: Value) Value {
+    if (types.isRationalObj(v)) return types.toRational(v).numerator;
+    return v; // fixnum or bignum
+}
+
+/// Denominator of an exact real as a fixnum/bignum Value (always positive).
+fn exactDenominator(v: Value) Value {
+    if (types.isRationalObj(v)) return types.toRational(v).denominator;
+    return types.makeFixnum(1); // fixnum or bignum: denominator 1
+}
+
+/// Compare two exact reals (fixnum, bignum, or rational) exactly.
+/// Returns -1, 0, or 1. Never loses precision: denominators are positive, so
+/// the sign of (na*db - nb*da) gives the ordering. Uses an i64 fast path when
+/// both sides fit, falling back to bignum cross-multiplication otherwise.
+fn compareExactReals(a: Value, b: Value) PrimitiveError!i8 {
+    // Both exact integers: direct comparison, no cross-multiplication.
+    if (!types.isRationalObj(a) and !types.isRationalObj(b)) {
+        return bignum_mod.compare(a, b);
+    }
+    // Fast path: both fit RatParts and the i64 cross-products don't overflow.
+    if (toRationalParts(a)) |pa| {
+        if (toRationalParts(b)) |pb| {
+            const r1 = @mulWithOverflow(pa.num, pb.den);
+            const r2 = @mulWithOverflow(pb.num, pa.den);
+            if (r1[1] == 0 and r2[1] == 0) {
+                if (r1[0] < r2[0]) return -1;
+                if (r1[0] > r2[0]) return 1;
+                return 0;
+            }
+        }
+    }
+    // General path: bignum cross-multiplication (handles bignum parts/overflow).
+    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const na = exactNumerator(a);
+    const da = exactDenominator(a);
+    const nb = exactNumerator(b);
+    const db = exactDenominator(b);
+    var p1 = bignum_mod.mul(gc, na, db) catch return PrimitiveError.OutOfMemory;
+    gc.pushRoot(&p1) catch return PrimitiveError.OutOfMemory;
+    defer gc.popRoot();
+    const p2 = bignum_mod.mul(gc, nb, da) catch return PrimitiveError.OutOfMemory;
+    return bignum_mod.compare(p1, p2);
+}
+
+/// Compare an exact real against an inexact flonum by comparing against the
+/// flonum's exact value. A finite double is exactly mantissa*2^exp, so this
+/// keeps `=`, `<`, etc. transitive across the exact/inexact boundary as
+/// R7RS 6.2.6 requires (converting the exact side to double would not be).
+fn compareExactVsFlonum(a: Value, f: f64) PrimitiveError!i8 {
+    if (!std.math.isFinite(f)) {
+        if (std.math.isNan(f)) return 1; // callers short-circuit NaN; be safe
+        return if (f > 0) @as(i8, -1) else @as(i8, 1); // a < +inf ; a > -inf
+    }
+    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    var f_exact = try numeric.exactFn(&[1]Value{types.makeFlonum(f)});
+    gc.pushRoot(&f_exact) catch return PrimitiveError.OutOfMemory;
+    defer gc.popRoot();
+    return try compareExactReals(a, f_exact);
+}
+
 fn cmpPair(a: Value, b: Value) PrimitiveError!i8 {
     // Both exact integers (fixnum or bignum): use exact comparison
     if ((types.isFixnum(a) or types.isBignum(a)) and (types.isFixnum(b) or types.isBignum(b))) {
         return bignum_mod.compare(a, b);
     }
-    // Rational comparison: cross-multiply to avoid floating point
-    if ((types.isRationalObj(a) or types.isFixnum(a)) and (types.isRationalObj(b) or types.isFixnum(b))) {
-        if (types.isRationalObj(a) or types.isRationalObj(b)) {
-            const pa = toRationalParts(a);
-            const pb = toRationalParts(b);
-            if (pa != null and pb != null) {
-                const r1 = @mulWithOverflow(pa.?.num, pb.?.den);
-                const r2 = @mulWithOverflow(pb.?.num, pa.?.den);
-                if (r1[1] == 0 and r2[1] == 0) {
-                    if (r1[0] < r2[0]) return -1;
-                    if (r1[0] > r2[0]) return 1;
-                    return 0;
-                }
-            }
-            // Overflow or bignum fields: fall back to float
-        }
+    // Both exact with at least one rational: exact cross-multiplication.
+    // Covers rational-vs-rational, rational-vs-fixnum, and rational-vs-bignum
+    // without ever falling back to lossy f64 (issue #844).
+    if (isExactReal(a) and isExactReal(b)) {
+        return try compareExactReals(a, b);
+    }
+    // Exact rational vs inexact flonum: compare against the flonum's exact
+    // value. The integer-vs-flonum cases below are already exact; only
+    // rationals were missing this (issue #844).
+    if (types.isRationalObj(a) and types.isFlonum(b)) {
+        return try compareExactVsFlonum(a, types.toFlonum(b));
+    }
+    if (types.isFlonum(a) and types.isRationalObj(b)) {
+        return -(try compareExactVsFlonum(b, types.toFlonum(a)));
     }
     // Exact bignum vs inexact flonum: check if bignum is exactly representable
     if (types.isBignum(a) and types.isFlonum(b)) {

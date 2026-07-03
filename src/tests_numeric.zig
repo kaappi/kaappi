@@ -219,6 +219,50 @@ test "eval comparisons with mixed types" {
     try std.testing.expectEqual(types.TRUE, try vm.eval("(>= 2.0 2)"));
 }
 
+test "exact rational comparisons never fall back to f64 (issue 844)" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    // (2^100+1)/2^101 and 1/2 are distinct exact numbers within one double ULP.
+    try std.testing.expectEqual(types.FALSE, try vm.eval("(= (/ (+ (expt 2 100) 1) (expt 2 101)) 1/2)"));
+    try std.testing.expectEqual(types.TRUE, try vm.eval("(< 1/2 (/ (+ (expt 2 100) 1) (expt 2 101)))"));
+    try std.testing.expectEqual(types.TRUE, try vm.eval("(> (/ (+ (expt 2 100) 1) (expt 2 101)) 1/2)"));
+
+    // i64 cross-product overflows but parts still fit fixnums.
+    try std.testing.expectEqual(types.TRUE, try vm.eval("(< 1/1000000000 1/999999999)"));
+    try std.testing.expectEqual(types.TRUE, try vm.eval("(= 3000000000/6000000000 1/2)"));
+
+    // Rational vs bignum near equality (differ by 1/3).
+    try std.testing.expectEqual(types.FALSE, try vm.eval("(= (/ (+ (* 3 (expt 2 100)) 1) 3) (expt 2 100))"));
+    try std.testing.expectEqual(types.TRUE, try vm.eval("(> (/ (+ (* 3 (expt 2 100)) 1) 3) (expt 2 100))"));
+}
+
+test "exact-vs-inexact comparisons stay transitive (issue 844)" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    // (exact 0.3333333333333333) is 6004799503160661/18014398509481984, not 1/3.
+    try std.testing.expectEqual(types.FALSE, try vm.eval("(= (exact 0.3333333333333333) 1/3)"));
+    try std.testing.expectEqual(types.FALSE, try vm.eval("(= 1/3 0.3333333333333333)"));
+    try std.testing.expectEqual(types.TRUE, try vm.eval("(< 0.3333333333333333 1/3)"));
+    try std.testing.expectEqual(types.TRUE, try vm.eval("(> 1/3 0.3333333333333333)"));
+
+    // Transitivity: e = double(1/3) < 1/3, and e = 0.333..., so e /= 1/3.
+    try std.testing.expectEqual(types.TRUE, try vm.eval("(let ((e (exact 0.3333333333333333))) (and (= e 0.3333333333333333) (< e 1/3) (not (= e 1/3))))"));
+
+    // Controls that must keep working.
+    try std.testing.expectEqual(types.TRUE, try vm.eval("(= 1/2 0.5)"));
+    try std.testing.expectEqual(types.TRUE, try vm.eval("(< 1/3 +inf.0)"));
+    try std.testing.expectEqual(types.TRUE, try vm.eval("(> 1/3 -inf.0)"));
+    try std.testing.expectEqual(types.FALSE, try vm.eval("(= 1/3 +nan.0)"));
+    try std.testing.expectEqual(types.TRUE, try vm.eval("(= -1/2 -0.5)"));
+    try std.testing.expectEqual(types.TRUE, try vm.eval("(< -1/3 -0.3333333333333333)"));
+}
+
 test "eval number predicates with flonums" {
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();

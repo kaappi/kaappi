@@ -278,7 +278,7 @@ fn exactIntegerP(args: []const Value) PrimitiveError!Value {
     return if (types.isFixnum(args[0]) or types.isBignum(args[0])) types.TRUE else types.FALSE;
 }
 
-fn exactFn(args: []const Value) PrimitiveError!Value {
+pub fn exactFn(args: []const Value) PrimitiveError!Value {
     if (types.isFixnum(args[0])) return args[0];
     if (types.isBignum(args[0])) return args[0];
     if (types.isRationalObj(args[0])) return args[0]; // already exact
