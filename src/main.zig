@@ -749,8 +749,8 @@ fn runFile(vm: *vm_mod.VM, path: []const u8) !void {
 
     const source_hash = bytecode_file.sourceHash(source);
 
-    // Try loading cached bytecode
-    const sbc_path = getSbcPath(allocator, path) catch null;
+    // Try loading cached bytecode (skip in sandbox mode — no filesystem side effects)
+    const sbc_path = if (vm.sandbox_mode) null else getSbcPath(allocator, path) catch null;
     defer if (sbc_path) |p| allocator.free(p);
 
     if (sbc_path) |sp| {

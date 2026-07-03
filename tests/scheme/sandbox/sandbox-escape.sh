@@ -90,6 +90,22 @@ assert_works "hash tables" '(let ((h (make-hash-table))) (hash-table-set! h "k" 
 assert_works "green fibers" '(import (kaappi fibers)) (fiber-join (spawn (lambda () 42)))'
 
 echo
+echo "=== Bytecode cache (#785) ==="
+
+# Sandbox must not write .sbc bytecode cache files
+tmpdir=$(mktemp -d)
+echo '(display "hello")(newline)' > "$tmpdir/hello.scm"
+"$KAAPPI" --sandbox "$tmpdir/hello.scm" > /dev/null 2>&1 || true
+if [ -f "$tmpdir/hello.sbc" ]; then
+    echo "FAIL: --sandbox wrote .sbc cache file"
+    FAIL=$((FAIL + 1))
+else
+    echo "PASS: --sandbox did not write .sbc cache"
+    PASS=$((PASS + 1))
+fi
+rm -rf "$tmpdir"
+
+echo
 echo "=== Resource limits ==="
 
 # Timeout test
