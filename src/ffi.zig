@@ -162,11 +162,40 @@ fn validateArg(v: Value, t: FfiType) bool {
     };
 }
 
+fn checkNarrowIntRange(v: Value, declared: FfiType) error{TypeError}!void {
+    const wide = switch (declared) {
+        .int8, .uint8, .int16, .uint16, .char_type, .uint32, .uint64, .size_type => toIntArgOpt(v) orelse return error.TypeError,
+        else => return,
+    };
+    switch (declared) {
+        .int8 => {
+            if (wide < std.math.minInt(i8) or wide > std.math.maxInt(i8)) return error.TypeError;
+        },
+        .uint8, .char_type => {
+            if (wide < 0 or wide > std.math.maxInt(u8)) return error.TypeError;
+        },
+        .int16 => {
+            if (wide < std.math.minInt(i16) or wide > std.math.maxInt(i16)) return error.TypeError;
+        },
+        .uint16 => {
+            if (wide < 0 or wide > std.math.maxInt(u16)) return error.TypeError;
+        },
+        .uint32 => {
+            if (wide < 0 or wide > std.math.maxInt(u32)) return error.TypeError;
+        },
+        .uint64, .size_type => {
+            if (wide < 0) return error.TypeError;
+        },
+        else => {},
+    }
+}
+
 fn validateArgs(ffi_fn: *types.FfiFunction, args: []const Value) !void {
     for (0..ffi_fn.param_count) |i| {
         if (!validateArg(args[i], ffi_fn.param_types[i])) {
             return error.TypeError;
         }
+        try checkNarrowIntRange(args[i], ffi_fn.param_types[i]);
     }
 }
 
@@ -1150,4 +1179,89 @@ test "validateArg: accepts bignum for pointer type" {
 
     const big = try gc.allocBignumFromI64(0x1000);
     try std.testing.expect(validateArg(big, .pointer));
+}
+
+test "checkNarrowIntRange: int8 accepts [-128, 127]" {
+    try checkNarrowIntRange(types.makeFixnum(-128), .int8);
+    try checkNarrowIntRange(types.makeFixnum(127), .int8);
+    try checkNarrowIntRange(types.makeFixnum(0), .int8);
+}
+
+test "checkNarrowIntRange: int8 rejects out of range" {
+    try std.testing.expectError(error.TypeError, checkNarrowIntRange(types.makeFixnum(128), .int8));
+    try std.testing.expectError(error.TypeError, checkNarrowIntRange(types.makeFixnum(-129), .int8));
+    try std.testing.expectError(error.TypeError, checkNarrowIntRange(types.makeFixnum(200), .int8));
+}
+
+test "checkNarrowIntRange: uint8 accepts [0, 255]" {
+    try checkNarrowIntRange(types.makeFixnum(0), .uint8);
+    try checkNarrowIntRange(types.makeFixnum(255), .uint8);
+    try checkNarrowIntRange(types.makeFixnum(100), .uint8);
+}
+
+test "checkNarrowIntRange: uint8 rejects out of range" {
+    try std.testing.expectError(error.TypeError, checkNarrowIntRange(types.makeFixnum(256), .uint8));
+    try std.testing.expectError(error.TypeError, checkNarrowIntRange(types.makeFixnum(-1), .uint8));
+    try std.testing.expectError(error.TypeError, checkNarrowIntRange(types.makeFixnum(300), .uint8));
+}
+
+test "checkNarrowIntRange: int16 accepts [-32768, 32767]" {
+    try checkNarrowIntRange(types.makeFixnum(-32768), .int16);
+    try checkNarrowIntRange(types.makeFixnum(32767), .int16);
+    try checkNarrowIntRange(types.makeFixnum(0), .int16);
+}
+
+test "checkNarrowIntRange: int16 rejects out of range" {
+    try std.testing.expectError(error.TypeError, checkNarrowIntRange(types.makeFixnum(32768), .int16));
+    try std.testing.expectError(error.TypeError, checkNarrowIntRange(types.makeFixnum(-32769), .int16));
+    try std.testing.expectError(error.TypeError, checkNarrowIntRange(types.makeFixnum(40000), .int16));
+}
+
+test "checkNarrowIntRange: uint16 accepts [0, 65535]" {
+    try checkNarrowIntRange(types.makeFixnum(0), .uint16);
+    try checkNarrowIntRange(types.makeFixnum(65535), .uint16);
+    try checkNarrowIntRange(types.makeFixnum(1000), .uint16);
+}
+
+test "checkNarrowIntRange: uint16 rejects out of range" {
+    try std.testing.expectError(error.TypeError, checkNarrowIntRange(types.makeFixnum(65536), .uint16));
+    try std.testing.expectError(error.TypeError, checkNarrowIntRange(types.makeFixnum(-1), .uint16));
+    try std.testing.expectError(error.TypeError, checkNarrowIntRange(types.makeFixnum(70000), .uint16));
+}
+
+test "checkNarrowIntRange: uint32 accepts [0, 4294967295]" {
+    try checkNarrowIntRange(types.makeFixnum(0), .uint32);
+    try checkNarrowIntRange(types.makeFixnum(4294967295), .uint32);
+    try checkNarrowIntRange(types.makeFixnum(2147483648), .uint32);
+}
+
+test "checkNarrowIntRange: uint32 rejects out of range" {
+    try std.testing.expectError(error.TypeError, checkNarrowIntRange(types.makeFixnum(-1), .uint32));
+    try std.testing.expectError(error.TypeError, checkNarrowIntRange(types.makeFixnum(4294967296), .uint32));
+}
+
+test "checkNarrowIntRange: char_type same as uint8" {
+    try checkNarrowIntRange(types.makeFixnum(0), .char_type);
+    try checkNarrowIntRange(types.makeFixnum(255), .char_type);
+    try std.testing.expectError(error.TypeError, checkNarrowIntRange(types.makeFixnum(256), .char_type));
+    try std.testing.expectError(error.TypeError, checkNarrowIntRange(types.makeFixnum(-1), .char_type));
+}
+
+test "checkNarrowIntRange: uint64 rejects negative" {
+    try checkNarrowIntRange(types.makeFixnum(0), .uint64);
+    try checkNarrowIntRange(types.makeFixnum(1000000), .uint64);
+    try std.testing.expectError(error.TypeError, checkNarrowIntRange(types.makeFixnum(-1), .uint64));
+}
+
+test "checkNarrowIntRange: size_type rejects negative" {
+    try checkNarrowIntRange(types.makeFixnum(0), .size_type);
+    try checkNarrowIntRange(types.makeFixnum(1000000), .size_type);
+    try std.testing.expectError(error.TypeError, checkNarrowIntRange(types.makeFixnum(-1), .size_type));
+}
+
+test "checkNarrowIntRange: non-narrow types pass through" {
+    try checkNarrowIntRange(types.makeFixnum(5000000000), .int);
+    try checkNarrowIntRange(types.makeFixnum(-5000000000), .long);
+    try checkNarrowIntRange(types.makeFixnum(999999), .int32);
+    try checkNarrowIntRange(types.makeFixnum(-999999), .int64);
 }
