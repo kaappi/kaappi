@@ -55,7 +55,8 @@ fn toUnsignedArgOpt(v: Value) ?u64 {
 fn toLongArg(v: Value, declared: FfiType) error{TypeError}!c_long {
     if (declared == .uint64 or declared == .size_type) {
         const unsigned = toUnsignedArgOpt(v) orelse return error.TypeError;
-        return @bitCast(unsigned);
+        const narrowed = std.math.cast(c_ulong, unsigned) orelse return error.TypeError;
+        return @bitCast(narrowed);
     }
     return toCheckedInt(c_long, v);
 }
