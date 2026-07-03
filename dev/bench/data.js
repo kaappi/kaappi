@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783117527789,
+  "lastUpdate": 1783117683892,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "12209c3454b6aba485860910b4e7df46bcb2668e",
-          "message": "Validate operand types in quotient/remainder/modulo/gcd bignum paths (#890)\n\n* Fix case-lambda 32-clause limit, case empty datum, case-lambda hygiene (#840, #854, #836)\n\nThree related fixes in compiler_advanced.zig:\n- Replace fixed 32-element clause_buf array with dynamic ArrayList so\n  case-lambda supports any number of clauses (#840)\n- Allow empty datum list (() body) in case clauses as dead code per\n  R7RS grammar (#854)\n- Use unforgeable %cl_args/%cl_n symbols in case-lambda desugaring to\n  avoid capturing user variables named args or n (#836)\n\nFixes #840\nFixes #854\nFixes #836\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Guard bignum branches against flonum and non-number arguments\n\nquotient, remainder, modulo, and gcd had bignum fast-paths that fired\nwhen either operand was a bignum, but assumed the other operand was\nalso a fixnum or bignum.  When the other argument was a flonum, the\ncode called bignum.viewOf which invoked types.toBignum on the flonum,\npanicking.  Non-number arguments (e.g. strings) produced garbage.\n\nFix by adding flonum exclusion guards to the bignum branches in\nquotient/remainder/modulo (matching the pattern already used by the\ndivision operator), and by moving the anyFlonum check before the\nanyBignum check in gcdFn (matching lcmFn).  Also add explicit type\nvalidation for non-number arguments in all four functions' bignum\npaths.\n\nFixes #841\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-03T02:13:57+05:30",
-          "tree_id": "b1219ac8d060e75b25a2d8b178e638f59771b049",
-          "url": "https://github.com/kaappi/kaappi/commit/12209c3454b6aba485860910b4e7df46bcb2668e"
-        },
-        "date": 1783027210027,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.300445,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.300335,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.807237,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.14028,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.007996,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.032351,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.454989,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.070767,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.922368,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.753169,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.084636,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.218449,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 2.387348,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.712753,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.04153,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.043847,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "fadb0742d14d4062a4dfa1317cd66e76f1d364b0",
+          "message": "Fix SRFI-158 gtake crash, SRFI-189 nothing procedure, SRFI-115 unknown char class (#1008)\n\n* SRFI-158: drive generators with Scheme recursion, not native map\n\ngenerator-fold, generator-for-each, generator-map->list, gmap, and\ngcombine called their generators via (map (lambda (g) (g)) gs). map is\na native primitive, and a coroutine generator captures a continuation\ninside the callback; that continuation cannot resume once the native\nmap frame has returned, so the second invocation crashed with \"type\nerror in 'cdr': expected pair, got #<procedure>\" or silently corrupted\nstate. This broke gtake and (generator->list gen n), which are built\non make-coroutine-generator and generator-fold.\n\nReplace the native-map driving with a %call-generators helper that\nwalks the generator list in plain Scheme, keeping every frame the\ncaptured continuation needs inside the bytecode dispatch session.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n* SRFI-189: make nothing a procedure per spec\n\nnothing was defined as the Nothing record instance itself, so the\nspec-mandated call form (nothing) raised \"not a procedure\". Keep the\nunique instance in a private %the-nothing and export nothing as a\nzero-argument procedure returning it, as SRFI-189 requires.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n* SRFI-115: raise on unknown named char class instead of matching nothing\n\nA bare symbol in an SRE compiled to a class node without validation,\nand the match interpreter's fallback returned #f for names it did not\nrecognize. A typo like digit (for numeric) therefore made every search\nsilently return #f. Validate class names against the set the matcher\nunderstands at compile time, so (regexp-search '(+ digit) \"age: 25\")\nraises \"regexp: unknown character class\" and valid-sre? returns #f.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-04T03:42:35+05:30",
+          "tree_id": "de3a3b831920b3863065ce30b172980065f754b3",
+          "url": "https://github.com/kaappi/kaappi/commit/fadb0742d14d4062a4dfa1317cd66e76f1d364b0"
+        },
+        "date": 1783117683428,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.433649,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.719612,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.847611,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.542912,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.00676,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.033579,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.475832,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.069929,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 4.143613,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.828803,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.149814,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.434933,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.793539,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.744005,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.043457,
             "unit": "seconds"
           }
         ]
