@@ -24,7 +24,33 @@ fn stripHygienicPrefix(name: []const u8) []const u8 {
     return n;
 }
 
+/// True when a just-restored (or escape-unwound) frame stack should resume in
+/// THIS dispatch loop: the new stack must still contain the loop's scope-root
+/// frame, identified by birth id — frame depth alone can't distinguish "these
+/// frames extend this loop's scope" from "these frames jump to an unrelated
+/// program point that happens to be deeper". The outermost loop (target 0)
+/// has no re-entrant Zig callers left to corrupt, so it accepts any stack.
+fn resumesHere(self: *VM, target_frame_count: usize, scope_root_seq: u64) bool {
+    if (self.frame_count <= target_frame_count) return false;
+    if (target_frame_count == 0) return true;
+    return self.frames[target_frame_count].seq == scope_root_seq;
+}
+
+/// Continuation-invoked handling: after a restore/escape delivers its value,
+/// execution must resume in the innermost dispatch loop whose scope-root
+/// frame is still live (checked by frame birth id, see resumesHere). Loops
+/// whose scope frames were discarded propagate ContinuationInvoked instead,
+/// so the re-entrant Zig callers (callThunk/callHandler in natives like
+/// with-exception-handler or dynamic-wind) between that loop and the resume
+/// point unwind and keep their pending result-register writes consistent.
 pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) VMError!Value {
+    // Birth id of this loop's scope-root frame (the frame whose return ends
+    // the loop). Tail calls reuse the frame and keep the id, so it is stable
+    // for the loop's lifetime.
+    const scope_root_seq: u64 = if (target_frame_count < self.frame_count)
+        self.frames[target_frame_count].seq
+    else
+        0;
     while (self.frame_count > target_frame_count) {
         if (self.yielded) {
             self.yielded = false;
@@ -298,7 +324,7 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                 } else {
                     vm_calls.callValue(self, callee, base, nargs) catch |err| {
                         if (err == VMError.ContinuationInvoked) {
-                            if (self.frame_count > target_frame_count) {
+                            if (resumesHere(self, target_frame_count, scope_root_seq)) {
                                 continue;
                             }
                             return VMError.ContinuationInvoked;
@@ -402,7 +428,7 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                             self.gc.profile_alloc_target = saved_alloc_target;
                         }
                         if (err == error.ContinuationInvoked) {
-                            if (target_frame_count == 0) {
+                            if (resumesHere(self, target_frame_count, scope_root_seq)) {
                                 continue;
                             }
                             return VMError.ContinuationInvoked;
@@ -453,7 +479,7 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                         try self.performWindTransition(cont.wind_records[0..cont.wind_count], cont.wind_count);
                         try self.restoreContinuation(cont, value);
                     }
-                    if (target_frame_count == 0) {
+                    if (resumesHere(self, target_frame_count, scope_root_seq)) {
                         continue;
                     }
                     return VMError.ContinuationInvoked;
@@ -594,7 +620,7 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                     const return_dst = frame.dst;
                     const result = native.func(flat_args[0..count]) catch |err| {
                         if (err == error.ContinuationInvoked) {
-                            if (target_frame_count == 0) continue;
+                            if (resumesHere(self, target_frame_count, scope_root_seq)) continue;
                             return VMError.ContinuationInvoked;
                         }
                         return switch (err) {
@@ -622,7 +648,7 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                         try self.performWindTransition(cont.wind_records[0..cont.wind_count], cont.wind_count);
                         try self.restoreContinuation(cont, value);
                     }
-                    if (target_frame_count == 0) continue;
+                    if (resumesHere(self, target_frame_count, scope_root_seq)) continue;
                     return VMError.ContinuationInvoked;
                 } else if (types.isFfiFunction(proc)) {
                     const ffi_fn = types.toObject(proc).as(types.FfiFunction);
@@ -825,7 +851,7 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                             const cache = self.gc.allocator.alloc(Value, the_func.constants.items.len) catch {
                                 vm_calls.callValue(self, val, base, nargs) catch |err| {
                                     if (err == VMError.ContinuationInvoked) {
-                                        if (target_frame_count == 0) continue;
+                                        if (resumesHere(self, target_frame_count, scope_root_seq)) continue;
                                         return VMError.ContinuationInvoked;
                                     }
                                     return err;
@@ -863,7 +889,7 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                         const args = self.registers[base + 1 .. base + 1 + nargs];
                         const result = native.func(args) catch |err| {
                             if (err == error.ContinuationInvoked) {
-                                if (target_frame_count == 0) continue;
+                                if (resumesHere(self, target_frame_count, scope_root_seq)) continue;
                                 return VMError.ContinuationInvoked;
                             }
                             return vm_calls.handleNativeError(self, err, base, nargs);
@@ -872,7 +898,7 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                     } else {
                         vm_calls.callNative(self, native, base, nargs) catch |err| {
                             if (err == VMError.ContinuationInvoked) {
-                                if (target_frame_count == 0) continue;
+                                if (resumesHere(self, target_frame_count, scope_root_seq)) continue;
                                 return VMError.ContinuationInvoked;
                             }
                             return err;
@@ -883,7 +909,7 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                 } else {
                     vm_calls.callValue(self, callee, base, nargs) catch |err| {
                         if (err == VMError.ContinuationInvoked) {
-                            if (target_frame_count == 0) continue;
+                            if (resumesHere(self, target_frame_count, scope_root_seq)) continue;
                             return VMError.ContinuationInvoked;
                         }
                         return err;
@@ -999,7 +1025,7 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                     const result = if (!self.profile_mode)
                         native.func(args) catch |err| {
                             if (err == error.ContinuationInvoked) {
-                                if (target_frame_count == 0) continue;
+                                if (resumesHere(self, target_frame_count, scope_root_seq)) continue;
                                 return VMError.ContinuationInvoked;
                             }
                             return vm_calls.handleNativeError(self, err, abs_base, nargs);
@@ -1016,7 +1042,7 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                             self.profile_last_ns = vm_calls.clockNs();
                             self.gc.profile_alloc_target = saved_alloc_target;
                             if (err == error.ContinuationInvoked) {
-                                if (target_frame_count == 0) continue;
+                                if (resumesHere(self, target_frame_count, scope_root_seq)) continue;
                                 return VMError.ContinuationInvoked;
                             }
                             return switch (err) {

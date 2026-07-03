@@ -357,9 +357,10 @@ pub const SavedFrame = struct {
     base: u32,
     dst: u16,
     saved_wind_count: u16,
-    // On wasm32, pointer-sized fields shrink from 8 to 4 bytes, making the
-    // struct 28 bytes — not a multiple of @sizeOf(Value) (8). Pad to 32.
-    _pad: if (@sizeOf(usize) < 8) [4]u8 else [0]u8 = undefined,
+    // Frame birth id (see CallFrame.seq in vm.zig). The u64 also forces
+    // 8-byte alignment on wasm32, keeping the struct size a multiple of
+    // @sizeOf(Value) without manual padding.
+    seq: u64,
 };
 
 /// Saved exception handler for continuation capture.
