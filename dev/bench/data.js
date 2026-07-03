@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783076560862,
+  "lastUpdate": 1783077476231,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "80e7b3d751f8eec80788832aa8196f7d4fb978b0",
-          "message": "Merge pull request #722 from kaappi/fix/expander-patvar-limit-683\n\nRaise syntax-rules pattern variable limit from 16 to 128 per ellipsis",
-          "timestamp": "2026-07-02T11:15:46+05:30",
-          "tree_id": "810a413876f61c91bac8b818bdca386b8858fb78",
-          "url": "https://github.com/kaappi/kaappi/commit/80e7b3d751f8eec80788832aa8196f7d4fb978b0"
-        },
-        "date": 1782973599833,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.960282,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 10.023793,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.840746,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.172997,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.007275,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.032056,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.451248,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.067672,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.827836,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.741348,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.115467,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.240966,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 2.375821,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.898095,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.043802,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.040841,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "4e71f21ba735004f1a5e512aed3c63970e2805f4",
+          "message": "Fix thottam version-pinned install: use --end-of-options not -- (#780) (#960)\n\nArguments after `--` in `git checkout` are pathspecs, not refnames, so the\n#736 option-injection guard (`checkout --quiet -- <ref>`) made git try to\nrestore a file named after the tag/SHA and fail with \"pathspec did not match\nany file(s)\". This broke every version-pinned install: `pkg@v1.0.0`, semver\nconstraints, and `--locked`.\n\nUse `--end-of-options` (git 2.24+) instead: it stops flag parsing — keeping\nthe injection guard — while still resolving the argument as a revision. The\ncheckout is extracted into a documented `checkoutVersion` helper so the exact\nargument list is exercised by a regression test against a local tagged repo.\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
+          "timestamp": "2026-07-03T11:02:49Z",
+          "tree_id": "2a12886def82dfa758d9b5cc67a17ca20186ceb5",
+          "url": "https://github.com/kaappi/kaappi/commit/4e71f21ba735004f1a5e512aed3c63970e2805f4"
+        },
+        "date": 1783077475618,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.029599,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.145173,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.845182,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.129368,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.007476,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.032724,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.464316,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.068223,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 4.006586,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.784998,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.143977,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.472596,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 2.354798,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.815227,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044889,
             "unit": "seconds"
           }
         ]
