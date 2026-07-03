@@ -744,6 +744,13 @@ fn renameForHygiene(gc: *GC, name: []const u8, scope: u32, globals: ?*std.String
     const QUOTE_FLAG: u32 = 0x40000000;
     const BINDING_FLAG: u32 = 0x20000000;
     if ((scope & QUOTE_FLAG) != 0) return gc.allocSymbol(name);
+
+    // Already renamed by an enclosing expansion: macro-generating macros
+    // bake __hyg_ names into the inner macro's stored template. Gensyms are
+    // globally unique, so renaming again cannot prevent any capture — it
+    // only severs the reference from the binding created by the generating
+    // expansion (issue #919: __hyg_N___hyg_M_march-hare undefined).
+    if (std.mem.startsWith(u8, name, "__hyg_")) return gc.allocSymbol(name);
     const in_binding = (scope & BINDING_FLAG) != 0;
     const clean_scope = scope & ~BINDING_FLAG;
     if (globals) |g| {

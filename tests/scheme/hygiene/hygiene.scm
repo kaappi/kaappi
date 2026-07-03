@@ -131,6 +131,36 @@
   (test-equal "my-list" '(1 2 3) (my-list 1 2 3))
   (test-eqv "my-begin" 3 (my-begin 1 2 3)))
 
+;; -------------------------------------------------------------------------
+;; 8. Macro-generating macros (issue #919): identifiers renamed by the outer
+;;    expansion and baked into the inner macro's template must not be renamed
+;;    again when the inner macro expands, and inner pattern variables must
+;;    shadow outer substitutions.
+;; -------------------------------------------------------------------------
+
+(define-syntax jabberwocky
+  (syntax-rules ()
+    ((_ hatter)
+     (begin
+       (define march-hare 42)
+       (define-syntax hatter
+         (syntax-rules ()
+           ((_) march-hare)))))))
+(jabberwocky mad-hatter)
+
+(test-group "macro-generating macros"
+  (test-eqv "inner macro sees outer expansion's binding" 42 (mad-hatter))
+  (test-eqv "inner pattern variable shadows outer substitution" 'x
+    (let ()
+      (define-syntax foo
+        (syntax-rules ()
+          ((foo bar y)
+           (define-syntax bar
+             (syntax-rules ()
+               ((bar x) 'y))))))
+      (foo bar x)
+      (bar 1))))
+
 (set! %test-fail-count (test-runner-fail-count (test-runner-current)))
 (test-end "hygiene")
 (if (> %test-fail-count 0) (exit 1))

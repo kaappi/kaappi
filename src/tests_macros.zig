@@ -299,3 +299,52 @@ test "let-syntax rejects malformed binding without transformer" {
     const result = vm.eval("(let-syntax ((my-macro)) 1)");
     try std.testing.expectError(error.CompileError, result);
 }
+
+test "hygiene: macro-generating macro shares binding with inner macro" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    // Issue #919: the inner macro's stored template references march-hare,
+    // already hygiene-renamed by the outer expansion. Expanding (mad-hatter)
+    // must not rename it a second time, or the reference is severed from
+    // the binding the outer expansion created.
+    _ = try vm.eval(
+        \\(define-syntax jabberwocky
+        \\  (syntax-rules ()
+        \\    ((_ hatter)
+        \\     (begin
+        \\       (define march-hare 42)
+        \\       (define-syntax hatter
+        \\         (syntax-rules ()
+        \\           ((_) march-hare)))))))
+    );
+    _ = try vm.eval("(jabberwocky mad-hatter)");
+    const result = try vm.eval("(mad-hatter)");
+    try std.testing.expectEqual(@as(i64, 42), types.toFixnum(result));
+}
+
+test "hygiene: inner syntax-rules pattern variables shadow outer bindings" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    // Issue #919 (pattern-variable scoping variant): the inner macro's
+    // pattern variable x must not be confused with the use-site symbol x
+    // substituted for the outer pattern variable y.
+    const result = try vm.eval(
+        \\(let ()
+        \\  (define-syntax foo
+        \\    (syntax-rules ()
+        \\      ((foo bar y)
+        \\       (define-syntax bar
+        \\         (syntax-rules ()
+        \\           ((bar x) 'y))))))
+        \\  (foo bar x)
+        \\  (bar 1))
+    );
+    try std.testing.expect(types.isSymbol(result));
+    try std.testing.expectEqualStrings("x", types.symbolName(result));
+}
