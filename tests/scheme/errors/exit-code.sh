@@ -104,6 +104,12 @@ assert_exit_code "--compile read error exits 1" 1 "$KAAPPI" --compile "$TMPDIR_T
 assert_exit_code "--compile missing file exits 1" 1 "$KAAPPI" --compile "$TMPDIR_TESTS/nope.scm"
 assert_exit_code "--disassemble read error exits 1" 1 "$KAAPPI" --disassemble "$TMPDIR_TESTS/unbal.scm"
 
+# Passing a directory must error, not silently run an empty program (#789)
+mkdir -p "$TMPDIR_TESTS/adir"
+assert_exit_code "directory as script exits 1" 1 "$KAAPPI" "$TMPDIR_TESTS/adir"
+assert_exit_code "--compile directory exits 1" 1 "$KAAPPI" --compile "$TMPDIR_TESTS/adir"
+assert_exit_code "--disassemble directory exits 1" 1 "$KAAPPI" --disassemble "$TMPDIR_TESTS/adir"
+
 # A build/inspect mode invoked with no file is a usage error, not exit 0
 assert_exit_code "--compile without file exits 2" 2 "$KAAPPI" --compile
 assert_exit_code "--disassemble without file exits 2" 2 "$KAAPPI" --disassemble

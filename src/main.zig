@@ -1,5 +1,7 @@
 const std = @import("std");
-const is_wasm = @import("builtin").os.tag == .wasi;
+const builtin_os = @import("builtin").os;
+const is_wasm = builtin_os.tag == .wasi;
+const is_linux = builtin_os.tag == .linux;
 extern "c" fn setenv(name: [*:0]const u8, value: [*:0]const u8, overwrite: c_int) c_int;
 pub const types = @import("types.zig");
 pub const memory = @import("memory.zig");
@@ -180,6 +182,22 @@ fn readFileContents(allocator: std.mem.Allocator, path: []const u8) ![]u8 {
     }
     defer _ = std.c.close(fd);
 
+    if (comptime !is_wasm) {
+        const is_dir = if (comptime is_linux) blk: {
+            const linux = std.os.linux;
+            var sx: linux.Statx = undefined;
+            const rc = linux.statx(fd, "", 0x1000, .{ .TYPE = true }, &sx);
+            break :blk rc <= @as(usize, std.math.maxInt(isize)) and (sx.mode & std.posix.S.IFMT == std.posix.S.IFDIR);
+        } else blk: {
+            var stat: std.c.Stat = undefined;
+            break :blk std.c.fstat(fd, &stat) == 0 and (stat.mode & std.posix.S.IFMT == std.posix.S.IFDIR);
+        };
+        if (is_dir) {
+            std.debug.print("Error: '{s}' is a directory\n", .{path});
+            return error.IsDir;
+        }
+    }
+
     const max_size: usize = 1024 * 1024;
     var result: std.ArrayList(u8) = .empty;
     defer result.deinit(allocator);
@@ -189,8 +207,10 @@ fn readFileContents(allocator: std.mem.Allocator, path: []const u8) ![]u8 {
         const raw = std.c.read(fd, &tmp, tmp.len);
         if (raw == 0) break;
         if (raw < 0) {
-            if (std.posix.errno(raw) == .INTR) continue;
-            break;
+            const e = std.posix.errno(raw);
+            if (e == .INTR) continue;
+            std.debug.print("Error reading file '{s}': {s}\n", .{ path, @tagName(e) });
+            return error.InputOutput;
         }
         const bytes_read: usize = @intCast(raw);
         if (result.items.len + bytes_read > max_size) {
