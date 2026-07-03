@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783058176780,
+  "lastUpdate": 1783058613127,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "cdd00fbe50e72d5395f6cf506b62d67c628d3b33",
-          "message": "Abandon mutexes held by terminated fibers (#642) (#675)\n\nSRFI-18 requires that when a thread terminates while holding a mutex,\nthe mutex becomes unlocked and abandoned. The read side (mutex-state,\nmutex-lock!) already handled the abandoned flag correctly, but nothing\never set it to true.\n\nAdd abandonFiberMutexes() which walks the GC object lists to find and\nmark mutexes owned by a given fiber. Call it from thread-terminate!,\nthreadEntryFn (OS thread exit), and all three cooperative scheduler\nloops (runSchedulerUntilDone/Mutex/CondVar) on fiber completion/error.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-01T16:27:18+05:30",
-          "tree_id": "a2e4c80a02219b0d7b65dab34b97b1405d7b4ca1",
-          "url": "https://github.com/kaappi/kaappi/commit/cdd00fbe50e72d5395f6cf506b62d67c628d3b33"
-        },
-        "date": 1782904164738,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.971054,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.557509,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.836696,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.17799,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.007333,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.032283,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.451861,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.066951,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.849613,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.744707,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.099788,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.239293,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 2.369102,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.792915,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.04315,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.041548,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "77dda3040c439ce51045ea4f1b518583ed32ced3",
+          "message": "Fix wrong vector-partition expectation in SRFI-133 extended tests (#932)\n\nThe test expected (vector-partition even? #(1 2 3 4 5)) to return a\n2-element vector of only the satisfying elements. Per the SRFI 133\nspec, the first value is a vector the same size as the input —\nsatisfying elements first, then the rest, both in original order —\nand the implementation already conforms. The failure surfaced only\nafter script error exit codes were fixed; it had been masked before.\n\nStrengthen the check to compare full vector contents (guarding\nagainst a future regression that truncates the result) and add\nall-satisfying, none-satisfying, and empty-vector edge cases.\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-03T05:49:37Z",
+          "tree_id": "ec4dd20ab2959f4fe3e1499547abadec754016d9",
+          "url": "https://github.com/kaappi/kaappi/commit/77dda3040c439ce51045ea4f1b518583ed32ced3"
+        },
+        "date": 1783058612708,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.386059,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.697252,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.862063,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.176371,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.00709,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.033552,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.482992,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.070623,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.970605,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.849892,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.125868,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.433042,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 2.453228,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.675099,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.042166,
             "unit": "seconds"
           }
         ]
