@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783040854078,
+  "lastUpdate": 1783040975844,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "e8a73ab43178a2cfd3db9d680375450303ef6cee",
-          "message": "Fix SRFI-13 parseStartEnd and string-take/-drop silently clamping out-of-range indices (#640) (#663)\n\nparseStartEnd, string-take, string-drop, string-take-right, and\nstring-drop-right used `orelse data.len` when utf8IndexToByteOffset\nreturned null for out-of-range indices, silently clamping instead of\nraising an error. Change all sites to return IndexOutOfBounds, matching\nsubstring/string-copy/string-ref behavior.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-01T10:05:29+05:30",
-          "tree_id": "449fd55148b76d32a0b6896705408a83b56929ef",
-          "url": "https://github.com/kaappi/kaappi/commit/e8a73ab43178a2cfd3db9d680375450303ef6cee"
-        },
-        "date": 1782881225966,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.309525,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.173091,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.811054,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.014254,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.007219,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.032751,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.445258,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 1.145833,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.971431,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.752166,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.100065,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.220191,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 2.421784,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 0,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.043557,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "389c5e25e3faab50d7a7cbe5e48b10b49a8d3e2a",
+          "message": "Fix cond-expand (library ...) and include in library bodies (#917)\n\n* Fix cond-expand (library ...) and include in library bodies (#868, #879)\n\n- cond-expand (library ...) now checks .sld file existence on the\n  library path, not just the already-loaded registry (#868)\n- include inside library begin blocks is routed through\n  handleTopLevelForm which supports it (#879)\n\nFixes #868\nFixes #879\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Add .sld file check to compiler cond-expand and regression tests (#868, #879)\n\nThe compiler-level evalFeatureReq for (library ...) only checked a\nhardcoded list. Now it also checks the VM library registry and .sld\nfiles on the library path, matching the vm_library.zig behavior.\n\nAlso adds include routing in library begin blocks (#879) and\nregression tests for both fixes.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-03T00:45:05Z",
+          "tree_id": "077914239bf02fe5f3c6bdd84e1a9b8593a58649",
+          "url": "https://github.com/kaappi/kaappi/commit/389c5e25e3faab50d7a7cbe5e48b10b49a8d3e2a"
+        },
+        "date": 1783040974940,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.160152,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 6.912282,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.669714,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 3.989955,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.005755,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.026364,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.367279,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.053499,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.335727,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.388337,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 0.907878,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.37056,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.868015,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.45475,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.03588,
             "unit": "seconds"
           }
         ]
