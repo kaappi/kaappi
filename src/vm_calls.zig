@@ -168,6 +168,12 @@ pub fn run(vm: *VM) VMError!Value {
 
 pub fn runWithScheduler(vm: *VM, sched: *fiber_mod.FiberScheduler) VMError!Value {
     while (true) {
+        // Fibers dispatched here (after the main fiber yields) may park
+        // themselves on an empty channel via the yield_retry protocol. A
+        // dangling yield_retry (a forwarding native converted a park's
+        // Yielded into another error) must not survive into this run.
+        vm.yield_retry = false;
+        vm.sched_dispatch_pending = true;
         const result = vm.runUntil(0, 0) catch |err| {
             if (err == VMError.Yielded) {
                 if (scheduleNextAfterYield(vm, sched)) continue;

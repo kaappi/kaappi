@@ -118,6 +118,9 @@ fn channelSendFn(args: []const Value) PrimitiveError!Value {
         ch.head = new_pair;
         gc.writeBarrier(ch_obj, new_pair);
     }
+    if (vm_mod.vm_instance) |vm| {
+        if (vm.scheduler) |sched| sched.wakeChannelWaiters(args[0]);
+    }
     return types.VOID;
 }
 
@@ -129,6 +132,12 @@ fn channelReceiveFn(args: []const Value) PrimitiveError!Value {
 
     if (ch.head != types.NIL and types.isPair(ch.head)) {
         return dequeueChannel(ch, args[0]);
+    }
+
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.OutOfMemory;
+    if (vm.scheduler == null) {
+        // No fibers exist, so nothing can ever send: blocking would hang.
+        return raiseDeadlockError("channel-receive: deadlock — channel is empty and no fibers are running");
     }
 
     return runSchedulerUntil(null, ch, args[0]);
@@ -167,6 +176,10 @@ fn runSchedulerUntil(target: ?*fiber_mod.Fiber, ch: ?*types.Channel, ch_val: Val
         fiber.status = .running;
         vm.current_fiber = fiber;
 
+        // A dangling yield_retry (a forwarding native converted a park's
+        // Yielded into another error) must not survive into this run.
+        vm.yield_retry = false;
+        vm.sched_dispatch_pending = true;
         const result = vm.runUntil(0, 0) catch |err| {
             if (err == vm_mod.VMError.Yielded) {
                 sched.saveCurrentFiber();
@@ -192,11 +205,49 @@ fn runSchedulerUntil(target: ?*fiber_mod.Fiber, ch: ?*types.Channel, ch_val: Val
     me.status = .running;
     vm.current_fiber = me;
 
-    if (target) |f| return f.result;
+    if (target) |f| {
+        if (f.status == .completed or f.status == .errored) return f.result;
+        return blockOrDeadlock(vm, me, my_idx, types.makePointer(@ptrCast(f)), "fiber-join: deadlock — joined fiber can never complete (all fibers blocked)");
+    }
     if (ch) |channel| {
         if (channel.head != types.NIL) return dequeueChannel(channel, ch_val);
+        return blockOrDeadlock(vm, me, my_idx, ch_val, "channel-receive: deadlock — channel is empty and all fibers are blocked");
     }
     return types.VOID;
+}
+
+/// The scheduler ran out of runnable fibers while this fiber's blocking
+/// condition is still unmet. A spawned fiber dispatched directly by a
+/// scheduler loop parks itself: status .waiting on the channel/fiber, and
+/// yield_retry makes the dispatch loop rewind ip so the blocking primitive
+/// re-executes when a channel-send (or fiber completion) wakes it. The main
+/// fiber — or a fiber blocked under re-entrant native frames (map/for-each
+/// callbacks, eval), which cannot be safely rewound — raises a deadlock
+/// error instead of returning an unspecified value.
+fn blockOrDeadlock(vm: *vm_mod.VM, me: *fiber_mod.Fiber, my_idx: usize, wait_on: Value, deadlock_msg: []const u8) PrimitiveError!Value {
+    if (my_idx != 0 and vm.dispatched_from_scheduler) {
+        me.status = .waiting;
+        me.waiting_on = wait_on;
+        vm.gc.writeBarrier(&me.header, wait_on);
+        vm.yield_retry = true;
+        return PrimitiveError.Yielded;
+    }
+    return raiseDeadlockError(deadlock_msg);
+}
+
+fn raiseDeadlockError(msg: []const u8) PrimitiveError {
+    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.OutOfMemory;
+    const message = gc.allocString(msg) catch return PrimitiveError.OutOfMemory;
+    var msg_root = message;
+    gc.pushRoot(&msg_root) catch return PrimitiveError.OutOfMemory;
+    const err_val = gc.allocErrorObject(msg_root, types.NIL) catch {
+        gc.popRoot();
+        return PrimitiveError.OutOfMemory;
+    };
+    gc.popRoot();
+    vm.current_exception = err_val;
+    return PrimitiveError.ExceptionRaised;
 }
 
 fn channelPredFn(args: []const Value) PrimitiveError!Value {

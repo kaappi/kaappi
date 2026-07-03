@@ -20,6 +20,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - Reject unknown flags (e.g. `--typo-flag`) with a usage error instead of silently treating them as a script filename (#781)
 - Exit non-zero on `--compile`/`--disassemble` read and compile errors, and on standalone-binary runtime and corrupt-bytecode errors, so build and bundled-app failures are visible to CI (#781)
 
+#### Fibers
+- Fix `channel-receive` silently returning an unspecified value when the value had to flow through two or more intermediate fiber stages: a fiber blocked with no runnable siblings now parks on the channel and is woken by the next `channel-send` (re-executing the receive), so multi-stage pipelines deliver values instead of spinning on garbage. A receive (or `fiber-join`) that can never be satisfied now raises a catchable deadlock error instead of returning void
+- `apply`-forwarded `channel-receive` propagates the park signal instead of collapsing it into a type error
+- Documented exit semantics: fibers still parked when the main program ends are discarded (Go-style), and a fiber blocking inside a native-driven callback (`map`, `for-each`, ...) raises a deadlock error when nothing else can run (see README known limitations)
+
 #### Package manager (thottam)
 - Fix version-pinned installs always failing with "Failed to checkout version": `git checkout -- <ref>` treats the ref as a pathspec, so use `--end-of-options` to keep the option-injection guard while resolving `<ref>` as a revision. Affected `install pkg@v1.0.0`, semver constraints, and `--locked` installs (#780)
 

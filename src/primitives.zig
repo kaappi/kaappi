@@ -626,6 +626,10 @@ fn applyFn(args: []const Value) PrimitiveError!Value {
             @import("vm.zig").VMError.ContinuationInvoked => PrimitiveError.ContinuationInvoked,
             @import("vm.zig").VMError.ExceptionRaised => PrimitiveError.ExceptionRaised,
             @import("vm.zig").VMError.OutOfMemory => PrimitiveError.OutOfMemory,
+            // Parked fiber (yield_retry): apply is idempotent up to the
+            // block, so propagate and let the dispatch site retry the
+            // whole apply call on wake.
+            @import("vm.zig").VMError.Yielded => PrimitiveError.Yielded,
             else => PrimitiveError.TypeError, // bare-ok: catch fallback
         };
     };

@@ -532,6 +532,10 @@ fn runSchedulerUntilDone(target: *fiber_mod.Fiber) PrimitiveError!void {
         fiber.status = .running;
         vm.current_fiber = fiber;
 
+        // A dangling yield_retry (a forwarding native converted a park's
+        // Yielded into another error) must not survive into this run.
+        vm.yield_retry = false;
+        vm.sched_dispatch_pending = true;
         const result = vm.runUntil(0, 0) catch |err| {
             if (err == vm_mod.VMError.Yielded) {
                 sched.saveCurrentFiber();
@@ -697,6 +701,10 @@ fn runSchedulerUntilMutex(m: *types.Mutex, me: *fiber_mod.Fiber) PrimitiveError!
         fiber.status = .running;
         vm.current_fiber = fiber;
 
+        // A dangling yield_retry (a forwarding native converted a park's
+        // Yielded into another error) must not survive into this run.
+        vm.yield_retry = false;
+        vm.sched_dispatch_pending = true;
         const result = vm.runUntil(0, 0) catch |err| {
             if (err == vm_mod.VMError.Yielded) {
                 sched.saveCurrentFiber();
@@ -780,6 +788,10 @@ fn runSchedulerUntilCondVar(me: *fiber_mod.Fiber) PrimitiveError!void {
         fiber.status = .running;
         vm.current_fiber = fiber;
 
+        // A dangling yield_retry (a forwarding native converted a park's
+        // Yielded into another error) must not survive into this run.
+        vm.yield_retry = false;
+        vm.sched_dispatch_pending = true;
         const result = vm.runUntil(0, 0) catch |err| {
             if (err == vm_mod.VMError.Yielded) {
                 sched.saveCurrentFiber();

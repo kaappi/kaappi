@@ -36,6 +36,19 @@ fn resumesHere(self: *VM, target_frame_count: usize, scope_root_seq: u64) bool {
     return self.frames[target_frame_count].seq == scope_root_seq;
 }
 
+/// A blocking primitive parked the current fiber and asked for a retry
+/// (vm.yield_retry + error.Yielded): rewind ip to the start of the call
+/// instruction so the primitive re-executes when the fiber is rescheduled.
+/// Must run at the dispatch site that directly invoked the native, where the
+/// instruction length (opcode byte + fixed operands) is known; the flag is
+/// cleared so outer frames propagating the same Yielded do not rewind again.
+fn maybeRewindRetry(self: *VM, instr_len: usize) void {
+    if (!self.yield_retry) return;
+    self.yield_retry = false;
+    const f = &self.frames[self.frame_count - 1];
+    if (f.ip >= instr_len) f.ip -= instr_len;
+}
+
 /// Continuation-invoked handling: after a restore/escape delivers its value,
 /// execution must resume in the innermost dispatch loop whose scope-root
 /// frame is still live (checked by frame birth id, see resumesHere). Loops
@@ -51,6 +64,14 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
         self.frames[target_frame_count].seq
     else
         0;
+    // Blocking primitives may park the current fiber (yield_retry) only when
+    // this loop was entered directly from a scheduler loop; nested runUntil
+    // calls (map/for-each callbacks, eval) clear the marker for their extent.
+    const from_scheduler = self.sched_dispatch_pending;
+    self.sched_dispatch_pending = false;
+    const saved_from_scheduler = self.dispatched_from_scheduler;
+    self.dispatched_from_scheduler = from_scheduler;
+    defer self.dispatched_from_scheduler = saved_from_scheduler;
     while (self.frame_count > target_frame_count) {
         if (self.yielded) {
             self.yielded = false;
@@ -378,6 +399,7 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                             }
                             return VMError.ContinuationInvoked;
                         }
+                        if (err == VMError.Yielded) maybeRewindRetry(self, 1 + fixed_operand_bytes);
                         return err;
                     };
                 }
@@ -482,6 +504,7 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                             }
                             return VMError.ContinuationInvoked;
                         }
+                        if (err == error.Yielded) maybeRewindRetry(self, 1 + fixed_operand_bytes);
                         return switch (err) {
                             error.TypeError => blk: {
                                 if (self.last_error_detail_len == 0)
@@ -672,6 +695,7 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                             if (resumesHere(self, target_frame_count, scope_root_seq)) continue;
                             return VMError.ContinuationInvoked;
                         }
+                        if (err == error.Yielded) maybeRewindRetry(self, 1 + fixed_operand_bytes);
                         return switch (err) {
                             error.TypeError => VMError.TypeError,
                             error.DivisionByZero => VMError.DivisionByZero,
@@ -913,6 +937,7 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                                         if (resumesHere(self, target_frame_count, scope_root_seq)) continue;
                                         return VMError.ContinuationInvoked;
                                     }
+                                    if (err == VMError.Yielded) maybeRewindRetry(self, 1 + fixed_operand_bytes);
                                     return err;
                                 };
                                 continue;
@@ -954,6 +979,7 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                                 if (resumesHere(self, target_frame_count, scope_root_seq)) continue;
                                 return VMError.ContinuationInvoked;
                             }
+                            if (err == error.Yielded) maybeRewindRetry(self, 1 + fixed_operand_bytes);
                             return vm_calls.handleNativeError(self, err, base, nargs);
                         };
                         self.registers[base] = result;
@@ -963,6 +989,7 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                                 if (resumesHere(self, target_frame_count, scope_root_seq)) continue;
                                 return VMError.ContinuationInvoked;
                             }
+                            if (err == VMError.Yielded) maybeRewindRetry(self, 1 + fixed_operand_bytes);
                             return err;
                         };
                     }
@@ -1095,6 +1122,7 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                                 if (resumesHere(self, target_frame_count, scope_root_seq)) continue;
                                 return VMError.ContinuationInvoked;
                             }
+                            if (err == error.Yielded) maybeRewindRetry(self, 1 + fixed_operand_bytes);
                             return vm_calls.handleNativeError(self, err, abs_base, nargs);
                         }
                     else blk: {
@@ -1112,6 +1140,7 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                                 if (resumesHere(self, target_frame_count, scope_root_seq)) continue;
                                 return VMError.ContinuationInvoked;
                             }
+                            if (err == error.Yielded) maybeRewindRetry(self, 1 + fixed_operand_bytes);
                             return switch (err) {
                                 error.TypeError => b2: {
                                     if (self.last_error_detail_len == 0)
