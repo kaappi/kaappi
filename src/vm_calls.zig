@@ -101,6 +101,7 @@ pub fn execute(vm: *VM, func: *types.Function) VMError!Value {
         .base = 0,
         .dst = 0,
         .saved_wind_count = 0,
+        .seq = vm.nextFrameSeq(),
     };
     vm.frame_count = 1;
 
@@ -321,6 +322,7 @@ pub fn callClosure(vm: *VM, closure: *types.Closure, base: u32, nargs: u8) VMErr
         .base = new_base,
         .dst = @intCast(base - vm.frames[vm.frame_count - 1].base),
         .saved_wind_count = @intCast(vm.wind_count),
+        .seq = vm.nextFrameSeq(),
     };
     vm.frame_count += 1;
 

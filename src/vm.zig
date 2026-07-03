@@ -151,6 +151,12 @@ pub const CallFrame = struct {
     base: u32,
     dst: u16,
     saved_wind_count: u16 = 0,
+    // Birth id, unique per pushed frame (VM.nextFrameSeq). Tail calls reuse
+    // the frame and keep its seq; continuation capture/restore preserves it.
+    // Dispatch loops use it to tell whether a restored frame stack still
+    // contains the loop's own scope-root frame (resume here) or jumps to a
+    // different program point (propagate ContinuationInvoked outward).
+    seq: u64 = 0,
 };
 
 pub const StepMode = enum { none, step, next, step_out, continue_to_break };
@@ -187,6 +193,8 @@ pub const VM = struct {
     continuation_invoked: bool = false,
     continuation_value: Value = types.VOID,
     continuation_generation: u32 = 0,
+    /// Monotonic counter backing CallFrame.seq (0 is never a valid seq).
+    frame_seq: u64 = 0,
     stdin_port: Value = types.VOID,
     stdout_port: Value = types.VOID,
     stderr_port: Value = types.VOID,
@@ -503,6 +511,12 @@ pub const VM = struct {
 
     // -- Exception handling --
 
+    /// Allocate a fresh frame birth id (see CallFrame.seq).
+    pub fn nextFrameSeq(self: *VM) u64 {
+        self.frame_seq +%= 1;
+        return self.frame_seq;
+    }
+
     pub fn pushHandler(self: *VM, handler: Value) VMError!void {
         if (self.handler_count >= MAX_HANDLERS) return VMError.StackOverflow;
         self.handler_stack[self.handler_count] = .{
@@ -576,6 +590,7 @@ pub const VM = struct {
                 .base = base,
                 .dst = return_dst,
                 .saved_wind_count = @intCast(self.wind_count),
+                .seq = self.nextFrameSeq(),
             };
             self.frame_count += 1;
 
@@ -667,6 +682,7 @@ pub const VM = struct {
                 .base = base,
                 .dst = 0,
                 .saved_wind_count = @intCast(self.wind_count),
+                .seq = self.nextFrameSeq(),
             };
             self.frame_count += 1;
 
@@ -806,6 +822,7 @@ pub const VM = struct {
                 .base = base,
                 .dst = 0,
                 .saved_wind_count = @intCast(self.wind_count),
+                .seq = self.nextFrameSeq(),
             };
             self.frame_count += 1;
 

@@ -174,6 +174,7 @@ fn makeThreadFn(args: []const Value) PrimitiveError!Value {
     const closure = types.toObject(thunk).as(types.Closure);
     @memset(fiber.registers, types.UNDEFINED);
     fiber.registers[0] = thunk;
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.OutOfMemory;
     fiber.frames[0] = .{
         .closure = closure,
         .code = closure.func.code.items,
@@ -181,6 +182,7 @@ fn makeThreadFn(args: []const Value) PrimitiveError!Value {
         .base = 0,
         .dst = 0,
         .saved_wind_count = 0,
+        .seq = vm.nextFrameSeq(),
     };
     fiber.frame_count = 1;
     fiber.status = .created;

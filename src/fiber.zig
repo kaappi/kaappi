@@ -106,6 +106,7 @@ pub const FiberScheduler = struct {
             .base = 0,
             .dst = 0,
             .saved_wind_count = 0,
+            .seq = self.vm.nextFrameSeq(),
         };
         fiber.frame_count = 1;
         fiber.status = .created;

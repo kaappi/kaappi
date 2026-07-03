@@ -233,3 +233,124 @@ test "nested call/ec — inner escapes inside outer" {
     const r = try vm.eval("(call/ec (lambda (o) (+ 1 (call/ec (lambda (i) (i 5))))))");
     try std.testing.expectEqual(@as(i64, 6), types.toFixnum(r));
 }
+
+test "call/cc escape inside with-exception-handler thunk" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    // Regression: a continuation restored inside a re-entrant native call
+    // (with-exception-handler runs its thunk via callThunk) used to unwind
+    // to the outermost dispatch loop, abandoning the native's pending
+    // result-register write — the expression returned the
+    // with-exception-handler builtin instead of the escaped value.
+
+    // call/cc in tail position of the thunk, k in tail position
+    const r1 = try vm.eval(
+        \\(with-exception-handler (lambda (e) 'err)
+        \\  (lambda () (call/cc (lambda (k) (k 42)))))
+    );
+    try std.testing.expectEqual(@as(i64, 42), types.toFixnum(r1));
+
+    // call/cc in tail position, k in non-tail position
+    const r2 = try vm.eval(
+        \\(with-exception-handler (lambda (e) 'err)
+        \\  (lambda () (call/cc (lambda (k) (+ 0 (k 42))))))
+    );
+    try std.testing.expectEqual(@as(i64, 42), types.toFixnum(r2));
+
+    // call/cc in non-tail position
+    const r3 = try vm.eval(
+        \\(with-exception-handler (lambda (e) 'err)
+        \\  (lambda () (+ 1 (call/cc (lambda (k) (k 41))))))
+    );
+    try std.testing.expectEqual(@as(i64, 42), types.toFixnum(r3));
+}
+
+test "call/cc deep non-tail escape inside guard" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    _ = try vm.eval(
+        \\(define (sum-to n k)
+        \\  (if (= n 0) (k 'done) (+ n (sum-to (- n 1) k))))
+    );
+    const r = try vm.eval(
+        \\(guard (e (#t 'caught))
+        \\  (call/cc (lambda (k) (sum-to 20 k))))
+    );
+    try std.testing.expect(types.isSymbol(r));
+    try std.testing.expectEqualStrings("done", types.symbolName(r));
+}
+
+test "nested call/cc escapes inside guard" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    const r1 = try vm.eval(
+        \\(guard (e (#t 'caught))
+        \\  (call/cc (lambda (o) (call/cc (lambda (i) (i 5))))))
+    );
+    try std.testing.expectEqual(@as(i64, 5), types.toFixnum(r1));
+
+    const r2 = try vm.eval(
+        \\(guard (e (#t 'caught))
+        \\  (call/cc (lambda (o) (+ 1 (call/cc (lambda (i) (o 7)))))))
+    );
+    try std.testing.expectEqual(@as(i64, 7), types.toFixnum(r2));
+}
+
+test "out-of-lineage restore inside dynamic-wind thunk" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    // The continuation captured in (deep 5) predates the dynamic-wind, so
+    // invoking it inside the wind thunk must NOT be treated as the thunk
+    // returning normally — the resumesHere birth-id check propagates it out
+    // of dynamicWindFn instead (previously: wind_count underflow panic).
+    const r = try vm.eval(
+        \\(let ((k #f) (done (vector #f)))
+        \\  (define (deep n)
+        \\    (if (= n 0)
+        \\        (call/cc (lambda (c) (set! k c) 0))
+        \\        (+ 1 (deep (- n 1)))))
+        \\  (deep 5)
+        \\  (if (not (vector-ref done 0))
+        \\      (begin
+        \\        (vector-set! done 0 #t)
+        \\        (dynamic-wind (lambda () #f) (lambda () (k 0)) (lambda () #f))))
+        \\  'ok)
+    );
+    try std.testing.expect(types.isSymbol(r));
+    try std.testing.expectEqualStrings("ok", types.symbolName(r));
+}
+
+test "dynamic-wind after-thunk runs on nested escape under guard" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    _ = try vm.eval("(define trace '())");
+    const r = try vm.eval(
+        \\(guard (e (#t 'caught))
+        \\  (call/cc
+        \\   (lambda (k)
+        \\     (dynamic-wind
+        \\       (lambda () (set! trace (cons 'before trace)))
+        \\       (lambda () (set! trace (cons 'during trace)) (k 'out) (set! trace (cons 'never trace)))
+        \\       (lambda () (set! trace (cons 'after trace)))))))
+    );
+    try std.testing.expectEqualStrings("out", types.symbolName(r));
+    const log = try vm.eval("(reverse trace)");
+    try std.testing.expectEqualStrings("before", types.symbolName(types.car(log)));
+    try std.testing.expectEqualStrings("during", types.symbolName(types.car(types.cdr(log))));
+    try std.testing.expectEqualStrings("after", types.symbolName(types.car(types.cdr(types.cdr(log)))));
+}
