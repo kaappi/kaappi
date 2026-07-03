@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783080298910,
+  "lastUpdate": 1783080576665,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "323e984d854c5f921ccd8d5d4754b53ba15ea92b",
-          "message": "Merge pull request #727 from kaappi/fix/expander-vector-patterns-680\n\nAdd vector pattern and template support to syntax-rules",
-          "timestamp": "2026-07-02T11:54:15+05:30",
-          "tree_id": "f1a29fae4502042f768843f1039d83ead8fea57c",
-          "url": "https://github.com/kaappi/kaappi/commit/323e984d854c5f921ccd8d5d4754b53ba15ea92b"
-        },
-        "date": 1782974258453,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.954144,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.766438,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.829511,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.145083,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.007849,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.032039,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.451203,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.067403,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.886271,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.741466,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.10974,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.246496,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 2.38319,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.872852,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.043795,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.041574,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "75f6c1351cb3e0d93eeb01b8b44ef9ed4b6a57da",
+          "message": "Honor lexical shadowing of keywords in IR lowering (#788) (#967)\n\nIR lowering dispatched special forms (if, and, begin, quote, when, ...)\npurely by symbol name, ignoring lexical scope. A lambda parameter that\nshadowed a keyword was still compiled as the special form instead of a\ncall to the parameter — eliminateDeadBranches even folded (if 1 2 3) to a\nconstant. R7RS has no reserved words, so a lexical binding must shadow the\nsyntax; the legacy compileForm path already did this via its is_shadowed\nguard, but the IR path (used for lambda bodies) had no access to locals.\n\nThread the compiler's lexical scope into the IR: add an optional compiler\nreference to IR, guard the special-form/macro dispatch with a shadow check\n(mirroring compileForm), and extend isRedefined so a shadowed primitive\nisn't constant-folded as the builtin. The new isLexicallyBound probe is\nread-only (walks locals + parent chain, registers no upvalues), so it is\nsafe to call during lowering. Hygienic renames keep their special-form\nmeaning because the guard requires effective_name == name.\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
+          "timestamp": "2026-07-03T11:54:17Z",
+          "tree_id": "2375afda90c095f022acb1c1df7590cdf940f8d0",
+          "url": "https://github.com/kaappi/kaappi/commit/75f6c1351cb3e0d93eeb01b8b44ef9ed4b6a57da"
+        },
+        "date": 1783080575771,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.343774,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.792711,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.836088,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.077039,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006889,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.032656,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.456325,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.068831,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 4.039744,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.77535,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.166617,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.435144,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 2.374747,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.657993,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.041167,
             "unit": "seconds"
           }
         ]
