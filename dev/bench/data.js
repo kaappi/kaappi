@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783087313907,
+  "lastUpdate": 1783087793635,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "bce120a495603e1296c4ad52ec3be36cdd7f91d1",
-          "message": "Merge pull request #728 from kaappi/fix/hygiene-well-known-bindings-681\n\nFix macro hygiene for template-introduced bindings named after built-ins",
-          "timestamp": "2026-07-02T14:12:10+05:30",
-          "tree_id": "1ad6232abd759deea54f27668b2b15098e599c8e",
-          "url": "https://github.com/kaappi/kaappi/commit/bce120a495603e1296c4ad52ec3be36cdd7f91d1"
-        },
-        "date": 1782982554482,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.307495,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.579283,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.825794,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.132175,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.00692,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.032201,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.453717,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.069841,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.923879,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.78038,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.079902,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.225037,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 2.39964,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.705803,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.041668,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.038464,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "55932339e7dde6a25360f51432599880e2950d60",
+          "message": "Deep-copy native_fn/native_closure instead of aliasing across heaps (#975)\n\ndeepCopyValue returned the source-heap pointer for native_fn and\nnative_closure objects. For SRFI-18 OS threads the child->parent copy at\nthread-join! is followed immediately by freeing the child heap, so a\nthread result containing one of these left the parent holding a dangling\npointer into freed memory (follow-up to the issue #958 marking fixes --\nthis was the remaining aliasing hole in deepCopy itself).\n\nBoth types are safely copyable: the fn pointer and name are static (string\nliterals from primitives.reg, or code/rodata of a native binary), so a\nfresh object is allocated in the target GC and NativeClosure upvalues are\ndeep-copied. The new closure is registered in the visited map before its\nupvalues are copied so shared and cyclic references resolve, and upvalues\nstart as VOID placeholders so an aborted copy never leaves cross-heap\npointers in the target object.\n\nffi_library/ffi_function stay aliased deliberately: they wrap\nprocess-global dlopen handles that cannot be duplicated per-heap. The\nknown limitation (a child-created FFI handle returned through\nthread-join! still dangles) is now documented at the site.\n\nRegression tests: four unit tests in tests_deepcopy.zig -- without the\nfix three fail on aliasing assertions and the \"survive freeing the source\nheap\" test, which replays the join scenario by deiniting the source GC\nbefore reading the copy, dies with SIGABRT -- plus an end-to-end\nthread-join! test in tests_srfi18.zig that returns primitives from a\nthread and calls the copies.\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-03T13:53:50Z",
+          "tree_id": "c38fc14bf7ab25aa8a193d007d46a2f43b72d288",
+          "url": "https://github.com/kaappi/kaappi/commit/55932339e7dde6a25360f51432599880e2950d60"
+        },
+        "date": 1783087792702,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.422084,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.855447,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.849815,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.306754,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006564,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.032732,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.47076,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.070585,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 4.004428,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.826769,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.165426,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.436577,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.785916,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.73204,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.043413,
             "unit": "seconds"
           }
         ]
