@@ -852,6 +852,7 @@ pub fn toFlonum(v: Value) f64 {
 pub fn toF64(v: Value) f64 {
     if (isFixnum(v)) return @floatFromInt(toFixnum(v));
     if (isFlonum(v)) return toFlonum(v);
+    if (isBignum(v)) return bignumToF64(toBignum(v));
     if (isRationalObj(v)) {
         const r = toRational(v);
         const n = toF64(r.numerator);
@@ -859,6 +860,26 @@ pub fn toF64(v: Value) f64 {
         return n / d;
     }
     return 0.0;
+}
+
+fn bignumToF64(bn: *const Bignum) f64 {
+    if (bn.len == 0) return 0.0;
+    if (bn.len == 1) {
+        const r: f64 = @floatFromInt(bn.limbs[0]);
+        return if (bn.positive) r else -r;
+    }
+    const hi = bn.limbs[bn.len - 1];
+    const lo = bn.limbs[bn.len - 2];
+    var sticky: u64 = 0;
+    for (bn.limbs[0 .. bn.len - 2]) |limb| sticky |= limb;
+    const lo_adj: u64 = if (sticky != 0 and lo & 1 == 0) lo | 1 else lo;
+    const combined: u128 = (@as(u128, hi) << 64) | @as(u128, lo_adj);
+    var result: f64 = @floatFromInt(combined);
+    const remaining: u32 = @intCast((bn.len - 2) * 64);
+    const scale: f64 = std.math.scalbn(@as(f64, 1.0), @as(i32, @intCast(remaining)));
+    result *= scale;
+    if (!bn.positive) result = -result;
+    return result;
 }
 
 // ---------------------------------------------------------------------------

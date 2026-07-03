@@ -294,3 +294,32 @@ test "eval string->number" {
     const r3 = try vm.eval("(string->number \"hello\")");
     try std.testing.expectEqual(types.FALSE, r3);
 }
+
+test "types.toF64 handles bignums (#792)" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    // Single-limb bignum
+    const big1 = try vm.eval("(expt 2 60)");
+    try std.testing.expect(types.isBignum(big1));
+    try std.testing.expectApproxEqRel(@as(f64, 1152921504606846976.0), types.toF64(big1), 1e-10);
+
+    // Multi-limb bignum
+    const big2 = try vm.eval("(expt 10 20)");
+    try std.testing.expect(types.isBignum(big2));
+    try std.testing.expect(types.toF64(big2) > 9.9e19);
+
+    // Bignum-backed rational: numerator is bignum
+    const rat1 = try vm.eval("(/ (expt 10 20) 3)");
+    const f1 = types.toF64(rat1);
+    try std.testing.expect(f1 > 3.3e19);
+
+    // Bignum-backed rational: denominator is bignum
+    const rat2 = try vm.eval("(/ 1 (expt 10 20))");
+    const f2 = types.toF64(rat2);
+    try std.testing.expect(std.math.isFinite(f2));
+    try std.testing.expect(f2 > 0.0);
+    try std.testing.expect(f2 < 1e-19);
+}
