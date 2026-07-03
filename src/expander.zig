@@ -740,6 +740,13 @@ fn substitutePatternVarsOnly(gc: *GC, template: Value, bindings: []Binding) !Val
     return gc.allocPair(car_root, new_cdr);
 }
 
+fn scopeTableContains(scope: u32, name: []const u8) bool {
+    for (scope_table[0..scope_table_count]) |entry| {
+        if (entry.scope == scope and std.mem.eql(u8, entry.original_name, name)) return true;
+    }
+    return false;
+}
+
 fn renameForHygiene(gc: *GC, name: []const u8, scope: u32, globals: ?*std.StringHashMap(Value)) !Value {
     const QUOTE_FLAG: u32 = 0x40000000;
     const BINDING_FLAG: u32 = 0x20000000;
@@ -757,6 +764,17 @@ fn renameForHygiene(gc: *GC, name: []const u8, scope: u32, globals: ?*std.String
         if (g.get(name)) |val| {
             if (types.isProcedure(val) or types.isTransformer(val)) {
                 if (!in_binding) return gc.allocSymbol(name);
+            } else if (val == types.VOID) {
+                // VOID entries are sentinels planted by the compiler's body
+                // prescan (compileBody/compileLetBody) for internal defines
+                // that appear later in the same body — the template reference
+                // must keep its name so it resolves to that binding (R7RS
+                // 5.3.2 letrec* body semantics). But if this expansion already
+                // renamed the name as a template-introduced binding, the
+                // reference must follow the rename instead.
+                if (!in_binding and !scopeTableContains(clean_scope, name)) {
+                    return gc.allocSymbol(name);
+                }
             }
         }
     }
