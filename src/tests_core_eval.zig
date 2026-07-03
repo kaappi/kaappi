@@ -198,3 +198,75 @@ test "vm deinit clears threadlocal vm_instance" {
     vm.deinit();
     try std.testing.expect(vm_mod.vm_instance == null);
 }
+
+// Regression tests for issue #812: set_global/define_global must clear the
+// whole global cache when they bump global_version, not just refresh their own
+// slot and re-stamp cache_version. Otherwise an entry cached before an
+// unrelated rebinding (which already bumped global_version) gets re-blessed and
+// served stale. Each scenario lives inside one procedure body so the caching,
+// the rebinding, and the re-stamping all share a single Function's cache.
+
+test "set! of unrelated global does not re-bless stale cache (issue 812)" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    _ = try vm.eval("(define (g) 1)");
+    _ = try vm.eval("(define counter 0)");
+    _ = try vm.eval("(define (redefine!) (set! g (lambda () 2)))");
+    // f call-caches g, rebinds g (bumps global_version), then set!s an
+    // unrelated global. Pre-fix that set! re-stamped f's whole cache, so the
+    // tail call to g served the stale old closure and returned 1.
+    _ = try vm.eval(
+        \\(define (f)
+        \\  (g)
+        \\  (redefine!)
+        \\  (set! counter 1)
+        \\  (g))
+    );
+    const result = try vm.eval("(f)");
+    try std.testing.expectEqual(@as(i64, 2), types.toFixnum(result));
+}
+
+test "reference to rebound global not served stale after set! (issue 812)" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    _ = try vm.eval("(define (g) 1)");
+    _ = try vm.eval("(define counter 0)");
+    _ = try vm.eval("(define (redefine!) (set! g (lambda () 2)))");
+    // Same staleness observed via plain get_global (reference position).
+    _ = try vm.eval(
+        \\(define (f)
+        \\  (let ((h1 g)) (h1))
+        \\  (redefine!)
+        \\  (set! counter 1)
+        \\  (let ((h2 g)) (h2)))
+    );
+    const result = try vm.eval("(f)");
+    try std.testing.expectEqual(@as(i64, 2), types.toFixnum(result));
+}
+
+test "define_global (named let) does not re-bless stale cache (issue 812)" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    _ = try vm.eval("(define (g) 1)");
+    _ = try vm.eval("(define (redefine!) (set! g (lambda () 2)))");
+    // A named let emits define_global for its loop procedure inside f's body,
+    // bumping global_version. Pre-fix that re-stamped f's cache, serving g stale.
+    _ = try vm.eval(
+        \\(define (f)
+        \\  (g)
+        \\  (redefine!)
+        \\  (let loop ((n 0)) (if (> n 0) (loop (- n 1))))
+        \\  (g))
+    );
+    const result = try vm.eval("(f)");
+    try std.testing.expectEqual(@as(i64, 2), types.toFixnum(result));
+}
