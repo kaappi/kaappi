@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783105982009,
+  "lastUpdate": 1783106874088,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "17f47a2540e2ca89dfe4f47df1d235c2e08f05e8",
-          "message": "Merge pull request #773 from kaappi/fix/756-760-761-compiler-bugs\n\nFix three compiler bugs: constant limit, apply upvalue, no_collect leak",
-          "timestamp": "2026-07-02T20:03:07+05:30",
-          "tree_id": "a71b89af1f089d7db1a8720a3a4ca7216613d72e",
-          "url": "https://github.com/kaappi/kaappi/commit/17f47a2540e2ca89dfe4f47df1d235c2e08f05e8"
-        },
-        "date": 1783003655452,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.40733,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.158243,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.817077,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.166064,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006906,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.032026,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.451482,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.068845,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.956683,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.755262,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.125567,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.229886,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 2.403078,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.72918,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.043533,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044718,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "270034a9d57377fb75fcbd2bee37d33646b8d172",
+          "message": "Use fstatat instead of open in file-exists? (#808) (#990)\n\nfile-exists? was implemented with openat+close, which hangs on FIFOs\n(blocks until a writer connects) and returns #f for existing but\nunreadable files (e.g. mode 000). Switch to fstatat which checks\nexistence without opening, matching R7RS 6.14.1 semantics.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-03T19:12:30Z",
+          "tree_id": "dc0bf5153a53cddca163efe7e43f5c9b9fa29dd4",
+          "url": "https://github.com/kaappi/kaappi/commit/270034a9d57377fb75fcbd2bee37d33646b8d172"
+        },
+        "date": 1783106873094,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 2.291936,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 6.735142,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.459722,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 3.072978,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.004189,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.018482,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.254753,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.036952,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 1.859807,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 0.921954,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 0.638715,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.315138,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 0.924682,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.203395,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.025103,
             "unit": "seconds"
           }
         ]
