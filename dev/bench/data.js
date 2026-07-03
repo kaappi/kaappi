@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783119404616,
+  "lastUpdate": 1783121289890,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "c0a0804664ec129cc5e99f7b93f395ef19baba17",
-          "message": "Fix LSP: MethodNotFound response, hover newlines, dotted define crash (#873, #871, #869) (#895)\n\n- Reply with JSON-RPC MethodNotFound (-32601) for unrecognized request\n  methods instead of silently dropping them (#873)\n- Use actual newline characters in hover markdown instead of escaped\n  literal \\n sequences (#871)\n- Guard types.car calls on define cdr with isPair check to prevent\n  crash on dotted top-level forms like (define . 5) (#869)\n\nFixes #873\nFixes #871\nFixes #869\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-03T02:34:30+05:30",
-          "tree_id": "30909a6c0b947aa8b30fc67c8549f93de66673ad",
-          "url": "https://github.com/kaappi/kaappi/commit/c0a0804664ec129cc5e99f7b93f395ef19baba17"
-        },
-        "date": 1783028586069,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.36426,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.513452,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.812944,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.192829,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006941,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.032333,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.452686,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.068819,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.941414,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.759291,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.087104,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.22229,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 2.388879,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.709635,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.041606,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.041873,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b5fe57a8a25014229e4d749cdae25850200d930b",
+          "message": "Fix alist->hash-table arity, root top-level forms, add book-bug regression tests (#1011)\n\n* Accept SRFI-69 optional equality/hash args in alist->hash-table\n\nSRFI-69 specifies (alist->hash-table alist [equal-proc [hash-proc\nargs...]]), but the primitive was registered with exact arity 1, so the\nspec-conforming call (alist->hash-table lst equal?) failed with an arity\nerror. Kaappi hash tables always compare with equal? internally and\nmake-hash-table already accepts-and-ignores the optional comparator\narguments; alist->hash-table now does the same.\n\nFound verifying the kaappi-book chapter 16 listings against the\ninterpreter.\n\nCo-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>\n\n* Root top-level forms during evaluation; add book-bug regression tests\n\nRooting: the file runner, stdin runner, bundle preamble, REPL input\nloop, and eval() all evaluated freshly read datums without a GC root.\nEvaluating a form can allocate heavily (an import that loads a whole\n.sld library), and a collection landing mid-walk could reclaim the\nform's own AST. Recent GC work on main fixed the reported mid-session\nimport failures, but these call sites still relied on collection\ntiming; root the datum for the duration of each form's evaluation,\nmatching the pattern the script runner and loadLibrarySource already\nuse.\n\nRegression tests for interpreter bugs found by verifying every REPL\nlisting in the kaappi-book (fixes already on main, previously\nuntested):\n\n- errors/error-format.sh: uncaught exceptions must print their message\n  and irritants (\"error: something went wrong 42\"), not the bare\n  \"runtime error: error.ExceptionRaised\" fallback; covers error\n  objects, non-error raises, and script mode.\n- continuations/coroutine-repl-echo.scm: continuations captured with\n  call/cc must survive the top-level value echo. On v0.11.0 the echo\n  path invalidated the saved continuation, so the second re-entry\n  failed with \"not a procedure\"; the forms are deliberately left bare\n  (not display-wrapped) because consuming the value hid the bug.\n  Covers top-level-global and closure-factory coroutine shapes.\n- smoke/fiber-pipeline.scm: add the book's generic variadic pipeline\n  builder, where every stage's fiber closes over one recursive loop's\n  locals; with two or more stages this used to make channel-receive\n  return garbage (#978 fixed the scheduler; the existing tests only\n  covered the add-stage helper shape).\n\nCo-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
+          "timestamp": "2026-07-03T23:10:46Z",
+          "tree_id": "c32c5b84b9fc0227db83883fcd5a8ad8a9d413c0",
+          "url": "https://github.com/kaappi/kaappi/commit/b5fe57a8a25014229e4d749cdae25850200d930b"
+        },
+        "date": 1783121288786,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.396271,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.471583,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.875118,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.436974,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006882,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.034787,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.481032,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.071849,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 4.204279,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.871778,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.273052,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.437858,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.838755,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.571176,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.042481,
             "unit": "seconds"
           }
         ]
