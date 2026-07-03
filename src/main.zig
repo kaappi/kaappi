@@ -306,12 +306,40 @@ fn mainImpl(init: std.process.Init.Minimal) !void {
         return;
     }
 
-    // Pre-scan args for --sandbox (must happen before primitive registration)
+    // Pre-scan args for --sandbox (must happen before primitive registration).
+    // Stop at the first non-flag argument (the script filename) so that
+    // script arguments like `kaappi script.scm --sandbox` are not hijacked.
     var is_sandboxed = false;
     {
         var pre_args = init.args.iterate();
+        _ = pre_args.skip(); // skip argv[0]
         while (pre_args.next()) |arg| {
-            if (std.mem.eql(u8, arg, "--sandbox")) is_sandboxed = true;
+            if (std.mem.eql(u8, arg, "--sandbox")) {
+                is_sandboxed = true;
+            } else if (std.mem.eql(u8, arg, "--lib-path") or
+                std.mem.eql(u8, arg, "--timeout") or
+                std.mem.eql(u8, arg, "--max-memory") or
+                std.mem.eql(u8, arg, "--profile-json") or
+                std.mem.eql(u8, arg, "--coverage-xml") or
+                std.mem.eql(u8, arg, "-o") or
+                std.mem.eql(u8, arg, "--completions"))
+            {
+                _ = pre_args.skip(); // consume the flag's value
+            } else if (std.mem.eql(u8, arg, "--gc-stats") or
+                std.mem.eql(u8, arg, "--profile") or
+                std.mem.eql(u8, arg, "--coverage") or
+                std.mem.eql(u8, arg, "--compile") or
+                std.mem.eql(u8, arg, "--emit-llvm") or
+                std.mem.eql(u8, arg, "--disassemble") or
+                std.mem.eql(u8, arg, "--help") or
+                std.mem.eql(u8, arg, "-h") or
+                std.mem.eql(u8, arg, "--version") or
+                std.mem.eql(u8, arg, "compile"))
+            {
+                // recognized boolean flag — keep scanning
+            } else {
+                break; // filename or unknown flag — stop scanning
+            }
         }
     }
 
