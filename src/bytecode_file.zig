@@ -749,8 +749,18 @@ fn deserializeFromBuffer(gc: *GC, data: []const u8, expected_hash: ?u64) !?Deser
     const all_funcs = allocator.alloc(*Function, func_count) catch return BytecodeError.OutOfMemory;
     defer allocator.free(all_funcs);
 
+    // Root every loaded function in gc.extra_roots. During the load this keeps
+    // functions alive while readConstant allocates. On success we KEEP them
+    // rooted for the rest of the run (keep_roots = true below): the caller
+    // executes the top-level functions one at a time, and a GC triggered while
+    // running one form must not reclaim the other, not-yet-executed functions
+    // (nor the shared nested functions they reference). This mirrors the fresh
+    // compile path, where main.zig leaves every compiled top-level function in
+    // gc.extra_roots for the whole run. On any error path the functions are
+    // still reachable garbage, so we drop the roots to let them be collected.
     const roots_base = gc.extra_roots.items.len;
-    defer gc.extra_roots.shrinkRetainingCapacity(roots_base);
+    var keep_roots = false;
+    defer if (!keep_roots) gc.extra_roots.shrinkRetainingCapacity(roots_base);
     for (0..func_count) |i| {
         all_funcs[i] = gc.allocFunction() catch return BytecodeError.OutOfMemory;
         gc.extra_roots.append(allocator, types.makePointer(@ptrCast(all_funcs[i]))) catch return BytecodeError.OutOfMemory;
@@ -891,6 +901,9 @@ fn deserializeFromBuffer(gc: *GC, data: []const u8, expected_hash: ?u64) !?Deser
 
     const result = allocator.alloc(*Function, func_count) catch return BytecodeError.OutOfMemory;
     @memcpy(result, all_funcs);
+    // Load succeeded: keep the functions rooted for the rest of the run so a GC
+    // during execution of one top-level form cannot free the others.
+    keep_roots = true;
     return .{ .funcs = result, .top_level_count = top_level_count, .bundled_files = bundled_files, .preamble = preamble };
 }
 
