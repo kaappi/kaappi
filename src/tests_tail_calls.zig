@@ -3,6 +3,7 @@ const std = @import("std");
 const th = @import("testing_helpers.zig");
 const types = @import("types.zig");
 const memory = @import("memory.zig");
+const vm_mod = @import("vm.zig");
 
 test "tail-recursive loop does not overflow" {
     var gc = memory.GC.init(std.testing.allocator);
@@ -110,4 +111,83 @@ test "parameterize body with tail position calls" {
     _ = try vm.eval("(define (f) (radix))");
     const result = try vm.eval("(parameterize ((radix 2)) (f))");
     try std.testing.expectEqual(@as(i64, 2), types.toFixnum(result));
+}
+
+// Regression for #817: the dispatch loop captured `frame` as a pointer into
+// self.frames; a tail call to a native that re-enters the VM (map calling its
+// lambda) can grow the frames array, freeing the block `frame` points into,
+// and the handler then read frame.dst from freed memory. Shrinking the frames
+// array makes growth happen at shallow depth; scanning a contiguous depth
+// range guarantees the re-entrant push lands exactly on a capacity boundary.
+fn shrinkFrames(vm: *th.VM) !void {
+    std.testing.allocator.free(vm.frames);
+    vm.frames = try std.testing.allocator.alloc(vm_mod.CallFrame, 8);
+}
+
+test "tail call to re-entrant native across frames array growth" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+    try shrinkFrames(&vm);
+
+    _ = try vm.eval(
+        \\(define (nest d)
+        \\  (if (= d 0)
+        \\      (map (lambda (x) (* 2 x)) '(1 2 3))
+        \\      (car (list (nest (- d 1))))))
+    );
+    const result = try vm.eval(
+        \\(let loop ((d 0) (ok #t))
+        \\  (if (= d 40)
+        \\      ok
+        \\      (loop (+ d 1) (and ok (equal? (nest d) '(2 4 6))))))
+    );
+    try std.testing.expectEqual(types.TRUE, result);
+}
+
+test "tail apply of re-entrant native across frames array growth" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+    try shrinkFrames(&vm);
+
+    _ = try vm.eval(
+        \\(define (nest d)
+        \\  (if (= d 0)
+        \\      (apply map (lambda (x) (* 2 x)) '((1 2 3)))
+        \\      (car (list (nest (- d 1))))))
+    );
+    const result = try vm.eval(
+        \\(let loop ((d 0) (ok #t))
+        \\  (if (= d 40)
+        \\      ok
+        \\      (loop (+ d 1) (and ok (equal? (nest d) '(2 4 6))))))
+    );
+    try std.testing.expectEqual(types.TRUE, result);
+}
+
+test "tail call to parameter with converter across frames array growth" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+    try shrinkFrames(&vm);
+
+    _ = try vm.eval("(define p (make-parameter 1 (lambda (v) (* v 10))))");
+    _ = try vm.eval(
+        \\(define (nest d)
+        \\  (if (= d 0)
+        \\      (p 5)
+        \\      (car (list (nest (- d 1))))))
+    );
+    _ = try vm.eval(
+        \\(let loop ((d 0))
+        \\  (unless (= d 40)
+        \\    (nest d)
+        \\    (loop (+ d 1))))
+    );
+    const result = try vm.eval("(p)");
+    try std.testing.expectEqual(@as(i64, 50), types.toFixnum(result));
 }
