@@ -378,6 +378,98 @@ test "deepCopy shared structure" {
     try std.testing.expectEqual(cv.data[0], cv.data[1]);
 }
 
+fn testAdd1(args: []const types.Value) anyerror!types.Value {
+    return types.makeFixnum(types.toFixnum(args[0]) + 1);
+}
+
+fn testNativeClosureFn(_: ?*@import("vm.zig").VM, _: [*]const types.Value, _: u64, _: [*]const types.Value) callconv(.c) u64 {
+    return types.NIL;
+}
+
+test "deepCopy native_fn is copied, not aliased" {
+    var gc1 = memory.GC.init(std.testing.allocator);
+    defer gc1.deinit();
+    var gc2 = memory.GC.init(std.testing.allocator);
+    defer gc2.deinit();
+
+    const nf_val = try gc1.allocNativeFn("test-add1", &testAdd1, .{ .exact = 1 });
+    const copied = try gc2.deepCopy(nf_val);
+
+    try std.testing.expect(nf_val != copied);
+    const copy = types.toObject(copied).as(types.NativeFn);
+    try std.testing.expectEqualStrings("test-add1", copy.name);
+    try std.testing.expectEqual(types.NativeFn.Arity{ .exact = 1 }, copy.arity);
+    try std.testing.expectEqual(types.makeFixnum(42), try copy.func(&.{types.makeFixnum(41)}));
+}
+
+test "deepCopy native_closure copies upvalues into the target heap" {
+    var gc1 = memory.GC.init(std.testing.allocator);
+    defer gc1.deinit();
+    var gc2 = memory.GC.init(std.testing.allocator);
+    defer gc2.deinit();
+
+    const pair = try gc1.allocPair(types.makeFixnum(7), types.NIL);
+    const upvalues = [_]types.Value{ pair, types.makeFixnum(3) };
+    const nc_val = try gc1.allocNativeClosure(&testNativeClosureFn, &upvalues, 2, "test-nc");
+    const copied = try gc2.deepCopy(nc_val);
+
+    try std.testing.expect(nc_val != copied);
+    const copy = types.toObject(copied).as(types.NativeClosure);
+    try std.testing.expectEqual(@as(u8, 2), copy.arity);
+    try std.testing.expectEqualStrings("test-nc", copy.name);
+    try std.testing.expect(copy.upvalues[0] != pair);
+    const copied_pair = types.toObject(copy.upvalues[0]).as(types.Pair);
+    try std.testing.expectEqual(types.makeFixnum(7), copied_pair.car);
+    try std.testing.expectEqual(types.NIL, copied_pair.cdr);
+    try std.testing.expectEqual(types.makeFixnum(3), copy.upvalues[1]);
+}
+
+test "deepCopy preserves sharing of native procedures within one structure" {
+    var gc1 = memory.GC.init(std.testing.allocator);
+    defer gc1.deinit();
+    var gc2 = memory.GC.init(std.testing.allocator);
+    defer gc2.deinit();
+
+    const nf_val = try gc1.allocNativeFn("shared-fn", &testAdd1, .{ .exact = 1 });
+    const tail = try gc1.allocPair(nf_val, types.NIL);
+    const lst = try gc1.allocPair(nf_val, tail);
+
+    const copied = try gc2.deepCopy(lst);
+    const p1 = types.toObject(copied).as(types.Pair);
+    const p2 = types.toObject(p1.cdr).as(types.Pair);
+    try std.testing.expect(p1.car != nf_val);
+    try std.testing.expectEqual(p1.car, p2.car);
+}
+
+// The thread-join! scenario from issue #958: the child GC is deinited right
+// after the result is deep-copied to the parent. Before the fix, deepCopyValue
+// returned the child-heap pointer for native_fn/native_closure, so the
+// parent's result dangled into freed memory.
+test "deepCopy native procedures survive freeing the source heap" {
+    var gc2 = memory.GC.init(std.testing.allocator);
+    defer gc2.deinit();
+
+    var copied_fn: types.Value = undefined;
+    var copied_nc: types.Value = undefined;
+    {
+        var gc1 = memory.GC.init(std.testing.allocator);
+        defer gc1.deinit();
+        const nf_val = try gc1.allocNativeFn("survive-add1", &testAdd1, .{ .exact = 1 });
+        const upvalues = [_]types.Value{types.makeFixnum(5)};
+        const nc_val = try gc1.allocNativeClosure(&testNativeClosureFn, &upvalues, 1, "survive-nc");
+        copied_fn = try gc2.deepCopy(nf_val);
+        copied_nc = try gc2.deepCopy(nc_val);
+    }
+
+    const nf = types.toObject(copied_fn).as(types.NativeFn);
+    try std.testing.expectEqualStrings("survive-add1", nf.name);
+    try std.testing.expectEqual(types.makeFixnum(42), try nf.func(&.{types.makeFixnum(41)}));
+
+    const nc = types.toObject(copied_nc).as(types.NativeClosure);
+    try std.testing.expectEqualStrings("survive-nc", nc.name);
+    try std.testing.expectEqual(types.makeFixnum(5), nc.upvalues[0]);
+}
+
 test "deepCopy rejects port" {
     var gc1 = memory.GC.init(std.testing.allocator);
     defer gc1.deinit();
