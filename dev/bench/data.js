@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783079857971,
+  "lastUpdate": 1783080298910,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "46133c006e81d3e3abf8db43256beff72abfd91d",
-          "message": "Merge pull request #726 from kaappi/fix/structural-hash-689\n\nAdd structural hashing for pairs, vectors, and bytevectors",
-          "timestamp": "2026-07-02T11:24:35+05:30",
-          "tree_id": "4b393646e86bc5a21204ddf2ed8a4b7dcb8bff7b",
-          "url": "https://github.com/kaappi/kaappi/commit/46133c006e81d3e3abf8db43256beff72abfd91d"
-        },
-        "date": 1782974131105,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.714941,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.643314,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.750611,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.711641,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006967,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.030901,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.406988,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.066041,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 4.000084,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.549915,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.085415,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.216572,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 2.237363,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 0.904987,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.037933,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.042563,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f5524e14eea47f4ac11acd586f0d98ec5fe73bd8",
+          "message": "Fix LLVM backend set!/define ignoring lexical scope (#819) (#966)\n\nIn the native backend, set! and internal define always emitted\nkaappi_define_global regardless of whether the target was a parameter,\na let-local, an upvalue, or a global. Mutations to lexical variables\nwere silently dropped, set! values referencing lexical variables were\nevaluated in the global environment (and crashed), top-level set! on an\nunbound variable silently defined it, and internal defines leaked to\nglobal scope.\n\nemitSet now evaluates the value with lexical scope respected and stores\nit into the slot the target denotes (local alloca, parameter %args slot,\nrest-param alloca, upvalue, or — for a real global — the new\nkaappi_set_global runtime export, which errors on unbound to match the\ninterpreter). emitDefine creates a fresh local binding for internal\ndefines inside a natively compiled let body instead of overwriting a\nglobal. At the top level, values are still evaluated via kaappi_eval so\nmacro calls in set!/define values keep expanding.\n\nThe free-variable analysis now inspects set_form/define, and\ntryCompileNativeClosure rejects any body containing set!/define, so a\nlambda that mutates or rebinds a captured variable (e.g. make-counter)\nfalls back to the interpreter instead of miscompiling — a native closure\ncopies its upvalues by value and cannot express shared mutation.\nemitLambdaFunction also nulls the locals map for the fresh function\nscope, fixing a latent case where an outer scope's allocas leaked in as\ninvalid IR.\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
+          "timestamp": "2026-07-03T11:47:39Z",
+          "tree_id": "0656a5583d6fb2e3234385b55cdd687269796014",
+          "url": "https://github.com/kaappi/kaappi/commit/f5524e14eea47f4ac11acd586f0d98ec5fe73bd8"
+        },
+        "date": 1783080297886,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.36256,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.92611,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.823231,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.10171,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006977,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.03346,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.462202,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.070329,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 4.14395,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.92687,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.206355,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.426509,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 2.368774,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.649211,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.041574,
             "unit": "seconds"
           }
         ]
