@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783117683892,
+  "lastUpdate": 1783119404616,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "892108bb40dc3561e0016a9aae0f2e5f5229a51a",
-          "message": "Fix magnitude on rationals and car/cdr type errors in native backend (#865, #834) (#892)\n\n- magnitude on exact rationals now negates the numerator exactly\n  instead of converting through f64, preserving exactness (#865)\n- runtime_exports car/cdr now abort with a type error message instead\n  of silently returning flonum 0.0 for non-pair arguments (#834)\n\nFixes #865\nFixes #834\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-03T02:17:09+05:30",
-          "tree_id": "9d5a9f6c275fa8a6aa36ce09558a717ea0082538",
-          "url": "https://github.com/kaappi/kaappi/commit/892108bb40dc3561e0016a9aae0f2e5f5229a51a"
-        },
-        "date": 1783028089079,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.345942,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.090389,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.806245,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.138378,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006904,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.0323,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.454029,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.068789,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.955513,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.759864,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.096628,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.21616,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 2.395455,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.663158,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.04343,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.043457,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "69cb2d25e68ec532432e6e0329e88f36b699e161",
+          "message": "Raise on continuation resume across a returned native call (#1009)\n\nA continuation captured inside the closure that a native driver (map,\nfor-each, sort, apply, ...) runs via callWithArgs snapshots the frame\nthat callWithArgs pushed. That frame's result is delivered by its own\nrunUntil session's return value, so its dst register is a placeholder.\n\nWhen such a continuation is resumed after the native call has already\nreturned (e.g. a coroutine generator driven a second time by map), the\nrestored frame eventually returns while frame_count is still above the\ncurrent dispatch loop's target. The old code wrote the result into the\ncaller's dst register — but that register belongs to the now-dead native\nframe, and the native's iteration state is gone. The result landed in the\nwrong place and produced silent garbage (e.g. `#<builtin map>`).\n\nMark callWithArgs-pushed frames with returns_to_native (preserved across\ntail calls and continuation capture/restore, like seq). At every result-\ndelivery site in the dispatch loop, if a returns_to_native frame returns\ninto an outer loop, raise a clear, catchable error instead of corrupting\nregisters.\n\nRegression tests: a Zig unit test in tests_continuations.zig asserts the\nerror is raised; error-format.sh asserts the diagnostic message text.\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
+          "timestamp": "2026-07-03T22:39:43Z",
+          "tree_id": "feaa4c22625c7060e34418b628c82b9b67b5e8d8",
+          "url": "https://github.com/kaappi/kaappi/commit/69cb2d25e68ec532432e6e0329e88f36b699e161"
+        },
+        "date": 1783119403491,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.439886,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.365373,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.834429,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.348382,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006371,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.033647,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.471236,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.071062,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 4.163956,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.820339,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.377714,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.425168,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.790594,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.661198,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.041873,
             "unit": "seconds"
           }
         ]
