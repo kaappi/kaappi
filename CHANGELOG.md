@@ -12,6 +12,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 #### Libraries
 - Fix `define-syntax` in a library body registering the macro in the process-global macro table at load time — unexported library-body macros no longer leak to all code, and a macro imported from one library is no longer silently clobbered by loading another library that defines the same name (#877)
 
+#### CLI
+- Exit non-zero on command-line usage errors so shell scripts and CI can detect them: missing flag arguments (`--lib-path`, `--timeout`, `--max-memory`, `-o`, `--coverage-xml`, `--profile-json`, `--completions`) and an unknown `--completions` shell now exit 2 instead of 0 (#781)
+- Reject unknown flags (e.g. `--typo-flag`) with a usage error instead of silently treating them as a script filename (#781)
+- Exit non-zero on `--compile`/`--disassemble` read and compile errors, and on standalone-binary runtime and corrupt-bytecode errors, so build and bundled-app failures are visible to CI (#781)
+
 #### Package manager (thottam)
 - Fix version-pinned installs always failing with "Failed to checkout version": `git checkout -- <ref>` treats the ref as a pathspec, so use `--end-of-options` to keep the option-injection guard while resolving `<ref>` as a revision. Affected `install pkg@v1.0.0`, semver constraints, and `--locked` installs (#780)
 

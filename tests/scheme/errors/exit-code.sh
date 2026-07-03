@@ -77,6 +77,39 @@ assert_exit_code "guarded error exits 0" 0 "$KAAPPI" "$TMPDIR_TESTS/guarded.scm"
 assert_stdin_exit_code "clean stdin exits 0" 0 '(display "ok")'
 assert_stdin_exit_code "stdin runtime error exits 1" 1 '(car 1)'
 
+# CLI usage errors exit 2 (getopt convention), distinct from script errors.
+# A missing argument to a value-taking flag must not silently exit 0.
+assert_exit_code "--lib-path without arg exits 2" 2 "$KAAPPI" --lib-path
+assert_exit_code "--timeout without arg exits 2" 2 "$KAAPPI" --timeout
+assert_exit_code "--max-memory without arg exits 2" 2 "$KAAPPI" --max-memory
+assert_exit_code "-o without arg exits 2" 2 "$KAAPPI" -o
+assert_exit_code "--coverage-xml without arg exits 2" 2 "$KAAPPI" --coverage-xml
+assert_exit_code "--profile-json without arg exits 2" 2 "$KAAPPI" --profile-json
+assert_exit_code "--completions without shell exits 2" 2 "$KAAPPI" --completions
+
+# Unknown completions shell is a usage error
+assert_exit_code "--completions unknown shell exits 2" 2 "$KAAPPI" --completions badshell
+
+# A typo'd flag must not be silently swallowed as a filename
+assert_exit_code "unknown flag exits 2" 2 "$KAAPPI" --typo-flag "$TMPDIR_TESTS/ok.scm"
+
+# Valid usage must still exit 0
+assert_exit_code "--version exits 0" 0 "$KAAPPI" --version
+assert_exit_code "--help exits 0" 0 "$KAAPPI" --help
+assert_exit_code "--completions bash exits 0" 0 "$KAAPPI" --completions bash
+
+# Compile-mode failures must be visible to CI too
+printf '(+ 1\n' > "$TMPDIR_TESTS/unbal.scm"
+assert_exit_code "--compile read error exits 1" 1 "$KAAPPI" --compile "$TMPDIR_TESTS/unbal.scm"
+assert_exit_code "--compile missing file exits 1" 1 "$KAAPPI" --compile "$TMPDIR_TESTS/nope.scm"
+assert_exit_code "--disassemble read error exits 1" 1 "$KAAPPI" --disassemble "$TMPDIR_TESTS/unbal.scm"
+
+# A build/inspect mode invoked with no file is a usage error, not exit 0
+assert_exit_code "--compile without file exits 2" 2 "$KAAPPI" --compile
+assert_exit_code "--disassemble without file exits 2" 2 "$KAAPPI" --disassemble
+assert_exit_code "--emit-llvm without file exits 2" 2 "$KAAPPI" --emit-llvm
+assert_exit_code "compile subcommand without file exits 2" 2 "$KAAPPI" compile
+
 echo ""
 echo "exit-code: $PASS pass, $FAIL fail"
 [[ $FAIL -eq 0 ]]
