@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783105963261,
+  "lastUpdate": 1783105982009,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "884c76b23c5e45d279aa0485f4ee6fe02b9a8804",
-          "message": "Merge pull request #772 from kaappi/fix/752-two-arg-log-negative\n\nFix two-argument log to return complex for negative first argument",
-          "timestamp": "2026-07-02T19:45:23+05:30",
-          "tree_id": "59bb21beffcb966c0041a7ab81be88c9a6178183",
-          "url": "https://github.com/kaappi/kaappi/commit/884c76b23c5e45d279aa0485f4ee6fe02b9a8804"
-        },
-        "date": 1783002653956,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.396435,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.468965,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.805278,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.203312,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006895,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.03182,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.453741,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.069901,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.94429,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.765651,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.089122,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.220136,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 2.388811,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.622514,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.040907,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.043313,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "6dabe8d65fd6d4ad7a88d1e638cd1647904e20af",
+          "message": "Reject invalid --timeout and --max-memory values instead of silently ignoring them (#787) (#989)\n\n`catch 0` on parseInt silently dropped non-numeric, zero, and negative\nvalues — the resource limit the user asked for was never applied.\nReplace with explicit error reporting (exit 2) consistent with the\nmissing-argument handling added in #778.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-03T18:57:54Z",
+          "tree_id": "8ee989b2556ac8d87fbb76e45657e079a79e1263",
+          "url": "https://github.com/kaappi/kaappi/commit/6dabe8d65fd6d4ad7a88d1e638cd1647904e20af"
+        },
+        "date": 1783105980530,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.408348,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.377874,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.878778,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.303588,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006382,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.033368,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.472475,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.071249,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 4.080033,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.844023,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.188143,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.42788,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.799232,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.656909,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044718,
             "unit": "seconds"
           }
         ]
