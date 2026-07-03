@@ -67,6 +67,19 @@ pub const GC = struct {
     gc_threshold: usize = GC_THRESHOLD,
     symbols: std.StringHashMap(Value),
     shared_symbols: ?*std.StringHashMap(Value) = null,
+    // Symbols interned into THIS gc's `symbols` table by *other* (child)
+    // threads. A child thread aliases this table via `shared_symbols` but must
+    // not track such a Symbol on its own object list — the child frees that
+    // list at thread teardown while this table (and this gc) still reference
+    // the symbol (use-after-free). Nor can it push onto this gc's `objects`
+    // list, which this thread mutates without a lock. Instead the child
+    // appends here under `symbol_mutex`, and this gc frees them at deinit.
+    // Interned symbols are permanent (marked as roots every GC, never swept),
+    // so this list needs no sweep interaction — only teardown ownership.
+    foreign_symbols: std.ArrayList(*Object) = .empty,
+    // For a child gc, points at the owning (parent) gc's `foreign_symbols`;
+    // set alongside `shared_symbols` in `initForThread`.
+    shared_foreign_symbols: ?*std.ArrayList(*Object) = null,
     roots: std.ArrayList(*Value),
     extra_roots: std.ArrayList(Value),
     remembered_set: std.ArrayList(*Object),
@@ -96,6 +109,7 @@ pub const GC = struct {
             .allocator = allocator,
             .symbols = std.StringHashMap(Value).init(allocator),
             .shared_symbols = &parent.symbols,
+            .shared_foreign_symbols = &parent.foreign_symbols,
             .roots = .empty,
             .extra_roots = .empty,
             .remembered_set = .empty,
@@ -117,6 +131,11 @@ pub const GC = struct {
             gc_collect.freeObject(self, o);
             obj = next;
         }
+        // Free symbols that child threads interned into our shared table but
+        // could not track themselves (see `foreign_symbols`). No other thread
+        // runs at deinit — every child has joined — so this needs no lock.
+        for (self.foreign_symbols.items) |o| gc_collect.freeObject(self, o);
+        self.foreign_symbols.deinit(self.allocator);
         self.symbols.deinit();
         self.roots.deinit(self.allocator);
         self.extra_roots.deinit(self.allocator);
@@ -194,7 +213,19 @@ pub const GC = struct {
         self.bytes_allocated += @sizeOf(Symbol) + name.len;
         self.profileAlloc(@sizeOf(Symbol) + name.len);
 
-        if (!is_child) self.trackObject(&sym.header);
+        if (is_child) {
+            // The symbol lives in the parent's shared table and must outlive
+            // this child thread, so hand ownership to the parent (freed at the
+            // parent's deinit). Appended under `symbol_mutex`, held here.
+            // `shared_foreign_symbols` is set whenever `shared_symbols` is.
+            self.shared_foreign_symbols.?.append(self.allocator, &sym.header) catch {
+                self.allocator.destroy(sym);
+                self.allocator.free(owned_name);
+                return error.OutOfMemory;
+            };
+        } else {
+            self.trackObject(&sym.header);
+        }
 
         const val = types.makePointer(@ptrCast(sym));
         try sym_table.put(owned_name, val);
