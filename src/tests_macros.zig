@@ -578,3 +578,36 @@ test "keyword shadowed by an enclosing-scope binding compiles as a call inside a
     _ = try vm.eval("(define-syntax my-if (syntax-rules () ((_ a b c) (if a b c))))");
     try std.testing.expectEqualStrings("yes", types.symbolName(try vm.eval("(my-if #t 'yes 'no)")));
 }
+
+test "lambda parameter shadows a syntactic keyword in its body (#788)" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    // A lambda body is lowered through the IR, which dispatches special forms
+    // by name. When a parameter shadows a keyword the body must compile as an
+    // ordinary call to the parameter, not the special form. Previously the IR
+    // path ignored lexical scope and (e.g.) folded (if 1 2 3) to a special
+    // form — eliminateDeadBranches even constant-folded it to 2.
+    try std.testing.expectEqual(@as(i64, 99), types.toFixnum(try vm.eval("((lambda (if) (if 1 2 3)) (lambda (a b c) 99))")));
+    try std.testing.expectEqual(types.TRUE, try vm.eval("(equal? ((lambda (and) (and 1 2)) list) '(1 2))"));
+    try std.testing.expectEqual(types.TRUE, try vm.eval("(equal? ((lambda (or) (or 1 2)) list) '(1 2))"));
+    try std.testing.expectEqual(types.TRUE, try vm.eval("(equal? ((lambda (begin) (begin 1 2)) list) '(1 2))"));
+    try std.testing.expectEqual(types.TRUE, try vm.eval("(equal? ((lambda (when) (when 1 2)) list) '(1 2))"));
+    try std.testing.expectEqual(types.TRUE, try vm.eval("(equal? ((lambda (unless) (unless 1 2)) list) '(1 2))"));
+    try std.testing.expectEqual(@as(i64, -5), types.toFixnum(try vm.eval("((lambda (quote) (quote 5)) -)")));
+
+    // The shadow holds inside nested forms lowered by the same IR pass.
+    try std.testing.expectEqual(@as(i64, 99), types.toFixnum(try vm.eval("((lambda (if) (begin (if 1 2 3))) (lambda (a b c) 99))")));
+
+    // And across a lambda boundary, where the keyword resolves as an upvalue
+    // captured from the outer parameter.
+    try std.testing.expectEqual(@as(i64, 99), types.toFixnum(try vm.eval("(((lambda (if) (lambda () (if 1 2 3))) (lambda (a b c) 99)))")));
+
+    // A shadowed primitive must not be constant-folded as the builtin either.
+    try std.testing.expectEqual(@as(i64, 2), types.toFixnum(try vm.eval("((lambda (+) (+ 1 2)) *)")));
+
+    // An unshadowed keyword still compiles as the special form.
+    try std.testing.expectEqual(@as(i64, 2), types.toFixnum(try vm.eval("((lambda (x) (if 1 2 3)) 0)")));
+}
