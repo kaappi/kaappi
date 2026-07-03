@@ -145,7 +145,10 @@ jobs:
         run: zig build wasm
 
       - name: Install wasmtime
-        run: curl https://wasmtime.dev/install.sh -sSf | bash && echo "$HOME/.wasmtime/bin" >> "$GITHUB_PATH"
+        run: |
+          WASMTIME_VERSION=v46.0.1
+          curl -sSfL "https://github.com/bytecodealliance/wasmtime/releases/download/${WASMTIME_VERSION}/wasmtime-${WASMTIME_VERSION}-x86_64-linux.tar.xz" | tar xJ
+          echo "$(pwd)/wasmtime-${WASMTIME_VERSION}-x86_64-linux" >> "$GITHUB_PATH"
 
       - name: Smoke test
         run: wasmtime run --dir=. zig-out/bin/kaappi.wasm tests/wasm/smoke.scm
