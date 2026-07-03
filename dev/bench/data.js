@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783116104514,
+  "lastUpdate": 1783116410937,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "20b4516b495e2a829f17a5cb94014c8605bb8d51",
-          "message": "Evaluate parameterize param expressions exactly once (#860) (#887)\n\ncompileParameterize spliced each raw param expression into five places\nin the desugared let form: save old, set with converter, read back,\nbefore-thunk, and after-thunk. Introduce a %pp_i binding per parameter\nin a let* that evaluates the param expression once and references the\nbinding variable in all five positions.\n\nFixes #860\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-03T02:05:31+05:30",
-          "tree_id": "766f94654d34c7260e9cd3abedbd43cde3a0e9c2",
-          "url": "https://github.com/kaappi/kaappi/commit/20b4516b495e2a829f17a5cb94014c8605bb8d51"
-        },
-        "date": 1783026866492,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.063376,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.999015,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.835107,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.14628,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.007199,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.032289,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.452291,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.068119,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.945214,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.721822,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.084664,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.234821,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 2.3705,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.813472,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.043652,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.042884,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "934cf9817728f9a2de88c99772d618de253ffd40",
+          "message": "Add width-aware pretty-printing for REPL output (#921) (#1005)\n\nDetect terminal width via ioctl/TIOCGWINSZ and use it for all REPL\noutput paths.  Improve the pretty-printer with exact flat-length\nmeasurement, multi-line vector/bytevector support, and special-form-\naware indentation (body forms like define/lambda/let keep the first\narg on line 1; clause forms like cond/case indent each clause).\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-03T21:51:00Z",
+          "tree_id": "49fea02c485418334be3f5a9667fcf50c39614b5",
+          "url": "https://github.com/kaappi/kaappi/commit/934cf9817728f9a2de88c99772d618de253ffd40"
+        },
+        "date": 1783116409759,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.131681,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.26508,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.704326,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.319072,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.0053,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.026622,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.382693,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.054247,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 2.380989,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.454353,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 0.923924,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.367823,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.316106,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.364706,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.035452,
             "unit": "seconds"
           }
         ]
