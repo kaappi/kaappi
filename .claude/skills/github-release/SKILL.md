@@ -92,7 +92,32 @@ const version = "X.Y.Z";
   kaappi_version: X.Y.Z
 ```
 
-## Step 5: Build verification
+## Step 5: Refresh the built-in procedure count
+
+The docs cite a built-in procedure count that drifts as procedures are added or
+removed. Recompute it from source (unique names passed to `reg(vm, ...)`):
+
+```bash
+grep -rhoE '\breg\(vm, "[^"]+"' src/*.zig | sed -E 's/.*, "([^"]+)".*/\1/' | sort -u | wc -l
+```
+
+Do **not** use the raw `reg(` call count — it double-counts ~47 procedures that
+are re-registered in the sandboxed path (`registerIOSandboxed`, etc.). Unique
+names is the honest number.
+
+Find every doc citing the old count and update any that are stale:
+
+```bash
+grep -rn "built-in procedures" README.md CONFORMANCE.md CLAUDE.md ../CLAUDE.md docs/dev/
+```
+
+Update the count in each match (README.md and CONFORMANCE.md are user-facing;
+`CLAUDE.md`, `../CLAUDE.md`, `docs/dev/architecture.md`, and
+`docs/dev/llvm-backend.md` are internal). Leave historical `CHANGELOG.md`
+entries untouched — they record what was true at the time. Include any changed
+files in the release commit (Step 7).
+
+## Step 6: Build verification
 
 ```bash
 zig build
@@ -100,15 +125,19 @@ zig build
 
 Fix any errors before proceeding.
 
-## Step 6: Commit and tag
+## Step 7: Commit and tag
+
+Add the version files, the changelog, and any doc files whose procedure count
+changed in Step 5:
 
 ```bash
 git add src/main.zig src/thottam.zig build.zig.zon CHANGELOG.md
+git add README.md CONFORMANCE.md CLAUDE.md docs/dev/  # if the count changed
 git commit -m "Release vX.Y.Z"
 git tag -a vX.Y.Z -m "Release vX.Y.Z"
 ```
 
-## Step 7: Push (requires user confirmation)
+## Step 8: Push (requires user confirmation)
 
 **STOP.** Ask the user for explicit confirmation before pushing. Explain:
 
@@ -125,7 +154,7 @@ git push origin main
 git push origin vX.Y.Z
 ```
 
-## Step 8: Verify
+## Step 9: Verify
 
 ```bash
 gh run list --workflow=release.yml --limit=1
@@ -137,7 +166,7 @@ Show the workflow URL. After it completes:
 gh release view vX.Y.Z
 ```
 
-## Step 9: Run post-release acceptance tests
+## Step 10: Run post-release acceptance tests
 
 The `post-release.yml` workflow listens for `release: published` events, but
 it will **not** auto-trigger because the release is created by `github-actions[bot]`
@@ -157,7 +186,7 @@ install script verification. If it fails, investigate before updating the
 docs site — a failure means the release artifacts have a problem (e.g.
 missing entitlement, broken binary, bad checksum).
 
-## Step 10: Update docs site (playground WASM + downloads page)
+## Step 11: Update docs site (playground WASM + downloads page)
 
 After the release workflow completes, update the docs site's playground,
 tour, and downloads page:
