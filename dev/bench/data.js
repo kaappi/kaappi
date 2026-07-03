@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783107911789,
+  "lastUpdate": 1783109860567,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "7e8e606ae76f0c5a8a0bc265b9862e9dd4cfd53e",
-          "message": "Merge pull request #776 from kaappi/fix/743-745-bytecode-file-bugs\n\nFix bytecode serialization: handle EOF/UNDEFINED, fix test header",
-          "timestamp": "2026-07-02T20:56:50+05:30",
-          "tree_id": "e1b026e7a1ac8180e2037e31593b170ef317e369",
-          "url": "https://github.com/kaappi/kaappi/commit/7e8e606ae76f0c5a8a0bc265b9862e9dd4cfd53e"
-        },
-        "date": 1783006889149,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.077227,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.322485,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.839034,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.407076,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.008165,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.0319,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.454301,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.067627,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.94721,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.773229,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.091379,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.235536,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 2.384362,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.82369,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.043503,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.043174,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "19b31e0e5af0d8660fb54f627881d81eb4e52eb9",
+          "message": "Include compiler version in .sbc cache validity check (#925) (#993)\n\nThe bytecode cache was keyed on source hash only, so a .sbc produced by\na buggy compiler kept replaying the bug even after rebuilding with a fix.\nAdd a compiler hash (derived from the version string) to the .sbc header\nand reject caches written by a different compiler version. Bump the\non-disk format VERSION from 5 to 6 so all pre-existing caches are also\ninvalidated.\n\nCloses #925\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-03T20:00:29Z",
+          "tree_id": "06a0a93aa7594092e3d19844862bc5c2a01e3c81",
+          "url": "https://github.com/kaappi/kaappi/commit/19b31e0e5af0d8660fb54f627881d81eb4e52eb9"
+        },
+        "date": 1783109859481,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.34568,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.609126,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.971873,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.432484,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.00643,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.037883,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.508305,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.074893,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 4.136005,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 2.026441,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.226796,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.431326,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.815923,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.697888,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.04285,
             "unit": "seconds"
           }
         ]
