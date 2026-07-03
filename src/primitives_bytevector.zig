@@ -252,8 +252,12 @@ fn getInputPort(args: []const Value, arg_idx: usize, proc_name: []const u8) Prim
         return port;
     }
     const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError; // bare-ok: no VM
-    if (!types.isPort(vm.stdin_port)) return primitives.typeError(proc_name, "input port", vm.stdin_port);
-    return types.toObject(vm.stdin_port).as(types.Port);
+    const port_val = if (vm.current_input_port_param != types.VOID)
+        vm.getParameterValue(types.toParameter(vm.current_input_port_param))
+    else
+        vm.stdin_port;
+    if (!types.isPort(port_val)) return primitives.typeError(proc_name, "input port", port_val);
+    return types.toObject(port_val).as(types.Port);
 }
 
 fn getOutputPort(args: []const Value, arg_idx: usize, proc_name: []const u8) PrimitiveError!*types.Port {
@@ -265,8 +269,12 @@ fn getOutputPort(args: []const Value, arg_idx: usize, proc_name: []const u8) Pri
         return port;
     }
     const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError; // bare-ok: no VM
-    if (!types.isPort(vm.stdout_port)) return primitives.typeError(proc_name, "output port", vm.stdout_port);
-    return types.toObject(vm.stdout_port).as(types.Port);
+    const port_val = if (vm.current_output_port_param != types.VOID)
+        vm.getParameterValue(types.toParameter(vm.current_output_port_param))
+    else
+        vm.stdout_port;
+    if (!types.isPort(port_val)) return primitives.typeError(proc_name, "output port", port_val);
+    return types.toObject(port_val).as(types.Port);
 }
 
 fn portReadOneByte(port: *types.Port) ?u8 {

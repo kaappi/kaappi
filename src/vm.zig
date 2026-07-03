@@ -295,6 +295,9 @@ pub const VM = struct {
     stdin_port: Value = types.VOID,
     stdout_port: Value = types.VOID,
     stderr_port: Value = types.VOID,
+    current_input_port_param: Value = types.VOID,
+    current_output_port_param: Value = types.VOID,
+    current_error_port_param: Value = types.VOID,
     lib_paths: []const []const u8 = &.{},
     command_line_args: []const []const u8 = &.{},
     loading_libs: std.StringHashMap(void),
@@ -420,6 +423,17 @@ pub const VM = struct {
         if (vm.stdin_port != types.VOID) try gc.extra_roots.append(gc.allocator, vm.stdin_port);
         if (vm.stdout_port != types.VOID) try gc.extra_roots.append(gc.allocator, vm.stdout_port);
         if (vm.stderr_port != types.VOID) try gc.extra_roots.append(gc.allocator, vm.stderr_port);
+        // Share parent's port parameter objects; override with child's own ports
+        // so getParameterValue returns child-heap objects.
+        vm.current_input_port_param = parent.current_input_port_param;
+        vm.current_output_port_param = parent.current_output_port_param;
+        vm.current_error_port_param = parent.current_error_port_param;
+        if (vm.current_input_port_param != types.VOID and vm.stdin_port != types.VOID)
+            try vm.setParameterValue(types.toParameter(vm.current_input_port_param), vm.stdin_port);
+        if (vm.current_output_port_param != types.VOID and vm.stdout_port != types.VOID)
+            try vm.setParameterValue(types.toParameter(vm.current_output_port_param), vm.stdout_port);
+        if (vm.current_error_port_param != types.VOID and vm.stderr_port != types.VOID)
+            try vm.setParameterValue(types.toParameter(vm.current_error_port_param), vm.stderr_port);
         return vm;
     }
 
