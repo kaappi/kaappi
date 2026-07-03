@@ -44,6 +44,7 @@ pub fn captureContinuation(vm: *VM, dst_reg: u16, dst_base: u32) VMError!Value {
             .base = f.base,
             .dst = f.dst,
             .saved_wind_count = f.saved_wind_count,
+            .returns_to_native = f.returns_to_native,
             .seq = f.seq,
         };
     }
@@ -211,6 +212,7 @@ pub fn restoreContinuation(vm: *VM, cont: *types.Continuation, value: Value) VME
             .base = saved_frame.base,
             .dst = saved_frame.dst,
             .saved_wind_count = saved_frame.saved_wind_count,
+            .returns_to_native = saved_frame.returns_to_native,
             .seq = saved_frame.seq,
         };
     }

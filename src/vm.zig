@@ -232,6 +232,16 @@ pub const CallFrame = struct {
     base: u32,
     dst: u16,
     saved_wind_count: u16 = 0,
+    // True for frames pushed by callWithArgs: the frame's result is consumed
+    // by the re-entrant native Zig caller (map, for-each, sort, apply, ...)
+    // via runUntil's return value, and dst is a placeholder. If such a frame
+    // returns inside an OUTER dispatch loop, that native caller has already
+    // returned (a continuation captured under it was resumed after the native
+    // call ended) — there is no register to deliver into and the native's
+    // iteration state is gone, so the dispatch loop raises an error instead
+    // of silently corrupting the caller's registers. Preserved across tail
+    // calls and continuation capture/restore, like seq.
+    returns_to_native: bool = false,
     // Birth id, unique per pushed frame (VM.nextFrameSeq). Tail calls reuse
     // the frame and keep its seq; continuation capture/restore preserves it.
     // Dispatch loops use it to tell whether a restored frame stack still
@@ -1029,7 +1039,10 @@ pub const VM = struct {
                 .code = func.code.items,
                 .ip = 0,
                 .base = base,
+                // The result is consumed by this runUntil's return value, not
+                // a caller register — dst is a placeholder (returns_to_native).
                 .dst = 0,
+                .returns_to_native = true,
                 .saved_wind_count = @intCast(self.wind_count),
                 .seq = self.nextFrameSeq(),
             };

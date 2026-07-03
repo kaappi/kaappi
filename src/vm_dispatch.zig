@@ -49,6 +49,28 @@ fn maybeRewindRetry(self: *VM, instr_len: usize) void {
     if (f.ip >= instr_len) f.ip -= instr_len;
 }
 
+/// A frame with returns_to_native set (pushed by vm.callWithArgs) delivers its
+/// result via its own runUntil session's return value; its dst is a
+/// placeholder. When such a frame returns while frame_count is still above
+/// the dispatching loop's target, that session — the native Zig caller (map,
+/// for-each, sort, apply, ...) that owned the result — has already returned:
+/// a continuation captured under the native call was resumed after the call
+/// ended. There is no register to deliver into and the native's iteration
+/// state is gone, so raise a catchable Scheme error instead of silently
+/// writing the value into an unrelated caller register.
+fn raiseDeadNativeReturn(self: *VM) VMError {
+    var msg = self.gc.allocString("continuation cannot resume across a returned native call") catch
+        return VMError.OutOfMemory;
+    self.gc.pushRoot(&msg) catch return VMError.OutOfMemory;
+    const err_obj = self.gc.allocErrorObject(msg, types.NIL) catch {
+        self.gc.popRoot();
+        return VMError.OutOfMemory;
+    };
+    self.gc.popRoot();
+    self.current_exception = err_obj;
+    return VMError.ExceptionRaised;
+}
+
 /// Continuation-invoked handling: after a restore/escape delivers its value,
 /// execution must resume in the innermost dispatch loop whose scope-root
 /// frame is still live (checked by frame birth id, see resumesHere). Loops
@@ -492,6 +514,7 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                     // native.func may re-enter the VM and grow self.frames,
                     // invalidating `frame` — read dst before the call.
                     const return_dst = frame.dst;
+                    const from_native_call = frame.returns_to_native;
                     const result = native.func(nargs_slice) catch |err| {
                         if (self.profile_mode) {
                             native.profile_time_ns +%= vm_calls.clockNs() -% native_start;
@@ -539,6 +562,7 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                     if (self.frame_count <= target_frame_count) {
                         return result;
                     }
+                    if (from_native_call) return raiseDeadNativeReturn(self);
                     const caller = &self.frames[self.frame_count - 1];
                     const ret_idx = try registerIndex(self, caller.base, return_dst);
                     self.registers[ret_idx] = result;
@@ -562,11 +586,13 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                     // FFI callbacks may re-enter the VM and grow self.frames,
                     // invalidating `frame` — read dst before the call.
                     const return_dst = frame.dst;
+                    const from_native_call = frame.returns_to_native;
                     const result = ffi_mod.callFfi(ffi_fn, self.registers[abs_base + 1 .. abs_base + 1 + nargs], self.gc) catch return VMError.TypeError;
                     self.frame_count -= 1;
                     if (self.frame_count <= target_frame_count) {
                         return result;
                     }
+                    if (from_native_call) return raiseDeadNativeReturn(self);
                     const caller = &self.frames[self.frame_count - 1];
                     const ret_idx = try registerIndex(self, caller.base, return_dst);
                     self.registers[ret_idx] = result;
@@ -575,6 +601,7 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                     // callWithArgs on the converter re-enters the VM and may
                     // grow self.frames, invalidating `frame` — read dst first.
                     const return_dst = frame.dst;
+                    const from_native_call = frame.returns_to_native;
                     const result = if (nargs == 0) self.getParameterValue(param) else blk: {
                         var new_val = self.registers[abs_base + 1];
                         if (param.converter != types.NIL) {
@@ -587,6 +614,7 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                     if (self.frame_count <= target_frame_count) {
                         return result;
                     }
+                    if (from_native_call) return raiseDeadNativeReturn(self);
                     const caller = &self.frames[self.frame_count - 1];
                     const ret_idx = try registerIndex(self, caller.base, return_dst);
                     self.registers[ret_idx] = result;
@@ -690,6 +718,7 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                     // native.func may re-enter the VM and grow self.frames,
                     // invalidating `frame` — read dst before the call.
                     const return_dst = frame.dst;
+                    const from_native_call = frame.returns_to_native;
                     const result = native.func(flat_args[0..count]) catch |err| {
                         if (err == error.ContinuationInvoked) {
                             if (resumesHere(self, target_frame_count, scope_root_seq)) continue;
@@ -709,6 +738,7 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                     };
                     self.frame_count -= 1;
                     if (self.frame_count <= target_frame_count) return result;
+                    if (from_native_call) return raiseDeadNativeReturn(self);
                     const caller = &self.frames[self.frame_count - 1];
                     const ret_idx = try registerIndex(self, caller.base, return_dst);
                     self.registers[ret_idx] = result;
@@ -730,9 +760,11 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                     // FFI callbacks may re-enter the VM and grow self.frames,
                     // invalidating `frame` — read dst before the call.
                     const return_dst = frame.dst;
+                    const from_native_call = frame.returns_to_native;
                     const result = ffi_mod.callFfi(ffi_fn, flat_args[0..count], self.gc) catch return VMError.TypeError;
                     self.frame_count -= 1;
                     if (self.frame_count <= target_frame_count) return result;
+                    if (from_native_call) return raiseDeadNativeReturn(self);
                     const caller = &self.frames[self.frame_count - 1];
                     const ret_idx = try registerIndex(self, caller.base, return_dst);
                     self.registers[ret_idx] = result;
@@ -741,6 +773,7 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                     // callWithArgs on the converter re-enters the VM and may
                     // grow self.frames, invalidating `frame` — read dst first.
                     const return_dst = frame.dst;
+                    const from_native_call = frame.returns_to_native;
                     const result = if (count == 0) self.getParameterValue(param) else blk: {
                         var new_val = flat_args[0];
                         if (param.converter != types.NIL) {
@@ -751,6 +784,7 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                     };
                     self.frame_count -= 1;
                     if (self.frame_count <= target_frame_count) return result;
+                    if (from_native_call) return raiseDeadNativeReturn(self);
                     const caller = &self.frames[self.frame_count - 1];
                     const ret_idx = try registerIndex(self, caller.base, return_dst);
                     self.registers[ret_idx] = result;
@@ -766,6 +800,7 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                 self.gc.pushRoot(&result) catch return VMError.OutOfMemory;
                 defer self.gc.popRoot();
                 const return_dst = frame.dst;
+                const from_native_call = frame.returns_to_native;
                 const frame_wind = frame.saved_wind_count;
                 self.frame_count -= 1;
                 if (self.profile_mode) vm_calls.profilePopReturn(self);
@@ -781,6 +816,7 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                     }
                     return result;
                 }
+                if (from_native_call) return raiseDeadNativeReturn(self);
                 // Also unwind any winds that were pushed by native
                 // functions (e.g. dynamic-wind) between this frame
                 // and the caller. After a continuation restore the
@@ -1116,6 +1152,7 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                     // native.func may re-enter the VM and grow self.frames,
                     // invalidating `frame` — read dst before the call.
                     const return_dst = frame.dst;
+                    const from_native_call = frame.returns_to_native;
                     const result = if (!self.profile_mode)
                         native.func(args) catch |err| {
                             if (err == error.ContinuationInvoked) {
@@ -1173,6 +1210,7 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                     self.frame_count -= 1;
                     if (self.profile_mode) vm_calls.profilePopReturn(self);
                     if (self.frame_count <= target_frame_count) return result;
+                    if (from_native_call) return raiseDeadNativeReturn(self);
                     const caller = &self.frames[self.frame_count - 1];
                     const ret_idx = try registerIndex(self, caller.base, return_dst);
                     self.registers[ret_idx] = result;
