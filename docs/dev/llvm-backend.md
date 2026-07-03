@@ -189,6 +189,6 @@ environment variable controls the C compiler (defaults to `zig cc`).
 ## Related Documents
 
 - [ir.md](ir.md) — IR node types, analysis passes, optimization passes
-- [continuation-strategy.md](continuation-strategy.md) — hybrid approach
+- [continuation-strategy.md](decisions/continuation-strategy.md) — hybrid approach
   for `call/cc` in native code (VM fallback)
 - [architecture.md](architecture.md) — overall pipeline and file organization

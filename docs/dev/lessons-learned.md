@@ -140,7 +140,7 @@ Hard-won insights from building Kaappi. Each section describes a class of bug, h
 
 **Files:** `src/reader_datum.zig`, `src/compiler.zig`, `src/memory.zig`
 
-See `docs/dev/gc-reachability-bug.md` for the full investigation.
+See [the full investigation](postmortems/2026-06-17-gc-reachability-bug.md).
 
 ---
 

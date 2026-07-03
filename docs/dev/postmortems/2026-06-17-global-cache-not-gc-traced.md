@@ -98,4 +98,4 @@ correctness fix orthogonal to GC tracing.
 ## Cross-references
 
 - Found during the GC reachability work — see
-  [gc-reachability-bug.md](gc-reachability-bug.md).
+  [2026-06-17-gc-reachability-bug.md](2026-06-17-gc-reachability-bug.md).

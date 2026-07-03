@@ -284,5 +284,5 @@ direct compiler.
 The IR is designed to serve as input for a future LLVM IR native backend
 (Stage 6, issue #99). The direct-style IR (not CPS) was chosen to serve
 both the bytecode and native backends without conversion. See
-[continuation-strategy.md](continuation-strategy.md) for the hybrid
+[continuation-strategy.md](decisions/continuation-strategy.md) for the hybrid
 approach to `call/cc` in native code.
