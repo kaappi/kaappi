@@ -392,6 +392,9 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                     const native_start = if (self.profile_mode) vm_calls.clockNs() else 0;
                     const nargs_slice = self.registers[abs_base + 1 .. abs_base + 1 + nargs];
                     self.last_error_detail_len = 0;
+                    // native.func may re-enter the VM and grow self.frames,
+                    // invalidating `frame` — read dst before the call.
+                    const return_dst = frame.dst;
                     const result = native.func(nargs_slice) catch |err| {
                         if (self.profile_mode) {
                             native.profile_time_ns +%= vm_calls.clockNs() -% native_start;
@@ -433,7 +436,6 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                         self.profile_last_ns = vm_calls.clockNs();
                         self.gc.profile_alloc_target = saved_alloc_target;
                     }
-                    const return_dst = frame.dst;
                     self.frame_count -= 1;
                     if (self.profile_mode) vm_calls.profilePopReturn(self);
                     if (self.frame_count <= target_frame_count) {
@@ -459,8 +461,10 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                     const ffi_fn = types.toObject(callee).as(types.FfiFunction);
                     if (nargs != ffi_fn.param_count) return VMError.ArityMismatch;
                     const ffi_mod = @import("ffi.zig");
-                    const result = ffi_mod.callFfi(ffi_fn, self.registers[abs_base + 1 .. abs_base + 1 + nargs], self.gc) catch return VMError.TypeError;
+                    // FFI callbacks may re-enter the VM and grow self.frames,
+                    // invalidating `frame` — read dst before the call.
                     const return_dst = frame.dst;
+                    const result = ffi_mod.callFfi(ffi_fn, self.registers[abs_base + 1 .. abs_base + 1 + nargs], self.gc) catch return VMError.TypeError;
                     self.frame_count -= 1;
                     if (self.frame_count <= target_frame_count) {
                         return result;
@@ -470,6 +474,9 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                     self.registers[ret_idx] = result;
                 } else if (types.isParameter(callee)) {
                     const param = types.toObject(callee).as(types.ParameterObject);
+                    // callWithArgs on the converter re-enters the VM and may
+                    // grow self.frames, invalidating `frame` — read dst first.
+                    const return_dst = frame.dst;
                     const result = if (nargs == 0) self.getParameterValue(param) else blk: {
                         var new_val = self.registers[abs_base + 1];
                         if (param.converter != types.NIL) {
@@ -478,7 +485,6 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                         try self.setParameterValue(param, new_val);
                         break :blk types.VOID;
                     };
-                    const return_dst = frame.dst;
                     self.frame_count -= 1;
                     if (self.frame_count <= target_frame_count) {
                         return result;
@@ -583,6 +589,9 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                             }
                         },
                     }
+                    // native.func may re-enter the VM and grow self.frames,
+                    // invalidating `frame` — read dst before the call.
+                    const return_dst = frame.dst;
                     const result = native.func(flat_args[0..count]) catch |err| {
                         if (err == error.ContinuationInvoked) {
                             if (target_frame_count == 0) continue;
@@ -599,7 +608,6 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                             else => VMError.InvalidBytecode,
                         };
                     };
-                    const return_dst = frame.dst;
                     self.frame_count -= 1;
                     if (self.frame_count <= target_frame_count) return result;
                     const caller = &self.frames[self.frame_count - 1];
@@ -620,8 +628,10 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                     const ffi_fn = types.toObject(proc).as(types.FfiFunction);
                     if (count != ffi_fn.param_count) return VMError.ArityMismatch;
                     const ffi_mod = @import("ffi.zig");
-                    const result = ffi_mod.callFfi(ffi_fn, flat_args[0..count], self.gc) catch return VMError.TypeError;
+                    // FFI callbacks may re-enter the VM and grow self.frames,
+                    // invalidating `frame` — read dst before the call.
                     const return_dst = frame.dst;
+                    const result = ffi_mod.callFfi(ffi_fn, flat_args[0..count], self.gc) catch return VMError.TypeError;
                     self.frame_count -= 1;
                     if (self.frame_count <= target_frame_count) return result;
                     const caller = &self.frames[self.frame_count - 1];
@@ -629,6 +639,9 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                     self.registers[ret_idx] = result;
                 } else if (types.isParameter(proc)) {
                     const param = types.toObject(proc).as(types.ParameterObject);
+                    // callWithArgs on the converter re-enters the VM and may
+                    // grow self.frames, invalidating `frame` — read dst first.
+                    const return_dst = frame.dst;
                     const result = if (count == 0) self.getParameterValue(param) else blk: {
                         var new_val = flat_args[0];
                         if (param.converter != types.NIL) {
@@ -637,7 +650,6 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                         try self.setParameterValue(param, new_val);
                         break :blk types.VOID;
                     };
-                    const return_dst = frame.dst;
                     self.frame_count -= 1;
                     if (self.frame_count <= target_frame_count) return result;
                     const caller = &self.frames[self.frame_count - 1];
@@ -676,12 +688,15 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                 // native function isn't on the Zig stack, so its
                 // cleanup won't run. The caller's saved_wind_count
                 // tells us the correct wind level to unwind to.
-                const caller = &self.frames[self.frame_count - 1];
-                while (self.wind_count > caller.saved_wind_count) {
+                // callThunk may re-enter the VM and grow self.frames — copy
+                // the caller's fields instead of holding a pointer across it.
+                const caller_wind_count = self.frames[self.frame_count - 1].saved_wind_count;
+                const caller_base = self.frames[self.frame_count - 1].base;
+                while (self.wind_count > caller_wind_count) {
                     self.wind_count -= 1;
                     _ = self.callThunk(self.wind_stack[self.wind_count].after) catch {};
                 }
-                const ret_idx = try registerIndex(self, caller.base, return_dst);
+                const ret_idx = try registerIndex(self, caller_base, return_dst);
                 self.registers[ret_idx] = result;
             },
             .closure => {
@@ -978,6 +993,9 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                 } else if (types.isNativeFn(callee)) {
                     const native = types.toObject(callee).as(types.NativeFn);
                     const args = self.registers[abs_base + 1 .. abs_base + 1 + nargs];
+                    // native.func may re-enter the VM and grow self.frames,
+                    // invalidating `frame` — read dst before the call.
+                    const return_dst = frame.dst;
                     const result = if (!self.profile_mode)
                         native.func(args) catch |err| {
                             if (err == error.ContinuationInvoked) {
@@ -1030,7 +1048,6 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                         self.gc.profile_alloc_target = saved_alloc_target;
                         break :blk r;
                     };
-                    const return_dst = frame.dst;
                     self.frame_count -= 1;
                     if (self.profile_mode) vm_calls.profilePopReturn(self);
                     if (self.frame_count <= target_frame_count) return result;
