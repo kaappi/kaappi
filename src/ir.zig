@@ -147,6 +147,12 @@ pub const IR = struct {
     // that have no Compiler (the LLVM native backend passes a lambda's own
     // parameter names here). Also consulted by isRedefined (issue #790).
     bound_names: ?[]const []const u8 = null,
+    // Names that are the target of a `set!` somewhere in the enclosing form
+    // being compiled. Folding a call to such a name is unsound: the `set!`
+    // may run before the call (e.g. `(lambda () (set! + -) (+ 5 2))`), so the
+    // primitive's value at compile time no longer reflects its value at the
+    // call site. Populated conservatively (whole-form scan) by the compiler.
+    set_targets: ?*const std.StringHashMap(void) = null,
 
     pub fn init(allocator: std.mem.Allocator) IR {
         return .{
@@ -166,6 +172,11 @@ pub const IR = struct {
             for (names) |n| {
                 if (std.mem.eql(u8, n, name)) return true;
             }
+        }
+        // A `set!` target in the enclosing form suppresses folding even when
+        // the global still holds the original primitive at compile time.
+        if (self.set_targets) |st| {
+            if (st.contains(name)) return true;
         }
         const g = self.globals orelse return false;
         const val = g.get(name) orelse {

@@ -331,6 +331,66 @@ test "IR optimization: constant folding not applied to non-constant args" {
     try std.testing.expect(folded.tag == .call);
 }
 
+test "IR optimization: set! target suppresses constant folding" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var ir = ir_mod.IR.init(std.testing.allocator);
+    defer ir.deinit();
+
+    var set_targets = std.StringHashMap(void).init(std.testing.allocator);
+    defer set_targets.deinit();
+    try set_targets.put("+", {});
+    ir.set_targets = &set_targets;
+
+    const plus_sym = try gc.allocSymbol("+");
+    const op = try ir.makeGlobalRef(plus_sym);
+    const a = try ir.makeConst(types.makeFixnum(3));
+    const b = try ir.makeConst(types.makeFixnum(4));
+    const call = try ir.makeCall(op, &.{ a, b });
+
+    const folded = ir_mod.foldConstants(&ir, call);
+    try std.testing.expect(folded.tag == .call); // must stay a call, not fold to 7
+}
+
+fn expectEvalFixnum(source: []const u8, expected: i64) !void {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+    const result = try vm.eval(source);
+    try std.testing.expectEqual(expected, types.toFixnum(result));
+}
+
+test "IR fold: set! of + in lambda body is not folded (stale global rebind)" {
+    // (+ 5 2) must not fold to 7: + is set! to - before the call runs.
+    try expectEvalFixnum("(define f (lambda () (set! + -) (+ 5 2))) (f)", 3);
+}
+
+test "IR fold: set! of + inside let body is not folded (legacy passthrough path)" {
+    try expectEvalFixnum("(define g (lambda () (let ((x 1)) (set! + -) (+ 5 2)))) (g)", 3);
+}
+
+test "IR fold: set! in outer body suppresses fold in nested lambda" {
+    try expectEvalFixnum("(define k (lambda () (set! + -) (lambda () (+ 5 2)))) ((k))", 3);
+}
+
+test "IR fold: every + call in a set!-body is suppressed" {
+    try expectEvalFixnum("(define h (lambda () (+ 100 1) (set! + -) (+ 5 2))) (h)", 3);
+}
+
+test "IR fold: set! of * in lambda body is not folded" {
+    try expectEvalFixnum("(define f (lambda () (set! * -) (* 10 3))) (f)", 7);
+}
+
+test "IR fold: primitive still folds when no set! targets it" {
+    try expectEvalFixnum("((lambda () (+ 5 2)))", 7);
+}
+
+test "IR fold: set! inside quoted data does not suppress folding" {
+    // (quote (set! + -)) is data, not a rebind; (+ 5 2) still folds to 7.
+    try expectEvalFixnum("(define p (lambda () (quote (set! + -)) (+ 5 2))) (p)", 7);
+}
+
 test "IR optimization: constant folding through if" {
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
