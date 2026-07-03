@@ -138,6 +138,15 @@ pub const IR = struct {
     nodes: std.ArrayList(*Node),
     globals: ?*const std.StringHashMap(Value) = null,
     restricted_env: bool = false, // true when compiling in a restricted environment (environment procedure)
+    // Enclosing compiler, when lowering happens inside one. Supplies lexical
+    // scope so isRedefined can see lambda parameters / enclosing locals that
+    // shadow a primitive (issue #790). Null for standalone lowering (Stage 1
+    // parity tests, ir_emitter), where only the globals check applies.
+    compiler: ?*const compiler_mod.Compiler = null,
+    // Extra lexically-bound names that shadow primitives, for lowering paths
+    // that have no Compiler (the LLVM native backend passes a lambda's own
+    // parameter names here). Also consulted by isRedefined (issue #790).
+    bound_names: ?[]const []const u8 = null,
 
     pub fn init(allocator: std.mem.Allocator) IR {
         return .{
@@ -147,6 +156,17 @@ pub const IR = struct {
     }
 
     fn isRedefined(self: *const IR, name: []const u8) bool {
+        // A lexical binding (lambda parameter or enclosing local) shadowing the
+        // primitive makes any fold that assumes the built-in's semantics wrong.
+        // The globals map never sees these, so consult the compiler's scope.
+        if (self.compiler) |c| {
+            if (c.isLexicallyBound(name)) return true;
+        }
+        if (self.bound_names) |names| {
+            for (names) |n| {
+                if (std.mem.eql(u8, n, name)) return true;
+            }
+        }
         const g = self.globals orelse return false;
         const val = g.get(name) orelse {
             // In a restricted environment, missing names mean "not available".

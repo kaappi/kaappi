@@ -44,6 +44,9 @@ fn tryCompilePureLambdaAsNativeClosure(self: *LLVMEmitter, data: ir.LambdaData) 
 
     var body_ir = ir.IR.init(self.allocator);
     defer body_ir.deinit();
+    // Parameters shadow primitives of the same name; don't fold calls to them
+    // using the built-in's semantics (issue #790).
+    body_ir.bound_names = param_names[0..arity];
     var body_nodes: [64]*ir.Node = undefined;
     var body_count: usize = 0;
     var body_expr = body_list;
@@ -103,6 +106,9 @@ fn tryCompileNativeClosure(self: *LLVMEmitter, data: ir.LambdaData) ?[]const u8 
 
     var body_ir = ir.IR.init(self.allocator);
     defer body_ir.deinit();
+    // Parameters shadow primitives of the same name; don't fold calls to them
+    // using the built-in's semantics (issue #790).
+    body_ir.bound_names = param_names[0..arity];
     var body_nodes: [64]*ir.Node = undefined;
     var body_count: usize = 0;
     var body_expr = body_list;
@@ -354,6 +360,18 @@ pub fn tryCompileDefineFunction(self: *LLVMEmitter, name: []const u8, formals: V
 
     var body_ir = ir.IR.init(self.allocator);
     defer body_ir.deinit();
+    // Parameters (including a rest parameter) shadow primitives of the same
+    // name; don't fold calls to them using the built-in's semantics (#790).
+    if (rest_name) |rn| {
+        if (arity < param_names.len) {
+            param_names[arity] = rn;
+            body_ir.bound_names = param_names[0 .. arity + 1];
+        } else {
+            body_ir.bound_names = param_names[0..arity];
+        }
+    } else {
+        body_ir.bound_names = param_names[0..arity];
+    }
 
     var body_nodes: [64]*ir.Node = undefined;
     var body_count: usize = 0;

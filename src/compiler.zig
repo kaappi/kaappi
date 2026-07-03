@@ -238,6 +238,24 @@ pub const Compiler = struct {
         return null;
     }
 
+    /// Pure predicate: is `name` bound as a lexical variable — a local in this
+    /// compiler or any enclosing compiler? Unlike `resolveUpvalue`, this has no
+    /// side effects (it does not register upvalues), so the IR optimizer can
+    /// call it while deciding whether a call to a primitive name is safe to
+    /// constant-fold. A lambda parameter (or enclosing local) that shadows a
+    /// built-in must suppress folding: the reference is to the binding, not the
+    /// primitive. See issue #790.
+    pub fn isLexicallyBound(self: *const Compiler, name: []const u8) bool {
+        var comp: ?*const Compiler = self;
+        while (comp) |c| {
+            for (c.locals.items) |local| {
+                if (std.mem.eql(u8, local.name, name)) return true;
+            }
+            comp = c.parent;
+        }
+        return false;
+    }
+
     pub fn isLocalBoxed(self: *Compiler, name: []const u8) bool {
         var i: usize = self.locals.items.len;
         while (i > 0) {
@@ -344,6 +362,7 @@ pub const Compiler = struct {
         var ir = ir_mod.IR.init(self.gc.allocator);
         ir.globals = self.globals;
         ir.restricted_env = self.restricted_env;
+        ir.compiler = self;
         defer ir.deinit();
         var root = try ir_mod.lowerWithMacros(&ir, expr_root, &self.macros);
 
@@ -621,6 +640,7 @@ pub const Compiler = struct {
             var ir = ir_mod.IR.init(child.gc.allocator);
             ir.globals = child.globals;
             ir.restricted_env = child.restricted_env;
+            ir.compiler = &child;
             defer ir.deinit();
             var root = try ir_mod.lowerWithMacros(&ir, expr, &child.macros);
             ir_mod.markTailPositions(root, rest == types.NIL);
@@ -681,6 +701,7 @@ pub const Compiler = struct {
         var ir = ir_mod.IR.init(self.gc.allocator);
         ir.globals = self.globals;
         ir.restricted_env = self.restricted_env;
+        ir.compiler = self;
         defer ir.deinit();
         var val_root = try ir_mod.lowerWithMacros(&ir, data.value, &self.macros);
         ir_mod.identifyPrimitives(val_root);
@@ -731,6 +752,7 @@ pub const Compiler = struct {
         var ir = ir_mod.IR.init(self.gc.allocator);
         ir.globals = self.globals;
         ir.restricted_env = self.restricted_env;
+        ir.compiler = self;
         defer ir.deinit();
         var val_root = try ir_mod.lowerWithMacros(&ir, data.value, &self.macros);
         ir_mod.identifyPrimitives(val_root);
@@ -877,6 +899,7 @@ pub const Compiler = struct {
             var ir = ir_mod.IR.init(self.gc.allocator);
             ir.globals = self.globals;
             ir.restricted_env = self.restricted_env;
+            ir.compiler = self;
             defer ir.deinit();
             var root = try ir_mod.lowerWithMacros(&ir, expr, &self.macros);
             ir_mod.markTailPositions(root, false);

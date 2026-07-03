@@ -605,6 +605,86 @@ test "bare lambda internal define with lambda application" {
     try std.testing.expectEqual(@as(i64, 10), types.toFixnum(result));
 }
 
+// Issue #790: IR constant folding / simplifyBooleans must not fold a call to a
+// primitive name that is shadowed by a lambda parameter (or an enclosing
+// local). The lambda body is lowered through the IR by compileLambdaWithIR;
+// the IR now consults the enclosing compiler's lexical scope in isRedefined.
+// These forms are evaluated bare (not wrapped in a macro), so the operator
+// lambda is compiled via the IR path, not the legacy passthrough compiler.
+
+test "issue #790: lambda param shadows + (binary fold suppressed)" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+    // + is bound to -, so (+ 1 2) evaluates as (- 1 2) = -1, not the folded 3.
+    const result = try vm.eval("((lambda (+) (+ 1 2)) -)");
+    try std.testing.expectEqual(@as(i64, -1), types.toFixnum(result));
+}
+
+test "issue #790: lambda param shadows < (comparison fold suppressed)" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+    // < is bound to +, so (< 1 2) evaluates as (+ 1 2) = 3, not #t.
+    const result = try vm.eval("((lambda (<) (< 1 2)) +)");
+    try std.testing.expectEqual(@as(i64, 3), types.toFixnum(result));
+}
+
+test "issue #790: lambda param shadows zero? (unary fold suppressed)" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+    // zero? is bound to (lambda (x) #f), so (if (zero? 0) 10 20) = 20, not 10.
+    const result = try vm.eval("((lambda (zero?) (if (zero? 0) 10 20)) (lambda (x) #f))");
+    try std.testing.expectEqual(@as(i64, 20), types.toFixnum(result));
+}
+
+test "issue #790: lambda param shadows not (simplifyBooleans suppressed)" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+    // not is bound to odd?; (odd? 5) is #t, so (if (not 5) 100 200) = 100. The
+    // buggy (if (not X) A B) -> (if X B A) rewrite would yield 200.
+    const result = try vm.eval("((lambda (not) (if (not 5) 100 200)) odd?)");
+    try std.testing.expectEqual(@as(i64, 100), types.toFixnum(result));
+}
+
+test "issue #790: shadowed operator with pre-folded args (foldConstants pass)" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+    // (- 5 4) folds to 1 (- is not shadowed); the outer + is shadowed by *, so
+    // the IR foldConstants pass must not fold (+ 1 2). Result: (* 1 2) = 2.
+    const result = try vm.eval("((lambda (+) (+ (- 5 4) 2)) *)");
+    try std.testing.expectEqual(@as(i64, 2), types.toFixnum(result));
+}
+
+test "issue #790: enclosing lambda param shadows via upvalue chain" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+    // The inner lambda's (+ 3 4) sees + as an upvalue bound to -, so isRedefined
+    // must walk the enclosing compiler chain. Result: (- 3 4) = -1, not 7.
+    const result = try vm.eval("((lambda (+) ((lambda (y) (+ 3 4)) 10)) -)");
+    try std.testing.expectEqual(@as(i64, -1), types.toFixnum(result));
+}
+
+test "issue #790: unshadowed operator still folds in a lambda body" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+    // + is not shadowed here, so folding must still happen normally.
+    const result = try vm.eval("((lambda (y) (+ 1 2)) 99)");
+    try std.testing.expectEqual(@as(i64, 3), types.toFixnum(result));
+}
+
 fn readExpr(gc: *memory.GC, source: []const u8) !types.Value {
     var reader = reader_mod.Reader.init(gc, source);
     defer reader.deinit();
