@@ -141,7 +141,7 @@ fn processImportSet(vm: *VM, target: *std.StringHashMap(Value), import_set: Valu
 
 /// Build the relative .sld path from a library name list.
 /// (mylib util) -> "mylib/util.sld"
-fn buildLibRelPath(name_list: Value, buf: *[512]u8) ![]const u8 {
+pub fn buildLibRelPath(name_list: Value, buf: *[512]u8) ![]const u8 {
     var pos: usize = 0;
     var current = name_list;
     var first = true;
@@ -1216,5 +1216,6 @@ fn isLibTopLevelForm(expr: Value) bool {
     const name = types.symbolName(head);
     if (std.mem.eql(u8, name, "define-record-type")) return true;
     if (std.mem.eql(u8, name, "define-values")) return true;
+    if (std.mem.eql(u8, name, "include")) return true;
     return false;
 }
