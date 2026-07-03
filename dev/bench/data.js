@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783109860567,
+  "lastUpdate": 1783110156792,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "854b35b7f6522af703227e8b49a7c8166a4495dc",
-          "message": "Merge pull request #777 from kaappi/fix/733-737-thottam-bugs\n\nFix five thottam package manager bugs",
-          "timestamp": "2026-07-02T21:13:43+05:30",
-          "tree_id": "29aee9861549401d66870157c62d962cf23450ff",
-          "url": "https://github.com/kaappi/kaappi/commit/854b35b7f6522af703227e8b49a7c8166a4495dc"
-        },
-        "date": 1783007799776,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.343166,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.093269,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.813548,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.239676,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.007042,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.032993,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.454665,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.068651,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.905666,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.766579,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.133409,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.216254,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 2.394627,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.664218,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.041276,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.04285,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "34952ddb5c2c2a0edeb4ea4f2fc4017ddc9fd3a2",
+          "message": "Call sched_yield in thread-yield! when no cooperative scheduler exists (#948) (#994)\n\nthread-yield! was a silent no-op in schedulerless VMs (child OS threads),\ncausing busy-spin at 100% CPU. Now calls std.Thread.yield() (sched_yield)\nto hand the CPU to the OS scheduler per SRFI-18 semantics.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-03T20:03:28Z",
+          "tree_id": "66b4509618b1996f8501cc2ac1f7840967663102",
+          "url": "https://github.com/kaappi/kaappi/commit/34952ddb5c2c2a0edeb4ea4f2fc4017ddc9fd3a2"
+        },
+        "date": 1783110156293,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.033722,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.591154,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.863297,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 6.242664,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006809,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.033708,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.487477,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.068808,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.976129,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.855388,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.188983,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.475699,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.690942,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.791406,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044527,
             "unit": "seconds"
           }
         ]
