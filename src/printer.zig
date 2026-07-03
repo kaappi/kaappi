@@ -774,11 +774,15 @@ pub fn prettyPrint(allocator: std.mem.Allocator, value: Value, width: u16) ![]u8
     if (flat.len <= width) return flat;
     allocator.free(flat);
     var aw: std.Io.Writer.Allocating = .init(allocator);
-    try ppValue(&aw.writer, value, 0, width);
+    try ppValue(&aw.writer, value, 0, width, 0);
     return aw.toOwnedSlice();
 }
 
-fn ppValue(writer: anytype, value: Value, indent: u16, width: u16) anyerror!void {
+fn ppValue(writer: anytype, value: Value, indent: u16, width: u16, depth: u32) anyerror!void {
+    if (depth >= MAX_PRINT_DEPTH) {
+        try writer.writeAll("...");
+        return;
+    }
     if (!types.isPair(value) and !types.isVector(value)) {
         try printValue(writer, value, .write);
         return;
@@ -788,7 +792,7 @@ fn ppValue(writer: anytype, value: Value, indent: u16, width: u16) anyerror!void
         try writer.writeAll("#(");
         for (vec.data, 0..) |elem, i| {
             if (i > 0) try writer.writeByte(' ');
-            try ppValue(writer, elem, indent + 2, width);
+            try ppValue(writer, elem, indent + 2, width, depth + 1);
         }
         try writer.writeByte(')');
         return;
@@ -803,7 +807,12 @@ fn ppValue(writer: anytype, value: Value, indent: u16, width: u16) anyerror!void
     const new_indent = indent + 2;
     var first = true;
     var cur = value;
+    var count: u32 = 0;
     while (cur != types.NIL) {
+        if (count >= MAX_PRINT_DEPTH) {
+            try writer.writeAll(" ...");
+            break;
+        }
         if (!types.isPair(cur)) {
             if (!first) {
                 try writer.writeByte('\n');
@@ -811,7 +820,7 @@ fn ppValue(writer: anytype, value: Value, indent: u16, width: u16) anyerror!void
                 while (sp < new_indent) : (sp += 1) try writer.writeByte(' ');
             }
             try writer.writeAll(". ");
-            try ppValue(writer, cur, new_indent, width);
+            try ppValue(writer, cur, new_indent, width, depth + 1);
             break;
         }
         if (!first) {
@@ -819,9 +828,10 @@ fn ppValue(writer: anytype, value: Value, indent: u16, width: u16) anyerror!void
             var sp: u16 = 0;
             while (sp < new_indent) : (sp += 1) try writer.writeByte(' ');
         }
-        try ppValue(writer, types.car(cur), new_indent, width);
+        try ppValue(writer, types.car(cur), new_indent, width, depth + 1);
         first = false;
         cur = types.cdr(cur);
+        count += 1;
     }
     try writer.writeByte(')');
 }
