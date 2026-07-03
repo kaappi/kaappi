@@ -3,6 +3,8 @@ const types = @import("types.zig");
 const vm_mod = @import("vm.zig");
 const primitives = @import("primitives.zig");
 const pstr = @import("primitives_string.zig");
+const pchar = @import("primitives_char.zig");
+const unicode = @import("unicode_tables.zig");
 const Value = types.Value;
 const NativeFn = types.NativeFn;
 const PrimitiveError = primitives.PrimitiveError;
@@ -646,21 +648,106 @@ fn stringTitlecaseFn(args: []const Value) PrimitiveError!Value {
     const range = try parseStartEnd(full_data, args, 1);
     const data = range.data;
     if (data.len == 0) return gc.allocString("") catch return PrimitiveError.OutOfMemory;
-    const alloc_buf = gc.allocator.alloc(u8, data.len) catch return PrimitiveError.OutOfMemory;
-    defer gc.allocator.free(alloc_buf);
-    @memcpy(alloc_buf, data);
+
+    var result: std.ArrayList(u8) = .empty;
+    defer result.deinit(gc.allocator);
+
+    var i: usize = 0;
     var word_start = true;
-    for (alloc_buf) |*c| {
-        if (c.* == ' ' or c.* == '\t' or c.* == '\n' or c.* == '\r') {
+    var prev_cased = false;
+    while (i < data.len) {
+        const seq_len = std.unicode.utf8ByteSequenceLength(data[i]) catch 1;
+        if (i + seq_len > data.len) {
+            result.append(gc.allocator, data[i]) catch return PrimitiveError.OutOfMemory;
+            i += 1;
+            continue;
+        }
+        const cp = std.unicode.utf8Decode(data[i .. i + seq_len]) catch {
+            result.append(gc.allocator, data[i]) catch return PrimitiveError.OutOfMemory;
+            i += 1;
+            continue;
+        };
+
+        const is_cased = pchar.isUnicodeUppercase(cp) or pchar.isUnicodeLowercase(cp);
+
+        if (!is_cased) {
+            result.appendSlice(gc.allocator, data[i .. i + seq_len]) catch return PrimitiveError.OutOfMemory;
             word_start = true;
         } else if (word_start) {
-            if (c.* >= 'a' and c.* <= 'z') c.* -= 32;
+            switch (cp) {
+                0x00DF => {
+                    try pchar.appendCodepoint(&result, gc.allocator, 'S');
+                    try pchar.appendCodepoint(&result, gc.allocator, 's');
+                },
+                0x01F0 => {
+                    try pchar.appendCodepoint(&result, gc.allocator, 'J');
+                    try pchar.appendCodepoint(&result, gc.allocator, 0x030C);
+                },
+                0x0390 => {
+                    try pchar.appendCodepoint(&result, gc.allocator, 0x0399);
+                    try pchar.appendCodepoint(&result, gc.allocator, 0x0308);
+                    try pchar.appendCodepoint(&result, gc.allocator, 0x0301);
+                },
+                0x03B0 => {
+                    try pchar.appendCodepoint(&result, gc.allocator, 0x03A5);
+                    try pchar.appendCodepoint(&result, gc.allocator, 0x0308);
+                    try pchar.appendCodepoint(&result, gc.allocator, 0x0301);
+                },
+                0xFB00 => {
+                    try pchar.appendCodepoint(&result, gc.allocator, 'F');
+                    try pchar.appendCodepoint(&result, gc.allocator, 'f');
+                },
+                0xFB01 => {
+                    try pchar.appendCodepoint(&result, gc.allocator, 'F');
+                    try pchar.appendCodepoint(&result, gc.allocator, 'i');
+                },
+                0xFB02 => {
+                    try pchar.appendCodepoint(&result, gc.allocator, 'F');
+                    try pchar.appendCodepoint(&result, gc.allocator, 'l');
+                },
+                0xFB03 => {
+                    try pchar.appendCodepoint(&result, gc.allocator, 'F');
+                    try pchar.appendCodepoint(&result, gc.allocator, 'f');
+                    try pchar.appendCodepoint(&result, gc.allocator, 'i');
+                },
+                0xFB04 => {
+                    try pchar.appendCodepoint(&result, gc.allocator, 'F');
+                    try pchar.appendCodepoint(&result, gc.allocator, 'f');
+                    try pchar.appendCodepoint(&result, gc.allocator, 'l');
+                },
+                else => try pchar.appendCodepoint(&result, gc.allocator, pchar.unicodeUpcase(cp)),
+            }
             word_start = false;
         } else {
-            if (c.* >= 'A' and c.* <= 'Z') c.* += 32;
+            switch (cp) {
+                0x0130 => {
+                    try pchar.appendCodepoint(&result, gc.allocator, 0x0069);
+                    try pchar.appendCodepoint(&result, gc.allocator, 0x0307);
+                },
+                0x03A3 => {
+                    const next_cp = blk: {
+                        const ni = i + seq_len;
+                        if (ni >= data.len) break :blk @as(?u21, null);
+                        const nsl = std.unicode.utf8ByteSequenceLength(data[ni]) catch break :blk @as(?u21, null);
+                        if (ni + nsl > data.len) break :blk @as(?u21, null);
+                        break :blk std.unicode.utf8Decode(data[ni .. ni + nsl]) catch null;
+                    };
+                    const next_is_cased = if (next_cp) |nc|
+                        pchar.isUnicodeUppercase(nc) or pchar.isUnicodeLowercase(nc)
+                    else
+                        false;
+                    if (prev_cased and !next_is_cased)
+                        try pchar.appendCodepoint(&result, gc.allocator, 0x03C2)
+                    else
+                        try pchar.appendCodepoint(&result, gc.allocator, 0x03C3);
+                },
+                else => try pchar.appendCodepoint(&result, gc.allocator, pchar.unicodeDowncase(cp)),
+            }
         }
+        prev_cased = is_cased;
+        i += seq_len;
     }
-    return gc.allocString(alloc_buf) catch return PrimitiveError.OutOfMemory;
+    return gc.allocString(result.items) catch return PrimitiveError.OutOfMemory;
 }
 
 // (string-every pred s [start end])
