@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783070426564,
+  "lastUpdate": 1783071729645,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "49714b6475c16d61a38f4df0afda7c9250eefaa6",
-          "message": "Merge pull request #711 from kaappi/fix/define-values-register-corruption-687\n\nFix define-values register corruption with 2+ names in lambda body",
-          "timestamp": "2026-07-02T09:58:21+05:30",
-          "tree_id": "0009a6c31a0c80bfaefe6c76445eea7b9e8c6306",
-          "url": "https://github.com/kaappi/kaappi/commit/49714b6475c16d61a38f4df0afda7c9250eefaa6"
-        },
-        "date": 1782967382185,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.375057,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.919361,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.851167,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.209583,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.0074,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.033458,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.462059,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.070208,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 4.104614,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.78763,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.136156,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.231973,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 2.467582,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.741011,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.046543,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.043146,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ed919ae35032960a7f988e62345615bd8f03f6bb",
+          "message": "Add /do-linux-test skill for x86-64 Linux testing via DigitalOcean (#946)\n\n* Add /do-linux-test skill for x86-64 Linux testing via DigitalOcean\n\nCreates a temporary DigitalOcean droplet (s-2vcpu-4gb, Ubuntu 24.04)\nto run the full Kaappi test suite on real x86-64 hardware. Complements\nthe existing /linux-test skill which uses podman with emulation.\n\nThe workflow: create droplet → install Zig 0.16 → clone repo at\ncurrent branch → build → unit tests → Scheme test suites → destroy.\nDroplet is always destroyed, even on failure/timeout.\n\nCloses #942\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Fix /do-linux-test skill based on real-world test run\n\nSplit the single SSH session into separate provision/build/unit-test/scheme-test\ncommands to avoid hitting the Bash tool's 14-minute timeout. Add apt lock wait\nfor fresh droplets, use ln -sf for idempotent Zig install, and add\nServerAliveInterval to keep connections open during long compile tests.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Add lessons learned from first test run to /do-linux-test skill\n\n- Redirect Scheme test output to file on remote so results survive\n  SSH disconnects; fetch separately\n- Document bash guard hook caveat (blocks rm -rf in SSH heredocs)\n- Document macOS timeout absence (use split commands instead)\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Add 55-minute self-destruct timer to /do-linux-test skill\n\nAfter SSH is up, install a background process on the droplet that calls\nthe DO API to delete itself after 55 minutes. Guarantees the droplet is\ndestroyed even if the Claude session dies mid-run.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-03T14:55:53+05:30",
+          "tree_id": "24dd5031a2e504bb72987555f523de658e44a6de",
+          "url": "https://github.com/kaappi/kaappi/commit/ed919ae35032960a7f988e62345615bd8f03f6bb"
+        },
+        "date": 1783071729043,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.180016,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.231051,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.861802,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.284465,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.00727,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.033287,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.474279,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.069002,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 4.017112,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.795466,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.16039,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.469496,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 2.40021,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.876678,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.045563,
             "unit": "seconds"
           }
         ]
