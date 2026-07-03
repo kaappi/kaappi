@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783088144639,
+  "lastUpdate": 1783089417899,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "distinct": true,
-          "id": "de6afd864d587eb35eb6e1e8d525f833f1c27a35",
-          "message": "Release v0.11.0",
-          "timestamp": "2026-07-02T15:05:08+05:30",
-          "tree_id": "120134b6fdec50039ce1da42ada0b6a0ec160d6b",
-          "url": "https://github.com/kaappi/kaappi/commit/de6afd864d587eb35eb6e1e8d525f833f1c27a35"
-        },
-        "date": 1782985770621,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.037128,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.982089,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.8612,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.203038,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.007489,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.032064,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.451859,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.067689,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.920175,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.769728,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.094357,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.247221,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 2.444686,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.912491,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.043651,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.045458,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d0414d88001d2b558172da54d09add60cd13908f",
+          "message": "Signal read-error? when read hits EOF mid-datum (R7RS 6.13.2) (#977)\n\n(read port) returned the EOF object whenever the reader ran out of\ninput, even when end of file interrupted an incomplete datum like\n\"(unclosed\" or an unterminated string. R7RS 6.13.2 requires an error\nsatisfying read-error? in that case; only EOF before any datum text\nbegins may return the EOF object. The file-loading path already\nreported such input as a read error — the deviation was specific to\nthe read procedure, on both string ports and file-descriptor ports.\n\nDistinguish the two cases with Reader.hasMore(): if only whitespace\nand comments remain, return the EOF object as before; otherwise a\ndatum has begun and any reader failure — now including UnexpectedEof —\nraises a read error. An OutOfMemory from the reader now propagates as\nan allocation failure instead of masquerading as end of input.\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-03T14:21:52Z",
+          "tree_id": "14ac1a1b33e1e1bee8dc4a7187322cfd8e83cc33",
+          "url": "https://github.com/kaappi/kaappi/commit/d0414d88001d2b558172da54d09add60cd13908f"
+        },
+        "date": 1783089417002,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.423152,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.099809,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.843341,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.235674,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006384,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.032829,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.495102,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.068828,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 4.104372,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.806804,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.151471,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.436479,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.781436,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.694006,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.041752,
             "unit": "seconds"
           }
         ]
