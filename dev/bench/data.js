@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783051055759,
+  "lastUpdate": 1783054251643,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "85a5cc41edab6e68747b18dcf0d8814a94c3d3fa",
-          "message": "Merge pull request #671 from kaappi/fix/651-internal-define-syntax-scope\n\nFix internal define-syntax inside let/letrec body leaking macro binding",
-          "timestamp": "2026-07-01T14:55:50+05:30",
-          "tree_id": "668fb039ab58ceb8ae43720c86e05820e95b78e9",
-          "url": "https://github.com/kaappi/kaappi/commit/85a5cc41edab6e68747b18dcf0d8814a94c3d3fa"
-        },
-        "date": 1782898686652,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.355475,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.484149,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.844971,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.198119,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.007175,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.032417,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.460295,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.068405,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.972629,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.780648,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.114067,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.220238,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 2.436323,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.636747,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.041709,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.042726,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f1edcbf7ca392d56111577f9ccb82d8853289558",
+          "message": "Fix use-after-free of frame pointer after re-entrant natives grow the frames array (#927)\n\nrunUntil captures `frame` as a pointer into self.frames at the top of\neach dispatch iteration. Handlers for tail_call, tail_apply, and\ntail_call_global invoke code that can re-enter the VM — natives that\ncall Scheme callbacks (map, sort, apply, ...), parameter converters via\ncallWithArgs, FFI callbacks — and afterwards read frame.dst. Re-entry\npushes a frame via ensureFrameCapacity, which on growth allocates a new\nframes array and frees the old one, leaving `frame` dangling. Depending\non heap reuse the stale read yielded a spurious InvalidBytecode error or\nsilently wrote the native's return value into the wrong caller register.\n\nRead frame.dst into a local before any potentially re-entrant call, and\nin the .return handler copy the caller's saved_wind_count/base instead\nof holding a pointer across the dynamic-wind after-thunk calls.\n\nThe regression tests shrink the frames array to 8 entries and scan a\ncontiguous nesting-depth range, which guarantees the re-entrant push\nlands exactly on a capacity boundary and forces the reallocation at the\nvulnerable moment.\n\nFixes #817\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-03T10:04:57+05:30",
+          "tree_id": "a7b5db7f4c291e93dc2f8fa364e89bbd5d16bebe",
+          "url": "https://github.com/kaappi/kaappi/commit/f1edcbf7ca392d56111577f9ccb82d8853289558"
+        },
+        "date": 1783054250687,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.900831,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.853081,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.789475,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.737369,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.007406,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.032395,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.433241,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.067071,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 4.019269,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.622101,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.163656,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.406742,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 2.264057,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 0.983262,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.039286,
             "unit": "seconds"
           }
         ]
