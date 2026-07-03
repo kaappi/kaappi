@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783068856118,
+  "lastUpdate": 1783070057827,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "3a720c79399b33806e45e8432eec1f98bf8fa2d4",
-          "message": "Merge pull request #710 from kaappi/fix/hash-table-walk-fold-uaf-690\n\nFix hash-table-walk/fold use-after-free when callback triggers rehash",
-          "timestamp": "2026-07-02T09:22:13+05:30",
-          "tree_id": "fcfc167b14d9fed9392d1a97edf1f9675f37f627",
-          "url": "https://github.com/kaappi/kaappi/commit/3a720c79399b33806e45e8432eec1f98bf8fa2d4"
-        },
-        "date": 1782965159846,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.917384,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.986636,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.834447,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.139456,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.007277,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.031982,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.45071,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.066989,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.91385,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.738881,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.108109,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.235107,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 2.376913,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.732191,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.043564,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.042063,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "117af15862427e183ac23bbdc8b62b48fbb700f3",
+          "message": "Root vector-partition yes/no accumulators (#810) (#944)\n\nThe #335 fix rooted intermediate results in vector-map, vector-unfold,\nand vector-cumulate but never touched vectorPartitionFn, even though\n#335 named its un-rooted yes/no accumulators as the same root cause.\n\nThe predicate runs arbitrary Scheme and can mutate the source vector.\nOnce an element is displaced from the vector, its only reference is the\nallocator-backed yes/no list, which the GC cannot see — the next\ncollection (a later predicate call, or the allocVector before the buffer\ncopy) frees it and hands back a recycled heap slot.\n\nApply the same extra_roots save/restore pattern vectorMapFn uses: root\neach element as it is classified so it survives later predicate calls.\n\nRegression test in vector-map-gc.scm: predicate mutates the source and\nchurns the heap; without the fix the first partition element returns as\na recycled object.\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
+          "timestamp": "2026-07-03T09:00:32Z",
+          "tree_id": "8bab79e36118a63ff65d55d3cdbaa418f537eddd",
+          "url": "https://github.com/kaappi/kaappi/commit/117af15862427e183ac23bbdc8b62b48fbb700f3"
+        },
+        "date": 1783070057371,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.414215,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.216938,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.821319,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.450771,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.007018,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.032795,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.461114,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.069569,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 4.05365,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.775975,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.137514,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.425617,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 2.378086,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.666127,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.042229,
             "unit": "seconds"
           }
         ]
