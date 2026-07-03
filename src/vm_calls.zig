@@ -9,6 +9,7 @@ const CallFrame = vm_mod.CallFrame;
 
 const memory = @import("memory.zig");
 const vm_continuations = @import("vm_continuations.zig");
+const fiber_mod = @import("fiber.zig");
 
 pub fn clockNs() u64 {
     var ts: std.c.timespec = undefined;
@@ -89,6 +90,18 @@ pub fn execute(vm: *VM, func: *types.Function) VMError!Value {
     vm_mod.setVMInstance(vm);
     vm.resetExecutionState();
 
+    // Each top-level form starts on the main fiber. A previous form may have
+    // left the scheduler positioned on a spawned fiber, or the main fiber
+    // marked .completed (set when its form finished); both are per-form
+    // states that must not leak into the next form.
+    if (vm.scheduler) |sched| {
+        if (sched.fibers[0]) |main_fiber| {
+            sched.current_idx = 0;
+            main_fiber.status = .running;
+            vm.current_fiber = main_fiber;
+        }
+    }
+
     // Create a top-level closure
     const closure_val = vm.gc.allocClosure(func) catch return VMError.OutOfMemory;
     const closure = types.toObject(closure_val).as(types.Closure);
@@ -135,45 +148,29 @@ pub fn run(vm: *VM) VMError!Value {
     if (vm.scheduler) |sched| {
         return runWithScheduler(vm, sched);
     }
-    return vm.runUntil(0, 0);
+    return vm.runUntil(0, 0) catch |err| {
+        if (err == VMError.Yielded) {
+            // A fiber primitive (spawn, mutex-lock!, ...) created the
+            // scheduler during this run and the main fiber then yielded.
+            // Route the yield through the scheduler instead of aborting
+            // the top-level form.
+            if (vm.scheduler) |sched| {
+                if (scheduleNextAfterYield(vm, sched)) {
+                    return runWithScheduler(vm, sched);
+                }
+                return mainFiberResult(sched);
+            }
+        }
+        return err;
+    };
 }
 
-pub fn runWithScheduler(vm: *VM, sched: *@import("fiber.zig").FiberScheduler) VMError!Value {
+pub fn runWithScheduler(vm: *VM, sched: *fiber_mod.FiberScheduler) VMError!Value {
     while (true) {
         const result = vm.runUntil(0, 0) catch |err| {
             if (err == VMError.Yielded) {
-                const current = sched.fibers[sched.current_idx] orelse return VMError.InvalidBytecode;
-                sched.saveCurrentFiber();
-
-                if (current.status == .running) current.status = .suspended;
-
-                if (current.status == .completed or current.status == .errored) {
-                    sched.wakeWaiters(current);
-                }
-
-                if (sched.schedule()) |next_idx| {
-                    sched.switchTo(next_idx);
-                    continue;
-                }
-                if (sched.fibers[0]) |main_fiber| {
-                    if (main_fiber.status == .completed) return main_fiber.result;
-                    if (main_fiber.status == .waiting) {
-                        const target_val = main_fiber.waiting_on;
-                        if (types.isFiber(target_val)) {
-                            const target = types.toObject(target_val).as(@import("fiber.zig").Fiber);
-                            if (target.status == .completed) {
-                                main_fiber.result = target.result;
-                                main_fiber.status = .suspended;
-                                sched.restoreFiber(0);
-                                sched.current_idx = 0;
-                                vm.current_fiber = main_fiber;
-                                main_fiber.status = .running;
-                                continue;
-                            }
-                        }
-                    }
-                }
-                return types.VOID;
+                if (scheduleNextAfterYield(vm, sched)) continue;
+                return mainFiberResult(sched);
             }
             return err;
         };
@@ -181,6 +178,7 @@ pub fn runWithScheduler(vm: *VM, sched: *@import("fiber.zig").FiberScheduler) VM
         const current = sched.fibers[sched.current_idx] orelse return result;
         current.status = .completed;
         current.result = result;
+        vm.gc.writeBarrier(&current.header, result);
         sched.saveCurrentFiber();
         sched.wakeWaiters(current);
 
@@ -190,8 +188,61 @@ pub fn runWithScheduler(vm: *VM, sched: *@import("fiber.zig").FiberScheduler) VM
             sched.switchTo(next_idx);
             continue;
         }
-        return result;
+        // No runnable fibers remain and the last runUntil unwound out of a
+        // spawned fiber, not the main one. The main fiber's top-level form
+        // completed earlier inside a nested scheduler loop (a blocked
+        // fiber's native primitive resumes other fibers via runUntil), so
+        // its saved result — not this fiber's thunk result — is the value
+        // of the top-level form.
+        return mainFiberResult(sched);
     }
+}
+
+/// Handle a yield: save the current fiber and switch to the next runnable
+/// one, or resume a main fiber whose join target completed. Returns false
+/// when nothing can be scheduled; the caller should then finish the
+/// top-level form with mainFiberResult().
+fn scheduleNextAfterYield(vm: *VM, sched: *fiber_mod.FiberScheduler) bool {
+    const current = sched.fibers[sched.current_idx] orelse return false;
+    sched.saveCurrentFiber();
+
+    if (current.status == .running) current.status = .suspended;
+
+    if (current.status == .completed or current.status == .errored) {
+        sched.wakeWaiters(current);
+    }
+
+    if (sched.schedule()) |next_idx| {
+        sched.switchTo(next_idx);
+        return true;
+    }
+    if (sched.fibers[0]) |main_fiber| {
+        if (main_fiber.status == .waiting) {
+            const target_val = main_fiber.waiting_on;
+            if (types.isFiber(target_val)) {
+                const target = types.toObject(target_val).as(fiber_mod.Fiber);
+                if (target.status == .completed) {
+                    main_fiber.result = target.result;
+                    sched.restoreFiber(0);
+                    sched.current_idx = 0;
+                    vm.current_fiber = main_fiber;
+                    main_fiber.status = .running;
+                    return true;
+                }
+            }
+        }
+    }
+    return false;
+}
+
+/// Value of the top-level form once no fiber can run: the main fiber's
+/// result if its form completed (possibly inside a nested scheduler loop),
+/// VOID otherwise (deadlock — every fiber is blocked).
+fn mainFiberResult(sched: *fiber_mod.FiberScheduler) Value {
+    if (sched.fibers[0]) |main_fiber| {
+        if (main_fiber.status == .completed) return main_fiber.result;
+    }
+    return types.VOID;
 }
 
 /// Restore a captured continuation (delegates to vm_continuations).

@@ -528,7 +528,11 @@ fn runSchedulerUntilDone(target: *fiber_mod.Fiber) PrimitiveError!void {
                 continue;
             }
             fiber.status = .errored;
-            if (primitives.gc_instance) |gc| abandonFiberMutexes(gc, fiber, sched);
+            // Fiber 0 is the main fiber: finishing or aborting one top-level
+            // form is not thread death, so its mutexes stay valid.
+            if (next_idx != 0) {
+                if (primitives.gc_instance) |gc| abandonFiberMutexes(gc, fiber, sched);
+            }
             sched.saveCurrentFiber();
             sched.wakeWaiters(fiber);
             continue;
@@ -537,7 +541,7 @@ fn runSchedulerUntilDone(target: *fiber_mod.Fiber) PrimitiveError!void {
         fiber.result = result;
         if (primitives.gc_instance) |gc| {
             gc.writeBarrier(&fiber.header, result);
-            abandonFiberMutexes(gc, fiber, sched);
+            if (next_idx != 0) abandonFiberMutexes(gc, fiber, sched);
         }
         sched.saveCurrentFiber();
         sched.wakeWaiters(fiber);
@@ -689,7 +693,11 @@ fn runSchedulerUntilMutex(m: *types.Mutex, me: *fiber_mod.Fiber) PrimitiveError!
                 continue;
             }
             fiber.status = .errored;
-            if (primitives.gc_instance) |gc| abandonFiberMutexes(gc, fiber, sched);
+            // Fiber 0 is the main fiber: finishing or aborting one top-level
+            // form is not thread death, so its mutexes stay valid.
+            if (next_idx != 0) {
+                if (primitives.gc_instance) |gc| abandonFiberMutexes(gc, fiber, sched);
+            }
             sched.saveCurrentFiber();
             sched.wakeWaiters(fiber);
             continue;
@@ -698,7 +706,7 @@ fn runSchedulerUntilMutex(m: *types.Mutex, me: *fiber_mod.Fiber) PrimitiveError!
         fiber.result = result;
         if (primitives.gc_instance) |gc| {
             gc.writeBarrier(&fiber.header, result);
-            abandonFiberMutexes(gc, fiber, sched);
+            if (next_idx != 0) abandonFiberMutexes(gc, fiber, sched);
         }
         sched.saveCurrentFiber();
         sched.wakeWaiters(fiber);
@@ -768,7 +776,11 @@ fn runSchedulerUntilCondVar(me: *fiber_mod.Fiber) PrimitiveError!void {
                 continue;
             }
             fiber.status = .errored;
-            if (primitives.gc_instance) |gc| abandonFiberMutexes(gc, fiber, sched);
+            // Fiber 0 is the main fiber: finishing or aborting one top-level
+            // form is not thread death, so its mutexes stay valid.
+            if (next_idx != 0) {
+                if (primitives.gc_instance) |gc| abandonFiberMutexes(gc, fiber, sched);
+            }
             sched.saveCurrentFiber();
             sched.wakeWaiters(fiber);
             continue;
@@ -777,7 +789,7 @@ fn runSchedulerUntilCondVar(me: *fiber_mod.Fiber) PrimitiveError!void {
         fiber.result = result;
         if (primitives.gc_instance) |gc| {
             gc.writeBarrier(&fiber.header, result);
-            abandonFiberMutexes(gc, fiber, sched);
+            if (next_idx != 0) abandonFiberMutexes(gc, fiber, sched);
         }
         sched.saveCurrentFiber();
         sched.wakeWaiters(fiber);

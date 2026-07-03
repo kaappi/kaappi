@@ -371,9 +371,11 @@ pub const VM = struct {
         const key = @intFromPtr(param);
         if (self.current_fiber) |fiber| {
             if (fiber.param_overrides.get(key)) |val| return val;
-        } else {
-            if (self.param_overrides.get(key)) |val| return val;
         }
+        // Fall through to the VM-level overrides even when a fiber is
+        // current: values set before the scheduler existed live here, and
+        // the lazily created main fiber starts with an empty override map.
+        if (self.param_overrides.get(key)) |val| return val;
         return param.value;
     }
 
