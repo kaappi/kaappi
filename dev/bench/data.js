@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783110694654,
+  "lastUpdate": 1783111720135,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "distinct": true,
-          "id": "716416be7f38d1b262ba8d3c309380dd31487490",
-          "message": "Release v0.11.1",
-          "timestamp": "2026-07-02T21:53:21+05:30",
-          "tree_id": "00bc94f4ee21f03a8a979e47f07ca508b92afd1a",
-          "url": "https://github.com/kaappi/kaappi/commit/716416be7f38d1b262ba8d3c309380dd31487490"
-        },
-        "date": 1783010308906,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.072728,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.366358,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.839702,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.186237,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.007323,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.031861,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.456099,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.068133,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.907205,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.747278,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.087109,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.237555,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 2.397501,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.841148,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.043805,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.034941,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "27e6d1551fef63ed5cb5262ef86e592762c84af0",
+          "message": "Parse #e decimal strings exactly without f64 round-trip (#856) (#996)\n\nstring->number with the #e prefix was converting the decimal string to\nf64 first, then trying to recover an exact rational. This failed for\nsmall-scale decimals (e.g. #e1e-20 → 0) and values beyond f64 range\n(e.g. #e1e400 → #f).\n\nNew parseExactDecimal function parses the string directly into mantissa\ndigits and exponent, then constructs the exact result using bignum\narithmetic — no f64 intermediate. Also simplifies the applyExactness\nfallback to delegate to exactFn's IEEE 754 bit decomposition.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-03T20:28:09Z",
+          "tree_id": "c1208ae97ee614fd571d1516a101c544f49e4899",
+          "url": "https://github.com/kaappi/kaappi/commit/27e6d1551fef63ed5cb5262ef86e592762c84af0"
+        },
+        "date": 1783111719620,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.904267,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.81326,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.929771,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.567834,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006853,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.033775,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.54721,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.069308,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 4.001332,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.891353,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.191621,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.469471,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.694997,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.822634,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.043866,
             "unit": "seconds"
           }
         ]
