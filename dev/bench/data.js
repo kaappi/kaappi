@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783037914793,
+  "lastUpdate": 1783039183565,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "54f43c84e0f957491f720f9b79d0ceeb42223e01",
-          "message": "Fix VM.initForThread sharing parent's Port objects by raw pointer (#635) (#654)\n\nChild threads created via thread-start! shared the parent VM's\nstdin/stdout/stderr Port heap objects by copying the raw Value pointer.\nThis meant both threads' I/O primitives mutated the same Port struct\nwithout synchronization, and the child GC had no knowledge of these\ncross-heap pointers.\n\nAllocate fresh Port objects in initForThread using the child's GC,\nwrapping the same underlying fds (0/1/2). Each thread now has its own\nindependent Port state, matching the documented thread-isolation model.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-01T07:44:30+05:30",
-          "tree_id": "5cdf34286812273713cb000612fe86b9f11031e3",
-          "url": "https://github.com/kaappi/kaappi/commit/54f43c84e0f957491f720f9b79d0ceeb42223e01"
-        },
-        "date": 1782872754431,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.311573,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.752895,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.812258,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.088971,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006782,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.03278,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.451091,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 1.145527,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.866819,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.760153,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.09409,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.219175,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 2.391093,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 0,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.043257,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "9349d269a302c4b4be6f50b155306f64a773f160",
+          "message": "Fix exact-integer-sqrt to use scale-aware initial guess for large bignums (#851) (#906)\n\nWhen the bignum exceeds f64 range, compute bit length from limb count,\nshift n down by an even number of bits to fit in f64, take the float\nsqrt, then shift back. Newton converges in a handful of iterations\nregardless of size.\n\nFixes #851\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-03T05:11:02+05:30",
+          "tree_id": "1669c67f2c3018b1d1549d4948a46eaa23e55960",
+          "url": "https://github.com/kaappi/kaappi/commit/9349d269a302c4b4be6f50b155306f64a773f160"
+        },
+        "date": 1783039182581,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.37957,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.497211,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.846061,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.286224,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.007059,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.032626,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.473465,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.069619,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.967995,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.834461,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.145832,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.436921,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 2.426511,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.707469,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.042482,
             "unit": "seconds"
           }
         ]
