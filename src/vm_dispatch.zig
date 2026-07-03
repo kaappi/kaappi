@@ -1105,8 +1105,15 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                 const reg = readU16(self, frame);
                 const reg_idx = try registerIndex(self, frame.base, reg);
                 const val = self.registers[reg_idx];
-                const box = self.gc.allocPair(val, types.VOID) catch return VMError.OutOfMemory;
-                self.registers[reg_idx] = box;
+                // Idempotent: if the register already holds a box (a pair whose
+                // cdr is VOID, the box marker used throughout), leave it alone.
+                // Without this, a box_local that re-executes on a loop back-edge
+                // would wrap the previous box in a fresh one, and the inner box
+                // pair would leak out as a Scheme value (issue #803).
+                if (!types.isPair(val) or types.cdr(val) != types.VOID) {
+                    const box = self.gc.allocPair(val, types.VOID) catch return VMError.OutOfMemory;
+                    self.registers[reg_idx] = box;
+                }
             },
             .get_box_local => {
                 const dst_r = readU16(self, frame);

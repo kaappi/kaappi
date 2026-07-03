@@ -321,6 +321,60 @@ pub fn compileNamedLet(self: *Compiler, args: Value, dst: u16, is_tail: bool) Co
     self.freeReg(); // free loop_reg
 }
 
+// Collect the names of variables that are referenced free inside a nested
+// closure form (lambda/case-lambda/delay/delay-force) somewhere within `expr`.
+// Such variables, if they resolve to locals in the current scope, must be
+// boxed *before* any loop back-edge so that (a) the box is created once, and
+// (b) every access to them compiles as box-aware. This is an over-approximation
+// (it ignores shadowing and can't see through macros), which is safe: boxing a
+// variable that is never actually captured is transparent, just an extra
+// indirection. Missing a macro-hidden capture falls back to the idempotent
+// box_local guard. See issue #803.
+const CaptureScan = struct {
+    names: *std.ArrayList([]const u8),
+    alloc: std.mem.Allocator,
+
+    fn addName(self: *@This(), name: []const u8) void {
+        for (self.names.items) |n| {
+            if (std.mem.eql(u8, n, name)) return;
+        }
+        self.names.append(self.alloc, name) catch {};
+    }
+
+    fn walk(self: *@This(), expr: Value, in_closure: bool) void {
+        if (types.isSymbol(expr)) {
+            if (in_closure) self.addName(types.symbolName(expr));
+            return;
+        }
+        if (!types.isPair(expr)) return;
+
+        const head = types.car(expr);
+        if (types.isSymbol(head)) {
+            const h = types.symbolName(head);
+            // Quoted data holds no variable references.
+            if (std.mem.eql(u8, h, "quote")) return;
+            if (std.mem.eql(u8, h, "lambda") or
+                std.mem.eql(u8, h, "case-lambda") or
+                std.mem.eql(u8, h, "delay") or
+                std.mem.eql(u8, h, "delay-force"))
+            {
+                var p = types.cdr(expr);
+                while (types.isPair(p)) : (p = types.cdr(p)) {
+                    self.walk(types.car(p), true);
+                }
+                return;
+            }
+        }
+
+        var p = expr;
+        while (types.isPair(p)) : (p = types.cdr(p)) {
+            self.walk(types.car(p), in_closure);
+        }
+        // Improper (dotted) tail: a bare symbol in a closure is a reference.
+        if (in_closure and types.isSymbol(p)) self.addName(types.symbolName(p));
+    }
+};
+
 pub fn compileDo(self: *Compiler, args: Value, dst: u16, is_tail: bool) CompileError!void {
     if (args == types.NIL) return CompileError.InvalidSyntax;
     const var_specs = types.car(args);
@@ -377,6 +431,40 @@ pub fn compileDo(self: *Compiler, args: Value, dst: u16, is_tail: bool) CompileE
         try self.addLocal(var_names[vi], var_slots[vi]);
     }
 
+    // Box any local captured by a closure in the loop body *before* the loop
+    // starts. `do` compiles to a same-frame backward jump, so a box_local
+    // emitted at the (in-loop) point where the capturing lambda is compiled
+    // would re-run every iteration and every access compiled before it would
+    // bypass the box. Boxing here (once, ahead of loop_start) makes all in-loop
+    // accesses box-aware and keeps the box creation off the back-edge. Applies
+    // to captured `do` variables and to captured enclosing locals alike.
+    // See issue #803.
+    {
+        var captured: std.ArrayList([]const u8) = .empty;
+        defer captured.deinit(self.gc.allocator);
+        var scan = CaptureScan{ .names = &captured, .alloc = self.gc.allocator };
+        scan.walk(test_expr, false);
+        scan.walk(commands, false);
+        for (0..var_count) |j| {
+            if (has_step[j]) scan.walk(step_exprs[j], false);
+        }
+        scan.walk(result_exprs, false);
+        for (captured.items) |name| {
+            if (self.resolveLocal(name)) |slot| {
+                try self.markLocalBoxedBySlot(slot);
+            }
+        }
+    }
+
+    // Record which `do` variables ended up boxed (captured). Their step
+    // assignment must install a *fresh* box each iteration so that a closure
+    // made in one iteration keeps seeing that iteration's value — R7RS binds
+    // the variables to fresh locations on every pass.
+    var var_boxed: [MAX_LET_BINDINGS]bool = undefined;
+    for (0..var_count) |j| {
+        var_boxed[j] = self.isSlotBoxed(var_slots[j]);
+    }
+
     // Loop start
     const loop_start = self.currentOffset();
 
@@ -413,6 +501,14 @@ pub fn compileDo(self: *Compiler, args: Value, dst: u16, is_tail: bool) CompileE
             try self.emitOp(.move);
             try self.emitU16(var_slots[j]);
             try self.emitU16(temp_slots[step_idx]);
+            if (var_boxed[j]) {
+                // Rebind the captured variable to a fresh box holding the new
+                // value. The slot now holds the raw stepped value, so box_local
+                // (idempotent) wraps it in a new box, leaving the previous
+                // iteration's box — and any closure that captured it — intact.
+                try self.emitOp(.box_local);
+                try self.emitU16(var_slots[j]);
+            }
             step_idx += 1;
         }
     }

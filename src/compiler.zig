@@ -260,6 +260,13 @@ pub const Compiler = struct {
         return false;
     }
 
+    pub fn isSlotBoxed(self: *Compiler, slot: u16) bool {
+        for (self.locals.items) |local| {
+            if (local.slot == slot) return local.is_boxed;
+        }
+        return false;
+    }
+
     pub fn markLocalBoxedBySlot(self: *Compiler, slot: u16) CompileError!void {
         for (self.locals.items) |*local| {
             if (local.slot == slot and !local.is_boxed) {
