@@ -795,13 +795,9 @@ pub fn repl(vm: *vm_mod.VM) !void {
             continue;
         }
 
-        // Add to history with newlines replaced by spaces for clean display
         var hist_buf: std.ArrayList(u8) = .empty;
         defer hist_buf.deinit(allocator);
         hist_buf.appendSlice(allocator, full_input) catch {};
-        for (hist_buf.items) |*ch| {
-            if (ch.* == '\n') ch.* = ' ';
-        }
         hist_buf.append(allocator, 0) catch {};
         ln.historyAdd(@ptrCast(hist_buf.items.ptr));
 
