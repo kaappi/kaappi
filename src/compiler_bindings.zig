@@ -506,10 +506,12 @@ pub fn compileLetBody(self: *Compiler, body: Value, dst: u16, is_tail: bool) Com
     var def_slots: [MAX_BODY_DEFS]u16 = undefined;
     var def_count: usize = 0;
 
-    const MAX_BODY_MACROS = 64;
-    var macro_names: [MAX_BODY_MACROS][]const u8 = undefined;
-    var macro_saved: [MAX_BODY_MACROS]?Value = undefined;
+    // Track define-syntax registrations (both the leading scan below and
+    // any produced mid-body by macro expansion, which reach the macro table
+    // via compileDefineSyntax) so they don't outlive the body (R7RS 5.3).
     var macro_count: usize = 0;
+    const macro_mark = self.beginBodyMacroScope();
+    defer self.endBodyMacroScope(macro_mark);
 
     var current = body;
     while (current != types.NIL and types.isPair(current)) {
@@ -555,9 +557,7 @@ pub fn compileLetBody(self: *Compiler, body: Value, dst: u16, is_tail: bool) Com
             const transformer = passthrough.parseSyntaxRules(self, transformer_spec) catch break;
             const name = types.symbolName(keyword);
 
-            if (macro_count >= MAX_BODY_MACROS) return CompileError.InternalLimit;
-            macro_names[macro_count] = name;
-            macro_saved[macro_count] = self.macros.get(name);
+            try self.recordBodyMacro(name);
             macro_count += 1;
 
             const tx = types.toObject(transformer).as(types.Transformer);
@@ -570,16 +570,6 @@ pub fn compileLetBody(self: *Compiler, body: Value, dst: u16, is_tail: bool) Com
             break;
         }
         current = types.cdr(current);
-    }
-
-    defer {
-        for (0..macro_count) |i| {
-            if (macro_saved[i]) |old_val| {
-                self.macros.put(macro_names[i], old_val) catch {};
-            } else {
-                _ = self.macros.remove(macro_names[i]);
-            }
-        }
     }
 
     if (def_count > 0) {
