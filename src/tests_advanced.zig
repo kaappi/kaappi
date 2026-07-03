@@ -224,6 +224,31 @@ test "case-lambda dispatch by arity" {
     try std.testing.expectEqual(@as(i64, 7), types.toFixnum(r2));
 }
 
+test "case-lambda does not capture user variables named n or args" {
+    // Regression: the desugaring bound its internal rest-args list to `args`
+    // and the argument count to `n`, shadowing user variables of those names
+    // inside clause bodies (#836).
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    _ = try vm.eval("(define n 42)");
+    _ = try vm.eval("(define f (case-lambda ((x) (+ x n))))");
+    const r1 = try vm.eval("(f 1)");
+    try std.testing.expectEqual(@as(i64, 43), types.toFixnum(r1));
+
+    _ = try vm.eval("(define args 100)");
+    _ = try vm.eval("(define g (case-lambda ((x) (+ x args))))");
+    const r2 = try vm.eval("(g 1)");
+    try std.testing.expectEqual(@as(i64, 101), types.toFixnum(r2));
+
+    // Rest-arg clauses go through the same desugaring
+    _ = try vm.eval("(define h (case-lambda ((x . rest) (+ x n args))))");
+    const r3 = try vm.eval("(h 1 2 3)");
+    try std.testing.expectEqual(@as(i64, 143), types.toFixnum(r3));
+}
+
 // ---------------------------------------------------------------------------
 // Complex number tests
 // ---------------------------------------------------------------------------

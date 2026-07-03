@@ -820,12 +820,13 @@ pub fn compileParameterize(self: *Compiler, args: Value, dst: u16, is_tail: bool
 
 /// Compile (case-lambda (formals body ...) ...)
 ///
-/// Desugars to:
-/// (lambda args
-///   (let ((n (length args)))
+/// Desugars to (internal names %-prefixed so clause bodies referencing
+/// user variables named `args` or `n` are not captured):
+/// (lambda %cl-args
+///   (let ((%cl-n (length %cl-args)))
 ///     (cond
-///       ((= n arity1) (apply (lambda formals1 body1...) args))
-///       ((= n arity2) (apply (lambda formals2 body2...) args))
+///       ((= %cl-n arity1) (apply (lambda formals1 body1...) %cl-args))
+///       ((= %cl-n arity2) (apply (lambda formals2 body2...) %cl-args))
 ///       ...
 ///       (else (error "wrong number of arguments")))))
 pub fn compileCaseLambda(self: *Compiler, args: Value, dst: u16) CompileError!void {
@@ -841,8 +842,8 @@ pub fn compileCaseLambda(self: *Compiler, args: Value, dst: u16) CompileError!vo
     const apply_sym = try gc.allocSymbol("apply");
     const else_sym = try gc.allocSymbol("else");
     const error_sym = try gc.allocSymbol("error");
-    const args_sym = try gc.allocSymbol("args");
-    const n_sym = try gc.allocSymbol("n");
+    const args_sym = try gc.allocSymbol("%cl-args");
+    const n_sym = try gc.allocSymbol("%cl-n");
 
     var cond_clauses: Value = types.NIL;
     var clause_list = args;
