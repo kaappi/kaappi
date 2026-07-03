@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783073488578,
+  "lastUpdate": 1783073594490,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "119d2f057f87667db107c711e28eed4acebcbc7f",
-          "message": "Merge pull request #716 from kaappi/fix/read-bytevector-zero-length-692\n\nFix read-bytevector! EOF for zero-length target and bytevector I/O error names",
-          "timestamp": "2026-07-02T10:47:02+05:30",
-          "tree_id": "7022207f36d8c890e5c016f4e141b0c4a97b5b29",
-          "url": "https://github.com/kaappi/kaappi/commit/119d2f057f87667db107c711e28eed4acebcbc7f"
-        },
-        "date": 1782971998637,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.488639,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.810527,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.820538,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.226829,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006879,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.033398,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.460122,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.071936,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.939321,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.817539,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.103509,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.219614,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 2.408188,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.687591,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.041518,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.043259,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ddfe8d9c9780dde93554022c8e18832018e7b1e0",
+          "message": "Track child-interned symbols on parent GC to fix leak (#950)\n\nA symbol first interned by an SRFI-18 child thread went into the parent's\nshared symbol table, but GC.allocSymbol skipped trackObject for child GCs,\nso the Symbol landed on no GC's object list: the child's sweep/deinit never\nfreed it and the parent never knew about it. Every distinct child-interned\nsymbol leaked its Symbol struct plus its name dupe.\n\nSymbols the child interns must outlive the child, since the parent's shared\ntable keeps referencing them, so ownership belongs to the parent. Pushing\nonto the parent's lock-free objects list from a child thread is unsafe, so\nadd a dedicated foreign_symbols list on the owner GC, appended under the\nsymbol_mutex allocSymbol already holds and freed at the parent's deinit.\nInterned symbols are permanent (marked as roots every GC, never swept), so\nthe list needs no sweep interaction.\n\nOrthogonal to #797, which only changed the locking, not the trackObject\ndecision. Regression covered by a unit test under std.testing.allocator\n(fails without the fix) plus a Scheme reproduction observable under the\nDebug leak-checking allocator.\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
+          "timestamp": "2026-07-03T09:58:37Z",
+          "tree_id": "e2b788b64c01be3ddec20b11cca578b69c099d77",
+          "url": "https://github.com/kaappi/kaappi/commit/ddfe8d9c9780dde93554022c8e18832018e7b1e0"
+        },
+        "date": 1783073594035,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.076274,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.225409,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.841831,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.429093,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.007244,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.032645,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.463168,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.067598,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.983623,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.776199,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.150742,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.471991,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 2.364243,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.867814,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044378,
             "unit": "seconds"
           }
         ]
