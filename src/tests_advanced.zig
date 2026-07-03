@@ -249,6 +249,46 @@ test "case-lambda does not capture user variables named n or args" {
     try std.testing.expectEqual(@as(i64, 143), types.toFixnum(r3));
 }
 
+test "case-lambda dispatches to clauses beyond the 32nd" {
+    // Regression: a fixed 32-entry buffer silently dropped later clauses, so
+    // calls matching them fell through to the wrong-number-of-arguments error.
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    const alloc = std.testing.allocator;
+    var src: std.ArrayList(u8) = .empty;
+    defer src.deinit(alloc);
+
+    // (define f (case-lambda (() 0) ((a0) 1) ((a0 a1) 2) ... arity 33))
+    try src.appendSlice(alloc, "(define f (case-lambda");
+    var arity: usize = 0;
+    while (arity < 34) : (arity += 1) {
+        try src.appendSlice(alloc, " ((");
+        var j: usize = 0;
+        while (j < arity) : (j += 1) {
+            var buf: [16]u8 = undefined;
+            try src.appendSlice(alloc, try std.fmt.bufPrint(&buf, " a{d}", .{j}));
+        }
+        var buf: [16]u8 = undefined;
+        try src.appendSlice(alloc, try std.fmt.bufPrint(&buf, ") {d})", .{arity}));
+    }
+    try src.appendSlice(alloc, "))");
+    _ = try vm.eval(src.items);
+
+    src.clearRetainingCapacity();
+    try src.appendSlice(alloc, "(f");
+    var k: usize = 0;
+    while (k < 33) : (k += 1) {
+        try src.appendSlice(alloc, " 1");
+    }
+    try src.appendSlice(alloc, ")");
+
+    const result = try vm.eval(src.items);
+    try std.testing.expectEqual(@as(i64, 33), types.toFixnum(result));
+}
+
 // ---------------------------------------------------------------------------
 // Complex number tests
 // ---------------------------------------------------------------------------
