@@ -40,6 +40,11 @@
    ```scheme
    ;; Regression test for #123: describe the bug
    ```
+6. Fixture files (`.sld` libraries, included sources, data) must go in a
+   subdirectory (e.g. `fixtures/`, `lib868/`), never as loose `.scm` files
+   next to the tests — `run-all.sh` executes every top-level `.scm` file
+   standalone. Libraries next to a test script are importable because the
+   script's directory is on the library search path.
 
 ## Running
 

@@ -545,6 +545,18 @@ fn mainImpl(init: std.process.Init.Minimal) !void {
     }
     vm.command_line_args = script_args[0..script_arg_count];
 
+    // Resolve libraries relative to the script's directory, so a program can
+    // import libraries that live next to it regardless of the working
+    // directory. Explicit --lib-path entries stay ahead in the search order.
+    if (file_path) |fp| {
+        if (std.mem.lastIndexOfScalar(u8, fp, '/')) |pos| {
+            if (lib_path_count < 16) {
+                lib_paths[lib_path_count] = if (pos == 0) fp[0..1] else fp[0..pos];
+                lib_path_count += 1;
+            }
+        }
+    }
+
     // Auto-add ~/.kaappi/lib as a default library search path
     if (!is_wasm) {
         const kaappi_lib_path = blk: {
