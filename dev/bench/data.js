@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783077476231,
+  "lastUpdate": 1783079233927,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "90c83381759241d4f93f52173925ccfd20265cef",
-          "message": "Merge pull request #725 from kaappi/fix/exit-dynamic-wind-693\n\nImplement exit with dynamic-wind cleanup, separate from emergency-exit",
-          "timestamp": "2026-07-02T11:22:10+05:30",
-          "tree_id": "99f30165d4c0ed7ae1362f2dd276aff0c70529b9",
-          "url": "https://github.com/kaappi/kaappi/commit/90c83381759241d4f93f52173925ccfd20265cef"
-        },
-        "date": 1782973701883,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.287636,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.423517,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.814811,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.180869,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006975,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.032785,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.457318,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.069607,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.90395,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.772665,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.11521,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.21498,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 2.42311,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.670272,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.041263,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044889,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "1388eeb4a6d6782e95b039143c811d180bc9ebb6",
+          "message": "Expand (scheme r5rs) to the full R5RS identifier set (#813) (#965)\n\nThe built-in (scheme r5rs) library exported only 4 identifiers\n(null-environment, scheme-report-environment, eval,\ninteraction-environment). Per R7RS Appendix A it must provide the full\nR5RS set (~180 procedures plus syntax). A prefix import exposed the gap:\n`(r5:car '(1 2))` raised \"undefined variable 'r5:car'\".\n\nA complete-ish implementation existed at lib/scheme/r5rs.sld, but it was\npermanently shadowed — processImportSet consults the built-in registry\nbefore falling back to .sld loading, so the 4-name stub always won. That\n.sld was also itself incomplete (missing null-environment,\nscheme-report-environment, char-ready?, assoc/assq/assv, call/cc, etc.).\n\nRather than depend on an external file for a standard library (unlike\nevery other (scheme X), which are self-contained Zig registrations), the\nstub is expanded to the full Appendix A table, re-exporting from globals.\nexact->inexact / inexact->exact / interaction-environment are already\nregistered as globals under their R5RS names, so no renaming is needed.\nSyntactic keywords are recognized by the compiler, so the globals.get\nguard skips them — same as (scheme base).\n\nThe now-redundant, shadowed lib/scheme/r5rs.sld is removed, and the\nrelease bundle no longer references the emptied lib/scheme/ directory.\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
+          "timestamp": "2026-07-03T11:31:31Z",
+          "tree_id": "91a5c53d83227a1a35e01fc61d6958da78e3ec21",
+          "url": "https://github.com/kaappi/kaappi/commit/1388eeb4a6d6782e95b039143c811d180bc9ebb6"
+        },
+        "date": 1783079233184,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.038879,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.639554,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.865608,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.136825,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.007318,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.032572,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.463583,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.068424,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.985642,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.77584,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.15755,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.48186,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 2.389712,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.898213,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.04434,
             "unit": "seconds"
           }
         ]
