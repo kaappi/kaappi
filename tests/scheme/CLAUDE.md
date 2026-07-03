@@ -31,10 +31,15 @@
    (test-equal "what it tests" expected-value actual-expr)
    (test-assert "condition holds" bool-expr)
 
-   (test-end "descriptive-name")
-   (when (> (test-runner-fail-count (test-runner-current)) 0) (exit 1))
+   (let ((runner (test-runner-current)))
+     (test-end "descriptive-name")
+     (when (> (test-runner-fail-count runner) 0) (exit 1)))
    ```
 3. The `(exit 1)` on failure is required — `run-all.sh` uses exit codes.
+   Grab the runner **before** `(test-end ...)`: the outermost `test-end`
+   resets the current runner, so `(test-runner-current)` afterwards no
+   longer returns the runner and `test-runner-fail-count` raises a type
+   error.
 4. No registration needed — `run-all.sh` picks up `*.scm` files automatically.
 5. For bug regressions, name the file after the bug and add a comment:
    ```scheme
