@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783074407537,
+  "lastUpdate": 1783074766235,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "569a55db25571ba8d9d014e3a4871f18aa973ee5",
-          "message": "Merge pull request #718 from kaappi/fix/passthrough-constfold-redefine-698\n\nFix passthrough constant folding: check globals for redefined primitives",
-          "timestamp": "2026-07-02T10:57:31+05:30",
-          "tree_id": "7c41554685134b422db2400203ddc5deddd96bf2",
-          "url": "https://github.com/kaappi/kaappi/commit/569a55db25571ba8d9d014e3a4871f18aa973ee5"
-        },
-        "date": 1782972939744,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.34031,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.314336,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.819156,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.187156,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.00694,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.032848,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.453645,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.068981,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.958149,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.75712,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.104057,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.225479,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 2.425849,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.562052,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.042347,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.043061,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f462e0ab32c159810455a401f311a6f3275f26d3",
+          "message": "gc_deep_copy: iterate cdr spine to fix stack overflow on long lists (#801) (#952)\n\ndeepCopyValue recursed on both car and cdr of every pair, so the cdr\nrecursion went N frames deep for a proper list of N elements. Deep copy\nruns at every SRFI-18 thread boundary (thunk closure at thread-start!,\nresult at thread-join!), so passing a flat list of a few tens of\nthousands of elements to or from a thread overflowed the native stack\nand killed the whole process with a Bus error — lists >=~15k crashed.\n\nWalk the cdr spine in a loop, allocating and linking each successor\npair, and recurse only on car. Native recursion is now bounded by\nstructural nesting depth rather than list length. Each spine pair is\nregistered in `visited` before its car is copied, so shared and cyclic\nstructure resolves exactly as before. This mirrors the worklist fix\napplied to the GC marker for #864.\n\nAdd Zig unit tests copying 200k-element proper and improper lists (both\nwould previously crash), plus a Scheme smoke test exercising both thread\ndirections from the issue's reproduction.\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
+          "timestamp": "2026-07-03T10:13:54Z",
+          "tree_id": "20b16771f5aab0a70609c948ce591da3569c96cc",
+          "url": "https://github.com/kaappi/kaappi/commit/f462e0ab32c159810455a401f311a6f3275f26d3"
+        },
+        "date": 1783074765180,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.419702,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.69433,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.812294,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.112722,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006903,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.032933,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.45679,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.070124,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 4.059321,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.763687,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.209117,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.428777,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 2.367485,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.709048,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.042899,
             "unit": "seconds"
           }
         ]
