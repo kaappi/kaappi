@@ -75,7 +75,7 @@ fn clearOldMarks(gc: *GC) void {
 fn pruneRememberedSet(gc: *GC) void {
     var write_idx: usize = 0;
     for (gc.remembered_set.items) |obj| {
-        if (referencesYoung(obj)) {
+        if (referencesYoung(gc, obj)) {
             gc.remembered_set.items[write_idx] = obj;
             write_idx += 1;
         }
@@ -83,116 +83,116 @@ fn pruneRememberedSet(gc: *GC) void {
     gc.remembered_set.shrinkRetainingCapacity(write_idx);
 }
 
-fn referencesYoung(obj: *Object) bool {
+fn referencesYoung(gc: *GC, obj: *Object) bool {
     switch (obj.tag) {
         .pair => {
             const pair = obj.as(Pair);
-            if (isYoungPointer(pair.car) or isYoungPointer(pair.cdr)) return true;
+            if (isYoungPointer(gc, pair.car) or isYoungPointer(gc, pair.cdr)) return true;
         },
         .vector => {
             const vec = obj.as(types.Vector);
             for (vec.data) |item| {
-                if (isYoungPointer(item)) return true;
+                if (isYoungPointer(gc, item)) return true;
             }
         },
         .record_instance => {
             const ri = obj.as(RecordInstance);
-            if (isYoungPointer(types.makePointer(@ptrCast(ri.record_type)))) return true;
+            if (isYoungPointer(gc, types.makePointer(@ptrCast(ri.record_type)))) return true;
             for (ri.fields) |field| {
-                if (isYoungPointer(field)) return true;
+                if (isYoungPointer(gc, field)) return true;
             }
         },
         .hash_table => {
             const ht = obj.as(HashTable);
             for (ht.entries[0..ht.capacity]) |entry| {
                 if (entry.state == .occupied) {
-                    if (isYoungPointer(entry.key) or isYoungPointer(entry.value)) return true;
+                    if (isYoungPointer(gc, entry.key) or isYoungPointer(gc, entry.value)) return true;
                 }
             }
         },
         .closure => {
             const cls = obj.as(Closure);
-            if (isYoungPointer(types.makePointer(@ptrCast(cls.func)))) return true;
+            if (isYoungPointer(gc, types.makePointer(@ptrCast(cls.func)))) return true;
             for (cls.upvalues) |uv| {
-                if (isYoungPointer(uv)) return true;
+                if (isYoungPointer(gc, uv)) return true;
             }
         },
         .promise => {
-            if (isYoungPointer(obj.as(Promise).value)) return true;
+            if (isYoungPointer(gc, obj.as(Promise).value)) return true;
         },
         .parameter => {
             const param = obj.as(types.ParameterObject);
-            if (isYoungPointer(param.value) or isYoungPointer(param.converter)) return true;
+            if (isYoungPointer(gc, param.value) or isYoungPointer(gc, param.converter)) return true;
         },
         .transformer => {
             const tx = obj.as(Transformer);
             for (tx.literals) |lit| {
-                if (isYoungPointer(lit)) return true;
+                if (isYoungPointer(gc, lit)) return true;
             }
             for (tx.patterns) |pat| {
-                if (isYoungPointer(pat)) return true;
+                if (isYoungPointer(gc, pat)) return true;
             }
             for (tx.templates) |tmpl| {
-                if (isYoungPointer(tmpl)) return true;
+                if (isYoungPointer(gc, tmpl)) return true;
             }
-            if (isYoungPointer(tx.def_env_val)) return true;
+            if (isYoungPointer(gc, tx.def_env_val)) return true;
         },
         .error_object => {
             const err = obj.as(types.ErrorObject);
-            if (isYoungPointer(err.message) or isYoungPointer(err.irritants) or isYoungPointer(err.uncaught_reason)) return true;
+            if (isYoungPointer(gc, err.message) or isYoungPointer(gc, err.irritants) or isYoungPointer(gc, err.uncaught_reason)) return true;
         },
         .continuation => {
             const cont = obj.as(Continuation);
             for (cont.registers) |reg| {
-                if (isYoungPointer(reg)) return true;
+                if (isYoungPointer(gc, reg)) return true;
             }
             for (cont.frames[0..cont.frame_count]) |frame| {
                 if (frame.closure) |cls| {
-                    if (isYoungPointer(types.makePointer(@ptrCast(cls)))) return true;
+                    if (isYoungPointer(gc, types.makePointer(@ptrCast(cls)))) return true;
                 }
                 if (frame.native) |nf| {
-                    if (isYoungPointer(types.makePointer(@ptrCast(nf)))) return true;
+                    if (isYoungPointer(gc, types.makePointer(@ptrCast(nf)))) return true;
                 }
             }
             for (cont.handlers[0..cont.handler_count]) |handler| {
-                if (isYoungPointer(handler.handler)) return true;
+                if (isYoungPointer(gc, handler.handler)) return true;
             }
             for (cont.wind_records[0..cont.wind_count]) |wr| {
-                if (isYoungPointer(wr.before) or isYoungPointer(wr.after)) return true;
+                if (isYoungPointer(gc, wr.before) or isYoungPointer(gc, wr.after)) return true;
             }
         },
         .multiple_values => {
             const mv = obj.as(MultipleValues);
             for (mv.values) |val| {
-                if (isYoungPointer(val)) return true;
+                if (isYoungPointer(gc, val)) return true;
             }
         },
         .rational => {
             const rat = obj.as(Rational);
-            if (isYoungPointer(rat.numerator) or isYoungPointer(rat.denominator)) return true;
+            if (isYoungPointer(gc, rat.numerator) or isYoungPointer(gc, rat.denominator)) return true;
         },
         .ffi_function => {
-            if (isYoungPointer(obj.as(FfiFunction).library)) return true;
+            if (isYoungPointer(gc, obj.as(FfiFunction).library)) return true;
         },
         .ffi_callback => {
-            if (isYoungPointer(obj.as(FfiCallback).closure)) return true;
+            if (isYoungPointer(gc, obj.as(FfiCallback).closure)) return true;
         },
         .fiber => {
             const fiber_mod = @import("fiber.zig");
             const fiber = obj.as(fiber_mod.Fiber);
-            if (isYoungPointer(fiber.thunk) or isYoungPointer(fiber.result) or
-                isYoungPointer(fiber.waiting_on) or isYoungPointer(fiber.name) or
-                isYoungPointer(fiber.specific)) return true;
+            if (isYoungPointer(gc, fiber.thunk) or isYoungPointer(gc, fiber.result) or
+                isYoungPointer(gc, fiber.waiting_on) or isYoungPointer(gc, fiber.name) or
+                isYoungPointer(gc, fiber.specific)) return true;
             if (fiber.current_exception) |exc| {
-                if (isYoungPointer(exc)) return true;
+                if (isYoungPointer(gc, exc)) return true;
             }
-            if (isYoungPointer(fiber.continuation_value)) return true;
+            if (isYoungPointer(gc, fiber.continuation_value)) return true;
             for (fiber.frames[0..fiber.frame_count]) |f| {
                 if (f.closure) |cls| {
-                    if (isYoungPointer(types.makePointer(@ptrCast(cls)))) return true;
+                    if (isYoungPointer(gc, types.makePointer(@ptrCast(cls)))) return true;
                 }
                 if (f.native) |nf| {
-                    if (isYoungPointer(types.makePointer(@ptrCast(nf)))) return true;
+                    if (isYoungPointer(gc, types.makePointer(@ptrCast(nf)))) return true;
                 }
                 const window: usize = if (f.closure) |cls| blk: {
                     const lc = cls.func.locals_count;
@@ -201,55 +201,55 @@ fn referencesYoung(obj: *Object) bool {
                 const end: usize = @min(@as(usize, f.base) + window, fiber.registers.len);
                 var r: usize = f.base;
                 while (r < end) : (r += 1) {
-                    if (isYoungPointer(fiber.registers[r])) return true;
+                    if (isYoungPointer(gc, fiber.registers[r])) return true;
                 }
             }
             for (fiber.handler_stack[0..fiber.handler_count]) |h| {
-                if (isYoungPointer(h.handler)) return true;
+                if (isYoungPointer(gc, h.handler)) return true;
             }
             for (fiber.wind_stack[0..fiber.wind_count]) |wr| {
-                if (isYoungPointer(wr.before) or isYoungPointer(wr.after)) return true;
+                if (isYoungPointer(gc, wr.before) or isYoungPointer(gc, wr.after)) return true;
             }
             var pit = fiber.param_overrides.valueIterator();
             while (pit.next()) |v| {
-                if (isYoungPointer(v.*)) return true;
+                if (isYoungPointer(gc, v.*)) return true;
             }
         },
         .channel => {
             const ch = obj.as(types.Channel);
-            if (isYoungPointer(ch.head) or isYoungPointer(ch.tail)) return true;
+            if (isYoungPointer(gc, ch.head) or isYoungPointer(gc, ch.tail)) return true;
         },
         .mutex => {
             const m = obj.as(types.Mutex);
-            if (isYoungPointer(m.name) or isYoungPointer(m.owner) or isYoungPointer(m.specific)) return true;
+            if (isYoungPointer(gc, m.name) or isYoungPointer(gc, m.owner) or isYoungPointer(gc, m.specific)) return true;
         },
         .condition_variable => {
             const cv = obj.as(types.ConditionVariable);
-            if (isYoungPointer(cv.name) or isYoungPointer(cv.specific)) return true;
+            if (isYoungPointer(gc, cv.name) or isYoungPointer(gc, cv.specific)) return true;
         },
         .function => {
             const func = obj.as(Function);
             for (func.constants.items) |c| {
-                if (isYoungPointer(c)) return true;
+                if (isYoungPointer(gc, c)) return true;
             }
             if (func.global_cache) |cache| {
                 for (cache) |c| {
-                    if (isYoungPointer(c)) return true;
+                    if (isYoungPointer(gc, c)) return true;
                 }
             }
-            if (isYoungPointer(func.env_val)) return true;
+            if (isYoungPointer(gc, func.env_val)) return true;
         },
         .native_closure => {
             const nc = obj.as(types.NativeClosure);
             for (nc.upvalues) |uv| {
-                if (isYoungPointer(uv)) return true;
+                if (isYoungPointer(gc, uv)) return true;
             }
         },
         .scheme_environment => {
             const se = obj.as(types.SchemeEnvironment);
             var vit = se.env.valueIterator();
             while (vit.next()) |val| {
-                if (isYoungPointer(val.*)) return true;
+                if (isYoungPointer(gc, val.*)) return true;
             }
         },
         .symbol, .string, .native_fn, .flonum, .port, .complex, .bytevector, .bignum, .record_type, .ffi_library, .file_info, .user_info, .group_info, .directory_object, .random_source, .srfi18_time => {},
@@ -257,9 +257,14 @@ fn referencesYoung(obj: *Object) bool {
     return false;
 }
 
-fn isYoungPointer(val: Value) bool {
+fn isYoungPointer(gc: *GC, val: Value) bool {
     if (!types.isPointer(val)) return false;
-    return types.toObject(val).generation == 0;
+    const obj = types.toObject(val);
+    // Foreign objects are never traced by this GC, so a reference to one
+    // never needs a remembered-set entry — and reading its generation bit
+    // would race the owning GC's collection cycle.
+    if (obj.owner != gc.id) return false;
+    return obj.generation == 0;
 }
 
 fn fullCollect(gc: *GC) void {
@@ -510,6 +515,14 @@ fn markValueInner(gc: *GC, v: Value, worklist: *std.ArrayList(Value)) void {
     while (true) {
         if (!types.isPointer(cur)) return;
         const obj = types.toObject(cur);
+        // Never mark or trace an object owned by another GC. Its owner keeps
+        // it alive (shared globals are marked by the parent, interned symbols
+        // are never swept, a thread's thunk is extra-rooted until join), and
+        // writing this GC's mark bits into it would corrupt the owner's
+        // concurrent mark/sweep cycle — the owner would see a spurious
+        // "already marked" object, skip tracing its children, and sweep live
+        // descendants (#958).
+        if (obj.owner != gc.id) return;
         if (obj.marked) return;
         obj.marked = true;
 

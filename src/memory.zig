@@ -52,6 +52,15 @@ pub const GcStats = struct {
 
 pub var symbol_mutex: std.atomic.Mutex = .unlocked;
 
+/// Monotonic source of unique GC ids (see `GC.id`). Never reused, so a live
+/// GC can never collide with a dead thread's id. Starts at 1 so 0 is never a
+/// valid id.
+var next_gc_id: u32 = 0;
+
+fn nextGcId() u32 {
+    return @atomicRmw(u32, &next_gc_id, .Add, 1, .monotonic) + 1;
+}
+
 pub fn spinLock(m: *std.atomic.Mutex) void {
     while (!m.tryLock()) std.atomic.spinLoopHint();
 }
@@ -80,6 +89,15 @@ pub const GC = struct {
     // For a child gc, points at the owning (parent) gc's `foreign_symbols`;
     // set alongside `shared_symbols` in `initForThread`.
     shared_foreign_symbols: ?*std.ArrayList(*Object) = null,
+    /// Unique id of this GC, stamped into `Object.owner` of every object it
+    /// tracks. Marking only touches objects whose owner matches the marking
+    /// GC (see gc_collect.zig); foreign objects are the owner's job to keep
+    /// alive. This is what stops an SRFI-18 child thread's collections from
+    /// racing the parent's mark/sweep on shared parent-heap objects (#958).
+    id: u32 = 0,
+    /// For a child gc: the parent gc's id, stamped on symbols the child
+    /// interns into the shared table (the parent owns and frees those).
+    shared_owner_id: u32 = 0,
     roots: std.ArrayList(*Value),
     extra_roots: std.ArrayList(Value),
     remembered_set: std.ArrayList(*Object),
@@ -101,6 +119,7 @@ pub const GC = struct {
             .extra_roots = .empty,
             .remembered_set = .empty,
             .source_lines = std.AutoHashMap(Value, u32).init(allocator),
+            .id = nextGcId(),
         };
     }
 
@@ -115,6 +134,8 @@ pub const GC = struct {
             .remembered_set = .empty,
             .source_lines = std.AutoHashMap(Value, u32).init(allocator),
             .gc_threshold = GC_THRESHOLD,
+            .id = nextGcId(),
+            .shared_owner_id = parent.id,
         };
     }
 
@@ -146,7 +167,10 @@ pub const GC = struct {
     pub fn writeBarrier(self: *GC, container: *Object, new_val: Value) void {
         if (container.generation == 1 and types.isPointer(new_val)) {
             const child = types.toObject(new_val);
-            if (child.generation == 0) {
+            // A foreign new_val (another GC's object) is never traced by this
+            // GC, so it needs no remembered-set entry — and reading its
+            // generation bit would race the owner's collection cycle.
+            if (child.owner == self.id and child.generation == 0) {
                 self.remembered_set.append(self.allocator, container) catch {};
             }
         }
@@ -157,6 +181,7 @@ pub const GC = struct {
     }
 
     pub fn trackObject(self: *GC, obj: *Object) void {
+        obj.owner = self.id;
         obj.next = self.objects;
         self.objects = obj;
         self.object_count += 1;
@@ -218,6 +243,9 @@ pub const GC = struct {
             // this child thread, so hand ownership to the parent (freed at the
             // parent's deinit). Appended under `symbol_mutex`, held here.
             // `shared_foreign_symbols` is set whenever `shared_symbols` is.
+            // Stamp the parent's id: the parent owns it, and the parent's
+            // markRoots pass over the shared table must not skip it.
+            sym.header.owner = self.shared_owner_id;
             self.shared_foreign_symbols.?.append(self.allocator, &sym.header) catch {
                 self.allocator.destroy(sym);
                 self.allocator.free(owned_name);

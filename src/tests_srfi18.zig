@@ -284,3 +284,104 @@ test "parameter set before scheduler creation stays visible" {
     const fiber_val = try vm.eval("(fiber-join f)");
     try std.testing.expectEqual(@as(i64, 2), types.toFixnum(fiber_val));
 }
+
+// Regression for #958: an SRFI-18 child thread's GC used to mark (and trace
+// through) parent-heap objects reachable from its VM roots — e.g. a parent
+// closure the child executes after a shared-globals lookup. Those stale mark
+// bits corrupted the parent's next collection: markValueInner saw "already
+// marked", skipped tracing children, and sweepYoung freed live objects,
+// corrupting the C heap. Marking must never touch an object owned by another
+// GC.
+test "marking skips objects owned by another GC (#958)" {
+    var parent = memory.GC.init(std.testing.allocator);
+    defer parent.deinit();
+    var child = memory.GC.initForThread(std.testing.allocator, &parent);
+    defer child.deinit();
+
+    const parent_pair = try parent.allocPair(types.makeFixnum(1), types.NIL);
+    const parent_obj = types.toObject(parent_pair);
+
+    // Marking a foreign object directly is a no-op.
+    child.markValue(parent_pair);
+    try std.testing.expect(!parent_obj.marked);
+
+    // Tracing a child object must stop at the foreign edge: the child pair
+    // itself is marked, the parent pair it references is not.
+    const child_pair = try child.allocPair(parent_pair, types.NIL);
+    const child_obj = types.toObject(child_pair);
+    child.markValue(child_pair);
+    try std.testing.expect(child_obj.marked);
+    try std.testing.expect(!parent_obj.marked);
+    child_obj.marked = false;
+
+    // The owner still marks its own objects.
+    parent.markValue(parent_pair);
+    try std.testing.expect(parent_obj.marked);
+    parent_obj.marked = false;
+}
+
+// Regression for #958, end to end: a child OS thread that executes a
+// parent-heap closure (looked up via the shared globals map) triggers child
+// collections while running. Those collections must leave no stale mark bits
+// on the parent heap — between collections every mark bit is false, and the
+// parent's next cycle relies on that to trace its full object graph.
+test "child thread collections leave no stale marks on parent heap (#958)" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    // build-list is a parent-heap closure; 20000 elements exceeds the child
+    // GC threshold, so the child collects (and marks its roots — which
+    // include the parent-heap build-list closure frame) mid-run.
+    const result = try vm.eval(
+        \\(define (build-list n)
+        \\  (let loop ((i 0) (acc '()))
+        \\    (if (= i n) acc (loop (+ i 1) (cons i acc)))))
+        \\(let ((t (make-thread (lambda () (length (build-list 20000))))))
+        \\  (thread-start! t)
+        \\  (thread-join! t))
+    );
+    try std.testing.expectEqual(@as(i64, 20000), types.toFixnum(result));
+
+    var lists = [_]?*types.Object{ gc.objects, gc.old_objects };
+    for (&lists) |*head| {
+        var obj = head.*;
+        while (obj) |o| : (obj = o.next) {
+            try std.testing.expect(!o.marked);
+        }
+    }
+}
+
+// Regression for #958, the write direction: named let used to bind its loop
+// procedure to a gensym'd global (__nlet_N_name) via define_global. A child
+// OS thread executing a parent function containing a named let then wrote a
+// child-heap closure into the shared globals map, which dangled once the
+// child heap was freed at thread-join!. Named let now binds the loop
+// procedure to a boxed local, so nothing a child thread runs may leave
+// child-owned values in the shared globals map.
+test "child thread leaves no child-heap values in shared globals (#958)" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    // sum-to contains a named let; the child executes it via the shared
+    // globals map, exercising the loop-procedure binding on the child VM.
+    const result = try vm.eval(
+        \\(define (sum-to n)
+        \\  (let loop ((i 0) (acc 0))
+        \\    (if (= i n) acc (loop (+ i 1) (+ acc i)))))
+        \\(let ((t (make-thread (lambda () (sum-to 1000)))))
+        \\  (thread-start! t)
+        \\  (thread-join! t))
+    );
+    try std.testing.expectEqual(@as(i64, 499500), types.toFixnum(result));
+
+    var it = vm.globals.valueIterator();
+    while (it.next()) |v| {
+        if (types.isPointer(v.*)) {
+            try std.testing.expectEqual(gc.id, types.toObject(v.*).owner);
+        }
+    }
+}

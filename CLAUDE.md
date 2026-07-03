@@ -430,6 +430,9 @@ independently and the child heap is freed after `thread-join!`.
 - `VM.owns_globals` prevents child VM from freeing shared maps on deinit
 - `symbol_mutex` (spinlock) protects concurrent symbol interning (`src/memory.zig`)
 - Child GC/VM references stored in global `child_resources` map (`src/primitives_srfi18.zig`)
+- Every heap object records its owning GC (`Object.owner` / `GC.id`); marking skips
+  objects owned by another GC, so a child's collections never write mark bits on
+  parent-heap objects reached via shared globals (`src/gc_collect.zig`, #958)
 
 ## Claude Code harness
 

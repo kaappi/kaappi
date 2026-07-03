@@ -146,6 +146,13 @@ pub fn compileCall(self: *Compiler, expr: Value, dst: u16, is_tail: bool) Compil
     if (args_valid and is_tail and types.isSymbol(operator) and self.func.name != null) {
         const op_name = types.symbolName(operator);
         if (std.mem.eql(u8, op_name, self.func.name.?) and !self.func.is_variadic and nargs == self.func.arity) {
+            // A named-let loop gensym (__nlet_N_x) is compiler-introduced and
+            // unique, so a name match is always a self-reference even though
+            // it now resolves as a boxed upvalue (checked first to avoid
+            // resolveUpvalue registering a capture the fast path never reads).
+            if (std.mem.startsWith(u8, op_name, "__nlet_")) {
+                return compileSelfTailCall(self, expr, dst, nargs);
+            }
             if (self.resolveLocal(op_name) == null and (try self.resolveUpvalue(op_name)) == null) {
                 return compileSelfTailCall(self, expr, dst, nargs);
             }

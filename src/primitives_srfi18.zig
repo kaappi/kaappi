@@ -227,7 +227,12 @@ fn threadStartFn(args: []const Value) PrimitiveError!Value {
     const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
     const vm = vm_mod.vm_instance orelse return PrimitiveError.OutOfMemory;
 
+    // Root the thunk (the child deep-copies it from the parent heap) and the
+    // fiber itself (the child writes fiber.status / reads fiber.terminated
+    // for the whole run, so it must survive even if the program drops its
+    // last reference). Both are removed at thread-join!.
     gc.extra_roots.append(gc.allocator, fiber.thunk) catch return PrimitiveError.OutOfMemory;
+    gc.extra_roots.append(gc.allocator, args[0]) catch return PrimitiveError.OutOfMemory;
 
     fiber.status = .running;
     fiber.os_thread = std.Thread.spawn(.{}, threadEntryFn, .{
@@ -404,10 +409,16 @@ fn threadJoinFn(args: []const Value) PrimitiveError!Value {
 
         const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
 
-        // Remove thunk from extra_roots (added by thread-start! to keep it
-        // alive during deep-copy; the child is done now).
+        // Remove the thunk and fiber from extra_roots (added by thread-start!
+        // to keep them alive while the child runs; the child is done now).
         for (gc.extra_roots.items, 0..) |v, idx| {
             if (v == target.thunk) {
+                _ = gc.extra_roots.swapRemove(idx);
+                break;
+            }
+        }
+        for (gc.extra_roots.items, 0..) |v, idx| {
+            if (v == args[0]) {
                 _ = gc.extra_roots.swapRemove(idx);
                 break;
             }
