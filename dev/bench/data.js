@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783092224150,
+  "lastUpdate": 1783092338616,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "1540b39536391575d0f671e702697255006a5802",
-          "message": "Merge pull request #764 from kaappi/fix/738-bytecode-vector-write-barrier\n\nAdd GC write barrier in vector constant deserialization",
-          "timestamp": "2026-07-02T17:31:19+05:30",
-          "tree_id": "cc832526386d8d7968402cbd8c477d7875c66cf4",
-          "url": "https://github.com/kaappi/kaappi/commit/1540b39536391575d0f671e702697255006a5802"
-        },
-        "date": 1782994519225,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.360054,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.764725,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.843077,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.528675,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.007107,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.032022,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.453924,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.070386,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.975268,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.773088,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.083003,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.227958,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 2.43747,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.660326,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.043486,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.035398,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "382365ae58f01d378c3314ebaf452a46e228d8a5",
+          "message": "Invalidate stale native call sites after set!/define rebinding (#822) (#981)\n\nThe LLVM backend bound call sites to procedure definitions at compile\ntime and never invalidated those bindings when a name was reassigned.\nThree mechanisms were affected: native_fns direct calls kept invoking\nthe original function after set!/define, inline primitives like + kept\nusing the original op after (define + -), and IR constant folding\nevaluated (+ 10 3) → 13 before the emitter could see the rebinding.\n\nFix all three: track globally-rebound names in the emitter so later\ncall sites fall through to kaappi_global_lookup, and feed define/set!\ntargets across top-level forms to the IR's set_targets so constant\nfolding is suppressed for rebound primitives.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-03T15:09:13Z",
+          "tree_id": "9c851920a080e3ebf2fbe33d5d99b84d3f8653ae",
+          "url": "https://github.com/kaappi/kaappi/commit/382365ae58f01d378c3314ebaf452a46e228d8a5"
+        },
+        "date": 1783092338199,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.37514,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.001072,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.888529,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.669552,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.00651,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.034038,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.492732,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.07147,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 4.083903,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.828333,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.220809,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.435882,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.814781,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.699998,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.04296,
             "unit": "seconds"
           }
         ]
