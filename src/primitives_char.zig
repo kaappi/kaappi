@@ -121,7 +121,7 @@ fn isUnicodeLetter(cp: u21) bool {
     return false;
 }
 
-fn isUnicodeUppercase(cp: u21) bool {
+pub fn isUnicodeUppercase(cp: u21) bool {
     if (cp <= 127) return std.ascii.isUpper(@intCast(cp));
     // Check if this codepoint has a lowercase mapping (it's uppercase)
     if (unicode.findLower(cp) != null) return true;
@@ -129,7 +129,7 @@ fn isUnicodeUppercase(cp: u21) bool {
     return unicode.containsU21(&unicode.extra_uppercase, cp);
 }
 
-fn isUnicodeLowercase(cp: u21) bool {
+pub fn isUnicodeLowercase(cp: u21) bool {
     if (cp <= 127) return std.ascii.isLower(@intCast(cp));
     // Check if this codepoint has an uppercase mapping (it's lowercase)
     if (unicode.findUpper(cp) != null) return true;
@@ -184,12 +184,12 @@ fn isUnicodeNumeric(cp: u21) bool {
     return false;
 }
 
-fn unicodeUpcase(cp: u21) u21 {
+pub fn unicodeUpcase(cp: u21) u21 {
     if (cp <= 127) return @intCast(std.ascii.toUpper(@intCast(cp)));
     return unicode.findUpper(cp) orelse cp;
 }
 
-fn unicodeDowncase(cp: u21) u21 {
+pub fn unicodeDowncase(cp: u21) u21 {
     if (cp <= 127) return @intCast(std.ascii.toLower(@intCast(cp)));
     return unicode.findLower(cp) orelse cp;
 }
@@ -481,7 +481,7 @@ fn stringFoldcaseFn(args: []const Value) PrimitiveError!Value {
 
 const CaseMode = enum { upcase, downcase, foldcase };
 
-fn appendCodepoint(result: *std.ArrayList(u8), alloc: std.mem.Allocator, cp: u21) PrimitiveError!void {
+pub fn appendCodepoint(result: *std.ArrayList(u8), alloc: std.mem.Allocator, cp: u21) PrimitiveError!void {
     var tmp: [4]u8 = undefined;
     const n = std.unicode.utf8Encode(cp, &tmp) catch return PrimitiveError.OutOfMemory;
     result.appendSlice(alloc, tmp[0..n]) catch return PrimitiveError.OutOfMemory;
