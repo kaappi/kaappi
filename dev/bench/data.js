@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783058169432,
+  "lastUpdate": 1783058176780,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "bab7a5e0d6da321e7ee839fe6e9663a856e4d728",
-          "message": "Merge pull request #674 from kaappi/fix/643-thread-self-join\n\nDetect thread-join! on current thread and raise error",
-          "timestamp": "2026-07-01T15:51:40+05:30",
-          "tree_id": "91a43cdbdb09204575bf0da50519c540e0bac646",
-          "url": "https://github.com/kaappi/kaappi/commit/bab7a5e0d6da321e7ee839fe6e9663a856e4d728"
-        },
-        "date": 1782902183949,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.688396,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.619687,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.767358,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.658906,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.007137,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.031233,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.406682,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.065923,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.958474,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.535949,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.080391,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.216788,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 2.243282,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 0.905532,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.038223,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.042707,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "7c600a874148c4f51e24df789b8ef698c08f358b",
+          "message": "Fix nested-ellipsis expansion rejecting depth-2 pattern variables (#931)\n\ninstantiateEllipsis required every referenced ellipsis binding to have\ndepth exactly 1, so any syntax-rules template using variables bound\nunder two ellipses — like SRFI-35's condition construction macro\n((?type1 (?field1 ?value1) ...) ...) — failed with InvalidSyntax\n(EllipsisDepthMismatch). The depth check made the existing depth>1\nunpacking logic directly below it unreachable. Deeper bindings repeat\nthe same number of times as depth-1 bindings at the outer level, so the\nR7RS count-consistency check still applies unchanged.\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-03T11:11:19+05:30",
+          "tree_id": "1eefc5aa49c9aadd7ee611611d084b9851ad891e",
+          "url": "https://github.com/kaappi/kaappi/commit/7c600a874148c4f51e24df789b8ef698c08f358b"
+        },
+        "date": 1783058176379,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.382581,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.429785,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.843987,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.249486,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.007015,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.033747,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.479406,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.070599,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.96339,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.849875,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.125063,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.424904,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 2.456465,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.627234,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.041548,
             "unit": "seconds"
           }
         ]
