@@ -502,14 +502,17 @@ fn runGitCapture(allocator: std.mem.Allocator, args: []const []const u8) ![]u8 {
 
 /// Check out a pinned version (tag or SHA) in an already-cloned package repo.
 ///
-/// Uses `--end-of-options` (git 2.24+), NOT `--`: everything after `--` is a
-/// pathspec, so `git checkout -- v1.0.0` restores a file named "v1.0.0" instead
-/// of switching to that ref — which fails for any repo lacking such a file, and
-/// silently checks out the file (never the ref) for any repo that has one
-/// (issue #780). `--end-of-options` stops flag parsing while still treating the
-/// argument as a revision, keeping the option-injection guard from #736.
+/// Uses `git checkout <v> --`: the trailing `--` makes git parse <v> as a
+/// revision even when a file of the same name exists (issue #780) — the
+/// reversed `git checkout -- <v>` would treat it as a pathspec. Not
+/// `--end-of-options`: `git checkout` only understands it since git 2.43, and
+/// older builds (e.g. Apple git on some macOS CI images) treat it as a
+/// pathspec and fail (issue #969). Because <v> sits where options are still
+/// parsed, reject values starting with '-' to keep the option-injection guard
+/// from #736; no valid tag, branch, or SHA starts with '-'.
 fn checkoutVersion(allocator: std.mem.Allocator, pkg_dir: []const u8, v: []const u8) !void {
-    return runGit(allocator, &.{ "-C", pkg_dir, "checkout", "--quiet", "--end-of-options", v });
+    if (v.len == 0 or v[0] == '-') return error.GitFailed;
+    return runGit(allocator, &.{ "-C", pkg_dir, "checkout", "--quiet", v, "--" });
 }
 
 fn isInstalled(allocator: std.mem.Allocator, installed_path: []const u8, pkg: []const u8) bool {
@@ -1440,8 +1443,10 @@ test "checkoutVersion resolves a pinned tag as a ref, not a pathspec (issue #780
     // Regression for #780: the pinned-install checkout used
     // `git checkout -- <v>`, but arguments after `--` are pathspecs, so the
     // tag/SHA was treated as a filename and every version-pinned install failed
-    // with "pathspec '<v>' did not match any file(s)". The fix uses
-    // `--end-of-options`, which still resolves <v> as a revision.
+    // with "pathspec '<v>' did not match any file(s)". The fix uses a trailing
+    // `--` (`git checkout <v> --`), which resolves <v> as a revision on every
+    // git version — unlike `--end-of-options`, which `git checkout` only
+    // understands since git 2.43 and older builds reject as a pathspec (#969).
     const allocator = std.testing.allocator;
 
     // runGit shells out to /usr/bin/git; skip if it isn't present.
@@ -1456,11 +1461,18 @@ test "checkoutVersion resolves a pinned tag as a ref, not a pathspec (issue #780
     removeDir(allocator, repo) catch {};
 
     // Two tagged commits; HEAD starts on v1.1.0. Pass identity and gpgsign via
-    // -c so the test doesn't depend on the ambient git config.
+    // -c so the test doesn't depend on the ambient git config. The second
+    // commit tracks a file literally named "v1.0.0" so the checkout is
+    // ambiguous: a pathspec parse would restore that file and leave HEAD on
+    // v1.1.0 instead of switching to the tag.
     runGit(allocator, &.{ "init", "-q", repo }) catch return error.SkipZigTest;
     try runGit(allocator, &.{ "-C", repo, "-c", "user.email=t@example.com", "-c", "user.name=Test", "-c", "commit.gpgsign=false", "commit", "-q", "--allow-empty", "-m", "one" });
     try runGit(allocator, &.{ "-C", repo, "tag", "v1.0.0" });
-    try runGit(allocator, &.{ "-C", repo, "-c", "user.email=t@example.com", "-c", "user.name=Test", "-c", "commit.gpgsign=false", "commit", "-q", "--allow-empty", "-m", "two" });
+    const decoy = try std.fmt.allocPrint(allocator, "{s}/v1.0.0", .{repo});
+    defer allocator.free(decoy);
+    try writeFile(allocator, decoy, "decoy\n");
+    try runGit(allocator, &.{ "-C", repo, "add", "v1.0.0" });
+    try runGit(allocator, &.{ "-C", repo, "-c", "user.email=t@example.com", "-c", "user.name=Test", "-c", "commit.gpgsign=false", "commit", "-q", "-m", "two" });
     try runGit(allocator, &.{ "-C", repo, "tag", "v1.1.0" });
 
     // Checking out the older tag must switch HEAD to that tag's commit.
@@ -1476,4 +1488,16 @@ test "checkoutVersion resolves a pinned tag as a ref, not a pathspec (issue #780
     const v11 = try runGitCapture(allocator, &.{ "-C", repo, "rev-parse", "v1.1.0^{commit}" });
     defer allocator.free(v11);
     try std.testing.expect(!std.mem.eql(u8, head, v11));
+}
+
+test "checkoutVersion rejects option-like versions (issue #736)" {
+    // With <v> placed before the trailing `--`, git would parse a leading-dash
+    // value as an option (e.g. `--force` silently no-ops instead of checking
+    // anything out), so checkoutVersion must reject such values itself. No
+    // valid tag, branch, or SHA starts with '-'. The guard fires before any
+    // git invocation, so a nonexistent directory proves git was never run.
+    const allocator = std.testing.allocator;
+    try std.testing.expectError(error.GitFailed, checkoutVersion(allocator, "/nonexistent", "--force"));
+    try std.testing.expectError(error.GitFailed, checkoutVersion(allocator, "/nonexistent", "-b"));
+    try std.testing.expectError(error.GitFailed, checkoutVersion(allocator, "/nonexistent", ""));
 }
