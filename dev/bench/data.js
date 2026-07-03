@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783074886945,
+  "lastUpdate": 1783075386846,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "6d80cab547a1ac34036296c0a88ea4033fe5639d",
-          "message": "Merge pull request #719 from kaappi/fix/prescan-names-overflow-686\n\nFix internal-define pre-scan: use dynamic list instead of fixed 64-entry buffer",
-          "timestamp": "2026-07-02T11:07:58+05:30",
-          "tree_id": "8fd2f289d405c5a2c6b66fe934382620f66495fe",
-          "url": "https://github.com/kaappi/kaappi/commit/6d80cab547a1ac34036296c0a88ea4033fe5639d"
-        },
-        "date": 1782972969901,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.327602,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.041099,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.835998,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.203009,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.00698,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.032485,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.457338,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.069767,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.839675,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.77709,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.105783,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.225499,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 2.43747,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.737176,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.042446,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.042034,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "0f9d56cc13506b0562215cf8026fcd2688b8c357",
+          "message": "Clear global cache on set_global/define_global rebind (#812) (#955)\n\nset_global and define_global bumped global_version but then re-stamped\nthe whole Function cache as current after refreshing only their own slot.\nAny entry cached before an unrelated rebinding (which had already bumped\nglobal_version) was re-blessed and served stale by the cache-hit fast\npaths in get_global/call_global/tail_call_global.\n\nMirror get_global's version-mismatch path: memset the cache to VOID\nbefore revalidating the written slot, so stale entries are re-checked\nagainst the environment on next access.\n\nAdd regression tests covering set_global (call + tail position),\nget_global (reference position), and define_global (via named let).\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
+          "timestamp": "2026-07-03T15:58:29+05:30",
+          "tree_id": "67569d216dc817d74e398ee1adb9e2ff8e48b90e",
+          "url": "https://github.com/kaappi/kaappi/commit/0f9d56cc13506b0562215cf8026fcd2688b8c357"
+        },
+        "date": 1783075386392,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.061259,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.36491,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.843904,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.107879,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.007348,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.032615,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.461279,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.068261,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 4.06277,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.776939,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.159116,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.474929,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 2.355431,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.862776,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044719,
             "unit": "seconds"
           }
         ]
