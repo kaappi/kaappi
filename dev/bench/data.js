@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783093407814,
+  "lastUpdate": 1783100500835,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "a0cb415334eb05681c0eb7629e5abcfacb2ed3c2",
-          "message": "Merge pull request #766 from kaappi/fix/758-let-syntax-malformed-binding\n\nValidate let-syntax bindings have transformer spec",
-          "timestamp": "2026-07-02T17:59:59+05:30",
-          "tree_id": "6f38bfc11e1c0eaa62f1e4954670f65dcfe1986d",
-          "url": "https://github.com/kaappi/kaappi/commit/a0cb415334eb05681c0eb7629e5abcfacb2ed3c2"
-        },
-        "date": 1782996239276,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.085542,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.63492,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.842555,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.236986,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.007354,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.03174,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.449683,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.068463,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.882544,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.731987,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.095151,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.245178,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 2.414579,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.893307,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.043625,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.035058,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "4b5f35ebf577bda7d42c739780bfcf56910ab774",
+          "message": "Reject directories and propagate read errors in readFileContents (#983)\n\n* Reject directories and propagate read errors in readFileContents (#789)\n\nreadFileContents silently treated read() failures (EISDIR, EIO, etc.) as\nEOF, so passing a directory to kaappi ran an empty program with exit 0.\nNow fstat rejects directories with a clear message, and other read errors\nare reported and propagated instead of swallowed.\n\nFixes #789\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Use statx on Linux for directory check in readFileContents\n\nstd.c.fstat is void on Linux in Zig 0.16. Use linux.statx with\nAT_EMPTY_PATH to stat by fd, matching the pattern in\nprimitives_filesystem.zig.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-03T22:55:24+05:30",
+          "tree_id": "a151ddc0c95bc3f7c353a122c73aaf680f911e3f",
+          "url": "https://github.com/kaappi/kaappi/commit/4b5f35ebf577bda7d42c739780bfcf56910ab774"
+        },
+        "date": 1783100500145,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.066411,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.13973,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.874618,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.381573,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006844,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.036915,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.485445,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.068605,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 3.968012,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.86215,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.193647,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.471103,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.707045,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.822461,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044843,
             "unit": "seconds"
           }
         ]
