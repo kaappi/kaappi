@@ -359,10 +359,15 @@ linear-update variants in SRFI-1, `string-xcopy!` in SRFI-13). See
 Contributions are welcome — bug reports, SRFI implementations, documentation,
 and ecosystem libraries alike.
 
-- [CONTRIBUTING.md](CONTRIBUTING.md) — how to build, test, and submit changes
+**New here?** Start with
+[GitHub Discussions](https://github.com/orgs/kaappi/discussions) — ask
+questions, report bugs, propose ideas. Issues and PRs are open to
+[org members](https://github.com/kaappi); request an invite in Discussions
+when you're ready to contribute directly.
+
+- [CONTRIBUTING.md](CONTRIBUTING.md) — how to get involved, build, test, and submit changes
+- [Community](https://kaappi-lang.org/community/) — all the ways to participate
 - [Code of Conduct](CODE_OF_CONDUCT.md)
-- [Issue tracker](https://github.com/kaappi/kaappi/issues) — bugs and feature requests
-- [Community](https://kaappi-lang.org/community/) — where to ask questions
 
 Every bug fix needs a regression test; see the
 [testing guide](docs/dev/testing.md).

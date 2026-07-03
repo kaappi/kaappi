@@ -1,7 +1,31 @@
 # Contributing to Kaappi
 
-Thank you for your interest in contributing to Kaappi. This document covers
-the essentials: building, testing, making changes, and submitting them.
+Thank you for your interest in contributing to Kaappi! This document covers
+the essentials: how to get involved, building, testing, and submitting changes.
+
+---
+
+## How to get involved
+
+**[GitHub Discussions](https://github.com/orgs/kaappi/discussions)** is the
+front door for new contributors. Start there to ask questions, propose ideas,
+report bugs, or introduce yourself.
+
+Issues and pull requests are restricted to members of the
+[kaappi GitHub org](https://github.com/kaappi). This keeps the signal-to-noise
+ratio high while the project grows. If you'd like to contribute code or file
+issues directly, ask for an invite in
+[Discussions](https://github.com/orgs/kaappi/discussions) — we're happy to
+add anyone who's genuinely interested.
+
+### Typical path for a new contributor
+
+1. **Explore** — try Kaappi, read the docs, poke around the source.
+2. **Join the conversation** — post in Discussions (questions, bug reports,
+   ideas — all welcome).
+3. **Get org access** — mention that you'd like to contribute and we'll send
+   an invite.
+4. **Submit a PR** — fork, branch, test, open a pull request.
 
 ---
 
@@ -140,6 +164,10 @@ All jobs must pass before merging.
 | **benchmark** | ubuntu-latest | Runs `benchmarks/run-benchmarks.sh` and uploads results as an artifact (push only). |
 
 ## Submitting changes
+
+You need to be a member of the [kaappi org](https://github.com/kaappi) to open
+pull requests. If you aren't yet, ask in
+[Discussions](https://github.com/orgs/kaappi/discussions).
 
 1. Fork the repo and create a branch from `main`.
 2. Make your changes and ensure all tests pass (`zig build test` +
