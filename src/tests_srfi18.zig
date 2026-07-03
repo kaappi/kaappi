@@ -180,3 +180,53 @@ test "mutex-lock! on abandoned mutex raises abandoned-mutex-exception" {
     );
     try std.testing.expectEqual(types.TRUE, result);
 }
+
+test "top-level define with yielding body (scheduler created mid-form)" {
+    // Regression: spawn creates the scheduler lazily *during* the form's
+    // run, so run() had already committed to the non-scheduler path and the
+    // subsequent thread-yield! escaped as error.Yielded, aborting the define.
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    _ = try vm.eval(
+        \\(import (srfi 18))
+    );
+    _ = try vm.eval(
+        \\(define x (let ((f (spawn (lambda () 12345))))
+        \\            (thread-yield!)
+        \\            (fiber-join f)
+        \\            99))
+    );
+    const result = try vm.eval("x");
+    try std.testing.expectEqual(@as(i64, 99), types.toFixnum(result));
+}
+
+test "top-level form value is the main fiber's result after nested resume" {
+    // Regression: when the main fiber yields and the spawned fiber then
+    // blocks in a native primitive (mutex-lock!), the main fiber's form
+    // completes inside that primitive's nested scheduler loop. The form's
+    // value must be the main fiber's result (99), not the fiber's thunk
+    // result (12345), and the mutex the main fiber still holds must not be
+    // treated as abandoned.
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    _ = try vm.eval(
+        \\(import (srfi 18))
+        \\(define m (make-mutex))
+        \\(mutex-lock! m)
+        \\(define f (spawn (lambda () (mutex-lock! m) (mutex-unlock! m) 12345)))
+    );
+    const result = try vm.eval(
+        \\(let () (thread-yield!) (mutex-unlock! m) 99)
+    );
+    try std.testing.expectEqual(@as(i64, 99), types.toFixnum(result));
+
+    // The fiber saw a normal (not abandoned) mutex and completed.
+    const fiber_result = try vm.eval("(fiber-join f)");
+    try std.testing.expectEqual(@as(i64, 12345), types.toFixnum(fiber_result));
+}
