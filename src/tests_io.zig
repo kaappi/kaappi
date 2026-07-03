@@ -411,3 +411,34 @@ test "read-string 0 on non-exhausted port returns empty string, not eof (issue #
     // k = 0 at EOF returns empty string (port exhausted, but zero requested).
     try std.testing.expectEqual(types.FALSE, try vm.eval("(eof-object? (read-string 0 p))"));
 }
+
+// Regression: #811 — current-output-port must be a parameter object
+test "parameterize current-output-port redirects display" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    const result = try vm.eval(
+        \\(define sp (open-output-string))
+        \\(parameterize ((current-output-port sp))
+        \\  (display "hello"))
+        \\(get-output-string sp)
+    );
+    const s = types.toObject(result).as(types.SchemeString);
+    try std.testing.expectEqualStrings("hello", s.data[0..s.len]);
+}
+
+test "parameterize current-input-port redirects read-line" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    const result = try vm.eval(
+        \\(parameterize ((current-input-port (open-input-string "test-line")))
+        \\  (read-line))
+    );
+    const s = types.toObject(result).as(types.SchemeString);
+    try std.testing.expectEqualStrings("test-line", s.data[0..s.len]);
+}

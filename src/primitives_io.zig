@@ -20,10 +20,8 @@ pub fn registerIO(vm: *vm_mod.VM) !void {
     try reg(vm, "write", &write, .{ .variadic = 1 });
     try reg(vm, "newline", &newline, .{ .variadic = 0 });
 
-    // Port procedures
-    try reg(vm, "current-input-port", &currentInputPort, .{ .exact = 0 });
-    try reg(vm, "current-output-port", &currentOutputPort, .{ .exact = 0 });
-    try reg(vm, "current-error-port", &currentErrorPort, .{ .exact = 0 });
+    // Port parameters (R7RS 6.13.1 — these must be parameter objects)
+    try registerPortParams(vm);
     try reg(vm, "port?", &portP, .{ .exact = 1 });
     try reg(vm, "input-port?", &inputPortP, .{ .exact = 1 });
     try reg(vm, "output-port?", &outputPortP, .{ .exact = 1 });
@@ -79,9 +77,7 @@ pub fn registerIOSandboxed(vm: *vm_mod.VM) !void {
     try reg(vm, "display", &display, .{ .variadic = 1 });
     try reg(vm, "write", &write, .{ .variadic = 1 });
     try reg(vm, "newline", &newline, .{ .variadic = 0 });
-    try reg(vm, "current-input-port", &currentInputPort, .{ .exact = 0 });
-    try reg(vm, "current-output-port", &currentOutputPort, .{ .exact = 0 });
-    try reg(vm, "current-error-port", &currentErrorPort, .{ .exact = 0 });
+    try registerPortParams(vm);
     try reg(vm, "port?", &portP, .{ .exact = 1 });
     try reg(vm, "input-port?", &inputPortP, .{ .exact = 1 });
     try reg(vm, "output-port?", &outputPortP, .{ .exact = 1 });
@@ -151,10 +147,10 @@ fn getOutputPort(args: []const Value, arg_idx: usize, proc: []const u8) Primitiv
         if (!port.is_open) return primitives.typeError(proc, "open output port", args[arg_idx]);
         return port;
     }
-    // Use current-output-port from VM
     const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError; // bare-ok: no VM
-    if (!types.isPort(vm.stdout_port)) return PrimitiveError.TypeError;
-    return types.toObject(vm.stdout_port).as(types.Port);
+    const port_val = currentOutputPortValue(vm);
+    if (!types.isPort(port_val)) return PrimitiveError.TypeError;
+    return types.toObject(port_val).as(types.Port);
 }
 
 /// Get the input port: use args[arg_idx] if provided, else current-input-port.
@@ -167,8 +163,27 @@ fn getInputPort(args: []const Value, arg_idx: usize, proc: []const u8) Primitive
         return port;
     }
     const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError; // bare-ok: no VM
-    if (!types.isPort(vm.stdin_port)) return PrimitiveError.TypeError;
-    return types.toObject(vm.stdin_port).as(types.Port);
+    const port_val = currentInputPortValue(vm);
+    if (!types.isPort(port_val)) return PrimitiveError.TypeError;
+    return types.toObject(port_val).as(types.Port);
+}
+
+fn currentInputPortValue(vm: *vm_mod.VM) Value {
+    if (vm.current_input_port_param != types.VOID)
+        return vm.getParameterValue(types.toParameter(vm.current_input_port_param));
+    return vm.stdin_port;
+}
+
+fn currentOutputPortValue(vm: *vm_mod.VM) Value {
+    if (vm.current_output_port_param != types.VOID)
+        return vm.getParameterValue(types.toParameter(vm.current_output_port_param));
+    return vm.stdout_port;
+}
+
+fn currentErrorPortValue(vm: *vm_mod.VM) Value {
+    if (vm.current_error_port_param != types.VOID)
+        return vm.getParameterValue(types.toParameter(vm.current_error_port_param));
+    return vm.stderr_port;
 }
 
 fn writeToPort(port: *types.Port, bytes: []const u8) void {
@@ -236,22 +251,17 @@ fn newline(args: []const Value) PrimitiveError!Value {
 // Port procedures (R7RS 6.13)
 // ---------------------------------------------------------------------------
 
-fn currentInputPort(args: []const Value) PrimitiveError!Value {
-    _ = args;
-    const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError; // bare-ok: no VM
-    return vm.stdin_port;
-}
-
-fn currentOutputPort(args: []const Value) PrimitiveError!Value {
-    _ = args;
-    const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError; // bare-ok: no VM
-    return vm.stdout_port;
-}
-
-fn currentErrorPort(args: []const Value) PrimitiveError!Value {
-    _ = args;
-    const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError; // bare-ok: no VM
-    return vm.stderr_port;
+fn registerPortParams(vm: *vm_mod.VM) !void {
+    const gc = vm.gc;
+    vm.current_input_port_param = gc.allocParameter(vm.stdin_port, types.NIL) catch return error.OutOfMemory;
+    gc.extra_roots.append(gc.allocator, vm.current_input_port_param) catch return error.OutOfMemory;
+    try vm.defineGlobal("current-input-port", vm.current_input_port_param);
+    vm.current_output_port_param = gc.allocParameter(vm.stdout_port, types.NIL) catch return error.OutOfMemory;
+    gc.extra_roots.append(gc.allocator, vm.current_output_port_param) catch return error.OutOfMemory;
+    try vm.defineGlobal("current-output-port", vm.current_output_port_param);
+    vm.current_error_port_param = gc.allocParameter(vm.stderr_port, types.NIL) catch return error.OutOfMemory;
+    gc.extra_roots.append(gc.allocator, vm.current_error_port_param) catch return error.OutOfMemory;
+    try vm.defineGlobal("current-error-port", vm.current_error_port_param);
 }
 
 fn portP(args: []const Value) PrimitiveError!Value {
@@ -887,11 +897,10 @@ fn callWithPort(args: []const Value) PrimitiveError!Value {
 fn withInputFromFile(args: []const Value) PrimitiveError!Value {
     const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError; // bare-ok: no VM
     const port_val = try openInputFile(&[_]Value{args[0]});
-    // Save current input port
-    const saved = vm.stdin_port;
-    vm.stdin_port = port_val;
+    const saved = currentInputPortValue(vm);
+    setCurrentPort(vm, vm.current_input_port_param, port_val);
     const result = vm.callWithArgs(args[1], &[_]Value{}) catch |err| {
-        vm.stdin_port = saved;
+        setCurrentPort(vm, vm.current_input_port_param, saved);
         _ = closePort(&[_]Value{port_val}) catch {};
         return switch (err) {
             vm_mod.VMError.ContinuationInvoked => PrimitiveError.ContinuationInvoked,
@@ -900,7 +909,7 @@ fn withInputFromFile(args: []const Value) PrimitiveError!Value {
             else => PrimitiveError.TypeError, // bare-ok: catch fallback
         };
     };
-    vm.stdin_port = saved;
+    setCurrentPort(vm, vm.current_input_port_param, saved);
     _ = try closePort(&[_]Value{port_val});
     return result;
 }
@@ -909,10 +918,10 @@ fn withInputFromFile(args: []const Value) PrimitiveError!Value {
 fn withOutputToFile(args: []const Value) PrimitiveError!Value {
     const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError; // bare-ok: no VM
     const port_val = try openOutputFile(&[_]Value{args[0]});
-    const saved = vm.stdout_port;
-    vm.stdout_port = port_val;
+    const saved = currentOutputPortValue(vm);
+    setCurrentPort(vm, vm.current_output_port_param, port_val);
     const result = vm.callWithArgs(args[1], &[_]Value{}) catch |err| {
-        vm.stdout_port = saved;
+        setCurrentPort(vm, vm.current_output_port_param, saved);
         _ = closePort(&[_]Value{port_val}) catch {};
         return switch (err) {
             vm_mod.VMError.ContinuationInvoked => PrimitiveError.ContinuationInvoked,
@@ -921,9 +930,15 @@ fn withOutputToFile(args: []const Value) PrimitiveError!Value {
             else => PrimitiveError.TypeError, // bare-ok: catch fallback
         };
     };
-    vm.stdout_port = saved;
+    setCurrentPort(vm, vm.current_output_port_param, saved);
     _ = try closePort(&[_]Value{port_val});
     return result;
+}
+
+fn setCurrentPort(vm: *vm_mod.VM, param_val: Value, port_val: Value) void {
+    if (param_val != types.VOID) {
+        vm.setParameterValue(types.toParameter(param_val), port_val) catch {};
+    }
 }
 
 // ---------------------------------------------------------------------------
