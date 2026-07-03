@@ -171,6 +171,8 @@ section in [CLAUDE.md](CLAUDE.md) for details.
   for extending the implementation
 - [docs/dev/testing.md](docs/dev/testing.md) -- Testing infrastructure and
   conventions
+- [docs/dev/README.md](docs/dev/README.md) -- Index of all developer docs,
+  including design decisions and postmortems
 - [CLAUDE.md](CLAUDE.md) -- Complete technical reference for the codebase
 
 ## Code of Conduct

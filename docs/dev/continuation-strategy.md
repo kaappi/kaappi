@@ -1,7 +1,7 @@
 # Continuation Strategy for Native Code Generation
 
-**Decision:** Hybrid — direct-style IR with VM fallback for first-class
-continuations. Native-compiled code uses the C stack for calls; code that
+**Decision** (2026-06-27): Hybrid — direct-style IR with VM fallback for
+first-class continuations. Native-compiled code uses the C stack for calls; code that
 reaches `call/cc` side-exits to the bytecode VM, which already handles
 continuations via stack copying.
 

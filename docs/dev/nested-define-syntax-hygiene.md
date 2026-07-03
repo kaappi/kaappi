@@ -2,7 +2,8 @@
 
 ## Status
 
-**Not yet fixed.** One R7RS test failure in section 4.3 Macros.
+**Not yet fixed** (written 2026-06-18; verified still failing 2026-07-03).
+One R7RS test failure in section 4.3 Macros.
 
 ## Failing test
 

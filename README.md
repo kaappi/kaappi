@@ -322,6 +322,7 @@ and per-commit performance trends are tracked on the
 | [Architecture](docs/dev/architecture.md) | Pipeline, value representation, GC, file organization |
 | [Adding Features](docs/dev/adding-features.md) | Step-by-step guides for extending the implementation |
 | [Testing Guide](docs/dev/testing.md) | Unit tests, Scheme tests, benchmarks, CI |
+| [Developer Docs Index](docs/dev/README.md) | All contributor docs: guides, design decisions, postmortems |
 
 ## Known limitations
 

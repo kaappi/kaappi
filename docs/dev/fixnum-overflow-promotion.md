@@ -2,9 +2,15 @@
 
 ## Status
 
-**Fixed.** Added `makeFixnumChecked` helper that checks the i63 range and
-auto-promotes to bignum via `gc.allocBignumFromI64`. Applied at all
-arithmetic result sites (+, -, *, /, quotient, abs).
+**Fixed** (2026-06-18, commit 96410f9). Added `makeFixnumChecked` helper
+that checks the fixnum range and auto-promotes to bignum via
+`gc.allocBignumFromI64`. Applied at all arithmetic result sites
+(+, -, *, /, quotient, abs).
+
+Note: this document describes the i63 fixnum encoding in use at the time.
+The value representation moved to NaN-boxing on 2026-06-25, so fixnums are
+now 48-bit (±2^47) and `makeFixnumChecked` checks the i48 range — the
+promotion mechanism is unchanged.
 
 ## Problem
 

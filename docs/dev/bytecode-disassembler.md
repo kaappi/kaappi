@@ -2,8 +2,13 @@
 
 ## Overview
 
-`(disassemble <proc>)` is implemented in `src/disassembler.zig`.
-A `--disassemble` CLI flag is not yet added (future work).
+`(disassemble <proc>)` is implemented in `src/disassembler.zig`, and the
+`--disassemble` CLI flag compiles a file's top-level forms and prints their
+bytecode instead of executing them. Both shipped 2026-06-18 (commit 96410f9).
+
+The "Proposed output format" and "Implementation plan" sections below are
+the original design notes, kept because they still describe how the
+disassembler works. The instruction set reference is current.
 
 ## Instruction set reference
 

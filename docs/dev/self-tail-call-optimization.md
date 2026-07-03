@@ -2,7 +2,8 @@
 
 ## Status
 
-**Option A implemented.** The `self_tail_call` opcode is in place: self-recursive
+**Option A implemented** (2026-06-18, commit 26414d5). The `self_tail_call`
+opcode is in place: self-recursive
 tail calls (direct `define` recursion and named `let` loops) compile to a
 dedicated instruction that copies arguments to the frame base and resets the
 instruction pointer, skipping the global lookup, type check, and arity check.

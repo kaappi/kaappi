@@ -2,8 +2,9 @@
 
 ## Status
 
-**Fixed.** global_cache traced in markValue. global_version bumped in all globals.put sites. Noticed during
-the GC reachability investigation (2026-06-17).
+**Fixed** (2026-06-17, commit cb6a945). global_cache traced in markValue.
+global_version bumped in all globals.put sites. Noticed during the GC
+reachability investigation (2026-06-17).
 
 ## The observation
 

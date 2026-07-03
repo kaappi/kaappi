@@ -2,8 +2,8 @@
 
 ## Status
 
-**Resolved.** Root cause found and fixed; the immutable-string sweep workaround
-has been removed. The strings were never the problem with marking — they were
+**Resolved** (investigated and fixed 2026-06-17). Root cause found and fixed;
+the immutable-string sweep workaround has been removed. The strings were never the problem with marking — they were
 being freed by the GC *before* they reached a constant pool, because the
 **reader and compiler held the source datum in unrooted locals across
 allocations that can trigger a collection**.
