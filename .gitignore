@@ -4,6 +4,8 @@ zig-out/
 *.sbc
 *.log
 test_*.o
+*.dylib
+*.so
 .claude/worktrees/
 .claude/settings.local.json
 .claude/scheduled_tasks.lock
