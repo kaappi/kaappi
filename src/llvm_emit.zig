@@ -338,19 +338,59 @@ pub const LLVMEmitter = struct {
 
     fn emitLetFallback(self: *LLVMEmitter, args: Value, sequential: bool) EmitError![]const u8 {
         const keyword = if (sequential) "let*" else "let";
-        const printed = printer.valueToString(self.allocator, args, .write) catch return error.OutOfMemory;
-        defer self.allocator.free(printed);
-        const source = std.fmt.allocPrint(self.allocator, "({s} {s})", .{ keyword, printed }) catch return error.OutOfMemory;
-        defer self.allocator.free(source);
-        const str_name = try self.internString(source);
+        // Build `(let bindings body ...)` by iterating the args list elements.
+        // The args value is `(bindings body ...)` — a list whose elements must
+        // be printed individually (not as one list) to avoid extra parens.
+        var source_buf: std.ArrayList(u8) = .empty;
+        defer source_buf.deinit(self.allocator);
+        source_buf.appendSlice(self.allocator, "(") catch return error.OutOfMemory;
+        source_buf.appendSlice(self.allocator, keyword) catch return error.OutOfMemory;
+        var current = args;
+        while (current != types.NIL and types.isPair(current)) {
+            source_buf.append(self.allocator, ' ') catch return error.OutOfMemory;
+            const elem = types.car(current);
+            const elem_str = printer.valueToString(self.allocator, elem, .write) catch return error.OutOfMemory;
+            defer self.allocator.free(elem_str);
+            source_buf.appendSlice(self.allocator, elem_str) catch return error.OutOfMemory;
+            current = types.cdr(current);
+        }
+        source_buf.append(self.allocator, ')') catch return error.OutOfMemory;
+        const str_name = try self.internString(source_buf.items);
         const tmp = try self.freshTemp();
-        try self.print("  {s} = call i64 @kaappi_eval(ptr %vm, ptr {s}, i64 {d})\n", .{ tmp, str_name, source.len });
+        try self.print("  {s} = call i64 @kaappi_eval(ptr %vm, ptr {s}, i64 {d})\n", .{ tmp, str_name, source_buf.items.len });
         return tmp;
     }
 
     fn emitLet(self: *LLVMEmitter, args: Value, sequential: bool, is_tail: bool) EmitError![]const u8 {
         const bindings = types.car(args);
         const body_list = types.cdr(args);
+
+        // #827: If the let form (bindings or body) contains sub-expressions
+        // that need interpreter eval fallback (cond, do, letrec, etc.),
+        // compile the entire let via the interpreter to preserve correct
+        // lexical scoping.
+        if (lambda.sexprNeedsEvalFallback(args)) {
+            return self.emitLetFallback(args, sequential);
+        }
+        // #827: If the body contains a lambda that captures let-bound variable
+        // names, it cannot be compiled natively inside this scope (the lambda
+        // would be evaluated in the global environment, losing the bindings).
+        {
+            var var_names: [32][]const u8 = undefined;
+            var name_count: usize = 0;
+            var blist = bindings;
+            while (blist != types.NIL and types.isPair(blist)) : (blist = types.cdr(blist)) {
+                if (name_count >= 32) break;
+                const b = types.car(blist);
+                if (types.isPair(b) and types.isSymbol(types.car(b))) {
+                    var_names[name_count] = types.symbolName(types.car(b));
+                    name_count += 1;
+                }
+            }
+            if (name_count > 0 and lambda.bodyHasCapturingLambda(body_list, var_names[0..name_count])) {
+                return self.emitLetFallback(args, sequential);
+            }
+        }
 
         const saved_locals = self.locals;
         self.locals = if (saved_locals) |existing|
@@ -429,9 +469,16 @@ pub const LLVMEmitter = struct {
             const node = ir.lowerSingleExprTail(self.allocator, types.car(body_expr), expr_is_tail) catch {
                 self.locals.?.deinit();
                 self.locals = saved_locals;
-                return error.UnsupportedNodeType;
+                return self.emitLetFallback(args, sequential);
             };
-            last = try self.emitNode(node);
+            // #827: if emitNode fails (e.g. a lambda that cannot be eval'd in
+            // this lexical scope), fall back to evaluating the entire let form
+            // via the interpreter.
+            last = self.emitNode(node) catch {
+                self.locals.?.deinit();
+                self.locals = saved_locals;
+                return self.emitLetFallback(args, sequential);
+            };
             body_expr = rest;
         }
 
