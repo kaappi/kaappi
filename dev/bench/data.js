@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783179304547,
+  "lastUpdate": 1783183750145,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "59129796d033b7aa70568ec2684e13bc180c6423",
-          "message": "Fix lost set! writes and builtin-name capture in macro templates (#935)\n\nTwo macro hygiene bugs, both of which silently corrupted test-harness\nmacros that keep pass/fail counters in globals:\n\n1. A template's (set! g ...) on a free global was silently lost. The\n   compiler injects a register alias local (preloaded via get_global)\n   for each template-free non-procedure global so references pierce\n   use-site shadowing, but compileSet resolved the target to that alias\n   and emitted a plain move into the register — the global was never\n   written back and no error was raised. Alias locals now carry an\n   is_global_alias flag and set! writes through with set_global, then\n   refreshes the alias register for later reads in the same expansion.\n   This is why counter-based harnesses printed PASS/FAIL lines but\n   reported \"0 pass, 0 fail\" and could never flip the exit code.\n\n2. A template binding named after a builtin procedure did not shadow\n   the builtin inside the template. renameForHygiene renamed the\n   binding occurrence but kept references unrenamed whenever the name\n   resolved to a procedure-valued global, so the body saw the builtin.\n   The procedure-preservation shortcut now consults the expansion's\n   scope table first, matching what the VOID-sentinel branch already\n   did. This was the cause of all 99 srfi-19-tests.scm failures\n   (\"expected #<builtin exp>\" from the harness binding (exp expected));\n   that file now reports 112 passed, 0 failed.\n\nNote: fix 2 also appears in open PR #929 (same reorder); its VM-level\nset_global fallback is complementary to fix 1, which handles alias\nlocals that never reach set_global at all. Reconcile whichever lands\nsecond.\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-03T06:20:21Z",
-          "tree_id": "ecc4876fddc2da5b9a9825b1a606cc614305c832",
-          "url": "https://github.com/kaappi/kaappi/commit/59129796d033b7aa70568ec2684e13bc180c6423"
-        },
-        "date": 1783060461105,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.553787,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.031784,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.864127,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.289261,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006972,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.032895,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.471049,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.070633,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 4.148715,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.804677,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.140622,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.440213,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 2.439434,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.740064,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.045726,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.04299,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "4243cde4e572001ee41820495820b3f2a6e4a5fa",
+          "message": "Migrate last 3 hand-rolled range parsers to parseOptionalRange (#1056) (#1099)\n\nvector->string, vector-reverse!, and vector-reverse-copy were the last\nsites duplicating optional [start end] parsing instead of using the\nshared helper introduced in #1018. Unifies error message format across\nall range-validated vector procedures.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-04T21:33:12+05:30",
+          "tree_id": "aef9e2b1c06781b6ff45611061daa58fb345ad8b",
+          "url": "https://github.com/kaappi/kaappi/commit/4243cde4e572001ee41820495820b3f2a6e4a5fa"
+        },
+        "date": 1783183749381,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.260923,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.178902,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.916117,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.216796,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.012438,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.211007,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.467862,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.070733,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 12.484856,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.84039,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 9.913711,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.956847,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 8.265127,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.711146,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044039,
             "unit": "seconds"
           }
         ]
