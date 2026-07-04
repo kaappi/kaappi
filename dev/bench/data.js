@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783155189438,
+  "lastUpdate": 1783159187103,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "476462af519546ab884bced18ed6c31779f11354",
-          "message": "Merge pull request #910 from kaappi/fix/816-818-exports-clean\n\nAdd missing exports to SRFI-133 and SRFI-1 library definitions",
-          "timestamp": "2026-07-03T06:15:25+05:30",
-          "tree_id": "dd9d23ad70d285b39b94f19a426b9d39077b7012",
-          "url": "https://github.com/kaappi/kaappi/commit/476462af519546ab884bced18ed6c31779f11354"
-        },
-        "date": 1783041164688,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.39769,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.268624,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.857405,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.154097,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.007141,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.033033,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.475674,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.071109,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 4.004853,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.854187,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.130245,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.436132,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 2.441955,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.721221,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.043156,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.042712,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "7d7c14d5a837e38ffb5a8b25c846325ed313d3b8",
+          "message": "Honor KAAPPI_HOME in interpreter, ffi-open, and REPL (#1031) (#1084)\n\nthottam installs to $KAAPPI_HOME/lib when the env var is set, but the\ninterpreter's library auto-discovery, ffi-open's dlopen fallback, and\nthe REPL history path all hardcoded ~/.kaappi. Extract a shared\nkaappi_paths.getHome() that checks KAAPPI_HOME first.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-04T09:39:22Z",
+          "tree_id": "442745a4706090a6605feec00b2fcfa5cbbad03c",
+          "url": "https://github.com/kaappi/kaappi/commit/7d7c14d5a837e38ffb5a8b25c846325ed313d3b8"
+        },
+        "date": 1783159186579,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.053066,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.362021,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.946239,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.323542,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.013879,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.234156,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.478272,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.068269,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 13.516813,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.846139,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 11.031326,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 1.068619,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 9.084409,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.86721,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.04374,
             "unit": "seconds"
           }
         ]
