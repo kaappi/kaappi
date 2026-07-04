@@ -19,10 +19,7 @@ pub fn captureContinuation(vm: *VM, dst_reg: u16, dst_base: u32) VMError!Value {
     // stack, far tighter than the old conservative `base + 256` per frame.
     var max_reg: usize = 0;
     for (vm.frames[0..vm.frame_count]) |f| {
-        const window: usize = if (f.closure) |cls| blk: {
-            const lc = cls.func.locals_count;
-            break :blk if (lc == 0) 256 else lc; // 0 => unknown, stay safe
-        } else 256; // native/closure-less frame: conservative fallback
+        const window = f.frameWindow();
         const frame_end = @as(usize, f.base) + window;
         if (frame_end > max_reg) max_reg = frame_end;
     }

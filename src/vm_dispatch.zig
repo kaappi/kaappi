@@ -133,14 +133,12 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
             .set_global => 4,
             .define_global => 4,
             .tail_apply => 3,
-            .get_local, .set_local => 4,
             .get_upvalue, .set_upvalue => 4,
             .call, .tail_call => 3,
             .@"return" => 2,
             .jump => 2,
             .jump_false, .jump_true => 4,
             .closure => 4,
-            .close_upvalue => 2,
             .cons => 6,
             .push_handler => 2,
             .pop_handler, .halt => 0,
@@ -849,9 +847,6 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                 const dst_idx = try registerIndex(self, frame.base, dst);
                 self.registers[dst_idx] = cls_val;
             },
-            .close_upvalue => {
-                _ = readU16(self, frame);
-            },
             .cons => {
                 const dst = readU16(self, frame);
                 const car_reg = readU16(self, frame);
@@ -1194,7 +1189,6 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                 }
                 frame.ip = 0;
             },
-            else => return VMError.InvalidBytecode,
         }
     }
     return types.VOID;

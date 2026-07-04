@@ -306,10 +306,7 @@ pub fn markFiberState(gc: *memory.GC, fiber: *Fiber) void {
     for (fiber.frames[0..fiber.frame_count]) |f| {
         if (f.closure) |cls| gc.markValue(types.makePointer(@ptrCast(cls)));
         if (f.native) |nf| gc.markValue(types.makePointer(@ptrCast(nf)));
-        const window: usize = if (f.closure) |cls| blk: {
-            const lc = cls.func.locals_count;
-            break :blk if (lc == 0) 256 else @as(usize, lc);
-        } else 256;
+        const window = f.frameWindow();
         const end: usize = @min(@as(usize, f.base) + window, fiber.registers.len);
         var r: usize = f.base;
         while (r < end) : (r += 1) gc.markValue(fiber.registers[r]);

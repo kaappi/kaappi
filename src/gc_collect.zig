@@ -194,10 +194,7 @@ fn referencesYoung(gc: *GC, obj: *Object) bool {
                 if (f.native) |nf| {
                     if (isYoungPointer(gc, types.makePointer(@ptrCast(nf)))) return true;
                 }
-                const window: usize = if (f.closure) |cls| blk: {
-                    const lc = cls.func.locals_count;
-                    break :blk if (lc == 0) 256 else @as(usize, lc);
-                } else 256;
+                const window = f.frameWindow();
                 const end: usize = @min(@as(usize, f.base) + window, fiber.registers.len);
                 var r: usize = f.base;
                 while (r < end) : (r += 1) {
