@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783177864031,
+  "lastUpdate": 1783179304547,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "04e79a2f521c5d202af010da72ef34c5a70dfae7",
-          "message": "Fix call/cc escapes lost inside re-entrant native calls (#934)\n\nRestoring a continuation captured inside the dynamic extent of a native\nthat re-enters the dispatch loop (with-exception-handler, guard,\ndynamic-wind, map, ...) unwound execution to the outermost loop: of the\neleven ContinuationInvoked catch sites in runUntil, only the plain .call\npath resumed in the innermost loop containing the restored frame, while\nthe tail_call / call_global / tail_call_global / tail_apply paths bailed\nunless target_frame_count == 0. Since (call/cc ...) in tail position of\na thunk compiles to tail_call, escaping from a guard or\nwith-exception-handler body abandoned the native's pending\nresult-register write and the surrounding expression evaluated to a\nstale register — typically the with-exception-handler builtin itself.\nEvery SRFI-64 assertion wraps its expression this way, which is what\nbroke \"deep non-tail escape\", \"inner escape, no arithmetic\", and \"outer\nescape from inner extent\" once the suite's silent breakage was fixed.\n\nResuming in the innermost loop whose scope still contains the restored\nframes keeps the Zig-side re-entrant callers between the restore point\nand that loop delivering results correctly. Frame depth alone cannot\nidentify that loop (a restore targeting older-but-deeper frames inside a\ndynamic-wind thunk would masquerade as the thunk's normal return and\nunderflow the wind stack), so each frame now carries a birth id\n(CallFrame.seq) preserved across tail-call reuse and capture/restore;\nresumesHere() resumes only where the loop's scope-root frame survived,\nand out-of-lineage restores propagate outward as before.\n\nThe u64 seq also gives SavedFrame 8-byte alignment on wasm32, replacing\nthe manual padding.\n\nRegression coverage: five unit tests in tests_continuations.zig and\ntests/scheme/continuations/callcc-reentrant-escape.scm (manual asserts\nso it stands alone while the SRFI-64 fix lands separately); all fail\nbefore this change.\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-03T06:18:14Z",
-          "tree_id": "0771958fc695dae843eab0caadf47cbb662dcfeb",
-          "url": "https://github.com/kaappi/kaappi/commit/04e79a2f521c5d202af010da72ef34c5a70dfae7"
-        },
-        "date": 1783060331489,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.467638,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.883679,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.870284,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.201945,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.007046,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.033866,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.47062,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.070581,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 4.21242,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.816184,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.217207,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.434095,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 2.428317,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.753937,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.042974,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.045422,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "distinct": true,
+          "id": "e2ce74ca455e76771da164f519b2ef3733baeb2e",
+          "message": "Improve parallel issue workflow: reuse worktrees and simplify issue format\n\nThe fix-issue script now reuses existing worktrees instead of failing,\nand falls back to checking out an existing branch if creation fails.\nThe parallel-issues skill drops # prefixes from issue numbers for\neasier parsing by downstream scripts.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-04T20:47:13+05:30",
+          "tree_id": "b080c0a7c6d76d0cc08d35cdd5851e061088562e",
+          "url": "https://github.com/kaappi/kaappi/commit/e2ce74ca455e76771da164f519b2ef3733baeb2e"
+        },
+        "date": 1783179304035,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.391133,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.538778,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.942058,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.233428,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.013231,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.212007,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.468192,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.070948,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 12.713437,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.856363,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 9.918333,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.958896,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 8.332712,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.711304,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.04299,
             "unit": "seconds"
           }
         ]
