@@ -24,7 +24,8 @@ assert_contains() {
 }
 
 # Test: runtime error shows source snippet
-TMPFILE=$(mktemp /tmp/kaappi_err_XXXXXX.scm)
+TMPDIR=$(mktemp -d)
+TMPFILE="$TMPDIR/test.scm"
 echo '(define (foo x) (+ x 1))
 (foo "hello")' > "$TMPFILE"
 output=$("$KAAPPI" "$TMPFILE" 2>&1 || true)
@@ -36,7 +37,7 @@ else
     echo "  got: $output"
     FAIL=$((FAIL + 1))
 fi
-rm -f "$TMPFILE"
+rm -rf "$TMPDIR"
 
 echo ""
 echo "$PASS passed, $FAIL failed"
