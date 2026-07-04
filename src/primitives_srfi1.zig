@@ -133,10 +133,14 @@ fn isTruthyResult(v: Value) bool {
 
 // (fold proc init list1 ...)
 fn foldFn(args: []const Value) PrimitiveError!Value {
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const proc = args[0];
     var acc = args[1];
     const list_count = args.len - 2;
     if (list_count == 0) return PrimitiveError.ArityMismatch;
+
+    gc.pushRoot(&acc) catch return PrimitiveError.OutOfMemory;
+    defer gc.popRoot();
 
     // Current pointers for each list
     var currents: [256]Value = undefined;
@@ -210,6 +214,8 @@ fn foldRightFn(args: []const Value) PrimitiveError!Value {
 
     // Fold from right to left
     var acc = init;
+    gc.pushRoot(&acc) catch return PrimitiveError.OutOfMemory;
+    defer gc.popRoot();
     var call_args_buf: [257]Value = undefined;
     var idx = min_len;
     while (idx > 0) {
@@ -225,6 +231,7 @@ fn foldRightFn(args: []const Value) PrimitiveError!Value {
 
 // (reduce f ridentity list)
 fn reduceFn(args: []const Value) PrimitiveError!Value {
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const proc = args[0];
     const ridentity = args[1];
     var lst = args[2];
@@ -233,6 +240,8 @@ fn reduceFn(args: []const Value) PrimitiveError!Value {
     if (!types.isPair(lst)) return primitives.typeError("reduce", "pair", lst);
 
     var acc = types.car(lst);
+    gc.pushRoot(&acc) catch return PrimitiveError.OutOfMemory;
+    defer gc.popRoot();
     lst = types.cdr(lst);
 
     while (lst != types.NIL) {
@@ -266,6 +275,8 @@ fn reduceRightFn(args: []const Value) PrimitiveError!Value {
     if (elems.items.len == 0) return ridentity;
 
     var acc = elems.items[elems.items.len - 1];
+    gc.pushRoot(&acc) catch return PrimitiveError.OutOfMemory;
+    defer gc.popRoot();
     var idx = elems.items.len - 1;
     while (idx > 0) {
         idx -= 1;
@@ -1877,6 +1888,8 @@ fn unfoldRightFn(args: []const Value) PrimitiveError!Value {
     var result: Value = if (args.len > 4) args[4] else types.NIL;
     gc.pushRoot(&result) catch return PrimitiveError.OutOfMemory;
     defer gc.popRoot();
+    gc.pushRoot(&seed) catch return PrimitiveError.OutOfMemory;
+    defer gc.popRoot();
 
     while (true) {
         const stop_args = [1]Value{seed};
@@ -1884,8 +1897,13 @@ fn unfoldRightFn(args: []const Value) PrimitiveError!Value {
         if (isTruthyResult(stop)) break;
 
         const map_args = [1]Value{seed};
-        const val = try callVM(f, &map_args);
-        result = gc.allocPair(val, result) catch return PrimitiveError.OutOfMemory;
+        var val = try callVM(f, &map_args);
+        gc.pushRoot(&val) catch return PrimitiveError.OutOfMemory;
+        result = gc.allocPair(val, result) catch {
+            gc.popRoot();
+            return PrimitiveError.OutOfMemory;
+        };
+        gc.popRoot();
 
         const succ_args = [1]Value{seed};
         seed = try callVM(g, &succ_args);
@@ -2043,10 +2061,14 @@ fn pairForEachFn(args: []const Value) PrimitiveError!Value {
 
 // (pair-fold kons knil list1 ...) — like fold but passes pairs not elements
 fn pairFoldFn(args: []const Value) PrimitiveError!Value {
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const proc = args[0];
     var acc = args[1];
     const list_count = args.len - 2;
     if (list_count == 0) return PrimitiveError.ArityMismatch;
+
+    gc.pushRoot(&acc) catch return PrimitiveError.OutOfMemory;
+    defer gc.popRoot();
 
     var currents: [256]Value = undefined;
     for (0..list_count) |i| {
@@ -2104,6 +2126,8 @@ fn pairFoldRightFn(args: []const Value) PrimitiveError!Value {
     }
 
     var acc = init;
+    gc.pushRoot(&acc) catch return PrimitiveError.OutOfMemory;
+    defer gc.popRoot();
     var call_args_buf: [257]Value = undefined;
     var idx = min_len;
     while (idx > 0) {
@@ -2129,6 +2153,7 @@ fn mapInOrderFn(args: []const Value) PrimitiveError!Value {
     defer results.deinit(gc.allocator);
     var call_args_buf: [256]Value = undefined;
 
+    const extra_roots_base = gc.extra_roots.items.len;
     while (true) {
         var all_pairs = true;
         for (0..list_count) |i| {
@@ -2142,8 +2167,10 @@ fn mapInOrderFn(args: []const Value) PrimitiveError!Value {
         for (0..list_count) |i| call_args_buf[i] = types.car(currents[i]);
         const result = try callVM(proc, call_args_buf[0..list_count]);
         results.append(gc.allocator, result) catch return PrimitiveError.OutOfMemory;
+        gc.extra_roots.append(gc.allocator, result) catch return PrimitiveError.OutOfMemory;
         for (0..list_count) |i| currents[i] = types.cdr(currents[i]);
     }
+    gc.extra_roots.shrinkRetainingCapacity(extra_roots_base);
 
     var result_list: Value = types.NIL;
     gc.pushRoot(&result_list) catch return PrimitiveError.OutOfMemory;

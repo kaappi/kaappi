@@ -798,6 +798,8 @@ fn stringUnfoldFn(args: []const Value) PrimitiveError!Value {
     const f = args[1];
     const g = args[2];
     var seed = args[3];
+    gc.pushRoot(&seed) catch return PrimitiveError.OutOfMemory;
+    defer gc.popRoot();
 
     var result: std.ArrayList(u8) = .empty;
     defer result.deinit(gc.allocator);
@@ -835,6 +837,8 @@ fn stringUnfoldRightFn(args: []const Value) PrimitiveError!Value {
     const f = args[1];
     const g = args[2];
     var seed = args[3];
+    gc.pushRoot(&seed) catch return PrimitiveError.OutOfMemory;
+    defer gc.popRoot();
 
     var chars: std.ArrayList(u21) = .empty;
     defer chars.deinit(gc.allocator);
