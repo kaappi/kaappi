@@ -3,6 +3,7 @@ const types = @import("types.zig");
 const memory = @import("memory.zig");
 const compiler_mod = @import("compiler.zig");
 const library_mod = @import("library.zig");
+pub const globals_mod = @import("globals.zig");
 const Value = types.Value;
 const OpCode = types.OpCode;
 
@@ -41,82 +42,25 @@ pub threadlocal var vm_instance: ?*VM = null;
 
 pub fn setVMInstance(vm: *VM) void {
     vm_instance = vm;
+    globals_mod.setGlobalsContext(.{
+        .globals = vm.globals,
+        .globals_lock = vm.globals_lock,
+        .owns_globals = vm.owns_globals,
+    });
+    globals_mod.library_exists_checker = &checkLibraryExists;
 }
 
-/// Minimal portable reader-writer spinlock (Zig 0.16 has no blocking
-/// std.Thread.RwLock; std.Io.RwLock needs an Io instance). Same approach as
-/// memory.zig's symbol_mutex spinlock. Writer-preferring: once a writer sets
-/// its bit, new readers spin, existing readers drain, then the writer runs.
-/// Critical sections here are single hash-map operations, so spinning is
-/// bounded and short. Not reentrant — never nest acquisitions.
-pub const GlobalsRwLock = struct {
-    /// Bit 31 = writer holds/wants the lock; low 31 bits = active readers.
-    state: std.atomic.Value(u32) = .init(0),
-
-    const WRITER: u32 = 0x8000_0000;
-
-    pub fn lockShared(self: *GlobalsRwLock) void {
-        while (true) {
-            const s = self.state.load(.monotonic);
-            if (s & WRITER == 0) {
-                if (self.state.cmpxchgWeak(s, s + 1, .acquire, .monotonic) == null) return;
-            }
-            std.atomic.spinLoopHint();
-        }
-    }
-
-    pub fn unlockShared(self: *GlobalsRwLock) void {
-        _ = self.state.fetchSub(1, .release);
-    }
-
-    pub fn lock(self: *GlobalsRwLock) void {
-        // Claim the writer bit (excludes other writers, stops new readers) …
-        while (true) {
-            const s = self.state.load(.monotonic);
-            if (s & WRITER == 0) {
-                if (self.state.cmpxchgWeak(s, s | WRITER, .acquire, .monotonic) == null) break;
-            }
-            std.atomic.spinLoopHint();
-        }
-        // … then wait for in-flight readers to drain.
-        while (self.state.load(.acquire) != WRITER) std.atomic.spinLoopHint();
-    }
-
-    pub fn unlock(self: *GlobalsRwLock) void {
-        self.state.store(0, .release);
-    }
-};
-
-/// Take the exclusive globals lock if `map` is the current thread's shared
-/// globals map, for compile-time code that only holds a map pointer (body
-/// prescans, macro-expansion temp globals). Returns the lock to hand to
-/// releaseGlobalsWrite, or null when no locking applies: `map` is a library
-/// env, or no VM is registered on this thread yet (startup — no child
-/// threads can exist before the first execute()).
-pub fn acquireGlobalsWrite(map: *const std.StringHashMap(Value)) ?*GlobalsRwLock {
-    const vm = vm_instance orelse return null;
-    if (@as(*const std.StringHashMap(Value), vm.globals) != map) return null;
-    vm.globals_lock.lock();
-    return vm.globals_lock;
+fn checkLibraryExists(lib_name: []const u8, lib_name_list: Value) bool {
+    const vm = vm_instance orelse return false;
+    if (vm.libraries.get(lib_name) != null) return true;
+    return vm_library.libraryFileExists(vm, lib_name_list);
 }
 
-pub fn releaseGlobalsWrite(lock: ?*GlobalsRwLock) void {
-    if (lock) |l| l.unlock();
-}
-
-/// Shared-lock counterpart of acquireGlobalsWrite for read-only compile-time
-/// access. No-ops on the owner thread (its reads cannot race its own writes).
-pub fn acquireGlobalsRead(map: *const std.StringHashMap(Value)) ?*GlobalsRwLock {
-    const vm = vm_instance orelse return null;
-    if (vm.owns_globals) return null;
-    if (@as(*const std.StringHashMap(Value), vm.globals) != map) return null;
-    vm.globals_lock.lockShared();
-    return vm.globals_lock;
-}
-
-pub fn releaseGlobalsRead(lock: ?*GlobalsRwLock) void {
-    if (lock) |l| l.unlockShared();
-}
+pub const GlobalsRwLock = globals_mod.GlobalsRwLock;
+pub const acquireGlobalsWrite = globals_mod.acquireGlobalsWrite;
+pub const releaseGlobalsWrite = globals_mod.releaseGlobalsWrite;
+pub const acquireGlobalsRead = globals_mod.acquireGlobalsRead;
+pub const releaseGlobalsRead = globals_mod.releaseGlobalsRead;
 
 /// Mark the VM's live roots during a GC cycle: the register window of every
 /// active call frame, the frame closures, the exception-handler stack,
@@ -466,7 +410,10 @@ pub const VM = struct {
         // later VM on the same thread (e.g. the next unit test) would reach a
         // freed globals map through vm_instance during compile-time macro
         // expansion, before its own first execute() re-registers it.
-        if (vm_instance == self) vm_instance = null;
+        if (vm_instance == self) {
+            vm_instance = null;
+            globals_mod.clearGlobalsContext();
+        }
         if (self.scheduler) |sched| {
             self.gc.allocator.destroy(sched);
             self.scheduler = null;

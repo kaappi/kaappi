@@ -369,11 +369,7 @@ pub fn evalFeatureReq(self: *Compiler, req: Value) bool {
                 if (std.mem.eql(u8, lib_name, l)) return true;
             }
             // Check the VM's live library registry and .sld files on disk
-            const vm_mod = @import("vm.zig");
-            if (vm_mod.vm_instance) |vm| {
-                if (vm.libraries.get(lib_name) != null) return true;
-                return @import("vm_library.zig").libraryFileExists(vm, lib_name_list);
-            }
+            if (@import("globals.zig").libraryExists(lib_name, lib_name_list)) return true;
             return false;
         }
     }
