@@ -34,6 +34,50 @@ pub const LLVMEmitter = struct {
     rest_param_name: ?[]const u8 = null,
     locals: ?std.StringHashMap([]const u8) = null,
 
+    pub const SavedScope = struct {
+        buf: std.ArrayList(u8),
+        params: ?std.StringHashMap(u8),
+        upvalues: ?std.StringHashMap(u8),
+        tmp_counter: u32,
+        label_counter: u32,
+        current_fn_name: ?[]const u8,
+        body_label: ?[]const u8,
+        current_block: []const u8,
+        rest_param_alloca: ?[]const u8,
+        rest_param_name: ?[]const u8,
+        locals: ?std.StringHashMap([]const u8),
+    };
+
+    pub fn saveScope(self: *LLVMEmitter) SavedScope {
+        return .{
+            .buf = self.buf,
+            .params = self.params,
+            .upvalues = self.upvalues,
+            .tmp_counter = self.tmp_counter,
+            .label_counter = self.label_counter,
+            .current_fn_name = self.current_fn_name,
+            .body_label = self.body_label,
+            .current_block = self.current_block,
+            .rest_param_alloca = self.rest_param_alloca,
+            .rest_param_name = self.rest_param_name,
+            .locals = self.locals,
+        };
+    }
+
+    pub fn restoreScope(self: *LLVMEmitter, s: SavedScope) void {
+        self.buf = s.buf;
+        self.params = s.params;
+        self.upvalues = s.upvalues;
+        self.tmp_counter = s.tmp_counter;
+        self.label_counter = s.label_counter;
+        self.current_fn_name = s.current_fn_name;
+        self.body_label = s.body_label;
+        self.current_block = s.current_block;
+        self.rest_param_alloca = s.rest_param_alloca;
+        self.rest_param_name = s.rest_param_name;
+        self.locals = s.locals;
+    }
+
     pub fn init(backing: std.mem.Allocator) LLVMEmitter {
         return .{
             .buf = .empty,

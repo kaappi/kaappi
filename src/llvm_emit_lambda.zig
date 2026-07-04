@@ -169,121 +169,45 @@ fn tryCompileNativeClosure(self: *LLVMEmitter, data: ir.LambdaData) ?[]const u8 
     const closure_name = data.name orelse "(closure)";
 
     var fn_buf: std.ArrayList(u8) = .empty;
-    const saved_buf = self.buf;
-    const saved_params = self.params;
-    const saved_tmp = self.tmp_counter;
-    const saved_label = self.label_counter;
-    const saved_fn_name = self.current_fn_name;
-    const saved_body_label = self.body_label;
-    const saved_block = self.current_block;
-    self.buf = fn_buf;
-    self.tmp_counter = 0;
-    self.label_counter = 0;
-    self.current_fn_name = null;
-    self.body_label = null;
-    self.current_block = "entry";
+    {
+        const saved = self.saveScope();
+        defer self.restoreScope(saved);
+        self.buf = .empty;
+        self.tmp_counter = 0;
+        self.label_counter = 0;
+        self.current_fn_name = null;
+        self.body_label = null;
+        self.current_block = "entry";
 
-    var p = std.StringHashMap(u8).init(self.backing_alloc);
-    for (param_names[0..arity], 0..) |pname, i| {
-        p.put(pname, @intCast(i)) catch {
-            self.buf = saved_buf;
-            self.params = saved_params;
-            self.tmp_counter = saved_tmp;
-            self.label_counter = saved_label;
-            self.current_fn_name = saved_fn_name;
-            self.body_label = saved_body_label;
-            self.current_block = saved_block;
-            return null;
-        };
-    }
-
-    var uv_map = std.StringHashMap(u8).init(self.backing_alloc);
-    defer uv_map.deinit();
-    for (free_vars[0..free_count], 0..) |fv, i| {
-        if (outer_params.contains(fv)) {
-            uv_map.put(fv, @intCast(i)) catch {
-                self.buf = saved_buf;
-                self.params = saved_params;
-                self.tmp_counter = saved_tmp;
-                self.label_counter = saved_label;
-                self.current_fn_name = saved_fn_name;
-                self.body_label = saved_body_label;
-                self.current_block = saved_block;
-                p.deinit();
-                return null;
-            };
+        var p = std.StringHashMap(u8).init(self.backing_alloc);
+        defer p.deinit();
+        for (param_names[0..arity], 0..) |pname, i| {
+            p.put(pname, @intCast(i)) catch return null;
         }
+
+        var uv_map = std.StringHashMap(u8).init(self.backing_alloc);
+        defer uv_map.deinit();
+        for (free_vars[0..free_count], 0..) |fv, i| {
+            if (outer_params.contains(fv)) {
+                uv_map.put(fv, @intCast(i)) catch return null;
+            }
+        }
+        self.params = p;
+        self.upvalues = uv_map;
+
+        const header = std.fmt.allocPrint(self.allocator(), "; closure: {s}\ndefine i64 {s}(ptr %vm, ptr %args, i64 %nargs, ptr %upvalues) {{\nentry:\n", .{ closure_name, fn_name }) catch return null;
+        defer self.allocator().free(header);
+        self.write(header) catch return null;
+
+        var last_val: []const u8 = "";
+        for (body_nodes[0..body_count]) |node| {
+            last_val = self.emitNode(node) catch return null;
+        }
+
+        self.print("  ret i64 {s}\n}}\n", .{last_val}) catch return null;
+
+        fn_buf = self.buf;
     }
-    self.params = p;
-    self.upvalues = uv_map;
-
-    const header = std.fmt.allocPrint(self.allocator(), "; closure: {s}\ndefine i64 {s}(ptr %vm, ptr %args, i64 %nargs, ptr %upvalues) {{\nentry:\n", .{ closure_name, fn_name }) catch {
-        self.buf = saved_buf;
-        self.params = saved_params;
-        self.upvalues = null;
-        self.tmp_counter = saved_tmp;
-        self.label_counter = saved_label;
-        self.current_fn_name = saved_fn_name;
-        self.body_label = saved_body_label;
-        self.current_block = saved_block;
-        p.deinit();
-        return null;
-    };
-    defer self.allocator().free(header);
-    self.write(header) catch {
-        self.buf = saved_buf;
-        self.params = saved_params;
-        self.upvalues = null;
-        self.tmp_counter = saved_tmp;
-        self.label_counter = saved_label;
-        self.current_fn_name = saved_fn_name;
-        self.body_label = saved_body_label;
-        self.current_block = saved_block;
-        p.deinit();
-        return null;
-    };
-
-    var last_val: []const u8 = "";
-    for (body_nodes[0..body_count]) |node| {
-        last_val = self.emitNode(node) catch {
-            self.buf = saved_buf;
-            self.params = saved_params;
-            self.upvalues = null;
-            self.tmp_counter = saved_tmp;
-            self.label_counter = saved_label;
-            self.current_fn_name = saved_fn_name;
-            self.body_label = saved_body_label;
-            self.current_block = saved_block;
-            p.deinit();
-            fn_buf.deinit(self.backing_alloc);
-            return null;
-        };
-    }
-
-    self.print("  ret i64 {s}\n}}\n", .{last_val}) catch {
-        self.buf = saved_buf;
-        self.params = saved_params;
-        self.upvalues = null;
-        self.tmp_counter = saved_tmp;
-        self.label_counter = saved_label;
-        self.current_fn_name = saved_fn_name;
-        self.body_label = saved_body_label;
-        self.current_block = saved_block;
-        p.deinit();
-        fn_buf.deinit(self.backing_alloc);
-        return null;
-    };
-
-    fn_buf = self.buf;
-    self.buf = saved_buf;
-    self.params = saved_params;
-    self.upvalues = null;
-    self.tmp_counter = saved_tmp;
-    self.label_counter = saved_label;
-    self.current_fn_name = saved_fn_name;
-    self.body_label = saved_body_label;
-    self.current_block = saved_block;
-    p.deinit();
 
     const fn_def = fn_buf.toOwnedSlice(self.backing_alloc) catch return null;
     self.lambda_defs.append(self.backing_alloc, fn_def) catch return null;
@@ -453,103 +377,50 @@ fn emitLambdaFunction(self: *LLVMEmitter, name: ?[]const u8, param_names: []cons
     }
 
     var fn_buf: std.ArrayList(u8) = .empty;
-    const saved_buf = self.buf;
-    const saved_params = self.params;
-    const saved_tmp = self.tmp_counter;
-    const saved_label = self.label_counter;
-    const saved_fn_name = self.current_fn_name;
-    const saved_body_label = self.body_label;
-    const saved_block = self.current_block;
-    const saved_rest_alloca = self.rest_param_alloca;
-    const saved_rest_name = self.rest_param_name;
-    const saved_locals = self.locals;
-    self.buf = fn_buf;
-    self.tmp_counter = 0;
-    self.label_counter = 0;
-    // The new function is a fresh scope: an enclosing scope's local allocas are
-    // not valid SSA values here, so start with no locals (nested `let`s in this
-    // body install their own).
-    self.locals = null;
+    {
+        const saved = self.saveScope();
+        defer self.restoreScope(saved);
+        self.buf = .empty;
+        self.tmp_counter = 0;
+        self.label_counter = 0;
+        self.locals = null;
 
-    var p = std.StringHashMap(u8).init(self.backing_alloc);
-    for (param_names, 0..) |pname, i| {
-        p.put(pname, @intCast(i)) catch {
-            restoreState(self, saved_buf, saved_params, saved_tmp, saved_label, saved_fn_name, saved_body_label, saved_block, saved_rest_alloca, saved_rest_name, saved_locals);
-            return null;
-        };
+        var p = std.StringHashMap(u8).init(self.backing_alloc);
+        defer p.deinit();
+        for (param_names, 0..) |pname, i| {
+            p.put(pname, @intCast(i)) catch return null;
+        }
+        self.params = p;
+
+        const body_lbl = std.fmt.allocPrint(self.allocator(), "body_{d}", .{id}) catch return null;
+
+        self.current_fn_name = if (rest_name == null) name else null;
+        self.body_label = if (rest_name == null) body_lbl else null;
+        self.current_block = body_lbl;
+        self.rest_param_name = rest_name;
+
+        const header = std.fmt.allocPrint(self.allocator(), "; {s}\ndefine i64 {s}(ptr %vm, ptr %args, i64 %nargs, ptr %upvalues) {{\nentry:\n  br label %{s}\n{s}:\n", .{ name orelse "(lambda)", fn_name, body_lbl, body_lbl }) catch return null;
+        defer self.allocator().free(header);
+        self.write(header) catch return null;
+
+        if (rest_name != null) {
+            emitRestListBuilder(self, param_names.len) catch return null;
+        }
+
+        var last_val: []const u8 = "";
+        for (body_nodes) |node| {
+            last_val = self.emitNode(node) catch return null;
+        }
+
+        self.print("  ret i64 {s}\n}}\n", .{last_val}) catch return null;
+
+        fn_buf = self.buf;
     }
-    self.params = p;
-
-    const body_lbl = std.fmt.allocPrint(self.allocator(), "body_{d}", .{id}) catch {
-        restoreState(self, saved_buf, saved_params, saved_tmp, saved_label, saved_fn_name, saved_body_label, saved_block, saved_rest_alloca, saved_rest_name, saved_locals);
-        p.deinit();
-        return null;
-    };
-
-    self.current_fn_name = if (rest_name == null) name else null;
-    self.body_label = if (rest_name == null) body_lbl else null;
-    self.current_block = body_lbl;
-    self.rest_param_name = rest_name;
-
-    const header = std.fmt.allocPrint(self.allocator(), "; {s}\ndefine i64 {s}(ptr %vm, ptr %args, i64 %nargs, ptr %upvalues) {{\nentry:\n  br label %{s}\n{s}:\n", .{ name orelse "(lambda)", fn_name, body_lbl, body_lbl }) catch {
-        restoreState(self, saved_buf, saved_params, saved_tmp, saved_label, saved_fn_name, saved_body_label, saved_block, saved_rest_alloca, saved_rest_name, saved_locals);
-        p.deinit();
-        return null;
-    };
-    defer self.allocator().free(header);
-    self.write(header) catch {
-        restoreState(self, saved_buf, saved_params, saved_tmp, saved_label, saved_fn_name, saved_body_label, saved_block, saved_rest_alloca, saved_rest_name, saved_locals);
-        p.deinit();
-        return null;
-    };
-
-    if (rest_name != null) {
-        emitRestListBuilder(self, param_names.len) catch {
-            restoreState(self, saved_buf, saved_params, saved_tmp, saved_label, saved_fn_name, saved_body_label, saved_block, saved_rest_alloca, saved_rest_name, saved_locals);
-            p.deinit();
-            fn_buf.deinit(self.backing_alloc);
-            return null;
-        };
-    }
-
-    var last_val: []const u8 = "";
-    for (body_nodes) |node| {
-        last_val = self.emitNode(node) catch {
-            restoreState(self, saved_buf, saved_params, saved_tmp, saved_label, saved_fn_name, saved_body_label, saved_block, saved_rest_alloca, saved_rest_name, saved_locals);
-            p.deinit();
-            fn_buf.deinit(self.backing_alloc);
-            return null;
-        };
-    }
-
-    self.print("  ret i64 {s}\n}}\n", .{last_val}) catch {
-        restoreState(self, saved_buf, saved_params, saved_tmp, saved_label, saved_fn_name, saved_body_label, saved_block, saved_rest_alloca, saved_rest_name, saved_locals);
-        p.deinit();
-        fn_buf.deinit(self.backing_alloc);
-        return null;
-    };
-
-    fn_buf = self.buf;
-    restoreState(self, saved_buf, saved_params, saved_tmp, saved_label, saved_fn_name, saved_body_label, saved_block, saved_rest_alloca, saved_rest_name, saved_locals);
-    p.deinit();
 
     const fn_def = fn_buf.toOwnedSlice(self.backing_alloc) catch return null;
     self.lambda_defs.append(self.backing_alloc, fn_def) catch return null;
 
     return fn_name;
-}
-
-fn restoreState(self: *LLVMEmitter, buf: std.ArrayList(u8), params: ?std.StringHashMap(u8), tmp: u32, label: u32, fn_name: ?[]const u8, body_label: ?[]const u8, block: []const u8, rest_alloca: ?[]const u8, rp_name: ?[]const u8, locals: ?std.StringHashMap([]const u8)) void {
-    self.buf = buf;
-    self.params = params;
-    self.tmp_counter = tmp;
-    self.label_counter = label;
-    self.current_fn_name = fn_name;
-    self.body_label = body_label;
-    self.current_block = block;
-    self.rest_param_alloca = rest_alloca;
-    self.rest_param_name = rp_name;
-    self.locals = locals;
 }
 
 fn emitRestListBuilder(self: *LLVMEmitter, fixed_arity: usize) EmitError!void {
