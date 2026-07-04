@@ -352,23 +352,9 @@ pub fn callClosure(vm: *VM, closure: *types.Closure, base: u32, nargs: u8) VMErr
             }
             return VMError.ArityMismatch;
         }
-        // Collect rest args into a list
         const rest_start = func.arity;
-        var rest_list: Value = types.NIL;
-        vm.gc.pushRoot(&rest_list) catch return VMError.OutOfMemory;
-        var i: u8 = nargs;
-        while (i > rest_start) {
-            i -= 1;
-            rest_list = vm.gc.allocPair(
-                vm.registers[base + 1 + i],
-                rest_list,
-            ) catch {
-                vm.gc.popRoot();
-                return VMError.OutOfMemory;
-            };
-        }
-        vm.gc.popRoot();
-        vm.registers[base + 1 + rest_start] = rest_list;
+        const vm_dispatch = @import("vm_dispatch.zig");
+        vm.registers[base + 1 + rest_start] = try vm_dispatch.buildRestList(vm.gc, vm.registers[base + 1 + rest_start .. base + 1 + nargs]);
     }
 
     try vm.ensureFrameCapacity(vm.frame_count + 1);
@@ -727,17 +713,8 @@ pub fn callWithArgs(vm: *VM, proc: Value, args: []const Value) VMError!Value {
         } else {
             if (nargs < func.arity) return VMError.ArityMismatch;
             const rest_start = func.arity;
-            var rest_list: Value = types.NIL;
-            vm.gc.pushRoot(&rest_list) catch return VMError.OutOfMemory;
-            var i: u8 = nargs;
-            while (i > rest_start) {
-                i -= 1;
-                rest_list = vm.gc.allocPair(args[i], rest_list) catch {
-                    vm.gc.popRoot();
-                    return VMError.OutOfMemory;
-                };
-            }
-            vm.gc.popRoot();
+            const vm_dispatch = @import("vm_dispatch.zig");
+            const rest_list = try vm_dispatch.buildRestList(vm.gc, args[rest_start..nargs]);
             for (0..rest_start) |ri| {
                 vm.registers[base + ri] = args[ri];
             }
