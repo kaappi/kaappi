@@ -330,16 +330,16 @@ const CaptureScan = struct {
     names: *std.ArrayList([]const u8),
     alloc: std.mem.Allocator,
 
-    fn addName(self: *@This(), name: []const u8) void {
+    fn addName(self: *@This(), name: []const u8) error{OutOfMemory}!void {
         for (self.names.items) |n| {
             if (std.mem.eql(u8, n, name)) return;
         }
-        self.names.append(self.alloc, name) catch {};
+        try self.names.append(self.alloc, name);
     }
 
-    fn walk(self: *@This(), expr: Value, in_closure: bool) void {
+    fn walk(self: *@This(), expr: Value, in_closure: bool) error{OutOfMemory}!void {
         if (types.isSymbol(expr)) {
-            if (in_closure) self.addName(types.symbolName(expr));
+            if (in_closure) try self.addName(types.symbolName(expr));
             return;
         }
         if (!types.isPair(expr)) return;
@@ -356,7 +356,7 @@ const CaptureScan = struct {
             {
                 var p = types.cdr(expr);
                 while (types.isPair(p)) : (p = types.cdr(p)) {
-                    self.walk(types.car(p), true);
+                    try self.walk(types.car(p), true);
                 }
                 return;
             }
@@ -364,10 +364,10 @@ const CaptureScan = struct {
 
         var p = expr;
         while (types.isPair(p)) : (p = types.cdr(p)) {
-            self.walk(types.car(p), in_closure);
+            try self.walk(types.car(p), in_closure);
         }
         // Improper (dotted) tail: a bare symbol in a closure is a reference.
-        if (in_closure and types.isSymbol(p)) self.addName(types.symbolName(p));
+        if (in_closure and types.isSymbol(p)) try self.addName(types.symbolName(p));
     }
 };
 
@@ -439,12 +439,12 @@ pub fn compileDo(self: *Compiler, args: Value, dst: u16, is_tail: bool) CompileE
         var captured: std.ArrayList([]const u8) = .empty;
         defer captured.deinit(self.gc.allocator);
         var scan = CaptureScan{ .names = &captured, .alloc = self.gc.allocator };
-        scan.walk(test_expr, false);
-        scan.walk(commands, false);
+        try scan.walk(test_expr, false);
+        try scan.walk(commands, false);
         for (0..var_count) |j| {
-            if (has_step[j]) scan.walk(step_exprs[j], false);
+            if (has_step[j]) try scan.walk(step_exprs[j], false);
         }
-        scan.walk(result_exprs, false);
+        try scan.walk(result_exprs, false);
         for (captured.items) |name| {
             if (self.resolveLocal(name)) |slot| {
                 try self.markLocalBoxedBySlot(slot);
@@ -568,7 +568,7 @@ pub fn compileLetBody(self: *Compiler, body: Value, dst: u16, is_tail: bool) Com
                             }
                             if (def_name) |dn| {
                                 if (!globals.contains(dn)) {
-                                    globals.put(dn, types.VOID) catch {};
+                                    try globals.put(dn, types.VOID);
                                     if (prescan_count < 64) {
                                         prescan_names[prescan_count] = dn;
                                         prescan_count += 1;
@@ -617,7 +617,7 @@ pub fn compileLetBody(self: *Compiler, body: Value, dst: u16, is_tail: bool) Com
     // via compileDefineSyntax) so they don't outlive the body (R7RS 5.3).
     var macro_count: usize = 0;
     const macro_mark = self.beginBodyMacroScope();
-    defer self.endBodyMacroScope(macro_mark);
+    defer self.endBodyMacroScope(macro_mark) catch {};
 
     var current = body;
     while (current != types.NIL and types.isPair(current)) {
