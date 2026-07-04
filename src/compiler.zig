@@ -162,7 +162,7 @@ pub const Compiler = struct {
         }) catch return CompileError.OutOfMemory;
     }
 
-    fn lookupMacro(self: *Compiler, name: []const u8) ?Value {
+    pub fn lookupMacro(self: *const Compiler, name: []const u8) ?Value {
         // Check this compiler's macros first
         if (self.macros.get(name)) |v| return v;
         // Then check parent chain

@@ -210,6 +210,35 @@ test "IR behavioral: macros" {
     try expectBehavioralParity("(define-syntax my-add (syntax-rules () ((my-add a b) (+ a b)))) (my-add 3 4)");
 }
 
+test "IR behavioral: macro in bare-lambda body (#1025)" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+    const result = try vm.eval(
+        \\(define-syntax my-add
+        \\  (syntax-rules ()
+        \\    ((_ a b) (+ a b))))
+        \\(define f (lambda () (my-add 1 2)))
+        \\(f)
+    );
+    try std.testing.expectEqual(@as(i64, 3), types.toFixnum(result));
+}
+
+test "IR behavioral: macro in immediately-applied lambda (#1025)" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+    const result = try vm.eval(
+        \\(define-syntax my-add
+        \\  (syntax-rules ()
+        \\    ((_ a b) (+ a b))))
+        \\((lambda () (my-add 1 2)))
+    );
+    try std.testing.expectEqual(@as(i64, 3), types.toFixnum(result));
+}
+
 // --- Semantic analysis tests ---
 
 test "IR analysis: tail position in if" {
