@@ -3,6 +3,7 @@ const types = @import("types.zig");
 const memory = @import("memory.zig");
 const compiler_mod = @import("compiler.zig");
 const library_mod = @import("library.zig");
+const file_utils = @import("file_utils.zig");
 const Value = types.Value;
 
 const passthrough = @import("compiler_passthrough.zig");
@@ -273,7 +274,7 @@ fn loadLibrarySource(vm: *VM, source: []const u8) !void {
 
 /// Resolve the full path for a library .sld file.
 /// Returns a heap-allocated path string, or null if not found.
-fn resolveLibraryPath(allocator: std.mem.Allocator, rel_path: []const u8, lib_paths: []const []const u8) ?[]u8 {
+pub fn resolveLibraryPath(allocator: std.mem.Allocator, rel_path: []const u8, lib_paths: []const []const u8) ?[]u8 {
     // Built-in search prefixes (relative to cwd)
     const builtin_prefixes = [_][]const u8{ "", "lib/" };
 
@@ -370,7 +371,7 @@ fn readFileOrBundled(allocator: std.mem.Allocator, path: []const u8, bundled: ?*
             return allocator.dupe(u8, src) catch return error.OutOfMemory;
         }
     }
-    return readFileContents(allocator, path);
+    return file_utils.readWholeFile(allocator, path, 1024 * 1024);
 }
 
 /// Record a file read for bundle collection during --compile.
@@ -435,7 +436,7 @@ fn tryLoadLibraryFromFile(vm: *VM, name_list: Value) !void {
     defer vm.current_lib_dir = saved_lib_dir;
 
     // Read the source file
-    const source = readFileContents(allocator, sld_path) catch return error.UndefinedVariable;
+    const source = file_utils.readWholeFile(allocator, sld_path, 1024 * 1024) catch return error.UndefinedVariable;
     defer allocator.free(source);
 
     // Record for bundling (use rel_path so findBundledSource can locate it
@@ -655,31 +656,6 @@ fn extractDir(path: []const u8) []const u8 {
         return path[0 .. pos + 1];
     }
     return "";
-}
-
-/// Read file contents (duplicated from main.zig since we can't import it)
-fn readFileContents(allocator: std.mem.Allocator, path: []const u8) ![]u8 {
-    const path_z = allocator.dupeZ(u8, path) catch return error.OutOfMemory;
-    defer allocator.free(path_z);
-
-    const fd = std.c.open(path_z, .{});
-    if (fd < 0) return error.InvalidSyntax;
-    defer _ = std.c.close(fd);
-
-    const max_size: usize = 1024 * 1024;
-    var result: std.ArrayList(u8) = .empty;
-    defer result.deinit(allocator);
-
-    var tmp: [4096]u8 = undefined;
-    while (true) {
-        const raw = std.c.read(fd, &tmp, tmp.len);
-        if (raw <= 0) break;
-        const bytes_read: usize = @intCast(raw);
-        if (result.items.len + bytes_read > max_size) return error.InvalidSyntax;
-        result.appendSlice(allocator, tmp[0..bytes_read]) catch return error.OutOfMemory;
-    }
-
-    return result.toOwnedSlice(allocator);
 }
 
 fn resolveImportBindings(vm: *VM, import_set: Value) anyerror!std.StringHashMap(Value) {

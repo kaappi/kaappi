@@ -3,6 +3,7 @@ pub const types = @import("types.zig");
 pub const memory = @import("memory.zig");
 pub const vm_mod = @import("vm.zig");
 pub const library_mod = @import("library.zig");
+const file_utils = @import("file_utils.zig");
 
 fn writeToFd(fd: std.posix.fd_t, bytes: []const u8) void {
     var total: usize = 0;
@@ -275,60 +276,6 @@ fn extractName(s: []const u8) ?[]const u8 {
     return s[0..end];
 }
 
-fn resolveSldPath(allocator: std.mem.Allocator, rel_path: []const u8, lib_paths: []const []const u8) ?[]u8 {
-    var bases: [18][]const u8 = undefined;
-    bases[0] = "";
-    bases[1] = "lib/";
-    var base_count: usize = 2;
-    for (lib_paths) |lp| {
-        if (base_count >= 18) break;
-        bases[base_count] = lp;
-        base_count += 1;
-    }
-
-    for (bases[0..base_count]) |base| {
-        var full: [513]u8 = undefined;
-        var len: usize = 0;
-        if (base.len > 0) {
-            if (base.len + 1 + rel_path.len >= full.len) continue;
-            @memcpy(full[0..base.len], base);
-            len = base.len;
-            if (base[base.len - 1] != '/') {
-                full[len] = '/';
-                len += 1;
-            }
-        }
-        if (len + rel_path.len >= full.len) continue;
-        @memcpy(full[len..][0..rel_path.len], rel_path);
-        len += rel_path.len;
-        const path_z = allocator.dupeZ(u8, full[0..len]) catch continue;
-        const fd = std.posix.openat(std.posix.AT.FDCWD, path_z, .{}, 0) catch {
-            allocator.free(path_z);
-            continue;
-        };
-        _ = std.posix.system.close(fd);
-        allocator.free(path_z);
-        return allocator.dupe(u8, full[0..len]) catch null;
-    }
-    return null;
-}
-
-fn readFile(allocator: std.mem.Allocator, path: []const u8) ?[]u8 {
-    const path_z = allocator.dupeZ(u8, path) catch return null;
-    defer allocator.free(path_z);
-    const fd = std.posix.openat(std.posix.AT.FDCWD, path_z, .{}, 0) catch return null;
-    defer _ = std.posix.system.close(fd);
-
-    var result: std.ArrayList(u8) = .empty;
-    var tmp: [4096]u8 = undefined;
-    while (true) {
-        const n = std.posix.read(fd, &tmp) catch break;
-        if (n == 0) break;
-        result.appendSlice(allocator, tmp[0..n]) catch break;
-    }
-    return result.toOwnedSlice(allocator) catch null;
-}
-
 fn xmlEscape(out: *std.ArrayList(u8), allocator: std.mem.Allocator, s: []const u8) void {
     for (s) |c| {
         switch (c) {
@@ -459,10 +406,10 @@ pub fn writeCoverageXml(vm: *vm_mod.VM, path: []const u8) void {
         var define_map: ?DefineMap = null;
         var sld_source: ?[]u8 = null;
         {
-            const resolved = resolveSldPath(allocator, rel_path, vm.lib_paths);
+            const resolved = vm_mod.vm_library.resolveLibraryPath(allocator, rel_path, vm.lib_paths);
             if (resolved) |sld_path| {
                 defer allocator.free(sld_path);
-                sld_source = readFile(allocator, sld_path);
+                sld_source = file_utils.readWholeFile(allocator, sld_path, std.math.maxInt(usize)) catch null;
                 if (sld_source) |source| {
                     define_map = scanDefines(source);
                 }

@@ -3,6 +3,7 @@ const is_wasm = @import("builtin").os.tag == .wasi;
 const types = @import("types.zig");
 const memory = @import("memory.zig");
 const main = @import("main.zig");
+const file_utils = @import("file_utils.zig");
 const Value = types.Value;
 const Function = types.Function;
 const OpCode = types.OpCode;
@@ -578,32 +579,6 @@ fn validateFunctionBytecode(func: *Function) BytecodeError!void {
     }
 }
 
-fn readFileContents(allocator: std.mem.Allocator, path: []const u8) ![]u8 {
-    if (comptime is_wasm) return error.FileNotFound;
-    const fd = std.posix.openat(std.posix.AT.FDCWD, path, .{}, 0) catch {
-        return error.FileNotFound;
-    };
-    defer _ = std.posix.system.close(fd);
-
-    const max_size: usize = 4 * 1024 * 1024;
-    var result: std.ArrayList(u8) = .empty;
-    defer result.deinit(allocator);
-
-    var tmp: [4096]u8 = undefined;
-    while (true) {
-        const bytes_read = std.posix.read(fd, &tmp) catch {
-            return error.ReadError;
-        };
-        if (bytes_read == 0) break;
-        if (result.items.len + bytes_read > max_size) {
-            return error.ReadError;
-        }
-        result.appendSlice(allocator, tmp[0..bytes_read]) catch return error.OutOfMemory;
-    }
-
-    return result.toOwnedSlice(allocator);
-}
-
 // ---------------------------------------------------------------------------
 // Enhanced writeFile that records the top-level function count
 // ---------------------------------------------------------------------------
@@ -936,7 +911,7 @@ pub fn readFromBuffer(gc: *GC, data: []const u8) !?DeserializeResult {
 
 pub fn readFileWithTopLevel(gc: *GC, source_hash: u64, path: []const u8) !?DeserializeResult {
     const allocator = gc.allocator;
-    const data = readFileContents(allocator, path) catch return null;
+    const data = file_utils.readWholeFile(allocator, path, 4 * 1024 * 1024) catch return null;
     defer allocator.free(data);
     return deserializeFromBuffer(gc, data, source_hash);
 }
