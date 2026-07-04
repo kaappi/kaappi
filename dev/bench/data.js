@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783138545876,
+  "lastUpdate": 1783139923182,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "5ce50bba34870b449f74e8605caebe746f27295f",
-          "message": "Fix symbolNeedsBars to catch DEL, C1 controls, and non-letter Unicode (#857) (#902)\n\nThe check missed DEL (0x7F), C1 controls (U+0080-U+009F), and\nnon-letter Unicode codepoints (e.g. arrows), printing symbols bare\nthat the reader can't parse back. Add DEL to the explicit switch,\ndecode multi-byte UTF-8 sequences, and check against the reader's\nisUnicodeLetter.\n\nFixes #857\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-03T04:38:14+05:30",
-          "tree_id": "329db3d7cc5fc5288db06f14018c95308b0f131e",
-          "url": "https://github.com/kaappi/kaappi/commit/5ce50bba34870b449f74e8605caebe746f27295f"
-        },
-        "date": 1783035548689,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.474053,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.535364,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.83917,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.166719,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006917,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.032692,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.46379,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.070609,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.948697,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.786734,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.124755,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.434151,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 2.399373,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.718164,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.042681,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.045788,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c047a9d73c10ea80561233f5706423549b0a9564",
+          "message": "Add indexError detail helper for informative out-of-bounds messages (#1020)\n\nIndexOutOfBounds errors previously gave no diagnostic info. Add\nprimitives.indexError(proc, index, len) — mirroring the existing\ntypeError helper — and convert all 21 bare IndexOutOfBounds returns\nacross vectors, strings, bytevectors, and lists to use it. Errors\nnow read e.g. \"vector-ref: index 10 out of range for length 3\".\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-04T04:20:12Z",
+          "tree_id": "76df355d51aa35fe3c65b233ebaef65a9b732735",
+          "url": "https://github.com/kaappi/kaappi/commit/c047a9d73c10ea80561233f5706423549b0a9564"
+        },
+        "date": 1783139922030,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.292671,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.986417,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.906804,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.266229,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.012476,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.211194,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.486856,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.070519,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 12.460948,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.828124,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 9.920686,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.954199,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 8.254816,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.670363,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.043425,
             "unit": "seconds"
           }
         ]
