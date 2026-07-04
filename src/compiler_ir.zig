@@ -517,32 +517,8 @@ pub fn compileLambdaWithIR(self: *Compiler, args: Value, dst: u16, name: ?[]cons
     try child.emitOp(.@"return");
     try child.emitU16(last_dst);
 
-    if (child.locals.items.len > 0) {
-        const debug = self.gc.allocator.alloc(types.DebugLocal, child.locals.items.len) catch null;
-        if (debug) |d| {
-            for (child.locals.items, 0..) |local, i| {
-                d[i] = .{ .name = local.name, .slot = local.slot };
-            }
-            child.func.debug_locals = d;
-        }
-    }
-
-    for (child.upvalues.items) |uv| {
-        if (uv.is_local) {
-            try self.markLocalBoxedBySlot(uv.index);
-        }
-    }
-
-    const func_val = types.makePointer(@ptrCast(child.func));
-    const idx = try self.addConstant(func_val);
-    try self.emitOp(.closure);
-    try self.emitU16(dst);
-    try self.emitU16(idx);
-
-    for (child.upvalues.items) |uv| {
-        try self.emit(if (uv.is_local) 1 else 0);
-        try self.emitU16(uv.index);
-    }
+    child.populateDebugLocals();
+    try compiler_lambda.emitClosureEpilogue(self, &child, dst);
 }
 
 fn compileDefineFromIR(self: *Compiler, data: ir_mod.DefineData, dst: u16) CompileError!void {

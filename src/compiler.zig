@@ -174,6 +174,16 @@ pub const Compiler = struct {
         return null;
     }
 
+    pub fn populateDebugLocals(self: *Compiler) void {
+        if (self.locals.items.len > 0) {
+            const debug = self.gc.allocator.alloc(types.DebugLocal, self.locals.items.len) catch return;
+            for (self.locals.items, 0..) |local, i| {
+                debug[i] = .{ .name = local.name, .slot = local.slot };
+            }
+            self.func.debug_locals = debug;
+        }
+    }
+
     pub fn emit(self: *Compiler, byte: u8) CompileError!void {
         self.func.code.append(self.gc.allocator, byte) catch return CompileError.OutOfMemory;
     }
@@ -403,16 +413,7 @@ pub const Compiler = struct {
         try self.emitOp(.@"return");
         try self.emitU16(dst);
 
-        // Populate debug_locals for the debugger
-        if (self.locals.items.len > 0) {
-            const debug = self.gc.allocator.alloc(types.DebugLocal, self.locals.items.len) catch null;
-            if (debug) |d| {
-                for (self.locals.items, 0..) |local, i| {
-                    d[i] = .{ .name = local.name, .slot = local.slot };
-                }
-                self.func.debug_locals = d;
-            }
-        }
+        self.populateDebugLocals();
     }
 
     pub fn compileMultiple(self: *Compiler, exprs: []const Value) CompileError!void {
@@ -458,16 +459,7 @@ pub const Compiler = struct {
         try self.emitOp(.@"return");
         try self.emitU16(dst);
 
-        // Populate debug_locals for the debugger
-        if (self.locals.items.len > 0) {
-            const debug = self.gc.allocator.alloc(types.DebugLocal, self.locals.items.len) catch null;
-            if (debug) |d| {
-                for (self.locals.items, 0..) |local, i| {
-                    d[i] = .{ .name = local.name, .slot = local.slot };
-                }
-                self.func.debug_locals = d;
-            }
-        }
+        self.populateDebugLocals();
     }
 
     pub fn compileExpr(self: *Compiler, expr: Value, dst: u16, is_tail: bool) CompileError!void {
