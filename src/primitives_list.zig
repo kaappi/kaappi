@@ -2,12 +2,13 @@ const std = @import("std");
 const types = @import("types.zig");
 const vm_mod = @import("vm.zig");
 const primitives = @import("primitives.zig");
+const memory = @import("memory.zig");
 const bignum_mod = @import("bignum.zig");
 const Value = types.Value;
 const NativeFn = types.NativeFn;
 const PrimitiveError = primitives.PrimitiveError;
 fn getGC() ?*@import("memory.zig").GC {
-    return primitives.gc_instance;
+    return memory.gc_instance;
 }
 const deepEqual = primitives.deepEqual;
 
@@ -75,7 +76,7 @@ fn listSetFn(args: []const Value) PrimitiveError!Value {
     while (current != types.NIL) {
         if (!types.isPair(current)) return primitives.typeError("list-set!", "pair", current);
         if (idx == k) {
-            if (primitives.gc_instance) |gc| gc.writeBarrier(types.toObject(current), args[2]);
+            if (memory.gc_instance) |gc| gc.writeBarrier(types.toObject(current), args[2]);
             types.setCar(current, args[2]);
             return types.VOID;
         }

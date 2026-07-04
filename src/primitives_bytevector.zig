@@ -2,6 +2,7 @@ const std = @import("std");
 const types = @import("types.zig");
 const vm_mod = @import("vm.zig");
 const primitives = @import("primitives.zig");
+const memory = @import("memory.zig");
 const primitives_io = @import("primitives_io.zig");
 const Value = types.Value;
 const NativeFn = types.NativeFn;
@@ -47,7 +48,7 @@ fn bytevectorP(args: []const Value) PrimitiveError!Value {
 
 fn makeBytevector(args: []const Value) PrimitiveError!Value {
     if (!types.isFixnum(args[0])) return primitives.typeError("make-bytevector", "non-negative integer", args[0]);
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const k = types.toFixnum(args[0]);
     if (k < 0) return primitives.typeError("make-bytevector", "non-negative integer", args[0]);
     const size: usize = @intCast(k);
@@ -61,7 +62,7 @@ fn makeBytevector(args: []const Value) PrimitiveError!Value {
 }
 
 fn bytevectorFn(args: []const Value) PrimitiveError!Value {
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const data = gc.allocator.alloc(u8, args.len) catch return PrimitiveError.OutOfMemory;
     defer gc.allocator.free(data);
     for (args, 0..) |a, i| {
@@ -103,7 +104,7 @@ fn bytevectorU8Set(args: []const Value) PrimitiveError!Value {
 
 fn bytevectorCopy(args: []const Value) PrimitiveError!Value {
     if (!types.isBytevector(args[0])) return primitives.typeError("bytevector-copy", "bytevector", args[0]);
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const bv = types.toBytevector(args[0]);
 
     const range = try primitives.parseOptionalRange(args, 1, bv.data.len, "bytevector-copy");
@@ -146,7 +147,7 @@ fn bytevectorCopyBang(args: []const Value) PrimitiveError!Value {
 }
 
 fn bytevectorAppend(args: []const Value) PrimitiveError!Value {
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     var total_len: usize = 0;
     for (args) |a| {
         if (!types.isBytevector(a)) return primitives.typeError("bytevector-append", "bytevector", a);
@@ -165,7 +166,7 @@ fn bytevectorAppend(args: []const Value) PrimitiveError!Value {
 
 fn utf8ToString(args: []const Value) PrimitiveError!Value {
     if (!types.isBytevector(args[0])) return primitives.typeError("utf8->string", "bytevector", args[0]);
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const bv = types.toBytevector(args[0]);
 
     const range = try primitives.parseOptionalRange(args, 1, bv.data.len, "utf8->string");
@@ -176,7 +177,7 @@ fn utf8ToString(args: []const Value) PrimitiveError!Value {
 
 fn stringToUtf8(args: []const Value) PrimitiveError!Value {
     if (!types.isString(args[0])) return primitives.typeError("string->utf8", "string", args[0]);
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const str = types.toObject(args[0]).as(types.SchemeString);
     const string_mod = @import("primitives_string.zig");
 
@@ -287,7 +288,7 @@ fn portWriteBytes(port: *types.Port, bytes: []const u8) void {
         return;
     }
     // String output port: grow buffer as needed
-    const gc = primitives.gc_instance orelse return;
+    const gc = memory.gc_instance orelse return;
     var buf = port.string_out_buf orelse return;
     const len = port.string_out_len;
     const cap = port.string_out_cap;
@@ -315,7 +316,7 @@ fn u8ReadyP(args: []const Value) PrimitiveError!Value {
 fn readBytevectorFn(args: []const Value) PrimitiveError!Value {
     // (read-bytevector k [port])
     if (!types.isFixnum(args[0])) return primitives.typeError("read-bytevector", "exact integer", args[0]);
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const k = types.toFixnum(args[0]);
     if (k < 0) return primitives.typeError("read-bytevector", "non-negative integer", args[0]);
     const count: usize = @intCast(@as(u64, @bitCast(k)));
@@ -360,7 +361,7 @@ fn writeBytevectorFn(args: []const Value) PrimitiveError!Value {
 
 fn openInputBytevector(args: []const Value) PrimitiveError!Value {
     if (!types.isBytevector(args[0])) return primitives.typeError("open-input-bytevector", "bytevector", args[0]);
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const port_val = gc.allocStringInputPort(bv_data: {
         const bv = types.toBytevector(args[0]);
         break :bv_data bv.data;
@@ -371,7 +372,7 @@ fn openInputBytevector(args: []const Value) PrimitiveError!Value {
 
 fn openOutputBytevector(args: []const Value) PrimitiveError!Value {
     _ = args;
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const port_val = gc.allocStringOutputPort() catch return PrimitiveError.OutOfMemory;
     types.toObject(port_val).as(types.Port).is_binary = true;
     return port_val;
@@ -379,7 +380,7 @@ fn openOutputBytevector(args: []const Value) PrimitiveError!Value {
 
 fn getOutputBytevector(args: []const Value) PrimitiveError!Value {
     if (!types.isPort(args[0])) return primitives.typeError("get-output-bytevector", "output bytevector port", args[0]);
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const port = types.toObject(args[0]).as(types.Port);
     if (!port.is_string_port or !port.is_output or !port.is_binary) return primitives.typeError("get-output-bytevector", "output bytevector port", args[0]);
     const data = if (port.string_out_buf) |buf| buf[0..port.string_out_len] else &[_]u8{};

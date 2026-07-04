@@ -292,7 +292,7 @@ fn mainImpl(init: std.process.Init.Minimal) !void {
     // WASM: simplified entry — just run the file specified as argv[1]
     if (comptime is_wasm) {
         try primitives.registerAll(vm);
-        primitives.setGCInstance(&gc);
+        memory.setGCInstance(&gc);
         try library.registerStandardLibraries(&vm.libraries, vm.globals);
 
         var wasi_args = try init.args.iterateAllocator(allocator);
@@ -345,12 +345,12 @@ fn mainImpl(init: std.process.Init.Minimal) !void {
 
     if (is_sandboxed) {
         try primitives.registerSandboxed(vm);
-        primitives.setGCInstance(&gc);
+        memory.setGCInstance(&gc);
         try library.registerSandboxedLibraries(&vm.libraries, vm.globals);
         vm.sandbox_mode = true;
     } else {
         try primitives.registerAll(vm);
-        primitives.setGCInstance(&gc);
+        memory.setGCInstance(&gc);
         try library.registerStandardLibraries(&vm.libraries, vm.globals);
     }
 

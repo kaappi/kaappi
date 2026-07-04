@@ -26,7 +26,7 @@ export fn kaappi_runtime_init() callconv(.c) ?*vm_mod.VM {
         allocator.destroy(vm);
         return null;
     };
-    primitives.setGCInstance(&rt_gc);
+    memory.setGCInstance(&rt_gc);
     library.registerStandardLibraries(&vm.libraries, vm.globals) catch {
         vm.deinit();
         allocator.destroy(vm);
@@ -195,7 +195,7 @@ export fn kaappi_cdr(v: u64) callconv(.c) u64 {
 }
 
 export fn kaappi_cons(a: u64, b: u64) callconv(.c) u64 {
-    const gc = primitives.gc_instance orelse return 0;
+    const gc = memory.gc_instance orelse return 0;
     var val_a = a;
     var val_b = b;
     gc.pushRoot(&val_a) catch return 0;

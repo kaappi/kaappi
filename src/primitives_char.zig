@@ -2,6 +2,7 @@ const std = @import("std");
 const types = @import("types.zig");
 const vm_mod = @import("vm.zig");
 const primitives = @import("primitives.zig");
+const memory = @import("memory.zig");
 const unicode = @import("unicode_tables.zig");
 const Value = types.Value;
 const NativeFn = types.NativeFn;
@@ -432,7 +433,7 @@ fn stringCiGtFn(args: []const Value) PrimitiveError!Value {
 // ---------------------------------------------------------------------------
 
 fn stringCaseMap(data: []const u8, comptime case_fn: fn (u21) u21) PrimitiveError!Value {
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     // Case mapping may change byte lengths, so use a dynamic buffer
     var result: std.ArrayList(u8) = .empty;
     defer result.deinit(gc.allocator);
@@ -488,7 +489,7 @@ pub fn appendCodepoint(result: *std.ArrayList(u8), alloc: std.mem.Allocator, cp:
 }
 
 fn stringCaseMapExpanding(data: []const u8, mode: CaseMode) PrimitiveError!Value {
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     var result: std.ArrayList(u8) = .empty;
     defer result.deinit(gc.allocator);
 

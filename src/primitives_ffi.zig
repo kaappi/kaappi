@@ -1,6 +1,7 @@
 const std = @import("std");
 const types = @import("types.zig");
 const primitives = @import("primitives.zig");
+const memory = @import("memory.zig");
 const vm_mod = @import("vm.zig");
 const Value = types.Value;
 const PrimitiveError = primitives.PrimitiveError;
@@ -29,7 +30,7 @@ fn checkSandbox(comptime name: []const u8) PrimitiveError!void {
 /// Opens a shared library. Pass #f for the default process (all linked symbols).
 fn ffiOpen(args: []const Value) PrimitiveError!Value {
     try checkSandbox("ffi-open");
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
 
     if (args[0] == types.FALSE) {
         // Open default process (all linked symbols including libc)
@@ -104,7 +105,7 @@ fn ffiOpen(args: []const Value) PrimitiveError!Value {
 /// Looks up a symbol in the library and creates an FfiFunction.
 fn ffiFn(args: []const Value) PrimitiveError!Value {
     try checkSandbox("ffi-fn");
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
 
     // arg0: library
     if (!types.isFfiLibrary(args[0])) return PrimitiveError.TypeError;
@@ -178,7 +179,7 @@ fn ffiClose(args: []const Value) PrimitiveError!Value {
 /// (ffi-callback proc '(param-types) 'return-type)
 fn ffiCallbackFn(args: []const Value) PrimitiveError!Value {
     try checkSandbox("ffi-callback");
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const proc = args[0];
     if (!types.isClosure(proc) and !types.isNativeFn(proc))
         return primitives.typeError("ffi-callback", "procedure", proc);
@@ -236,7 +237,7 @@ fn ffiBytevectorPtr(args: []const Value) PrimitiveError!Value {
     try checkSandbox("ffi-bytevector-ptr");
     if (!types.isBytevector(args[0]))
         return primitives.typeError("ffi-bytevector-ptr", "bytevector", args[0]);
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const bv = types.toObject(args[0]).as(types.Bytevector);
     if (bv.data.len == 0) return types.makeFixnum(0);
     const addr: usize = @intFromPtr(bv.data.ptr);

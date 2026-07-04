@@ -206,11 +206,7 @@ pub fn isNum(v: Value) bool {
 // GC / VM instances (pub for use by extracted modules)
 // ---------------------------------------------------------------------------
 
-pub threadlocal var gc_instance: ?*@import("memory.zig").GC = null;
-
-pub fn setGCInstance(gc: *@import("memory.zig").GC) void {
-    gc_instance = gc;
-}
+const memory = @import("memory.zig");
 
 pub fn typeError(proc: []const u8, expected: []const u8, got: Value) PrimitiveError {
     const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError; // bare-ok: no VM
@@ -285,7 +281,7 @@ fn safeValueDescription(buf: *[128]u8, value: Value) []const u8 {
 // ---------------------------------------------------------------------------
 
 fn cons(args: []const Value) PrimitiveError!Value {
-    const gc = gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     return gc.allocPair(args[0], args[1]) catch return PrimitiveError.OutOfMemory;
 }
 
@@ -301,20 +297,20 @@ fn cdr(args: []const Value) PrimitiveError!Value {
 
 fn setCar(args: []const Value) PrimitiveError!Value {
     if (!types.isPair(args[0])) return typeError("set-car!", "pair", args[0]);
-    if (gc_instance) |gc| gc.writeBarrier(types.toObject(args[0]), args[1]);
+    if (memory.gc_instance) |gc| gc.writeBarrier(types.toObject(args[0]), args[1]);
     types.setCar(args[0], args[1]);
     return types.VOID;
 }
 
 fn setCdr(args: []const Value) PrimitiveError!Value {
     if (!types.isPair(args[0])) return typeError("set-cdr!", "pair", args[0]);
-    if (gc_instance) |gc| gc.writeBarrier(types.toObject(args[0]), args[1]);
+    if (memory.gc_instance) |gc| gc.writeBarrier(types.toObject(args[0]), args[1]);
     types.setCdr(args[0], args[1]);
     return types.VOID;
 }
 
 fn list(args: []const Value) PrimitiveError!Value {
-    const gc = gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     return gc.makeList(args) catch return PrimitiveError.OutOfMemory;
 }
 
@@ -337,7 +333,7 @@ fn length(args: []const Value) PrimitiveError!Value {
 }
 
 fn append(args: []const Value) PrimitiveError!Value {
-    const gc = gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     if (args.len == 0) return types.NIL;
     if (args.len == 1) return args[0];
 
@@ -365,7 +361,7 @@ fn append(args: []const Value) PrimitiveError!Value {
 }
 
 fn reverse(args: []const Value) PrimitiveError!Value {
-    const gc = gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     var result: Value = types.NIL;
     gc.pushRoot(&result) catch return PrimitiveError.OutOfMemory;
     defer gc.popRoot();
@@ -623,7 +619,7 @@ fn stringLength(args: []const Value) PrimitiveError!Value {
 }
 
 fn stringAppend(args: []const Value) PrimitiveError!Value {
-    const gc = gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     var total_len: usize = 0;
     for (args) |a| {
         if (!types.isString(a)) return PrimitiveError.TypeError;
@@ -642,7 +638,7 @@ fn stringAppend(args: []const Value) PrimitiveError!Value {
 
 fn symbolToString(args: []const Value) PrimitiveError!Value {
     if (!types.isSymbol(args[0])) return PrimitiveError.TypeError;
-    const gc = gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const val = gc.allocString(types.symbolName(args[0])) catch return PrimitiveError.OutOfMemory;
     // R7RS: strings returned by symbol->string are immutable
     types.toObject(val).as(types.SchemeString).immutable = true;
@@ -655,7 +651,7 @@ fn symbolToString(args: []const Value) PrimitiveError!Value {
 
 fn applyFn(args: []const Value) PrimitiveError!Value {
     const vm = @import("vm.zig").vm_instance orelse return PrimitiveError.TypeError; // bare-ok: no VM
-    const gc = gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const proc = args[0];
     if (!types.isProcedure(proc) and !types.isNativeFn(proc)) return PrimitiveError.TypeError;
 
@@ -686,7 +682,7 @@ fn applyFn(args: []const Value) PrimitiveError!Value {
 // ---------------------------------------------------------------------------
 
 fn makeRecordTypeFn(args: []const Value) PrimitiveError!Value {
-    const gc = gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     // args[0] = name (string), args[1] = num_fields (fixnum)
     if (!types.isString(args[0])) return PrimitiveError.TypeError;
     if (!types.isFixnum(args[1])) return PrimitiveError.TypeError;
@@ -698,7 +694,7 @@ fn makeRecordTypeFn(args: []const Value) PrimitiveError!Value {
 }
 
 fn makeRecordFn(args: []const Value) PrimitiveError!Value {
-    const gc = gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     // args[0] = record_type, args[1..] = field values
     if (!types.isRecordType(args[0])) return PrimitiveError.TypeError;
     const rt = types.toObject(args[0]).as(types.RecordType);
@@ -735,7 +731,7 @@ fn recordSetFn(args: []const Value) PrimitiveError!Value {
     if (raw_idx < 0) return PrimitiveError.TypeError; // bare-ok: internal record primitive
     const idx: usize = @intCast(raw_idx);
     if (idx >= ri.fields.len) return PrimitiveError.TypeError;
-    if (gc_instance) |gc| gc.writeBarrier(types.toObject(args[0]), args[2]);
+    if (memory.gc_instance) |gc| gc.writeBarrier(types.toObject(args[0]), args[2]);
     ri.fields[idx] = args[2];
     return types.VOID;
 }

@@ -2,6 +2,7 @@ const std = @import("std");
 const types = @import("types.zig");
 const vm_mod = @import("vm.zig");
 const primitives = @import("primitives.zig");
+const memory = @import("memory.zig");
 const Value = types.Value;
 const NativeFn = types.NativeFn;
 const PrimitiveError = primitives.PrimitiveError;
@@ -47,7 +48,7 @@ fn getHashTable(proc: []const u8, v: Value) PrimitiveError!*HashTable {
     return types.toHashTable(v);
 }
 
-const GC = @import("memory.zig").GC;
+const GC = memory.GC;
 
 fn snapshotLiveEntries(gc: *GC, ht: *HashTable) ?[]HashEntry {
     if (ht.count == 0) return gc.allocator.alloc(HashEntry, 0) catch return null;
@@ -150,7 +151,7 @@ fn findSlot(ht: *HashTable, key: Value) struct { idx: usize, found: bool } {
 }
 
 fn rehash(ht: *HashTable) PrimitiveError!void {
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const new_cap = if (ht.capacity == 0) 8 else ht.capacity * 2;
     const new_entries = gc.allocator.alloc(HashEntry, new_cap) catch return PrimitiveError.OutOfMemory;
     for (new_entries) |*e| {
@@ -185,7 +186,7 @@ fn growIfNeeded(ht: *HashTable) PrimitiveError!void {
 // (make-hash-table) or (make-hash-table equal-proc hash-proc)
 fn makeHashTableFn(args: []const Value) PrimitiveError!Value {
     _ = args; // ignore optional comparator/hash args; we always use equal?
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     return gc.allocHashTable(8) catch return PrimitiveError.OutOfMemory;
 }
 
@@ -218,7 +219,7 @@ fn hashTableSetFn(args: []const Value) PrimitiveError!Value {
     const ht = try getHashTable("hash-table-set!", args[0]);
     try growIfNeeded(ht);
     const slot = findSlot(ht, args[1]);
-    if (primitives.gc_instance) |gc| {
+    if (memory.gc_instance) |gc| {
         gc.writeBarrier(types.toObject(args[0]), args[1]);
         gc.writeBarrier(types.toObject(args[0]), args[2]);
     }
@@ -257,7 +258,7 @@ fn hashTableSizeFn(args: []const Value) PrimitiveError!Value {
 
 // (hash-table-keys ht)
 fn hashTableKeysFn(args: []const Value) PrimitiveError!Value {
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const ht = try getHashTable("hash-table-keys", args[0]);
     var result: Value = types.NIL;
     gc.pushRoot(&result) catch return PrimitiveError.OutOfMemory;
@@ -272,7 +273,7 @@ fn hashTableKeysFn(args: []const Value) PrimitiveError!Value {
 
 // (hash-table-values ht)
 fn hashTableValuesFn(args: []const Value) PrimitiveError!Value {
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const ht = try getHashTable("hash-table-values", args[0]);
     var result: Value = types.NIL;
     gc.pushRoot(&result) catch return PrimitiveError.OutOfMemory;
@@ -288,7 +289,7 @@ fn hashTableValuesFn(args: []const Value) PrimitiveError!Value {
 // (hash-table-walk ht proc) — call (proc key value) for each entry
 fn hashTableWalkFn(args: []const Value) PrimitiveError!Value {
     const vm = vm_mod.vm_instance orelse return PrimitiveError.OutOfMemory;
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const ht = try getHashTable("hash-table-walk", args[0]);
     const proc = args[1];
 
@@ -306,7 +307,7 @@ fn hashTableWalkFn(args: []const Value) PrimitiveError!Value {
 
 // (hash-table->alist ht)
 fn hashTableToAlistFn(args: []const Value) PrimitiveError!Value {
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const ht = try getHashTable("hash-table->alist", args[0]);
     var result: Value = types.NIL;
     gc.pushRoot(&result) catch return PrimitiveError.OutOfMemory;
@@ -328,7 +329,7 @@ fn hashTableToAlistFn(args: []const Value) PrimitiveError!Value {
 // (alist->hash-table alist) or (alist->hash-table alist equal-proc hash-proc)
 // The optional comparator/hash args are accepted and ignored, like make-hash-table.
 fn alistToHashTableFn(args: []const Value) PrimitiveError!Value {
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     var current = args[0];
 
     // Count entries first
@@ -363,7 +364,7 @@ fn alistToHashTableFn(args: []const Value) PrimitiveError!Value {
 
 // (hash-table-copy ht)
 fn hashTableCopyFn(args: []const Value) PrimitiveError!Value {
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const src = try getHashTable("hash-table-copy", args[0]);
     const dst_val = gc.allocHashTable(src.capacity) catch return PrimitiveError.OutOfMemory;
     const dst = types.toHashTable(dst_val);
@@ -392,7 +393,7 @@ fn hashTableUpdateDefaultFn(args: []const Value) PrimitiveError!Value {
 
     try growIfNeeded(ht);
     const slot = findSlot(ht, key);
-    if (primitives.gc_instance) |gc| {
+    if (memory.gc_instance) |gc| {
         gc.writeBarrier(types.toObject(args[0]), key);
         gc.writeBarrier(types.toObject(args[0]), new_val);
     }
@@ -492,7 +493,7 @@ fn hashTableRefDefaultFn(args: []const Value) PrimitiveError!Value {
 // (hash-table-fold ht f init) — fold over hash table entries
 fn hashTableFoldFn(args: []const Value) PrimitiveError!Value {
     const vm = vm_mod.vm_instance orelse return PrimitiveError.OutOfMemory;
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const ht = try getHashTable("hash-table-fold", args[0]);
     const proc = args[1];
     var acc = args[2];
@@ -515,7 +516,7 @@ fn hashTableMergeFn(args: []const Value) PrimitiveError!Value {
     const ht2 = try getHashTable("hash-table-merge!", args[1]);
     if (ht1 == ht2) return args[0];
 
-    const gc = primitives.gc_instance;
+    const gc = memory.gc_instance;
     for (ht2.entries[0..ht2.capacity]) |entry| {
         if (entry.state != .occupied) continue;
         const slot = findSlot(ht1, entry.key);

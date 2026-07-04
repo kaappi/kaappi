@@ -2,6 +2,7 @@ const std = @import("std");
 const types = @import("types.zig");
 const vm_mod = @import("vm.zig");
 const primitives = @import("primitives.zig");
+const memory = @import("memory.zig");
 const reader_mod = @import("reader.zig");
 const compiler_mod = @import("compiler.zig");
 const printer = @import("printer.zig");
@@ -55,7 +56,7 @@ pub fn registerR7RSSandboxed(vm: *vm_mod.VM) !void {
 fn disassembleFn(args: []const Value) PrimitiveError!Value {
     if (!types.isClosure(args[0])) return primitives.typeError("disassemble", "procedure", args[0]);
     const closure = types.toObject(args[0]).as(types.Closure);
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const disasm = @import("disassembler.zig");
     disasm.disassemble(closure.func, gc.allocator);
     return types.VOID;
@@ -94,7 +95,7 @@ fn jiffiesPerSecond(args: []const Value) PrimitiveError!Value {
 
 fn commandLine(args: []const Value) PrimitiveError!Value {
     _ = args;
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError; // bare-ok: no VM
 
     var result: Value = types.NIL;
@@ -140,7 +141,7 @@ fn emergencyExitFn(args: []const Value) PrimitiveError!Value {
 
 fn getEnvVar(args: []const Value) PrimitiveError!Value {
     if (!types.isString(args[0])) return primitives.typeError("get-environment-variable", "string", args[0]);
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const str = types.toObject(args[0]).as(types.SchemeString);
     const name = str.data[0..str.len];
 
@@ -159,7 +160,7 @@ extern var environ: [*:null]?[*:0]const u8;
 
 fn getEnvVars(args: []const Value) PrimitiveError!Value {
     _ = args;
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
 
     var result: Value = types.NIL;
     gc.pushRoot(&result) catch return PrimitiveError.OutOfMemory;
@@ -192,7 +193,7 @@ fn getEnvVars(args: []const Value) PrimitiveError!Value {
 
 fn evalFn(args: []const Value) PrimitiveError!Value {
     const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError; // bare-ok: no VM
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const expr = args[0];
 
     // If an environment specifier is provided, compile in that environment
@@ -226,7 +227,7 @@ fn environmentFn(args: []const Value) PrimitiveError!Value {
     // (environment import-set ...) — R7RS 6.12
     // Create a new environment containing bindings from the given import sets.
     const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError; // bare-ok: no VM
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const library_mod = @import("library.zig");
 
     const env_map = gc.allocator.create(std.StringHashMap(Value)) catch return PrimitiveError.OutOfMemory;
@@ -255,7 +256,7 @@ fn environmentFn(args: []const Value) PrimitiveError!Value {
 fn loadFn(args: []const Value) PrimitiveError!Value {
     if (!types.isString(args[0])) return primitives.typeError("load", "string", args[0]);
     const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError; // bare-ok: no VM
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const str = types.toObject(args[0]).as(types.SchemeString);
     const path = str.data[0..str.len];
 
@@ -320,7 +321,7 @@ fn loadFn(args: []const Value) PrimitiveError!Value {
 // ---------------------------------------------------------------------------
 
 fn makeParameterFn(args: []const Value) PrimitiveError!Value {
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const init = args[0];
     const converter: Value = if (args.len > 1) args[1] else types.NIL;
     // If converter provided, apply it to initial value
@@ -343,7 +344,7 @@ fn parameterSetDirectFn(args: []const Value) PrimitiveError!Value {
         vm.setParameterValue(param, args[1]) catch return PrimitiveError.OutOfMemory;
     } else {
         param.value = args[1];
-        if (primitives.gc_instance) |gc| gc.writeBarrier(types.toObject(args[0]), args[1]);
+        if (memory.gc_instance) |gc| gc.writeBarrier(types.toObject(args[0]), args[1]);
     }
     return types.VOID;
 }
@@ -355,7 +356,7 @@ fn parameterSetDirectFn(args: []const Value) PrimitiveError!Value {
 fn interactionEnvironmentFn(args: []const Value) PrimitiveError!Value {
     _ = args;
     const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError; // bare-ok: no VM
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     return gc.allocEnvironment(vm.globals, false) catch return PrimitiveError.OutOfMemory;
 }
 
@@ -363,7 +364,7 @@ fn nullEnvironmentFn(args: []const Value) PrimitiveError!Value {
     if (!types.isFixnum(args[0])) return primitives.typeError("null-environment", "integer", args[0]);
     const version = types.toFixnum(args[0]);
     if (version != 5 and version != 7) return primitives.typeError("null-environment", "5 or 7", args[0]);
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
 
     const env_map = gc.allocator.create(std.StringHashMap(Value)) catch return PrimitiveError.OutOfMemory;
     env_map.* = std.StringHashMap(Value).init(gc.allocator);
@@ -375,7 +376,7 @@ fn schemeReportEnvironmentFn(args: []const Value) PrimitiveError!Value {
     const version = types.toFixnum(args[0]);
     if (version != 5 and version != 7) return primitives.typeError("scheme-report-environment", "5 or 7", args[0]);
     const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError; // bare-ok: no VM
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
 
     const env_map = gc.allocator.create(std.StringHashMap(Value)) catch return PrimitiveError.OutOfMemory;
     env_map.* = std.StringHashMap(Value).init(gc.allocator);
