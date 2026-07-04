@@ -97,7 +97,7 @@ fn vectorRefFn(args: []const Value) PrimitiveError!Value {
     if (!types.isFixnum(args[1])) return primitives.typeError("vector-ref", "exact integer", args[1]);
     const vec = types.toVector(args[0]);
     const k = types.toFixnum(args[1]);
-    if (k < 0 or @as(usize, @intCast(k)) >= vec.data.len) return PrimitiveError.IndexOutOfBounds;
+    if (k < 0 or @as(usize, @intCast(k)) >= vec.data.len) return primitives.indexError("vector-ref", k, vec.data.len);
     return vec.data[@intCast(k)];
 }
 
@@ -110,7 +110,7 @@ fn vectorSetFn(args: []const Value) PrimitiveError!Value {
     if (!types.isFixnum(args[1])) return primitives.typeError("vector-set!", "exact integer", args[1]);
     const vec = types.toVector(args[0]);
     const k = types.toFixnum(args[1]);
-    if (k < 0 or @as(usize, @intCast(k)) >= vec.data.len) return PrimitiveError.IndexOutOfBounds;
+    if (k < 0 or @as(usize, @intCast(k)) >= vec.data.len) return primitives.indexError("vector-set!", k, vec.data.len);
     if (primitives.gc_instance) |gc| gc.writeBarrier(types.toObject(args[0]), args[2]);
     vec.data[@intCast(k)] = args[2];
     return types.VOID;
@@ -940,8 +940,8 @@ fn vectorAppendSubvectorsFn(args: []const Value) PrimitiveError!Value {
         const start: usize = @intCast(s);
         const end: usize = @intCast(e);
         const vec_len = types.toVector(args[i]).data.len;
-        if (start > vec_len) return PrimitiveError.IndexOutOfBounds;
-        if (end > vec_len) return PrimitiveError.IndexOutOfBounds;
+        if (start > vec_len) return primitives.indexError("vector-append-subvectors", s, vec_len);
+        if (end > vec_len) return primitives.indexError("vector-append-subvectors", e, vec_len);
         if (end < start) return primitives.typeError("vector-append-subvectors", "valid range (end >= start)", args[i + 2]);
         total += end - start;
     }

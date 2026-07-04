@@ -220,6 +220,12 @@ pub fn typeError(proc: []const u8, expected: []const u8, got: Value) PrimitiveEr
     return PrimitiveError.TypeError;
 }
 
+pub fn indexError(proc: []const u8, index: i64, len: usize) PrimitiveError {
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.IndexOutOfBounds;
+    vm.setErrorDetail("{s}: index {d} out of range for length {d}", .{ proc, index, len });
+    return PrimitiveError.IndexOutOfBounds;
+}
+
 pub const Range = struct { start: usize, end: usize };
 
 pub fn parseOptionalRange(args: []const Value, arg_offset: usize, max_len: usize, proc_name: []const u8) PrimitiveError!Range {
