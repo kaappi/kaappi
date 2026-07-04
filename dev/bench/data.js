@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783128024019,
+  "lastUpdate": 1783131196677,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "bc69689eef0fd88d20cdd4cea88ab4e48ec02543",
-          "message": "Fix exact/numerator/denominator abort on flonum 2^63 and bignum rational parsing (#846, #853) (#896)\n\n- Use strict < instead of <= for i64 max comparison in safeFloatToExactInt,\n  floatToRational, and applyExactness — maxInt(i64) rounds up to 2^63 in\n  f64, so the <= check passed but @intFromFloat panicked (#846)\n- Parse rational numerator/denominator with parseBignumString when\n  parseInt overflows i64, instead of falling through to the integer\n  parser which chokes on the '/' (#853)\n\nFixes #846\nFixes #853\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-03T02:47:47+05:30",
-          "tree_id": "aa8575a29f44a50750ff782cc0535c3022a09a8d",
-          "url": "https://github.com/kaappi/kaappi/commit/bc69689eef0fd88d20cdd4cea88ab4e48ec02543"
-        },
-        "date": 1783029150176,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.417239,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.352951,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.828206,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.125884,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006926,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.032637,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.46679,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.070606,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 4.009012,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.789051,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.149397,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.431986,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 2.451426,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.68087,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.041852,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.03969,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "6ac5687106a98518c1733f402566aa5c0ce4cab3",
+          "message": "Panic instead of silently dropping reachable objects on GC mark OOM (#1014)\n\nThe mark-phase worklist (added in #864 to avoid native stack overflow)\nused `catch {}` on all 41 append calls. If any append OOMed, reachable\nobjects would silently not be marked and then incorrectly freed — a\nlatent use-after-free.\n\nPre-allocate 1024 worklist slots before the mark loop to cover the\ncommon case without allocation in the hot path. Convert all `catch {}`\nto `catch @panic(...)` so that if the worklist ever does need to grow\nbeyond pre-allocated capacity and that allocation fails, we get a hard\ncrash instead of silent heap corruption.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-04T01:52:51Z",
+          "tree_id": "db872dca745843f490d06561d67bbdd6c46cde1c",
+          "url": "https://github.com/kaappi/kaappi/commit/6ac5687106a98518c1733f402566aa5c0ce4cab3"
+        },
+        "date": 1783131195987,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.43494,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.149859,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.935543,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.443036,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.012702,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.211227,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.479664,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.069985,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 12.529815,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.853543,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 9.999124,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.964053,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 8.372293,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.703049,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.042478,
             "unit": "seconds"
           }
         ]
