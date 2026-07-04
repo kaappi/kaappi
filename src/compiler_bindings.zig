@@ -163,10 +163,10 @@ pub fn compileLetStar(self: *Compiler, args: Value, dst: u16, is_tail: bool) Com
 }
 
 pub fn compileLetrec(self: *Compiler, args: Value, dst: u16, is_tail: bool) CompileError!void {
-    return compileLetrecImpl(self, args, dst, is_tail, false);
+    return compileLetrecImpl(self, args, dst, is_tail);
 }
 
-fn compileLetrecImpl(self: *Compiler, args: Value, dst: u16, is_tail: bool, _: bool) CompileError!void {
+fn compileLetrecImpl(self: *Compiler, args: Value, dst: u16, is_tail: bool) CompileError!void {
     if (args == types.NIL) return CompileError.InvalidSyntax;
     const bindings = types.car(args);
     const body = types.cdr(args);
@@ -220,7 +220,7 @@ fn compileLetrecImpl(self: *Compiler, args: Value, dst: u16, is_tail: bool, _: b
 }
 
 pub fn compileLetrecStar(self: *Compiler, args: Value, dst: u16, is_tail: bool) CompileError!void {
-    return compileLetrecImpl(self, args, dst, is_tail, true);
+    return compileLetrecImpl(self, args, dst, is_tail);
 }
 
 pub fn compileNamedLet(self: *Compiler, args: Value, dst: u16, is_tail: bool) CompileError!void {

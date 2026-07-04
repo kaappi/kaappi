@@ -76,13 +76,9 @@ fn tryCompilePureLambdaAsNativeClosure(self: *LLVMEmitter, data: ir.LambdaData) 
     }
     if (body_count == 0) return null;
 
-    const extra: u8 = if (rest_name != null) 1 else 0;
     var allowed: [17][]const u8 = undefined;
     @memcpy(allowed[0..arity], param_names[0..arity]);
-    if (rest_name) |rn| {
-        allowed[arity] = rn;
-    }
-    if (hasFreeVars(body_nodes[0..body_count], allowed[0 .. arity + extra])) return null;
+    if (hasFreeVars(body_nodes[0..body_count], allowed[0..arity])) return null;
 
     const fn_name = emitLambdaFunction(self, data.name, param_names[0..arity], body_nodes[0..body_count], rest_name) orelse return null;
 
