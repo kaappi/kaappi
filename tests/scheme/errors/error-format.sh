@@ -178,6 +178,13 @@ assert_output_contains "resume across dead native call is an error" \
     '(define k #f) (map (lambda (x) (call/cc (lambda (c) (set! k c) x))) (list 1 2 3)) (k 99)' \
     "continuation cannot resume across a returned native call"
 
+# Issue #1032: malformed let*-values and guard must report InvalidSyntax, not OOM
+assert_output_contains "malformed let*-values reports InvalidSyntax" \
+    '(let*-values (42) 1)' "InvalidSyntax"
+
+assert_output_contains "malformed guard clause reports InvalidSyntax" \
+    '(guard (e (#t "ok") . bad) 1)' "InvalidSyntax"
+
 # Issue #78: mismatched-length ellipsis template variables must be rejected
 # with a clean compile error, not read uninitialized memory. (Moved from
 # tests/scheme/smoke/ellipsis-mismatch.scm: the rejection happens at macro
