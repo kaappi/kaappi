@@ -8,19 +8,15 @@ const Value = types.Value;
 const NativeFn = types.NativeFn;
 const PrimitiveError = primitives.PrimitiveError;
 
-fn reg(vm: *vm_mod.VM, name: []const u8, func: types.NativeFnType, arity: NativeFn.Arity) !void {
-    return primitives.reg(vm, name, func, arity);
-}
-
 pub fn registerFiber(vm: *vm_mod.VM) !void {
-    try reg(vm, "spawn", &spawnFn, .{ .exact = 1 });
-    try reg(vm, "yield", &yieldFn, .{ .exact = 0 });
-    try reg(vm, "fiber-join", &fiberJoinFn, .{ .exact = 1 });
-    try reg(vm, "fiber?", &fiberPredFn, .{ .exact = 1 });
-    try reg(vm, "make-channel", &makeChannelFn, .{ .exact = 0 });
-    try reg(vm, "channel-send", &channelSendFn, .{ .exact = 2 });
-    try reg(vm, "channel-receive", &channelReceiveFn, .{ .exact = 1 });
-    try reg(vm, "channel?", &channelPredFn, .{ .exact = 1 });
+    try primitives.reg(vm, "spawn", &spawnFn, .{ .exact = 1 });
+    try primitives.reg(vm, "yield", &yieldFn, .{ .exact = 0 });
+    try primitives.reg(vm, "fiber-join", &fiberJoinFn, .{ .exact = 1 });
+    try primitives.reg(vm, "fiber?", &fiberPredFn, .{ .exact = 1 });
+    try primitives.reg(vm, "make-channel", &makeChannelFn, .{ .exact = 0 });
+    try primitives.reg(vm, "channel-send", &channelSendFn, .{ .exact = 2 });
+    try primitives.reg(vm, "channel-receive", &channelReceiveFn, .{ .exact = 1 });
+    try primitives.reg(vm, "channel?", &channelPredFn, .{ .exact = 1 });
 }
 
 fn getScheduler() ?*fiber_mod.FiberScheduler {

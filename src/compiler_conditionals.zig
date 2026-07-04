@@ -8,41 +8,16 @@ const CompileError = compiler_mod.CompileError;
 // -- Conditional expression forms --
 
 pub fn compileAnd(self: *Compiler, args: Value, dst: u16, is_tail: bool) CompileError!void {
-    if (args == types.NIL) {
-        try self.emitOp(.load_true);
-        try self.emitU16(dst);
-        return;
-    }
-
-    var end_jumps: std.ArrayList(usize) = .empty;
-    defer end_jumps.deinit(self.gc.allocator);
-    var current = args;
-
-    while (current != types.NIL) {
-        if (!types.isPair(current)) return CompileError.InvalidSyntax;
-        const expr = types.car(current);
-        const rest = types.cdr(current);
-
-        if (rest == types.NIL) {
-            try self.compileExpr(expr, dst, is_tail);
-        } else {
-            try self.compileExpr(expr, dst, false);
-            try self.emitOp(.jump_false);
-            try self.emitU16(dst);
-            end_jumps.append(self.gc.allocator, self.currentOffset()) catch return CompileError.TooManyLocals;
-            try self.emitI16(0);
-        }
-        current = rest;
-    }
-
-    for (end_jumps.items) |j| {
-        try self.patchJump(j);
-    }
+    return compileShortCircuit(self, args, dst, is_tail, .load_true, .jump_false);
 }
 
 pub fn compileOr(self: *Compiler, args: Value, dst: u16, is_tail: bool) CompileError!void {
+    return compileShortCircuit(self, args, dst, is_tail, .load_false, .jump_true);
+}
+
+fn compileShortCircuit(self: *Compiler, args: Value, dst: u16, is_tail: bool, empty_op: types.OpCode, jump_op: types.OpCode) CompileError!void {
     if (args == types.NIL) {
-        try self.emitOp(.load_false);
+        try self.emitOp(empty_op);
         try self.emitU16(dst);
         return;
     }
@@ -60,7 +35,7 @@ pub fn compileOr(self: *Compiler, args: Value, dst: u16, is_tail: bool) CompileE
             try self.compileExpr(expr, dst, is_tail);
         } else {
             try self.compileExpr(expr, dst, false);
-            try self.emitOp(.jump_true);
+            try self.emitOp(jump_op);
             try self.emitU16(dst);
             end_jumps.append(self.gc.allocator, self.currentOffset()) catch return CompileError.TooManyLocals;
             try self.emitI16(0);

@@ -18,55 +18,51 @@ const ChildThreadResources = struct {
 var child_resources: std.AutoHashMap(usize, ChildThreadResources) = std.AutoHashMap(usize, ChildThreadResources).init(std.heap.page_allocator);
 var child_resources_mutex = std.atomic.Mutex.unlocked;
 
-fn reg(vm: *vm_mod.VM, name: []const u8, func: types.NativeFnType, arity: NativeFn.Arity) !void {
-    return primitives.reg(vm, name, func, arity);
-}
-
 pub fn registerSrfi18(vm: *vm_mod.VM) !void {
     // Thread
-    try reg(vm, "current-thread", &currentThreadFn, .{ .exact = 0 });
-    try reg(vm, "thread?", &threadPredFn, .{ .exact = 1 });
-    try reg(vm, "make-thread", &makeThreadFn, .{ .variadic = 1 });
-    try reg(vm, "thread-name", &threadNameFn, .{ .exact = 1 });
-    try reg(vm, "thread-specific", &threadSpecificFn, .{ .exact = 1 });
-    try reg(vm, "thread-specific-set!", &threadSpecificSetFn, .{ .exact = 2 });
-    try reg(vm, "thread-start!", &threadStartFn, .{ .exact = 1 });
-    try reg(vm, "thread-yield!", &threadYieldFn, .{ .exact = 0 });
-    try reg(vm, "thread-sleep!", &threadSleepFn, .{ .exact = 1 });
-    try reg(vm, "thread-terminate!", &threadTerminateFn, .{ .exact = 1 });
-    try reg(vm, "thread-join!", &threadJoinFn, .{ .variadic = 1 });
+    try primitives.reg(vm, "current-thread", &currentThreadFn, .{ .exact = 0 });
+    try primitives.reg(vm, "thread?", &threadPredFn, .{ .exact = 1 });
+    try primitives.reg(vm, "make-thread", &makeThreadFn, .{ .variadic = 1 });
+    try primitives.reg(vm, "thread-name", &threadNameFn, .{ .exact = 1 });
+    try primitives.reg(vm, "thread-specific", &threadSpecificFn, .{ .exact = 1 });
+    try primitives.reg(vm, "thread-specific-set!", &threadSpecificSetFn, .{ .exact = 2 });
+    try primitives.reg(vm, "thread-start!", &threadStartFn, .{ .exact = 1 });
+    try primitives.reg(vm, "thread-yield!", &threadYieldFn, .{ .exact = 0 });
+    try primitives.reg(vm, "thread-sleep!", &threadSleepFn, .{ .exact = 1 });
+    try primitives.reg(vm, "thread-terminate!", &threadTerminateFn, .{ .exact = 1 });
+    try primitives.reg(vm, "thread-join!", &threadJoinFn, .{ .variadic = 1 });
 
     // Mutex
-    try reg(vm, "mutex?", &mutexPredFn, .{ .exact = 1 });
-    try reg(vm, "make-mutex", &makeMutexFn, .{ .variadic = 0 });
-    try reg(vm, "mutex-name", &mutexNameFn, .{ .exact = 1 });
-    try reg(vm, "mutex-specific", &mutexSpecificFn, .{ .exact = 1 });
-    try reg(vm, "mutex-specific-set!", &mutexSpecificSetFn, .{ .exact = 2 });
-    try reg(vm, "mutex-state", &mutexStateFn, .{ .exact = 1 });
-    try reg(vm, "mutex-lock!", &mutexLockFn, .{ .variadic = 1 });
-    try reg(vm, "mutex-unlock!", &mutexUnlockFn, .{ .variadic = 1 });
+    try primitives.reg(vm, "mutex?", &mutexPredFn, .{ .exact = 1 });
+    try primitives.reg(vm, "make-mutex", &makeMutexFn, .{ .variadic = 0 });
+    try primitives.reg(vm, "mutex-name", &mutexNameFn, .{ .exact = 1 });
+    try primitives.reg(vm, "mutex-specific", &mutexSpecificFn, .{ .exact = 1 });
+    try primitives.reg(vm, "mutex-specific-set!", &mutexSpecificSetFn, .{ .exact = 2 });
+    try primitives.reg(vm, "mutex-state", &mutexStateFn, .{ .exact = 1 });
+    try primitives.reg(vm, "mutex-lock!", &mutexLockFn, .{ .variadic = 1 });
+    try primitives.reg(vm, "mutex-unlock!", &mutexUnlockFn, .{ .variadic = 1 });
 
     // Condition variable
-    try reg(vm, "condition-variable?", &condvarPredFn, .{ .exact = 1 });
-    try reg(vm, "make-condition-variable", &makeCondvarFn, .{ .variadic = 0 });
-    try reg(vm, "condition-variable-name", &condvarNameFn, .{ .exact = 1 });
-    try reg(vm, "condition-variable-specific", &condvarSpecificFn, .{ .exact = 1 });
-    try reg(vm, "condition-variable-specific-set!", &condvarSpecificSetFn, .{ .exact = 2 });
-    try reg(vm, "condition-variable-signal!", &condvarSignalFn, .{ .exact = 1 });
-    try reg(vm, "condition-variable-broadcast!", &condvarBroadcastFn, .{ .exact = 1 });
+    try primitives.reg(vm, "condition-variable?", &condvarPredFn, .{ .exact = 1 });
+    try primitives.reg(vm, "make-condition-variable", &makeCondvarFn, .{ .variadic = 0 });
+    try primitives.reg(vm, "condition-variable-name", &condvarNameFn, .{ .exact = 1 });
+    try primitives.reg(vm, "condition-variable-specific", &condvarSpecificFn, .{ .exact = 1 });
+    try primitives.reg(vm, "condition-variable-specific-set!", &condvarSpecificSetFn, .{ .exact = 2 });
+    try primitives.reg(vm, "condition-variable-signal!", &condvarSignalFn, .{ .exact = 1 });
+    try primitives.reg(vm, "condition-variable-broadcast!", &condvarBroadcastFn, .{ .exact = 1 });
 
     // Time
-    try reg(vm, "current-time", &currentTimeFn, .{ .exact = 0 });
-    try reg(vm, "time?", &timePredFn, .{ .exact = 1 });
-    try reg(vm, "time->seconds", &timeToSecondsFn, .{ .exact = 1 });
-    try reg(vm, "seconds->time", &secondsToTimeFn, .{ .exact = 1 });
+    try primitives.reg(vm, "current-time", &currentTimeFn, .{ .exact = 0 });
+    try primitives.reg(vm, "time?", &timePredFn, .{ .exact = 1 });
+    try primitives.reg(vm, "time->seconds", &timeToSecondsFn, .{ .exact = 1 });
+    try primitives.reg(vm, "seconds->time", &secondsToTimeFn, .{ .exact = 1 });
 
     // Exception predicates
-    try reg(vm, "join-timeout-exception?", &joinTimeoutPredFn, .{ .exact = 1 });
-    try reg(vm, "abandoned-mutex-exception?", &abandonedMutexPredFn, .{ .exact = 1 });
-    try reg(vm, "terminated-thread-exception?", &terminatedThreadPredFn, .{ .exact = 1 });
-    try reg(vm, "uncaught-exception?", &uncaughtExceptionPredFn, .{ .exact = 1 });
-    try reg(vm, "uncaught-exception-reason", &uncaughtExceptionReasonFn, .{ .exact = 1 });
+    try primitives.reg(vm, "join-timeout-exception?", &joinTimeoutPredFn, .{ .exact = 1 });
+    try primitives.reg(vm, "abandoned-mutex-exception?", &abandonedMutexPredFn, .{ .exact = 1 });
+    try primitives.reg(vm, "terminated-thread-exception?", &terminatedThreadPredFn, .{ .exact = 1 });
+    try primitives.reg(vm, "uncaught-exception?", &uncaughtExceptionPredFn, .{ .exact = 1 });
+    try primitives.reg(vm, "uncaught-exception-reason", &uncaughtExceptionReasonFn, .{ .exact = 1 });
 }
 
 fn ensureScheduler() PrimitiveError!struct { vm: *vm_mod.VM, sched: *fiber_mod.FiberScheduler } {

@@ -7,113 +7,109 @@ const Value = types.Value;
 const NativeFn = types.NativeFn;
 const PrimitiveError = primitives.PrimitiveError;
 
-fn reg(vm: *vm_mod.VM, name: []const u8, func: types.NativeFnType, arity: NativeFn.Arity) !void {
-    return primitives.reg(vm, name, func, arity);
-}
-
 pub fn registerSrfi1(vm: *vm_mod.VM) !void {
     // Folds
-    try reg(vm, "fold", &foldFn, .{ .variadic = 3 });
-    try reg(vm, "fold-right", &foldRightFn, .{ .variadic = 3 });
-    try reg(vm, "reduce", &reduceFn, .{ .exact = 3 });
-    try reg(vm, "reduce-right", &reduceRightFn, .{ .exact = 3 });
+    try primitives.reg(vm, "fold", &foldFn, .{ .variadic = 3 });
+    try primitives.reg(vm, "fold-right", &foldRightFn, .{ .variadic = 3 });
+    try primitives.reg(vm, "reduce", &reduceFn, .{ .exact = 3 });
+    try primitives.reg(vm, "reduce-right", &reduceRightFn, .{ .exact = 3 });
 
     // Filtering
-    try reg(vm, "filter", &filterFn, .{ .exact = 2 });
-    try reg(vm, "remove", &removeFn, .{ .exact = 2 });
-    try reg(vm, "partition", &partitionFn, .{ .exact = 2 });
+    try primitives.reg(vm, "filter", &filterFn, .{ .exact = 2 });
+    try primitives.reg(vm, "remove", &removeFn, .{ .exact = 2 });
+    try primitives.reg(vm, "partition", &partitionFn, .{ .exact = 2 });
 
     // Searching
-    try reg(vm, "find", &findFn, .{ .exact = 2 });
-    try reg(vm, "find-tail", &findTailFn, .{ .exact = 2 });
-    try reg(vm, "any", &anyFn, .{ .variadic = 2 });
-    try reg(vm, "every", &everyFn, .{ .variadic = 2 });
-    try reg(vm, "count", &countFn, .{ .variadic = 2 });
+    try primitives.reg(vm, "find", &findFn, .{ .exact = 2 });
+    try primitives.reg(vm, "find-tail", &findTailFn, .{ .exact = 2 });
+    try primitives.reg(vm, "any", &anyFn, .{ .variadic = 2 });
+    try primitives.reg(vm, "every", &everyFn, .{ .variadic = 2 });
+    try primitives.reg(vm, "count", &countFn, .{ .variadic = 2 });
 
     // Construction
-    try reg(vm, "iota", &iotaFn, .{ .variadic = 1 });
-    try reg(vm, "zip", &zipFn, .{ .variadic = 1 });
-    try reg(vm, "concatenate", &concatenateFn, .{ .exact = 1 });
+    try primitives.reg(vm, "iota", &iotaFn, .{ .variadic = 1 });
+    try primitives.reg(vm, "zip", &zipFn, .{ .variadic = 1 });
+    try primitives.reg(vm, "concatenate", &concatenateFn, .{ .exact = 1 });
 
     // Extraction
-    try reg(vm, "take", &takeFn, .{ .exact = 2 });
-    try reg(vm, "drop", &dropFn, .{ .exact = 2 });
-    try reg(vm, "take-while", &takeWhileFn, .{ .exact = 2 });
-    try reg(vm, "drop-while", &dropWhileFn, .{ .exact = 2 });
+    try primitives.reg(vm, "take", &takeFn, .{ .exact = 2 });
+    try primitives.reg(vm, "drop", &dropFn, .{ .exact = 2 });
+    try primitives.reg(vm, "take-while", &takeWhileFn, .{ .exact = 2 });
+    try primitives.reg(vm, "drop-while", &dropWhileFn, .{ .exact = 2 });
 
     // Mapping
-    try reg(vm, "filter-map", &filterMapFn, .{ .variadic = 2 });
-    try reg(vm, "append-map", &appendMapFn, .{ .variadic = 2 });
+    try primitives.reg(vm, "filter-map", &filterMapFn, .{ .variadic = 2 });
+    try primitives.reg(vm, "append-map", &appendMapFn, .{ .variadic = 2 });
 
     // Misc
-    try reg(vm, "last", &lastFn, .{ .exact = 1 });
-    try reg(vm, "last-pair", &lastPairFn, .{ .exact = 1 });
-    try reg(vm, "proper-list?", &properListPFn, .{ .exact = 1 });
-    try reg(vm, "dotted-list?", &dottedListPFn, .{ .exact = 1 });
-    try reg(vm, "circular-list?", &circularListPFn, .{ .exact = 1 });
+    try primitives.reg(vm, "last", &lastFn, .{ .exact = 1 });
+    try primitives.reg(vm, "last-pair", &lastPairFn, .{ .exact = 1 });
+    try primitives.reg(vm, "proper-list?", &properListPFn, .{ .exact = 1 });
+    try primitives.reg(vm, "dotted-list?", &dottedListPFn, .{ .exact = 1 });
+    try primitives.reg(vm, "circular-list?", &circularListPFn, .{ .exact = 1 });
 
     // Set operations
-    try reg(vm, "lset-intersection", &lsetIntersectionFn, .{ .variadic = 2 });
-    try reg(vm, "lset-difference", &lsetDifferenceFn, .{ .variadic = 2 });
-    try reg(vm, "lset=", &lsetEqualFn, .{ .variadic = 1 });
-    try reg(vm, "lset-adjoin", &lsetAdjoinFn, .{ .variadic = 2 });
-    try reg(vm, "lset-union", &lsetUnionFn, .{ .variadic = 1 });
-    try reg(vm, "lset-xor", &lsetXorFn, .{ .variadic = 1 });
+    try primitives.reg(vm, "lset-intersection", &lsetIntersectionFn, .{ .variadic = 2 });
+    try primitives.reg(vm, "lset-difference", &lsetDifferenceFn, .{ .variadic = 2 });
+    try primitives.reg(vm, "lset=", &lsetEqualFn, .{ .variadic = 1 });
+    try primitives.reg(vm, "lset-adjoin", &lsetAdjoinFn, .{ .variadic = 2 });
+    try primitives.reg(vm, "lset-union", &lsetUnionFn, .{ .variadic = 1 });
+    try primitives.reg(vm, "lset-xor", &lsetXorFn, .{ .variadic = 1 });
 
     // Additional constructors
-    try reg(vm, "xcons", &xconsFn, .{ .exact = 2 });
-    try reg(vm, "cons*", &consStarFn, .{ .variadic = 1 });
-    try reg(vm, "list-tabulate", &listTabulateFn, .{ .exact = 2 });
-    try reg(vm, "circular-list", &circularListFn, .{ .variadic = 0 });
+    try primitives.reg(vm, "xcons", &xconsFn, .{ .exact = 2 });
+    try primitives.reg(vm, "cons*", &consStarFn, .{ .variadic = 1 });
+    try primitives.reg(vm, "list-tabulate", &listTabulateFn, .{ .exact = 2 });
+    try primitives.reg(vm, "circular-list", &circularListFn, .{ .variadic = 0 });
 
     // Additional predicates
-    try reg(vm, "not-pair?", &notPairPFn, .{ .exact = 1 });
-    try reg(vm, "null-list?", &nullListPFn, .{ .exact = 1 });
-    try reg(vm, "list=", &listEqualFn, .{ .variadic = 1 });
+    try primitives.reg(vm, "not-pair?", &notPairPFn, .{ .exact = 1 });
+    try primitives.reg(vm, "null-list?", &nullListPFn, .{ .exact = 1 });
+    try primitives.reg(vm, "list=", &listEqualFn, .{ .variadic = 1 });
 
     // Additional selectors
-    try reg(vm, "first", &firstFn, .{ .exact = 1 });
-    try reg(vm, "second", &secondFn, .{ .exact = 1 });
-    try reg(vm, "third", &thirdFn, .{ .exact = 1 });
-    try reg(vm, "fourth", &fourthFn, .{ .exact = 1 });
-    try reg(vm, "fifth", &fifthFn, .{ .exact = 1 });
-    try reg(vm, "sixth", &sixthFn, .{ .exact = 1 });
-    try reg(vm, "seventh", &seventhFn, .{ .exact = 1 });
-    try reg(vm, "eighth", &eighthFn, .{ .exact = 1 });
-    try reg(vm, "ninth", &ninthFn, .{ .exact = 1 });
-    try reg(vm, "tenth", &tenthFn, .{ .exact = 1 });
-    try reg(vm, "car+cdr", &carCdrFn, .{ .exact = 1 });
-    try reg(vm, "take-right", &takeRightFn, .{ .exact = 2 });
-    try reg(vm, "drop-right", &dropRightFn, .{ .exact = 2 });
-    try reg(vm, "split-at", &splitAtFn, .{ .exact = 2 });
+    try primitives.reg(vm, "first", &firstFn, .{ .exact = 1 });
+    try primitives.reg(vm, "second", &secondFn, .{ .exact = 1 });
+    try primitives.reg(vm, "third", &thirdFn, .{ .exact = 1 });
+    try primitives.reg(vm, "fourth", &fourthFn, .{ .exact = 1 });
+    try primitives.reg(vm, "fifth", &fifthFn, .{ .exact = 1 });
+    try primitives.reg(vm, "sixth", &sixthFn, .{ .exact = 1 });
+    try primitives.reg(vm, "seventh", &seventhFn, .{ .exact = 1 });
+    try primitives.reg(vm, "eighth", &eighthFn, .{ .exact = 1 });
+    try primitives.reg(vm, "ninth", &ninthFn, .{ .exact = 1 });
+    try primitives.reg(vm, "tenth", &tenthFn, .{ .exact = 1 });
+    try primitives.reg(vm, "car+cdr", &carCdrFn, .{ .exact = 1 });
+    try primitives.reg(vm, "take-right", &takeRightFn, .{ .exact = 2 });
+    try primitives.reg(vm, "drop-right", &dropRightFn, .{ .exact = 2 });
+    try primitives.reg(vm, "split-at", &splitAtFn, .{ .exact = 2 });
 
     // Additional searching
-    try reg(vm, "list-index", &listIndexFn, .{ .variadic = 2 });
-    try reg(vm, "span", &spanFn, .{ .exact = 2 });
-    try reg(vm, "break", &breakFn, .{ .exact = 2 });
+    try primitives.reg(vm, "list-index", &listIndexFn, .{ .variadic = 2 });
+    try primitives.reg(vm, "span", &spanFn, .{ .exact = 2 });
+    try primitives.reg(vm, "break", &breakFn, .{ .exact = 2 });
 
     // Deletion
-    try reg(vm, "delete", &deleteFn, .{ .variadic = 2 });
-    try reg(vm, "delete-duplicates", &deleteDuplicatesFn, .{ .variadic = 1 });
+    try primitives.reg(vm, "delete", &deleteFn, .{ .variadic = 2 });
+    try primitives.reg(vm, "delete-duplicates", &deleteDuplicatesFn, .{ .variadic = 1 });
 
     // Association lists
-    try reg(vm, "alist-cons", &alistConsFn, .{ .exact = 3 });
-    try reg(vm, "alist-copy", &alistCopyFn, .{ .exact = 1 });
-    try reg(vm, "alist-delete", &alistDeleteFn, .{ .variadic = 2 });
+    try primitives.reg(vm, "alist-cons", &alistConsFn, .{ .exact = 3 });
+    try primitives.reg(vm, "alist-copy", &alistCopyFn, .{ .exact = 1 });
+    try primitives.reg(vm, "alist-delete", &alistDeleteFn, .{ .variadic = 2 });
 
     // Unfold
-    try reg(vm, "unfold", &unfoldFn, .{ .variadic = 4 });
-    try reg(vm, "unfold-right", &unfoldRightFn, .{ .variadic = 4 });
+    try primitives.reg(vm, "unfold", &unfoldFn, .{ .variadic = 4 });
+    try primitives.reg(vm, "unfold-right", &unfoldRightFn, .{ .variadic = 4 });
 
     // Additional misc
-    try reg(vm, "append-reverse", &appendReverseFn, .{ .exact = 2 });
-    try reg(vm, "length+", &lengthPlusFn, .{ .exact = 1 });
-    try reg(vm, "unzip1", &unzip1Fn, .{ .exact = 1 });
-    try reg(vm, "unzip2", &unzip2Fn, .{ .exact = 1 });
-    try reg(vm, "pair-for-each", &pairForEachFn, .{ .variadic = 2 });
-    try reg(vm, "pair-fold", &pairFoldFn, .{ .variadic = 3 });
-    try reg(vm, "pair-fold-right", &pairFoldRightFn, .{ .variadic = 3 });
-    try reg(vm, "map-in-order", &mapInOrderFn, .{ .variadic = 2 });
+    try primitives.reg(vm, "append-reverse", &appendReverseFn, .{ .exact = 2 });
+    try primitives.reg(vm, "length+", &lengthPlusFn, .{ .exact = 1 });
+    try primitives.reg(vm, "unzip1", &unzip1Fn, .{ .exact = 1 });
+    try primitives.reg(vm, "unzip2", &unzip2Fn, .{ .exact = 1 });
+    try primitives.reg(vm, "pair-for-each", &pairForEachFn, .{ .variadic = 2 });
+    try primitives.reg(vm, "pair-fold", &pairFoldFn, .{ .variadic = 3 });
+    try primitives.reg(vm, "pair-fold-right", &pairFoldRightFn, .{ .variadic = 3 });
+    try primitives.reg(vm, "map-in-order", &mapInOrderFn, .{ .variadic = 2 });
 }
 
 // ---------------------------------------------------------------------------

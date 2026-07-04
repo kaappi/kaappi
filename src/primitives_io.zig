@@ -11,107 +11,103 @@ const Value = types.Value;
 const NativeFn = types.NativeFn;
 const PrimitiveError = primitives.PrimitiveError;
 
-fn reg(vm: *vm_mod.VM, name: []const u8, func: types.NativeFnType, arity: NativeFn.Arity) !void {
-    return primitives.reg(vm, name, func, arity);
-}
-
 pub fn registerIO(vm: *vm_mod.VM) !void {
     // I/O (with optional port argument)
-    try reg(vm, "display", &display, .{ .variadic = 1 });
-    try reg(vm, "write", &write, .{ .variadic = 1 });
-    try reg(vm, "newline", &newline, .{ .variadic = 0 });
+    try primitives.reg(vm, "display", &display, .{ .variadic = 1 });
+    try primitives.reg(vm, "write", &write, .{ .variadic = 1 });
+    try primitives.reg(vm, "newline", &newline, .{ .variadic = 0 });
 
     // Port parameters (R7RS 6.13.1 — these must be parameter objects)
     try registerPortParams(vm);
-    try reg(vm, "port?", &portP, .{ .exact = 1 });
-    try reg(vm, "input-port?", &inputPortP, .{ .exact = 1 });
-    try reg(vm, "output-port?", &outputPortP, .{ .exact = 1 });
-    try reg(vm, "textual-port?", &textualPortP, .{ .exact = 1 });
-    try reg(vm, "binary-port?", &binaryPortP, .{ .exact = 1 });
-    try reg(vm, "input-port-open?", &inputPortOpenP, .{ .exact = 1 });
-    try reg(vm, "output-port-open?", &outputPortOpenP, .{ .exact = 1 });
-    try reg(vm, "open-input-file", &openInputFile, .{ .exact = 1 });
-    try reg(vm, "open-output-file", &openOutputFile, .{ .exact = 1 });
-    try reg(vm, "close-port", &closePort, .{ .exact = 1 });
-    try reg(vm, "close-input-port", &closePort, .{ .exact = 1 });
-    try reg(vm, "close-output-port", &closePort, .{ .exact = 1 });
-    try reg(vm, "read-char", &readCharFn, .{ .variadic = 0 });
-    try reg(vm, "peek-char", &peekCharFn, .{ .variadic = 0 });
-    try reg(vm, "read-line", &readLineFn, .{ .variadic = 0 });
-    try reg(vm, "char-ready?", &charReadyP, .{ .variadic = 0 });
-    try reg(vm, "write-char", &writeCharFn, .{ .variadic = 1 });
-    try reg(vm, "write-string", &writeStringFn, .{ .variadic = 1 });
-    try reg(vm, "read", &readDatumFn, .{ .variadic = 0 });
-    try reg(vm, "file-exists?", &fileExistsP, .{ .exact = 1 });
-    try reg(vm, "eof-object?", &eofObjectP, .{ .exact = 1 });
-    try reg(vm, "eof-object", &eofObjectFn, .{ .exact = 0 });
+    try primitives.reg(vm, "port?", &portP, .{ .exact = 1 });
+    try primitives.reg(vm, "input-port?", &inputPortP, .{ .exact = 1 });
+    try primitives.reg(vm, "output-port?", &outputPortP, .{ .exact = 1 });
+    try primitives.reg(vm, "textual-port?", &textualPortP, .{ .exact = 1 });
+    try primitives.reg(vm, "binary-port?", &binaryPortP, .{ .exact = 1 });
+    try primitives.reg(vm, "input-port-open?", &inputPortOpenP, .{ .exact = 1 });
+    try primitives.reg(vm, "output-port-open?", &outputPortOpenP, .{ .exact = 1 });
+    try primitives.reg(vm, "open-input-file", &openInputFile, .{ .exact = 1 });
+    try primitives.reg(vm, "open-output-file", &openOutputFile, .{ .exact = 1 });
+    try primitives.reg(vm, "close-port", &closePort, .{ .exact = 1 });
+    try primitives.reg(vm, "close-input-port", &closePort, .{ .exact = 1 });
+    try primitives.reg(vm, "close-output-port", &closePort, .{ .exact = 1 });
+    try primitives.reg(vm, "read-char", &readCharFn, .{ .variadic = 0 });
+    try primitives.reg(vm, "peek-char", &peekCharFn, .{ .variadic = 0 });
+    try primitives.reg(vm, "read-line", &readLineFn, .{ .variadic = 0 });
+    try primitives.reg(vm, "char-ready?", &charReadyP, .{ .variadic = 0 });
+    try primitives.reg(vm, "write-char", &writeCharFn, .{ .variadic = 1 });
+    try primitives.reg(vm, "write-string", &writeStringFn, .{ .variadic = 1 });
+    try primitives.reg(vm, "read", &readDatumFn, .{ .variadic = 0 });
+    try primitives.reg(vm, "file-exists?", &fileExistsP, .{ .exact = 1 });
+    try primitives.reg(vm, "eof-object?", &eofObjectP, .{ .exact = 1 });
+    try primitives.reg(vm, "eof-object", &eofObjectFn, .{ .exact = 0 });
     // String ports
-    try reg(vm, "open-input-string", &openInputString, .{ .exact = 1 });
-    try reg(vm, "open-output-string", &openOutputString, .{ .exact = 0 });
-    try reg(vm, "get-output-string", &getOutputString, .{ .exact = 1 });
+    try primitives.reg(vm, "open-input-string", &openInputString, .{ .exact = 1 });
+    try primitives.reg(vm, "open-output-string", &openOutputString, .{ .exact = 0 });
+    try primitives.reg(vm, "get-output-string", &getOutputString, .{ .exact = 1 });
     // Additional I/O
-    try reg(vm, "read-string", &readStringFn, .{ .variadic = 1 });
-    try reg(vm, "flush-output-port", &flushOutputPort, .{ .variadic = 0 });
-    try reg(vm, "delete-file", &deleteFile, .{ .exact = 1 });
+    try primitives.reg(vm, "read-string", &readStringFn, .{ .variadic = 1 });
+    try primitives.reg(vm, "flush-output-port", &flushOutputPort, .{ .variadic = 0 });
+    try primitives.reg(vm, "delete-file", &deleteFile, .{ .exact = 1 });
     // (scheme write) completions
-    try reg(vm, "write-shared", &writeShared, .{ .variadic = 1 });
-    try reg(vm, "write-simple", &write, .{ .variadic = 1 });
+    try primitives.reg(vm, "write-shared", &writeShared, .{ .variadic = 1 });
+    try primitives.reg(vm, "write-simple", &write, .{ .variadic = 1 });
     // File I/O wrappers (R7RS 6.13)
-    try reg(vm, "call-with-input-file", &callWithInputFile, .{ .exact = 2 });
-    try reg(vm, "call-with-output-file", &callWithOutputFile, .{ .exact = 2 });
-    try reg(vm, "call-with-port", &callWithPort, .{ .exact = 2 });
-    try reg(vm, "with-input-from-file", &withInputFromFile, .{ .exact = 2 });
-    try reg(vm, "with-output-to-file", &withOutputToFile, .{ .exact = 2 });
+    try primitives.reg(vm, "call-with-input-file", &callWithInputFile, .{ .exact = 2 });
+    try primitives.reg(vm, "call-with-output-file", &callWithOutputFile, .{ .exact = 2 });
+    try primitives.reg(vm, "call-with-port", &callWithPort, .{ .exact = 2 });
+    try primitives.reg(vm, "with-input-from-file", &withInputFromFile, .{ .exact = 2 });
+    try primitives.reg(vm, "with-output-to-file", &withOutputToFile, .{ .exact = 2 });
     // Binary port aliases (we don't distinguish text/binary)
-    try reg(vm, "open-binary-input-file", &openBinaryInputFile, .{ .exact = 1 });
-    try reg(vm, "open-binary-output-file", &openBinaryOutputFile, .{ .exact = 1 });
+    try primitives.reg(vm, "open-binary-input-file", &openBinaryInputFile, .{ .exact = 1 });
+    try primitives.reg(vm, "open-binary-output-file", &openBinaryOutputFile, .{ .exact = 1 });
     // Binary I/O
-    try reg(vm, "read-u8", &readU8Fn, .{ .variadic = 0 });
-    try reg(vm, "peek-u8", &peekU8Fn, .{ .variadic = 0 });
-    try reg(vm, "u8-ready?", &charReadyP, .{ .variadic = 0 });
-    try reg(vm, "write-u8", &writeU8Fn, .{ .variadic = 1 });
-    try reg(vm, "read-bytevector", &readBytevectorFn, .{ .variadic = 1 });
-    try reg(vm, "write-bytevector", &writeBytevectorFn, .{ .variadic = 1 });
+    try primitives.reg(vm, "read-u8", &readU8Fn, .{ .variadic = 0 });
+    try primitives.reg(vm, "peek-u8", &peekU8Fn, .{ .variadic = 0 });
+    try primitives.reg(vm, "u8-ready?", &charReadyP, .{ .variadic = 0 });
+    try primitives.reg(vm, "write-u8", &writeU8Fn, .{ .variadic = 1 });
+    try primitives.reg(vm, "read-bytevector", &readBytevectorFn, .{ .variadic = 1 });
+    try primitives.reg(vm, "write-bytevector", &writeBytevectorFn, .{ .variadic = 1 });
 }
 
 pub fn registerIOSandboxed(vm: *vm_mod.VM) !void {
-    try reg(vm, "display", &display, .{ .variadic = 1 });
-    try reg(vm, "write", &write, .{ .variadic = 1 });
-    try reg(vm, "newline", &newline, .{ .variadic = 0 });
+    try primitives.reg(vm, "display", &display, .{ .variadic = 1 });
+    try primitives.reg(vm, "write", &write, .{ .variadic = 1 });
+    try primitives.reg(vm, "newline", &newline, .{ .variadic = 0 });
     try registerPortParams(vm);
-    try reg(vm, "port?", &portP, .{ .exact = 1 });
-    try reg(vm, "input-port?", &inputPortP, .{ .exact = 1 });
-    try reg(vm, "output-port?", &outputPortP, .{ .exact = 1 });
-    try reg(vm, "textual-port?", &textualPortP, .{ .exact = 1 });
-    try reg(vm, "binary-port?", &binaryPortP, .{ .exact = 1 });
-    try reg(vm, "input-port-open?", &inputPortOpenP, .{ .exact = 1 });
-    try reg(vm, "output-port-open?", &outputPortOpenP, .{ .exact = 1 });
-    try reg(vm, "close-port", &closePort, .{ .exact = 1 });
-    try reg(vm, "close-input-port", &closePort, .{ .exact = 1 });
-    try reg(vm, "close-output-port", &closePort, .{ .exact = 1 });
-    try reg(vm, "read-char", &readCharFn, .{ .variadic = 0 });
-    try reg(vm, "peek-char", &peekCharFn, .{ .variadic = 0 });
-    try reg(vm, "read-line", &readLineFn, .{ .variadic = 0 });
-    try reg(vm, "char-ready?", &charReadyP, .{ .variadic = 0 });
-    try reg(vm, "write-char", &writeCharFn, .{ .variadic = 1 });
-    try reg(vm, "write-string", &writeStringFn, .{ .variadic = 1 });
-    try reg(vm, "read", &readDatumFn, .{ .variadic = 0 });
-    try reg(vm, "eof-object?", &eofObjectP, .{ .exact = 1 });
-    try reg(vm, "eof-object", &eofObjectFn, .{ .exact = 0 });
-    try reg(vm, "open-input-string", &openInputString, .{ .exact = 1 });
-    try reg(vm, "open-output-string", &openOutputString, .{ .exact = 0 });
-    try reg(vm, "get-output-string", &getOutputString, .{ .exact = 1 });
-    try reg(vm, "read-string", &readStringFn, .{ .variadic = 1 });
-    try reg(vm, "flush-output-port", &flushOutputPort, .{ .variadic = 0 });
-    try reg(vm, "write-shared", &writeShared, .{ .variadic = 1 });
-    try reg(vm, "write-simple", &write, .{ .variadic = 1 });
-    try reg(vm, "call-with-port", &callWithPort, .{ .exact = 2 });
-    try reg(vm, "read-u8", &readU8Fn, .{ .variadic = 0 });
-    try reg(vm, "peek-u8", &peekU8Fn, .{ .variadic = 0 });
-    try reg(vm, "u8-ready?", &charReadyP, .{ .variadic = 0 });
-    try reg(vm, "write-u8", &writeU8Fn, .{ .variadic = 1 });
-    try reg(vm, "read-bytevector", &readBytevectorFn, .{ .variadic = 1 });
-    try reg(vm, "write-bytevector", &writeBytevectorFn, .{ .variadic = 1 });
+    try primitives.reg(vm, "port?", &portP, .{ .exact = 1 });
+    try primitives.reg(vm, "input-port?", &inputPortP, .{ .exact = 1 });
+    try primitives.reg(vm, "output-port?", &outputPortP, .{ .exact = 1 });
+    try primitives.reg(vm, "textual-port?", &textualPortP, .{ .exact = 1 });
+    try primitives.reg(vm, "binary-port?", &binaryPortP, .{ .exact = 1 });
+    try primitives.reg(vm, "input-port-open?", &inputPortOpenP, .{ .exact = 1 });
+    try primitives.reg(vm, "output-port-open?", &outputPortOpenP, .{ .exact = 1 });
+    try primitives.reg(vm, "close-port", &closePort, .{ .exact = 1 });
+    try primitives.reg(vm, "close-input-port", &closePort, .{ .exact = 1 });
+    try primitives.reg(vm, "close-output-port", &closePort, .{ .exact = 1 });
+    try primitives.reg(vm, "read-char", &readCharFn, .{ .variadic = 0 });
+    try primitives.reg(vm, "peek-char", &peekCharFn, .{ .variadic = 0 });
+    try primitives.reg(vm, "read-line", &readLineFn, .{ .variadic = 0 });
+    try primitives.reg(vm, "char-ready?", &charReadyP, .{ .variadic = 0 });
+    try primitives.reg(vm, "write-char", &writeCharFn, .{ .variadic = 1 });
+    try primitives.reg(vm, "write-string", &writeStringFn, .{ .variadic = 1 });
+    try primitives.reg(vm, "read", &readDatumFn, .{ .variadic = 0 });
+    try primitives.reg(vm, "eof-object?", &eofObjectP, .{ .exact = 1 });
+    try primitives.reg(vm, "eof-object", &eofObjectFn, .{ .exact = 0 });
+    try primitives.reg(vm, "open-input-string", &openInputString, .{ .exact = 1 });
+    try primitives.reg(vm, "open-output-string", &openOutputString, .{ .exact = 0 });
+    try primitives.reg(vm, "get-output-string", &getOutputString, .{ .exact = 1 });
+    try primitives.reg(vm, "read-string", &readStringFn, .{ .variadic = 1 });
+    try primitives.reg(vm, "flush-output-port", &flushOutputPort, .{ .variadic = 0 });
+    try primitives.reg(vm, "write-shared", &writeShared, .{ .variadic = 1 });
+    try primitives.reg(vm, "write-simple", &write, .{ .variadic = 1 });
+    try primitives.reg(vm, "call-with-port", &callWithPort, .{ .exact = 2 });
+    try primitives.reg(vm, "read-u8", &readU8Fn, .{ .variadic = 0 });
+    try primitives.reg(vm, "peek-u8", &peekU8Fn, .{ .variadic = 0 });
+    try primitives.reg(vm, "u8-ready?", &charReadyP, .{ .variadic = 0 });
+    try primitives.reg(vm, "write-u8", &writeU8Fn, .{ .variadic = 1 });
+    try primitives.reg(vm, "read-bytevector", &readBytevectorFn, .{ .variadic = 1 });
+    try primitives.reg(vm, "write-bytevector", &writeBytevectorFn, .{ .variadic = 1 });
 }
 
 // ---------------------------------------------------------------------------

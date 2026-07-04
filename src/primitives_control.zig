@@ -9,30 +9,26 @@ const Value = types.Value;
 const NativeFn = types.NativeFn;
 const PrimitiveError = primitives.PrimitiveError;
 
-fn reg(vm: *vm_mod.VM, name: []const u8, func: types.NativeFnType, arity: NativeFn.Arity) !void {
-    return primitives.reg(vm, name, func, arity);
-}
-
 pub fn registerControl(vm: *vm_mod.VM) !void {
     // Exception system (R7RS 6.11)
-    try reg(vm, "raise", &raiseFn, .{ .exact = 1 });
-    try reg(vm, "raise-continuable", &raiseContinuableFn, .{ .exact = 1 });
-    try reg(vm, "with-exception-handler", &withExceptionHandlerFn, .{ .exact = 2 });
-    try reg(vm, "error", &errorFn, .{ .variadic = 1 });
-    try reg(vm, "error-object?", &errorObjectP, .{ .exact = 1 });
-    try reg(vm, "error-object-message", &errorObjectMessage, .{ .exact = 1 });
-    try reg(vm, "error-object-irritants", &errorObjectIrritants, .{ .exact = 1 });
-    try reg(vm, "file-error?", &fileErrorP, .{ .exact = 1 });
-    try reg(vm, "read-error?", &readErrorP, .{ .exact = 1 });
+    try primitives.reg(vm, "raise", &raiseFn, .{ .exact = 1 });
+    try primitives.reg(vm, "raise-continuable", &raiseContinuableFn, .{ .exact = 1 });
+    try primitives.reg(vm, "with-exception-handler", &withExceptionHandlerFn, .{ .exact = 2 });
+    try primitives.reg(vm, "error", &errorFn, .{ .variadic = 1 });
+    try primitives.reg(vm, "error-object?", &errorObjectP, .{ .exact = 1 });
+    try primitives.reg(vm, "error-object-message", &errorObjectMessage, .{ .exact = 1 });
+    try primitives.reg(vm, "error-object-irritants", &errorObjectIrritants, .{ .exact = 1 });
+    try primitives.reg(vm, "file-error?", &fileErrorP, .{ .exact = 1 });
+    try primitives.reg(vm, "read-error?", &readErrorP, .{ .exact = 1 });
 
     // Continuations (R7RS 6.10)
-    try reg(vm, "call-with-current-continuation", &callWithCurrentContinuation, .{ .exact = 1 });
-    try reg(vm, "call/cc", &callWithCurrentContinuation, .{ .exact = 1 });
-    try reg(vm, "call-with-escape-continuation", &callWithEscapeContinuation, .{ .exact = 1 });
-    try reg(vm, "call/ec", &callWithEscapeContinuation, .{ .exact = 1 });
-    try reg(vm, "dynamic-wind", &dynamicWindFn, .{ .exact = 3 });
-    try reg(vm, "values", &valuesFn, .{ .variadic = 0 });
-    try reg(vm, "call-with-values", &callWithValuesFn, .{ .exact = 2 });
+    try primitives.reg(vm, "call-with-current-continuation", &callWithCurrentContinuation, .{ .exact = 1 });
+    try primitives.reg(vm, "call/cc", &callWithCurrentContinuation, .{ .exact = 1 });
+    try primitives.reg(vm, "call-with-escape-continuation", &callWithEscapeContinuation, .{ .exact = 1 });
+    try primitives.reg(vm, "call/ec", &callWithEscapeContinuation, .{ .exact = 1 });
+    try primitives.reg(vm, "dynamic-wind", &dynamicWindFn, .{ .exact = 3 });
+    try primitives.reg(vm, "values", &valuesFn, .{ .variadic = 0 });
+    try primitives.reg(vm, "call-with-values", &callWithValuesFn, .{ .exact = 2 });
 }
 
 // ---------------------------------------------------------------------------

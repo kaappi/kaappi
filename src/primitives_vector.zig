@@ -7,45 +7,41 @@ const Value = types.Value;
 const NativeFn = types.NativeFn;
 const PrimitiveError = primitives.PrimitiveError;
 
-fn reg(vm: *vm_mod.VM, name: []const u8, func: types.NativeFnType, arity: NativeFn.Arity) !void {
-    return primitives.reg(vm, name, func, arity);
-}
-
 pub fn registerVector(vm: *vm_mod.VM) !void {
-    try reg(vm, "vector", &vectorFn, .{ .variadic = 0 });
-    try reg(vm, "make-vector", &makeVectorFn, .{ .variadic = 1 });
-    try reg(vm, "vector?", &vectorP, .{ .exact = 1 });
-    try reg(vm, "vector-length", &vectorLengthFn, .{ .exact = 1 });
-    try reg(vm, "vector-ref", &vectorRefFn, .{ .exact = 2 });
-    try reg(vm, "vector-set!", &vectorSetFn, .{ .exact = 3 });
-    try reg(vm, "vector->list", &vectorToListFn, .{ .variadic = 1 });
-    try reg(vm, "list->vector", &listToVectorFn, .{ .exact = 1 });
-    try reg(vm, "vector-fill!", &vectorFillFn, .{ .variadic = 2 });
-    try reg(vm, "vector-copy", &vectorCopyFn, .{ .variadic = 1 });
-    try reg(vm, "vector-copy!", &vectorCopyBangFn, .{ .variadic = 3 });
-    try reg(vm, "vector-append", &vectorAppendFn, .{ .variadic = 0 });
-    try reg(vm, "vector-for-each", &vectorForEachFn, .{ .variadic = 2 });
-    try reg(vm, "vector-map", &vectorMapFn, .{ .variadic = 2 });
-    try reg(vm, "vector->string", &vectorToStringFn, .{ .variadic = 1 });
+    try primitives.reg(vm, "vector", &vectorFn, .{ .variadic = 0 });
+    try primitives.reg(vm, "make-vector", &makeVectorFn, .{ .variadic = 1 });
+    try primitives.reg(vm, "vector?", &vectorP, .{ .exact = 1 });
+    try primitives.reg(vm, "vector-length", &vectorLengthFn, .{ .exact = 1 });
+    try primitives.reg(vm, "vector-ref", &vectorRefFn, .{ .exact = 2 });
+    try primitives.reg(vm, "vector-set!", &vectorSetFn, .{ .exact = 3 });
+    try primitives.reg(vm, "vector->list", &vectorToListFn, .{ .variadic = 1 });
+    try primitives.reg(vm, "list->vector", &listToVectorFn, .{ .exact = 1 });
+    try primitives.reg(vm, "vector-fill!", &vectorFillFn, .{ .variadic = 2 });
+    try primitives.reg(vm, "vector-copy", &vectorCopyFn, .{ .variadic = 1 });
+    try primitives.reg(vm, "vector-copy!", &vectorCopyBangFn, .{ .variadic = 3 });
+    try primitives.reg(vm, "vector-append", &vectorAppendFn, .{ .variadic = 0 });
+    try primitives.reg(vm, "vector-for-each", &vectorForEachFn, .{ .variadic = 2 });
+    try primitives.reg(vm, "vector-map", &vectorMapFn, .{ .variadic = 2 });
+    try primitives.reg(vm, "vector->string", &vectorToStringFn, .{ .variadic = 1 });
     // SRFI 133 additions
-    try reg(vm, "vector-empty?", &vectorEmptyFn, .{ .exact = 1 });
-    try reg(vm, "vector-count", &vectorCountFn, .{ .variadic = 2 });
-    try reg(vm, "vector-any", &vectorAnyFn, .{ .variadic = 2 });
-    try reg(vm, "vector-every", &vectorEveryFn, .{ .variadic = 2 });
-    try reg(vm, "vector-index", &vectorIndexFn, .{ .variadic = 2 });
-    try reg(vm, "vector-index-right", &vectorIndexRightFn, .{ .variadic = 2 });
-    try reg(vm, "vector-skip", &vectorSkipFn, .{ .exact = 2 });
-    try reg(vm, "vector-skip-right", &vectorSkipRightFn, .{ .exact = 2 });
-    try reg(vm, "vector-swap!", &vectorSwapFn, .{ .exact = 3 });
-    try reg(vm, "vector-reverse!", &vectorReverseBangFn, .{ .variadic = 1 });
-    try reg(vm, "vector-reverse-copy", &vectorReverseCopyFn, .{ .variadic = 1 });
-    try reg(vm, "vector-unfold", &vectorUnfoldFn, .{ .variadic = 2 });
-    try reg(vm, "vector-unfold-right", &vectorUnfoldRightFn, .{ .variadic = 2 });
-    try reg(vm, "vector-binary-search", &vectorBinarySearchFn, .{ .exact = 3 });
-    try reg(vm, "vector-concatenate", &vectorConcatenateFn, .{ .exact = 1 });
-    try reg(vm, "vector-cumulate", &vectorCumulateFn, .{ .exact = 3 });
-    try reg(vm, "vector-partition", &vectorPartitionFn, .{ .exact = 2 });
-    try reg(vm, "vector-append-subvectors", &vectorAppendSubvectorsFn, .{ .variadic = 0 });
+    try primitives.reg(vm, "vector-empty?", &vectorEmptyFn, .{ .exact = 1 });
+    try primitives.reg(vm, "vector-count", &vectorCountFn, .{ .variadic = 2 });
+    try primitives.reg(vm, "vector-any", &vectorAnyFn, .{ .variadic = 2 });
+    try primitives.reg(vm, "vector-every", &vectorEveryFn, .{ .variadic = 2 });
+    try primitives.reg(vm, "vector-index", &vectorIndexFn, .{ .variadic = 2 });
+    try primitives.reg(vm, "vector-index-right", &vectorIndexRightFn, .{ .variadic = 2 });
+    try primitives.reg(vm, "vector-skip", &vectorSkipFn, .{ .exact = 2 });
+    try primitives.reg(vm, "vector-skip-right", &vectorSkipRightFn, .{ .exact = 2 });
+    try primitives.reg(vm, "vector-swap!", &vectorSwapFn, .{ .exact = 3 });
+    try primitives.reg(vm, "vector-reverse!", &vectorReverseBangFn, .{ .variadic = 1 });
+    try primitives.reg(vm, "vector-reverse-copy", &vectorReverseCopyFn, .{ .variadic = 1 });
+    try primitives.reg(vm, "vector-unfold", &vectorUnfoldFn, .{ .variadic = 2 });
+    try primitives.reg(vm, "vector-unfold-right", &vectorUnfoldRightFn, .{ .variadic = 2 });
+    try primitives.reg(vm, "vector-binary-search", &vectorBinarySearchFn, .{ .exact = 3 });
+    try primitives.reg(vm, "vector-concatenate", &vectorConcatenateFn, .{ .exact = 1 });
+    try primitives.reg(vm, "vector-cumulate", &vectorCumulateFn, .{ .exact = 3 });
+    try primitives.reg(vm, "vector-partition", &vectorPartitionFn, .{ .exact = 2 });
+    try primitives.reg(vm, "vector-append-subvectors", &vectorAppendSubvectorsFn, .{ .variadic = 0 });
 }
 
 // ---------------------------------------------------------------------------

@@ -9,34 +9,30 @@ const PrimitiveError = primitives.PrimitiveError;
 const HashTable = types.HashTable;
 const HashEntry = types.HashEntry;
 
-fn reg(vm: *vm_mod.VM, name: []const u8, func: types.NativeFnType, arity: NativeFn.Arity) !void {
-    return primitives.reg(vm, name, func, arity);
-}
-
 pub fn registerHashTable(vm: *vm_mod.VM) !void {
-    try reg(vm, "make-hash-table", &makeHashTableFn, .{ .variadic = 0 });
-    try reg(vm, "hash-table?", &hashTablePFn, .{ .exact = 1 });
-    try reg(vm, "hash-table-ref", &hashTableRefFn, .{ .variadic = 2 });
-    try reg(vm, "hash-table-set!", &hashTableSetFn, .{ .exact = 3 });
-    try reg(vm, "hash-table-delete!", &hashTableDeleteFn, .{ .exact = 2 });
-    try reg(vm, "hash-table-exists?", &hashTableExistsFn, .{ .exact = 2 });
-    try reg(vm, "hash-table-size", &hashTableSizeFn, .{ .exact = 1 });
-    try reg(vm, "hash-table-keys", &hashTableKeysFn, .{ .exact = 1 });
-    try reg(vm, "hash-table-values", &hashTableValuesFn, .{ .exact = 1 });
-    try reg(vm, "hash-table-walk", &hashTableWalkFn, .{ .exact = 2 });
-    try reg(vm, "hash-table->alist", &hashTableToAlistFn, .{ .exact = 1 });
-    try reg(vm, "alist->hash-table", &alistToHashTableFn, .{ .variadic = 1 });
-    try reg(vm, "hash-table-copy", &hashTableCopyFn, .{ .exact = 1 });
-    try reg(vm, "hash-table-update!/default", &hashTableUpdateDefaultFn, .{ .exact = 4 });
-    try reg(vm, "hash", &hashFn, .{ .variadic = 1 });
-    try reg(vm, "string-hash", &stringHashFn, .{ .variadic = 1 });
-    try reg(vm, "string-ci-hash", &stringCiHashFn, .{ .variadic = 1 });
-    try reg(vm, "hash-by-identity", &hashByIdentityFn, .{ .variadic = 1 });
-    try reg(vm, "hash-table-ref/default", &hashTableRefDefaultFn, .{ .exact = 3 });
-    try reg(vm, "hash-table-fold", &hashTableFoldFn, .{ .exact = 3 });
-    try reg(vm, "hash-table-merge!", &hashTableMergeFn, .{ .exact = 2 });
-    try reg(vm, "hash-table-equivalence-function", &hashTableEquivFn, .{ .exact = 1 });
-    try reg(vm, "hash-table-hash-function", &hashTableHashFn, .{ .exact = 1 });
+    try primitives.reg(vm, "make-hash-table", &makeHashTableFn, .{ .variadic = 0 });
+    try primitives.reg(vm, "hash-table?", &hashTablePFn, .{ .exact = 1 });
+    try primitives.reg(vm, "hash-table-ref", &hashTableRefFn, .{ .variadic = 2 });
+    try primitives.reg(vm, "hash-table-set!", &hashTableSetFn, .{ .exact = 3 });
+    try primitives.reg(vm, "hash-table-delete!", &hashTableDeleteFn, .{ .exact = 2 });
+    try primitives.reg(vm, "hash-table-exists?", &hashTableExistsFn, .{ .exact = 2 });
+    try primitives.reg(vm, "hash-table-size", &hashTableSizeFn, .{ .exact = 1 });
+    try primitives.reg(vm, "hash-table-keys", &hashTableKeysFn, .{ .exact = 1 });
+    try primitives.reg(vm, "hash-table-values", &hashTableValuesFn, .{ .exact = 1 });
+    try primitives.reg(vm, "hash-table-walk", &hashTableWalkFn, .{ .exact = 2 });
+    try primitives.reg(vm, "hash-table->alist", &hashTableToAlistFn, .{ .exact = 1 });
+    try primitives.reg(vm, "alist->hash-table", &alistToHashTableFn, .{ .variadic = 1 });
+    try primitives.reg(vm, "hash-table-copy", &hashTableCopyFn, .{ .exact = 1 });
+    try primitives.reg(vm, "hash-table-update!/default", &hashTableUpdateDefaultFn, .{ .exact = 4 });
+    try primitives.reg(vm, "hash", &hashFn, .{ .variadic = 1 });
+    try primitives.reg(vm, "string-hash", &stringHashFn, .{ .variadic = 1 });
+    try primitives.reg(vm, "string-ci-hash", &stringCiHashFn, .{ .variadic = 1 });
+    try primitives.reg(vm, "hash-by-identity", &hashByIdentityFn, .{ .variadic = 1 });
+    try primitives.reg(vm, "hash-table-ref/default", &hashTableRefDefaultFn, .{ .exact = 3 });
+    try primitives.reg(vm, "hash-table-fold", &hashTableFoldFn, .{ .exact = 3 });
+    try primitives.reg(vm, "hash-table-merge!", &hashTableMergeFn, .{ .exact = 2 });
+    try primitives.reg(vm, "hash-table-equivalence-function", &hashTableEquivFn, .{ .exact = 1 });
+    try primitives.reg(vm, "hash-table-hash-function", &hashTableHashFn, .{ .exact = 1 });
 }
 
 // ---------------------------------------------------------------------------

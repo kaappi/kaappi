@@ -7,54 +7,50 @@ const Value = types.Value;
 const NativeFn = types.NativeFn;
 const PrimitiveError = primitives.PrimitiveError;
 
-fn reg(vm: *vm_mod.VM, name: []const u8, func: types.NativeFnType, arity: NativeFn.Arity) !void {
-    return primitives.reg(vm, name, func, arity);
-}
-
 pub fn registerString(vm: *vm_mod.VM) !void {
     // String construction
-    try reg(vm, "string", &stringFn, .{ .variadic = 0 });
-    try reg(vm, "make-string", &makeStringFn, .{ .variadic = 1 });
+    try primitives.reg(vm, "string", &stringFn, .{ .variadic = 0 });
+    try primitives.reg(vm, "make-string", &makeStringFn, .{ .variadic = 1 });
 
     // String access
-    try reg(vm, "string-ref", &stringRefFn, .{ .exact = 2 });
-    try reg(vm, "string-set!", &stringSetFn, .{ .exact = 3 });
-    try reg(vm, "substring", &substringFn, .{ .exact = 3 });
-    try reg(vm, "string-copy", &stringCopyFn, .{ .variadic = 1 });
-    try reg(vm, "string-copy!", &stringCopyBangFn, .{ .variadic = 3 });
-    try reg(vm, "string-fill!", &stringFillFn, .{ .variadic = 2 });
+    try primitives.reg(vm, "string-ref", &stringRefFn, .{ .exact = 2 });
+    try primitives.reg(vm, "string-set!", &stringSetFn, .{ .exact = 3 });
+    try primitives.reg(vm, "substring", &substringFn, .{ .exact = 3 });
+    try primitives.reg(vm, "string-copy", &stringCopyFn, .{ .variadic = 1 });
+    try primitives.reg(vm, "string-copy!", &stringCopyBangFn, .{ .variadic = 3 });
+    try primitives.reg(vm, "string-fill!", &stringFillFn, .{ .variadic = 2 });
 
     // Conversion
-    try reg(vm, "string->list", &stringToListFn, .{ .variadic = 1 });
-    try reg(vm, "list->string", &listToStringFn, .{ .exact = 1 });
-    try reg(vm, "string->symbol", &stringToSymbolFn, .{ .exact = 1 });
-    try reg(vm, "string->utf8", &stringToUtf8Fn, .{ .exact = 1 });
-    try reg(vm, "utf8->string", &utf8ToStringFn, .{ .exact = 1 });
-    try reg(vm, "string->vector", &stringToVectorFn, .{ .variadic = 1 });
+    try primitives.reg(vm, "string->list", &stringToListFn, .{ .variadic = 1 });
+    try primitives.reg(vm, "list->string", &listToStringFn, .{ .exact = 1 });
+    try primitives.reg(vm, "string->symbol", &stringToSymbolFn, .{ .exact = 1 });
+    try primitives.reg(vm, "string->utf8", &stringToUtf8Fn, .{ .exact = 1 });
+    try primitives.reg(vm, "utf8->string", &utf8ToStringFn, .{ .exact = 1 });
+    try primitives.reg(vm, "string->vector", &stringToVectorFn, .{ .variadic = 1 });
 
     // Higher-order
-    try reg(vm, "string-for-each", &stringForEachFn, .{ .variadic = 2 });
-    try reg(vm, "string-map", &stringMapFn, .{ .variadic = 2 });
+    try primitives.reg(vm, "string-for-each", &stringForEachFn, .{ .variadic = 2 });
+    try primitives.reg(vm, "string-map", &stringMapFn, .{ .variadic = 2 });
 
     // Comparison
-    try reg(vm, "string<?", &stringLtFn, .{ .variadic = 2 });
-    try reg(vm, "string<=?", &stringLeFn, .{ .variadic = 2 });
-    try reg(vm, "string=?", &stringEqFn, .{ .variadic = 2 });
-    try reg(vm, "string>=?", &stringGeFn, .{ .variadic = 2 });
-    try reg(vm, "string>?", &stringGtFn, .{ .variadic = 2 });
+    try primitives.reg(vm, "string<?", &stringLtFn, .{ .variadic = 2 });
+    try primitives.reg(vm, "string<=?", &stringLeFn, .{ .variadic = 2 });
+    try primitives.reg(vm, "string=?", &stringEqFn, .{ .variadic = 2 });
+    try primitives.reg(vm, "string>=?", &stringGeFn, .{ .variadic = 2 });
+    try primitives.reg(vm, "string>?", &stringGtFn, .{ .variadic = 2 });
 
     // Number/string conversion (also in arithmetic, but base library needs these)
     // number->string is registered in primitives_arithmetic.zig (handles bignums)
     // string->number registered in primitives_numeric.zig (supports radix parameter)
 
     // Char operations
-    try reg(vm, "char->integer", &charToIntegerFn, .{ .exact = 1 });
-    try reg(vm, "integer->char", &integerToCharFn, .{ .exact = 1 });
-    try reg(vm, "char<?", &charLtFn, .{ .variadic = 2 });
-    try reg(vm, "char<=?", &charLeFn, .{ .variadic = 2 });
-    try reg(vm, "char=?", &charEqFn, .{ .variadic = 2 });
-    try reg(vm, "char>=?", &charGeFn, .{ .variadic = 2 });
-    try reg(vm, "char>?", &charGtFn, .{ .variadic = 2 });
+    try primitives.reg(vm, "char->integer", &charToIntegerFn, .{ .exact = 1 });
+    try primitives.reg(vm, "integer->char", &integerToCharFn, .{ .exact = 1 });
+    try primitives.reg(vm, "char<?", &charLtFn, .{ .variadic = 2 });
+    try primitives.reg(vm, "char<=?", &charLeFn, .{ .variadic = 2 });
+    try primitives.reg(vm, "char=?", &charEqFn, .{ .variadic = 2 });
+    try primitives.reg(vm, "char>=?", &charGeFn, .{ .variadic = 2 });
+    try primitives.reg(vm, "char>?", &charGtFn, .{ .variadic = 2 });
 
     // SRFI-13 string library (in primitives_string_ext.zig)
     const string_ext = @import("primitives_string_ext.zig");

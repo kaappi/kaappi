@@ -8,44 +8,40 @@ const Value = types.Value;
 const NativeFn = types.NativeFn;
 const PrimitiveError = primitives.PrimitiveError;
 
-fn reg(vm: *vm_mod.VM, name: []const u8, func: types.NativeFnType, arity: NativeFn.Arity) !void {
-    return primitives.reg(vm, name, func, arity);
-}
-
 pub fn registerChar(vm: *vm_mod.VM) !void {
     // Character classification
-    try reg(vm, "char-alphabetic?", &charAlphabeticP, .{ .exact = 1 });
-    try reg(vm, "char-numeric?", &charNumericP, .{ .exact = 1 });
-    try reg(vm, "char-whitespace?", &charWhitespaceP, .{ .exact = 1 });
-    try reg(vm, "char-upper-case?", &charUpperCaseP, .{ .exact = 1 });
-    try reg(vm, "char-lower-case?", &charLowerCaseP, .{ .exact = 1 });
+    try primitives.reg(vm, "char-alphabetic?", &charAlphabeticP, .{ .exact = 1 });
+    try primitives.reg(vm, "char-numeric?", &charNumericP, .{ .exact = 1 });
+    try primitives.reg(vm, "char-whitespace?", &charWhitespaceP, .{ .exact = 1 });
+    try primitives.reg(vm, "char-upper-case?", &charUpperCaseP, .{ .exact = 1 });
+    try primitives.reg(vm, "char-lower-case?", &charLowerCaseP, .{ .exact = 1 });
 
     // Case operations
-    try reg(vm, "char-upcase", &charUpcaseFn, .{ .exact = 1 });
-    try reg(vm, "char-downcase", &charDowncaseFn, .{ .exact = 1 });
-    try reg(vm, "char-foldcase", &charFoldcaseFn, .{ .exact = 1 });
+    try primitives.reg(vm, "char-upcase", &charUpcaseFn, .{ .exact = 1 });
+    try primitives.reg(vm, "char-downcase", &charDowncaseFn, .{ .exact = 1 });
+    try primitives.reg(vm, "char-foldcase", &charFoldcaseFn, .{ .exact = 1 });
 
     // Digit value
-    try reg(vm, "digit-value", &digitValueFn, .{ .exact = 1 });
+    try primitives.reg(vm, "digit-value", &digitValueFn, .{ .exact = 1 });
 
     // Case-insensitive char comparison
-    try reg(vm, "char-ci<?", &charCiLtFn, .{ .variadic = 2 });
-    try reg(vm, "char-ci<=?", &charCiLeFn, .{ .variadic = 2 });
-    try reg(vm, "char-ci=?", &charCiEqFn, .{ .variadic = 2 });
-    try reg(vm, "char-ci>=?", &charCiGeFn, .{ .variadic = 2 });
-    try reg(vm, "char-ci>?", &charCiGtFn, .{ .variadic = 2 });
+    try primitives.reg(vm, "char-ci<?", &charCiLtFn, .{ .variadic = 2 });
+    try primitives.reg(vm, "char-ci<=?", &charCiLeFn, .{ .variadic = 2 });
+    try primitives.reg(vm, "char-ci=?", &charCiEqFn, .{ .variadic = 2 });
+    try primitives.reg(vm, "char-ci>=?", &charCiGeFn, .{ .variadic = 2 });
+    try primitives.reg(vm, "char-ci>?", &charCiGtFn, .{ .variadic = 2 });
 
     // Case-insensitive string comparison
-    try reg(vm, "string-ci<?", &stringCiLtFn, .{ .variadic = 2 });
-    try reg(vm, "string-ci<=?", &stringCiLeFn, .{ .variadic = 2 });
-    try reg(vm, "string-ci=?", &stringCiEqFn, .{ .variadic = 2 });
-    try reg(vm, "string-ci>=?", &stringCiGeFn, .{ .variadic = 2 });
-    try reg(vm, "string-ci>?", &stringCiGtFn, .{ .variadic = 2 });
+    try primitives.reg(vm, "string-ci<?", &stringCiLtFn, .{ .variadic = 2 });
+    try primitives.reg(vm, "string-ci<=?", &stringCiLeFn, .{ .variadic = 2 });
+    try primitives.reg(vm, "string-ci=?", &stringCiEqFn, .{ .variadic = 2 });
+    try primitives.reg(vm, "string-ci>=?", &stringCiGeFn, .{ .variadic = 2 });
+    try primitives.reg(vm, "string-ci>?", &stringCiGtFn, .{ .variadic = 2 });
 
     // String case operations
-    try reg(vm, "string-upcase", &stringUpcaseFn, .{ .exact = 1 });
-    try reg(vm, "string-downcase", &stringDowncaseFn, .{ .exact = 1 });
-    try reg(vm, "string-foldcase", &stringFoldcaseFn, .{ .exact = 1 });
+    try primitives.reg(vm, "string-upcase", &stringUpcaseFn, .{ .exact = 1 });
+    try primitives.reg(vm, "string-downcase", &stringDowncaseFn, .{ .exact = 1 });
+    try primitives.reg(vm, "string-foldcase", &stringFoldcaseFn, .{ .exact = 1 });
 }
 
 // ---------------------------------------------------------------------------
