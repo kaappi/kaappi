@@ -513,6 +513,35 @@ fn evalLibFeatureReq(vm: *VM, req: Value) bool {
     return false;
 }
 
+const IncludeFile = struct {
+    source: []const u8,
+    resolved_path: ?[]u8,
+
+    fn deinit(self: IncludeFile, allocator: std.mem.Allocator) void {
+        allocator.free(self.source);
+        if (self.resolved_path) |rp| allocator.free(rp);
+    }
+};
+
+fn openIncludeFile(vm: *VM, file_path: []const u8) VMError!IncludeFile {
+    var resolved_path: ?[]u8 = null;
+    if (vm.current_lib_dir) |dir| {
+        if (dir.len > 0 and file_path.len > 0 and file_path[0] != '/') {
+            resolved_path = std.fmt.allocPrint(vm.gc.allocator, "{s}{s}", .{ dir, file_path }) catch null;
+        }
+    }
+    const source = blk: {
+        if (resolved_path) |rp| {
+            if (readFileOrBundled(vm.gc.allocator, rp, vm.bundled_files)) |src| break :blk src else |_| {}
+        }
+        break :blk readFileOrBundled(vm.gc.allocator, file_path, vm.bundled_files) catch {
+            if (resolved_path) |rp| vm.gc.allocator.free(rp);
+            return VMError.CompileError;
+        };
+    };
+    return .{ .source = source, .resolved_path = resolved_path };
+}
+
 /// Handle a top-level `(include "file" ...)` / `(include-ci "file" ...)` form.
 ///
 /// Reads each named file, parses it, and evaluates every datum as a top-level
@@ -545,32 +574,13 @@ pub fn handleTopLevelInclude(vm: *VM, args: Value, ci: bool) VMError!Value {
         const file_str = types.toObject(file_val).as(types.SchemeString);
         const file_path = file_str.data[0..file_str.len];
 
-        // Resolve include path: relative to the including file's dir, then cwd.
-        var resolved_path: ?[]u8 = null;
-        if (vm.current_lib_dir) |dir| {
-            if (dir.len > 0 and file_path.len > 0 and file_path[0] != '/') {
-                resolved_path = std.fmt.allocPrint(vm.gc.allocator, "{s}{s}", .{ dir, file_path }) catch null;
-            }
-        }
-        defer if (resolved_path) |rp| vm.gc.allocator.free(rp);
+        const inc = try openIncludeFile(vm, file_path);
+        defer inc.deinit(vm.gc.allocator);
 
-        var used_path: []const u8 = file_path;
-        const file_source = blk: {
-            if (resolved_path) |rp| {
-                if (readFileOrBundled(vm.gc.allocator, rp, vm.bundled_files)) |src| {
-                    used_path = rp;
-                    break :blk src;
-                } else |_| {}
-            }
-            break :blk readFileOrBundled(vm.gc.allocator, file_path, vm.bundled_files) catch return VMError.CompileError;
-        };
-        defer vm.gc.allocator.free(file_source);
-
-        // Record for bundling (both resolved and original paths, so lookups
-        // succeed regardless of current_lib_dir at runtime)
-        recordFileForBundle(vm, used_path, file_source);
+        const used_path: []const u8 = inc.resolved_path orelse file_path;
+        recordFileForBundle(vm, used_path, inc.source);
         if (!std.mem.eql(u8, used_path, file_path)) {
-            recordFileForBundle(vm, file_path, file_source);
+            recordFileForBundle(vm, file_path, inc.source);
         }
 
         // Own a copy of the path: error reporting and current_lib_dir slice into
@@ -583,7 +593,7 @@ pub fn handleTopLevelInclude(vm: *VM, args: Value, ci: bool) VMError!Value {
         vm.current_lib_dir = extractDir(owned_path);
         defer vm.current_lib_dir = saved_lib_dir;
 
-        var file_reader = reader_mod.Reader.initWithName(vm.gc, file_source, owned_path);
+        var file_reader = reader_mod.Reader.initWithName(vm.gc, inc.source, owned_path);
         defer file_reader.deinit();
 
         while (file_reader.hasMore() catch false) {
@@ -850,95 +860,7 @@ pub fn handleDefineLibrary(vm: *VM, args: Value) VMError!Value {
     var decl = decls;
     while (decl != types.NIL) {
         if (!types.isPair(decl)) return VMError.CompileError;
-        const declaration = types.car(decl);
-        if (!types.isPair(declaration)) return VMError.CompileError;
-
-        const decl_head = types.car(declaration);
-        if (!types.isSymbol(decl_head)) return VMError.CompileError;
-        const decl_name = types.symbolName(decl_head);
-
-        if (std.mem.eql(u8, decl_name, "export")) {
-            var id_list = types.cdr(declaration);
-            while (id_list != types.NIL) {
-                if (!types.isPair(id_list)) return VMError.CompileError;
-                const id = types.car(id_list);
-                if (types.isSymbol(id)) {
-                    export_names.append(vm.gc.allocator, types.symbolName(id)) catch return VMError.OutOfMemory;
-                    export_renames.append(vm.gc.allocator, null) catch return VMError.OutOfMemory;
-                } else if (types.isPair(id)) {
-                    const head = types.car(id);
-                    if (types.isSymbol(head) and std.mem.eql(u8, types.symbolName(head), "rename")) {
-                        const rename_args = types.cdr(id);
-                        if (types.isPair(rename_args)) {
-                            const old_sym = types.car(rename_args);
-                            const rest = types.cdr(rename_args);
-                            if (types.isPair(rest) and types.isSymbol(old_sym)) {
-                                const new_sym = types.car(rest);
-                                if (types.isSymbol(new_sym)) {
-                                    export_names.append(vm.gc.allocator, types.symbolName(old_sym)) catch return VMError.OutOfMemory;
-                                    export_renames.append(vm.gc.allocator, types.symbolName(new_sym)) catch return VMError.OutOfMemory;
-                                }
-                            }
-                        }
-                    }
-                }
-                id_list = types.cdr(id_list);
-            }
-        } else if (std.mem.eql(u8, decl_name, "import")) {
-            _ = handleImportInto(vm, lib_env, types.cdr(declaration)) catch |err| {
-                if (err != VMError.CompileError) return err;
-                const detail = vm.getErrorDetail();
-                if (detail.len > 0) {
-                    vm_mod.writeStderr(detail);
-                    vm_mod.writeStderr("\n");
-                    vm.last_error_detail_len = 0;
-                }
-            };
-        } else if (std.mem.eql(u8, decl_name, "begin")) {
-            try compileLibBeginBlock(vm, lib_env, types.cdr(declaration));
-        } else if (std.mem.eql(u8, decl_name, "include") or std.mem.eql(u8, decl_name, "include-ci")) {
-            try compileLibInclude(vm, lib_env, types.cdr(declaration));
-        } else if (std.mem.eql(u8, decl_name, "include-library-declarations")) {
-            try includeLibraryDeclarations(vm, lib_env, types.cdr(declaration), &export_names, &export_renames);
-        } else if (std.mem.eql(u8, decl_name, "cond-expand")) {
-            var clauses = types.cdr(declaration);
-            var matched = false;
-            while (clauses != types.NIL and !matched) {
-                if (!types.isPair(clauses)) break;
-                const clause = types.car(clauses);
-                clauses = types.cdr(clauses);
-
-                if (!types.isPair(clause)) continue;
-                const feature_req = types.car(clause);
-                const clause_decls = types.cdr(clause);
-
-                const is_else = types.isSymbol(feature_req) and std.mem.eql(u8, types.symbolName(feature_req), "else");
-                const feature_match = is_else or evalLibFeatureReq(vm, feature_req);
-
-                if (feature_match) {
-                    matched = true;
-                    const spliced = clause_decls;
-                    var last_pair: Value = types.NIL;
-                    var scan = spliced;
-                    while (scan != types.NIL and types.isPair(scan)) {
-                        last_pair = scan;
-                        scan = types.cdr(scan);
-                    }
-                    if (last_pair != types.NIL) {
-                        const remaining = types.cdr(decl);
-                        types.setCdr(last_pair, remaining);
-                        vm.gc.writeBarrier(types.toObject(last_pair), remaining);
-                        decl = spliced;
-                        continue;
-                    } else {
-                        decl = types.cdr(decl);
-                        continue;
-                    }
-                }
-            }
-            if (matched) continue;
-        }
-
+        try processLibDeclaration(vm, lib_env, types.car(decl), &export_names, &export_renames);
         decl = types.cdr(decl);
     }
 
@@ -1045,34 +967,17 @@ fn compileLibInclude(vm: *VM, lib_env: *std.StringHashMap(Value), file_list_val:
         const file_str = types.toObject(file_val).as(types.SchemeString);
         const file_path = file_str.data[0..file_str.len];
 
-        var resolved_path: ?[]u8 = null;
-        if (vm.current_lib_dir) |dir| {
-            if (dir.len > 0 and file_path.len > 0 and file_path[0] != '/') {
-                resolved_path = std.fmt.allocPrint(vm.gc.allocator, "{s}{s}", .{ dir, file_path }) catch null;
-            }
-        }
-        defer if (resolved_path) |rp| vm.gc.allocator.free(rp);
+        const inc = try openIncludeFile(vm, file_path);
+        defer inc.deinit(vm.gc.allocator);
 
-        const file_source = blk: {
-            if (resolved_path) |rp| {
-                if (readFileOrBundled(vm.gc.allocator, rp, vm.bundled_files)) |src| break :blk src else |_| {}
-            }
-            break :blk readFileOrBundled(vm.gc.allocator, file_path, vm.bundled_files) catch return VMError.CompileError;
-        };
-        defer vm.gc.allocator.free(file_source);
-
-        // Record for bundling (both resolved and original paths)
-        if (resolved_path) |rp| {
-            recordFileForBundle(vm, rp, file_source);
-            if (!std.mem.eql(u8, rp, file_path)) {
-                recordFileForBundle(vm, file_path, file_source);
-            }
-        } else {
-            recordFileForBundle(vm, file_path, file_source);
+        const used_path: []const u8 = inc.resolved_path orelse file_path;
+        recordFileForBundle(vm, used_path, inc.source);
+        if (!std.mem.eql(u8, used_path, file_path)) {
+            recordFileForBundle(vm, file_path, inc.source);
         }
 
         const reader_mod = @import("reader.zig");
-        var file_reader = reader_mod.Reader.init(vm.gc, file_source);
+        var file_reader = reader_mod.Reader.init(vm.gc, inc.source);
         defer file_reader.deinit();
 
         while (file_reader.hasMore() catch return VMError.CompileError) {
@@ -1124,7 +1029,15 @@ fn processLibDeclaration(
             id_list = types.cdr(id_list);
         }
     } else if (std.mem.eql(u8, decl_name, "import")) {
-        _ = handleImportInto(vm, lib_env, types.cdr(declaration)) catch return VMError.CompileError;
+        _ = handleImportInto(vm, lib_env, types.cdr(declaration)) catch |err| {
+            if (err != VMError.CompileError) return err;
+            const detail = vm.getErrorDetail();
+            if (detail.len > 0) {
+                vm_mod.writeStderr(detail);
+                vm_mod.writeStderr("\n");
+                vm.last_error_detail_len = 0;
+            }
+        };
     } else if (std.mem.eql(u8, decl_name, "begin")) {
         try compileLibBeginBlock(vm, lib_env, types.cdr(declaration));
     } else if (std.mem.eql(u8, decl_name, "include") or std.mem.eql(u8, decl_name, "include-ci")) {
@@ -1168,24 +1081,11 @@ fn includeLibraryDeclarations(
         const file_str = types.toObject(file_val).as(types.SchemeString);
         const file_path = file_str.data[0..file_str.len];
 
-        var resolved_path: ?[]u8 = null;
-        if (vm.current_lib_dir) |dir| {
-            if (dir.len > 0 and file_path.len > 0 and file_path[0] != '/') {
-                resolved_path = std.fmt.allocPrint(vm.gc.allocator, "{s}{s}", .{ dir, file_path }) catch null;
-            }
-        }
-        defer if (resolved_path) |rp| vm.gc.allocator.free(rp);
-
-        const file_source = blk: {
-            if (resolved_path) |rp| {
-                if (readFileOrBundled(vm.gc.allocator, rp, vm.bundled_files)) |src| break :blk src else |_| {}
-            }
-            break :blk readFileOrBundled(vm.gc.allocator, file_path, vm.bundled_files) catch return VMError.CompileError;
-        };
-        defer vm.gc.allocator.free(file_source);
+        const inc = try openIncludeFile(vm, file_path);
+        defer inc.deinit(vm.gc.allocator);
 
         const reader_mod = @import("reader.zig");
-        var file_reader = reader_mod.Reader.init(vm.gc, file_source);
+        var file_reader = reader_mod.Reader.init(vm.gc, inc.source);
         defer file_reader.deinit();
 
         while (file_reader.hasMore() catch return VMError.CompileError) {
