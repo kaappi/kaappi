@@ -352,8 +352,8 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                 if (idx >= closure.upvalues.len) return VMError.InvalidBytecode;
                 const uv = closure.upvalues[idx];
                 const dst_idx = try registerIndex(self, frame.base, dst);
-                self.registers[dst_idx] = if (types.isPair(uv) and types.cdr(uv) == types.VOID)
-                    types.car(uv)
+                self.registers[dst_idx] = if (types.isBox(uv))
+                    types.boxGet(uv)
                 else
                     uv;
             },
@@ -364,9 +364,9 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                 if (idx >= closure.upvalues.len) return VMError.InvalidBytecode;
                 const src_idx = try registerIndex(self, frame.base, src);
                 const uv = closure.upvalues[idx];
-                if (types.isPair(uv) and types.cdr(uv) == types.VOID) {
+                if (types.isBox(uv)) {
                     self.gc.writeBarrier(types.toObject(uv), self.registers[src_idx]);
-                    types.setCar(uv, self.registers[src_idx]);
+                    types.boxSet(uv, self.registers[src_idx]);
                 } else {
                     self.gc.writeBarrier(&closure.header, self.registers[src_idx]);
                     closure.upvalues[idx] = self.registers[src_idx];
@@ -872,7 +872,7 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                     if (is_local) {
                         const local_idx = try registerIndex(self, frame.base, index);
                         var val = self.registers[local_idx];
-                        if (!types.isPair(val) or types.cdr(val) != types.VOID) {
+                        if (!types.isBox(val)) {
                             const box = self.gc.allocPair(val, types.VOID) catch return VMError.OutOfMemory;
                             cls = types.toObject(cls_val).as(types.Closure);
                             self.registers[local_idx] = box;
@@ -1248,12 +1248,8 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                 const reg = readU16(self, frame);
                 const reg_idx = try registerIndex(self, frame.base, reg);
                 const val = self.registers[reg_idx];
-                // Idempotent: if the register already holds a box (a pair whose
-                // cdr is VOID, the box marker used throughout), leave it alone.
-                // Without this, a box_local that re-executes on a loop back-edge
-                // would wrap the previous box in a fresh one, and the inner box
-                // pair would leak out as a Scheme value (issue #803).
-                if (!types.isPair(val) or types.cdr(val) != types.VOID) {
+                // Idempotent: leave existing boxes alone (issue #803).
+                if (!types.isBox(val)) {
                     const box = self.gc.allocPair(val, types.VOID) catch return VMError.OutOfMemory;
                     self.registers[reg_idx] = box;
                 }
@@ -1264,8 +1260,8 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                 const dst_idx = try registerIndex(self, frame.base, dst_r);
                 const reg_idx = try registerIndex(self, frame.base, reg);
                 const val = self.registers[reg_idx];
-                if (types.isPair(val) and types.cdr(val) == types.VOID) {
-                    self.registers[dst_idx] = types.car(val);
+                if (types.isBox(val)) {
+                    self.registers[dst_idx] = types.boxGet(val);
                 } else {
                     const box = self.gc.allocPair(val, types.VOID) catch return VMError.OutOfMemory;
                     self.registers[reg_idx] = box;
@@ -1278,9 +1274,9 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                 const reg_idx = try registerIndex(self, frame.base, reg);
                 const src_idx = try registerIndex(self, frame.base, src);
                 const val = self.registers[reg_idx];
-                if (types.isPair(val) and types.cdr(val) == types.VOID) {
+                if (types.isBox(val)) {
                     self.gc.writeBarrier(types.toObject(val), self.registers[src_idx]);
-                    types.setCar(val, self.registers[src_idx]);
+                    types.boxSet(val, self.registers[src_idx]);
                 } else {
                     const box = self.gc.allocPair(self.registers[src_idx], types.VOID) catch return VMError.OutOfMemory;
                     self.registers[reg_idx] = box;
