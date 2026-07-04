@@ -8,6 +8,7 @@ const VM = vm_mod.VM;
 const VMError = vm_mod.VMError;
 const CallFrame = vm_mod.CallFrame;
 
+const memory = @import("memory.zig");
 const vm_calls = @import("vm_calls.zig");
 const vm_continuations = @import("vm_continuations.zig");
 const vm_debug = @import("vm_debug.zig");
@@ -58,7 +59,7 @@ fn maybeRewindRetry(self: *VM, instr_len: usize) void {
 /// ended. There is no register to deliver into and the native's iteration
 /// state is gone, so raise a catchable Scheme error instead of silently
 /// writing the value into an unrelated caller register.
-fn raiseDeadNativeReturn(self: *VM) VMError {
+noinline fn raiseDeadNativeReturn(self: *VM) VMError {
     var msg = self.gc.allocString("continuation cannot resume across a returned native call") catch
         return VMError.OutOfMemory;
     self.gc.pushRoot(&msg) catch return VMError.OutOfMemory;
@@ -239,14 +240,7 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                     break :blk null;
                 };
                 self.unlockGlobalsShared();
-                const val = found orelse {
-                    if (self.findSimilarName(name)) |suggestion| {
-                        self.setErrorDetail("undefined variable '{s}'. Did you mean '{s}'?", .{ name, suggestion });
-                    } else {
-                        self.setErrorDetail("undefined variable '{s}'", .{name});
-                    }
-                    return VMError.UndefinedVariable;
-                };
+                const val = found orelse return raiseUndefinedVariable(self, name);
                 self.registers[dst_idx] = val;
                 if (func.env == null and (types.isClosure(val) or types.isNativeFn(val))) {
                     if (func.global_cache) |cache| {
@@ -452,21 +446,7 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                         if (@as(usize, abs_base) + @as(usize, rest_start) + 1 >= self.registers.len) {
                             return VMError.InvalidBytecode;
                         }
-                        var rest_list: Value = types.NIL;
-                        self.gc.pushRoot(&rest_list) catch return VMError.OutOfMemory;
-                        var ri: u8 = nargs;
-                        while (ri > rest_start) {
-                            ri -= 1;
-                            rest_list = self.gc.allocPair(
-                                self.registers[abs_base + 1 + ri],
-                                rest_list,
-                            ) catch {
-                                self.gc.popRoot();
-                                return VMError.OutOfMemory;
-                            };
-                        }
-                        self.gc.popRoot();
-                        self.registers[abs_base + 1 + rest_start] = rest_list;
+                        self.registers[abs_base + 1 + rest_start] = try buildRestList(self.gc, self.registers[abs_base + 1 + rest_start .. abs_base + 1 + nargs]);
                     }
 
                     const arg_count = if (func.is_variadic) func.arity + 1 else nargs;
@@ -567,9 +547,7 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                     }
                     self.frame_count -= 1;
                     if (self.profile_mode) vm_calls.profilePopReturn(self);
-                    if (self.frame_count <= target_frame_count) {
-                        return result;
-                    }
+                    if (self.frame_count <= target_frame_count) return result;
                     if (from_native_call) return raiseDeadNativeReturn(self);
                     const caller = &self.frames[self.frame_count - 1];
                     const ret_idx = try registerIndex(self, caller.base, return_dst);
@@ -591,23 +569,17 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                     const ffi_fn = types.toObject(callee).as(types.FfiFunction);
                     if (nargs != ffi_fn.param_count) return VMError.ArityMismatch;
                     const ffi_mod = @import("ffi.zig");
-                    // FFI callbacks may re-enter the VM and grow self.frames,
-                    // invalidating `frame` — read dst before the call.
                     const return_dst = frame.dst;
                     const from_native_call = frame.returns_to_native;
                     const result = ffi_mod.callFfi(ffi_fn, self.registers[abs_base + 1 .. abs_base + 1 + nargs], self.gc) catch return VMError.TypeError;
                     self.frame_count -= 1;
-                    if (self.frame_count <= target_frame_count) {
-                        return result;
-                    }
+                    if (self.frame_count <= target_frame_count) return result;
                     if (from_native_call) return raiseDeadNativeReturn(self);
                     const caller = &self.frames[self.frame_count - 1];
                     const ret_idx = try registerIndex(self, caller.base, return_dst);
                     self.registers[ret_idx] = result;
                 } else if (types.isParameter(callee)) {
                     const param = types.toObject(callee).as(types.ParameterObject);
-                    // callWithArgs on the converter re-enters the VM and may
-                    // grow self.frames, invalidating `frame` — read dst first.
                     const return_dst = frame.dst;
                     const from_native_call = frame.returns_to_native;
                     const result = if (nargs == 0) self.getParameterValue(param) else blk: {
@@ -619,9 +591,7 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                         break :blk types.VOID;
                     };
                     self.frame_count -= 1;
-                    if (self.frame_count <= target_frame_count) {
-                        return result;
-                    }
+                    if (self.frame_count <= target_frame_count) return result;
                     if (from_native_call) return raiseDeadNativeReturn(self);
                     const caller = &self.frames[self.frame_count - 1];
                     const ret_idx = try registerIndex(self, caller.base, return_dst);
@@ -683,18 +653,7 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                             return VMError.ArityMismatch;
                         }
                         const rest_start = func.arity;
-                        var rest_list: Value = types.NIL;
-                        self.gc.pushRoot(&rest_list) catch return VMError.OutOfMemory;
-                        var ri: u8 = total_nargs;
-                        while (ri > rest_start) {
-                            ri -= 1;
-                            rest_list = self.gc.allocPair(flat_args[ri], rest_list) catch {
-                                self.gc.popRoot();
-                                return VMError.OutOfMemory;
-                            };
-                        }
-                        self.gc.popRoot();
-                        flat_args[rest_start] = rest_list;
+                        flat_args[rest_start] = try buildRestList(self.gc, flat_args[rest_start..total_nargs]);
                     }
 
                     const arg_count: u8 = if (func.is_variadic) func.arity + 1 else total_nargs;
@@ -939,23 +898,7 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                             const sym = try constantAt(self, the_func, sym_idx);
                             if (!types.isSymbol(sym)) return VMError.InvalidBytecode;
                             const name = types.symbolName(sym);
-                            self.lockGlobalsShared();
-                            const found: ?Value = env.get(name) orelse val_blk: {
-                                const b = stripHygienicPrefix(name);
-                                if (b.len != name.len) {
-                                    if (env.get(b)) |bval| break :val_blk bval;
-                                }
-                                break :val_blk null;
-                            };
-                            self.unlockGlobalsShared();
-                            const val = found orelse {
-                                if (self.findSimilarName(name)) |sug| {
-                                    self.setErrorDetail("undefined variable '{s}'. Did you mean '{s}'?", .{ name, sug });
-                                } else {
-                                    self.setErrorDetail("undefined variable '{s}'", .{name});
-                                }
-                                return VMError.UndefinedVariable;
-                            };
+                            const val = lookupGlobalLocked(self, env, name) orelse return raiseUndefinedVariable(self, name);
                             self.registers[base] = val;
                             if (types.isClosure(val) or types.isNativeFn(val)) {
                                 if (sym_idx < cache.len) cache[sym_idx] = val;
@@ -965,23 +908,7 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                         const sym = try constantAt(self, the_func, sym_idx);
                         if (!types.isSymbol(sym)) return VMError.InvalidBytecode;
                         const name = types.symbolName(sym);
-                        self.lockGlobalsShared();
-                        const found: ?Value = env.get(name) orelse val_blk2: {
-                            const b = stripHygienicPrefix(name);
-                            if (b.len != name.len) {
-                                if (env.get(b)) |bval| break :val_blk2 bval;
-                            }
-                            break :val_blk2 null;
-                        };
-                        self.unlockGlobalsShared();
-                        const val = found orelse {
-                            if (self.findSimilarName(name)) |sug| {
-                                self.setErrorDetail("undefined variable '{s}'. Did you mean '{s}'?", .{ name, sug });
-                            } else {
-                                self.setErrorDetail("undefined variable '{s}'", .{name});
-                            }
-                            return VMError.UndefinedVariable;
-                        };
+                        const val = lookupGlobalLocked(self, env, name) orelse return raiseUndefinedVariable(self, name);
                         self.registers[base] = val;
                         if (types.isClosure(val) or types.isNativeFn(val)) {
                             const cache = self.gc.allocator.alloc(Value, the_func.constants.items.len) catch {
@@ -1007,14 +934,7 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                     self.lockGlobalsShared();
                     const found = env.get(name);
                     self.unlockGlobalsShared();
-                    const val = found orelse {
-                        if (self.findSimilarName(name)) |sug| {
-                            self.setErrorDetail("undefined variable '{s}'. Did you mean '{s}'?", .{ name, sug });
-                        } else {
-                            self.setErrorDetail("undefined variable '{s}'", .{name});
-                        }
-                        return VMError.UndefinedVariable;
-                    };
+                    const val = found orelse return raiseUndefinedVariable(self, name);
                     self.registers[base] = val;
                 }
 
@@ -1083,23 +1003,7 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                     const sym = try constantAt(self, func, sym_idx);
                     if (!types.isSymbol(sym)) return VMError.InvalidBytecode;
                     const name = types.symbolName(sym);
-                    self.lockGlobalsShared();
-                    const found: ?Value = env.get(name) orelse callee_blk: {
-                        const b = stripHygienicPrefix(name);
-                        if (b.len != name.len) {
-                            if (env.get(b)) |bval| break :callee_blk bval;
-                        }
-                        break :callee_blk null;
-                    };
-                    self.unlockGlobalsShared();
-                    callee = found orelse {
-                        if (self.findSimilarName(name)) |sug| {
-                            self.setErrorDetail("undefined variable '{s}'. Did you mean '{s}'?", .{ name, sug });
-                        } else {
-                            self.setErrorDetail("undefined variable '{s}'", .{name});
-                        }
-                        return VMError.UndefinedVariable;
-                    };
+                    callee = lookupGlobalLocked(self, env, name) orelse return raiseUndefinedVariable(self, name);
                     if (func.env == null and (types.isClosure(callee) or types.isNativeFn(callee))) {
                         if (func.global_cache) |cache| {
                             if (sym_idx < cache.len) cache[sym_idx] = callee;
@@ -1131,21 +1035,7 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                         if (@as(usize, abs_base) + @as(usize, rest_start) + 1 >= self.registers.len) {
                             return VMError.InvalidBytecode;
                         }
-                        var rest_list: Value = types.NIL;
-                        self.gc.pushRoot(&rest_list) catch return VMError.OutOfMemory;
-                        var ri: u8 = nargs;
-                        while (ri > rest_start) {
-                            ri -= 1;
-                            rest_list = self.gc.allocPair(
-                                self.registers[abs_base + 1 + ri],
-                                rest_list,
-                            ) catch {
-                                self.gc.popRoot();
-                                return VMError.OutOfMemory;
-                            };
-                        }
-                        self.gc.popRoot();
-                        self.registers[abs_base + 1 + rest_start] = rest_list;
+                        self.registers[abs_base + 1 + rest_start] = try buildRestList(self.gc, self.registers[abs_base + 1 + rest_start .. abs_base + 1 + nargs]);
                     }
                     const arg_count = if (tfunc.is_variadic) tfunc.arity + 1 else nargs;
                     for (0..arg_count) |ai| {
@@ -1362,4 +1252,41 @@ pub fn readU16(vm: *VM, frame: *CallFrame) u16 {
 
 pub fn readI16(vm: *VM, frame: *CallFrame) i16 {
     return @bitCast(readU16(vm, frame));
+}
+
+noinline fn raiseUndefinedVariable(self: *VM, name: []const u8) VMError {
+    if (self.findSimilarName(name)) |suggestion| {
+        self.setErrorDetail("undefined variable '{s}'. Did you mean '{s}'?", .{ name, suggestion });
+    } else {
+        self.setErrorDetail("undefined variable '{s}'", .{name});
+    }
+    return VMError.UndefinedVariable;
+}
+
+inline fn lookupGlobalLocked(self: *VM, env: *std.StringHashMap(Value), name: []const u8) ?Value {
+    self.lockGlobalsShared();
+    const found: ?Value = env.get(name) orelse blk: {
+        const b = stripHygienicPrefix(name);
+        if (b.len != name.len) {
+            if (env.get(b)) |bval| break :blk bval;
+        }
+        break :blk null;
+    };
+    self.unlockGlobalsShared();
+    return found;
+}
+
+pub fn buildRestList(gc: *memory.GC, args: []const Value) VMError!Value {
+    var rest_list: Value = types.NIL;
+    gc.pushRoot(&rest_list) catch return VMError.OutOfMemory;
+    var i: usize = args.len;
+    while (i > 0) {
+        i -= 1;
+        rest_list = gc.allocPair(args[i], rest_list) catch {
+            gc.popRoot();
+            return VMError.OutOfMemory;
+        };
+    }
+    gc.popRoot();
+    return rest_list;
 }
