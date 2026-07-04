@@ -269,10 +269,22 @@ pub const LLVMEmitter = struct {
         const callee = try self.emitNode(call.operator);
         const nargs = call.args.len;
 
+        var root_count: usize = 0;
+        if (nargs > 0) {
+            try self.emitRootPush(callee);
+            root_count += 1;
+        }
+
         var arg_tmps: [256][]const u8 = undefined;
         for (call.args, 0..) |arg, i| {
             arg_tmps[i] = try self.emitNode(arg);
+            if (i + 1 < nargs) {
+                try self.emitRootPush(arg_tmps[i]);
+                root_count += 1;
+            }
         }
+
+        try self.emitPopRoots(root_count);
 
         const result = try self.freshTemp();
 
@@ -305,9 +317,15 @@ pub const LLVMEmitter = struct {
 
     fn emitSelfTailCall(self: *LLVMEmitter, args: []const *ir.Node, body_lbl: []const u8) EmitError![]const u8 {
         var arg_tmps: [256][]const u8 = undefined;
+        var root_count: usize = 0;
         for (args, 0..) |arg, i| {
             arg_tmps[i] = try self.emitNode(arg);
+            if (i + 1 < args.len) {
+                try self.emitRootPush(arg_tmps[i]);
+                root_count += 1;
+            }
         }
+        try self.emitPopRoots(root_count);
 
         for (0..args.len) |i| {
             const gep = try self.freshTemp();
@@ -398,8 +416,10 @@ pub const LLVMEmitter = struct {
         else
             std.StringHashMap([]const u8).init(self.allocator);
 
+        var binding_root_count: usize = 0;
+
         if (!sequential) {
-            var init_vals: [32][]const u8 = undefined;
+            var binding_allocas: [32][]const u8 = undefined;
             var var_names: [32][]const u8 = undefined;
             var count: usize = 0;
             var blist = bindings;
@@ -423,18 +443,22 @@ pub const LLVMEmitter = struct {
                     self.locals = saved_locals;
                     return self.emitLetFallback(args, sequential);
                 };
-                init_vals[count] = try self.emitNode(node);
+                const alloca = try self.freshTemp();
+                try self.print("  {s} = alloca i64, align 8\n", .{alloca});
+                const val = try self.emitNode(node);
+                try self.print("  store i64 {s}, ptr {s}\n", .{ val, alloca });
+                try self.emitRootPushAlloca(alloca);
+
+                binding_allocas[count] = alloca;
                 var_names[count] = types.symbolName(var_sym);
                 count += 1;
                 blist = types.cdr(blist);
             }
 
             for (0..count) |i| {
-                const alloca = try self.freshTemp();
-                try self.print("  {s} = alloca i64, align 8\n", .{alloca});
-                try self.print("  store i64 {s}, ptr {s}\n", .{ init_vals[i], alloca });
-                self.locals.?.put(var_names[i], alloca) catch return error.OutOfMemory;
+                self.locals.?.put(var_names[i], binding_allocas[i]) catch return error.OutOfMemory;
             }
+            binding_root_count = count;
         } else {
             var blist = bindings;
             while (blist != types.NIL and types.isPair(blist)) {
@@ -456,6 +480,8 @@ pub const LLVMEmitter = struct {
                 const alloca = try self.freshTemp();
                 try self.print("  {s} = alloca i64, align 8\n", .{alloca});
                 try self.print("  store i64 {s}, ptr {s}\n", .{ val, alloca });
+                try self.emitRootPushAlloca(alloca);
+                binding_root_count += 1;
                 self.locals.?.put(types.symbolName(var_sym), alloca) catch return error.OutOfMemory;
                 blist = types.cdr(blist);
             }
@@ -482,6 +508,7 @@ pub const LLVMEmitter = struct {
             body_expr = rest;
         }
 
+        try self.emitPopRoots(binding_root_count);
         self.locals.?.deinit();
         self.locals = saved_locals;
         return last;
@@ -965,7 +992,9 @@ pub const LLVMEmitter = struct {
 
         const target = fn_name orelse return null;
         const a = self.emitNode(args[0]) catch return null;
+        self.emitRootPush(a) catch return null;
         const b = self.emitNode(args[1]) catch return null;
+        self.emitPopRoots(1) catch return null;
         const result = self.freshTemp() catch return null;
         self.print("  {s} = call i64 {s}(i64 {s}, i64 {s})\n", .{ result, target, a, b }) catch return null;
         return result;
@@ -991,9 +1020,15 @@ pub const LLVMEmitter = struct {
     fn emitDirectCall(self: *LLVMEmitter, fn_name: []const u8, args: []const *ir.Node, is_tail: bool) EmitError![]const u8 {
         const nargs = args.len;
         var arg_tmps: [256][]const u8 = undefined;
+        var root_count: usize = 0;
         for (args, 0..) |arg, i| {
             arg_tmps[i] = try self.emitNode(arg);
+            if (i + 1 < nargs) {
+                try self.emitRootPush(arg_tmps[i]);
+                root_count += 1;
+            }
         }
+        try self.emitPopRoots(root_count);
 
         const result = try self.freshTemp();
 
@@ -1114,6 +1149,25 @@ pub const LLVMEmitter = struct {
         try self.write("declare i64 @kaappi_is_null(i64)\n");
         try self.write("declare i64 @kaappi_create_native_closure(ptr, ptr, ptr, i64, i64, ptr, i64)\n");
         try self.write("declare i64 @kaappi_eval(ptr, ptr, i64)\n");
+        try self.write("declare void @kaappi_gc_push_root(ptr)\n");
+        try self.write("declare void @kaappi_gc_pop_roots(i64)\n");
+    }
+
+    fn emitRootPush(self: *LLVMEmitter, tmp: []const u8) EmitError!void {
+        const slot = try self.freshTemp();
+        try self.print("  {s} = alloca i64, align 8\n", .{slot});
+        try self.print("  store i64 {s}, ptr {s}\n", .{ tmp, slot });
+        try self.print("  call void @kaappi_gc_push_root(ptr {s})\n", .{slot});
+    }
+
+    fn emitRootPushAlloca(self: *LLVMEmitter, alloca: []const u8) EmitError!void {
+        try self.print("  call void @kaappi_gc_push_root(ptr {s})\n", .{alloca});
+    }
+
+    fn emitPopRoots(self: *LLVMEmitter, n: usize) EmitError!void {
+        if (n > 0) {
+            try self.print("  call void @kaappi_gc_pop_roots(i64 {d})\n", .{n});
+        }
     }
 
     pub fn freshTemp(self: *LLVMEmitter) EmitError![]const u8 {
