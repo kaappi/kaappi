@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783133997695,
+  "lastUpdate": 1783134037598,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "99deadb5da7cbf1184cbe4d3073887c2d469d294",
-          "message": "Use raise-continuable for unmatched guard clauses (#845) (#897)\n\nR7RS 4.2.7 requires guard to re-raise unmatched conditions with\nraise-continuable, not raise. The else clause appended by compileGuard\nused raise, making continuable exceptions non-continuable.\n\nFixes #845\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-03T04:37:46+05:30",
-          "tree_id": "709442dc77c51c74796f0d8de0226d1f097bddbe",
-          "url": "https://github.com/kaappi/kaappi/commit/99deadb5da7cbf1184cbe4d3073887c2d469d294"
-        },
-        "date": 1783035227980,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.483729,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.23807,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.853116,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.148783,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.007187,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.03283,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.468193,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.070618,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.970989,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.792576,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.152429,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.435904,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 2.41284,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.702136,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.042616,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.038891,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e19779a861c52b0f7f968db2aef351d83e619c33",
+          "message": "Fix VMError-to-PrimitiveError catch-all that collapsed errors into TypeError (#1016)\n\nThe `else => PrimitiveError.TypeError` catch-all in 36 sites across 10\nprimitives files was destroying diagnostic information — a StackOverflow\nor InvalidBytecode from user callbacks would be reported as a type error.\n\nAdd 7 missing PrimitiveError variants (StackOverflow, UndefinedVariable,\nNotAProcedure, InvalidBytecode, CompileError, ExecutionTimeout, Terminated)\nto make PrimitiveError a superset of VMError. Add an exhaustive mapVMError\nhelper for the VMError→PrimitiveError direction, and update the reverse\nPrimitiveError→VMError switches in vm_dispatch.zig and vm_calls.zig.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-04T02:41:26Z",
+          "tree_id": "4e05b855cc7d75e8ad36472369539bbfc44dc5a7",
+          "url": "https://github.com/kaappi/kaappi/commit/e19779a861c52b0f7f968db2aef351d83e619c33"
+        },
+        "date": 1783134037033,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.046063,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 10.183237,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.959347,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.346205,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.013738,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.233872,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.476738,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.067977,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 13.411586,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.832912,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 11.02944,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 1.068445,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 9.099362,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.86233,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044621,
             "unit": "seconds"
           }
         ]
