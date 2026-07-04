@@ -30,29 +30,21 @@ pub fn build(b: *std.Build) void {
     options.addOption(u32, "max_frames", max_frames);
     options.addOption(u32, "max_registers", max_registers);
     options.addOption(u32, "gc_initial_threshold", gc_threshold);
+    const options_mod = options.createModule();
 
     const wf = b.addWriteFiles();
     const null_embed = wf.add("embedded_bytecode.zig", "pub const bytecode: ?[]const u8 = null;\n");
 
     const is_wasm_target = target.result.os.tag == .wasi;
 
-    // Helper: create a kaappi module with a given embedded_bytecode import
-    const main_mod = b.createModule(.{
-        .root_source_file = b.path("src/main.zig"),
+    // Main module (embedded_bytecode added below based on bundle mode)
+    const main_mod = kaappiModule(b, options_mod, .{
         .target = target,
         .optimize = optimize,
-        .link_libc = true,
+        .linenoise = !is_wasm_target,
         .strip = strip,
         .single_threaded = if (is_wasm_target) true else null,
     });
-    main_mod.addImport("build_options", options.createModule());
-    if (!is_wasm_target) {
-        main_mod.addCSourceFile(.{
-            .file = b.path("vendor/linenoise/linenoise.c"),
-            .flags = &.{"-std=gnu99"},
-        });
-        main_mod.addIncludePath(b.path("vendor/linenoise"));
-    }
 
     if (bundle) |bp| {
         const bundle_path: std.Build.LazyPath = if (bp.len > 0 and bp[0] == '/')
@@ -72,24 +64,11 @@ pub fn build(b: *std.Build) void {
         const compiler_wf = b.addWriteFiles();
         const compiler_null_embed = compiler_wf.add("embedded_bytecode.zig", "pub const bytecode: ?[]const u8 = null;\n");
 
-        const compiler_mod = b.createModule(.{
-            .root_source_file = b.path("src/main.zig"),
+        const compiler_mod = kaappiModule(b, options_mod, .{
             .target = target,
             .optimize = optimize,
-            .link_libc = true,
-        });
-        compiler_mod.addImport("build_options", options.createModule());
-        if (!is_wasm_target) {
-            compiler_mod.addCSourceFile(.{
-                .file = b.path("vendor/linenoise/linenoise.c"),
-                .flags = &.{"-std=gnu99"},
-            });
-            compiler_mod.addIncludePath(b.path("vendor/linenoise"));
-        }
-        compiler_mod.addAnonymousImport("embedded_bytecode", .{
-            .root_source_file = compiler_null_embed,
-            .target = target,
-            .optimize = optimize,
+            .linenoise = !is_wasm_target,
+            .embed = compiler_null_embed,
         });
 
         const compiler_exe = b.addExecutable(.{
@@ -127,7 +106,7 @@ pub fn build(b: *std.Build) void {
         .name = "kaappi",
         .root_module = main_mod,
     });
-    exe.stack_size = 64 * 1024 * 1024; // 16 MB — u16 register widening increases compiler frame sizes
+    exe.stack_size = 64 * 1024 * 1024; // 64 MB — u16 register widening increases compiler frame sizes
     b.installArtifact(exe);
 
     const run_cmd = b.addRunArtifact(exe);
@@ -140,24 +119,12 @@ pub fn build(b: *std.Build) void {
 
     // Runtime static library (for LLVM native backend)
     const lib_step = b.step("lib", "Build libkaappi_rt.a (runtime for native backend)");
-    const lib_mod = b.createModule(.{
-        .root_source_file = b.path("src/runtime_exports.zig"),
+    const lib_mod = kaappiModule(b, options_mod, .{
+        .root = "src/runtime_exports.zig",
         .target = target,
         .optimize = optimize,
-        .link_libc = true,
-    });
-    lib_mod.addImport("build_options", options.createModule());
-    if (!is_wasm_target) {
-        lib_mod.addCSourceFile(.{
-            .file = b.path("vendor/linenoise/linenoise.c"),
-            .flags = &.{"-std=gnu99"},
-        });
-        lib_mod.addIncludePath(b.path("vendor/linenoise"));
-    }
-    lib_mod.addAnonymousImport("embedded_bytecode", .{
-        .root_source_file = null_embed,
-        .target = target,
-        .optimize = optimize,
+        .linenoise = !is_wasm_target,
+        .embed = null_embed,
     });
     const lib = b.addLibrary(.{
         .name = "kaappi_rt",
@@ -202,18 +169,11 @@ pub fn build(b: *std.Build) void {
     // WebAssembly (WASI) build
     const wasm_step = b.step("wasm", "Build kaappi.wasm (wasm32-wasi)");
     const wasm_target = b.resolveTargetQuery(.{ .cpu_arch = .wasm32, .os_tag = .wasi });
-    const wasm_mod = b.createModule(.{
-        .root_source_file = b.path("src/main.zig"),
+    const wasm_mod = kaappiModule(b, options_mod, .{
         .target = wasm_target,
         .optimize = .ReleaseSmall,
-        .link_libc = true,
         .single_threaded = true,
-    });
-    wasm_mod.addImport("build_options", options.createModule());
-    wasm_mod.addAnonymousImport("embedded_bytecode", .{
-        .root_source_file = null_embed,
-        .target = wasm_target,
-        .optimize = .ReleaseSmall,
+        .embed = null_embed,
     });
     const wasm_exe = b.addExecutable(.{
         .name = "kaappi",
@@ -223,13 +183,11 @@ pub fn build(b: *std.Build) void {
     wasm_step.dependOn(&wasm_install.step);
 
     // Benchmark executable (call/cc capture micro-benchmark)
-    const bench_mod = b.createModule(.{
-        .root_source_file = b.path("src/bench.zig"),
+    const bench_mod = kaappiModule(b, options_mod, .{
+        .root = "src/bench.zig",
         .target = target,
         .optimize = optimize,
-        .link_libc = true,
     });
-    bench_mod.addImport("build_options", options.createModule());
     const bench_exe = b.addExecutable(.{
         .name = "bench",
         .root_module = bench_mod,
@@ -239,11 +197,10 @@ pub fn build(b: *std.Build) void {
     bench_step.dependOn(&run_bench.step);
 
     // Package manager (thottam)
-    const thottam_mod = b.createModule(.{
-        .root_source_file = b.path("src/thottam.zig"),
+    const thottam_mod = kaappiModule(b, options_mod, .{
+        .root = "src/thottam.zig",
         .target = target,
         .optimize = optimize,
-        .link_libc = true,
         .strip = strip,
     });
     const thottam_exe = b.addExecutable(.{
@@ -254,18 +211,12 @@ pub fn build(b: *std.Build) void {
     b.installArtifact(thottam_exe);
 
     // Language server (kaappi-lsp)
-    const lsp_mod = b.createModule(.{
-        .root_source_file = b.path("src/kaappi_lsp.zig"),
+    const lsp_mod = kaappiModule(b, options_mod, .{
+        .root = "src/kaappi_lsp.zig",
         .target = target,
         .optimize = optimize,
-        .link_libc = true,
         .strip = strip,
-    });
-    lsp_mod.addImport("build_options", options.createModule());
-    lsp_mod.addAnonymousImport("embedded_bytecode", .{
-        .root_source_file = null_embed,
-        .target = target,
-        .optimize = optimize,
+        .embed = null_embed,
     });
     const lsp_exe = b.addExecutable(.{
         .name = "kaappi-lsp",
@@ -275,19 +226,11 @@ pub fn build(b: *std.Build) void {
     b.installArtifact(lsp_exe);
 
     // Unit tests
-    const test_mod = b.createModule(.{
-        .root_source_file = b.path("src/main.zig"),
+    const test_mod = kaappiModule(b, options_mod, .{
         .target = target,
         .optimize = optimize,
-        .link_libc = true,
+        .embed = null_embed,
     });
-    test_mod.addImport("build_options", options.createModule());
-    test_mod.addAnonymousImport("embedded_bytecode", .{
-        .root_source_file = null_embed,
-        .target = target,
-        .optimize = optimize,
-    });
-
     const unit_tests = b.addTest(.{
         .name = "unit-tests",
         .root_module = test_mod,
@@ -296,31 +239,24 @@ pub fn build(b: *std.Build) void {
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&run_unit_tests.step);
 
+    const thottam_test_mod = kaappiModule(b, options_mod, .{
+        .root = "src/thottam.zig",
+        .target = target,
+        .optimize = optimize,
+    });
     const thottam_tests = b.addTest(.{
         .name = "thottam-tests",
-        .root_module = b.createModule(.{
-            .root_source_file = b.path("src/thottam.zig"),
-            .target = target,
-            .optimize = optimize,
-            .link_libc = true,
-        }),
+        .root_module = thottam_test_mod,
     });
     const run_thottam_tests = b.addRunArtifact(thottam_tests);
     test_step.dependOn(&run_thottam_tests.step);
 
     // Code coverage via kcov (always Debug for DWARF line info)
-    const cov_mod = b.createModule(.{
-        .root_source_file = b.path("src/main.zig"),
+    const cov_mod = kaappiModule(b, options_mod, .{
         .target = target,
         .optimize = .Debug,
+        .embed = null_embed,
     });
-    cov_mod.addImport("build_options", options.createModule());
-    cov_mod.addAnonymousImport("embedded_bytecode", .{
-        .root_source_file = null_embed,
-        .target = target,
-        .optimize = .Debug,
-    });
-
     const cov_tests = b.addTest(.{
         .name = "coverage-tests",
         .root_module = cov_mod,
@@ -337,26 +273,12 @@ pub fn build(b: *std.Build) void {
     cov_step.dependOn(&run_kcov.step);
 
     // Scheme file coverage via kcov (run .scm files under kcov)
-    const cov_main_mod = b.createModule(.{
-        .root_source_file = b.path("src/main.zig"),
+    const cov_main_mod = kaappiModule(b, options_mod, .{
         .target = target,
         .optimize = .Debug,
-        .link_libc = true,
+        .linenoise = !is_wasm_target,
+        .embed = null_embed,
     });
-    cov_main_mod.addImport("build_options", options.createModule());
-    if (!is_wasm_target) {
-        cov_main_mod.addCSourceFile(.{
-            .file = b.path("vendor/linenoise/linenoise.c"),
-            .flags = &.{"-std=gnu99"},
-        });
-        cov_main_mod.addIncludePath(b.path("vendor/linenoise"));
-    }
-    cov_main_mod.addAnonymousImport("embedded_bytecode", .{
-        .root_source_file = null_embed,
-        .target = target,
-        .optimize = .Debug,
-    });
-
     const cov_exe = b.addExecutable(.{
         .name = "kaappi-cov",
         .root_module = cov_main_mod,
@@ -372,4 +294,40 @@ pub fn build(b: *std.Build) void {
 
     const cov_scheme_step = b.step("coverage-scheme", "Run a Scheme file with kcov code coverage");
     cov_scheme_step.dependOn(&run_kcov_scheme.step);
+}
+
+fn kaappiModule(b: *std.Build, options_mod: *std.Build.Module, opts: struct {
+    root: []const u8 = "src/main.zig",
+    target: std.Build.ResolvedTarget,
+    optimize: std.builtin.OptimizeMode,
+    link_libc: bool = true,
+    linenoise: bool = false,
+    embed: ?std.Build.LazyPath = null,
+    strip: ?bool = null,
+    single_threaded: ?bool = null,
+}) *std.Build.Module {
+    const mod = b.createModule(.{
+        .root_source_file = b.path(opts.root),
+        .target = opts.target,
+        .optimize = opts.optimize,
+        .link_libc = opts.link_libc,
+        .strip = opts.strip,
+        .single_threaded = opts.single_threaded,
+    });
+    mod.addImport("build_options", options_mod);
+    if (opts.linenoise) {
+        mod.addCSourceFile(.{
+            .file = b.path("vendor/linenoise/linenoise.c"),
+            .flags = &.{"-std=gnu99"},
+        });
+        mod.addIncludePath(b.path("vendor/linenoise"));
+    }
+    if (opts.embed) |embed_file| {
+        mod.addAnonymousImport("embedded_bytecode", .{
+            .root_source_file = embed_file,
+            .target = opts.target,
+            .optimize = opts.optimize,
+        });
+    }
+    return mod;
 }
