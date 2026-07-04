@@ -459,7 +459,9 @@ fn lowerFormWithMacros(ir: *IR, expr: Value, macros: ?*std.StringHashMap(Value))
 
             if (isSpecialForm(effective_name)) return ir.makePassthrough(expr);
 
-            if (macros) |m| {
+            if (ir.compiler) |c| {
+                if (c.lookupMacro(effective_name) != null) return ir.makePassthrough(expr);
+            } else if (macros) |m| {
                 if (m.get(effective_name) != null) return ir.makePassthrough(expr);
             }
         }
