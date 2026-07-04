@@ -252,11 +252,6 @@ fn mainFiberResult(sched: *fiber_mod.FiberScheduler) Value {
     return types.VOID;
 }
 
-/// Restore a captured continuation (delegates to vm_continuations).
-pub fn restoreContinuation(self: *VM, cont: *types.Continuation, value: Value) VMError!void {
-    try vm_continuations.restoreContinuation(self, cont, value);
-}
-
 pub fn handleNativeError(_: *VM, err: anyerror, _: u32, _: u8) VMError {
     return switch (err) {
         error.TypeError => VMError.TypeError,
@@ -529,4 +524,293 @@ pub fn callNative(vm: *VM, native: *types.NativeFn, base: u32, nargs: u8) VMErro
     }
 
     vm.registers[base] = result;
+}
+
+fn computeReentrantBase(vm: *VM) u32 {
+    if (vm.frame_count > 0) {
+        const prev = vm.frames[vm.frame_count - 1];
+        const stride: u32 = if (prev.closure) |c|
+            @max(16, @as(u16, c.func.locals_count) + 2)
+        else
+            32;
+        return prev.base + stride;
+    }
+    return 0;
+}
+
+fn callReentrant(vm: *VM, closure: *types.Closure, base: u32, dst: u8, returns_to_native: bool) VMError!Value {
+    try vm.ensureFrameCapacity(vm.frame_count + 1);
+
+    const saved_frame_count = vm.frame_count;
+    const saved_handler_count = vm.handler_count;
+    const saved_wind_count = vm.wind_count;
+    const saved_cgen = vm.continuation_generation;
+    vm.frames[vm.frame_count] = .{
+        .closure = closure,
+        .code = closure.func.code.items,
+        .ip = 0,
+        .base = base,
+        .dst = dst,
+        .returns_to_native = returns_to_native,
+        .saved_wind_count = @intCast(vm.wind_count),
+        .seq = vm.nextFrameSeq(),
+    };
+    vm.frame_count += 1;
+
+    return vm.runUntil(saved_frame_count, saved_wind_count) catch |err| {
+        if (err == VMError.ContinuationInvoked) {
+            if (vm.continuation_generation == saved_cgen and vm.frame_count >= saved_frame_count)
+                return vm.continuation_value;
+            return err;
+        }
+        if (vm.continuation_generation == saved_cgen) {
+            vm.frame_count = saved_frame_count;
+            vm.handler_count = saved_handler_count;
+            vm.wind_count = saved_wind_count;
+        }
+        return err;
+    };
+}
+
+pub fn callHandler(vm: *VM, handler_val: Value, arg: Value, return_dst: u8) VMError!Value {
+    if (types.isContinuation(handler_val)) {
+        const cont = types.toObject(handler_val).as(types.Continuation);
+        if (cont.is_escape) {
+            try vm_continuations.invokeEscape(vm, cont, arg);
+            return VMError.ContinuationInvoked;
+        }
+        try vm_continuations.performWindTransition(vm, cont.wind_records[0..cont.wind_count], cont.wind_count);
+        try vm_continuations.restoreContinuation(vm, cont, arg);
+        return VMError.ContinuationInvoked;
+    }
+    if (types.isClosure(handler_val)) {
+        const closure = types.toObject(handler_val).as(types.Closure);
+        const func = closure.func;
+
+        const base = computeReentrantBase(vm);
+        try vm.ensureRegisterCapacity(@as(usize, base) + @as(usize, func.locals_count) + 1);
+
+        if (func.is_variadic and func.arity == 0) {
+            vm.registers[base] = vm.gc.allocPair(arg, types.NIL) catch return VMError.OutOfMemory;
+        } else if (func.is_variadic and func.arity == 1) {
+            vm.registers[base] = arg;
+            vm.registers[base + 1] = types.NIL;
+        } else {
+            vm.registers[base] = arg;
+        }
+
+        return callReentrant(vm, closure, base, return_dst, false);
+    } else if (types.isNativeFn(handler_val)) {
+        const native = types.toObject(handler_val).as(types.NativeFn);
+        const args = [1]Value{arg};
+        vm.last_error_detail_len = 0;
+        const result = native.func(&args) catch |err| {
+            return switch (err) {
+                error.TypeError => blk: {
+                    if (vm.last_error_detail_len == 0) {
+                        if (args.len > 0) {
+                            const p = @import("printer.zig");
+                            const s = p.valueToString(vm.gc.allocator, args[0], .write) catch "";
+                            defer if (s.len > 0) vm.gc.allocator.free(s);
+                            vm.setErrorDetail("type error in '{s}': got {s}", .{ native.name, s });
+                        } else {
+                            vm.setErrorDetail("type error in '{s}'", .{native.name});
+                        }
+                    }
+                    break :blk VMError.TypeError;
+                },
+                error.DivisionByZero => VMError.DivisionByZero,
+                error.IndexOutOfBounds => blk_iob: {
+                    if (vm.last_error_detail_len == 0)
+                        vm.setErrorDetail("index out of bounds in '{s}'", .{native.name});
+                    break :blk_iob VMError.IndexOutOfBounds;
+                },
+                error.InvalidArgument => blk_ia: {
+                    vm.setErrorDetail("invalid argument in '{s}'", .{native.name});
+                    break :blk_ia VMError.InvalidArgument;
+                },
+                error.OutOfMemory => VMError.OutOfMemory,
+                error.ExceptionRaised => VMError.ExceptionRaised,
+                error.ContinuationInvoked => VMError.ContinuationInvoked,
+                else => VMError.InvalidBytecode,
+            };
+        };
+        return result;
+    } else {
+        vm.setErrorDetail("not a procedure", .{});
+        return VMError.NotAProcedure;
+    }
+}
+
+pub fn callThunk(vm: *VM, thunk_val: Value) VMError!Value {
+    if (types.isClosure(thunk_val)) {
+        const closure = types.toObject(thunk_val).as(types.Closure);
+        const func = closure.func;
+
+        const base = computeReentrantBase(vm);
+        try vm.ensureRegisterCapacity(@as(usize, base) + @as(usize, func.locals_count) + 1);
+
+        if (func.is_variadic and func.arity == 0) {
+            vm.registers[base] = types.NIL;
+        }
+
+        return callReentrant(vm, closure, base, 0, false);
+    } else if (types.isNativeFn(thunk_val)) {
+        const native = types.toObject(thunk_val).as(types.NativeFn);
+        const empty_args: []const Value = &.{};
+        const result = native.func(empty_args) catch |err| {
+            return switch (err) {
+                error.TypeError => VMError.TypeError,
+                error.DivisionByZero => VMError.DivisionByZero,
+                error.IndexOutOfBounds => blk_iob: {
+                    vm.setErrorDetail("index out of bounds in '{s}'", .{native.name});
+                    break :blk_iob VMError.IndexOutOfBounds;
+                },
+                error.InvalidArgument => blk_ia: {
+                    vm.setErrorDetail("invalid argument in '{s}'", .{native.name});
+                    break :blk_ia VMError.InvalidArgument;
+                },
+                error.OutOfMemory => VMError.OutOfMemory,
+                error.ExceptionRaised => VMError.ExceptionRaised,
+                error.ContinuationInvoked => VMError.ContinuationInvoked,
+                else => VMError.InvalidBytecode,
+            };
+        };
+        return result;
+    } else {
+        return VMError.NotAProcedure;
+    }
+}
+
+pub fn callWithArgs(vm: *VM, proc: Value, args: []const Value) VMError!Value {
+    if (types.isFfiFunction(proc)) {
+        const ffi_fn = types.toObject(proc).as(types.FfiFunction);
+        if (args.len != ffi_fn.param_count) return VMError.ArityMismatch;
+        const ffi_mod = @import("ffi.zig");
+        return ffi_mod.callFfi(ffi_fn, args, vm.gc) catch return VMError.TypeError;
+    }
+    if (types.isParameter(proc)) {
+        const param = types.toObject(proc).as(types.ParameterObject);
+        if (args.len == 0) {
+            return vm.getParameterValue(param);
+        } else {
+            var new_val = args[0];
+            if (param.converter != types.NIL) {
+                new_val = try callWithArgs(vm, param.converter, &[_]Value{new_val});
+            }
+            try vm.setParameterValue(param, new_val);
+            return types.VOID;
+        }
+    }
+    if (types.isContinuation(proc)) {
+        const cont = types.toObject(proc).as(types.Continuation);
+        const value = if (args.len == 0) types.VOID else args[0];
+        if (cont.is_escape) {
+            try vm_continuations.invokeEscape(vm, cont, value);
+            return VMError.ContinuationInvoked;
+        }
+        try vm_continuations.performWindTransition(vm, cont.wind_records[0..cont.wind_count], cont.wind_count);
+        try vm_continuations.restoreContinuation(vm, cont, value);
+        return VMError.ContinuationInvoked;
+    }
+    if (types.isClosure(proc)) {
+        const closure = types.toObject(proc).as(types.Closure);
+        const func = closure.func;
+
+        const base = computeReentrantBase(vm);
+        try vm.ensureRegisterCapacity(@as(usize, base) + @as(usize, func.locals_count) + 1);
+
+        if (args.len > std.math.maxInt(u8)) return VMError.ArityMismatch;
+        const nargs: u8 = @intCast(args.len);
+        if (!func.is_variadic) {
+            if (nargs != func.arity) return VMError.ArityMismatch;
+        } else {
+            if (nargs < func.arity) return VMError.ArityMismatch;
+            const rest_start = func.arity;
+            var rest_list: Value = types.NIL;
+            vm.gc.pushRoot(&rest_list) catch return VMError.OutOfMemory;
+            var i: u8 = nargs;
+            while (i > rest_start) {
+                i -= 1;
+                rest_list = vm.gc.allocPair(args[i], rest_list) catch {
+                    vm.gc.popRoot();
+                    return VMError.OutOfMemory;
+                };
+            }
+            vm.gc.popRoot();
+            for (0..rest_start) |ri| {
+                vm.registers[base + ri] = args[ri];
+            }
+            vm.registers[base + rest_start] = rest_list;
+        }
+
+        if (!func.is_variadic) {
+            for (args, 0..) |a, i| {
+                vm.registers[base + i] = a;
+            }
+        }
+
+        return callReentrant(vm, closure, base, 0, true);
+    } else if (types.isNativeClosure(proc)) {
+        const nc = types.toObject(proc).as(types.NativeClosure);
+        if (args.len != nc.arity) {
+            vm.setErrorDetail("'{s}': expected {d} arguments, got {d}", .{ nc.name, nc.arity, args.len });
+            return VMError.ArityMismatch;
+        }
+        const result = nc.fn_ptr(vm, args.ptr, args.len, nc.upvalues.ptr);
+        return result;
+    } else if (types.isNativeFn(proc)) {
+        const native = types.toObject(proc).as(types.NativeFn);
+        switch (native.arity) {
+            .exact => |expected| {
+                if (args.len != expected) {
+                    vm.setErrorDetail("'{s}': expected {d} arguments, got {d}", .{ native.name, expected, args.len });
+                    return VMError.ArityMismatch;
+                }
+            },
+            .variadic => |min| {
+                if (args.len < min) {
+                    vm.setErrorDetail("'{s}': expected at least {d} arguments, got {d}", .{ native.name, min, args.len });
+                    return VMError.ArityMismatch;
+                }
+            },
+        }
+        vm.last_error_detail_len = 0;
+        const result = native.func(args) catch |err| {
+            return switch (err) {
+                error.TypeError => blk: {
+                    if (vm.last_error_detail_len == 0) {
+                        if (args.len > 0) {
+                            const p = @import("printer.zig");
+                            const s = p.valueToString(vm.gc.allocator, args[0], .write) catch "";
+                            defer if (s.len > 0) vm.gc.allocator.free(s);
+                            vm.setErrorDetail("type error in '{s}': got {s}", .{ native.name, s });
+                        } else {
+                            vm.setErrorDetail("type error in '{s}'", .{native.name});
+                        }
+                    }
+                    break :blk VMError.TypeError;
+                },
+                error.DivisionByZero => VMError.DivisionByZero,
+                error.IndexOutOfBounds => blk_iob: {
+                    if (vm.last_error_detail_len == 0)
+                        vm.setErrorDetail("index out of bounds in '{s}'", .{native.name});
+                    break :blk_iob VMError.IndexOutOfBounds;
+                },
+                error.InvalidArgument => blk_ia: {
+                    vm.setErrorDetail("invalid argument in '{s}'", .{native.name});
+                    break :blk_ia VMError.InvalidArgument;
+                },
+                error.OutOfMemory => VMError.OutOfMemory,
+                error.ExceptionRaised => VMError.ExceptionRaised,
+                error.ContinuationInvoked => VMError.ContinuationInvoked,
+                error.Yielded => VMError.Yielded,
+                else => VMError.InvalidBytecode,
+            };
+        };
+        return result;
+    } else {
+        vm.setErrorDetail("not a procedure", .{});
+        return VMError.NotAProcedure;
+    }
 }
