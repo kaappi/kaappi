@@ -502,6 +502,9 @@ pub fn markValue(gc: *GC, v: Value) void {
     var worklist: std.ArrayList(Value) = .empty;
     defer worklist.deinit(gc.allocator);
 
+    worklist.ensureTotalCapacity(gc.allocator, 1024) catch
+        @panic("GC mark: worklist OOM");
+
     markValueInner(gc, v, &worklist);
 
     while (worklist.items.len > 0) {
@@ -536,7 +539,7 @@ fn markValueInner(gc: *GC, v: Value, worklist: *std.ArrayList(Value)) void {
                 // Push car onto worklist instead of recursing -- this is
                 // the key change that prevents stack overflow on deep
                 // structures like (((((...)))))).
-                worklist.append(gc.allocator, car) catch {};
+                worklist.append(gc.allocator, car) catch @panic("GC mark: worklist OOM");
                 cur = cdr;
             } else if (cdr_is_ptr) {
                 cur = cdr;
@@ -554,73 +557,73 @@ fn markValueInner(gc: *GC, v: Value, worklist: *std.ArrayList(Value)) void {
         .pair => unreachable,
         .closure => {
             const cls = obj.as(Closure);
-            worklist.append(gc.allocator, types.makePointer(@ptrCast(cls.func))) catch {};
+            worklist.append(gc.allocator, types.makePointer(@ptrCast(cls.func))) catch @panic("GC mark: worklist OOM");
             for (cls.upvalues) |uv| {
-                worklist.append(gc.allocator, uv) catch {};
+                worklist.append(gc.allocator, uv) catch @panic("GC mark: worklist OOM");
             }
         },
         .function => {
             const func = obj.as(Function);
             for (func.constants.items) |c| {
-                worklist.append(gc.allocator, c) catch {};
+                worklist.append(gc.allocator, c) catch @panic("GC mark: worklist OOM");
             }
             if (func.global_cache) |cache| {
-                for (cache) |c| worklist.append(gc.allocator, c) catch {};
+                for (cache) |c| worklist.append(gc.allocator, c) catch @panic("GC mark: worklist OOM");
             }
-            worklist.append(gc.allocator, func.env_val) catch {};
+            worklist.append(gc.allocator, func.env_val) catch @panic("GC mark: worklist OOM");
         },
         .transformer => {
             const tx = obj.as(Transformer);
             for (tx.literals) |lit| {
-                worklist.append(gc.allocator, lit) catch {};
+                worklist.append(gc.allocator, lit) catch @panic("GC mark: worklist OOM");
             }
             for (tx.patterns) |pat| {
-                worklist.append(gc.allocator, pat) catch {};
+                worklist.append(gc.allocator, pat) catch @panic("GC mark: worklist OOM");
             }
             for (tx.templates) |tmpl| {
-                worklist.append(gc.allocator, tmpl) catch {};
+                worklist.append(gc.allocator, tmpl) catch @panic("GC mark: worklist OOM");
             }
-            worklist.append(gc.allocator, tx.def_env_val) catch {};
+            worklist.append(gc.allocator, tx.def_env_val) catch @panic("GC mark: worklist OOM");
         },
         .error_object => {
             const err = obj.as(types.ErrorObject);
-            worklist.append(gc.allocator, err.message) catch {};
-            worklist.append(gc.allocator, err.irritants) catch {};
-            worklist.append(gc.allocator, err.uncaught_reason) catch {};
+            worklist.append(gc.allocator, err.message) catch @panic("GC mark: worklist OOM");
+            worklist.append(gc.allocator, err.irritants) catch @panic("GC mark: worklist OOM");
+            worklist.append(gc.allocator, err.uncaught_reason) catch @panic("GC mark: worklist OOM");
         },
         .record_type => {},
         .record_instance => {
             const ri = obj.as(RecordInstance);
-            worklist.append(gc.allocator, types.makePointer(@ptrCast(ri.record_type))) catch {};
+            worklist.append(gc.allocator, types.makePointer(@ptrCast(ri.record_type))) catch @panic("GC mark: worklist OOM");
             for (ri.fields) |field| {
-                worklist.append(gc.allocator, field) catch {};
+                worklist.append(gc.allocator, field) catch @panic("GC mark: worklist OOM");
             }
         },
         .continuation => {
             const cont = obj.as(Continuation);
             for (cont.registers) |reg| {
-                worklist.append(gc.allocator, reg) catch {};
+                worklist.append(gc.allocator, reg) catch @panic("GC mark: worklist OOM");
             }
             for (cont.frames[0..cont.frame_count]) |frame| {
                 if (frame.closure) |cls| {
-                    worklist.append(gc.allocator, types.makePointer(@ptrCast(cls))) catch {};
+                    worklist.append(gc.allocator, types.makePointer(@ptrCast(cls))) catch @panic("GC mark: worklist OOM");
                 }
                 if (frame.native) |nf| {
-                    worklist.append(gc.allocator, types.makePointer(@ptrCast(nf))) catch {};
+                    worklist.append(gc.allocator, types.makePointer(@ptrCast(nf))) catch @panic("GC mark: worklist OOM");
                 }
             }
             for (cont.handlers[0..cont.handler_count]) |handler| {
-                worklist.append(gc.allocator, handler.handler) catch {};
+                worklist.append(gc.allocator, handler.handler) catch @panic("GC mark: worklist OOM");
             }
             for (cont.wind_records[0..cont.wind_count]) |wr| {
-                worklist.append(gc.allocator, wr.before) catch {};
-                worklist.append(gc.allocator, wr.after) catch {};
+                worklist.append(gc.allocator, wr.before) catch @panic("GC mark: worklist OOM");
+                worklist.append(gc.allocator, wr.after) catch @panic("GC mark: worklist OOM");
             }
         },
         .multiple_values => {
             const mv = obj.as(MultipleValues);
             for (mv.values) |val| {
-                worklist.append(gc.allocator, val) catch {};
+                worklist.append(gc.allocator, val) catch @panic("GC mark: worklist OOM");
             }
         },
         .vector => {
@@ -629,42 +632,42 @@ fn markValueInner(gc: *GC, v: Value, worklist: *std.ArrayList(Value)) void {
             // iterate the last element directly via tail call.
             if (vec.data.len > 0) {
                 for (vec.data[0 .. vec.data.len - 1]) |elem| {
-                    worklist.append(gc.allocator, elem) catch {};
+                    worklist.append(gc.allocator, elem) catch @panic("GC mark: worklist OOM");
                 }
                 markValueInner(gc, vec.data[vec.data.len - 1], worklist);
             }
         },
         .promise => {
             const p = obj.as(Promise);
-            worklist.append(gc.allocator, p.value) catch {};
+            worklist.append(gc.allocator, p.value) catch @panic("GC mark: worklist OOM");
         },
         .parameter => {
             const param = obj.as(types.ParameterObject);
-            worklist.append(gc.allocator, param.value) catch {};
-            worklist.append(gc.allocator, param.converter) catch {};
+            worklist.append(gc.allocator, param.value) catch @panic("GC mark: worklist OOM");
+            worklist.append(gc.allocator, param.converter) catch @panic("GC mark: worklist OOM");
         },
         .hash_table => {
             const ht = obj.as(HashTable);
             for (ht.entries[0..ht.capacity]) |entry| {
                 if (entry.state == .occupied) {
-                    worklist.append(gc.allocator, entry.key) catch {};
-                    worklist.append(gc.allocator, entry.value) catch {};
+                    worklist.append(gc.allocator, entry.key) catch @panic("GC mark: worklist OOM");
+                    worklist.append(gc.allocator, entry.value) catch @panic("GC mark: worklist OOM");
                 }
             }
         },
         .rational => {
             const rat = obj.as(Rational);
-            worklist.append(gc.allocator, rat.numerator) catch {};
-            worklist.append(gc.allocator, rat.denominator) catch {};
+            worklist.append(gc.allocator, rat.numerator) catch @panic("GC mark: worklist OOM");
+            worklist.append(gc.allocator, rat.denominator) catch @panic("GC mark: worklist OOM");
         },
         .ffi_library => {},
         .ffi_function => {
             const ffi_fn = obj.as(FfiFunction);
-            worklist.append(gc.allocator, ffi_fn.library) catch {};
+            worklist.append(gc.allocator, ffi_fn.library) catch @panic("GC mark: worklist OOM");
         },
         .ffi_callback => {
             const cb = obj.as(FfiCallback);
-            worklist.append(gc.allocator, cb.closure) catch {};
+            worklist.append(gc.allocator, cb.closure) catch @panic("GC mark: worklist OOM");
         },
         .fiber => {
             const fiber_mod = @import("fiber.zig");
@@ -673,28 +676,28 @@ fn markValueInner(gc: *GC, v: Value, worklist: *std.ArrayList(Value)) void {
         },
         .channel => {
             const ch = obj.as(types.Channel);
-            worklist.append(gc.allocator, ch.head) catch {};
-            worklist.append(gc.allocator, ch.tail) catch {};
+            worklist.append(gc.allocator, ch.head) catch @panic("GC mark: worklist OOM");
+            worklist.append(gc.allocator, ch.tail) catch @panic("GC mark: worklist OOM");
         },
         .mutex => {
             const m = obj.as(types.Mutex);
-            worklist.append(gc.allocator, m.name) catch {};
-            worklist.append(gc.allocator, m.owner) catch {};
-            worklist.append(gc.allocator, m.specific) catch {};
+            worklist.append(gc.allocator, m.name) catch @panic("GC mark: worklist OOM");
+            worklist.append(gc.allocator, m.owner) catch @panic("GC mark: worklist OOM");
+            worklist.append(gc.allocator, m.specific) catch @panic("GC mark: worklist OOM");
         },
         .condition_variable => {
             const cv = obj.as(types.ConditionVariable);
-            worklist.append(gc.allocator, cv.name) catch {};
-            worklist.append(gc.allocator, cv.specific) catch {};
+            worklist.append(gc.allocator, cv.name) catch @panic("GC mark: worklist OOM");
+            worklist.append(gc.allocator, cv.specific) catch @panic("GC mark: worklist OOM");
         },
         .native_closure => {
             const nc = obj.as(types.NativeClosure);
-            for (nc.upvalues) |uv| worklist.append(gc.allocator, uv) catch {};
+            for (nc.upvalues) |uv| worklist.append(gc.allocator, uv) catch @panic("GC mark: worklist OOM");
         },
         .scheme_environment => {
             const se = obj.as(types.SchemeEnvironment);
             var vit = se.env.valueIterator();
-            while (vit.next()) |val| worklist.append(gc.allocator, val.*) catch {};
+            while (vit.next()) |val| worklist.append(gc.allocator, val.*) catch @panic("GC mark: worklist OOM");
         },
         .symbol, .string, .native_fn, .flonum, .port, .complex, .bytevector, .bignum, .file_info, .user_info, .group_info, .directory_object, .random_source, .srfi18_time => {},
     }
