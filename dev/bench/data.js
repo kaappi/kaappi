@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783187901898,
+  "lastUpdate": 1783190301411,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "c628cc2e84708d1f717f0b44bbdaf1638ef10f28",
-          "message": "Lock symbol_mutex unconditionally in allocSymbol (#797) (#945)\n\nallocSymbol only took symbol_mutex when the calling GC was a child\n(shared_symbols != null). The parent thread — whose `symbols` field *is*\nthe shared table children alias — interned with no lock. While an SRFI-18\nchild thread was alive, a parent-side string->symbol raced the child's\nlocked get/put on the same StringHashMap; a put that rehashes reallocs and\nfrees the bucket array, corrupting the map and panicking (\"reached\nunreachable code\") in the parent's put.\n\nTake the lock unconditionally so parent and child serialize on the same\ntable. This is deadlock-free by the argument already documented in\ngc_collect.zig markRoots: allocSymbol never calls maybeCollect, so a thread\ncan never re-enter GC marking (which also takes symbol_mutex) while holding\nit here. The trackObject decision keeps using the child/parent distinction\n(now `is_child`), which is independent of locking.\n\nUpdate the now-stale markRoots comment that claimed the parent never holds\nsymbol_mutex in allocSymbol.\n\nRegression test tests/scheme/srfi/srfi18-symbol-race.scm interns 200k\ndistinct symbols on the parent while a child does the same; crashes 3/3 on\nthe unfixed build, passes with the fix.\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
-          "timestamp": "2026-07-03T09:30:24Z",
-          "tree_id": "e1f24b2ca5645036f332f9b2e09f49d19f15813d",
-          "url": "https://github.com/kaappi/kaappi/commit/c628cc2e84708d1f717f0b44bbdaf1638ef10f28"
-        },
-        "date": 1783071890145,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.128809,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.508319,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.869847,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.248895,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.007293,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.032942,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.473279,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.06808,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 4.044634,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.810243,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.154525,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.476256,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 2.39722,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.874186,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.045629,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.043099,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "db2f7dd32b75c4bda9124b7da88321408330e767",
+          "message": "Add TestContext and expectEval helpers to testing_helpers (#1074) (#1111)\n\nReduce the 4-line GC+VM setup dance repeated across test files by\nadding TestContext (bundles GC+VM with in-place init/deinit) and four\neval assertion helpers (expectEval, expectEvalTrue, expectEvalBool,\nexpectEvalVoid). Migrate tests_ir.zig and tests_core_eval.zig as the\nfirst two files. Fix doc drift in src/CLAUDE.md (non-existent\nmakeTestGc, wrong test file count, vm.run→vm.eval) and\ntests/scheme/CLAUDE.md (removed deferred/, added compile/).\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-04T23:31:25+05:30",
+          "tree_id": "e01a3ce79b9dcdade896abc2c5c4f785aa073f80",
+          "url": "https://github.com/kaappi/kaappi/commit/db2f7dd32b75c4bda9124b7da88321408330e767"
+        },
+        "date": 1783190299694,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.487258,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.74244,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.899711,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.350768,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.012686,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.213661,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.470815,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.070688,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 12.690393,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.838174,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 10.111789,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.968537,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 8.381808,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.69763,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.047182,
             "unit": "seconds"
           }
         ]
