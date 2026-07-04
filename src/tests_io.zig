@@ -500,3 +500,15 @@ test "parameterize current-input-port redirects read-line" {
     const s = types.toObject(result).as(types.SchemeString);
     try std.testing.expectEqualStrings("test-line", s.data[0..s.len]);
 }
+
+test "current-input-port survives extreme GC pressure (#1013)" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    gc.gc_threshold = 1;
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    try std.testing.expectEqual(types.TRUE, try vm.eval("(input-port? (current-input-port))"));
+    try std.testing.expectEqual(types.TRUE, try vm.eval("(output-port? (current-output-port))"));
+    try std.testing.expectEqual(types.TRUE, try vm.eval("(output-port? (current-error-port))"));
+}

@@ -405,13 +405,13 @@ pub const VM = struct {
         };
         @memset(vm.registers, types.UNDEFINED);
         gc.root_marker = &markVMRoots;
-        // Pre-allocate standard ports
+        // Pre-allocate standard ports — root each immediately so GC
+        // triggered by the next allocPort cannot collect it (#1013).
         vm.stdin_port = gc.allocPort(0, true, false, "stdin", false) catch types.VOID;
-        vm.stdout_port = gc.allocPort(1, false, true, "stdout", false) catch types.VOID;
-        vm.stderr_port = gc.allocPort(2, false, true, "stderr", false) catch types.VOID;
-        // Root the standard ports so GC never collects them
         if (vm.stdin_port != types.VOID) try gc.extra_roots.append(gc.allocator, vm.stdin_port);
+        vm.stdout_port = gc.allocPort(1, false, true, "stdout", false) catch types.VOID;
         if (vm.stdout_port != types.VOID) try gc.extra_roots.append(gc.allocator, vm.stdout_port);
+        vm.stderr_port = gc.allocPort(2, false, true, "stderr", false) catch types.VOID;
         if (vm.stderr_port != types.VOID) try gc.extra_roots.append(gc.allocator, vm.stderr_port);
         return vm;
     }
