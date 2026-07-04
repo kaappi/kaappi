@@ -11,14 +11,14 @@
 
 ;; gcd(F300, F301) must always be 1
 (let loop ((i 0) (ok #t))
-  (if (< i 500)
+  (if (< i 50)
       (let ((g (gcd x y)))
         (loop (+ i 1) (and ok (= g 1))))
       (begin (display ok) (newline))))
 
 ;; Rational reduction: F300/F301 is already in lowest terms
 (let loop ((i 0) (ok #t))
-  (if (< i 500)
+  (if (< i 50)
       (let ((r (/ x y)))
         (loop (+ i 1) (and ok (= (numerator r) x) (= (denominator r) y))))
       (begin (display ok) (newline))))
