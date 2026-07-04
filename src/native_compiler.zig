@@ -5,6 +5,7 @@ const compiler = @import("compiler.zig");
 const vm_mod = @import("vm.zig");
 const ir_mod = @import("ir.zig");
 const llvm_emit = @import("llvm_emit.zig");
+const file_utils = @import("file_utils.zig");
 
 fn writeToFd(fd: std.posix.fd_t, bytes: []const u8) void {
     var total: usize = 0;
@@ -27,43 +28,9 @@ fn writeStderr(bytes: []const u8) void {
     writeToFd(2, bytes);
 }
 
-fn readFileContents(allocator: std.mem.Allocator, path: []const u8) ![]u8 {
-    const path_z = allocator.dupeZ(u8, path) catch return error.OutOfMemory;
-    defer allocator.free(path_z);
-
-    const fd = std.c.open(path_z, .{});
-    if (fd < 0) {
-        std.debug.print("Error opening file '{s}'\n", .{path});
-        return error.FileNotFound;
-    }
-    defer _ = std.c.close(fd);
-
-    const max_size: usize = 1024 * 1024;
-    var result: std.ArrayList(u8) = .empty;
-    defer result.deinit(allocator);
-
-    var tmp: [4096]u8 = undefined;
-    while (true) {
-        const raw = std.c.read(fd, &tmp, tmp.len);
-        if (raw == 0) break;
-        if (raw < 0) {
-            if (std.posix.errno(raw) == .INTR) continue;
-            break;
-        }
-        const bytes_read: usize = @intCast(raw);
-        if (result.items.len + bytes_read > max_size) {
-            std.debug.print("File too large\n", .{});
-            return error.StreamTooLong;
-        }
-        result.appendSlice(allocator, tmp[0..bytes_read]) catch |err| return err;
-    }
-
-    return result.toOwnedSlice(allocator);
-}
-
 pub fn emitLlvmFile(vm: *vm_mod.VM, path: []const u8, output_path: ?[]const u8) !void {
     const allocator = vm.gc.allocator;
-    const source = readFileContents(allocator, path) catch return;
+    const source = file_utils.readWholeFile(allocator, path, 1024 * 1024) catch return;
     defer allocator.free(source);
 
     const saved_lib_dir = vm.current_lib_dir;

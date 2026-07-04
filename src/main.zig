@@ -2,6 +2,7 @@ const std = @import("std");
 const builtin_os = @import("builtin").os;
 const is_wasm = builtin_os.tag == .wasi;
 const is_linux = builtin_os.tag == .linux;
+const file_utils = @import("file_utils.zig");
 extern "c" fn setenv(name: [*:0]const u8, value: [*:0]const u8, overwrite: c_int) c_int;
 pub const types = @import("types.zig");
 pub const memory = @import("memory.zig");
@@ -162,65 +163,37 @@ fn printSourceSnippet(source: []const u8, line: u32) void {
 }
 
 fn readFileContents(allocator: std.mem.Allocator, path: []const u8) ![]u8 {
-    const path_z = allocator.dupeZ(u8, path) catch return error.OutOfMemory;
-    defer allocator.free(path_z);
-
-    const fd = if (comptime is_wasm) blk: {
-        var result_fd: std.os.wasi.fd_t = undefined;
-        const rc = std.os.wasi.path_open(3, .{ .SYMLINK_FOLLOW = true }, path.ptr, path.len, .{}, .{ .FD_READ = true, .FD_SEEK = true }, .{ .FD_READ = true }, .{}, &result_fd);
-        if (rc != .SUCCESS) {
-            std.debug.print("Error opening file '{s}': {}\n", .{ path, rc });
-            break :blk @as(c_int, -1);
-        }
-        break :blk @as(c_int, @intCast(result_fd));
-    } else blk: {
-        break :blk std.c.open(path_z, .{});
-    };
-    if (fd < 0) {
-        std.debug.print("Error opening file '{s}'\n", .{path});
-        return error.FileNotFound;
-    }
-    defer _ = std.c.close(fd);
-
     if (comptime !is_wasm) {
-        const is_dir = if (comptime is_linux) blk: {
-            const linux = std.os.linux;
-            var sx: linux.Statx = undefined;
-            const rc = linux.statx(fd, "", 0x1000, .{ .TYPE = true }, &sx);
-            break :blk rc <= @as(usize, std.math.maxInt(isize)) and (sx.mode & std.posix.S.IFMT == std.posix.S.IFDIR);
-        } else blk: {
-            var stat: std.c.Stat = undefined;
-            break :blk std.c.fstat(fd, &stat) == 0 and (stat.mode & std.posix.S.IFMT == std.posix.S.IFDIR);
-        };
-        if (is_dir) {
-            std.debug.print("Error: '{s}' is a directory\n", .{path});
-            return error.IsDir;
+        const path_z = allocator.dupeZ(u8, path) catch return error.OutOfMemory;
+        defer allocator.free(path_z);
+        const probe_fd = std.c.open(path_z, .{});
+        if (probe_fd >= 0) {
+            defer _ = std.c.close(probe_fd);
+            const is_dir = if (comptime is_linux) blk: {
+                const linux = std.os.linux;
+                var sx: linux.Statx = undefined;
+                const rc = linux.statx(probe_fd, "", 0x1000, .{ .TYPE = true }, &sx);
+                break :blk rc <= @as(usize, std.math.maxInt(isize)) and (sx.mode & std.posix.S.IFMT == std.posix.S.IFDIR);
+            } else blk: {
+                var stat_buf: std.c.Stat = undefined;
+                break :blk std.c.fstat(probe_fd, &stat_buf) == 0 and (stat_buf.mode & std.posix.S.IFMT == std.posix.S.IFDIR);
+            };
+            if (is_dir) {
+                std.debug.print("Error: '{s}' is a directory\n", .{path});
+                return error.IsDir;
+            }
         }
     }
 
-    const max_size: usize = 1024 * 1024;
-    var result: std.ArrayList(u8) = .empty;
-    defer result.deinit(allocator);
-
-    var tmp: [4096]u8 = undefined;
-    while (true) {
-        const raw = std.c.read(fd, &tmp, tmp.len);
-        if (raw == 0) break;
-        if (raw < 0) {
-            const e = std.posix.errno(raw);
-            if (e == .INTR) continue;
-            std.debug.print("Error reading file '{s}': {s}\n", .{ path, @tagName(e) });
-            return error.InputOutput;
+    return file_utils.readWholeFile(allocator, path, 1024 * 1024) catch |err| {
+        switch (err) {
+            error.FileNotFound => std.debug.print("Error opening file '{s}'\n", .{path}),
+            error.StreamTooLong => std.debug.print("File too large\n", .{}),
+            error.InputOutput => std.debug.print("Error reading file '{s}'\n", .{path}),
+            else => std.debug.print("Error reading file '{s}'\n", .{path}),
         }
-        const bytes_read: usize = @intCast(raw);
-        if (result.items.len + bytes_read > max_size) {
-            std.debug.print("File too large\n", .{});
-            return error.StreamTooLong;
-        }
-        result.appendSlice(allocator, tmp[0..bytes_read]) catch |err| return err;
-    }
-
-    return result.toOwnedSlice(allocator);
+        return err;
+    };
 }
 
 fn readAllStdin(allocator: std.mem.Allocator) ![]u8 {
