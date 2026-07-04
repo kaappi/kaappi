@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783159187103,
+  "lastUpdate": 1783159265743,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "c2d5370c02f537e599a2b621a3c837cf81d5bf46",
-          "message": "Rewrite README for OSS suitability; reconcile procedure count to 579 (#918)\n\nThe README opened with a contributor build workflow rather than an install\npath, and carried several stale or self-contradictory facts (v0.5.0 banner,\nwrong history-file path, a data-types table contradicting the NaN-boxing\nsection, and a mismatched procedure count). Restructure it around a new user:\ntry-in-browser, install, taste, features, ecosystem — and move the exhaustive\nsource-tree listing to docs/dev/architecture.md where it already lives.\n\nThe built-in procedure count disagreed across docs (554 vs 632). Neither was\nright: 632 counts raw reg() call sites, inflated by ~47 procedures re-registered\nin the sandbox path; 554 was stale. Standardize on 579 (unique registered\nnames, verifiable from source) everywhere it appears.\n\nAdd a release-skill step that recomputes the count from source and sweeps the\ndocs so it stays honest, and reference the docs-site step by name rather than a\nnumber that had already drifted.\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
-          "timestamp": "2026-07-03T07:13:54+05:30",
-          "tree_id": "734e618163646aab1dcdce410e29d12e1a6c5ed3",
-          "url": "https://github.com/kaappi/kaappi/commit/c2d5370c02f537e599a2b621a3c837cf81d5bf46"
-        },
-        "date": 1783043836806,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.400676,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.568445,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.856884,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.140821,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.00723,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.03313,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.475254,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.070946,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.994379,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.830453,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.177955,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.438186,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 2.489931,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.752445,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.042905,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.04374,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e8c77bb41dddd94a030209534a5a9ff0d14c2a84",
+          "message": "Resurrect 11 orphaned regression tests, harden run-all.sh (#1029) (#1086)\n\n6 shell scripts in smoke/, 3 in errors/, and 2 loose .scm files were\nnever executed by run-all.sh or CI. Add run_shell_suite() to discover\nand run *.sh per suite directory, move the loose .scm files into smoke/\nwith accurate \"native\" naming, replace hardcoded /tmp paths with mktemp,\nand fail (not skip) on non-executable .sh files.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-04T09:39:15Z",
+          "tree_id": "b6c28250351a93e0f6e933542e8e63bf8080869a",
+          "url": "https://github.com/kaappi/kaappi/commit/e8c77bb41dddd94a030209534a5a9ff0d14c2a84"
+        },
+        "date": 1783159264575,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.427874,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.62194,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.939334,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.254467,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.012675,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.211215,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.476852,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.07121,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 12.504677,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.876691,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 9.922672,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.961252,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 8.318337,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.713381,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.043517,
             "unit": "seconds"
           }
         ]
