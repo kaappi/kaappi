@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783153493781,
+  "lastUpdate": 1783153946840,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "a43d8a964d35af0149eeebdd0f50271177480cf4",
-          "message": "Merge pull request #908 from kaappi/fix/859-prettyprint-cycle\n\nAdd depth limit to prettyPrint to prevent hangs on cyclic values",
-          "timestamp": "2026-07-03T06:07:22+05:30",
-          "tree_id": "39c57029e1f04662a46318aef98c8420b1754186",
-          "url": "https://github.com/kaappi/kaappi/commit/a43d8a964d35af0149eeebdd0f50271177480cf4"
-        },
-        "date": 1783040643452,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.072603,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.030833,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.856342,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.334359,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.007289,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.033052,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.467706,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.068372,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.873222,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.785945,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.160868,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.470918,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 2.41051,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.811632,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044868,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.042337,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "11449dab9cda4a3d11994d87b001667ebc709cbe",
+          "message": "Unify typeName into types.zig, fix LSP hover for records/rationals/bignums (#1033) (#1080)\n\nMove the Value-to-type-name switch from repl.zig and kaappi_lsp.zig into\na single canonical types.typeName(). The switch is exhaustive over all 37\nObjectTag variants (no else arm), so adding a new heap type will cause a\ncompile error rather than silently returning \"object\". Also adds\nnative_closure coverage (was missing from both copies).\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-04T08:12:11Z",
+          "tree_id": "1b138dc8fcc874bafa4d3899301a4110e9c8652c",
+          "url": "https://github.com/kaappi/kaappi/commit/11449dab9cda4a3d11994d87b001667ebc709cbe"
+        },
+        "date": 1783153946369,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.291704,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.046846,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.906538,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.219155,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.012443,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.210616,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.463826,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.070441,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 12.49,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.829384,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 9.878645,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.957933,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 8.26481,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.700918,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.042515,
             "unit": "seconds"
           }
         ]
