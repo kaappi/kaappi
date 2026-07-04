@@ -139,27 +139,11 @@ const Range = struct {
 };
 
 fn parseStartEnd(data: []const u8, args: []const Value, start_arg_idx: usize) PrimitiveError!Range {
-    var byte_start: usize = 0;
-    var byte_end: usize = data.len;
-    var cp_offset: usize = 0;
-
-    if (args.len > start_arg_idx) {
-        if (!types.isFixnum(args[start_arg_idx])) return PrimitiveError.TypeError;
-        const sv = types.toFixnum(args[start_arg_idx]);
-        if (sv < 0) return PrimitiveError.TypeError; // bare-ok: generic helper, no proc name
-        const start_cp: usize = @intCast(sv);
-        byte_start = pstr.utf8IndexToByteOffset(data, start_cp) orelse return PrimitiveError.IndexOutOfBounds;
-        cp_offset = start_cp;
-    }
-    if (args.len > start_arg_idx + 1) {
-        if (!types.isFixnum(args[start_arg_idx + 1])) return PrimitiveError.TypeError;
-        const ev = types.toFixnum(args[start_arg_idx + 1]);
-        if (ev < 0) return PrimitiveError.TypeError; // bare-ok: generic helper, no proc name
-        const end_cp: usize = @intCast(ev);
-        byte_end = pstr.utf8IndexToByteOffset(data, end_cp) orelse return PrimitiveError.IndexOutOfBounds;
-    }
-    if (byte_start > byte_end) return PrimitiveError.TypeError;
-    return .{ .data = data[byte_start..byte_end], .byte_start = byte_start, .byte_end = byte_end, .cp_offset = cp_offset };
+    const cp_count = utf8CodepointCount(data);
+    const range = try primitives.parseOptionalRange(args, start_arg_idx, cp_count, "string");
+    const byte_start = pstr.utf8IndexToByteOffset(data, range.start) orelse return PrimitiveError.IndexOutOfBounds;
+    const byte_end = pstr.utf8IndexToByteOffset(data, range.end) orelse return PrimitiveError.IndexOutOfBounds;
+    return .{ .data = data[byte_start..byte_end], .byte_start = byte_start, .byte_end = byte_end, .cp_offset = range.start };
 }
 
 fn decodeForward(data: []const u8, pos: usize) struct { cp: u21, len: usize } {
