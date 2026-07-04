@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783147504386,
+  "lastUpdate": 1783151007207,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "f065ba9be1fe27880f4751b82c2510d3d2ee434e",
-          "message": "Fix bignum toF64 double-rounding by using u128 top-two-limb combination (#833) (#907)\n\nThe old per-limb accumulation rounded to f64 at each step, losing\nguard/sticky bits. Use the top two limbs as a u128 with a sticky\nbit from the rest, convert to f64 once, then scale by the remaining\npower of 2.\n\nFixes #833\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-03T05:50:37+05:30",
-          "tree_id": "9e07bd54074d1942bdf9c63095e950e622bc640e",
-          "url": "https://github.com/kaappi/kaappi/commit/f065ba9be1fe27880f4751b82c2510d3d2ee434e"
-        },
-        "date": 1783040315342,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.434473,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.649606,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.843088,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.193471,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006975,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.033518,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.492593,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.073231,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.990049,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.828029,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.135908,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.424291,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 2.438513,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.649008,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.042469,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.04323,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "33ef8be83a4c8935b8de6cdc51448361fc32d1e4",
+          "message": "Fix top-level macros invisible inside bare-lambda bodies (#1025) (#1077)\n\ncompileLambdaWithIR lowered body forms with the child compiler's\n(empty) macro table. IR macro lookup now uses the compiler's\nlookupMacro(), which walks the parent chain, so macros defined\nin enclosing scopes are visible in lambda bodies compiled via IR.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-04T07:24:14Z",
+          "tree_id": "3ad8cf784f358fb081b62f32153ce816daa26079",
+          "url": "https://github.com/kaappi/kaappi/commit/33ef8be83a4c8935b8de6cdc51448361fc32d1e4"
+        },
+        "date": 1783151006742,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.289394,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.245355,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.915499,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.225461,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.01252,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.210741,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.467138,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.071188,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 12.40743,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.840497,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 9.847403,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.954312,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 8.29369,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.690237,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.042658,
             "unit": "seconds"
           }
         ]
