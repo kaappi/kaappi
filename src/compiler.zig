@@ -139,12 +139,12 @@ pub const Compiler = struct {
     /// Restore macro-table entries registered since the matching
     /// beginBodyMacroScope, newest first so re-registrations of the same
     /// name unwind correctly.
-    pub fn endBodyMacroScope(self: *Compiler, mark: usize) void {
+    pub fn endBodyMacroScope(self: *Compiler, mark: usize) CompileError!void {
         self.body_macro_depth -= 1;
         while (self.body_macros.items.len > mark) {
             const entry = self.body_macros.pop().?;
             if (entry.saved) |old_val| {
-                self.macros.put(entry.name, old_val) catch {};
+                try self.macros.put(entry.name, old_val);
             } else {
                 _ = self.macros.remove(entry.name);
             }
@@ -1051,10 +1051,10 @@ pub const Compiler = struct {
             if (self.gc.source_lines.get(expr)) |line| {
                 if (line != self.current_line and line > 0) {
                     self.current_line = line;
-                    self.func.line_table.append(self.gc.allocator, .{
+                    try self.func.line_table.append(self.gc.allocator, .{
                         .offset = @intCast(self.func.code.items.len),
                         .line = line,
-                    }) catch {};
+                    });
                 }
             }
             return self.compileForm(expr, dst, is_tail);
@@ -1191,12 +1191,12 @@ pub const Compiler = struct {
                 while (p) |par| : (p = par.parent) {
                     var it = par.macros.iterator();
                     while (it.next()) |entry| {
-                        merged_macros.put(entry.key_ptr.*, entry.value_ptr.*) catch {};
+                        try merged_macros.put(entry.key_ptr.*, entry.value_ptr.*);
                     }
                 }
                 var it = self.macros.iterator();
                 while (it.next()) |entry| {
-                    merged_macros.put(entry.key_ptr.*, entry.value_ptr.*) catch {};
+                    try merged_macros.put(entry.key_ptr.*, entry.value_ptr.*);
                 }
                 const tx = types.toObject(transformer).as(types.Transformer);
                 // Temporarily add/modify globals so the expander doesn't
@@ -1220,7 +1220,7 @@ pub const Compiler = struct {
                         if (!g.contains(cap.name) and temp_global_count < 128) {
                             temp_globals[temp_global_count] = .{ .name = cap.name, .old_val = null, .was_present = false };
                             temp_global_count += 1;
-                            g.put(cap.name, types.VOID) catch {};
+                            try g.put(cap.name, types.VOID);
                         }
                     }
                     if (tx.def_env) |env| {
@@ -1229,7 +1229,7 @@ pub const Compiler = struct {
                             if (!g.contains(entry.key_ptr.*) and temp_global_count < 128) {
                                 temp_globals[temp_global_count] = .{ .name = entry.key_ptr.*, .old_val = null, .was_present = false };
                                 temp_global_count += 1;
-                                g.put(entry.key_ptr.*, entry.value_ptr.*) catch {};
+                                try g.put(entry.key_ptr.*, entry.value_ptr.*);
                             }
                         }
                     }
@@ -1266,7 +1266,7 @@ pub const Compiler = struct {
                                     if (temp_global_count < 128) {
                                         temp_globals[temp_global_count] = .{ .name = cname, .old_val = in_g, .was_present = in_g != null };
                                         temp_global_count += 1;
-                                        g.put(cname, types.VOID) catch {};
+                                        try g.put(cname, types.VOID);
                                     }
                                     // Track for local injection after expansion
                                     if (global_free_count < 64) {
@@ -1311,13 +1311,13 @@ pub const Compiler = struct {
                 self.gc.no_collect -= 1;
                 const saved_locals_len = self.locals.items.len;
                 for (tx.captured_locals) |cap| {
-                    self.locals.append(self.gc.allocator, .{
+                    try self.locals.append(self.gc.allocator, .{
                         .name = cap.name,
                         .depth = self.scope_depth,
                         .slot = cap.slot,
-                    }) catch {};
+                    });
                 }
-                injectHygienicCapturedLocals(self, expanded_root, tx.captured_locals);
+                try injectHygienicCapturedLocals(self, expanded_root, tx.captured_locals);
                 // Inject non-procedure global free vars as locals so
                 // use-site locals don't shadow the definition-site
                 // global binding (R7RS 4.3.1 referential transparency).
@@ -1338,12 +1338,12 @@ pub const Compiler = struct {
                     self.emitOp(.get_global) catch continue;
                     self.emitU16(gslot) catch continue;
                     self.emitU16(gsym_idx) catch continue;
-                    self.locals.append(self.gc.allocator, .{
+                    try self.locals.append(self.gc.allocator, .{
                         .name = gname,
                         .depth = self.scope_depth,
                         .slot = gslot,
                         .is_global_alias = true,
-                    }) catch {};
+                    });
                 }
                 const result_err = self.compileExpr(expanded_root, dst, is_tail);
                 // Remove injected locals
@@ -1451,12 +1451,12 @@ pub const Compiler = struct {
         return n;
     }
 
-    fn injectHygienicCapturedLocals(self: *Compiler, expr: Value, captured: []const types.CapturedLocal) void {
+    fn injectHygienicCapturedLocals(self: *Compiler, expr: Value, captured: []const types.CapturedLocal) CompileError!void {
         if (captured.len == 0) return;
-        injectHygCapturedWalk(self, expr, captured);
+        try injectHygCapturedWalk(self, expr, captured);
     }
 
-    fn injectHygCapturedWalk(self: *Compiler, expr: Value, captured: []const types.CapturedLocal) void {
+    fn injectHygCapturedWalk(self: *Compiler, expr: Value, captured: []const types.CapturedLocal) CompileError!void {
         if (types.isSymbol(expr)) {
             const name = types.symbolName(expr);
             if (!std.mem.startsWith(u8, name, "__hyg_")) return;
@@ -1472,11 +1472,11 @@ pub const Compiler = struct {
                         }
                     }
                     if (!already) {
-                        self.locals.append(self.gc.allocator, .{
+                        try self.locals.append(self.gc.allocator, .{
                             .name = name,
                             .depth = self.scope_depth,
                             .slot = cap.slot,
-                        }) catch {};
+                        });
                     }
                     return;
                 }
@@ -1484,8 +1484,8 @@ pub const Compiler = struct {
             return;
         }
         if (types.isPair(expr)) {
-            injectHygCapturedWalk(self, types.car(expr), captured);
-            injectHygCapturedWalk(self, types.cdr(expr), captured);
+            try injectHygCapturedWalk(self, types.car(expr), captured);
+            try injectHygCapturedWalk(self, types.cdr(expr), captured);
         }
     }
 
@@ -1542,7 +1542,7 @@ pub const Compiler = struct {
         const saved_body_scope = self.in_body_scope;
         self.in_body_scope = true;
         const macro_mark = self.beginBodyMacroScope();
-        errdefer self.endBodyMacroScope(macro_mark);
+        errdefer self.endBodyMacroScope(macro_mark) catch {};
         var current = body;
         while (current != types.NIL) {
             if (!types.isPair(current)) return CompileError.InvalidSyntax;
@@ -1551,14 +1551,14 @@ pub const Compiler = struct {
             const tail = is_tail and current == types.NIL;
             try self.compileExpr(expr, dst, tail);
         }
-        self.endBodyMacroScope(macro_mark);
+        try self.endBodyMacroScope(macro_mark);
         self.in_body_scope = saved_body_scope;
         self.endScope();
 
         // Restore macro table
         for (saved_names.items, saved_values.items) |name, saved_val| {
             if (saved_val) |old_val| {
-                self.macros.put(name, old_val) catch {};
+                try self.macros.put(name, old_val);
             } else {
                 _ = self.macros.remove(name);
             }

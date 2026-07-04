@@ -129,8 +129,8 @@ pub fn compileBody(self: *Compiler, body: Value) CompileError!void {
                             }
                             if (def_name) |dn| {
                                 if (!globals.contains(dn)) {
-                                    globals.put(dn, types.VOID) catch {};
-                                    prescan_names.append(self.gc.allocator, dn) catch {};
+                                    try globals.put(dn, types.VOID);
+                                    try prescan_names.append(self.gc.allocator, dn);
                                 }
                             }
                         }
