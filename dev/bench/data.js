@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783190381983,
+  "lastUpdate": 1783190778952,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "ddfe8d9c9780dde93554022c8e18832018e7b1e0",
-          "message": "Track child-interned symbols on parent GC to fix leak (#950)\n\nA symbol first interned by an SRFI-18 child thread went into the parent's\nshared symbol table, but GC.allocSymbol skipped trackObject for child GCs,\nso the Symbol landed on no GC's object list: the child's sweep/deinit never\nfreed it and the parent never knew about it. Every distinct child-interned\nsymbol leaked its Symbol struct plus its name dupe.\n\nSymbols the child interns must outlive the child, since the parent's shared\ntable keeps referencing them, so ownership belongs to the parent. Pushing\nonto the parent's lock-free objects list from a child thread is unsafe, so\nadd a dedicated foreign_symbols list on the owner GC, appended under the\nsymbol_mutex allocSymbol already holds and freed at the parent's deinit.\nInterned symbols are permanent (marked as roots every GC, never swept), so\nthe list needs no sweep interaction.\n\nOrthogonal to #797, which only changed the locking, not the trackObject\ndecision. Regression covered by a unit test under std.testing.allocator\n(fails without the fix) plus a Scheme reproduction observable under the\nDebug leak-checking allocator.\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
-          "timestamp": "2026-07-03T09:58:37Z",
-          "tree_id": "e2b788b64c01be3ddec20b11cca578b69c099d77",
-          "url": "https://github.com/kaappi/kaappi/commit/ddfe8d9c9780dde93554022c8e18832018e7b1e0"
-        },
-        "date": 1783073594035,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.076274,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.225409,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.841831,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.429093,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.007244,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.032645,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.463168,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.067598,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.983623,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.776199,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.150742,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.471991,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 2.364243,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.867814,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044378,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044725,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f7ef22ccff4ed822ec808731e99876f4d8591d3b",
+          "message": "Extract ratPartsVal helper to deduplicate rational num/den extraction (#1055) (#1115)\n\nThe 6 identical ~15-line blocks that extract numerator/denominator as\nValues from fixnum/bignum/rational in add, sub, mul, and div are replaced\nby a single ratPartsVal() helper returning a RatPartsVal struct. Net -69\nlines with identical behavior.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-04T23:41:29+05:30",
+          "tree_id": "47b414f4ed947eba5494fdfbedf768305543f904",
+          "url": "https://github.com/kaappi/kaappi/commit/f7ef22ccff4ed822ec808731e99876f4d8591d3b"
+        },
+        "date": 1783190777909,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 2.282679,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.040033,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.502815,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.914021,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.009037,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.145163,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.250536,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.03498,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 7.888099,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 0.930511,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 7.011569,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.681764,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 5.590755,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.184773,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.025882,
             "unit": "seconds"
           }
         ]
