@@ -73,29 +73,6 @@ pub fn captureContinuation(vm: *VM, dst_reg: u16, dst_base: u32) VMError!Value {
     return cont_val;
 }
 
-/// Call a procedure with the current continuation (call/cc).
-/// proc is the one-argument procedure to call with the continuation.
-/// base is the register containing the callee (call/cc itself),
-/// and the result of call/cc will be stored at base.
-pub fn callWithCC(vm: *VM, proc: Value, base: u32) VMError!void {
-    // The caller's frame is at vm.frame_count - 1.
-    // After call/cc returns, the result goes into base (relative to caller's frame).
-    const caller_frame = &vm.frames[vm.frame_count - 1];
-    const dst_reg: u16 = @intCast(@as(u32, base) - caller_frame.base);
-
-    // Capture the continuation. The continuation, when invoked,
-    // will restore state and place the value at base (which is
-    // caller_frame.base + dst_reg).
-    const cont = try captureContinuation(vm, dst_reg, caller_frame.base);
-
-    // Now call proc with cont as the argument.
-    // We set up: registers[base] = proc, registers[base+1] = cont
-    vm.registers[base + 1] = cont;
-
-    // Call proc(cont) — just like a normal 1-arg call
-    try vm.callValue(proc, base, 1);
-}
-
 /// Capture an escape continuation (call/ec). Records only the stack depths to
 /// unwind back to — no register/frame snapshot — so capture is O(1).
 pub fn captureEscape(vm: *VM, dst_reg: u16, dst_base: u32) VMError!Value {

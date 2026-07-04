@@ -696,417 +696,37 @@ pub const VM = struct {
         if (self.handler_count > 0) self.handler_count -= 1;
     }
 
-    /// Call a handler procedure with a single argument, using the VM's call machinery.
-    /// Used by with-exception-handler when an exception is caught.
-    /// Call a 1-argument procedure re-entrantly from native code.
-    /// `return_dst` is the register offset (relative to the *caller's* base)
-    /// where the procedure's result should land if its frame ever returns via
-    /// the normal RETURN path — which happens when the frame is captured in a
-    /// continuation and later restored (the re-entrant runUntil that would
-    /// otherwise capture the return value is gone by then). In the normal,
-    /// non-captured path the result is delivered via runUntil's return value and
-    /// `return_dst` is unused, so callers that never expose the frame to capture
-    /// (e.g. exception handlers) can pass 0.
+    const vm_calls = @import("vm_calls.zig");
+    const vm_debug = @import("vm_debug.zig");
+
     pub fn callHandler(self: *VM, handler_val: Value, arg: Value, return_dst: u8) VMError!Value {
-        if (types.isContinuation(handler_val)) {
-            const cont = types.toObject(handler_val).as(types.Continuation);
-            if (cont.is_escape) {
-                try vm_continuations.invokeEscape(self, cont, arg);
-                return VMError.ContinuationInvoked;
-            }
-            try vm_continuations.performWindTransition(self, cont.wind_records[0..cont.wind_count], cont.wind_count);
-            try vm_continuations.restoreContinuation(self, cont, arg);
-            return VMError.ContinuationInvoked;
-        }
-        if (types.isClosure(handler_val)) {
-            const closure = types.toObject(handler_val).as(types.Closure);
-            const func = closure.func;
-
-            const base: u32 = if (self.frame_count > 0) blk: {
-                const prev = self.frames[self.frame_count - 1];
-                const stride: u32 = if (prev.closure) |c|
-                    @max(16, @as(u16, c.func.locals_count) + 2)
-                else
-                    32;
-                break :blk prev.base + stride;
-            } else 0;
-            try self.ensureRegisterCapacity(@as(usize, base) + @as(usize, func.locals_count) + 1);
-
-            if (func.is_variadic and func.arity == 0) {
-                // (lambda args ...) — wrap arg in a list
-                self.registers[base] = self.gc.allocPair(arg, types.NIL) catch return VMError.OutOfMemory;
-            } else if (func.is_variadic and func.arity == 1) {
-                // (lambda (x . rest) ...) — x=arg, rest=()
-                self.registers[base] = arg;
-                self.registers[base + 1] = types.NIL;
-            } else {
-                self.registers[base] = arg;
-            }
-
-            try self.ensureFrameCapacity(self.frame_count + 1);
-
-            const saved_frame_count = self.frame_count;
-            const saved_handler_count = self.handler_count;
-            const saved_wind_count = self.wind_count;
-            const saved_cgen = self.continuation_generation;
-            self.frames[self.frame_count] = .{
-                .closure = closure,
-                .code = func.code.items,
-                .ip = 0,
-                .base = base,
-                .dst = return_dst,
-                .saved_wind_count = @intCast(self.wind_count),
-                .seq = self.nextFrameSeq(),
-            };
-            self.frame_count += 1;
-
-            const result = self.runUntil(saved_frame_count, saved_wind_count) catch |err| {
-                if (err == VMError.ContinuationInvoked) {
-                    if (self.continuation_generation == saved_cgen and self.frame_count >= saved_frame_count) return self.continuation_value;
-                    return err;
-                }
-                if (self.continuation_generation == saved_cgen) {
-                    self.frame_count = saved_frame_count;
-                    self.handler_count = saved_handler_count;
-                    self.wind_count = saved_wind_count;
-                }
-                return err;
-            };
-            return result;
-        } else if (types.isNativeFn(handler_val)) {
-            const native = types.toObject(handler_val).as(types.NativeFn);
-            const args = [1]Value{arg};
-            self.last_error_detail_len = 0;
-            const result = native.func(&args) catch |err| {
-                return switch (err) {
-                    error.TypeError => blk: {
-                        if (self.last_error_detail_len == 0) {
-                            if (args.len > 0) {
-                                const p = @import("printer.zig");
-                                const s = p.valueToString(self.gc.allocator, args[0], .write) catch "";
-                                defer if (s.len > 0) self.gc.allocator.free(s);
-                                self.setErrorDetail("type error in '{s}': got {s}", .{ native.name, s });
-                            } else {
-                                self.setErrorDetail("type error in '{s}'", .{native.name});
-                            }
-                        }
-                        break :blk VMError.TypeError;
-                    },
-                    error.DivisionByZero => VMError.DivisionByZero,
-                    error.IndexOutOfBounds => blk_iob: {
-                        if (self.last_error_detail_len == 0)
-                            self.setErrorDetail("index out of bounds in '{s}'", .{native.name});
-                        break :blk_iob VMError.IndexOutOfBounds;
-                    },
-                    error.InvalidArgument => blk_ia: {
-                        self.setErrorDetail("invalid argument in '{s}'", .{native.name});
-                        break :blk_ia VMError.InvalidArgument;
-                    },
-                    error.OutOfMemory => VMError.OutOfMemory,
-                    error.ExceptionRaised => VMError.ExceptionRaised,
-                    error.ContinuationInvoked => VMError.ContinuationInvoked,
-                    else => VMError.InvalidBytecode,
-                };
-            };
-            return result;
-        } else {
-            self.setErrorDetail("not a procedure", .{});
-            return VMError.NotAProcedure;
-        }
+        return vm_calls.callHandler(self, handler_val, arg, return_dst);
     }
 
-    /// Call a thunk (0-argument procedure), using the VM's call machinery.
     pub fn callThunk(self: *VM, thunk_val: Value) VMError!Value {
-        if (types.isClosure(thunk_val)) {
-            const closure = types.toObject(thunk_val).as(types.Closure);
-            const func = closure.func;
-
-            const base: u32 = if (self.frame_count > 0) blk: {
-                const prev = self.frames[self.frame_count - 1];
-                const stride: u32 = if (prev.closure) |c|
-                    @max(16, @as(u16, c.func.locals_count) + 2)
-                else
-                    32;
-                break :blk prev.base + stride;
-            } else 0;
-            try self.ensureRegisterCapacity(@as(usize, base) + @as(usize, func.locals_count) + 1);
-
-            if (func.is_variadic and func.arity == 0) {
-                self.registers[base] = types.NIL;
-            }
-
-            try self.ensureFrameCapacity(self.frame_count + 1);
-
-            const saved_frame_count = self.frame_count;
-            const saved_handler_count = self.handler_count;
-            const saved_wind_count = self.wind_count;
-            const saved_cgen = self.continuation_generation;
-            self.frames[self.frame_count] = .{
-                .closure = closure,
-                .code = func.code.items,
-                .ip = 0,
-                .base = base,
-                .dst = 0,
-                .saved_wind_count = @intCast(self.wind_count),
-                .seq = self.nextFrameSeq(),
-            };
-            self.frame_count += 1;
-
-            const result = self.runUntil(saved_frame_count, saved_wind_count) catch |err| {
-                if (err == VMError.ContinuationInvoked) {
-                    // If the escape continuation targeted a frame within our
-                    // scope, the value has been delivered — return it.
-                    if (self.continuation_generation == saved_cgen and self.frame_count >= saved_frame_count) {
-                        return self.continuation_value;
-                    }
-                    return err;
-                }
-                // On error, unwind any frames that were pushed during the thunk
-                if (self.continuation_generation == saved_cgen) {
-                    self.frame_count = saved_frame_count;
-                    self.handler_count = saved_handler_count;
-                    self.wind_count = saved_wind_count;
-                }
-                return err;
-            };
-            return result;
-        } else if (types.isNativeFn(thunk_val)) {
-            const native = types.toObject(thunk_val).as(types.NativeFn);
-            const empty_args: []const Value = &.{};
-            const result = native.func(empty_args) catch |err| {
-                return switch (err) {
-                    error.TypeError => VMError.TypeError,
-                    error.DivisionByZero => VMError.DivisionByZero,
-                    error.IndexOutOfBounds => blk_iob: {
-                        self.setErrorDetail("index out of bounds in '{s}'", .{native.name});
-                        break :blk_iob VMError.IndexOutOfBounds;
-                    },
-                    error.InvalidArgument => blk_ia: {
-                        self.setErrorDetail("invalid argument in '{s}'", .{native.name});
-                        break :blk_ia VMError.InvalidArgument;
-                    },
-                    error.OutOfMemory => VMError.OutOfMemory,
-                    error.ExceptionRaised => VMError.ExceptionRaised,
-                    error.ContinuationInvoked => VMError.ContinuationInvoked,
-                    else => VMError.InvalidBytecode,
-                };
-            };
-            return result;
-        } else {
-            return VMError.NotAProcedure;
-        }
+        return vm_calls.callThunk(self, thunk_val);
     }
 
-    /// Call a procedure with multiple arguments using the VM's call machinery.
     pub fn callWithArgs(self: *VM, proc: Value, args: []const Value) VMError!Value {
-        if (types.isFfiFunction(proc)) {
-            const ffi_fn = types.toObject(proc).as(types.FfiFunction);
-            if (args.len != ffi_fn.param_count) return VMError.ArityMismatch;
-            const ffi_mod = @import("ffi.zig");
-            return ffi_mod.callFfi(ffi_fn, args, self.gc) catch return VMError.TypeError;
-        }
-        if (types.isParameter(proc)) {
-            const param = types.toObject(proc).as(types.ParameterObject);
-            if (args.len == 0) {
-                return self.getParameterValue(param);
-            } else {
-                var new_val = args[0];
-                if (param.converter != types.NIL) {
-                    new_val = try self.callWithArgs(param.converter, &[_]Value{new_val});
-                }
-                try self.setParameterValue(param, new_val);
-                return types.VOID;
-            }
-        }
-        if (types.isContinuation(proc)) {
-            const cont = types.toObject(proc).as(types.Continuation);
-            const value = if (args.len == 0) types.VOID else args[0];
-            if (cont.is_escape) {
-                try vm_continuations.invokeEscape(self, cont, value);
-                return VMError.ContinuationInvoked;
-            }
-            try vm_continuations.performWindTransition(self, cont.wind_records[0..cont.wind_count], cont.wind_count);
-            try vm_continuations.restoreContinuation(self, cont, value);
-            return VMError.ContinuationInvoked;
-        }
-        if (types.isClosure(proc)) {
-            const closure = types.toObject(proc).as(types.Closure);
-            const func = closure.func;
-
-            const base: u32 = if (self.frame_count > 0) blk: {
-                const prev = self.frames[self.frame_count - 1];
-                const stride: u32 = if (prev.closure) |c|
-                    @max(16, @as(u16, c.func.locals_count) + 2)
-                else
-                    32;
-                break :blk prev.base + stride;
-            } else 0;
-            try self.ensureRegisterCapacity(@as(usize, base) + @as(usize, func.locals_count) + 1);
-
-            if (args.len > std.math.maxInt(u8)) return VMError.ArityMismatch;
-            const nargs: u8 = @intCast(args.len);
-            if (!func.is_variadic) {
-                if (nargs != func.arity) return VMError.ArityMismatch;
-            } else {
-                if (nargs < func.arity) return VMError.ArityMismatch;
-                // Collect rest args into a list
-                const rest_start = func.arity;
-                var rest_list: Value = types.NIL;
-                self.gc.pushRoot(&rest_list) catch return VMError.OutOfMemory;
-                var i: u8 = nargs;
-                while (i > rest_start) {
-                    i -= 1;
-                    rest_list = self.gc.allocPair(args[i], rest_list) catch {
-                        self.gc.popRoot();
-                        return VMError.OutOfMemory;
-                    };
-                }
-                self.gc.popRoot();
-                // Place fixed args and rest list
-                for (0..rest_start) |ri| {
-                    self.registers[base + ri] = args[ri];
-                }
-                self.registers[base + rest_start] = rest_list;
-            }
-
-            if (!func.is_variadic) {
-                for (args, 0..) |arg, i| {
-                    self.registers[base + i] = arg;
-                }
-            }
-
-            try self.ensureFrameCapacity(self.frame_count + 1);
-
-            const saved_frame_count = self.frame_count;
-            const saved_handler_count = self.handler_count;
-            const saved_wind_count = self.wind_count;
-            const saved_cgen = self.continuation_generation;
-            self.frames[self.frame_count] = .{
-                .closure = closure,
-                .code = func.code.items,
-                .ip = 0,
-                .base = base,
-                // The result is consumed by this runUntil's return value, not
-                // a caller register — dst is a placeholder (returns_to_native).
-                .dst = 0,
-                .returns_to_native = true,
-                .saved_wind_count = @intCast(self.wind_count),
-                .seq = self.nextFrameSeq(),
-            };
-            self.frame_count += 1;
-
-            const result = self.runUntil(saved_frame_count, saved_wind_count) catch |err| {
-                if (err == VMError.ContinuationInvoked) {
-                    if (self.continuation_generation == saved_cgen and self.frame_count >= saved_frame_count) return self.continuation_value;
-                    return err;
-                }
-                if (self.continuation_generation == saved_cgen) {
-                    self.frame_count = saved_frame_count;
-                    self.handler_count = saved_handler_count;
-                    self.wind_count = saved_wind_count;
-                }
-                return err;
-            };
-            return result;
-        } else if (types.isNativeClosure(proc)) {
-            const nc = types.toObject(proc).as(types.NativeClosure);
-            if (args.len != nc.arity) {
-                self.setErrorDetail("'{s}': expected {d} arguments, got {d}", .{ nc.name, nc.arity, args.len });
-                return VMError.ArityMismatch;
-            }
-            const result = nc.fn_ptr(self, args.ptr, args.len, nc.upvalues.ptr);
-            return result;
-        } else if (types.isNativeFn(proc)) {
-            const native = types.toObject(proc).as(types.NativeFn);
-            switch (native.arity) {
-                .exact => |expected| {
-                    if (args.len != expected) {
-                        self.setErrorDetail("'{s}': expected {d} arguments, got {d}", .{ native.name, expected, args.len });
-                        return VMError.ArityMismatch;
-                    }
-                },
-                .variadic => |min| {
-                    if (args.len < min) {
-                        self.setErrorDetail("'{s}': expected at least {d} arguments, got {d}", .{ native.name, min, args.len });
-                        return VMError.ArityMismatch;
-                    }
-                },
-            }
-            self.last_error_detail_len = 0;
-            const result = native.func(args) catch |err| {
-                return switch (err) {
-                    error.TypeError => blk: {
-                        if (self.last_error_detail_len == 0) {
-                            if (args.len > 0) {
-                                const p = @import("printer.zig");
-                                const s = p.valueToString(self.gc.allocator, args[0], .write) catch "";
-                                defer if (s.len > 0) self.gc.allocator.free(s);
-                                self.setErrorDetail("type error in '{s}': got {s}", .{ native.name, s });
-                            } else {
-                                self.setErrorDetail("type error in '{s}'", .{native.name});
-                            }
-                        }
-                        break :blk VMError.TypeError;
-                    },
-                    error.DivisionByZero => VMError.DivisionByZero,
-                    error.IndexOutOfBounds => blk_iob: {
-                        if (self.last_error_detail_len == 0)
-                            self.setErrorDetail("index out of bounds in '{s}'", .{native.name});
-                        break :blk_iob VMError.IndexOutOfBounds;
-                    },
-                    error.InvalidArgument => blk_ia: {
-                        self.setErrorDetail("invalid argument in '{s}'", .{native.name});
-                        break :blk_ia VMError.InvalidArgument;
-                    },
-                    error.OutOfMemory => VMError.OutOfMemory,
-                    error.ExceptionRaised => VMError.ExceptionRaised,
-                    error.ContinuationInvoked => VMError.ContinuationInvoked,
-                    // A blocking primitive parked the current fiber
-                    // (yield_retry); the signal must reach the dispatch site
-                    // of the forwarding native (e.g. apply) intact so the
-                    // whole forwarding call is retried on wake.
-                    error.Yielded => VMError.Yielded,
-                    else => VMError.InvalidBytecode,
-                };
-            };
-            return result;
-        } else {
-            self.setErrorDetail("not a procedure", .{});
-            return VMError.NotAProcedure;
-        }
+        return vm_calls.callWithArgs(self, proc, args);
     }
 
-    /// Capture the current continuation state (delegates to vm_continuations).
     pub fn captureContinuation(self: *VM, dst_reg: u8, dst_base: u32) VMError!Value {
         return vm_continuations.captureContinuation(self, dst_reg, dst_base);
     }
 
-    /// Call a procedure with the current continuation (delegates to vm_continuations).
-    pub fn callWithCC(self: *VM, proc: Value, base: u16) VMError!void {
-        return vm_continuations.callWithCC(self, proc, base);
-    }
-
-    /// Capture an escape continuation (delegates to vm_continuations).
     pub fn captureEscape(self: *VM, dst_reg: u8, dst_base: u32) VMError!Value {
         return vm_continuations.captureEscape(self, dst_reg, dst_base);
     }
 
-    /// Invoke an escape continuation (delegates to vm_continuations).
     pub fn invokeEscape(self: *VM, cont: *types.Continuation, value: Value) VMError!void {
         return vm_continuations.invokeEscape(self, cont, value);
     }
 
-    /// Perform dynamic-wind transition (delegates to vm_continuations).
     pub fn performWindTransition(self: *VM, target_winds: []const types.WindRecord, target_count: usize) VMError!void {
         return vm_continuations.performWindTransition(self, target_winds, target_count);
     }
 
-    /// Run the VM until frame_count drops to target_frame_count.
-    /// This is used by callThunk/callHandler to avoid executing past
-    /// the caller's frame. target_wind_count specifies the wind level
-    /// to unwind to on exit (ensures dynamic-wind after-thunks run
-    /// even when the native function that pushed them is no longer on
-    /// the Zig call stack after a continuation restore).
     const vm_dispatch = @import("vm_dispatch.zig");
 
     pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) VMError!Value {
@@ -1125,28 +745,6 @@ pub const VM = struct {
         self.dispatched_from_scheduler = false;
     }
 
-    const vm_calls = @import("vm_calls.zig");
-
-    fn clockNs() u64 {
-        return vm_calls.clockNs();
-    }
-
-    fn profileCreditSelf(self: *VM) void {
-        vm_calls.profileCreditSelf(self);
-    }
-
-    fn profilePushCall(self: *VM, func: *types.Function) void {
-        vm_calls.profilePushCall(self, func);
-    }
-
-    fn profilePopReturn(self: *VM) void {
-        vm_calls.profilePopReturn(self);
-    }
-
-    fn profileTailCall(self: *VM, new_func: *types.Function) void {
-        vm_calls.profileTailCall(self, new_func);
-    }
-
     pub fn execute(self: *VM, func: *types.Function) VMError!Value {
         return vm_calls.execute(self, func);
     }
@@ -1155,62 +753,12 @@ pub const VM = struct {
         return vm_calls.run(self);
     }
 
-    fn handleNativeError(self: *VM, err: anyerror, base: u16, nargs: u8) VMError {
-        return vm_calls.handleNativeError(self, err, base, nargs);
-    }
-
-    fn callValue(self: *VM, callee: Value, base: u16, nargs: u8) VMError!void {
-        return vm_calls.callValue(self, callee, base, nargs);
-    }
-
-    fn callClosure(self: *VM, closure: *types.Closure, base: u16, nargs: u8) VMError!void {
-        return vm_calls.callClosure(self, closure, base, nargs);
-    }
-
-    fn callNative(self: *VM, native: *types.NativeFn, base: u16, nargs: u8) VMError!void {
-        return vm_calls.callNative(self, native, base, nargs);
-    }
-
     pub fn restoreContinuation(self: *VM, cont: *types.Continuation, value: Value) VMError!void {
         try vm_continuations.restoreContinuation(self, cont, value);
     }
 
-    const vm_debug = @import("vm_debug.zig");
-
-    fn shouldDebugPause(self: *VM, frame: *CallFrame) bool {
-        return vm_dispatch.shouldDebugPause(self, frame);
-    }
-
-    fn debugPause(self: *VM, frame: *CallFrame) !void {
-        return vm_dispatch.debugPause(self, frame);
-    }
-
-    fn ensureOperands(self: *VM, frame: *CallFrame, operand_bytes: usize) VMError!void {
-        return vm_dispatch.ensureOperands(self, frame, operand_bytes);
-    }
-
     pub fn registerIndex(self: *VM, base: u16, reg: u8) VMError!usize {
         return vm_dispatch.registerIndex(self, base, reg);
-    }
-
-    fn ensureCallWindow(self: *VM, base: usize, nargs: u8) VMError!void {
-        return vm_dispatch.ensureCallWindow(self, base, nargs);
-    }
-
-    fn constantAt(self: *VM, func: *types.Function, idx: u16) VMError!Value {
-        return vm_dispatch.constantAt(self, func, idx);
-    }
-
-    fn readU8(self: *VM, frame: *CallFrame) u8 {
-        return vm_dispatch.readU8(self, frame);
-    }
-
-    fn readU16(self: *VM, frame: *CallFrame) u16 {
-        return vm_dispatch.readU16(self, frame);
-    }
-
-    fn readI16(self: *VM, frame: *CallFrame) i16 {
-        return vm_dispatch.readI16(self, frame);
     }
 
     const vm_eval = @import("vm_eval.zig");
