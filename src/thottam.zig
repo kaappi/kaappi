@@ -4,6 +4,35 @@ const builtin = @import("builtin");
 const dylib_ext = if (builtin.os.tag == .macos) ".dylib" else ".so";
 const version = "0.12.0";
 
+const semver = @import("thottam_semver.zig");
+const proc = @import("thottam_proc.zig");
+const state = @import("thottam_state.zig");
+
+const Semver = semver.Semver;
+const parseConstraints = semver.parseConstraints;
+const matchesAllConstraints = semver.matchesAllConstraints;
+const isConstraintSpec = semver.isConstraintSpec;
+
+const runCapture = proc.runCapture;
+const runPassthrough = proc.runPassthrough;
+const runGit = proc.runGit;
+const runGitCapture = proc.runGitCapture;
+const checkoutVersion = proc.checkoutVersion;
+
+const PkgSpec = state.PkgSpec;
+const PkgManifest = state.PkgManifest;
+const parsePkgSpec = state.parsePkgSpec;
+const isValidPkgName = state.isValidPkgName;
+const parsePkgManifest = state.parsePkgManifest;
+const isInstalled = state.isInstalled;
+const LockEntry = state.LockEntry;
+const getLockedEntry = state.getLockedEntry;
+const getLockedSha = state.getLockedSha;
+const appendLockEntry = state.appendLockEntry;
+const updateLockfile = state.updateLockfile;
+const removeFromLockfile = state.removeFromLockfile;
+const removeFromInstalled = state.removeFromInstalled;
+
 var use_color: bool = false;
 
 const Color = struct {
@@ -27,28 +56,6 @@ const Config = struct {
     src_dir: []const u8,
     installed: []const u8,
     lockfile: []const u8,
-};
-
-const PkgSpec = struct {
-    name: []const u8,
-    ver: ?[]const u8,
-    source: ?[]const u8,
-};
-
-const PkgManifest = struct {
-    name: ?[]const u8 = null,
-    depends: ?[]const u8 = null,
-    build_cmd: ?[]const u8 = null,
-    source: ?[]const u8 = null,
-    owned: bool = false,
-
-    fn deinit(self: PkgManifest, allocator: std.mem.Allocator) void {
-        if (!self.owned) return;
-        if (self.name) |n| allocator.free(n);
-        if (self.depends) |d| allocator.free(d);
-        if (self.build_cmd) |b| allocator.free(b);
-        if (self.source) |s| allocator.free(s);
-    }
 };
 
 fn writeToFd(fd: std.posix.fd_t, bytes: []const u8) void {
@@ -78,150 +85,91 @@ fn fatal(msg: []const u8) noreturn {
     std.process.exit(1);
 }
 
-fn parsePkgSpec(spec: []const u8) PkgSpec {
-    var name_ver = spec;
-    var source: ?[]const u8 = null;
-    if (std.mem.indexOf(u8, spec, "::")) |sep| {
-        name_ver = spec[0..sep];
-        const url = spec[sep + 2 ..];
-        if (url.len > 0 and url[0] != '-') {
-            source = url;
-        }
-    }
-    if (std.mem.indexOfScalar(u8, name_ver, '@')) |at| {
-        return .{ .name = name_ver[0..at], .ver = name_ver[at + 1 ..], .source = source };
-    }
-    return .{ .name = name_ver, .ver = null, .source = source };
-}
-
-fn isValidPkgName(name: []const u8) bool {
-    if (name.len == 0) return false;
-    for (name) |c| {
-        if (!std.ascii.isAlphanumeric(c) and c != '-' and c != '_') return false;
-    }
-    return true;
-}
-
-fn parseField(line: []const u8, prefix: []const u8) ?[]const u8 {
-    if (std.mem.startsWith(u8, line, prefix)) {
-        return std.mem.trim(u8, line[prefix.len..], " \t\r");
-    }
-    return null;
-}
-
-fn parsePkgManifest(content: []const u8) PkgManifest {
-    var result: PkgManifest = .{};
-    var it = std.mem.splitScalar(u8, content, '\n');
-    while (it.next()) |line| {
-        if (parseField(line, "name:")) |val| {
-            result.name = val;
-        } else if (parseField(line, "depends:")) |val| {
-            result.depends = val;
-        } else if (parseField(line, "build:")) |val| {
-            result.build_cmd = val;
-        } else if (parseField(line, "source:")) |val| {
-            if (val.len > 0 and val[0] != '-') result.source = val;
-        }
-    }
-    return result;
-}
-
-const Semver = struct {
-    major: u32,
-    minor: u32,
-    patch: u32,
-
-    fn parse(s: []const u8) ?Semver {
-        const ver = if (s.len > 0 and s[0] == 'v') s[1..] else s;
-        var it = std.mem.splitScalar(u8, ver, '.');
-        const major = std.fmt.parseInt(u32, it.next() orelse return null, 10) catch return null;
-        const minor = std.fmt.parseInt(u32, it.next() orelse "0", 10) catch return null;
-        const patch = std.fmt.parseInt(u32, it.next() orelse "0", 10) catch return null;
-        return .{ .major = major, .minor = minor, .patch = patch };
-    }
-
-    fn order(a: Semver, b: Semver) std.math.Order {
-        if (a.major != b.major) return std.math.order(a.major, b.major);
-        if (a.minor != b.minor) return std.math.order(a.minor, b.minor);
-        return std.math.order(a.patch, b.patch);
-    }
-};
-
-const ConstraintOp = enum { gte, gt, lte, lt, eq, caret, tilde };
-
-const Constraint = struct {
-    op: ConstraintOp,
-    ver: Semver,
-
-    fn matches(self: Constraint, v: Semver) bool {
-        return switch (self.op) {
-            .gte => Semver.order(v, self.ver) != .lt,
-            .gt => Semver.order(v, self.ver) == .gt,
-            .lte => Semver.order(v, self.ver) != .gt,
-            .lt => Semver.order(v, self.ver) == .lt,
-            .eq => Semver.order(v, self.ver) == .eq,
-            .caret => blk: {
-                if (Semver.order(v, self.ver) == .lt) break :blk false;
-                if (self.ver.major != 0) break :blk v.major == self.ver.major;
-                if (self.ver.minor != 0) break :blk v.major == 0 and v.minor == self.ver.minor;
-                break :blk v.major == 0 and v.minor == 0 and v.patch == self.ver.patch;
-            },
-            .tilde => v.major == self.ver.major and v.minor == self.ver.minor and Semver.order(v, self.ver) != .lt,
+pub fn readFile(allocator: std.mem.Allocator, path: []const u8) ![]u8 {
+    const path_z = try allocator.dupeZ(u8, path);
+    defer allocator.free(path_z);
+    const fd = std.posix.openat(std.posix.AT.FDCWD, path_z, .{}, 0) catch return error.FileNotFound;
+    defer _ = std.posix.system.close(fd);
+    var buf: std.ArrayList(u8) = .empty;
+    var tmp: [4096]u8 = undefined;
+    while (true) {
+        const n = std.posix.read(fd, &tmp) catch {
+            buf.deinit(allocator);
+            return error.ReadFailed;
         };
+        if (n == 0) break;
+        buf.appendSlice(allocator, tmp[0..n]) catch return error.OutOfMemory;
     }
-};
+    return buf.toOwnedSlice(allocator);
+}
 
-fn parseConstraints(spec: []const u8) ?[4]?Constraint {
-    var result: [4]?Constraint = .{ null, null, null, null };
-    const clean = std.mem.trim(u8, spec, "\"");
-    var it = std.mem.splitScalar(u8, clean, ',');
-    var i: usize = 0;
-    while (it.next()) |part| {
-        if (i >= 4) return null;
-        const trimmed = std.mem.trim(u8, part, " ");
-        result[i] = parseSingleConstraint(trimmed) orelse return null;
-        i += 1;
+pub fn writeFile(allocator: std.mem.Allocator, path: []const u8, content: []const u8) !void {
+    const path_z = try allocator.dupeZ(u8, path);
+    defer allocator.free(path_z);
+    const fd = std.posix.openat(std.posix.AT.FDCWD, path_z, .{
+        .ACCMODE = .WRONLY,
+        .CREAT = true,
+        .TRUNC = true,
+    }, 0o644) catch return error.CannotOpen;
+    defer _ = std.posix.system.close(fd);
+    var total: usize = 0;
+    while (total < content.len) {
+        const result = std.posix.system.write(fd, content.ptr + total, content.len - total);
+        if (result <= 0) return error.WriteFailed;
+        total += @as(usize, @intCast(result));
     }
-    if (i == 0) return null;
+}
+
+fn appendFile(allocator: std.mem.Allocator, path: []const u8, line: []const u8) !void {
+    const path_z = try allocator.dupeZ(u8, path);
+    defer allocator.free(path_z);
+    const fd = std.posix.openat(std.posix.AT.FDCWD, path_z, .{
+        .ACCMODE = .WRONLY,
+        .CREAT = true,
+        .APPEND = true,
+    }, 0o644) catch return error.CannotOpen;
+    defer _ = std.posix.system.close(fd);
+    _ = std.posix.system.write(fd, line.ptr, line.len);
+    _ = std.posix.system.write(fd, "\n", 1);
+}
+
+pub fn fileExists(allocator: std.mem.Allocator, path: []const u8) bool {
+    const path_z = allocator.dupeZ(u8, path) catch return false;
+    defer allocator.free(path_z);
+    const fd = std.posix.openat(std.posix.AT.FDCWD, path_z, .{}, 0) catch return false;
+    _ = std.posix.system.close(fd);
+    return true;
+}
+
+fn dirExists(allocator: std.mem.Allocator, path: []const u8) bool {
+    const path_z = allocator.dupeZ(u8, path) catch return false;
+    defer allocator.free(path_z);
+    const fd = std.posix.openat(std.posix.AT.FDCWD, path_z, .{ .DIRECTORY = true }, 0) catch return false;
+    _ = std.posix.system.close(fd);
+    return true;
+}
+
+fn joinPath(allocator: std.mem.Allocator, a: []const u8, b: []const u8) ![]u8 {
+    const result = try allocator.alloc(u8, a.len + 1 + b.len);
+    @memcpy(result[0..a.len], a);
+    result[a.len] = '/';
+    @memcpy(result[a.len + 1 ..], b);
     return result;
 }
 
-fn parseSingleConstraint(s: []const u8) ?Constraint {
-    if (s.len == 0) return null;
-    if (s[0] == '^') {
-        const ver = Semver.parse(s[1..]) orelse return null;
-        return .{ .op = .caret, .ver = ver };
-    }
-    if (s[0] == '~') {
-        const ver = Semver.parse(s[1..]) orelse return null;
-        return .{ .op = .tilde, .ver = ver };
-    }
-    if (std.mem.startsWith(u8, s, ">=")) {
-        const ver = Semver.parse(s[2..]) orelse return null;
-        return .{ .op = .gte, .ver = ver };
-    }
-    if (std.mem.startsWith(u8, s, "<=")) {
-        const ver = Semver.parse(s[2..]) orelse return null;
-        return .{ .op = .lte, .ver = ver };
-    }
-    if (s[0] == '>') {
-        const ver = Semver.parse(s[1..]) orelse return null;
-        return .{ .op = .gt, .ver = ver };
-    }
-    if (s[0] == '<') {
-        const ver = Semver.parse(s[1..]) orelse return null;
-        return .{ .op = .lt, .ver = ver };
-    }
-    const ver = Semver.parse(s) orelse return null;
-    return .{ .op = .eq, .ver = ver };
-}
-
-fn matchesAllConstraints(v: Semver, constraints: [4]?Constraint) bool {
-    for (constraints) |mc| {
-        const c = mc orelse continue;
-        if (!c.matches(v)) return false;
-    }
-    return true;
+fn joinPath3(allocator: std.mem.Allocator, a: []const u8, b: []const u8, c: []const u8) ![]u8 {
+    const result = try allocator.alloc(u8, a.len + 1 + b.len + 1 + c.len);
+    var pos: usize = 0;
+    @memcpy(result[pos..][0..a.len], a);
+    pos += a.len;
+    result[pos] = '/';
+    pos += 1;
+    @memcpy(result[pos..][0..b.len], b);
+    pos += b.len;
+    result[pos] = '/';
+    pos += 1;
+    @memcpy(result[pos..][0..c.len], c);
+    return result;
 }
 
 fn resolveVersion(allocator: std.mem.Allocator, clone_url: []const u8, constraint_str: []const u8) ?[]const u8 {
@@ -263,373 +211,6 @@ fn resolveVersion(allocator: std.mem.Allocator, clone_url: []const u8, constrain
     return null;
 }
 
-fn isConstraintSpec(ver: []const u8) bool {
-    if (ver.len == 0) return false;
-    const clean = std.mem.trim(u8, ver, "\"");
-    if (clean.len == 0) return false;
-    return clean[0] == '>' or clean[0] == '<' or clean[0] == '^' or clean[0] == '~';
-}
-
-fn readFile(allocator: std.mem.Allocator, path: []const u8) ![]u8 {
-    const path_z = try allocator.dupeZ(u8, path);
-    defer allocator.free(path_z);
-    const fd = std.posix.openat(std.posix.AT.FDCWD, path_z, .{}, 0) catch return error.FileNotFound;
-    defer _ = std.posix.system.close(fd);
-    var buf: std.ArrayList(u8) = .empty;
-    var tmp: [4096]u8 = undefined;
-    while (true) {
-        const n = std.posix.read(fd, &tmp) catch {
-            buf.deinit(allocator);
-            return error.ReadFailed;
-        };
-        if (n == 0) break;
-        buf.appendSlice(allocator, tmp[0..n]) catch return error.OutOfMemory;
-    }
-    return buf.toOwnedSlice(allocator);
-}
-
-fn writeFile(allocator: std.mem.Allocator, path: []const u8, content: []const u8) !void {
-    const path_z = try allocator.dupeZ(u8, path);
-    defer allocator.free(path_z);
-    const fd = std.posix.openat(std.posix.AT.FDCWD, path_z, .{
-        .ACCMODE = .WRONLY,
-        .CREAT = true,
-        .TRUNC = true,
-    }, 0o644) catch return error.CannotOpen;
-    defer _ = std.posix.system.close(fd);
-    var total: usize = 0;
-    while (total < content.len) {
-        const result = std.posix.system.write(fd, content.ptr + total, content.len - total);
-        if (result <= 0) return error.WriteFailed;
-        total += @as(usize, @intCast(result));
-    }
-}
-
-fn appendFile(allocator: std.mem.Allocator, path: []const u8, line: []const u8) !void {
-    const path_z = try allocator.dupeZ(u8, path);
-    defer allocator.free(path_z);
-    const fd = std.posix.openat(std.posix.AT.FDCWD, path_z, .{
-        .ACCMODE = .WRONLY,
-        .CREAT = true,
-        .APPEND = true,
-    }, 0o644) catch return error.CannotOpen;
-    defer _ = std.posix.system.close(fd);
-    _ = std.posix.system.write(fd, line.ptr, line.len);
-    _ = std.posix.system.write(fd, "\n", 1);
-}
-
-fn fileExists(allocator: std.mem.Allocator, path: []const u8) bool {
-    const path_z = allocator.dupeZ(u8, path) catch return false;
-    defer allocator.free(path_z);
-    const fd = std.posix.openat(std.posix.AT.FDCWD, path_z, .{}, 0) catch return false;
-    _ = std.posix.system.close(fd);
-    return true;
-}
-
-fn dirExists(allocator: std.mem.Allocator, path: []const u8) bool {
-    const path_z = allocator.dupeZ(u8, path) catch return false;
-    defer allocator.free(path_z);
-    const fd = std.posix.openat(std.posix.AT.FDCWD, path_z, .{ .DIRECTORY = true }, 0) catch return false;
-    _ = std.posix.system.close(fd);
-    return true;
-}
-
-fn joinPath(allocator: std.mem.Allocator, a: []const u8, b: []const u8) ![]u8 {
-    const result = try allocator.alloc(u8, a.len + 1 + b.len);
-    @memcpy(result[0..a.len], a);
-    result[a.len] = '/';
-    @memcpy(result[a.len + 1 ..], b);
-    return result;
-}
-
-fn joinPath3(allocator: std.mem.Allocator, a: []const u8, b: []const u8, c: []const u8) ![]u8 {
-    const result = try allocator.alloc(u8, a.len + 1 + b.len + 1 + c.len);
-    var pos: usize = 0;
-    @memcpy(result[pos..][0..a.len], a);
-    pos += a.len;
-    result[pos] = '/';
-    pos += 1;
-    @memcpy(result[pos..][0..b.len], b);
-    pos += b.len;
-    result[pos] = '/';
-    pos += 1;
-    @memcpy(result[pos..][0..c.len], c);
-    return result;
-}
-
-fn runCapture(allocator: std.mem.Allocator, argv: []const []const u8, cwd: ?[]const u8) ![]u8 {
-    const argv_z = try allocator.alloc(?[*:0]const u8, argv.len + 1);
-    @memset(argv_z, null);
-    defer {
-        for (argv_z) |maybe_ptr| {
-            if (maybe_ptr) |p| {
-                const len = std.mem.len(p);
-                const ptr: [*]u8 = @constCast(p);
-                allocator.free(ptr[0 .. len + 1]);
-            }
-        }
-        allocator.free(argv_z);
-    }
-    for (argv, 0..) |arg, i| {
-        argv_z[i] = (try allocator.dupeZ(u8, arg)).ptr;
-    }
-    argv_z[argv.len] = null;
-
-    const cwd_duped = if (cwd) |c| try allocator.dupeZ(u8, c) else null;
-    defer if (cwd_duped) |d| allocator.free(d);
-    const cwd_z: ?[*:0]const u8 = if (cwd_duped) |d| d.ptr else null;
-
-    var pipe: [2]c_int = undefined;
-    if (std.c.pipe(&pipe) != 0) return error.PipeFailed;
-
-    const pid = std.posix.system.fork();
-    if (pid < 0) return error.ForkFailed;
-
-    if (pid == 0) {
-        // Child
-        _ = std.c.close(pipe[0]);
-        _ = std.c.dup2(pipe[1], 1);
-        _ = std.c.close(pipe[1]);
-        const devnull = std.c.open("/dev/null", .{ .ACCMODE = .WRONLY }, @as(c_uint, 0));
-        if (devnull >= 0) {
-            _ = std.c.dup2(devnull, 2);
-            _ = std.c.close(devnull);
-        }
-
-        if (cwd_z) |c| {
-            _ = std.posix.system.chdir(c);
-        }
-        _ = std.posix.system.execve(
-            @ptrCast(argv_z[0].?),
-            @ptrCast(argv_z.ptr),
-            @ptrCast(std.c.environ),
-        );
-        std.process.exit(127);
-    }
-
-    // Parent
-    _ = std.c.close(pipe[1]);
-    var output: std.ArrayList(u8) = .empty;
-    var tmp: [4096]u8 = undefined;
-    while (true) {
-        const n = std.posix.read(pipe[0], &tmp) catch break;
-        if (n == 0) break;
-        output.appendSlice(allocator, tmp[0..n]) catch break;
-    }
-    _ = std.c.close(pipe[0]);
-
-    var status: c_int = 0;
-    _ = std.c.waitpid(pid, &status, 0);
-    const raw: c_uint = @bitCast(status);
-    const wifexited = (raw & 0x7f) == 0;
-    const exit_code: u8 = @intCast((raw >> 8) & 0xff);
-    if (!wifexited or exit_code != 0) {
-        output.deinit(allocator);
-        return error.CommandFailed;
-    }
-
-    const slice = output.toOwnedSlice(allocator) catch return error.OutOfMemory;
-    defer allocator.free(slice);
-    const trimmed = std.mem.trim(u8, slice, "\n\r");
-    return allocator.dupe(u8, trimmed) catch return error.OutOfMemory;
-}
-
-fn runPassthrough(allocator: std.mem.Allocator, argv: []const []const u8, cwd: ?[]const u8) !u8 {
-    const argv_z = try allocator.alloc(?[*:0]const u8, argv.len + 1);
-    @memset(argv_z, null);
-    defer {
-        for (argv_z) |maybe_ptr| {
-            if (maybe_ptr) |p| {
-                const len = std.mem.len(p);
-                const ptr: [*]u8 = @constCast(p);
-                allocator.free(ptr[0 .. len + 1]);
-            }
-        }
-        allocator.free(argv_z);
-    }
-    for (argv, 0..) |arg, i| {
-        argv_z[i] = (try allocator.dupeZ(u8, arg)).ptr;
-    }
-    argv_z[argv.len] = null;
-
-    const cwd_duped = if (cwd) |c| try allocator.dupeZ(u8, c) else null;
-    defer if (cwd_duped) |d| allocator.free(d);
-    const cwd_z: ?[*:0]const u8 = if (cwd_duped) |d| d.ptr else null;
-
-    const pid = std.posix.system.fork();
-    if (pid < 0) return error.ForkFailed;
-
-    if (pid == 0) {
-        if (cwd_z) |c| {
-            _ = std.posix.system.chdir(c);
-        }
-        _ = std.posix.system.execve(
-            @ptrCast(argv_z[0].?),
-            @ptrCast(argv_z.ptr),
-            @ptrCast(std.c.environ),
-        );
-        std.process.exit(127);
-    }
-
-    var status: c_int = 0;
-    _ = std.c.waitpid(pid, &status, 0);
-    const raw: c_uint = @bitCast(status);
-    const wifexited = (raw & 0x7f) == 0;
-    if (!wifexited) return 128 + @as(u8, @intCast(raw & 0x7f));
-    return @intCast((raw >> 8) & 0xff);
-}
-
-fn runGit(allocator: std.mem.Allocator, args: []const []const u8) !void {
-    var argv: std.ArrayList([]const u8) = .empty;
-    defer argv.deinit(allocator);
-    argv.append(allocator, "/usr/bin/git") catch return error.OutOfMemory;
-    for (args) |a| {
-        argv.append(allocator, a) catch return error.OutOfMemory;
-    }
-    const exit_code = try runPassthrough(allocator, argv.items, null);
-    if (exit_code != 0) return error.GitFailed;
-}
-
-fn runGitCapture(allocator: std.mem.Allocator, args: []const []const u8) ![]u8 {
-    var argv: std.ArrayList([]const u8) = .empty;
-    defer argv.deinit(allocator);
-    argv.append(allocator, "/usr/bin/git") catch return error.OutOfMemory;
-    for (args) |a| {
-        argv.append(allocator, a) catch return error.OutOfMemory;
-    }
-    return runCapture(allocator, argv.items, null);
-}
-
-/// Check out a pinned version (tag or SHA) in an already-cloned package repo.
-///
-/// Uses `git checkout <v> --`: the trailing `--` makes git parse <v> as a
-/// revision even when a file of the same name exists (issue #780) — the
-/// reversed `git checkout -- <v>` would treat it as a pathspec. Not
-/// `--end-of-options`: `git checkout` only understands it since git 2.43, and
-/// older builds (e.g. Apple git on some macOS CI images) treat it as a
-/// pathspec and fail (issue #969). Because <v> sits where options are still
-/// parsed, reject values starting with '-' to keep the option-injection guard
-/// from #736; no valid tag, branch, or SHA starts with '-'.
-fn checkoutVersion(allocator: std.mem.Allocator, pkg_dir: []const u8, v: []const u8) !void {
-    if (v.len == 0 or v[0] == '-') return error.GitFailed;
-    return runGit(allocator, &.{ "-C", pkg_dir, "checkout", "--quiet", v, "--" });
-}
-
-fn isInstalled(allocator: std.mem.Allocator, installed_path: []const u8, pkg: []const u8) bool {
-    const content = readFile(allocator, installed_path) catch return false;
-    defer allocator.free(content);
-    var lines = std.mem.splitScalar(u8, content, '\n');
-    while (lines.next()) |line| {
-        if (std.mem.eql(u8, line, pkg)) return true;
-    }
-    return false;
-}
-
-const LockEntry = struct {
-    sha: []const u8,
-    source: ?[]const u8,
-};
-
-fn getLockedEntry(allocator: std.mem.Allocator, lockfile_path: []const u8, pkg: []const u8) ?LockEntry {
-    const content = readFile(allocator, lockfile_path) catch return null;
-    defer allocator.free(content);
-    var lines = std.mem.splitScalar(u8, content, '\n');
-    while (lines.next()) |line| {
-        if (std.mem.startsWith(u8, line, pkg) and line.len > pkg.len and line[pkg.len] == ' ') {
-            const rest = line[pkg.len + 1 ..];
-            if (std.mem.indexOfScalar(u8, rest, ' ')) |sp| {
-                return .{
-                    .sha = allocator.dupe(u8, rest[0..sp]) catch return null,
-                    .source = allocator.dupe(u8, rest[sp + 1 ..]) catch null,
-                };
-            }
-            return .{
-                .sha = allocator.dupe(u8, rest) catch return null,
-                .source = null,
-            };
-        }
-    }
-    return null;
-}
-
-fn getLockedSha(allocator: std.mem.Allocator, lockfile_path: []const u8, pkg: []const u8) ?[]const u8 {
-    const entry = getLockedEntry(allocator, lockfile_path, pkg) orelse return null;
-    if (entry.source) |s| allocator.free(s);
-    return entry.sha;
-}
-
-fn appendLockEntry(output: *std.ArrayList(u8), allocator: std.mem.Allocator, pkg: []const u8, sha: []const u8, source: ?[]const u8) !void {
-    output.appendSlice(allocator, pkg) catch return error.OutOfMemory;
-    output.append(allocator, ' ') catch return error.OutOfMemory;
-    output.appendSlice(allocator, sha) catch return error.OutOfMemory;
-    if (source) |s| {
-        output.append(allocator, ' ') catch return error.OutOfMemory;
-        output.appendSlice(allocator, s) catch return error.OutOfMemory;
-    }
-    output.append(allocator, '\n') catch return error.OutOfMemory;
-}
-
-fn updateLockfile(allocator: std.mem.Allocator, lockfile_path: []const u8, pkg: []const u8, sha: []const u8, source: ?[]const u8) !void {
-    var output: std.ArrayList(u8) = .empty;
-    defer output.deinit(allocator);
-    var found = false;
-
-    if (readFile(allocator, lockfile_path)) |content| {
-        defer allocator.free(content);
-        var lines = std.mem.splitScalar(u8, content, '\n');
-        while (lines.next()) |line| {
-            if (line.len == 0) continue;
-            if (std.mem.startsWith(u8, line, pkg) and line.len > pkg.len and line[pkg.len] == ' ') {
-                try appendLockEntry(&output, allocator, pkg, sha, source);
-                found = true;
-            } else {
-                output.appendSlice(allocator, line) catch return error.OutOfMemory;
-                output.append(allocator, '\n') catch return error.OutOfMemory;
-            }
-        }
-    } else |_| {}
-
-    if (!found) {
-        try appendLockEntry(&output, allocator, pkg, sha, source);
-    }
-
-    try writeFile(allocator, lockfile_path, output.items);
-}
-
-fn removeFromLockfile(allocator: std.mem.Allocator, lockfile_path: []const u8, pkg: []const u8) !void {
-    const content = readFile(allocator, lockfile_path) catch return;
-    defer allocator.free(content);
-    var output: std.ArrayList(u8) = .empty;
-    defer output.deinit(allocator);
-
-    var lines = std.mem.splitScalar(u8, content, '\n');
-    while (lines.next()) |line| {
-        if (line.len == 0) continue;
-        if (std.mem.startsWith(u8, line, pkg) and line.len > pkg.len and line[pkg.len] == ' ') continue;
-        output.appendSlice(allocator, line) catch return error.OutOfMemory;
-        output.append(allocator, '\n') catch return error.OutOfMemory;
-    }
-
-    try writeFile(allocator, lockfile_path, output.items);
-}
-
-fn removeFromInstalled(allocator: std.mem.Allocator, installed_path: []const u8, pkg: []const u8) !void {
-    const content = readFile(allocator, installed_path) catch return;
-    defer allocator.free(content);
-    var output: std.ArrayList(u8) = .empty;
-    defer output.deinit(allocator);
-
-    var lines = std.mem.splitScalar(u8, content, '\n');
-    while (lines.next()) |line| {
-        if (line.len == 0) continue;
-        if (std.mem.eql(u8, line, pkg)) continue;
-        output.appendSlice(allocator, line) catch return error.OutOfMemory;
-        output.append(allocator, '\n') catch return error.OutOfMemory;
-    }
-
-    try writeFile(allocator, installed_path, output.items);
-}
-
 fn getPkgSha(allocator: std.mem.Allocator, src_dir: []const u8, pkg: []const u8) ?[]const u8 {
     const pkg_dir = joinPath(allocator, src_dir, pkg) catch return null;
     defer allocator.free(pkg_dir);
@@ -658,7 +239,7 @@ fn copyDir(allocator: std.mem.Allocator, src: []const u8, dst: []const u8) !void
     if (exit_code != 0) return error.CopyFailed;
 }
 
-fn removeDir(allocator: std.mem.Allocator, path: []const u8) !void {
+pub fn removeDir(allocator: std.mem.Allocator, path: []const u8) !void {
     _ = try runPassthrough(allocator, &.{ "/bin/rm", "-rf", path }, null);
 }
 
@@ -1191,7 +772,7 @@ fn printUsage() void {
     );
 }
 
-fn getenv(name: [*:0]const u8) ?[]const u8 {
+pub fn getenv(name: [*:0]const u8) ?[]const u8 {
     const val = std.c.getenv(name) orelse return null;
     return std.mem.sliceTo(val, 0);
 }
@@ -1314,121 +895,18 @@ pub fn main(init: std.process.Init.Minimal) !void {
     }
 }
 
-test "parsePkgSpec — no version" {
-    const spec = parsePkgSpec("kaappi-json");
-    try std.testing.expectEqualStrings("kaappi-json", spec.name);
-    try std.testing.expect(spec.ver == null);
-    try std.testing.expect(spec.source == null);
-}
-
-test "parsePkgSpec — with version" {
-    const spec = parsePkgSpec("kaappi-web@v1.0.0");
-    try std.testing.expectEqualStrings("kaappi-web", spec.name);
-    try std.testing.expectEqualStrings("v1.0.0", spec.ver.?);
-    try std.testing.expect(spec.source == null);
-}
-
-test "parsePkgSpec — with SHA" {
-    const spec = parsePkgSpec("foo@abc123");
-    try std.testing.expectEqualStrings("foo", spec.name);
-    try std.testing.expectEqualStrings("abc123", spec.ver.?);
-    try std.testing.expect(spec.source == null);
-}
-
-test "parsePkgSpec — with source URL" {
-    const spec = parsePkgSpec("kaappi-auth::https://github.com/bob/kaappi-auth");
-    try std.testing.expectEqualStrings("kaappi-auth", spec.name);
-    try std.testing.expect(spec.ver == null);
-    try std.testing.expectEqualStrings("https://github.com/bob/kaappi-auth", spec.source.?);
-}
-
-test "parsePkgSpec — version and source URL" {
-    const spec = parsePkgSpec("pkg@v1.0::https://github.com/a/b");
-    try std.testing.expectEqualStrings("pkg", spec.name);
-    try std.testing.expectEqualStrings("v1.0", spec.ver.?);
-    try std.testing.expectEqualStrings("https://github.com/a/b", spec.source.?);
-}
-
-test "parsePkgManifest — full" {
-    const content = "name: kaappi-web\ndepends: kaappi-http kaappi-json\nbuild: make\n";
-    const m = parsePkgManifest(content);
-    try std.testing.expectEqualStrings("kaappi-web", m.name.?);
-    try std.testing.expectEqualStrings("kaappi-http kaappi-json", m.depends.?);
-    try std.testing.expectEqualStrings("make", m.build_cmd.?);
-    try std.testing.expect(m.source == null);
-}
-
-test "parsePkgManifest — minimal" {
-    const content = "name: kaappi-json\n";
-    const m = parsePkgManifest(content);
-    try std.testing.expectEqualStrings("kaappi-json", m.name.?);
-    try std.testing.expect(m.depends == null);
-    try std.testing.expect(m.build_cmd == null);
-    try std.testing.expect(m.source == null);
-}
-
-test "parsePkgManifest — with source" {
-    const content = "name: kaappi-matrix\ndepends: kaappi-net\nsource: https://github.com/alice/kaappi-matrix\n";
-    const m = parsePkgManifest(content);
-    try std.testing.expectEqualStrings("kaappi-matrix", m.name.?);
-    try std.testing.expectEqualStrings("kaappi-net", m.depends.?);
-    try std.testing.expectEqualStrings("https://github.com/alice/kaappi-matrix", m.source.?);
-}
-
-test "parseField" {
-    try std.testing.expectEqualStrings("value", parseField("key: value", "key:").?);
-    try std.testing.expectEqualStrings("value", parseField("key:  value  ", "key:").?);
-    try std.testing.expect(parseField("other: value", "key:") == null);
-    try std.testing.expect(parseField("", "key:") == null);
-}
-
 test "markVisited copies keys so freed dependency names stay valid (issue #784)" {
-    // Regression for #784: doInstall's visited guard stored package-name keys
-    // by reference. For a transitive dependency the name is a sub-slice of the
-    // caller's manifest.depends buffer, which is freed when that caller's
-    // install frame unwinds — leaving a dangling key that later probes read
-    // (use-after-free) and that silently breaks the dedup guard.
     const allocator = std.testing.allocator;
     var visited = std.StringHashMap(void).init(allocator);
     defer freeVisited(allocator, &visited);
 
-    // A dependency name living in a manifest.depends buffer: record it, then
-    // overwrite and free the buffer to mimic manifest.deinit reclaiming it.
     const dep = try allocator.dupe(u8, "rd");
     try std.testing.expect(try markVisited(allocator, &visited, dep));
     @memset(dep, 0xaa);
     allocator.free(dep);
 
-    // A second parent depending on the same package must still be recognized
-    // as visited without relying on the freed buffer's bytes.
     try std.testing.expect(!try markVisited(allocator, &visited, "rd"));
-    // And a genuinely new package is still inserted.
     try std.testing.expect(try markVisited(allocator, &visited, "re"));
-}
-
-test "caret constraint: major > 0 locks major" {
-    const c = Constraint{ .op = .caret, .ver = .{ .major = 1, .minor = 2, .patch = 3 } };
-    try std.testing.expect(c.matches(.{ .major = 1, .minor = 2, .patch = 3 }));
-    try std.testing.expect(c.matches(.{ .major = 1, .minor = 9, .patch = 0 }));
-    try std.testing.expect(!c.matches(.{ .major = 2, .minor = 0, .patch = 0 }));
-    try std.testing.expect(!c.matches(.{ .major = 1, .minor = 2, .patch = 2 }));
-}
-
-test "caret constraint: major=0 minor>0 locks minor" {
-    const c = Constraint{ .op = .caret, .ver = .{ .major = 0, .minor = 2, .patch = 3 } };
-    try std.testing.expect(c.matches(.{ .major = 0, .minor = 2, .patch = 3 }));
-    try std.testing.expect(c.matches(.{ .major = 0, .minor = 2, .patch = 9 }));
-    try std.testing.expect(!c.matches(.{ .major = 0, .minor = 3, .patch = 0 }));
-    try std.testing.expect(!c.matches(.{ .major = 0, .minor = 2, .patch = 2 }));
-    try std.testing.expect(!c.matches(.{ .major = 1, .minor = 0, .patch = 0 }));
-}
-
-test "caret constraint: major=0 minor=0 locks patch" {
-    const c = Constraint{ .op = .caret, .ver = .{ .major = 0, .minor = 0, .patch = 3 } };
-    try std.testing.expect(c.matches(.{ .major = 0, .minor = 0, .patch = 3 }));
-    try std.testing.expect(!c.matches(.{ .major = 0, .minor = 0, .patch = 4 }));
-    try std.testing.expect(!c.matches(.{ .major = 0, .minor = 0, .patch = 2 }));
-    try std.testing.expect(!c.matches(.{ .major = 0, .minor = 1, .patch = 0 }));
 }
 
 test "dylib_ext is correct for platform" {
@@ -1437,67 +915,4 @@ test "dylib_ext is correct for platform" {
     } else {
         try std.testing.expectEqualStrings(".so", dylib_ext);
     }
-}
-
-test "checkoutVersion resolves a pinned tag as a ref, not a pathspec (issue #780)" {
-    // Regression for #780: the pinned-install checkout used
-    // `git checkout -- <v>`, but arguments after `--` are pathspecs, so the
-    // tag/SHA was treated as a filename and every version-pinned install failed
-    // with "pathspec '<v>' did not match any file(s)". The fix uses a trailing
-    // `--` (`git checkout <v> --`), which resolves <v> as a revision on every
-    // git version — unlike `--end-of-options`, which `git checkout` only
-    // understands since git 2.43 and older builds reject as a pathspec (#969).
-    const allocator = std.testing.allocator;
-
-    // runGit shells out to /usr/bin/git; skip if it isn't present.
-    if (!fileExists(allocator, "/usr/bin/git")) return error.SkipZigTest;
-
-    // Unique temp repo path; `git init` creates the directory for us.
-    const base = getenv("TMPDIR") orelse "/tmp";
-    const repo = try std.fmt.allocPrint(allocator, "{s}/kaappi-thottam-780-{d}", .{ base, std.c.getpid() });
-    defer allocator.free(repo);
-    defer removeDir(allocator, repo) catch {};
-    // Start clean in case a prior aborted run left this path behind.
-    removeDir(allocator, repo) catch {};
-
-    // Two tagged commits; HEAD starts on v1.1.0. Pass identity and gpgsign via
-    // -c so the test doesn't depend on the ambient git config. The second
-    // commit tracks a file literally named "v1.0.0" so the checkout is
-    // ambiguous: a pathspec parse would restore that file and leave HEAD on
-    // v1.1.0 instead of switching to the tag.
-    runGit(allocator, &.{ "init", "-q", repo }) catch return error.SkipZigTest;
-    try runGit(allocator, &.{ "-C", repo, "-c", "user.email=t@example.com", "-c", "user.name=Test", "-c", "commit.gpgsign=false", "commit", "-q", "--allow-empty", "-m", "one" });
-    try runGit(allocator, &.{ "-C", repo, "tag", "v1.0.0" });
-    const decoy = try std.fmt.allocPrint(allocator, "{s}/v1.0.0", .{repo});
-    defer allocator.free(decoy);
-    try writeFile(allocator, decoy, "decoy\n");
-    try runGit(allocator, &.{ "-C", repo, "add", "v1.0.0" });
-    try runGit(allocator, &.{ "-C", repo, "-c", "user.email=t@example.com", "-c", "user.name=Test", "-c", "commit.gpgsign=false", "commit", "-q", "-m", "two" });
-    try runGit(allocator, &.{ "-C", repo, "tag", "v1.1.0" });
-
-    // Checking out the older tag must switch HEAD to that tag's commit.
-    try checkoutVersion(allocator, repo, "v1.0.0");
-
-    const head = try runGitCapture(allocator, &.{ "-C", repo, "rev-parse", "HEAD" });
-    defer allocator.free(head);
-    const want = try runGitCapture(allocator, &.{ "-C", repo, "rev-parse", "v1.0.0^{commit}" });
-    defer allocator.free(want);
-    try std.testing.expectEqualStrings(want, head);
-
-    // And it genuinely moved off v1.1.0 (guards against a no-op "pass").
-    const v11 = try runGitCapture(allocator, &.{ "-C", repo, "rev-parse", "v1.1.0^{commit}" });
-    defer allocator.free(v11);
-    try std.testing.expect(!std.mem.eql(u8, head, v11));
-}
-
-test "checkoutVersion rejects option-like versions (issue #736)" {
-    // With <v> placed before the trailing `--`, git would parse a leading-dash
-    // value as an option (e.g. `--force` silently no-ops instead of checking
-    // anything out), so checkoutVersion must reject such values itself. No
-    // valid tag, branch, or SHA starts with '-'. The guard fires before any
-    // git invocation, so a nonexistent directory proves git was never run.
-    const allocator = std.testing.allocator;
-    try std.testing.expectError(error.GitFailed, checkoutVersion(allocator, "/nonexistent", "--force"));
-    try std.testing.expectError(error.GitFailed, checkoutVersion(allocator, "/nonexistent", "-b"));
-    try std.testing.expectError(error.GitFailed, checkoutVersion(allocator, "/nonexistent", ""));
 }
