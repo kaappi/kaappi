@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783183750145,
+  "lastUpdate": 1783183976555,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "5dc8bc945d19d0dcde2035ebdb555a65beaa69fc",
-          "message": "Fix case-lambda capturing user variables and dropping clauses past the 32nd (#936)\n\n* Stop case-lambda capturing user variables named n or args\n\nThe case-lambda desugaring bound its rest-parameter to the plain symbol\n`args` and the argument count to `n`, so clause bodies referencing outer\nvariables of those names silently resolved to the internal bindings:\n(define n 42) (define f (case-lambda ((x) (+ x n)))) returned 2 for\n(f 1) instead of 43. Rename the internals to %cl-args/%cl-n, following\nthe %-prefix convention parameterize already uses, which no user\nidentifier read from source can collide with.\n\nAlso rewrite the smoke test to assert via guard + (exit 1): the old\ndisplay-only version could never fail run-all.sh because uncaught\nscript errors currently exit 0 and SRFI-64 is broken, which is how\nthis regression stayed masked.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n* Compile all case-lambda clauses, not just the first 32\n\ncompileCaseLambda collected cond clauses into a fixed 32-entry buffer\nand silently ignored the rest, so a case-lambda with more than 32\nclauses raised \"wrong number of arguments\" for any call matching a\nlater clause. Collect clauses in a growable list instead; the clause\nvalues stay GC-reachable because no_collect is held until the\ndesugared form is fully built.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-03T06:34:39Z",
-          "tree_id": "2e7f2c4527211efcc310f838688951c3f8caaa3b",
-          "url": "https://github.com/kaappi/kaappi/commit/5dc8bc945d19d0dcde2035ebdb555a65beaa69fc"
-        },
-        "date": 1783061299386,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.471186,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.338683,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.847545,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.128009,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006955,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.033432,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.461257,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.070167,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 4.198958,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.774061,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.182636,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.434584,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 2.395047,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.699389,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.042439,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044039,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a68d5f50213c94c5350f59318cf8acfcf0faeefe",
+          "message": "Single-source the version string from build.zig.zon via build_options (#1060) (#1100)\n\nThe version was duplicated in three release-bumped files (main.zig,\nthottam.zig, build.zig.zon) plus a hardcoded literal in the LSP\ninitialize JSON. Pipe build.zig.zon's .version through build_options\nso main.zig and thottam.zig derive it at build time. Deduplicate the\nLSP version literal via comptime concatenation. Update the release\nskill to bump only build.zig.zon.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-04T21:33:33+05:30",
+          "tree_id": "88a3fe8c8e46a868c9971d38a6aa559f9062bf6b",
+          "url": "https://github.com/kaappi/kaappi/commit/a68d5f50213c94c5350f59318cf8acfcf0faeefe"
+        },
+        "date": 1783183975382,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.277181,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.208361,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.90984,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.218997,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.012521,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.210664,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.468021,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.070491,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 12.504416,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.815836,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 9.893287,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.956163,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 8.256294,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.694783,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.043619,
             "unit": "seconds"
           }
         ]
