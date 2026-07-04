@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783144157213,
+  "lastUpdate": 1783144720019,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "afd73eb469fa68dffabd61a505a00235a1fe7787",
-          "message": "Fix continuation restore escape misdetection and dynamic-wind double-run (#870, #875) (#905)\n\nAdd continuation_generation counter to VM, bumped on every full\ncontinuation restore. callThunk/callHandler/callWithArgs check this\ngeneration to distinguish full restores (which replace the entire VM\nstate) from escape continuations (which unwind the current stack).\nWithout this, dynamicWindFn's normal-return path ran wind_count -= 1\non a replaced wind stack, causing an underflow panic.\n\nAlso fix performWindTransition to decrement wind_count before calling\neach after-thunk, preventing re-entrant wind transitions from running\nthe same after-thunk twice.\n\nFixes #870\nFixes #875\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-03T05:09:07+05:30",
-          "tree_id": "61a1df36faba088752b6d528d215bc11ffbac964",
-          "url": "https://github.com/kaappi/kaappi/commit/afd73eb469fa68dffabd61a505a00235a1fe7787"
-        },
-        "date": 1783037914430,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.377735,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.637531,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.853401,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.115428,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.007094,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.032878,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.476403,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.071322,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.952945,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.811083,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.135253,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.437143,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 2.449001,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.710761,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.043257,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.043184,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "bf6f479c57fbf17c5ff42dd0920d3243e5dde1a9",
+          "message": "Split compiler IR handlers into compiler_ir.zig (#1023)\n\ncompiler.zig was 1763 lines, exceeding the 1500-line policy. Extract 12\nIR-to-bytecode compilation handlers (compileFromNode, compileIfFromIR,\ncompileCallFromIR, compileLambdaWithIR, etc.) into a new compiler_ir.zig\nfile (490 lines), bringing compiler.zig down to 1279 lines.\n\nFollows the same pattern as the existing compiler_*.zig split files:\nfree functions taking *Compiler, importing types/memory/ir_mod as needed.\nMade compileVariable, compileDefineSyntax, compileLetSyntax, and\ncompileLetrecSyntax pub so compiler_ir.zig can call them via the\nCompiler pointer.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-04T05:39:33Z",
+          "tree_id": "adbdcdd8ac0cd36f5b88bb9458bcbd62571a3a43",
+          "url": "https://github.com/kaappi/kaappi/commit/bf6f479c57fbf17c5ff42dd0920d3243e5dde1a9"
+        },
+        "date": 1783144719287,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.145031,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.753721,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.736585,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.1561,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.010809,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.181488,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.365626,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.052801,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 9.753561,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.420774,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 8.537322,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.834448,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 7.263651,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.472326,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.034941,
             "unit": "seconds"
           }
         ]
