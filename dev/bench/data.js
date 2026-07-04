@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783154092148,
+  "lastUpdate": 1783154838913,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "4ce5ca8967c94b24921def30f18445a2ff2570f7",
-          "message": "Merge pull request #912 from kaappi/fix/849-850-852-quasiquote\n\nFix quasiquote nesting for unquote-splicing, vectors, and dotted tails",
-          "timestamp": "2026-07-03T06:14:04+05:30",
-          "tree_id": "4499b2fb74b869a3a4cd8559257e8f584872b40f",
-          "url": "https://github.com/kaappi/kaappi/commit/4ce5ca8967c94b24921def30f18445a2ff2570f7"
-        },
-        "date": 1783040853045,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.389408,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.725127,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.841576,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.140917,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.007096,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.033053,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.473233,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.069726,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.951412,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.79246,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.16491,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.43481,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 2.402433,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.719308,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.043557,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.042731,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "0d96bfea581bd14b8e61a0a60be66f7b55789a0e",
+          "message": "Add shadow-stack GC rooting for native backend (#1034) (#1082)\n\nThe LLVM emitter stored intermediate Values in SSA temps invisible to\nthe GC. Nested allocating calls (e.g. (cons (f x) (g y))) could lose\nearlier results when a later call triggers collection.\n\nFix: emit pushRoot/popRoot calls around live intermediates in\nemitCallNode, tryEmitInlineBinary, emitDirectCall, emitSelfTailCall,\nand let/let* bindings. Two new C-ABI exports (kaappi_gc_push_root,\nkaappi_gc_pop_roots) wrap gc.pushRoot/popRoot for native code.\nKAAPPI_GC_THRESHOLD env var enables stress-testing native binaries.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-04T08:28:55Z",
+          "tree_id": "545f9f5661e96a49ea4b33ca2b19fa45334db99e",
+          "url": "https://github.com/kaappi/kaappi/commit/0d96bfea581bd14b8e61a0a60be66f7b55789a0e"
+        },
+        "date": 1783154837706,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.364731,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.739928,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.934928,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.270478,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.012558,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.210446,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.501335,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.070874,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 12.537795,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.850792,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 9.86434,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.957908,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 8.279341,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.558445,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.043631,
             "unit": "seconds"
           }
         ]
