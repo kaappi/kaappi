@@ -409,14 +409,7 @@ pub fn compileLambdaWithIR(self: *Compiler, args: Value, dst: u16, name: ?[]cons
             ir.compiler = &child;
             ir.set_targets = child.set_targets;
             defer ir.deinit();
-            var root = try ir_mod.lowerWithMacros(&ir, def_inits[i], &child.macros);
-            ir_mod.identifyPrimitives(root);
-            ir_mod.markConstants(root);
-            root = ir_mod.foldConstants(&ir, root);
-            root = ir_mod.eliminateDeadBranches(&ir, root);
-            root = ir_mod.simplifyBooleans(&ir, root);
-            root = ir_mod.eliminateIdentity(&ir, root);
-            root = ir_mod.simplifyBegin(&ir, root);
+            const root = try ir_mod.lowerAndOptimize(&ir, def_inits[i], &child.macros, false);
 
             try compileFromNode(&child, root, last_dst, false);
 
@@ -453,15 +446,7 @@ pub fn compileLambdaWithIR(self: *Compiler, args: Value, dst: u16, name: ?[]cons
                 ir.compiler = &child;
                 ir.set_targets = child.set_targets;
                 defer ir.deinit();
-                var root = try ir_mod.lowerWithMacros(&ir, expr, &child.macros);
-                ir_mod.markTailPositions(root, rest == types.NIL);
-                ir_mod.identifyPrimitives(root);
-                ir_mod.markConstants(root);
-                root = ir_mod.foldConstants(&ir, root);
-                root = ir_mod.eliminateDeadBranches(&ir, root);
-                root = ir_mod.simplifyBooleans(&ir, root);
-                root = ir_mod.eliminateIdentity(&ir, root);
-                root = ir_mod.simplifyBegin(&ir, root);
+                const root = try ir_mod.lowerAndOptimize(&ir, expr, &child.macros, rest == types.NIL);
 
                 if (rest == types.NIL) {
                     try compileFromNode(&child, root, last_dst, true);
@@ -490,15 +475,7 @@ pub fn compileLambdaWithIR(self: *Compiler, args: Value, dst: u16, name: ?[]cons
             ir.compiler = &child;
             ir.set_targets = child.set_targets;
             defer ir.deinit();
-            var root = try ir_mod.lowerWithMacros(&ir, expr, &child.macros);
-            ir_mod.markTailPositions(root, rest == types.NIL);
-            ir_mod.identifyPrimitives(root);
-            ir_mod.markConstants(root);
-            root = ir_mod.foldConstants(&ir, root);
-            root = ir_mod.eliminateDeadBranches(&ir, root);
-            root = ir_mod.simplifyBooleans(&ir, root);
-            root = ir_mod.eliminateIdentity(&ir, root);
-            root = ir_mod.simplifyBegin(&ir, root);
+            const root = try ir_mod.lowerAndOptimize(&ir, expr, &child.macros, rest == types.NIL);
 
             if (rest == types.NIL) {
                 try compileFromNode(&child, root, last_dst, true);
@@ -528,14 +505,7 @@ fn compileDefineFromIR(self: *Compiler, data: ir_mod.DefineData, dst: u16) Compi
     ir.compiler = self;
     ir.set_targets = self.set_targets;
     defer ir.deinit();
-    var val_root = try ir_mod.lowerWithMacros(&ir, data.value, &self.macros);
-    ir_mod.identifyPrimitives(val_root);
-    ir_mod.markConstants(val_root);
-    val_root = ir_mod.foldConstants(&ir, val_root);
-    val_root = ir_mod.eliminateDeadBranches(&ir, val_root);
-    val_root = ir_mod.simplifyBooleans(&ir, val_root);
-    val_root = ir_mod.eliminateIdentity(&ir, val_root);
-    val_root = ir_mod.simplifyBegin(&ir, val_root);
+    const val_root = try ir_mod.lowerAndOptimize(&ir, data.value, &self.macros, false);
 
     if (val_root.tag == .lambda) {
         val_root.data.lambda.name = types.symbolName(data.name);
@@ -584,14 +554,7 @@ fn compileSetFromIR(self: *Compiler, data: ir_mod.SetData, dst: u16) CompileErro
     ir.compiler = self;
     ir.set_targets = self.set_targets;
     defer ir.deinit();
-    var val_root = try ir_mod.lowerWithMacros(&ir, data.value, &self.macros);
-    ir_mod.identifyPrimitives(val_root);
-    ir_mod.markConstants(val_root);
-    val_root = ir_mod.foldConstants(&ir, val_root);
-    val_root = ir_mod.eliminateDeadBranches(&ir, val_root);
-    val_root = ir_mod.simplifyBooleans(&ir, val_root);
-    val_root = ir_mod.eliminateIdentity(&ir, val_root);
-    val_root = ir_mod.simplifyBegin(&ir, val_root);
+    const val_root = try ir_mod.lowerAndOptimize(&ir, data.value, &self.macros, false);
     try compileFromNode(self, val_root, dst, false);
 
     if (self.resolveLocal(name)) |slot| {

@@ -485,22 +485,31 @@ pub fn lower(irn: *IR, expr: Value) CompileError!*Node {
     return lowerWithMacros(irn, expr, null);
 }
 
+pub fn lowerAndOptimize(
+    ir_instance: *IR,
+    expr: Value,
+    macros: ?*std.StringHashMap(Value),
+    is_tail: bool,
+) CompileError!*Node {
+    var node = try lowerWithMacros(ir_instance, expr, macros);
+    markTailPositions(node, is_tail);
+    identifyPrimitives(node);
+    markConstants(node);
+    node = foldConstants(ir_instance, node);
+    node = eliminateDeadBranches(ir_instance, node);
+    node = simplifyBooleans(ir_instance, node);
+    node = eliminateIdentity(ir_instance, node);
+    node = simplifyBegin(ir_instance, node);
+    return node;
+}
+
 pub fn lowerSingleExpr(allocator: std.mem.Allocator, expr: Value) CompileError!*Node {
     return lowerSingleExprTail(allocator, expr, false);
 }
 
 pub fn lowerSingleExprTail(allocator: std.mem.Allocator, expr: Value, is_tail: bool) CompileError!*Node {
     var scratch = IR.init(allocator);
-    const node = try lowerWithMacros(&scratch, expr, null);
-    identifyPrimitives(node);
-    markConstants(node);
-    if (is_tail) markTailPositions(node, true);
-    var opt = foldConstants(&scratch, node);
-    opt = eliminateDeadBranches(&scratch, opt);
-    opt = simplifyBooleans(&scratch, opt);
-    opt = eliminateIdentity(&scratch, opt);
-    opt = simplifyBegin(&scratch, opt);
-    return opt;
+    return lowerAndOptimize(&scratch, expr, null, is_tail);
 }
 
 fn lowerIf(ir: *IR, args: Value, macros: ?*std.StringHashMap(Value)) CompileError!*Node {

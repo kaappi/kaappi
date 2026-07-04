@@ -61,15 +61,7 @@ fn tryCompilePureLambdaAsNativeClosure(self: *LLVMEmitter, data: ir.LambdaData) 
     while (body_expr != types.NIL and types.isPair(body_expr)) {
         if (body_count >= 64) return null;
         const expr = types.car(body_expr);
-        const node = ir.lowerWithMacros(&body_ir, expr, null) catch return null;
-        ir.markTailPositions(node, types.cdr(body_expr) == types.NIL);
-        ir.identifyPrimitives(node);
-        ir.markConstants(node);
-        var opt = ir.foldConstants(&body_ir, node);
-        opt = ir.eliminateDeadBranches(&body_ir, opt);
-        opt = ir.simplifyBooleans(&body_ir, opt);
-        opt = ir.eliminateIdentity(&body_ir, opt);
-        opt = ir.simplifyBegin(&body_ir, opt);
+        const opt = ir.lowerAndOptimize(&body_ir, expr, null, types.cdr(body_expr) == types.NIL) catch return null;
         body_nodes[body_count] = opt;
         body_count += 1;
         body_expr = types.cdr(body_expr);
@@ -138,15 +130,7 @@ fn tryCompileNativeClosure(self: *LLVMEmitter, data: ir.LambdaData) ?[]const u8 
     while (body_expr != types.NIL and types.isPair(body_expr)) {
         if (body_count >= 64) return null;
         const expr = types.car(body_expr);
-        const node = ir.lowerWithMacros(&body_ir, expr, null) catch return null;
-        ir.markTailPositions(node, types.cdr(body_expr) == types.NIL);
-        ir.identifyPrimitives(node);
-        ir.markConstants(node);
-        var opt = ir.foldConstants(&body_ir, node);
-        opt = ir.eliminateDeadBranches(&body_ir, opt);
-        opt = ir.simplifyBooleans(&body_ir, opt);
-        opt = ir.eliminateIdentity(&body_ir, opt);
-        opt = ir.simplifyBegin(&body_ir, opt);
+        const opt = ir.lowerAndOptimize(&body_ir, expr, null, types.cdr(body_expr) == types.NIL) catch return null;
         body_nodes[body_count] = opt;
         body_count += 1;
         body_expr = types.cdr(body_expr);
@@ -340,15 +324,7 @@ pub fn tryCompileDefineFunction(self: *LLVMEmitter, name: []const u8, formals: V
     while (body_expr != types.NIL and types.isPair(body_expr)) {
         if (body_count >= 64) return null;
         const expr = types.car(body_expr);
-        const node = ir.lowerWithMacros(&body_ir, expr, null) catch return null;
-        ir.markTailPositions(node, types.cdr(body_expr) == types.NIL);
-        ir.identifyPrimitives(node);
-        ir.markConstants(node);
-        var opt = ir.foldConstants(&body_ir, node);
-        opt = ir.eliminateDeadBranches(&body_ir, opt);
-        opt = ir.simplifyBooleans(&body_ir, opt);
-        opt = ir.eliminateIdentity(&body_ir, opt);
-        opt = ir.simplifyBegin(&body_ir, opt);
+        const opt = ir.lowerAndOptimize(&body_ir, expr, null, types.cdr(body_expr) == types.NIL) catch return null;
         body_nodes[body_count] = opt;
         body_count += 1;
         body_expr = types.cdr(body_expr);

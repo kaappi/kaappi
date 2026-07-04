@@ -94,21 +94,12 @@ pub fn emitLlvmFile(vm: *vm_mod.VM, path: []const u8, output_path: ?[]const u8) 
             }
         }
 
-        var root = ir_mod.lowerWithMacros(&ir_instance, expr, &vm.macros) catch |err| {
+        const root = ir_mod.lowerAndOptimize(&ir_instance, expr, &vm.macros, false) catch |err| {
             var errbuf: [256]u8 = undefined;
             const s = std.fmt.bufPrint(&errbuf, "IR lowering error: {}\n", .{err}) catch "IR error\n";
             writeStderr(s);
             return;
         };
-
-        ir_mod.markTailPositions(root, false);
-        ir_mod.identifyPrimitives(root);
-        ir_mod.markConstants(root);
-        root = ir_mod.foldConstants(&ir_instance, root);
-        root = ir_mod.eliminateDeadBranches(&ir_instance, root);
-        root = ir_mod.simplifyBooleans(&ir_instance, root);
-        root = ir_mod.eliminateIdentity(&ir_instance, root);
-        root = ir_mod.simplifyBegin(&ir_instance, root);
 
         ir_nodes.append(allocator, root) catch return;
 
