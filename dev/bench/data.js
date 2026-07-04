@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783167718115,
+  "lastUpdate": 1783173756457,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "7c600a874148c4f51e24df789b8ef698c08f358b",
-          "message": "Fix nested-ellipsis expansion rejecting depth-2 pattern variables (#931)\n\ninstantiateEllipsis required every referenced ellipsis binding to have\ndepth exactly 1, so any syntax-rules template using variables bound\nunder two ellipses — like SRFI-35's condition construction macro\n((?type1 (?field1 ?value1) ...) ...) — failed with InvalidSyntax\n(EllipsisDepthMismatch). The depth check made the existing depth>1\nunpacking logic directly below it unreachable. Deeper bindings repeat\nthe same number of times as depth-1 bindings at the outer level, so the\nR7RS count-consistency check still applies unchanged.\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-03T11:11:19+05:30",
-          "tree_id": "1eefc5aa49c9aadd7ee611611d084b9851ad891e",
-          "url": "https://github.com/kaappi/kaappi/commit/7c600a874148c4f51e24df789b8ef698c08f358b"
-        },
-        "date": 1783058176379,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.382581,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.429785,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.843987,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.249486,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.007015,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.033747,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.479406,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.070599,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.96339,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.849875,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.125063,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.424904,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 2.456465,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.627234,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.041548,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.043218,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "5e4921e5865a1ca56f686f5ee6a1c659c421ae9f",
+          "message": "Preserve line tables in .sbc bytecode cache (#1096) (#1097)\n\nSource snippets and line numbers silently disappeared from error messages\nwhen a .sbc cache existed because the serialization format omitted\nFunction.source_line and Function.line_table. The cached error path in\nmain.zig also lacked printSourceSnippet and stack trace output.\n\n- Serialize source_line and line_table in .sbc format (bump v6 → v7)\n- Set source_name on deserialized functions from the file path\n- Mirror fresh-compile error diagnostics in the cached path\n- Fix non-portable mktemp in test-source-snippet.sh (macOS compat)\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-04T13:41:32Z",
+          "tree_id": "b97e5c201d1651394db6a159657c1610aae04c2b",
+          "url": "https://github.com/kaappi/kaappi/commit/5e4921e5865a1ca56f686f5ee6a1c659c421ae9f"
+        },
+        "date": 1783173755312,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.390766,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.208065,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.944153,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.323942,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.012582,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.211133,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.477933,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.071108,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 12.438294,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.858992,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 9.867719,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.960328,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 8.333574,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.736148,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.046777,
             "unit": "seconds"
           }
         ]
