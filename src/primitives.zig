@@ -163,6 +163,11 @@ pub fn registerSandboxed(vm: *vm_mod.VM) !void {
 }
 
 pub fn reg(vm: *vm_mod.VM, name: []const u8, func: types.NativeFnType, arity: NativeFn.Arity) !void {
+    if (std.debug.runtime_safety) {
+        if (vm.globals.get(name) != null) {
+            std.debug.panic("duplicate primitive registration: {s}", .{name});
+        }
+    }
     const val = try vm.gc.allocNativeFn(name, func, arity);
     try vm.defineGlobal(name, val);
 }
