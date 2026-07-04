@@ -270,3 +270,48 @@ test "define_global (named let) does not re-bless stale cache (issue 812)" {
     const result = try vm.eval("(f)");
     try std.testing.expectEqual(@as(i64, 2), types.toFixnum(result));
 }
+
+test "typeName covers all ObjectTags exhaustively" {
+    try std.testing.expectEqualStrings("integer", types.typeName(types.makeFixnum(42)));
+    try std.testing.expectEqualStrings("nil", types.typeName(types.NIL));
+    try std.testing.expectEqualStrings("boolean", types.typeName(types.TRUE));
+    try std.testing.expectEqualStrings("boolean", types.typeName(types.FALSE));
+    try std.testing.expectEqualStrings("void", types.typeName(types.VOID));
+    try std.testing.expectEqualStrings("eof-object", types.typeName(types.EOF));
+    try std.testing.expectEqualStrings("char", types.typeName(types.makeChar('A')));
+
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    const pair = try vm.eval("'(1 2)");
+    try std.testing.expectEqualStrings("pair", types.typeName(pair));
+    const sym = try vm.eval("'hello");
+    try std.testing.expectEqualStrings("symbol", types.typeName(sym));
+    const str = try vm.eval("\"abc\"");
+    try std.testing.expectEqualStrings("string", types.typeName(str));
+    const vec = try vm.eval("#(1 2 3)");
+    try std.testing.expectEqualStrings("vector", types.typeName(vec));
+    const bv = try vm.eval("#u8(1 2 3)");
+    try std.testing.expectEqualStrings("bytevector", types.typeName(bv));
+    const proc = try vm.eval("(lambda (x) x)");
+    try std.testing.expectEqualStrings("procedure", types.typeName(proc));
+    const builtin = try vm.eval("car");
+    try std.testing.expectEqualStrings("procedure", types.typeName(builtin));
+    const ht = try vm.eval("(let ((h (make-hash-table))) h)");
+    try std.testing.expectEqualStrings("hash-table", types.typeName(ht));
+    const prom = try vm.eval("(delay 42)");
+    try std.testing.expectEqualStrings("promise", types.typeName(prom));
+    const param = try vm.eval("(make-parameter 10)");
+    try std.testing.expectEqualStrings("parameter", types.typeName(param));
+    const rat = try vm.eval("1/3");
+    try std.testing.expectEqualStrings("rational", types.typeName(rat));
+    const big = try vm.eval("99999999999999999999");
+    try std.testing.expectEqualStrings("integer", types.typeName(big));
+    const rec = try vm.eval(
+        \\(begin (define-record-type <point> (make-point x y) point? (x point-x) (y point-y))
+        \\       (make-point 1 2))
+    );
+    try std.testing.expectEqualStrings("record", types.typeName(rec));
+}

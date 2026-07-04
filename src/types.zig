@@ -96,6 +96,54 @@ pub fn isTruthy(v: Value) bool {
     return v != FALSE;
 }
 
+pub fn typeName(val: Value) []const u8 {
+    if (isFixnum(val)) return "integer";
+    if (val == NIL) return "nil";
+    if (val == TRUE or val == FALSE) return "boolean";
+    if (val == VOID) return "void";
+    if (val == EOF) return "eof-object";
+    if (isChar(val)) return "char";
+    if (!isPointer(val)) return "unknown";
+    const obj = toObject(val);
+    return switch (obj.tag) {
+        .pair => "pair",
+        .symbol => "symbol",
+        .string => "string",
+        .closure, .native_fn, .native_closure => "procedure",
+        .function => "function",
+        .vector => "vector",
+        .bytevector => "bytevector",
+        .port => "port",
+        .flonum => "number",
+        .complex => "complex",
+        .transformer => "syntax",
+        .error_object => "error",
+        .record_type => "record-type",
+        .record_instance => "record",
+        .continuation => "continuation",
+        .multiple_values => "values",
+        .promise => "promise",
+        .parameter => "parameter",
+        .rational => "rational",
+        .bignum => "integer",
+        .hash_table => "hash-table",
+        .ffi_library => "ffi-library",
+        .ffi_function => "ffi-function",
+        .ffi_callback => "ffi-callback",
+        .fiber => "fiber",
+        .channel => "channel",
+        .mutex => "mutex",
+        .condition_variable => "condition-variable",
+        .srfi18_time => "time",
+        .file_info => "file-info",
+        .user_info => "user-info",
+        .group_info => "group-info",
+        .directory_object => "directory",
+        .random_source => "random-source",
+        .scheme_environment => "environment",
+    };
+}
+
 // ---------------------------------------------------------------------------
 // Heap object types
 // ---------------------------------------------------------------------------
