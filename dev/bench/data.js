@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783138528738,
+  "lastUpdate": 1783138545876,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "084da1e7188029fb421de724f78d2ff6e5995635",
-          "message": "Fix LSP positionEncoding rejection and jsonUnescape \\uXXXX (#866, #872) (#901)\n\n- Remove hardcoded positionEncoding:\"utf-8\" from initialize response;\n  vscode-languageclient rejects any encoding other than utf-16 (#866)\n- Decode \\uXXXX escape sequences in jsonUnescape to UTF-8 instead of\n  treating 'u' as a literal character (#872)\n\nFixes #866\nFixes #872\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-03T04:38:09+05:30",
-          "tree_id": "e98d2c97c814d3a8ca9969c68276658df70e201a",
-          "url": "https://github.com/kaappi/kaappi/commit/084da1e7188029fb421de724f78d2ff6e5995635"
-        },
-        "date": 1783035527191,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.428522,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.161366,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.829608,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.172501,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006974,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.032596,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.465955,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.070292,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.973716,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.807573,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.120789,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.42957,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 2.407308,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.685882,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.042078,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.042899,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "946cc3bab1671c72ecf84d931e4c3f29c85900c9",
+          "message": "Extract shared parseOptionalRange helper for optional start/end args (#1018)\n\n16 call sites across primitives_vector, primitives_bytevector,\nprimitives_string, and primitives_string_ext repeated the same\n10-line pattern for parsing optional start/end range arguments.\nPromote a single parseOptionalRange to primitives.zig and replace\nall inline copies.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-04T03:56:36Z",
+          "tree_id": "958bbcdfd63374fe1729e9e9653b972554cf8709",
+          "url": "https://github.com/kaappi/kaappi/commit/946cc3bab1671c72ecf84d931e4c3f29c85900c9"
+        },
+        "date": 1783138545098,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.318658,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.949219,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.901457,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.324677,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.013191,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.211021,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.466919,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.070441,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 12.443533,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.820628,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 9.899087,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.979322,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 8.39483,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.74777,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.045788,
             "unit": "seconds"
           }
         ]
