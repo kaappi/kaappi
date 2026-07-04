@@ -1053,8 +1053,6 @@ pub const OpCode = enum(u8) {
     set_global, // sym_idx:u16, src:u8
     define_global, // sym_idx:u16, src:u8
     tail_apply, // base:u8, nargs:u8
-    get_local, // dst:u8, slot:u8
-    set_local, // slot:u8, src:u8
     get_upvalue, // dst:u8, idx:u8
     set_upvalue, // idx:u8, src:u8
     call, // base:u8, nargs:u8
@@ -1064,7 +1062,6 @@ pub const OpCode = enum(u8) {
     jump_false, // test:u8, offset:i16
     jump_true, // test:u8, offset:i16
     closure, // dst:u8, idx:u16
-    close_upvalue, // slot:u8
     cons, // dst:u8, car:u8, cdr:u8
     push_handler, // handler_reg:u8
     pop_handler, // (no operands)

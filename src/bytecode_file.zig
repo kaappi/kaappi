@@ -10,7 +10,7 @@ const GC = memory.GC;
 
 // File format constants
 const MAGIC = [4]u8{ 'K', 'P', 'B', 'C' };
-const VERSION: u16 = 7;
+const VERSION: u16 = 8;
 const MAX_FUNCTIONS: u32 = 16_384;
 const MAX_TOP_LEVEL_FUNCTIONS: u32 = 4_096;
 const MAX_CODE_BYTES: u32 = 4_194_304;
@@ -509,7 +509,7 @@ fn validateFunctionBytecode(func: *Function) BytecodeError!void {
                 const idx = try readU16FromCode(code, &ip);
                 if (idx >= func.constants.items.len) return BytecodeError.CorruptedFile;
             },
-            .load_nil, .load_true, .load_false, .load_void, .@"return", .close_upvalue, .push_handler, .box_local => {
+            .load_nil, .load_true, .load_false, .load_void, .@"return", .push_handler, .box_local => {
                 if (ip + 2 > code.len) return BytecodeError.CorruptedFile;
                 ip += 2;
             },
@@ -520,10 +520,6 @@ fn validateFunctionBytecode(func: *Function) BytecodeError!void {
             .call, .tail_call, .tail_apply, .self_tail_call => {
                 if (ip + 3 > code.len) return BytecodeError.CorruptedFile;
                 ip += 3;
-            },
-            .get_local, .set_local => {
-                if (ip + 4 > code.len) return BytecodeError.CorruptedFile;
-                ip += 4;
             },
             .get_global => {
                 if (ip + 4 > code.len) return BytecodeError.CorruptedFile;

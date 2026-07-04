@@ -5,7 +5,7 @@ the ISA — the `/bytecode-isa` skill points here.
 
 ## Instruction set
 
-32 opcodes, register-based, variable-length encoding. Operands are u8
+29 opcodes, register-based, variable-length encoding. Operands are u8
 (register/slot) or u16 (constant index, big-endian). Jump offsets are i16
 (signed, relative to the instruction after the jump). Defined in the
 `OpCode` enum in `src/types.zig`; executed by the dispatch loop in
@@ -23,28 +23,25 @@ the ISA — the `/bytecode-isa` skill points here.
 | 7 | `set_global` | sym_idx:u16, src:u8 | 4 | Set global from src |
 | 8 | `define_global` | sym_idx:u16, src:u8 | 4 | Define global from src |
 | 9 | `tail_apply` | base:u8, nargs:u8 | 3 | Tail apply with list unpacking |
-| 10 | `get_local` | dst:u8, slot:u8 | 3 | (unused, replaced by move) |
-| 11 | `set_local` | slot:u8, src:u8 | 3 | (unused, replaced by move) |
-| 12 | `get_upvalue` | dst:u8, idx:u8 | 3 | Load captured var → dst |
-| 13 | `set_upvalue` | idx:u8, src:u8 | 3 | Set captured var from src |
-| 14 | `call` | base:u8, nargs:u8 | 3 | Call fn at base with nargs args |
-| 15 | `tail_call` | base:u8, nargs:u8 | 3 | Tail call (reuses frame) |
-| 16 | `return` | src:u8 | 2 | Return value from src |
-| 17 | `jump` | offset:i16 | 3 | Unconditional relative jump |
-| 18 | `jump_false` | test:u8, offset:i16 | 4 | Jump if test is #f |
-| 19 | `jump_true` | test:u8, offset:i16 | 4 | Jump if test is not #f |
-| 20 | `closure` | dst:u8, func_idx:u16 | 4+ | Create closure, followed by upvalue capture pairs |
-| 21 | `close_upvalue` | slot:u8 | 2 | Box local for shared mutation |
-| 22 | `cons` | dst:u8, car:u8, cdr:u8 | 4 | Allocate pair → dst |
-| 23 | `push_handler` | handler:u8 | 2 | Push exception handler |
-| 24 | `pop_handler` | (none) | 1 | Pop exception handler |
-| 25 | `halt` | (none) | 1 | Stop execution |
-| 26 | `call_global` | base:u8, sym:u16, nargs:u8 | 5 | Fused get_global + call |
-| 27 | `tail_call_global` | base:u8, sym:u16, nargs:u8 | 5 | Fused get_global + tail_call |
-| 28 | `box_local` | reg:u8 | 2 | Wrap register in pair for mutation |
-| 29 | `get_box_local` | dst:u8, reg:u8 | 3 | Read car of boxed register |
-| 30 | `set_box_local` | reg:u8, src:u8 | 3 | Write car of boxed register |
-| 31 | `self_tail_call` | base:u8, nargs:u8 | 3 | Self-recursive tail call: copy args to frame base, reset IP |
+| 10 | `get_upvalue` | dst:u8, idx:u8 | 3 | Load captured var → dst |
+| 11 | `set_upvalue` | idx:u8, src:u8 | 3 | Set captured var from src |
+| 12 | `call` | base:u8, nargs:u8 | 3 | Call fn at base with nargs args |
+| 13 | `tail_call` | base:u8, nargs:u8 | 3 | Tail call (reuses frame) |
+| 14 | `return` | src:u8 | 2 | Return value from src |
+| 15 | `jump` | offset:i16 | 3 | Unconditional relative jump |
+| 16 | `jump_false` | test:u8, offset:i16 | 4 | Jump if test is #f |
+| 17 | `jump_true` | test:u8, offset:i16 | 4 | Jump if test is not #f |
+| 18 | `closure` | dst:u8, func_idx:u16 | 4+ | Create closure, followed by upvalue capture pairs |
+| 19 | `cons` | dst:u8, car:u8, cdr:u8 | 4 | Allocate pair → dst |
+| 20 | `push_handler` | handler:u8 | 2 | Push exception handler |
+| 21 | `pop_handler` | (none) | 1 | Pop exception handler |
+| 22 | `halt` | (none) | 1 | Stop execution |
+| 23 | `call_global` | base:u8, sym:u16, nargs:u8 | 5 | Fused get_global + call |
+| 24 | `tail_call_global` | base:u8, sym:u16, nargs:u8 | 5 | Fused get_global + tail_call |
+| 25 | `box_local` | reg:u8 | 2 | Wrap register in pair for mutation |
+| 26 | `get_box_local` | dst:u8, reg:u8 | 3 | Read car of boxed register |
+| 27 | `set_box_local` | reg:u8, src:u8 | 3 | Write car of boxed register |
+| 28 | `self_tail_call` | base:u8, nargs:u8 | 3 | Self-recursive tail call: copy args to frame base, reset IP |
 
 `self_tail_call` skips the global lookup, type check, and arity check for
 direct self-recursion and named `let` loops — see

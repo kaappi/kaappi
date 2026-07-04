@@ -77,13 +77,7 @@ fn markVMRoots(gc: *memory.GC) void {
     for (vm.frames[0..vm.frame_count]) |f| {
         if (f.closure) |cls| gc.markValue(types.makePointer(@ptrCast(cls)));
         if (f.native) |nf| gc.markValue(types.makePointer(@ptrCast(nf)));
-        // Conservatively mark the frame's whole register window. locals_count
-        // is the compiler-recorded high-water mark of registers the function
-        // can touch; a closure-less frame falls back to a safe upper bound.
-        const window: usize = if (f.closure) |cls| blk: {
-            const lc = cls.func.locals_count;
-            break :blk if (lc == 0) 256 else @as(usize, lc);
-        } else 256;
+        const window = f.frameWindow();
         const end: usize = @min(@as(usize, f.base) + window, vm.registers.len);
         var r: usize = f.base;
         while (r < end) : (r += 1) gc.markValue(vm.registers[r]);
@@ -192,6 +186,13 @@ pub const CallFrame = struct {
     // contains the loop's own scope-root frame (resume here) or jumps to a
     // different program point (propagate ContinuationInvoked outward).
     seq: u64 = 0,
+
+    pub fn frameWindow(self: CallFrame) usize {
+        return if (self.closure) |cls| blk: {
+            const lc = cls.func.locals_count;
+            break :blk if (lc == 0) 256 else @as(usize, lc);
+        } else 256;
+    }
 };
 
 pub const StepMode = enum { none, step, next, step_out, continue_to_break };

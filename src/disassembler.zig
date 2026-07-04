@@ -75,13 +75,12 @@ fn disassembleInstruction(func: *types.Function, code: []const u8, offset: usize
         .get_global => 4,
         .set_global, .define_global => 4,
         .tail_apply => 3,
-        .get_local, .set_local, .get_upvalue, .set_upvalue => 4,
+        .get_upvalue, .set_upvalue => 4,
         .call, .tail_call => 3,
         .@"return" => 2,
         .jump => 2,
         .jump_false, .jump_true => 4,
         .closure => 4,
-        .close_upvalue => 2,
         .cons => 6,
         .push_handler => 2,
         .pop_handler, .halt => 0,
@@ -159,13 +158,6 @@ fn disassembleInstruction(func: *types.Function, code: []const u8, offset: usize
             const nargs = code[ip];
             ip += 1;
             const s = std.fmt.bufPrint(&buf, "tail_apply      r{d}, {d}\n", .{ base, nargs }) catch "tail_apply\n";
-            writeStderr(s);
-        },
-        .get_local, .set_local => {
-            const a = readU16(code, &ip);
-            const b = readU16(code, &ip);
-            const oname = @tagName(op);
-            const s = std.fmt.bufPrint(&buf, "{s: <16}r{d}, r{d}\n", .{ oname, a, b }) catch "get/set_local\n";
             writeStderr(s);
         },
         .get_upvalue => {
@@ -258,11 +250,6 @@ fn disassembleInstruction(func: *types.Function, code: []const u8, offset: usize
                     }
                 }
             }
-        },
-        .close_upvalue => {
-            const slot = readU16(code, &ip);
-            const s = std.fmt.bufPrint(&buf, "close_upvalue   r{d}\n", .{slot}) catch "close_upvalue\n";
-            writeStderr(s);
         },
         .cons => {
             const dst = readU16(code, &ip);
@@ -412,14 +399,6 @@ test "disassemble all opcodes" {
     emit.op(func, allocator, .tail_apply);
     emit.u16val(func, allocator, 0); // base register
     emit.byte(func, allocator, 2); // nargs (stays u8)
-    // get_local r0, r1
-    emit.op(func, allocator, .get_local);
-    emit.u16val(func, allocator, 0);
-    emit.u16val(func, allocator, 1);
-    // set_local r0, r1
-    emit.op(func, allocator, .set_local);
-    emit.u16val(func, allocator, 0);
-    emit.u16val(func, allocator, 1);
     // get_upvalue r0, uv0
     emit.op(func, allocator, .get_upvalue);
     emit.u16val(func, allocator, 0); // dst
@@ -458,9 +437,6 @@ test "disassemble all opcodes" {
     emit.u16val(func, allocator, 0); // dst register
     emit.byte(func, allocator, 0); // const idx high
     emit.byte(func, allocator, 0); // const idx low
-    // close_upvalue r0
-    emit.op(func, allocator, .close_upvalue);
-    emit.u16val(func, allocator, 0); // register
     // cons r0, r1, r2
     emit.op(func, allocator, .cons);
     emit.u16val(func, allocator, 0); // dst
