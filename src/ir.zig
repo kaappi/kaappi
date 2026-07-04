@@ -50,6 +50,7 @@ pub const Annotations = struct {
     is_primitive_call: bool = false,
     primitive_name: ?[]const u8 = null,
     is_constant: bool = false,
+    source_line: u32 = 0,
 };
 
 pub const Node = struct {
@@ -396,7 +397,13 @@ pub fn lowerWithMacros(ir: *IR, expr: Value, macros: ?*std.StringHashMap(Value))
     }
 
     if (types.isPair(expr)) {
-        return lowerFormWithMacros(ir, expr, macros);
+        const node = try lowerFormWithMacros(ir, expr, macros);
+        if (ir.compiler) |c| {
+            if (c.gc.source_lines.get(expr)) |line| {
+                node.ann.source_line = line;
+            }
+        }
+        return node;
     }
 
     return CompileError.InvalidSyntax;

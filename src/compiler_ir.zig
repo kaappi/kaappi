@@ -13,6 +13,14 @@ const Compiler = compiler_mod.Compiler;
 const CompileError = compiler_mod.CompileError;
 
 pub fn compileFromNode(self: *Compiler, node: *ir_mod.Node, dst: u16, is_tail: bool) CompileError!void {
+    if (node.ann.source_line > 0 and node.ann.source_line != self.current_line) {
+        self.current_line = node.ann.source_line;
+        try self.func.line_table.append(self.gc.allocator, .{
+            .offset = @intCast(self.func.code.items.len),
+            .line = node.ann.source_line,
+        });
+    }
+
     const tail = if (node.ann.is_tail) true else is_tail;
     switch (node.tag) {
         .constant => try self.emitLoadValue(dst, node.data.constant),
@@ -94,6 +102,21 @@ fn compileCallFromIR(self: *Compiler, call: ir_mod.CallData, dst: u16, is_tail: 
     if (call.args.len > 255) return CompileError.InternalLimit;
     const nargs: u8 = @intCast(call.args.len);
 
+    if (is_tail and call.operator.tag == .global_ref and self.func.name != null) {
+        const sym = call.operator.data.global_ref;
+        if (types.isSymbol(sym)) {
+            const op_name = types.symbolName(sym);
+            if (std.mem.eql(u8, op_name, self.func.name.?) and !self.func.is_variadic and nargs == self.func.arity) {
+                if (std.mem.startsWith(u8, op_name, "__nlet_")) {
+                    return compileSelfTailCallFromIR(self, call, dst, nargs);
+                }
+                if (self.resolveLocal(op_name) == null and (try self.resolveUpvalue(op_name)) == null) {
+                    return compileSelfTailCallFromIR(self, call, dst, nargs);
+                }
+            }
+        }
+    }
+
     if (!is_tail and call.operator.tag == .global_ref) {
         const sym = call.operator.data.global_ref;
         if (types.isSymbol(sym)) {
@@ -142,6 +165,29 @@ fn compileCallFromIR(self: *Compiler, call: ir_mod.CallData, dst: u16, is_tail: 
         try self.emitOp(.move);
         try self.emitU16(dst);
         try self.emitU16(base);
+        self.freeReg();
+    }
+}
+
+fn compileSelfTailCallFromIR(self: *Compiler, call: ir_mod.CallData, dst: u16, nargs: u8) CompileError!void {
+    const needs_rebase = (dst + 1 != self.next_register);
+    const base = if (needs_rebase) try self.allocReg() else dst;
+
+    for (call.args) |arg| {
+        const arg_reg = try self.allocReg();
+        try compileFromNode(self, arg, arg_reg, false);
+    }
+
+    try self.emitOp(.self_tail_call);
+    try self.emitU16(base);
+    try self.emit(nargs);
+
+    var i: u8 = 0;
+    while (i < nargs) : (i += 1) {
+        self.freeReg();
+    }
+
+    if (needs_rebase) {
         self.freeReg();
     }
 }
@@ -514,6 +560,11 @@ fn compileDefineFromIR(self: *Compiler, data: ir_mod.DefineData, dst: u16) Compi
     val_root = ir_mod.simplifyBooleans(&ir, val_root);
     val_root = ir_mod.eliminateIdentity(&ir, val_root);
     val_root = ir_mod.simplifyBegin(&ir, val_root);
+
+    if (val_root.tag == .lambda) {
+        val_root.data.lambda.name = types.symbolName(data.name);
+    }
+
     try compileFromNode(self, val_root, dst, false);
 
     if (self.func.constants.items.len > 0) {

@@ -900,3 +900,76 @@ test "IR: bare lambda define-value form (#1026)" {
     );
     try std.testing.expectEqual(@as(i64, 15), types.toFixnum(result));
 }
+
+// -- Issue #1035: self-tail-call + line-table for IR path --
+
+test "IR: bare-lambda define emits self_tail_call" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+
+    const source = "(define f (lambda (n) (if (= n 0) 0 (f (- n 1)))))";
+    var reader = reader_mod.Reader.init(&gc, source);
+    defer reader.deinit();
+    const expr = try reader.readDatum();
+    const func = try compiler_mod.compileExpression(&gc, expr);
+
+    var found_self_tail_call = false;
+    var found_generic_tail_call = false;
+    for (func.constants.items) |c| {
+        if (!types.isFunction(c)) continue;
+        const child = types.toObject(c).as(types.Function);
+        var ip: usize = 0;
+        while (ip < child.code.items.len) {
+            const raw = child.code.items[ip];
+            if (raw == @intFromEnum(types.OpCode.self_tail_call)) {
+                found_self_tail_call = true;
+            }
+            if (raw == @intFromEnum(types.OpCode.tail_call)) {
+                found_generic_tail_call = true;
+            }
+            ip += 1;
+        }
+    }
+    try std.testing.expect(found_self_tail_call);
+    try std.testing.expect(!found_generic_tail_call);
+}
+
+test "IR: bare-lambda self-tail-call does not overflow stack" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    const result = try vm.eval(
+        \\(define f (lambda (n acc) (if (= n 0) acc (f (- n 1) (+ acc 1)))))
+        \\(f 100000 0)
+    );
+    try std.testing.expectEqual(@as(i64, 100000), types.toFixnum(result));
+}
+
+test "IR: line-table entries recorded for IR-compiled code" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+
+    const source =
+        \\(define f
+        \\  (lambda (x)
+        \\    (if (= x 0)
+        \\        0
+        \\        (+ x 1))))
+    ;
+    var reader = reader_mod.Reader.init(&gc, source);
+    defer reader.deinit();
+    const expr = try reader.readDatum();
+    const func = try compiler_mod.compileExpression(&gc, expr);
+
+    var child_has_lines = false;
+    for (func.constants.items) |c| {
+        if (!types.isFunction(c)) continue;
+        const child = types.toObject(c).as(types.Function);
+        if (child.line_table.items.len > 0) {
+            child_has_lines = true;
+        }
+    }
+    try std.testing.expect(child_has_lines);
+}
