@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783191577510,
+  "lastUpdate": 1783191661416,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "9e00a482162eb61bf89834e1d5f68c6aae393f8d",
-          "message": "Respect lexical shadowing of primitives in IR constant folding (#790) (#956)\n\nThe IR constant-folding and boolean-simplification passes guarded only\nagainst global redefinition of primitives via isRedefined(), which\nconsults the globals map. Lambda parameters that shadow +, -, *, <, =,\nzero?, not, etc. are lexical bindings the globals map never sees, so\nfolds fired using the built-in's semantics and produced silently wrong\nresults — e.g. ((lambda (+) (+ 1 2)) -) yielded 3 instead of -1.\n\nLambda bodies are lowered through the IR by compileLambdaWithIR, which\nregisters parameters as compiler locals but never told the IR about\nthem. Teach isRedefined about lexical scope:\n\n- Add Compiler.isLexicallyBound, a side-effect-free predicate that walks\n  the compiler's locals and parent chain (unlike resolveUpvalue, which\n  registers upvalues). Point IR.compiler at the enclosing compiler at\n  every IR.init site so isRedefined can consult it.\n- The LLVM native backend has no Compiler, so add IR.bound_names and\n  pass each lambda's own parameter names from llvm_emit_lambda.zig; it\n  exhibited the same bug.\n\nThe check only makes folding more conservative, so it can never\nintroduce an incorrect fold. Regression tests (Zig unit tests, a smoke\ntest, and a native-compile test) fail on the pre-fix build and pass\nafter. The smoke test uses the manual-check procedure-argument style\nbecause SRFI-64's test-eqv forces the already-correct legacy path.\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
-          "timestamp": "2026-07-03T10:47:31Z",
-          "tree_id": "3eef50bdc514f90e8132ad58925f7ef3d213aca9",
-          "url": "https://github.com/kaappi/kaappi/commit/9e00a482162eb61bf89834e1d5f68c6aae393f8d"
-        },
-        "date": 1783076559432,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.283,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.560388,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.811222,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.07354,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006992,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.033351,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.45549,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.069022,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 4.031157,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.765381,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.219944,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.42745,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 2.368875,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.645482,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.040841,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.045638,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "4934610328d60c867dedc327cb94b68bbc66e5c3",
+          "message": "Break memory→vm circular dependency, add finishAlloc helper (#1050) (#1119)\n\nMove CallFrame, ExceptionHandler, and capacity constants from vm.zig\nto types.zig so that memory.zig and gc_collect.zig no longer import\nvm.zig — breaking the memory↔vm circular dependency through fiber.\n\nAdd GC.finishAlloc() to consolidate the bytes_allocated/profileAlloc/\ntrackObject bookkeeping repeated in every allocator (~70 lines saved).\nThis also fixes three profileAlloc size mismatches:\n- allocNativeClosure: was missing upvalues size\n- allocContinuation: was missing profileAlloc call entirely\n- allocHashTable: was using initial_capacity instead of rounded cap\n\nDelete unused primitives_hashtable.zig import from memory.zig.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-05T00:04:46+05:30",
+          "tree_id": "b713b820e9dbcb18dd88c4c2915fed1502ec1af2",
+          "url": "https://github.com/kaappi/kaappi/commit/4934610328d60c867dedc327cb94b68bbc66e5c3"
+        },
+        "date": 1783191660885,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.248561,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.787249,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.931415,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.182419,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.012378,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.211357,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.464016,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.070356,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 12.484502,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.815194,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 9.963211,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.958039,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 8.255029,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.668237,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.042412,
             "unit": "seconds"
           }
         ]
