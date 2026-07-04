@@ -509,10 +509,6 @@ pub const LLVMEmitter = struct {
         return last;
     }
 
-    fn emitSexprEvalValue(self: *LLVMEmitter, args: Value) EmitError![]const u8 {
-        return self.emitEvalExpr(args);
-    }
-
     fn emitIf(self: *LLVMEmitter, data: ir.IfData) EmitError![]const u8 {
         const test_val = try self.emitNode(data.test_expr);
 
