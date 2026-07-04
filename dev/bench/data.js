@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783184032146,
+  "lastUpdate": 1783184114999,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "35b95cc2699fc03cf157f48edf98f49556df3fb7",
-          "message": "Fail the Scheme suite when a test file times out (#938)\n\nrun-all.sh labeled per-file 60s timeouts as SKIP and the final exit\ncheck only counted FAILs, so a hanging test file left the suite green.\nThis let tests/scheme/srfi/srfi18.scm hang unnoticed for months.\n\nTimeouts now print a TIMEOUT label with the test's partial output,\ncount into the fail total, and make the suite exit 1. The R7RS awk\nparsing is unaffected — it only scrapes the chibi-test \"N pass, N fail\"\nlines, never the per-file labels.\n\nVerified: clean run passes (242 files, exit 0); an injected\ninfinite-loop test file produces TIMEOUT and exit 1.\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-03T06:50:58Z",
-          "tree_id": "5451ebd3c04017fd8e0cf5ee879969f12ea3ef66",
-          "url": "https://github.com/kaappi/kaappi/commit/35b95cc2699fc03cf157f48edf98f49556df3fb7"
-        },
-        "date": 1783062162789,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.515096,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.879477,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.853667,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.191275,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006981,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.034464,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.471075,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.070591,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 4.156449,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.814415,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.244337,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.434849,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 2.432455,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.706288,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.043164,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.043807,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "9d642b08338f4726c68e584d7d368d330550699a",
+          "message": "Dedup handleDefineLibrary declaration loop and extract openIncludeFile (#1048) (#1102)\n\nhandleDefineLibrary had an inline 6-branch declaration dispatch loop\nthat duplicated processLibDeclaration almost verbatim. Worse, its\ncond-expand branch destructively mutated the AST via setCdr — a\ncorrectness hazard for bundled sources and include-library-declarations\nre-entry. Replace the inline loop with a call to processLibDeclaration,\nwhich handles cond-expand cleanly via recursion.\n\nAlso extract the path-resolution + readFileOrBundled boilerplate\n(duplicated 3x across handleTopLevelInclude, compileLibInclude, and\nincludeLibraryDeclarations) into openIncludeFile.\n\nPreserve import error-detail printing by adding it to\nprocessLibDeclaration's import branch (was silently swallowed before).\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-04T21:35:28+05:30",
+          "tree_id": "e053b7e4a0d4853ba57389b5d71516ac610a52e8",
+          "url": "https://github.com/kaappi/kaappi/commit/9d642b08338f4726c68e584d7d368d330550699a"
+        },
+        "date": 1783184114022,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.323777,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.476439,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.990066,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.262837,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.013404,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.211827,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.474028,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.069681,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 12.601906,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.857496,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 9.952532,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.9609,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 8.314484,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.713408,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044502,
             "unit": "seconds"
           }
         ]
