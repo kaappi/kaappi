@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783183976555,
+  "lastUpdate": 1783184032146,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "d1e9616d0090cfee4c0cb96678e11680a0f85256",
-          "message": "Remove dead .sbc cache-read path for .sld libraries (#937)\n\nWriting .sbc caches for .sld files has been disabled for a while (the\nserializer could hit a use-after-free when GC ran during library\nloading), but tryLoadLibraryFromFile still probed for and accepted\nexisting .sbc files. On such a hit it reconstructed the export table by\nre-parsing only the top level of the .sld, silently dropping exports\ndeclared via include-library-declarations or nested inside cond-expand\nbranches — the import then succeeded with no bindings and every use\nsite failed with \"undefined variable\". The path also looked up exports\nin vm.globals rather than the per-library environment, and any library\nexporting macros fell through to source compilation anyway.\n\nDelete the read path, extractExportsAndImports, and LibraryMeta\nentirely: .sld libraries now always compile from source and a stale or\nhand-built .sbc next to a .sld is ignored. If caching is ever\nreintroduced, the export table should be serialized into the .sbc\ninstead of re-derived from source. Main-program .sbc caching in\nmain.zig is unaffected.\n\nThe regression test hand-builds a hash-matching .sbc next to a .sld\nthat declares its exports through include-library-declarations and\ncond-expand, and verifies both exports survive the import.\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-03T06:45:18Z",
-          "tree_id": "4e67eea0f3066e97da263ee327b15fde069b2ae6",
-          "url": "https://github.com/kaappi/kaappi/commit/d1e9616d0090cfee4c0cb96678e11680a0f85256"
-        },
-        "date": 1783061968341,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.549643,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.130233,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.868504,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.30137,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006967,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.034333,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.472166,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.070924,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 4.146019,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.816356,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.250585,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.437679,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 2.434968,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.749203,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.042991,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.043619,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "bd2ea1d8e2562b7295523649dedb6f8d4bb3c9f1",
+          "message": "Assert expected values in IR behavioral tests instead of ignoring results (#1073) (#1101)\n\nThe 29 `expectBehavioralParity` tests evaluated source but discarded\nthe result, so a wrong return value would pass silently. Replace with\n`expectEvalFixnum`, `expectEvalBool`, and `expectEvalVoid` assertions\nthat verify the actual result. Tag the 11 bytecode-parity tests with\ntheir legacy compileExpr form so each is deleted with #1038.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-04T21:33:56+05:30",
+          "tree_id": "e84272b4ef2414a52eb595bb7f67e999d89bf838",
+          "url": "https://github.com/kaappi/kaappi/commit/bd2ea1d8e2562b7295523649dedb6f8d4bb3c9f1"
+        },
+        "date": 1783184030990,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.273256,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.096407,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.915897,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.248163,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.012614,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.210796,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.474712,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.070577,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 12.451876,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.818446,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 9.909201,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.951454,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 8.278244,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.694364,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.043807,
             "unit": "seconds"
           }
         ]
