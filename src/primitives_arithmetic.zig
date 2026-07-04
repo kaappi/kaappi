@@ -65,6 +65,17 @@ fn toRationalParts(v: Value) ?RatParts {
     return null;
 }
 
+const RatPartsVal = struct { num: Value, den: Value };
+
+fn ratPartsVal(v: Value) PrimitiveError!RatPartsVal {
+    if (types.isFixnum(v) or types.isBignum(v)) return .{ .num = v, .den = types.makeFixnum(1) };
+    if (types.isRationalObj(v)) {
+        const r = types.toRational(v);
+        return .{ .num = r.numerator, .den = r.denominator };
+    }
+    return PrimitiveError.TypeError;
+}
+
 fn allocRationalRooted(gc: *@import("memory.zig").GC, n: i64, d: i64) PrimitiveError!Value {
     var num = try makeFixnumChecked(n);
     gc.extra_roots.append(gc.allocator, num) catch return PrimitiveError.OutOfMemory;
@@ -338,26 +349,12 @@ fn add(args: []const Value) PrimitiveError!Value {
                 const acc_f = try toF64Ext(acc_num) / try toF64Ext(acc_den);
                 return makeFlonumVal(acc_f + types.toFlonum(a));
             }
-            var a_num: Value = undefined;
-            var a_den: Value = undefined;
-            if (types.isFixnum(a)) {
-                a_num = a;
-                a_den = types.makeFixnum(1);
-            } else if (types.isBignum(a)) {
-                a_num = a;
-                a_den = types.makeFixnum(1);
-            } else if (types.isRationalObj(a)) {
-                const r = types.toRational(a);
-                a_num = r.numerator;
-                a_den = r.denominator;
-            } else {
-                return PrimitiveError.TypeError; // bare-ok: rational type guard
-            }
+            const parts = try ratPartsVal(a);
             // acc_num/acc_den + a_num/a_den = (acc_num*a_den + a_num*acc_den) / (acc_den*a_den)
-            const t1 = bignum_mod.mul(gc, acc_num, a_den) catch return PrimitiveError.OutOfMemory;
-            const t2 = bignum_mod.mul(gc, a_num, acc_den) catch return PrimitiveError.OutOfMemory;
+            const t1 = bignum_mod.mul(gc, acc_num, parts.den) catch return PrimitiveError.OutOfMemory;
+            const t2 = bignum_mod.mul(gc, parts.num, acc_den) catch return PrimitiveError.OutOfMemory;
             acc_num = bignum_mod.add(gc, t1, t2) catch return PrimitiveError.OutOfMemory;
-            acc_den = bignum_mod.mul(gc, acc_den, a_den) catch return PrimitiveError.OutOfMemory;
+            acc_den = bignum_mod.mul(gc, acc_den, parts.den) catch return PrimitiveError.OutOfMemory;
             gc.extra_roots.items[gc.extra_roots.items.len - 2] = acc_num;
             gc.extra_roots.items[gc.extra_roots.items.len - 1] = acc_den;
         }
@@ -399,21 +396,9 @@ fn sub(args: []const Value) PrimitiveError!Value {
     }
     if (anyRational(args) or (anyBignum(args) and !anyFlonum(args))) {
         const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
-        var acc_num: Value = undefined;
-        var acc_den: Value = undefined;
-        if (types.isFixnum(args[0])) {
-            acc_num = args[0];
-            acc_den = types.makeFixnum(1);
-        } else if (types.isBignum(args[0])) {
-            acc_num = args[0];
-            acc_den = types.makeFixnum(1);
-        } else if (types.isRationalObj(args[0])) {
-            const r = types.toRational(args[0]);
-            acc_num = r.numerator;
-            acc_den = r.denominator;
-        } else {
-            return PrimitiveError.TypeError; // bare-ok: rational type guard
-        }
+        const init = try ratPartsVal(args[0]);
+        var acc_num: Value = init.num;
+        var acc_den: Value = init.den;
         if (args.len == 1) {
             acc_num = bignum_mod.negate(gc, acc_num) catch return PrimitiveError.OutOfMemory;
             return makeRationalReduced(gc, acc_num, acc_den);
@@ -429,25 +414,11 @@ fn sub(args: []const Value) PrimitiveError!Value {
                 const acc_f = try toF64Ext(acc_num) / try toF64Ext(acc_den);
                 return makeFlonumVal(acc_f - types.toFlonum(a));
             }
-            var a_num: Value = undefined;
-            var a_den: Value = undefined;
-            if (types.isFixnum(a)) {
-                a_num = a;
-                a_den = types.makeFixnum(1);
-            } else if (types.isBignum(a)) {
-                a_num = a;
-                a_den = types.makeFixnum(1);
-            } else if (types.isRationalObj(a)) {
-                const r = types.toRational(a);
-                a_num = r.numerator;
-                a_den = r.denominator;
-            } else {
-                return PrimitiveError.TypeError; // bare-ok: rational type guard
-            }
-            const t1 = bignum_mod.mul(gc, acc_num, a_den) catch return PrimitiveError.OutOfMemory;
-            const t2 = bignum_mod.mul(gc, a_num, acc_den) catch return PrimitiveError.OutOfMemory;
+            const parts = try ratPartsVal(a);
+            const t1 = bignum_mod.mul(gc, acc_num, parts.den) catch return PrimitiveError.OutOfMemory;
+            const t2 = bignum_mod.mul(gc, parts.num, acc_den) catch return PrimitiveError.OutOfMemory;
             acc_num = bignum_mod.sub(gc, t1, t2) catch return PrimitiveError.OutOfMemory;
-            acc_den = bignum_mod.mul(gc, acc_den, a_den) catch return PrimitiveError.OutOfMemory;
+            acc_den = bignum_mod.mul(gc, acc_den, parts.den) catch return PrimitiveError.OutOfMemory;
             gc.extra_roots.items[gc.extra_roots.items.len - 2] = acc_num;
             gc.extra_roots.items[gc.extra_roots.items.len - 1] = acc_den;
         }
@@ -509,23 +480,9 @@ fn mul(args: []const Value) PrimitiveError!Value {
                 const acc_f = try toF64Ext(acc_num) / try toF64Ext(acc_den);
                 return makeFlonumVal(acc_f * types.toFlonum(a));
             }
-            var a_num: Value = undefined;
-            var a_den: Value = undefined;
-            if (types.isFixnum(a)) {
-                a_num = a;
-                a_den = types.makeFixnum(1);
-            } else if (types.isBignum(a)) {
-                a_num = a;
-                a_den = types.makeFixnum(1);
-            } else if (types.isRationalObj(a)) {
-                const r = types.toRational(a);
-                a_num = r.numerator;
-                a_den = r.denominator;
-            } else {
-                return PrimitiveError.TypeError; // bare-ok: rational type guard
-            }
-            acc_num = bignum_mod.mul(gc, acc_num, a_num) catch return PrimitiveError.OutOfMemory;
-            acc_den = bignum_mod.mul(gc, acc_den, a_den) catch return PrimitiveError.OutOfMemory;
+            const parts = try ratPartsVal(a);
+            acc_num = bignum_mod.mul(gc, acc_num, parts.num) catch return PrimitiveError.OutOfMemory;
+            acc_den = bignum_mod.mul(gc, acc_den, parts.den) catch return PrimitiveError.OutOfMemory;
             gc.extra_roots.items[gc.extra_roots.items.len - 2] = acc_num;
             gc.extra_roots.items[gc.extra_roots.items.len - 1] = acc_den;
         }
@@ -591,21 +548,9 @@ fn divFn(args: []const Value) PrimitiveError!Value {
     // Handle rational division: any rational arg means rational result
     if ((anyRational(args) or anyBignum(args)) and !anyFlonum(args)) {
         const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
-        var acc_num: Value = undefined;
-        var acc_den: Value = undefined;
-        if (types.isFixnum(args[0])) {
-            acc_num = args[0];
-            acc_den = types.makeFixnum(1);
-        } else if (types.isBignum(args[0])) {
-            acc_num = args[0];
-            acc_den = types.makeFixnum(1);
-        } else if (types.isRationalObj(args[0])) {
-            const r = types.toRational(args[0]);
-            acc_num = r.numerator;
-            acc_den = r.denominator;
-        } else {
-            return PrimitiveError.TypeError; // bare-ok: rational type guard
-        }
+        const init = try ratPartsVal(args[0]);
+        var acc_num: Value = init.num;
+        var acc_den: Value = init.den;
         gc.extra_roots.append(gc.allocator, acc_num) catch return PrimitiveError.OutOfMemory;
         gc.extra_roots.append(gc.allocator, acc_den) catch return PrimitiveError.OutOfMemory;
         defer {
@@ -613,25 +558,11 @@ fn divFn(args: []const Value) PrimitiveError!Value {
             if (gc.extra_roots.items.len > 0) _ = gc.extra_roots.pop();
         }
         for (args[1..]) |a| {
-            var a_num: Value = undefined;
-            var a_den: Value = undefined;
-            if (types.isFixnum(a)) {
-                a_num = a;
-                a_den = types.makeFixnum(1);
-            } else if (types.isBignum(a)) {
-                a_num = a;
-                a_den = types.makeFixnum(1);
-            } else if (types.isRationalObj(a)) {
-                const r = types.toRational(a);
-                a_num = r.numerator;
-                a_den = r.denominator;
-            } else {
-                return PrimitiveError.TypeError; // bare-ok: rational type guard
-            }
-            if (bignum_mod.isZero(a_num)) return raiseDivByZero();
+            const parts = try ratPartsVal(a);
+            if (bignum_mod.isZero(parts.num)) return raiseDivByZero();
             // (acc_num/acc_den) / (a_num/a_den) = (acc_num*a_den) / (acc_den*a_num)
-            acc_num = bignum_mod.mul(gc, acc_num, a_den) catch return PrimitiveError.OutOfMemory;
-            acc_den = bignum_mod.mul(gc, acc_den, a_num) catch return PrimitiveError.OutOfMemory;
+            acc_num = bignum_mod.mul(gc, acc_num, parts.den) catch return PrimitiveError.OutOfMemory;
+            acc_den = bignum_mod.mul(gc, acc_den, parts.num) catch return PrimitiveError.OutOfMemory;
             gc.extra_roots.items[gc.extra_roots.items.len - 2] = acc_num;
             gc.extra_roots.items[gc.extra_roots.items.len - 1] = acc_den;
         }
