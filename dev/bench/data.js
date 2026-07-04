@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783163716169,
+  "lastUpdate": 1783163867082,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "e028f6ca4d398bc9c87dbf0b79289740ef39162a",
-          "message": "Fix two R7RS suite forms aborted by hygiene and macro-shadowing bugs (#926)\n\nTwo top-level forms in tests/scheme/r7rs/r7rs-tests.scm (lines 580 and\n633) aborted with errors and were counted neither pass nor fail.\n\nLine 580 (forward hygienic refs): the body prescan plants VOID sentinels\nin the globals map for internal defines appearing later in the same\nbody, so the expander keeps template references to them intact. Commit\nd32f475 dropped the VOID case from renameForHygiene's preservation\ncheck, so sibling-define references got renamed to gensyms and severed\nfrom their bindings. Restore it, guarded to non-binding position (keeps\nthe d32f475 fix) and to names this expansion has not already renamed as\ntemplate-introduced bindings (otherwise a template that both binds and\nreferences a name colliding with a non-procedure global would rename\nthe binding but not the references).\n\nLine 633 (InvalidSyntax): a macro-generating macro used mid-body leaks\nthe generated macro past its let body, and a later body's internal\ndefine of the same name did not shadow the keyword, so the call was\nexpanded as a macro use and failed pattern matching. Per R7RS 5.3 a\nvariable binding shadows a syntactic keyword: a local or captured\nbinding now makes the form compile as a procedure call.\n\nR7RS suite: 1395 pass, 0 fail. All four regression tests verified to\nfail without the fixes.\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-03T03:42:17Z",
-          "tree_id": "cec3ebed2f83d207461eb4e99bc2422d8471f559",
-          "url": "https://github.com/kaappi/kaappi/commit/e028f6ca4d398bc9c87dbf0b79289740ef39162a"
-        },
-        "date": 1783051054774,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.381638,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.904661,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.861362,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.154675,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.007028,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.033138,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.476882,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.070597,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 4.04518,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.822234,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.165073,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.441386,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 2.414363,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.71904,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.042726,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.045448,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a2858320cf6109c3e0029fa8c985b016f0afbde7",
+          "message": "Split thottam.zig along natural seams (#1063) (#1089)\n\nthottam.zig was the only file over the 1500-line policy. Extract three\nself-contained modules:\n\n- thottam_semver.zig: Semver, Constraint, constraint parsing (pure logic)\n- thottam_proc.zig: fork/exec plumbing (runCapture, runGit, checkoutVersion)\n- thottam_state.zig: PkgSpec/PkgManifest parsing, lockfile/installed ops\n\nTests move with their code. No logic changes — pure code motion.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-04T16:24:58+05:30",
+          "tree_id": "2b8b276d2bcbc7e9ce584e0b0a598b7ca8951034",
+          "url": "https://github.com/kaappi/kaappi/commit/a2858320cf6109c3e0029fa8c985b016f0afbde7"
+        },
+        "date": 1783163866569,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.352378,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.133867,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 1.056541,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.317855,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.012816,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.210575,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.467204,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.070357,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 12.520738,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.818593,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 9.841304,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.956828,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 8.270609,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.545472,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.043135,
             "unit": "seconds"
           }
         ]
