@@ -50,7 +50,7 @@ fn tryCompilePureLambdaAsNativeClosure(self: *LLVMEmitter, data: ir.LambdaData) 
 
     if (rest_name != null) return null;
 
-    var body_ir = ir.IR.init(self.allocator);
+    var body_ir = ir.IR.init(self.allocator());
     defer body_ir.deinit();
     // Parameters shadow primitives of the same name; don't fold calls to them
     // using the built-in's semantics (issue #790).
@@ -131,7 +131,7 @@ fn tryCompileNativeClosure(self: *LLVMEmitter, data: ir.LambdaData) ?[]const u8 
         plist = types.cdr(plist);
     }
 
-    var body_ir = ir.IR.init(self.allocator);
+    var body_ir = ir.IR.init(self.allocator());
     defer body_ir.deinit();
     // Parameters shadow primitives of the same name; don't fold calls to them
     // using the built-in's semantics (issue #790).
@@ -169,7 +169,7 @@ fn tryCompileNativeClosure(self: *LLVMEmitter, data: ir.LambdaData) ?[]const u8 
 
     const id = self.lambda_counter;
     self.lambda_counter += 1;
-    const fn_name = std.fmt.allocPrint(self.allocator, "@closure_{d}", .{id}) catch return null;
+    const fn_name = std.fmt.allocPrint(self.allocator(), "@closure_{d}", .{id}) catch return null;
     const closure_name = data.name orelse "(closure)";
 
     var fn_buf: std.ArrayList(u8) = .empty;
@@ -187,7 +187,7 @@ fn tryCompileNativeClosure(self: *LLVMEmitter, data: ir.LambdaData) ?[]const u8 
     self.body_label = null;
     self.current_block = "entry";
 
-    var p = std.StringHashMap(u8).init(self.allocator);
+    var p = std.StringHashMap(u8).init(self.backing_alloc);
     for (param_names[0..arity], 0..) |pname, i| {
         p.put(pname, @intCast(i)) catch {
             self.buf = saved_buf;
@@ -201,7 +201,7 @@ fn tryCompileNativeClosure(self: *LLVMEmitter, data: ir.LambdaData) ?[]const u8 
         };
     }
 
-    var uv_map = std.StringHashMap(u8).init(self.allocator);
+    var uv_map = std.StringHashMap(u8).init(self.backing_alloc);
     defer uv_map.deinit();
     for (free_vars[0..free_count], 0..) |fv, i| {
         if (outer_params.contains(fv)) {
@@ -221,7 +221,7 @@ fn tryCompileNativeClosure(self: *LLVMEmitter, data: ir.LambdaData) ?[]const u8 
     self.params = p;
     self.upvalues = uv_map;
 
-    const header = std.fmt.allocPrint(self.allocator, "; closure: {s}\ndefine i64 {s}(ptr %vm, ptr %args, i64 %nargs, ptr %upvalues) {{\nentry:\n", .{ closure_name, fn_name }) catch {
+    const header = std.fmt.allocPrint(self.allocator(), "; closure: {s}\ndefine i64 {s}(ptr %vm, ptr %args, i64 %nargs, ptr %upvalues) {{\nentry:\n", .{ closure_name, fn_name }) catch {
         self.buf = saved_buf;
         self.params = saved_params;
         self.upvalues = null;
@@ -233,7 +233,7 @@ fn tryCompileNativeClosure(self: *LLVMEmitter, data: ir.LambdaData) ?[]const u8 
         p.deinit();
         return null;
     };
-    defer self.allocator.free(header);
+    defer self.allocator().free(header);
     self.write(header) catch {
         self.buf = saved_buf;
         self.params = saved_params;
@@ -259,7 +259,7 @@ fn tryCompileNativeClosure(self: *LLVMEmitter, data: ir.LambdaData) ?[]const u8 
             self.body_label = saved_body_label;
             self.current_block = saved_block;
             p.deinit();
-            fn_buf.deinit(self.allocator);
+            fn_buf.deinit(self.backing_alloc);
             return null;
         };
     }
@@ -274,7 +274,7 @@ fn tryCompileNativeClosure(self: *LLVMEmitter, data: ir.LambdaData) ?[]const u8 
         self.body_label = saved_body_label;
         self.current_block = saved_block;
         p.deinit();
-        fn_buf.deinit(self.allocator);
+        fn_buf.deinit(self.backing_alloc);
         return null;
     };
 
@@ -289,8 +289,8 @@ fn tryCompileNativeClosure(self: *LLVMEmitter, data: ir.LambdaData) ?[]const u8 
     self.current_block = saved_block;
     p.deinit();
 
-    const fn_def = fn_buf.toOwnedSlice(self.allocator) catch return null;
-    self.lambda_defs.append(self.allocator, fn_def) catch return null;
+    const fn_def = fn_buf.toOwnedSlice(self.backing_alloc) catch return null;
+    self.lambda_defs.append(self.backing_alloc, fn_def) catch return null;
 
     const uv_alloca = self.freshTemp() catch return null;
     self.print("  {s} = alloca [{d} x i64], align 8\n", .{ uv_alloca, free_count }) catch return null;
@@ -338,21 +338,21 @@ fn emitLambdaViaEval(self: *LLVMEmitter, data: ir.LambdaData) EmitError![]const 
     try bindParamsAsGlobals(self);
 
     var source_buf: std.ArrayList(u8) = .empty;
-    defer source_buf.deinit(self.allocator);
-    source_buf.appendSlice(self.allocator, "(lambda ") catch return error.OutOfMemory;
+    defer source_buf.deinit(self.backing_alloc);
+    source_buf.appendSlice(self.backing_alloc, "(lambda ") catch return error.OutOfMemory;
 
     var current = data.args;
     var first = true;
     while (current != types.NIL and types.isPair(current)) {
-        if (!first) source_buf.append(self.allocator, ' ') catch return error.OutOfMemory;
+        if (!first) source_buf.append(self.backing_alloc, ' ') catch return error.OutOfMemory;
         first = false;
         const elem = types.car(current);
-        const elem_str = printer.valueToString(self.allocator, elem, .write) catch return error.OutOfMemory;
-        defer self.allocator.free(elem_str);
-        source_buf.appendSlice(self.allocator, elem_str) catch return error.OutOfMemory;
+        const elem_str = printer.valueToString(self.backing_alloc, elem, .write) catch return error.OutOfMemory;
+        defer self.backing_alloc.free(elem_str);
+        source_buf.appendSlice(self.backing_alloc, elem_str) catch return error.OutOfMemory;
         current = types.cdr(current);
     }
-    source_buf.append(self.allocator, ')') catch return error.OutOfMemory;
+    source_buf.append(self.backing_alloc, ')') catch return error.OutOfMemory;
 
     const str_name = try self.internString(source_buf.items);
     const tmp = try self.freshTemp();
@@ -399,7 +399,7 @@ pub fn tryCompileDefineFunction(self: *LLVMEmitter, name: []const u8, formals: V
         param_list = types.cdr(param_list);
     }
 
-    var body_ir = ir.IR.init(self.allocator);
+    var body_ir = ir.IR.init(self.allocator());
     defer body_ir.deinit();
     // Parameters (including a rest parameter) shadow primitives of the same
     // name; don't fold calls to them using the built-in's semantics (#790).
@@ -450,7 +450,7 @@ pub fn tryCompileDefineFunction(self: *LLVMEmitter, name: []const u8, formals: V
 fn emitLambdaFunction(self: *LLVMEmitter, name: ?[]const u8, param_names: []const []const u8, body_nodes: []const *ir.Node, rest_name: ?[]const u8) ?[]const u8 {
     const id = self.lambda_counter;
     self.lambda_counter += 1;
-    const fn_name = std.fmt.allocPrint(self.allocator, "@lambda_{d}", .{id}) catch return null;
+    const fn_name = std.fmt.allocPrint(self.allocator(), "@lambda_{d}", .{id}) catch return null;
 
     if (name) |n| {
         self.native_fns.put(n, .{ .llvm_name = fn_name, .arity = @intCast(param_names.len), .is_variadic = rest_name != null }) catch {};
@@ -475,7 +475,7 @@ fn emitLambdaFunction(self: *LLVMEmitter, name: ?[]const u8, param_names: []cons
     // body install their own).
     self.locals = null;
 
-    var p = std.StringHashMap(u8).init(self.allocator);
+    var p = std.StringHashMap(u8).init(self.backing_alloc);
     for (param_names, 0..) |pname, i| {
         p.put(pname, @intCast(i)) catch {
             restoreState(self, saved_buf, saved_params, saved_tmp, saved_label, saved_fn_name, saved_body_label, saved_block, saved_rest_alloca, saved_rest_name, saved_locals);
@@ -484,7 +484,7 @@ fn emitLambdaFunction(self: *LLVMEmitter, name: ?[]const u8, param_names: []cons
     }
     self.params = p;
 
-    const body_lbl = std.fmt.allocPrint(self.allocator, "body_{d}", .{id}) catch {
+    const body_lbl = std.fmt.allocPrint(self.allocator(), "body_{d}", .{id}) catch {
         restoreState(self, saved_buf, saved_params, saved_tmp, saved_label, saved_fn_name, saved_body_label, saved_block, saved_rest_alloca, saved_rest_name, saved_locals);
         p.deinit();
         return null;
@@ -495,12 +495,12 @@ fn emitLambdaFunction(self: *LLVMEmitter, name: ?[]const u8, param_names: []cons
     self.current_block = body_lbl;
     self.rest_param_name = rest_name;
 
-    const header = std.fmt.allocPrint(self.allocator, "; {s}\ndefine i64 {s}(ptr %vm, ptr %args, i64 %nargs, ptr %upvalues) {{\nentry:\n  br label %{s}\n{s}:\n", .{ name orelse "(lambda)", fn_name, body_lbl, body_lbl }) catch {
+    const header = std.fmt.allocPrint(self.allocator(), "; {s}\ndefine i64 {s}(ptr %vm, ptr %args, i64 %nargs, ptr %upvalues) {{\nentry:\n  br label %{s}\n{s}:\n", .{ name orelse "(lambda)", fn_name, body_lbl, body_lbl }) catch {
         restoreState(self, saved_buf, saved_params, saved_tmp, saved_label, saved_fn_name, saved_body_label, saved_block, saved_rest_alloca, saved_rest_name, saved_locals);
         p.deinit();
         return null;
     };
-    defer self.allocator.free(header);
+    defer self.allocator().free(header);
     self.write(header) catch {
         restoreState(self, saved_buf, saved_params, saved_tmp, saved_label, saved_fn_name, saved_body_label, saved_block, saved_rest_alloca, saved_rest_name, saved_locals);
         p.deinit();
@@ -511,7 +511,7 @@ fn emitLambdaFunction(self: *LLVMEmitter, name: ?[]const u8, param_names: []cons
         emitRestListBuilder(self, param_names.len) catch {
             restoreState(self, saved_buf, saved_params, saved_tmp, saved_label, saved_fn_name, saved_body_label, saved_block, saved_rest_alloca, saved_rest_name, saved_locals);
             p.deinit();
-            fn_buf.deinit(self.allocator);
+            fn_buf.deinit(self.backing_alloc);
             return null;
         };
     }
@@ -521,7 +521,7 @@ fn emitLambdaFunction(self: *LLVMEmitter, name: ?[]const u8, param_names: []cons
         last_val = self.emitNode(node) catch {
             restoreState(self, saved_buf, saved_params, saved_tmp, saved_label, saved_fn_name, saved_body_label, saved_block, saved_rest_alloca, saved_rest_name, saved_locals);
             p.deinit();
-            fn_buf.deinit(self.allocator);
+            fn_buf.deinit(self.backing_alloc);
             return null;
         };
     }
@@ -529,7 +529,7 @@ fn emitLambdaFunction(self: *LLVMEmitter, name: ?[]const u8, param_names: []cons
     self.print("  ret i64 {s}\n}}\n", .{last_val}) catch {
         restoreState(self, saved_buf, saved_params, saved_tmp, saved_label, saved_fn_name, saved_body_label, saved_block, saved_rest_alloca, saved_rest_name, saved_locals);
         p.deinit();
-        fn_buf.deinit(self.allocator);
+        fn_buf.deinit(self.backing_alloc);
         return null;
     };
 
@@ -537,8 +537,8 @@ fn emitLambdaFunction(self: *LLVMEmitter, name: ?[]const u8, param_names: []cons
     restoreState(self, saved_buf, saved_params, saved_tmp, saved_label, saved_fn_name, saved_body_label, saved_block, saved_rest_alloca, saved_rest_name, saved_locals);
     p.deinit();
 
-    const fn_def = fn_buf.toOwnedSlice(self.allocator) catch return null;
-    self.lambda_defs.append(self.allocator, fn_def) catch return null;
+    const fn_def = fn_buf.toOwnedSlice(self.backing_alloc) catch return null;
+    self.lambda_defs.append(self.backing_alloc, fn_def) catch return null;
 
     return fn_name;
 }
@@ -557,20 +557,18 @@ fn restoreState(self: *LLVMEmitter, buf: std.ArrayList(u8), params: ?std.StringH
 }
 
 fn emitRestListBuilder(self: *LLVMEmitter, fixed_arity: usize) EmitError!void {
-    const nil_val: i64 = @bitCast(types.NIL);
     const rest_alloca = try self.freshTemp();
     try self.print("  {s} = alloca i64, align 8\n", .{rest_alloca});
     self.rest_param_alloca = rest_alloca;
 
-    const nil_tmp = try self.freshTemp();
-    try self.print("  {s} = add i64 0, {d}\n", .{ nil_tmp, nil_val });
+    const nil_tmp = try self.emitImm(@bitCast(types.NIL));
     try self.print("  store i64 {s}, ptr {s}\n", .{ nil_tmp, rest_alloca });
 
     const lbl_id = self.label_counter;
     self.label_counter += 1;
-    const check_lbl = try std.fmt.allocPrint(self.allocator, "rest_check_{d}", .{lbl_id});
-    const body_lbl = try std.fmt.allocPrint(self.allocator, "rest_body_{d}", .{lbl_id});
-    const done_lbl = try std.fmt.allocPrint(self.allocator, "rest_done_{d}", .{lbl_id});
+    const check_lbl = try std.fmt.allocPrint(self.allocator(), "rest_check_{d}", .{lbl_id});
+    const body_lbl = try std.fmt.allocPrint(self.allocator(), "rest_body_{d}", .{lbl_id});
+    const done_lbl = try std.fmt.allocPrint(self.allocator(), "rest_done_{d}", .{lbl_id});
 
     const idx_alloca = try self.freshTemp();
     try self.print("  {s} = alloca i64, align 8\n", .{idx_alloca});
