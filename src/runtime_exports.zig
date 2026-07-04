@@ -14,6 +14,13 @@ export fn kaappi_runtime_init() callconv(.c) ?*vm_mod.VM {
 
     rt_gc = memory.GC.init(allocator);
 
+    if (std.c.getenv("KAAPPI_GC_THRESHOLD")) |env_ptr| {
+        const env = std.mem.span(env_ptr);
+        if (std.fmt.parseInt(usize, env, 10)) |threshold| {
+            rt_gc.gc_threshold = threshold;
+        } else |_| {}
+    }
+
     const vm = allocator.create(vm_mod.VM) catch return null;
     vm.* = vm_mod.VM.init(&rt_gc) catch {
         allocator.destroy(vm);
@@ -226,4 +233,21 @@ export fn kaappi_call_scheme(vm: ?*vm_mod.VM, callee: u64, args_ptr: ?[*]const u
         std.process.exit(1);
     };
     return result;
+}
+
+// Shadow-stack GC rooting for natively compiled code.
+// The LLVM emitter stores intermediate Values in alloca slots and registers
+// them here so the GC can see them during collection.
+
+export fn kaappi_gc_push_root(slot: *Value) callconv(.c) void {
+    const gc = memory.gc_instance orelse return;
+    gc.pushRoot(slot) catch {};
+}
+
+export fn kaappi_gc_pop_roots(n: u64) callconv(.c) void {
+    const gc = memory.gc_instance orelse return;
+    var i: u64 = 0;
+    while (i < n) : (i += 1) {
+        gc.popRoot();
+    }
 }
