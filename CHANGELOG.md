@@ -7,26 +7,162 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-07-04
+
+### Added
+- **Width-aware pretty-printing for REPL output:** large results are formatted with indentation and line wrapping instead of a single long line (#1005)
+- **Multiple-values display at top level:** `(values 1 2 3)` now prints all values, not just the first (#973)
+- **Uncaught error detail:** show message and irritants for uncaught user-raised errors (#976)
+- **R7RS standard ports as parameters:** `current-input-port`, `current-output-port`, and `current-error-port` are now parameter objects per R7RS (#979)
+
 ### Fixed
 
+#### GC and memory
+- Fix GC corruption during library `include`-load: fresh s-expressions in Zig locals were not rooted during include processing (#1010, #1012)
+- Root top-level forms before compilation to prevent collection (#1011)
+- Root `vector-partition` yes/no accumulators across allocation (#810, #944)
+- Root bignum intermediates in Euclid GCD/LCM loops (#843, #885)
+- Root intermediate values across allocations in numeric primitives (#861, #881)
+- Trace environment `Value` in `Function`/`Transformer` to prevent use-after-free (#867, #884)
+- Clean up child function roots after single-expression compilation (#832, #886)
+- Retire replaced library envs instead of freeing them while still reachable (#941)
+- Keep `.sbc`-loaded functions rooted for the whole run (#970)
+- Convert `markValue` from recursive to iterative using an explicit worklist — eliminates stack overflow on deeply nested structures (#911)
+- Iterate cdr spine in `gc_deep_copy` to fix stack overflow on long lists (#801, #952)
+- Track child-interned symbols on parent GC to fix memory leak (#950)
+- Deep-copy `native_fn`/`native_closure` instead of aliasing across thread heaps (#975)
+
+#### Continuations
+- Fix `call/cc` escapes lost inside re-entrant native calls (`map`, `for-each`) — frame birth IDs now prevent incorrect escape detection (#934)
+- Raise error on continuation resume across a returned native call frame instead of silently corrupting state (#1009)
+- Fix continuation restore escape misdetection and `dynamic-wind` double-run (#870, #875, #905)
+- Fix use-after-free of frame pointer after re-entrant natives grow the frames array (#927)
+
+#### Threading (SRFI-18)
+- Share globals map by pointer with SRFI-18 child threads, lock rehashes (#958, #971)
+- Fix heap corruption from child threads touching shared parent state (#958, #968)
+- Fix `thread-terminate!` never stopping OS threads, hanging `thread-join!` (#933)
+- Lock `symbol_mutex` unconditionally in `allocSymbol` — fixes data race under concurrent interning (#797, #945)
+- Honour `timeout`/`timeout-val` in `thread-join!` for OS threads (#878, #1000)
+- Call `sched_yield` in `thread-yield!` when no cooperative scheduler exists (#948, #994)
+- Preserve `string`/`bytevector` `eq?` identity in thread deep copy (#807, #988)
+- Fix top-level `thread-yield!` scheduler interaction and pre-scheduler parameter loss (#940)
+
+#### Compiler and IR
+- Replace fixed 256-node buffers with growable lists in IR lowering — removes hard limit on form complexity (#791, #1003)
+- Honor lexical shadowing of keywords in IR lowering (#788, #967)
+- Suppress constant folding of `set!`-reassigned globals in the same form (#962)
+- Respect lexical shadowing of primitives in IR constant folding (#790, #956)
+- Invalidate stale native call sites after `set!`/`define` rebinding (#822, #981)
+- Fix closure capture inside `do` loops corrupting the captured variable (#803, #954)
+- Fix panic on closures capturing 27+ variables (#809, #953)
+- Fix `case-lambda` capturing user variables and dropping clauses past the 32nd (#936)
+- Fix lost `set!` writes and builtin-name capture in macro templates (#935)
+- Probe upvalues when checking if a keyword is shadowed (#814, #951)
+- Clear global cache on `set_global`/`define_global` rebind (#812, #955)
+- Scope library-body `define-syntax` macros to their library — unexported macros no longer leak globally (#877, #957)
+- Scope macro-generated `define-syntax` to its body (#928)
+- Fix LLVM backend `set!`/`define` ignoring lexical scope (#819, #966)
+- Fix LLVM backend `eval` fallback losing lexical environment (#827, #987)
+- Fix LLVM backend `emitLet` fallback to include `let`/`let*` keyword (#831, #900)
+- Fix `car`/`cdr` type errors in LLVM native backend (#834, #892)
+
+#### Macro system
+- Fix nested-ellipsis expansion rejecting depth-2 pattern variables (#931)
+- Fix double hygiene renaming in macro-generating macros (#923)
+- Fix two R7RS suite forms aborted by hygiene and macro-shadowing bugs (#926)
+
+#### Arithmetic
+- Compare rationals exactly instead of falling back to f64 (#844, #949)
+- Fix bignum `toF64` double-rounding by using u128 top-two-limb combination (#833, #907)
+- Fix `exact-integer-sqrt` to use scale-aware initial guess for large bignums (#851, #906)
+- Parse `#e` decimal strings exactly without f64 round-trip (#856, #996)
+- Fix exact denominator 2^47 wrapping and inexact NaN on huge rationals (#842, #848, #898)
+- Fix `exact`/`numerator`/`denominator` abort on flonum 2^63 and bignum rational parsing (#846, #853, #896)
+- Rewrite rational arithmetic paths to handle bignums without early return (#894)
+- Validate operand types in `quotient`/`remainder`/`modulo`/`gcd` bignum paths (#890)
+- Fix `round` on negative exact rationals with fraction < 1/2 (#837, #888)
+- Fix `magnitude` on rationals (#865, #892)
+- Fix `numerator`/`denominator` on flonums to use exact dyadic fraction (#858, #903)
+
 #### I/O
-- `read` now signals an error satisfying `read-error?` when end of file is encountered in the middle of an incomplete datum (e.g. `(read (open-input-string "(unclosed"))`), as R7RS 6.13.2 requires, instead of silently returning the EOF object. EOF before any datum begins still returns the EOF object. Applies to both string ports and file ports.
+- Fix `read` after `peek-char` reordering stream bytes (#804, #997)
+- Fix `peek-char` returning raw lead byte for multi-byte UTF-8 on fd ports (#798, #1001)
+- Check `peek_byte` before returning EOF in string-port read (#799, #1006)
+- Parse fd-backed `(read)` incrementally instead of draining to EOF (#847, #984)
+- Reject directories and propagate read errors in `readFileContents` (#983)
+- Return `""` for `(read-string 0 port)`, not EOF (#959)
+- Signal `read-error?` when `read` hits EOF mid-datum per R7RS 6.13.2 (#977)
+
+#### Reader
+- Fix Unicode reader gaps and fold-case for non-ASCII identifiers (#920, #1004)
+- Fix char literal semicolon parsing and `string-prefix?`/`suffix?` argument order (#891)
+
+#### Strings
+- Fix `string-titlecase` word boundaries and Unicode case mapping (#824, #1002)
+- Fix `string-join` default delimiter from empty string to single space (#825, #909)
+- Fix `string-replace` index clamping and bignum parse error propagation (#830, #893)
+
+#### FFI
+- Handle bignums in `types.toF64` to fix FFI `double`/`float` marshaling (#792, #793, #998, #999)
+- Accept full unsigned 64-bit range for `uint64`/`size_t` FFI arguments (#794, #992)
+- Range-check FFI args against declared narrow int types (#795, #980)
+- Coerce FFI bool args to 0/1 before the C `_Bool` trampoline (#796, #963)
 
 #### Libraries
-- Fix `define-syntax` in a library body registering the macro in the process-global macro table at load time — unexported library-body macros no longer leak to all code, and a macro imported from one library is no longer silently clobbered by loading another library that defines the same name (#877)
+- Handle `cond-expand` and nested `include-library-declarations` in library bodies (#874, #982)
+- Fix `cond-expand (library ...)` and `include` in library bodies (#917)
+- Search the script's directory for libraries; unify `cond-expand` library checks (#930)
+- Expand `(scheme r5rs)` to the full R5RS identifier set (#813, #965)
+- Replace fixed-size export arrays with dynamic ArrayLists in `define-library` (#862, #882)
+- Add missing exports to SRFI-133 and SRFI-1 library definitions (#816, #818)
 
-#### CLI
-- Exit non-zero on command-line usage errors so shell scripts and CI can detect them: missing flag arguments (`--lib-path`, `--timeout`, `--max-memory`, `-o`, `--coverage-xml`, `--profile-json`, `--completions`) and an unknown `--completions` shell now exit 2 instead of 0 (#781)
-- Reject unknown flags (e.g. `--typo-flag`) with a usage error instead of silently treating them as a script filename (#781)
-- Exit non-zero on `--compile`/`--disassemble` read and compile errors, and on standalone-binary runtime and corrupt-bytecode errors, so build and bundled-app failures are visible to CI (#781)
+#### SRFIs
+- Fix SRFI-158 `gtake` crash, SRFI-189 `nothing` procedure, SRFI-115 unknown char class (#1008)
+- Mark hash-table entries occupied on insert via `update!`/`default` and `alist->hash-table` (#939)
+- Guard `vector-unfold`/`unfold-right` against empty multiple values (#806, #986)
+- Fix `alist->hash-table` arity check (#1011)
+
+#### Quasiquote
+- Fix quasiquote nesting for `unquote-splicing`, vectors, and dotted tails (#849, #850, #852)
 
 #### Fibers
-- Fix `channel-receive` silently returning an unspecified value when the value had to flow through two or more intermediate fiber stages: a fiber blocked with no runnable siblings now parks on the channel and is woken by the next `channel-send` (re-executing the receive), so multi-stage pipelines deliver values instead of spinning on garbage. A receive (or `fiber-join`) that can never be satisfied now raises a catchable deadlock error instead of returning void
+- Fix `channel-receive` silently returning an unspecified value when the value had to flow through two or more intermediate fiber stages: a fiber blocked with no runnable siblings now parks on the channel and is woken by the next `channel-send`, so multi-stage pipelines deliver values correctly. A receive (or `fiber-join`) that can never be satisfied now raises a catchable deadlock error instead of returning void (#978)
 - `apply`-forwarded `channel-receive` propagates the park signal instead of collapsing it into a type error
-- Documented exit semantics: fibers still parked when the main program ends are discarded (Go-style), and a fiber blocking inside a native-driven callback (`map`, `for-each`, ...) raises a deadlock error when nothing else can run (see README known limitations)
+
+#### REPL and CLI
+- Stop `--sandbox` pre-scan at filename boundary (#783, #1007)
+- Skip `.sbc` bytecode cache in sandbox mode (#785, #995)
+- Include compiler version in `.sbc` cache validity check (#925, #993)
+- Reject invalid `--timeout` and `--max-memory` values instead of silently ignoring them (#787, #989)
+- Exit non-zero on CLI usage, compile, and standalone-binary errors (#964)
+- Register `,condition` in REPL help, tab completion, and usage table (#828, #899)
+- Stop flattening newlines in REPL history entries (#915)
+- Restore `debug_mode` after `,step` instead of unconditionally disabling (#914)
+- Add VT and FF to `string-trim` default whitespace criterion (#913)
+- Add depth guard to `prettyPrint` to prevent hang on cyclic structures (#859)
+- Add missing separator before dotted tail in pretty-printer (#863, #883)
+
+#### LSP
+- Fix `positionEncoding` rejection and `jsonUnescape` `\uXXXX` (#866, #872, #901)
+- Fix `MethodNotFound` response, hover newlines, dotted define crash (#873, #871, #869, #895)
 
 #### Package manager (thottam)
-- Fix version-pinned installs always failing with "Failed to checkout version": `git checkout -- <ref>` treats the ref as a pathspec, so use `--end-of-options` to keep the option-injection guard while resolving `<ref>` as a revision. Affected `install pkg@v1.0.0`, semver constraints, and `--locked` installs (#780)
+- Fix version-pinned installs: use `--end-of-options` instead of `--` so the ref resolves as a revision, not a pathspec (#780, #960)
+- Copy visited-set keys to fix use-after-free on transitive deps (#947)
+
+#### Other
+- Evaluate `parameterize` param expressions exactly once (#860, #887)
+- Allow empty datum list in `case` clauses (#854, #889)
+- Use `raise-continuable` for unmatched `guard` clauses per R7RS (#845, #897)
+- Fix `symbolNeedsBars` to catch DEL, C1 controls, and non-letter Unicode (#857, #902)
+- Use `fstatat` instead of `open` in `file-exists?` (#808, #990)
+- Reject filesystem paths with embedded NUL bytes (#805, #985)
+- Fix >255 vector args overflowing fixed arg buffers (#802, #991)
+- Range-check `nice` argument to avoid `@intCast` panic (#800, #961)
+- Remove dead `.sbc` cache-read path for `.sld` libraries (#937)
+- Fix SRFI-64 suite silently asserting nothing; flip exit code on script errors (#929)
+- Use trailing `--` instead of `--end-of-options` in pinned checkout (#969, #974)
 
 ## [0.11.1] - 2026-07-02
 
