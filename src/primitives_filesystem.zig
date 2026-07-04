@@ -4,7 +4,8 @@ const primitives = @import("primitives.zig");
 const vm_mod = @import("vm.zig");
 const Value = types.Value;
 const PrimitiveError = primitives.PrimitiveError;
-const GC = @import("memory.zig").GC;
+const memory = @import("memory.zig");
+const GC = memory.GC;
 const arith = @import("primitives_arithmetic.zig");
 
 extern fn mkstemp(template: [*:0]u8) c_int;
@@ -218,7 +219,7 @@ fn extractPath(val: Value) ?[]const u8 {
 
 fn validatePathNoNul(path: []const u8, original: Value) PrimitiveError!void {
     if (std.mem.indexOfScalar(u8, path, 0) != null) {
-        const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+        const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
         _ = try raiseFileError(gc, "path contains embedded NUL byte", original);
     }
 }
@@ -228,7 +229,7 @@ fn validatePathNoNul(path: []const u8, original: Value) PrimitiveError!void {
 // -------------------------------------------------------------------------
 
 fn directoryFiles(args: []const Value) PrimitiveError!Value {
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const path = extractPath(args[0]) orelse return primitives.typeError("directory-files", "string", args[0]);
     try validatePathNoNul(path, args[0]);
     const include_dotfiles = if (args.len > 1) types.isTruthy(args[1]) else false;
@@ -267,7 +268,7 @@ fn directoryFiles(args: []const Value) PrimitiveError!Value {
 // -------------------------------------------------------------------------
 
 fn fileInfoFn(args: []const Value) PrimitiveError!Value {
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const path = extractPath(args[0]) orelse return primitives.typeError("file-info", "string", args[0]);
     try validatePathNoNul(path, args[0]);
     const follow = if (args.len > 1) types.isTruthy(args[1]) else true;
@@ -424,7 +425,7 @@ fn fileInfoDeviceP(args: []const Value) PrimitiveError!Value {
 // -------------------------------------------------------------------------
 
 fn createDirectoryFn(args: []const Value) PrimitiveError!Value {
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const path = extractPath(args[0]) orelse return primitives.typeError("create-directory", "string", args[0]);
     try validatePathNoNul(path, args[0]);
 
@@ -443,7 +444,7 @@ fn createDirectoryFn(args: []const Value) PrimitiveError!Value {
 }
 
 fn deleteDirectoryFn(args: []const Value) PrimitiveError!Value {
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const path = extractPath(args[0]) orelse return primitives.typeError("delete-directory", "string", args[0]);
     try validatePathNoNul(path, args[0]);
 
@@ -461,7 +462,7 @@ fn deleteDirectoryFn(args: []const Value) PrimitiveError!Value {
 // -------------------------------------------------------------------------
 
 fn renameFileFn(args: []const Value) PrimitiveError!Value {
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const old = extractPath(args[0]) orelse return primitives.typeError("rename-file", "string", args[0]);
     const new = extractPath(args[1]) orelse return primitives.typeError("rename-file", "string", args[1]);
     try validatePathNoNul(old, args[0]);
@@ -479,7 +480,7 @@ fn renameFileFn(args: []const Value) PrimitiveError!Value {
 }
 
 fn createSymlinkFn(args: []const Value) PrimitiveError!Value {
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const old = extractPath(args[0]) orelse return primitives.typeError("create-symlink", "string", args[0]);
     const new = extractPath(args[1]) orelse return primitives.typeError("create-symlink", "string", args[1]);
     try validatePathNoNul(old, args[0]);
@@ -497,7 +498,7 @@ fn createSymlinkFn(args: []const Value) PrimitiveError!Value {
 }
 
 fn readSymlinkFn(args: []const Value) PrimitiveError!Value {
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const path = extractPath(args[0]) orelse return primitives.typeError("read-symlink", "string", args[0]);
     try validatePathNoNul(path, args[0]);
 
@@ -516,7 +517,7 @@ fn readSymlinkFn(args: []const Value) PrimitiveError!Value {
 }
 
 fn createHardLinkFn(args: []const Value) PrimitiveError!Value {
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const old = extractPath(args[0]) orelse return primitives.typeError("create-hard-link", "string", args[0]);
     const new = extractPath(args[1]) orelse return primitives.typeError("create-hard-link", "string", args[1]);
     try validatePathNoNul(old, args[0]);
@@ -534,7 +535,7 @@ fn createHardLinkFn(args: []const Value) PrimitiveError!Value {
 }
 
 fn realPathFn(args: []const Value) PrimitiveError!Value {
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const path = extractPath(args[0]) orelse return primitives.typeError("real-path", "string", args[0]);
     try validatePathNoNul(path, args[0]);
 
@@ -550,7 +551,7 @@ fn realPathFn(args: []const Value) PrimitiveError!Value {
 }
 
 fn setFileModeFn(args: []const Value) PrimitiveError!Value {
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const path = extractPath(args[0]) orelse return primitives.typeError("set-file-mode", "string", args[0]);
     try validatePathNoNul(path, args[0]);
     if (!types.isFixnum(args[1])) return primitives.typeError("set-file-mode", "integer", args[1]);
@@ -566,7 +567,7 @@ fn setFileModeFn(args: []const Value) PrimitiveError!Value {
 }
 
 fn truncateFileFn(args: []const Value) PrimitiveError!Value {
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const path = extractPath(args[0]) orelse return primitives.typeError("truncate-file", "string", args[0]);
     try validatePathNoNul(path, args[0]);
     if (!types.isFixnum(args[1])) return primitives.typeError("truncate-file", "integer", args[1]);
@@ -582,7 +583,7 @@ fn truncateFileFn(args: []const Value) PrimitiveError!Value {
 }
 
 fn createFifoFn(args: []const Value) PrimitiveError!Value {
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const path = extractPath(args[0]) orelse return primitives.typeError("create-fifo", "string", args[0]);
     try validatePathNoNul(path, args[0]);
 
@@ -601,7 +602,7 @@ fn createFifoFn(args: []const Value) PrimitiveError!Value {
 }
 
 fn setFileOwnerFn(args: []const Value) PrimitiveError!Value {
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const path = extractPath(args[0]) orelse return primitives.typeError("set-file-owner", "string", args[0]);
     try validatePathNoNul(path, args[0]);
     if (!types.isFixnum(args[1])) return primitives.typeError("set-file-owner", "integer", args[1]);
@@ -623,7 +624,7 @@ const TIME_NOW: i64 = -1;
 const TIME_UNCHANGED: i64 = -2;
 
 fn setFileTimesFn(args: []const Value) PrimitiveError!Value {
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const path = extractPath(args[0]) orelse return primitives.typeError("set-file-times", "string", args[0]);
     try validatePathNoNul(path, args[0]);
 
@@ -681,7 +682,7 @@ fn umaskFn(args: []const Value) PrimitiveError!Value {
 }
 
 fn setUmaskFn(args: []const Value) PrimitiveError!Value {
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     if (!types.isFixnum(args[0])) return primitives.typeError("set-umask!", "integer", args[0]);
     const mask = try validateMode(gc, args[0]);
     _ = std.c.umask(mask);
@@ -690,7 +691,7 @@ fn setUmaskFn(args: []const Value) PrimitiveError!Value {
 
 fn currentDirectoryFn(args: []const Value) PrimitiveError!Value {
     _ = args;
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     var buf: [std.posix.PATH_MAX]u8 = undefined;
     const result = std.c.getcwd(&buf, buf.len) orelse {
         return raiseFileError(gc, "cannot get current directory", types.FALSE);
@@ -700,7 +701,7 @@ fn currentDirectoryFn(args: []const Value) PrimitiveError!Value {
 }
 
 fn setCurrentDirectoryFn(args: []const Value) PrimitiveError!Value {
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const path = extractPath(args[0]) orelse return primitives.typeError("set-current-directory!", "string", args[0]);
     try validatePathNoNul(path, args[0]);
 
@@ -735,7 +736,7 @@ fn userEffectiveGidFn(args: []const Value) PrimitiveError!Value {
 
 fn userSupplementaryGidsFn(args: []const Value) PrimitiveError!Value {
     _ = args;
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
 
     const count = getgroups(0, undefined);
     if (count < 0) return raiseFileError(gc, "cannot query supplementary groups", types.NIL);
@@ -758,7 +759,7 @@ fn userSupplementaryGidsFn(args: []const Value) PrimitiveError!Value {
 }
 
 fn niceFn(args: []const Value) PrimitiveError!Value {
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     var delta: c_int = 1;
     if (args.len > 0 and types.isFixnum(args[0])) {
         // Fixnums range up to ±2^47, but nice() takes a C int. An unchecked
@@ -785,7 +786,7 @@ fn niceFn(args: []const Value) PrimitiveError!Value {
 // -------------------------------------------------------------------------
 
 fn setEnvVarFn(args: []const Value) PrimitiveError!Value {
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const name = extractPath(args[0]) orelse return primitives.typeError("set-environment-variable!", "string", args[0]);
     const value = extractPath(args[1]) orelse return primitives.typeError("set-environment-variable!", "string", args[1]);
     try validatePathNoNul(name, args[0]);
@@ -803,7 +804,7 @@ fn setEnvVarFn(args: []const Value) PrimitiveError!Value {
 }
 
 fn deleteEnvVarFn(args: []const Value) PrimitiveError!Value {
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const name = extractPath(args[0]) orelse return primitives.typeError("delete-environment-variable!", "string", args[0]);
     try validatePathNoNul(name, args[0]);
 
@@ -829,7 +830,7 @@ fn terminalP(args: []const Value) PrimitiveError!Value {
 // -------------------------------------------------------------------------
 
 fn userInfoFn(args: []const Value) PrimitiveError!Value {
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
 
     const pw = if (types.isFixnum(args[0])) blk: {
         const id_val = types.toFixnum(args[0]);
@@ -859,7 +860,7 @@ fn userInfoP(args: []const Value) PrimitiveError!Value {
 
 fn userInfoName(args: []const Value) PrimitiveError!Value {
     if (!types.isUserInfo(args[0])) return primitives.typeError("user-info:name", "user-info", args[0]);
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     return gc.allocString(types.toUserInfo(args[0]).name) catch return PrimitiveError.OutOfMemory;
 }
 
@@ -875,24 +876,24 @@ fn userInfoGidFn(args: []const Value) PrimitiveError!Value {
 
 fn userInfoHomeDir(args: []const Value) PrimitiveError!Value {
     if (!types.isUserInfo(args[0])) return primitives.typeError("user-info:home-dir", "user-info", args[0]);
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     return gc.allocString(types.toUserInfo(args[0]).home_dir) catch return PrimitiveError.OutOfMemory;
 }
 
 fn userInfoShell(args: []const Value) PrimitiveError!Value {
     if (!types.isUserInfo(args[0])) return primitives.typeError("user-info:shell", "user-info", args[0]);
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     return gc.allocString(types.toUserInfo(args[0]).shell) catch return PrimitiveError.OutOfMemory;
 }
 
 fn userInfoFullName(args: []const Value) PrimitiveError!Value {
     if (!types.isUserInfo(args[0])) return primitives.typeError("user-info:full-name", "user-info", args[0]);
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     return gc.allocString(types.toUserInfo(args[0]).full_name) catch return PrimitiveError.OutOfMemory;
 }
 
 fn groupInfoFn(args: []const Value) PrimitiveError!Value {
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
 
     if (types.isFixnum(args[0])) {
         const id_val = types.toFixnum(args[0]);
@@ -918,7 +919,7 @@ fn groupInfoP(args: []const Value) PrimitiveError!Value {
 
 fn groupInfoName(args: []const Value) PrimitiveError!Value {
     if (!types.isGroupInfo(args[0])) return primitives.typeError("group-info:name", "group-info", args[0]);
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     return gc.allocString(types.toGroupInfo(args[0]).name) catch return PrimitiveError.OutOfMemory;
 }
 
@@ -932,7 +933,7 @@ fn groupInfoGidFn(args: []const Value) PrimitiveError!Value {
 // -------------------------------------------------------------------------
 
 fn openDirectoryFn(args: []const Value) PrimitiveError!Value {
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const path = extractPath(args[0]) orelse return primitives.typeError("open-directory", "string", args[0]);
     try validatePathNoNul(path, args[0]);
     const include_dotfiles = if (args.len > 1) types.isTruthy(args[1]) else false;
@@ -952,7 +953,7 @@ fn openDirectoryFn(args: []const Value) PrimitiveError!Value {
 
 fn readDirectoryFn(args: []const Value) PrimitiveError!Value {
     if (!types.isDirectoryObject(args[0])) return primitives.typeError("read-directory", "directory-object", args[0]);
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const d = types.toDirectoryObject(args[0]);
 
     const dir_ptr = d.dir orelse return types.EOF;
@@ -1001,7 +1002,7 @@ fn monotonicTimeFn(args: []const Value) PrimitiveError!Value {
 
 // (file-info-type fi) — return type as symbol
 fn fileInfoTypeFn(args: []const Value) PrimitiveError!Value {
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     if (!types.isFileInfo(args[0])) return primitives.typeError("file-info-type", "file-info", args[0]);
     const fi = types.toObject(args[0]).as(types.FileInfo);
     const name: []const u8 = switch (fi.file_type) {
@@ -1020,13 +1021,13 @@ fn fileInfoTypeFn(args: []const Value) PrimitiveError!Value {
 // (temp-file-prefix) — return tempdir path
 fn tempFilePrefixFn(args: []const Value) PrimitiveError!Value {
     _ = args;
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     return gc.allocString("/tmp/kaappi-") catch return PrimitiveError.OutOfMemory;
 }
 
 // (create-temp-file [prefix]) — create a temp file and return its path
 fn createTempFileFn(args: []const Value) PrimitiveError!Value {
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
 
     var prefix: []const u8 = "/tmp/kaappi-";
     if (args.len > 0 and types.isString(args[0])) {

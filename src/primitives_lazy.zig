@@ -1,6 +1,7 @@
 const std = @import("std");
 const types = @import("types.zig");
 const primitives = @import("primitives.zig");
+const memory = @import("memory.zig");
 const vm_mod = @import("vm.zig");
 const Value = types.Value;
 const PrimitiveError = primitives.PrimitiveError;
@@ -23,18 +24,18 @@ fn promiseP(args: []const Value) PrimitiveError!Value {
 
 fn makePromiseFn(args: []const Value) PrimitiveError!Value {
     if (types.isPromise(args[0])) return args[0];
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     return gc.allocPromise(true, args[0]) catch return PrimitiveError.OutOfMemory;
 }
 
 fn makePromiseLazy(args: []const Value) PrimitiveError!Value {
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     return gc.allocPromise(false, args[0]) catch return PrimitiveError.OutOfMemory;
 }
 
 fn forceFn(args: []const Value) PrimitiveError!Value {
     const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError; // bare-ok: no VM
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
 
     var current = args[0];
     gc.pushRoot(&current) catch return PrimitiveError.OutOfMemory;

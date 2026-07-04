@@ -2,6 +2,7 @@ const std = @import("std");
 const types = @import("types.zig");
 const vm_mod = @import("vm.zig");
 const primitives = @import("primitives.zig");
+const memory = @import("memory.zig");
 const fiber_mod = @import("fiber.zig");
 const Value = types.Value;
 const NativeFn = types.NativeFn;
@@ -35,7 +36,7 @@ fn spawnFn(args: []const Value) PrimitiveError!Value {
     const vm = vm_mod.vm_instance orelse return PrimitiveError.OutOfMemory;
 
     if (vm.scheduler == null) {
-        const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+        const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
         const sched = gc.allocator.create(fiber_mod.FiberScheduler) catch return PrimitiveError.OutOfMemory;
         sched.* = fiber_mod.FiberScheduler.init(vm);
 
@@ -94,7 +95,7 @@ fn fiberPredFn(args: []const Value) PrimitiveError!Value {
 }
 
 fn makeChannelFn(_: []const Value) PrimitiveError!Value {
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     return gc.allocChannel() catch return PrimitiveError.OutOfMemory;
 }
 
@@ -102,7 +103,7 @@ fn channelSendFn(args: []const Value) PrimitiveError!Value {
     if (!types.isChannel(args[0]))
         return primitives.typeError("channel-send", "channel", args[0]);
 
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const ch = types.toObject(args[0]).as(types.Channel);
     const new_pair = gc.allocPair(args[1], types.NIL) catch return PrimitiveError.OutOfMemory;
 
@@ -147,14 +148,14 @@ fn dequeueChannel(ch: *types.Channel, ch_val: Value) Value {
     const pair = types.toObject(ch.head).as(types.Pair);
     const val = pair.car;
     ch.head = pair.cdr;
-    if (primitives.gc_instance) |gc| gc.writeBarrier(types.toObject(ch_val), pair.cdr);
+    if (memory.gc_instance) |gc| gc.writeBarrier(types.toObject(ch_val), pair.cdr);
     if (ch.head == types.NIL) ch.tail = types.NIL;
     return val;
 }
 
 fn runSchedulerUntil(target: ?*fiber_mod.Fiber, ch: ?*types.Channel, ch_val: Value) PrimitiveError!Value {
     const vm = vm_mod.vm_instance orelse return PrimitiveError.OutOfMemory;
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const sched = vm.scheduler orelse return PrimitiveError.OutOfMemory;
     const my_idx = sched.current_idx;
     sched.saveCurrentFiber();
@@ -236,7 +237,7 @@ fn blockOrDeadlock(vm: *vm_mod.VM, me: *fiber_mod.Fiber, my_idx: usize, wait_on:
 }
 
 fn raiseDeadlockError(msg: []const u8) PrimitiveError {
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const vm = vm_mod.vm_instance orelse return PrimitiveError.OutOfMemory;
     const message = gc.allocString(msg) catch return PrimitiveError.OutOfMemory;
     var msg_root = message;

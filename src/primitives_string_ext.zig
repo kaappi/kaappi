@@ -2,6 +2,7 @@ const std = @import("std");
 const types = @import("types.zig");
 const vm_mod = @import("vm.zig");
 const primitives = @import("primitives.zig");
+const memory = @import("memory.zig");
 const pstr = @import("primitives_string.zig");
 const pchar = @import("primitives_char.zig");
 const unicode = @import("unicode_tables.zig");
@@ -165,7 +166,7 @@ fn findPrevCpStart(data: []const u8, pos: usize) usize {
 
 // (string-trim s [pred [start end]])
 fn stringTrimFn(args: []const Value) PrimitiveError!Value {
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const full_data = try getStringSlice(args[0]);
     if (args.len <= 1) {
         var start: usize = 0;
@@ -187,7 +188,7 @@ fn stringTrimFn(args: []const Value) PrimitiveError!Value {
 
 // (string-trim-right s [pred [start end]])
 fn stringTrimRightFn(args: []const Value) PrimitiveError!Value {
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const full_data = try getStringSlice(args[0]);
     if (args.len <= 1) {
         var end: usize = full_data.len;
@@ -210,7 +211,7 @@ fn stringTrimRightFn(args: []const Value) PrimitiveError!Value {
 
 // (string-trim-both s [pred [start end]])
 fn stringTrimBothFn(args: []const Value) PrimitiveError!Value {
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const full_data = try getStringSlice(args[0]);
     if (args.len <= 1) {
         var start: usize = 0;
@@ -275,7 +276,7 @@ fn stringCountFn(args: []const Value) PrimitiveError!Value {
 
 // (string-split s delimiter) -> list of strings
 fn stringSplitFn(args: []const Value) PrimitiveError!Value {
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const data = try getStringSlice(args[0]);
     const delim = try getStringSlice(args[1]);
 
@@ -334,7 +335,7 @@ fn stringSplitFn(args: []const Value) PrimitiveError!Value {
 
 // (string-join list-of-strings) or (string-join list-of-strings delimiter)
 fn stringJoinFn(args: []const Value) PrimitiveError!Value {
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const delim: []const u8 = if (args.len > 1)
         (try getStringSlice(args[1]))
     else
@@ -375,7 +376,7 @@ fn stringJoinFn(args: []const Value) PrimitiveError!Value {
 
 // (string-concatenate list-of-strings) -> string
 fn stringConcatenateFn(args: []const Value) PrimitiveError!Value {
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     var total: usize = 0;
     var current = args[0];
     while (current != types.NIL) {
@@ -409,7 +410,7 @@ fn callVM(proc: Value, call_args: []const Value) PrimitiveError!Value {
 }
 
 fn stringTakeFn(args: []const Value) PrimitiveError!Value {
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const data = try getStringSlice(args[0]);
     if (!types.isFixnum(args[1])) return primitives.typeError("string-take", "integer", args[1]);
     const nv = types.toFixnum(args[1]);
@@ -420,7 +421,7 @@ fn stringTakeFn(args: []const Value) PrimitiveError!Value {
 }
 
 fn stringDropFn(args: []const Value) PrimitiveError!Value {
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const data = try getStringSlice(args[0]);
     if (!types.isFixnum(args[1])) return primitives.typeError("string-drop", "integer", args[1]);
     const nv = types.toFixnum(args[1]);
@@ -431,7 +432,7 @@ fn stringDropFn(args: []const Value) PrimitiveError!Value {
 }
 
 fn stringTakeRightFn(args: []const Value) PrimitiveError!Value {
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const data = try getStringSlice(args[0]);
     if (!types.isFixnum(args[1])) return primitives.typeError("string-take-right", "integer", args[1]);
     const nv = types.toFixnum(args[1]);
@@ -445,7 +446,7 @@ fn stringTakeRightFn(args: []const Value) PrimitiveError!Value {
 }
 
 fn stringDropRightFn(args: []const Value) PrimitiveError!Value {
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const data = try getStringSlice(args[0]);
     if (!types.isFixnum(args[1])) return primitives.typeError("string-drop-right", "integer", args[1]);
     const nv = types.toFixnum(args[1]);
@@ -459,7 +460,7 @@ fn stringDropRightFn(args: []const Value) PrimitiveError!Value {
 }
 
 fn stringPadFn(args: []const Value) PrimitiveError!Value {
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const full_data = try getStringSlice(args[0]);
     if (!types.isFixnum(args[1])) return primitives.typeError("string-pad", "integer", args[1]);
     const tlv = types.toFixnum(args[1]);
@@ -487,7 +488,7 @@ fn stringPadFn(args: []const Value) PrimitiveError!Value {
 }
 
 fn stringPadRightFn(args: []const Value) PrimitiveError!Value {
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const full_data = try getStringSlice(args[0]);
     if (!types.isFixnum(args[1])) return primitives.typeError("string-pad-right", "integer", args[1]);
     const tlv = types.toFixnum(args[1]);
@@ -516,7 +517,7 @@ fn stringPadRightFn(args: []const Value) PrimitiveError!Value {
 
 // (string-reverse s [start end])
 fn stringReverseFn(args: []const Value) PrimitiveError!Value {
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const full_data = try getStringSlice(args[0]);
     const r = try parseStartEnd(full_data, args, 1);
     const data = r.data;
@@ -545,7 +546,7 @@ fn stringReverseFn(args: []const Value) PrimitiveError!Value {
 
 // (string-filter pred s [start end])
 fn stringFilterFn(args: []const Value) PrimitiveError!Value {
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const pred = args[0];
     const full_data = try getStringSlice(args[1]);
     const range = try parseStartEnd(full_data, args, 2);
@@ -567,7 +568,7 @@ fn stringFilterFn(args: []const Value) PrimitiveError!Value {
 
 // (string-delete pred s [start end])
 fn stringDeleteFn(args: []const Value) PrimitiveError!Value {
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const pred = args[0];
     const full_data = try getStringSlice(args[1]);
     const range = try parseStartEnd(full_data, args, 2);
@@ -588,7 +589,7 @@ fn stringDeleteFn(args: []const Value) PrimitiveError!Value {
 }
 
 fn stringReplaceFn(args: []const Value) PrimitiveError!Value {
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const data1 = try getStringSlice(args[0]);
     const data2 = try getStringSlice(args[1]);
     if (!types.isFixnum(args[2]) or !types.isFixnum(args[3])) return primitives.typeError("string-replace", "integer", if (!types.isFixnum(args[2])) args[2] else args[3]);
@@ -612,7 +613,7 @@ fn stringReplaceFn(args: []const Value) PrimitiveError!Value {
 
 // (string-titlecase s [start end])
 fn stringTitlecaseFn(args: []const Value) PrimitiveError!Value {
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const full_data = try getStringSlice(args[0]);
     const range = try parseStartEnd(full_data, args, 1);
     const data = range.data;
@@ -772,7 +773,7 @@ fn stringAnyFn(args: []const Value) PrimitiveError!Value {
 }
 
 fn stringTabulateFn(args: []const Value) PrimitiveError!Value {
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const proc = args[0];
     if (!types.isFixnum(args[1])) return primitives.typeError("string-tabulate", "integer", args[1]);
     const lv = types.toFixnum(args[1]);
@@ -796,7 +797,7 @@ fn stringTabulateFn(args: []const Value) PrimitiveError!Value {
 
 // (string-unfold p f g seed [base [make-final]])
 fn stringUnfoldFn(args: []const Value) PrimitiveError!Value {
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const p = args[0];
     const f = args[1];
     const g = args[2];
@@ -833,7 +834,7 @@ fn stringUnfoldFn(args: []const Value) PrimitiveError!Value {
 
 // (string-unfold-right p f g seed [base [make-final]])
 fn stringUnfoldRightFn(args: []const Value) PrimitiveError!Value {
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const p = args[0];
     const f = args[1];
     const g = args[2];

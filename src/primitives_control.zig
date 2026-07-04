@@ -2,6 +2,7 @@ const std = @import("std");
 const types = @import("types.zig");
 const vm_mod = @import("vm.zig");
 const primitives = @import("primitives.zig");
+const memory = @import("memory.zig");
 const printer = @import("printer.zig");
 const primitives_io = @import("primitives_io.zig");
 const Value = types.Value;
@@ -40,7 +41,7 @@ pub fn registerControl(vm: *vm_mod.VM) !void {
 
 pub fn raiseFn(args: []const Value) PrimitiveError!Value {
     const vm = vm_mod.vm_instance orelse {
-        const gc = primitives.gc_instance orelse return PrimitiveError.TypeError; // bare-ok: no GC
+        const gc = memory.gc_instance orelse return PrimitiveError.TypeError; // bare-ok: no GC
         primitives_io.writeStderr("Error: unhandled exception: ");
         const s = printer.valueToString(gc.allocator, args[0], .write) catch return PrimitiveError.TypeError; // bare-ok: print failed
         defer gc.allocator.free(s);
@@ -54,7 +55,7 @@ pub fn raiseFn(args: []const Value) PrimitiveError!Value {
 
 fn raiseContinuableFn(args: []const Value) PrimitiveError!Value {
     const vm = vm_mod.vm_instance orelse {
-        const gc = primitives.gc_instance orelse return PrimitiveError.TypeError; // bare-ok: no GC
+        const gc = memory.gc_instance orelse return PrimitiveError.TypeError; // bare-ok: no GC
         primitives_io.writeStderr("Error: unhandled exception: ");
         const s = printer.valueToString(gc.allocator, args[0], .write) catch return PrimitiveError.TypeError; // bare-ok: print failed
         defer gc.allocator.free(s);
@@ -95,7 +96,7 @@ fn withExceptionHandlerFn(args: []const Value) PrimitiveError!Value {
         if (err == vm_mod.VMError.ExceptionRaised) {
             vm.popHandler();
             var handler_root = handler;
-            const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+            const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
             gc.pushRoot(&handler_root) catch return PrimitiveError.OutOfMemory;
             defer gc.popRoot();
             var exc = vm.current_exception orelse types.FALSE;
@@ -115,7 +116,7 @@ fn withExceptionHandlerFn(args: []const Value) PrimitiveError!Value {
         }
         vm.popHandler();
         // Convert VM-level errors into Scheme exceptions so guard can catch them
-        const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+        const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
         const detail = vm.getErrorDetail();
         var msg_str = if (detail.len > 0)
             gc.allocString(detail) catch return PrimitiveError.OutOfMemory
@@ -170,7 +171,7 @@ fn readErrorP(args: []const Value) PrimitiveError!Value {
 }
 
 fn errorFn(args: []const Value) PrimitiveError!Value {
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
 
     // First arg is the message
     const message = args[0];
@@ -314,7 +315,7 @@ fn dynamicWindFn(args: []const Value) PrimitiveError!Value {
 
 fn valuesFn(args: []const Value) PrimitiveError!Value {
     if (args.len == 1) return args[0];
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     return gc.allocMultipleValues(args) catch return PrimitiveError.OutOfMemory;
 }
 
@@ -332,7 +333,7 @@ fn callWithValuesFn(args: []const Value) PrimitiveError!Value {
     };
 
     // Call consumer with the produced values
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     var produced_root = produced;
     gc.pushRoot(&produced_root) catch return PrimitiveError.OutOfMemory;
     defer gc.popRoot();

@@ -68,6 +68,12 @@ pub fn spinUnlock(m: *std.atomic.Mutex) void {
     m.unlock();
 }
 
+pub threadlocal var gc_instance: ?*GC = null;
+
+pub fn setGCInstance(gc: *GC) void {
+    gc_instance = gc;
+}
+
 pub const GC = struct {
     allocator: std.mem.Allocator,
     objects: ?*Object = null,

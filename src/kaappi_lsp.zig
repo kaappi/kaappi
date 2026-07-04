@@ -882,7 +882,7 @@ pub fn main(init: std.process.Init.Minimal) !void {
     var vm = try vm_mod.VM.init(&gc);
     defer vm.deinit();
     try primitives.registerAll(&vm);
-    primitives.setGCInstance(&gc);
+    memory.setGCInstance(&gc);
     try library.registerStandardLibraries(&vm.libraries, vm.globals);
 
     var initialized = false;

@@ -2,6 +2,7 @@ const std = @import("std");
 const types = @import("types.zig");
 const vm_mod = @import("vm.zig");
 const primitives = @import("primitives.zig");
+const memory = @import("memory.zig");
 const bignum_mod = @import("bignum.zig");
 const Value = types.Value;
 const NativeFn = types.NativeFn;
@@ -21,7 +22,7 @@ fn reg(vm: *vm_mod.VM, name: []const u8, func: types.NativeFnType, arity: Native
 pub fn makeFixnumChecked(n: i64) PrimitiveError!Value {
     if (n >= std.math.minInt(i48) and n <= std.math.maxInt(i48))
         return types.makeFixnum(n);
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     return gc.allocBignumFromI64(n) catch return PrimitiveError.OutOfMemory;
 }
 
@@ -180,7 +181,7 @@ fn isExactZero(v: Value) bool {
 /// (guard ...) can catch it.
 pub fn raiseDivByZero() PrimitiveError!Value {
     const vm = vm_mod.vm_instance orelse return PrimitiveError.DivisionByZero;
-    const gc = primitives.gc_instance orelse return PrimitiveError.DivisionByZero;
+    const gc = memory.gc_instance orelse return PrimitiveError.DivisionByZero;
     var msg = gc.allocString("division by zero") catch return PrimitiveError.DivisionByZero;
     gc.pushRoot(&msg) catch return PrimitiveError.DivisionByZero;
     defer gc.popRoot();
@@ -264,7 +265,7 @@ fn anyBignum(args: []const Value) bool {
 }
 
 fn bignumAddAll(args: []const Value) PrimitiveError!Value {
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     var result: Value = types.makeFixnum(0);
     gc.extra_roots.append(gc.allocator, result) catch return PrimitiveError.OutOfMemory;
     defer {
@@ -279,7 +280,7 @@ fn bignumAddAll(args: []const Value) PrimitiveError!Value {
 }
 
 fn bignumSubAll(args: []const Value) PrimitiveError!Value {
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     if (args.len == 1) {
         if (!types.isFixnum(args[0]) and !types.isBignum(args[0])) return PrimitiveError.TypeError;
         return bignum_mod.negate(gc, args[0]) catch return PrimitiveError.OutOfMemory;
@@ -299,7 +300,7 @@ fn bignumSubAll(args: []const Value) PrimitiveError!Value {
 }
 
 fn bignumMulAll(args: []const Value) PrimitiveError!Value {
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     var result: Value = types.makeFixnum(1);
     gc.extra_roots.append(gc.allocator, result) catch return PrimitiveError.OutOfMemory;
     defer {
@@ -332,7 +333,7 @@ fn add(args: []const Value) PrimitiveError!Value {
         return makeFlonumVal(sum);
     }
     if (anyRational(args) or (anyBignum(args) and !anyFlonum(args))) {
-        const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+        const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
         var acc_num: Value = types.makeFixnum(0);
         var acc_den: Value = types.makeFixnum(1);
         gc.extra_roots.append(gc.allocator, acc_num) catch return PrimitiveError.OutOfMemory;
@@ -406,7 +407,7 @@ fn sub(args: []const Value) PrimitiveError!Value {
         return makeFlonumVal(result);
     }
     if (anyRational(args) or (anyBignum(args) and !anyFlonum(args))) {
-        const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+        const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
         var acc_num: Value = undefined;
         var acc_den: Value = undefined;
         if (types.isFixnum(args[0])) {
@@ -503,7 +504,7 @@ fn mul(args: []const Value) PrimitiveError!Value {
         return makeFlonumVal(product);
     }
     if (anyRational(args) or (anyBignum(args) and !anyFlonum(args))) {
-        const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+        const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
         var acc_num: Value = types.makeFixnum(1);
         var acc_den: Value = types.makeFixnum(1);
         gc.extra_roots.append(gc.allocator, acc_num) catch return PrimitiveError.OutOfMemory;
@@ -578,18 +579,18 @@ fn divFn(args: []const Value) PrimitiveError!Value {
         if (types.isFixnum(args[0])) {
             const a_val = types.toFixnum(args[0]);
             if (a_val == 0) return raiseDivByZero();
-            const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+            const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
             return makeRationalReduced(gc, types.makeFixnum(1), types.makeFixnum(a_val));
         }
         if (types.isRationalObj(args[0])) {
             // 1 / (n/d) = d/n
-            const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+            const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
             const r = types.toRational(args[0]);
             return makeRationalReduced(gc, r.denominator, r.numerator);
         }
         if (types.isBignum(args[0])) {
             if (bignum_mod.isZero(args[0])) return raiseDivByZero();
-            const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+            const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
             return makeRationalReduced(gc, types.makeFixnum(1), args[0]);
         }
         const a = try toF64Ext(args[0]);
@@ -598,7 +599,7 @@ fn divFn(args: []const Value) PrimitiveError!Value {
     }
     // Handle rational division: any rational arg means rational result
     if ((anyRational(args) or anyBignum(args)) and !anyFlonum(args)) {
-        const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+        const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
         var acc_num: Value = undefined;
         var acc_den: Value = undefined;
         if (types.isFixnum(args[0])) {
@@ -647,7 +648,7 @@ fn divFn(args: []const Value) PrimitiveError!Value {
     }
     // All exact integers (fixnum or bignum) — try exact division, produce rational if needed
     if (!anyFlonum(args) and !anyBignum(args) and !anyRational(args)) {
-        const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+        const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
         var n = types.toFixnum(args[0]);
         var d: i64 = 1;
         for (args[1..]) |a| {
@@ -683,7 +684,7 @@ fn divFn(args: []const Value) PrimitiveError!Value {
     }
     // Exact integer division with bignums: produce exact rational
     if (anyBignum(args) and !anyFlonum(args) and !anyRational(args)) {
-        const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+        const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
         var num_val = args[0];
         var den_val: Value = types.makeFixnum(1);
         gc.extra_roots.append(gc.allocator, num_val) catch return PrimitiveError.OutOfMemory;
@@ -725,7 +726,7 @@ fn quotient(args: []const Value) PrimitiveError!Value {
     {
         if (!types.isFixnum(args[0]) and !types.isBignum(args[0])) return numberTypeError(args[0]);
         if (!types.isFixnum(args[1]) and !types.isBignum(args[1])) return numberTypeError(args[1]);
-        const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+        const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
         if (bignum_mod.isZero(args[1])) return raiseDivByZero();
         return bignum_mod.quotient(gc, args[0], args[1]) catch return PrimitiveError.OutOfMemory;
     }
@@ -747,7 +748,7 @@ fn remainder(args: []const Value) PrimitiveError!Value {
     {
         if (!types.isFixnum(args[0]) and !types.isBignum(args[0])) return numberTypeError(args[0]);
         if (!types.isFixnum(args[1]) and !types.isBignum(args[1])) return numberTypeError(args[1]);
-        const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+        const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
         if (bignum_mod.isZero(args[1])) return raiseDivByZero();
         return bignum_mod.remainder(gc, args[0], args[1]) catch return PrimitiveError.OutOfMemory;
     }
@@ -769,7 +770,7 @@ fn modulo(args: []const Value) PrimitiveError!Value {
     {
         if (!types.isFixnum(args[0]) and !types.isBignum(args[0])) return numberTypeError(args[0]);
         if (!types.isFixnum(args[1]) and !types.isBignum(args[1])) return numberTypeError(args[1]);
-        const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+        const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
         if (bignum_mod.isZero(args[1])) return raiseDivByZero();
         const rem = bignum_mod.remainder(gc, args[0], args[1]) catch return PrimitiveError.OutOfMemory;
         if (bignum_mod.isZero(rem)) return types.makeFixnum(0);
@@ -831,7 +832,7 @@ fn compareExactReals(a: Value, b: Value) PrimitiveError!i8 {
         }
     }
     // General path: bignum cross-multiplication (handles bignum parts/overflow).
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const na = exactNumerator(a);
     const da = exactDenominator(a);
     const nb = exactNumerator(b);
@@ -852,7 +853,7 @@ fn compareExactVsFlonum(a: Value, f: f64) PrimitiveError!i8 {
         if (std.math.isNan(f)) return 1; // callers short-circuit NaN; be safe
         return if (f > 0) @as(i8, -1) else @as(i8, 1); // a < +inf ; a > -inf
     }
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     var f_exact = try numeric.exactFn(&[1]Value{types.makeFlonum(f)});
     gc.pushRoot(&f_exact) catch return PrimitiveError.OutOfMemory;
     defer gc.popRoot();
@@ -892,13 +893,13 @@ fn cmpPair(a: Value, b: Value) PrimitiveError!i8 {
         // Same f64 value — check if bignum is exactly representable
         // Convert f64 → bignum → f64 round-trip to detect precision loss
         if (fb == @trunc(fb) and @abs(fb) < 4.5e18) {
-            const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+            const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
             const b_exact = gc.allocBignumFromI64(@intFromFloat(fb)) catch return PrimitiveError.OutOfMemory;
             return bignum_mod.compare(a, b_exact);
         }
         // For very large integer floats: convert float to exact bignum and compare
         if (fb == @trunc(fb)) {
-            const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+            const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
             const bits: u64 = @bitCast(fb);
             const biased_exp = @as(i64, @intCast((bits >> 52) & 0x7FF));
             const mantissa_bits = bits & 0x000FFFFFFFFFFFFF;
@@ -1067,17 +1068,17 @@ fn absVal(args: []const Value) PrimitiveError!Value {
     if (types.isFixnum(args[0])) {
         const n = types.toFixnum(args[0]);
         if (n == std.math.minInt(i64)) {
-            const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+            const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
             return bignum_mod.absVal(gc, args[0]) catch return PrimitiveError.OutOfMemory;
         }
         return makeFixnumChecked(if (n < 0) -n else n);
     }
     if (types.isBignum(args[0])) {
-        const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+        const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
         return bignum_mod.absVal(gc, args[0]) catch return PrimitiveError.OutOfMemory;
     }
     if (types.isRationalObj(args[0])) {
-        const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+        const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
         const r = types.toRational(args[0]);
         // Denominator is always positive; just take abs of numerator
         if (types.isFixnum(r.numerator)) {
@@ -1238,7 +1239,7 @@ fn gcdFn(args: []const Value) PrimitiveError!Value {
     }
     if (anyBignum(args)) {
         // Bignum GCD: use Euclidean algorithm with bignum ops
-        const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+        const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
         if (!types.isFixnum(args[0]) and !types.isBignum(args[0])) return numberTypeError(args[0]);
         var result = bignum_mod.absVal(gc, args[0]) catch return PrimitiveError.OutOfMemory;
         gc.extra_roots.append(gc.allocator, result) catch return PrimitiveError.OutOfMemory;
@@ -1288,7 +1289,7 @@ fn lcmFn(args: []const Value) PrimitiveError!Value {
     }
     if (anyBignum(args)) {
         // Bignum LCM: lcm(a,b) = |a*b| / gcd(a,b)
-        const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+        const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
         var result = bignum_mod.absVal(gc, args[0]) catch return PrimitiveError.OutOfMemory;
         gc.extra_roots.append(gc.allocator, result) catch return PrimitiveError.OutOfMemory;
         defer {
@@ -1327,7 +1328,7 @@ fn lcmFn(args: []const Value) PrimitiveError!Value {
             const abs_b: i64 = if (b < 0) -b else b;
             const ov = @mulWithOverflow(partial, abs_b);
             if (ov[1] != 0) {
-                const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+                const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
                 var big_result = bignum_mod.mul(gc, try makeFixnumChecked(partial), try makeFixnumChecked(abs_b)) catch return PrimitiveError.OutOfMemory;
                 gc.extra_roots.append(gc.allocator, big_result) catch return PrimitiveError.OutOfMemory;
                 defer {

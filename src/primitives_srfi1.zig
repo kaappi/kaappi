@@ -2,6 +2,7 @@ const std = @import("std");
 const types = @import("types.zig");
 const vm_mod = @import("vm.zig");
 const primitives = @import("primitives.zig");
+const memory = @import("memory.zig");
 const Value = types.Value;
 const NativeFn = types.NativeFn;
 const PrimitiveError = primitives.PrimitiveError;
@@ -179,7 +180,7 @@ fn foldFn(args: []const Value) PrimitiveError!Value {
 
 // (fold-right proc init list1 ...)
 fn foldRightFn(args: []const Value) PrimitiveError!Value {
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const proc = args[0];
     const init = args[1];
     const list_count = args.len - 2;
@@ -249,7 +250,7 @@ fn reduceFn(args: []const Value) PrimitiveError!Value {
 
 // (reduce-right f ridentity list)
 fn reduceRightFn(args: []const Value) PrimitiveError!Value {
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const proc = args[0];
     const ridentity = args[1];
     const lst = args[2];
@@ -284,7 +285,7 @@ fn reduceRightFn(args: []const Value) PrimitiveError!Value {
 
 // (filter pred list)
 fn filterFn(args: []const Value) PrimitiveError!Value {
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const pred = args[0];
     var current = args[1];
 
@@ -316,7 +317,7 @@ fn filterFn(args: []const Value) PrimitiveError!Value {
 
 // (remove pred list) — opposite of filter
 fn removeFn(args: []const Value) PrimitiveError!Value {
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const pred = args[0];
     var current = args[1];
 
@@ -347,7 +348,7 @@ fn removeFn(args: []const Value) PrimitiveError!Value {
 
 // (partition pred list) — returns two values: (matching, non-matching)
 fn partitionFn(args: []const Value) PrimitiveError!Value {
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const pred = args[0];
     var current = args[1];
 
@@ -553,7 +554,7 @@ fn countFn(args: []const Value) PrimitiveError!Value {
 
 // (iota count) or (iota count start) or (iota count start step)
 fn iotaFn(args: []const Value) PrimitiveError!Value {
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     if (!types.isFixnum(args[0]) and !types.isFlonum(args[0])) return primitives.typeError("iota", "number", args[0]);
 
     const count_val = if (types.isFixnum(args[0])) types.toFixnum(args[0]) else @as(i64, @intFromFloat(types.toFlonum(args[0])));
@@ -612,7 +613,7 @@ fn iotaFn(args: []const Value) PrimitiveError!Value {
 
 // (zip list1 list2 ...) — transpose lists into list of lists
 fn zipFn(args: []const Value) PrimitiveError!Value {
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const list_count = args.len;
     if (list_count == 0) return types.NIL;
 
@@ -665,7 +666,7 @@ fn zipFn(args: []const Value) PrimitiveError!Value {
 
 // (concatenate list-of-lists)
 fn concatenateFn(args: []const Value) PrimitiveError!Value {
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
 
     // Collect all sublists
     var sublists: std.ArrayList(Value) = .empty;
@@ -711,7 +712,7 @@ fn concatenateFn(args: []const Value) PrimitiveError!Value {
 
 // (take list k) — first k elements
 fn takeFn(args: []const Value) PrimitiveError!Value {
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     if (!types.isFixnum(args[1])) return primitives.typeError("take", "integer", args[1]);
     const k = types.toFixnum(args[1]);
     if (k < 0) return primitives.typeError("take", "non-negative integer", args[1]);
@@ -756,7 +757,7 @@ fn dropFn(args: []const Value) PrimitiveError!Value {
 
 // (take-while pred list)
 fn takeWhileFn(args: []const Value) PrimitiveError!Value {
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const pred = args[0];
     var current = args[1];
 
@@ -806,7 +807,7 @@ fn dropWhileFn(args: []const Value) PrimitiveError!Value {
 
 // (filter-map proc list1 ...) — map + filter in one pass
 fn filterMapFn(args: []const Value) PrimitiveError!Value {
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const proc = args[0];
     const list_count = args.len - 1;
     if (list_count == 0) return PrimitiveError.ArityMismatch;
@@ -858,7 +859,7 @@ fn filterMapFn(args: []const Value) PrimitiveError!Value {
 
 // (append-map proc list1 ...) — map then append results
 fn appendMapFn(args: []const Value) PrimitiveError!Value {
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const proc = args[0];
     const list_count = args.len - 1;
     if (list_count == 0) return PrimitiveError.ArityMismatch;
@@ -1041,7 +1042,7 @@ fn memberByPred(pred: Value, elem: Value, list: Value) PrimitiveError!bool {
 
 // (lset-intersection = list1 list2 ...) — elements of list1 in ALL other lists
 fn lsetIntersectionFn(args: []const Value) PrimitiveError!Value {
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const pred = args[0];
     const list1 = args[1];
     const other_count = args.len - 2;
@@ -1082,7 +1083,7 @@ fn lsetIntersectionFn(args: []const Value) PrimitiveError!Value {
 
 // (lset-difference = list1 list2 ...) — elements of list1 NOT in any other list
 fn lsetDifferenceFn(args: []const Value) PrimitiveError!Value {
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const pred = args[0];
     const list1 = args[1];
     const other_count = args.len - 2;
@@ -1157,13 +1158,13 @@ fn lsetEqualFn(args: []const Value) PrimitiveError!Value {
 
 // (xcons d a) — reversed cons: (cons a d)
 fn xconsFn(args: []const Value) PrimitiveError!Value {
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     return gc.allocPair(args[1], args[0]) catch return PrimitiveError.OutOfMemory;
 }
 
 // (cons* a1 a2 ... an) — like list but last element is tail
 fn consStarFn(args: []const Value) PrimitiveError!Value {
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     if (args.len == 0) return PrimitiveError.ArityMismatch;
     if (args.len == 1) return args[0];
     var result = args[args.len - 1];
@@ -1179,7 +1180,7 @@ fn consStarFn(args: []const Value) PrimitiveError!Value {
 
 // (list-tabulate n init-proc) — build list by calling init-proc on 0..n-1
 fn listTabulateFn(args: []const Value) PrimitiveError!Value {
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     if (!types.isFixnum(args[0])) return primitives.typeError("list-tabulate", "integer", args[0]);
     const n = types.toFixnum(args[0]);
     if (n < 0) return primitives.typeError("list-tabulate", "non-negative integer", args[0]);
@@ -1207,7 +1208,7 @@ fn listTabulateFn(args: []const Value) PrimitiveError!Value {
 
 // (circular-list v1 v2 ...) — create circular list
 fn circularListFn(args: []const Value) PrimitiveError!Value {
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     if (args.len == 0) return types.NIL;
     // Build the list first
     var first: Value = undefined;
@@ -1345,7 +1346,7 @@ fn tenthFn(args: []const Value) PrimitiveError!Value {
 
 // (car+cdr pair) — returns (values (car pair) (cdr pair))
 fn carCdrFn(args: []const Value) PrimitiveError!Value {
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     if (!types.isPair(args[0])) return primitives.typeError("car+cdr", "pair", args[0]);
     const vals = [2]Value{ types.car(args[0]), types.cdr(args[0]) };
     return gc.allocMultipleValues(&vals) catch return PrimitiveError.OutOfMemory;
@@ -1377,7 +1378,7 @@ fn takeRightFn(args: []const Value) PrimitiveError!Value {
 
 // (drop-right list k)
 fn dropRightFn(args: []const Value) PrimitiveError!Value {
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     if (!types.isFixnum(args[1])) return primitives.typeError("drop-right", "integer", args[1]);
     const k = types.toFixnum(args[1]);
     if (k < 0) return primitives.typeError("drop-right", "non-negative integer", args[1]);
@@ -1415,7 +1416,7 @@ fn dropRightFn(args: []const Value) PrimitiveError!Value {
 
 // (split-at list k) — returns (values (take list k) (drop list k))
 fn splitAtFn(args: []const Value) PrimitiveError!Value {
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     if (!types.isFixnum(args[1])) return primitives.typeError("split-at", "integer", args[1]);
     const k = types.toFixnum(args[1]);
     if (k < 0) return primitives.typeError("split-at", "non-negative integer", args[1]);
@@ -1487,7 +1488,7 @@ fn listIndexFn(args: []const Value) PrimitiveError!Value {
 
 // (span pred list) — returns (values prefix suffix) where prefix is take-while
 fn spanFn(args: []const Value) PrimitiveError!Value {
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const pred = args[0];
     var current = args[1];
 
@@ -1517,7 +1518,7 @@ fn spanFn(args: []const Value) PrimitiveError!Value {
 
 // (break pred list) — like span but splits where pred first succeeds
 fn breakFn(args: []const Value) PrimitiveError!Value {
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const pred = args[0];
     var current = args[1];
 
@@ -1551,7 +1552,7 @@ fn breakFn(args: []const Value) PrimitiveError!Value {
 
 // (delete x list [=]) — remove all elements equal to x
 fn deleteFn(args: []const Value) PrimitiveError!Value {
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const x = args[0];
     var current = args[1];
     // Optional equality predicate
@@ -1590,7 +1591,7 @@ fn deleteFn(args: []const Value) PrimitiveError!Value {
 
 // (delete-duplicates list [=]) — remove duplicate elements
 fn deleteDuplicatesFn(args: []const Value) PrimitiveError!Value {
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     var current = args[0];
     const has_pred = args.len > 1;
 
@@ -1640,14 +1641,14 @@ fn deleteDuplicatesFn(args: []const Value) PrimitiveError!Value {
 
 // (alist-cons key datum alist) — (cons (cons key datum) alist)
 fn alistConsFn(args: []const Value) PrimitiveError!Value {
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const pair = gc.allocPair(args[0], args[1]) catch return PrimitiveError.OutOfMemory;
     return gc.allocPair(pair, args[2]) catch return PrimitiveError.OutOfMemory;
 }
 
 // (alist-copy alist) — shallow copy of association list
 fn alistCopyFn(args: []const Value) PrimitiveError!Value {
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     var current = args[0];
 
     var elems: std.ArrayList(Value) = .empty;
@@ -1675,7 +1676,7 @@ fn alistCopyFn(args: []const Value) PrimitiveError!Value {
 
 // (alist-delete key alist [=]) — remove entries with matching key
 fn alistDeleteFn(args: []const Value) PrimitiveError!Value {
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const key = args[0];
     var current = args[1];
     const has_pred = args.len > 2;
@@ -1720,7 +1721,7 @@ fn alistDeleteFn(args: []const Value) PrimitiveError!Value {
 
 // (lset-adjoin = list elt ...) — add elements not already present
 fn lsetAdjoinFn(args: []const Value) PrimitiveError!Value {
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const pred = args[0];
     var result = args[1];
     gc.pushRoot(&result) catch return PrimitiveError.OutOfMemory;
@@ -1736,7 +1737,7 @@ fn lsetAdjoinFn(args: []const Value) PrimitiveError!Value {
 
 // (lset-union = list1 ...) — union of all lists
 fn lsetUnionFn(args: []const Value) PrimitiveError!Value {
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const pred = args[0];
     const list_count = args.len - 1;
     if (list_count == 0) return types.NIL;
@@ -1761,7 +1762,7 @@ fn lsetUnionFn(args: []const Value) PrimitiveError!Value {
 
 // (lset-xor = list1 ...) — symmetric difference
 fn lsetXorFn(args: []const Value) PrimitiveError!Value {
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const pred = args[0];
     const list_count = args.len - 1;
     if (list_count == 0) return types.NIL;
@@ -1816,7 +1817,7 @@ fn lsetXorFn(args: []const Value) PrimitiveError!Value {
 
 // (unfold p f g seed [tail-gen]) — fundamental list constructor
 fn unfoldFn(args: []const Value) PrimitiveError!Value {
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const p = args[0]; // stop predicate
     const f = args[1]; // map function
     const g = args[2]; // successor
@@ -1860,7 +1861,7 @@ fn unfoldFn(args: []const Value) PrimitiveError!Value {
 
 // (unfold-right p f g seed [tail]) — build list from right
 fn unfoldRightFn(args: []const Value) PrimitiveError!Value {
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const p = args[0];
     const f = args[1];
     const g = args[2];
@@ -1890,7 +1891,7 @@ fn unfoldRightFn(args: []const Value) PrimitiveError!Value {
 
 // (append-reverse rev-head tail) — (append (reverse rev-head) tail)
 fn appendReverseFn(args: []const Value) PrimitiveError!Value {
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     var current = args[0];
     var result = args[1];
     gc.pushRoot(&result) catch return PrimitiveError.OutOfMemory;
@@ -1932,7 +1933,7 @@ fn lengthPlusFn(args: []const Value) PrimitiveError!Value {
 
 // (unzip1 list) — map car
 fn unzip1Fn(args: []const Value) PrimitiveError!Value {
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     var current = args[0];
     var elems: std.ArrayList(Value) = .empty;
     defer elems.deinit(gc.allocator);
@@ -1958,7 +1959,7 @@ fn unzip1Fn(args: []const Value) PrimitiveError!Value {
 
 // (unzip2 list) — returns (values (map car list) (map cadr list))
 fn unzip2Fn(args: []const Value) PrimitiveError!Value {
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     var current = args[0];
     var firsts: std.ArrayList(Value) = .empty;
     defer firsts.deinit(gc.allocator);
@@ -2071,7 +2072,7 @@ fn pairFoldFn(args: []const Value) PrimitiveError!Value {
 
 // (pair-fold-right kons knil list1 ...) — like fold-right but passes pairs
 fn pairFoldRightFn(args: []const Value) PrimitiveError!Value {
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const proc = args[0];
     const init = args[1];
     const list_count = args.len - 2;
@@ -2108,7 +2109,7 @@ fn pairFoldRightFn(args: []const Value) PrimitiveError!Value {
 
 // (map-in-order proc list1 ...) — same as map, guarantees left-to-right
 fn mapInOrderFn(args: []const Value) PrimitiveError!Value {
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const proc = args[0];
     const list_count = args.len - 1;
     if (list_count == 0) return PrimitiveError.ArityMismatch;

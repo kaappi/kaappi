@@ -2,6 +2,7 @@ const std = @import("std");
 const types = @import("types.zig");
 const vm_mod = @import("vm.zig");
 const primitives = @import("primitives.zig");
+const memory = @import("memory.zig");
 const bignum_mod = @import("bignum.zig");
 const arith = @import("primitives_arithmetic.zig");
 const Value = types.Value;
@@ -29,7 +30,7 @@ fn safeFloatToExactInt(f: f64) PrimitiveError!Value {
 }
 
 fn floatToBignum(f: f64) PrimitiveError!Value {
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const positive = f >= 0;
     const abs_f = @abs(f);
     const bits: u64 = @bitCast(abs_f);
@@ -146,7 +147,7 @@ pub fn registerNumeric(vm: *vm_mod.VM) !void {
 // ---------------------------------------------------------------------------
 
 fn rationalFloor(r: *types.Rational) PrimitiveError!Value {
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const q = bignum_mod.quotient(gc, r.numerator, r.denominator) catch return PrimitiveError.OutOfMemory;
     gc.extra_roots.append(gc.allocator, q) catch return PrimitiveError.OutOfMemory;
     defer _ = gc.extra_roots.pop();
@@ -159,7 +160,7 @@ fn rationalFloor(r: *types.Rational) PrimitiveError!Value {
 }
 
 fn rationalCeiling(r: *types.Rational) PrimitiveError!Value {
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const q = bignum_mod.quotient(gc, r.numerator, r.denominator) catch return PrimitiveError.OutOfMemory;
     gc.extra_roots.append(gc.allocator, q) catch return PrimitiveError.OutOfMemory;
     defer _ = gc.extra_roots.pop();
@@ -172,12 +173,12 @@ fn rationalCeiling(r: *types.Rational) PrimitiveError!Value {
 }
 
 fn rationalTruncate(r: *types.Rational) PrimitiveError!Value {
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     return bignum_mod.demote(bignum_mod.quotient(gc, r.numerator, r.denominator) catch return PrimitiveError.OutOfMemory);
 }
 
 fn rationalRound(r: *types.Rational) PrimitiveError!Value {
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const q = bignum_mod.quotient(gc, r.numerator, r.denominator) catch return PrimitiveError.OutOfMemory;
     gc.extra_roots.append(gc.allocator, q) catch return PrimitiveError.OutOfMemory;
     defer _ = gc.extra_roots.pop();
@@ -287,7 +288,7 @@ pub fn exactFn(args: []const Value) PrimitiveError!Value {
         if (std.math.isNan(f) or std.math.isInf(f)) return primitives.typeError("exact", "finite number", args[0]);
         if (f == 0.0) return types.makeFixnum(0);
         if (f == @trunc(f)) return try safeFloatToExactInt(f);
-        const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+        const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
         const positive = f >= 0;
         const bits: u64 = @bitCast(@abs(f));
         const raw_exp = @as(u11, @intCast((bits >> 52) & 0x7FF));
@@ -336,7 +337,7 @@ pub fn exactFn(args: []const Value) PrimitiveError!Value {
         return gc.allocRational(num_val, den_val) catch return PrimitiveError.OutOfMemory;
     }
     if (types.isComplex(args[0])) {
-        const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+        const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
         const c = types.toComplex(args[0]);
         const real_flo = types.makeFlonum(c.real);
         const real_exact = try exactFn(&[1]Value{real_flo});
@@ -363,7 +364,7 @@ fn inexactFn(args: []const Value) PrimitiveError!Value {
         const result = n / d;
         if (!std.math.isNan(result)) return makeFlonumVal(result);
         // Both overflow to inf — use bignum division for the integer part
-        const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+        const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
         const q = bignum_mod.quotient(gc, r.numerator, r.denominator) catch return PrimitiveError.OutOfMemory;
         const q_f = try toF64Ext(q);
         const rem = bignum_mod.remainder(gc, r.numerator, r.denominator) catch return PrimitiveError.OutOfMemory;
@@ -371,7 +372,7 @@ fn inexactFn(args: []const Value) PrimitiveError!Value {
         return makeFlonumVal(q_f + rem_f / d);
     }
     if (types.isComplex(args[0])) {
-        const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+        const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
         const c = types.toComplex(args[0]);
         return gc.allocComplex(c.real, c.imag) catch return PrimitiveError.OutOfMemory;
     }
@@ -385,7 +386,7 @@ fn inexactFn(args: []const Value) PrimitiveError!Value {
 fn exptFn(args: []const Value) PrimitiveError!Value {
     if ((types.isFixnum(args[0]) or types.isBignum(args[0])) and types.isFixnum(args[1])) {
         const exp = types.toFixnum(args[1]);
-        const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+        const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
         if (exp >= 0) {
             return bignum_mod.expt(gc, args[0], args[1]) catch return PrimitiveError.OutOfMemory;
         }
@@ -394,7 +395,7 @@ fn exptFn(args: []const Value) PrimitiveError!Value {
         return arith.makeRationalReduced(gc, types.makeFixnum(1), denom);
     }
     if (types.isRationalObj(args[0]) and types.isFixnum(args[1])) {
-        const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+        const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
         const r = types.toRational(args[0]);
         const exp = types.toFixnum(args[1]);
         if (exp == 0) return types.makeFixnum(1);
@@ -410,7 +411,7 @@ fn exptFn(args: []const Value) PrimitiveError!Value {
     }
     // Complex exponentiation: z^w = e^(w * ln(z))
     if (types.isComplex(args[0]) or types.isComplex(args[1])) {
-        const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+        const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
         var zr: f64 = undefined;
         var zi: f64 = undefined;
         var wr: f64 = undefined;
@@ -479,13 +480,13 @@ fn squareFn(args: []const Value) PrimitiveError!Value {
         const n = types.toFixnum(args[0]);
         const r = @mulWithOverflow(n, n);
         if (r[1] != 0) {
-            const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+            const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
             return bignum_mod.mul(gc, args[0], args[0]) catch return PrimitiveError.OutOfMemory;
         }
         return types.makeFixnum(r[0]);
     }
     if (types.isBignum(args[0])) {
-        const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+        const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
         return bignum_mod.mul(gc, args[0], args[0]) catch return PrimitiveError.OutOfMemory;
     }
     if (types.isFlonum(args[0])) {
@@ -493,7 +494,7 @@ fn squareFn(args: []const Value) PrimitiveError!Value {
         return makeFlonumVal(f * f);
     }
     if (types.isRationalObj(args[0])) {
-        const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+        const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
         const rat = types.toRational(args[0]);
         const num_sq = bignum_mod.mul(gc, rat.numerator, rat.numerator) catch return PrimitiveError.OutOfMemory;
         gc.extra_roots.append(gc.allocator, num_sq) catch return PrimitiveError.OutOfMemory;
@@ -506,7 +507,7 @@ fn squareFn(args: []const Value) PrimitiveError!Value {
 
 fn sqrtFn(args: []const Value) PrimitiveError!Value {
     if (types.isComplex(args[0])) {
-        const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+        const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
         const c = types.toComplex(args[0]);
         const mag = @sqrt(c.real * c.real + c.imag * c.imag);
         const r = @sqrt((mag + c.real) / 2.0);
@@ -516,7 +517,7 @@ fn sqrtFn(args: []const Value) PrimitiveError!Value {
     }
     const f = try toF64(args[0]);
     if (f < 0.0) {
-        const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+        const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
         const imag = @sqrt(-f);
         return gc.allocComplex(0.0, imag) catch return PrimitiveError.OutOfMemory;
     }
@@ -529,7 +530,7 @@ fn sqrtFn(args: []const Value) PrimitiveError!Value {
 }
 
 fn exactIntegerSqrt(args: []const Value) PrimitiveError!Value {
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     if (types.isFixnum(args[0])) {
         const n = types.toFixnum(args[0]);
         if (n < 0) return primitives.typeError("exact-integer-sqrt", "non-negative integer", args[0]);
@@ -632,7 +633,7 @@ fn exactIntegerSqrt(args: []const Value) PrimitiveError!Value {
 
 fn sinFn(args: []const Value) PrimitiveError!Value {
     if (types.isComplex(args[0])) {
-        const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+        const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
         const c = types.toComplex(args[0]);
         const re = @sin(c.real) * std.math.cosh(c.imag);
         const im = @cos(c.real) * std.math.sinh(c.imag);
@@ -644,7 +645,7 @@ fn sinFn(args: []const Value) PrimitiveError!Value {
 
 fn cosFn(args: []const Value) PrimitiveError!Value {
     if (types.isComplex(args[0])) {
-        const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+        const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
         const c = types.toComplex(args[0]);
         const re = @cos(c.real) * std.math.cosh(c.imag);
         const im = -@sin(c.real) * std.math.sinh(c.imag);
@@ -656,7 +657,7 @@ fn cosFn(args: []const Value) PrimitiveError!Value {
 
 fn tanFn(args: []const Value) PrimitiveError!Value {
     if (types.isComplex(args[0])) {
-        const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+        const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
         const c = types.toComplex(args[0]);
         const sin_re = @sin(c.real) * std.math.cosh(c.imag);
         const sin_im = @cos(c.real) * std.math.sinh(c.imag);
@@ -691,13 +692,13 @@ fn complexAsin(gc: anytype, re: f64, im: f64) PrimitiveError!Value {
 
 fn asinFn(args: []const Value) PrimitiveError!Value {
     if (types.isComplex(args[0])) {
-        const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+        const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
         const c = types.toComplex(args[0]);
         return complexAsin(gc, c.real, c.imag);
     }
     const f = try toF64(args[0]);
     if (f < -1.0 or f > 1.0) {
-        const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+        const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
         return complexAsin(gc, f, 0.0);
     }
     return makeFlonumVal(std.math.asin(f));
@@ -705,7 +706,7 @@ fn asinFn(args: []const Value) PrimitiveError!Value {
 
 fn acosFn(args: []const Value) PrimitiveError!Value {
     if (types.isComplex(args[0])) {
-        const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+        const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
         const c = types.toComplex(args[0]);
         const asin_val = try complexAsin(gc, c.real, c.imag);
         const pi_half = std.math.pi / 2.0;
@@ -718,7 +719,7 @@ fn acosFn(args: []const Value) PrimitiveError!Value {
     }
     const f = try toF64(args[0]);
     if (f < -1.0 or f > 1.0) {
-        const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+        const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
         const asin_val = try complexAsin(gc, f, 0.0);
         const pi_half = std.math.pi / 2.0;
         if (types.isFlonum(asin_val)) return makeFlonumVal(pi_half - types.toFlonum(asin_val));
@@ -748,7 +749,7 @@ fn atanFn(args: []const Value) PrimitiveError!Value {
 
 fn expFn(args: []const Value) PrimitiveError!Value {
     if (types.isComplex(args[0])) {
-        const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+        const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
         const c = types.toComplex(args[0]);
         const exp_r = @exp(c.real);
         const re = exp_r * @cos(c.imag);
@@ -771,13 +772,13 @@ fn complexLog(gc: anytype, re: f64, im: f64) PrimitiveError!Value {
 fn logFn(args: []const Value) PrimitiveError!Value {
     if (args.len == 1) {
         if (types.isComplex(args[0])) {
-            const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+            const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
             const c = types.toComplex(args[0]);
             return complexLog(gc, c.real, c.imag);
         }
         const f = try toF64(args[0]);
         if (f < 0.0) {
-            const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+            const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
             return complexLog(gc, f, 0.0);
         }
         return makeFlonumVal(@log(f));
@@ -786,7 +787,7 @@ fn logFn(args: []const Value) PrimitiveError!Value {
     const z = try toF64(args[0]);
     const base = try toF64(args[1]);
     if (z < 0.0) {
-        const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+        const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
         const mag = @sqrt(z * z);
         const log_re = @log(mag) / @log(base);
         const log_im = std.math.pi / @log(base);
@@ -841,7 +842,7 @@ fn nanP(args: []const Value) PrimitiveError!Value {
 // ---------------------------------------------------------------------------
 
 fn numberToString(args: []const Value) PrimitiveError!Value {
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     var radix: u8 = 10;
     if (args.len > 1) {
         if (!types.isFixnum(args[1])) return primitives.typeError("number->string", "integer", args[1]);
@@ -941,7 +942,7 @@ pub fn makeComplexOrReal(real: f64, imag: f64) PrimitiveError!Value {
 }
 
 pub fn makeComplexOrRealEx(real: f64, imag: f64, exact_real: bool, exact_imag: bool) PrimitiveError!Value {
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     if (imag == 0.0) {
         if (exact_real and real == @trunc(real) and @abs(real) < 4.5e18) {
             return try safeFloatToExactInt(real);
@@ -1078,7 +1079,7 @@ fn parseExactDecimal(gc: *@import("memory.zig").GC, s: []const u8) PrimitiveErro
 
 fn stringToNumber(args: []const Value) PrimitiveError!Value {
     if (!types.isString(args[0])) return primitives.typeError("string->number", "string", args[0]);
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const str = types.toObject(args[0]).as(types.SchemeString);
     var s = str.data[0..str.len];
 
@@ -1305,13 +1306,13 @@ fn magnitudeFn(args: []const Value) PrimitiveError!Value {
         return makeFlonumVal(@abs(types.toFlonum(args[0])));
     }
     if (types.isBignum(args[0])) {
-        const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+        const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
         return bignum_mod.absVal(gc, args[0]) catch return PrimitiveError.OutOfMemory;
     }
     if (types.isRationalObj(args[0])) {
         const r = types.toRational(args[0]);
         if (!bignum_mod.isNegative(r.numerator)) return args[0];
-        const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+        const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
         const neg_num = bignum_mod.negate(gc, r.numerator) catch return PrimitiveError.OutOfMemory;
         return arith.makeRationalReduced(gc, neg_num, r.denominator);
     }
@@ -1353,7 +1354,7 @@ fn floorQuotient(args: []const Value) PrimitiveError!Value {
         return makeFlonumVal(@floor(a / b));
     }
     if (anyBignum(args)) {
-        const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+        const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
         if (bignum_mod.isZero(args[1])) return raiseDivByZero();
         const q = bignum_mod.quotient(gc, args[0], args[1]) catch return PrimitiveError.OutOfMemory;
         gc.extra_roots.append(gc.allocator, q) catch return PrimitiveError.OutOfMemory;
@@ -1379,7 +1380,7 @@ fn floorRemainder(args: []const Value) PrimitiveError!Value {
         return makeFlonumVal(a - @floor(a / b) * b);
     }
     if (anyBignum(args)) {
-        const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+        const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
         if (bignum_mod.isZero(args[1])) return raiseDivByZero();
         const rem = bignum_mod.remainder(gc, args[0], args[1]) catch return PrimitiveError.OutOfMemory;
         if (bignum_mod.isZero(rem)) return types.makeFixnum(0);
@@ -1398,7 +1399,7 @@ fn floorRemainder(args: []const Value) PrimitiveError!Value {
 }
 
 fn floorDivide(args: []const Value) PrimitiveError!Value {
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const q_val = try floorQuotient(args);
     gc.extra_roots.append(gc.allocator, q_val) catch return PrimitiveError.OutOfMemory;
     defer _ = gc.extra_roots.pop();
@@ -1417,7 +1418,7 @@ fn truncateQuotient(args: []const Value) PrimitiveError!Value {
         return makeFlonumVal(@trunc(a / b));
     }
     if (anyBignum(args)) {
-        const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+        const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
         if (bignum_mod.isZero(args[1])) return raiseDivByZero();
         return bignum_mod.quotient(gc, args[0], args[1]) catch return PrimitiveError.OutOfMemory;
     }
@@ -1435,7 +1436,7 @@ fn truncateRemainder(args: []const Value) PrimitiveError!Value {
         return makeFlonumVal(a - @trunc(a / b) * b);
     }
     if (anyBignum(args)) {
-        const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+        const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
         if (bignum_mod.isZero(args[1])) return raiseDivByZero();
         return bignum_mod.remainder(gc, args[0], args[1]) catch return PrimitiveError.OutOfMemory;
     }
@@ -1446,7 +1447,7 @@ fn truncateRemainder(args: []const Value) PrimitiveError!Value {
 }
 
 fn truncateDivide(args: []const Value) PrimitiveError!Value {
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const q_val = try truncateQuotient(args);
     gc.extra_roots.append(gc.allocator, q_val) catch return PrimitiveError.OutOfMemory;
     defer _ = gc.extra_roots.pop();
@@ -1536,7 +1537,7 @@ fn denominatorFn(args: []const Value) PrimitiveError!Value {
 }
 
 fn rationalizeFn(args: []const Value) PrimitiveError!Value {
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const x = try primitives.toF64(args[0]);
     const y = try primitives.toF64(args[1]);
     if (!std.math.isFinite(x)) return args[0];

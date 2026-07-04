@@ -2,6 +2,7 @@ const std = @import("std");
 const types = @import("types.zig");
 const vm_mod = @import("vm.zig");
 const primitives = @import("primitives.zig");
+const memory = @import("memory.zig");
 const Value = types.Value;
 const NativeFn = types.NativeFn;
 const PrimitiveError = primitives.PrimitiveError;
@@ -87,7 +88,7 @@ fn randomSourcePFn(args: []const Value) PrimitiveError!Value {
 
 fn makeRandomSourceFn(args: []const Value) PrimitiveError!Value {
     _ = args;
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     return gc.allocRandomSource(0) catch return PrimitiveError.OutOfMemory;
 }
 
@@ -112,7 +113,7 @@ fn randomSourcePseudoRandomizeFn(args: []const Value) PrimitiveError!Value {
 }
 
 fn randomSourceStateRefFn(args: []const Value) PrimitiveError!Value {
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const rs = try getRS("random-source-state-ref", args[0]);
     var result: Value = types.NIL;
     gc.pushRoot(&result) catch return PrimitiveError.OutOfMemory;

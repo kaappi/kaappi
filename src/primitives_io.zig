@@ -3,6 +3,7 @@ const is_wasm = @import("builtin").os.tag == .wasi;
 const types = @import("types.zig");
 const vm_mod = @import("vm.zig");
 const primitives = @import("primitives.zig");
+const memory = @import("memory.zig");
 const printer = @import("printer.zig");
 const reader_mod = @import("reader.zig");
 const primitives_control = @import("primitives_control.zig");
@@ -195,7 +196,7 @@ fn writeToPort(port: *types.Port, bytes: []const u8) void {
 }
 
 fn stringPortWrite(port: *types.Port, bytes: []const u8) void {
-    const gc = primitives.gc_instance orelse return;
+    const gc = memory.gc_instance orelse return;
     var buf = port.string_out_buf orelse return;
     const len = port.string_out_len;
     const cap = port.string_out_cap;
@@ -215,7 +216,7 @@ fn stringPortWrite(port: *types.Port, bytes: []const u8) void {
 // ---------------------------------------------------------------------------
 
 fn display(args: []const Value) PrimitiveError!Value {
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const port = try getOutputPort(args, 1, "display");
     const s = printer.valueToString(gc.allocator, args[0], .display) catch return PrimitiveError.OutOfMemory;
     defer gc.allocator.free(s);
@@ -224,7 +225,7 @@ fn display(args: []const Value) PrimitiveError!Value {
 }
 
 fn write(args: []const Value) PrimitiveError!Value {
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const port = try getOutputPort(args, 1, "write");
     const s = printer.valueToString(gc.allocator, args[0], .write) catch return PrimitiveError.OutOfMemory;
     defer gc.allocator.free(s);
@@ -233,7 +234,7 @@ fn write(args: []const Value) PrimitiveError!Value {
 }
 
 fn writeShared(args: []const Value) PrimitiveError!Value {
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const port = try getOutputPort(args, 1, "write-shared");
     const s = printer.valueToString(gc.allocator, args[0], .shared) catch return PrimitiveError.OutOfMemory;
     defer gc.allocator.free(s);
@@ -322,7 +323,7 @@ fn raiseFileError(gc: *@import("memory.zig").GC, msg_text: []const u8, irritant:
 fn openInputFile(args: []const Value) PrimitiveError!Value {
     if (comptime is_wasm) return PrimitiveError.TypeError;
     if (!types.isString(args[0])) return primitives.typeError("open-input-file", "string", args[0]);
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const str = types.toObject(args[0]).as(types.SchemeString);
     const path = str.data[0..str.len];
 
@@ -344,7 +345,7 @@ fn openInputFile(args: []const Value) PrimitiveError!Value {
 fn openOutputFile(args: []const Value) PrimitiveError!Value {
     if (comptime is_wasm) return PrimitiveError.TypeError;
     if (!types.isString(args[0])) return primitives.typeError("open-output-file", "string", args[0]);
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const str = types.toObject(args[0]).as(types.SchemeString);
     const path = str.data[0..str.len];
 
@@ -383,7 +384,7 @@ fn closePort(args: []const Value) PrimitiveError!Value {
     if (!types.isPort(args[0])) return primitives.typeError("close-port", "port", args[0]);
     const port = types.toObject(args[0]).as(types.Port);
     if (port.read_buf) |rb| {
-        if (primitives.gc_instance) |gc| {
+        if (memory.gc_instance) |gc| {
             gc.allocator.free(rb);
         }
         port.read_buf = null;
@@ -417,7 +418,7 @@ fn readOneByte(port: *types.Port) ?u8 {
             const byte = rb[pos];
             port.read_buf_len -= 1;
             if (port.read_buf_len == 0) {
-                if (primitives.gc_instance) |gc| {
+                if (memory.gc_instance) |gc| {
                     gc.allocator.free(rb);
                 }
                 port.read_buf = null;
@@ -537,7 +538,7 @@ fn peekCharFn(args: []const Value) PrimitiveError!Value {
 }
 
 fn readLineFn(args: []const Value) PrimitiveError!Value {
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const port = try getInputPort(args, 0, "read-line");
 
     var line_buf: std.ArrayList(u8) = .empty;
@@ -645,7 +646,7 @@ fn readFromPeekByteOnly(gc: *@import("memory.zig").GC, port: *types.Port) Primit
 }
 
 fn readDatumFn(args: []const Value) PrimitiveError!Value {
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const port = try getInputPort(args, 0, "read");
 
     // For string ports, read directly from the string data
@@ -772,7 +773,7 @@ fn readDatumFn(args: []const Value) PrimitiveError!Value {
 fn fileExistsP(args: []const Value) PrimitiveError!Value {
     if (comptime is_wasm) return types.FALSE;
     if (!types.isString(args[0])) return primitives.typeError("file-exists?", "string", args[0]);
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const str = types.toObject(args[0]).as(types.SchemeString);
     const path = str.data[0..str.len];
 
@@ -807,20 +808,20 @@ fn eofObjectFn(args: []const Value) PrimitiveError!Value {
 
 fn openInputString(args: []const Value) PrimitiveError!Value {
     if (!types.isString(args[0])) return primitives.typeError("open-input-string", "string", args[0]);
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const str = types.toObject(args[0]).as(types.SchemeString);
     return gc.allocStringInputPort(str.data[0..str.len]) catch return PrimitiveError.OutOfMemory;
 }
 
 fn openOutputString(args: []const Value) PrimitiveError!Value {
     _ = args;
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     return gc.allocStringOutputPort() catch return PrimitiveError.OutOfMemory;
 }
 
 fn getOutputString(args: []const Value) PrimitiveError!Value {
     if (!types.isPort(args[0])) return primitives.typeError("get-output-string", "port", args[0]);
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const port = types.toObject(args[0]).as(types.Port);
     if (!port.is_string_port or !port.is_output) return primitives.typeError("get-output-string", "output string port", args[0]);
     const buf = port.string_out_buf orelse return gc.allocString("") catch return PrimitiveError.OutOfMemory;
@@ -834,7 +835,7 @@ fn getOutputString(args: []const Value) PrimitiveError!Value {
 fn readStringFn(args: []const Value) PrimitiveError!Value {
     // (read-string k [port]) -- read k characters
     if (!types.isFixnum(args[0])) return primitives.typeError("read-string", "integer", args[0]);
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const k = types.toFixnum(args[0]);
     if (k < 0) return primitives.typeError("read-string", "non-negative integer", args[0]);
     const count: usize = @intCast(@as(u64, @bitCast(k)));
@@ -870,7 +871,7 @@ fn flushOutputPort(args: []const Value) PrimitiveError!Value {
 fn deleteFile(args: []const Value) PrimitiveError!Value {
     if (comptime is_wasm) return PrimitiveError.TypeError;
     if (!types.isString(args[0])) return primitives.typeError("delete-file", "string", args[0]);
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const str = types.toObject(args[0]).as(types.SchemeString);
     const path = str.data[0..str.len];
 
@@ -1011,7 +1012,7 @@ fn writeU8Fn(args: []const Value) PrimitiveError!Value {
 
 fn readBytevectorFn(args: []const Value) PrimitiveError!Value {
     if (!types.isFixnum(args[0])) return primitives.typeError("read-bytevector", "integer", args[0]);
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const k = types.toFixnum(args[0]);
     if (k < 0) return primitives.typeError("read-bytevector", "non-negative integer", args[0]);
     const count: usize = @intCast(@as(u64, @bitCast(k)));

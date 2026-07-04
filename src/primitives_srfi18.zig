@@ -72,7 +72,7 @@ pub fn registerSrfi18(vm: *vm_mod.VM) !void {
 fn ensureScheduler() PrimitiveError!struct { vm: *vm_mod.VM, sched: *fiber_mod.FiberScheduler } {
     const vm = vm_mod.vm_instance orelse return PrimitiveError.OutOfMemory;
     if (vm.scheduler == null) {
-        const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+        const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
         const sched = gc.allocator.create(fiber_mod.FiberScheduler) catch return PrimitiveError.OutOfMemory;
         sched.* = fiber_mod.FiberScheduler.init(vm);
         const main_fiber = gc.allocFiber(types.VOID, sched.next_id) catch return PrimitiveError.OutOfMemory;
@@ -105,7 +105,7 @@ fn timeoutToDeadlineNs(timeout: Value) PrimitiveError!?u64 {
 }
 
 fn makeErrorWithType(error_type: types.ErrorObject.ErrorType, msg: []const u8, reason: Value) PrimitiveError!Value {
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const message = gc.allocString(msg) catch return PrimitiveError.OutOfMemory;
     var msg_root = message;
     gc.pushRoot(&msg_root) catch return PrimitiveError.OutOfMemory;
@@ -166,7 +166,7 @@ fn makeThreadFn(args: []const Value) PrimitiveError!Value {
         return primitives.typeError("make-thread", "procedure", thunk);
 
     const ctx = try ensureScheduler();
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
 
     const fiber = gc.allocFiber(thunk, ctx.sched.next_id) catch return PrimitiveError.OutOfMemory;
     ctx.sched.next_id += 1;
@@ -211,7 +211,7 @@ fn threadSpecificSetFn(args: []const Value) PrimitiveError!Value {
         return primitives.typeError("thread-specific-set!", "thread", args[0]);
     const fiber = types.toObject(args[0]).as(fiber_mod.Fiber);
     fiber.specific = args[1];
-    if (primitives.gc_instance) |gc| gc.writeBarrier(types.toObject(args[0]), args[1]);
+    if (memory.gc_instance) |gc| gc.writeBarrier(types.toObject(args[0]), args[1]);
     return types.VOID;
 }
 
@@ -224,7 +224,7 @@ fn threadStartFn(args: []const Value) PrimitiveError!Value {
     if (fiber.status != .created)
         return primitives.typeError("thread-start!", "new thread", args[0]);
 
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const vm = vm_mod.vm_instance orelse return PrimitiveError.OutOfMemory;
 
     // Root the thunk (the child deep-copies it from the parent heap) and the
@@ -266,7 +266,7 @@ fn threadEntryFn(fiber: *fiber_mod.Fiber, allocator: std.mem.Allocator, parent_g
     };
 
     vm_mod.vm_instance = child_vm;
-    primitives.gc_instance = child_gc;
+    memory.gc_instance = child_gc;
 
     // Let thread-terminate! from the parent stop this thread: the dispatch
     // loop safepoint polls this flag and unwinds with VMError.Terminated.
@@ -378,7 +378,7 @@ fn threadTerminateFn(args: []const Value) PrimitiveError!Value {
     // Atomic: for OS threads the child VM polls this flag concurrently.
     @atomicStore(bool, &fiber.terminated, true, .monotonic);
 
-    if (primitives.gc_instance) |gc| abandonFiberMutexes(gc, fiber, ctx.sched);
+    if (memory.gc_instance) |gc| abandonFiberMutexes(gc, fiber, ctx.sched);
 
     if (fiber.status != .completed and fiber.status != .errored) {
         fiber.status = .errored;
@@ -491,7 +491,7 @@ fn reapOsThread(target: *fiber_mod.Fiber, fiber_val: Value) PrimitiveError!Value
         target.os_thread = null;
     }
 
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
 
     // Remove the thunk and fiber from extra_roots (added by thread-start!
     // to keep them alive while the child runs; the child is done now).
@@ -597,7 +597,7 @@ fn runSchedulerUntilDone(target: *fiber_mod.Fiber) PrimitiveError!void {
             // Fiber 0 is the main fiber: finishing or aborting one top-level
             // form is not thread death, so its mutexes stay valid.
             if (next_idx != 0) {
-                if (primitives.gc_instance) |gc| abandonFiberMutexes(gc, fiber, sched);
+                if (memory.gc_instance) |gc| abandonFiberMutexes(gc, fiber, sched);
             }
             sched.saveCurrentFiber();
             sched.wakeWaiters(fiber);
@@ -605,7 +605,7 @@ fn runSchedulerUntilDone(target: *fiber_mod.Fiber) PrimitiveError!void {
         };
         fiber.status = .completed;
         fiber.result = result;
-        if (primitives.gc_instance) |gc| {
+        if (memory.gc_instance) |gc| {
             gc.writeBarrier(&fiber.header, result);
             if (next_idx != 0) abandonFiberMutexes(gc, fiber, sched);
         }
@@ -629,7 +629,7 @@ fn mutexPredFn(args: []const Value) PrimitiveError!Value {
 }
 
 fn makeMutexFn(args: []const Value) PrimitiveError!Value {
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const name = if (args.len > 0) args[0] else types.VOID;
     return gc.allocMutex(name) catch return PrimitiveError.OutOfMemory;
 }
@@ -650,7 +650,7 @@ fn mutexSpecificSetFn(args: []const Value) PrimitiveError!Value {
     if (!types.isMutex(args[0]))
         return primitives.typeError("mutex-specific-set!", "mutex", args[0]);
     types.toMutex(args[0]).specific = args[1];
-    if (primitives.gc_instance) |gc| gc.writeBarrier(types.toObject(args[0]), args[1]);
+    if (memory.gc_instance) |gc| gc.writeBarrier(types.toObject(args[0]), args[1]);
     return types.VOID;
 }
 
@@ -660,14 +660,14 @@ fn mutexStateFn(args: []const Value) PrimitiveError!Value {
     const m = types.toMutex(args[0]);
     if (!m.locked) {
         if (m.abandoned) {
-            const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+            const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
             return gc.allocSymbol("abandoned") catch return PrimitiveError.OutOfMemory;
         }
-        const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+        const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
         return gc.allocSymbol("not-abandoned") catch return PrimitiveError.OutOfMemory;
     }
     if (m.owner != types.VOID) return m.owner;
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     return gc.allocSymbol("not-owned") catch return PrimitiveError.OutOfMemory;
 }
 
@@ -766,7 +766,7 @@ fn runSchedulerUntilMutex(m: *types.Mutex, me: *fiber_mod.Fiber) PrimitiveError!
             // Fiber 0 is the main fiber: finishing or aborting one top-level
             // form is not thread death, so its mutexes stay valid.
             if (next_idx != 0) {
-                if (primitives.gc_instance) |gc| abandonFiberMutexes(gc, fiber, sched);
+                if (memory.gc_instance) |gc| abandonFiberMutexes(gc, fiber, sched);
             }
             sched.saveCurrentFiber();
             sched.wakeWaiters(fiber);
@@ -774,7 +774,7 @@ fn runSchedulerUntilMutex(m: *types.Mutex, me: *fiber_mod.Fiber) PrimitiveError!
         };
         fiber.status = .completed;
         fiber.result = result;
-        if (primitives.gc_instance) |gc| {
+        if (memory.gc_instance) |gc| {
             gc.writeBarrier(&fiber.header, result);
             if (next_idx != 0) abandonFiberMutexes(gc, fiber, sched);
         }
@@ -853,7 +853,7 @@ fn runSchedulerUntilCondVar(me: *fiber_mod.Fiber) PrimitiveError!void {
             // Fiber 0 is the main fiber: finishing or aborting one top-level
             // form is not thread death, so its mutexes stay valid.
             if (next_idx != 0) {
-                if (primitives.gc_instance) |gc| abandonFiberMutexes(gc, fiber, sched);
+                if (memory.gc_instance) |gc| abandonFiberMutexes(gc, fiber, sched);
             }
             sched.saveCurrentFiber();
             sched.wakeWaiters(fiber);
@@ -861,7 +861,7 @@ fn runSchedulerUntilCondVar(me: *fiber_mod.Fiber) PrimitiveError!void {
         };
         fiber.status = .completed;
         fiber.result = result;
-        if (primitives.gc_instance) |gc| {
+        if (memory.gc_instance) |gc| {
             gc.writeBarrier(&fiber.header, result);
             if (next_idx != 0) abandonFiberMutexes(gc, fiber, sched);
         }
@@ -884,7 +884,7 @@ fn condvarPredFn(args: []const Value) PrimitiveError!Value {
 }
 
 fn makeCondvarFn(args: []const Value) PrimitiveError!Value {
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const name = if (args.len > 0) args[0] else types.VOID;
     return gc.allocConditionVariable(name) catch return PrimitiveError.OutOfMemory;
 }
@@ -905,7 +905,7 @@ fn condvarSpecificSetFn(args: []const Value) PrimitiveError!Value {
     if (!types.isConditionVariable(args[0]))
         return primitives.typeError("condition-variable-specific-set!", "condition-variable", args[0]);
     types.toConditionVariable(args[0]).specific = args[1];
-    if (primitives.gc_instance) |gc| gc.writeBarrier(types.toObject(args[0]), args[1]);
+    if (memory.gc_instance) |gc| gc.writeBarrier(types.toObject(args[0]), args[1]);
     return types.VOID;
 }
 
@@ -930,7 +930,7 @@ fn condvarBroadcastFn(args: []const Value) PrimitiveError!Value {
 // ---------------------------------------------------------------------------
 
 fn currentTimeFn(_: []const Value) PrimitiveError!Value {
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     var ts: std.c.timespec = undefined;
     _ = std.c.clock_gettime(.REALTIME, &ts);
     const seconds = @as(f64, @floatFromInt(ts.sec)) + @as(f64, @floatFromInt(ts.nsec)) / 1_000_000_000.0;
@@ -948,7 +948,7 @@ fn timeToSecondsFn(args: []const Value) PrimitiveError!Value {
 }
 
 fn secondsToTimeFn(args: []const Value) PrimitiveError!Value {
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const secs = primitives.toF64(args[0]) catch
         return primitives.typeError("seconds->time", "number", args[0]);
     return gc.allocSrfi18Time(secs) catch return PrimitiveError.OutOfMemory;

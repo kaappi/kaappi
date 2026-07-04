@@ -2,6 +2,7 @@ const std = @import("std");
 const types = @import("types.zig");
 const vm_mod = @import("vm.zig");
 const primitives = @import("primitives.zig");
+const memory = @import("memory.zig");
 const Value = types.Value;
 const NativeFn = types.NativeFn;
 const PrimitiveError = primitives.PrimitiveError;
@@ -52,7 +53,7 @@ pub fn registerVector(vm: *vm_mod.VM) !void {
 // ---------------------------------------------------------------------------
 
 fn vectorFn(args: []const Value) PrimitiveError!Value {
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     return gc.allocVector(args) catch return PrimitiveError.OutOfMemory;
 }
 
@@ -61,7 +62,7 @@ fn vectorFn(args: []const Value) PrimitiveError!Value {
 // ---------------------------------------------------------------------------
 
 fn makeVectorFn(args: []const Value) PrimitiveError!Value {
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     if (!types.isFixnum(args[0])) return primitives.typeError("make-vector", "exact non-negative integer", args[0]);
     const k = types.toFixnum(args[0]);
     if (k < 0) return primitives.typeError("make-vector", "exact non-negative integer", args[0]);
@@ -111,7 +112,7 @@ fn vectorSetFn(args: []const Value) PrimitiveError!Value {
     const vec = types.toVector(args[0]);
     const k = types.toFixnum(args[1]);
     if (k < 0 or @as(usize, @intCast(k)) >= vec.data.len) return primitives.indexError("vector-set!", k, vec.data.len);
-    if (primitives.gc_instance) |gc| gc.writeBarrier(types.toObject(args[0]), args[2]);
+    if (memory.gc_instance) |gc| gc.writeBarrier(types.toObject(args[0]), args[2]);
     vec.data[@intCast(k)] = args[2];
     return types.VOID;
 }
@@ -121,7 +122,7 @@ fn vectorSetFn(args: []const Value) PrimitiveError!Value {
 // ---------------------------------------------------------------------------
 
 fn vectorToListFn(args: []const Value) PrimitiveError!Value {
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     if (!types.isVector(args[0])) return primitives.typeError("vector->list", "vector", args[0]);
     const vec = types.toVector(args[0]);
     const len = vec.data.len;
@@ -146,7 +147,7 @@ fn vectorToListFn(args: []const Value) PrimitiveError!Value {
 // ---------------------------------------------------------------------------
 
 fn listToVectorFn(args: []const Value) PrimitiveError!Value {
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
 
     // Count elements
     var count: usize = 0;
@@ -180,7 +181,7 @@ fn vectorFillFn(args: []const Value) PrimitiveError!Value {
     const range = try primitives.parseOptionalRange(args, 2, len, "vector-fill!");
     const start = range.start;
     const end = range.end;
-    if (primitives.gc_instance) |gc| gc.writeBarrier(types.toObject(args[0]), args[1]);
+    if (memory.gc_instance) |gc| gc.writeBarrier(types.toObject(args[0]), args[1]);
     @memset(vec.data[start..end], args[1]);
     return types.VOID;
 }
@@ -190,7 +191,7 @@ fn vectorFillFn(args: []const Value) PrimitiveError!Value {
 // ---------------------------------------------------------------------------
 
 fn vectorCopyFn(args: []const Value) PrimitiveError!Value {
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     if (!types.isVector(args[0])) return primitives.typeError("vector-copy", "vector", args[0]);
     const vec = types.toVector(args[0]);
     const len = vec.data.len;
@@ -226,7 +227,7 @@ fn vectorCopyBangFn(args: []const Value) PrimitiveError!Value {
     const count = end - start;
     if (at + count > to_vec.data.len) return primitives.typeError("vector-copy!", "valid index range", args[1]);
 
-    if (primitives.gc_instance) |gc| {
+    if (memory.gc_instance) |gc| {
         for (from_vec.data[start..end]) |val| {
             gc.writeBarrier(types.toObject(args[0]), val);
         }
@@ -251,7 +252,7 @@ fn vectorCopyBangFn(args: []const Value) PrimitiveError!Value {
 // ---------------------------------------------------------------------------
 
 fn vectorAppendFn(args: []const Value) PrimitiveError!Value {
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
 
     // Calculate total length
     var total: usize = 0;
@@ -279,7 +280,7 @@ fn vectorAppendFn(args: []const Value) PrimitiveError!Value {
 
 fn vectorForEachFn(args: []const Value) PrimitiveError!Value {
     const vm = vm_mod.vm_instance orelse return PrimitiveError.OutOfMemory;
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const proc = args[0];
     if (!types.isProcedure(proc) and !types.isNativeFn(proc)) return primitives.typeError("vector-for-each", "procedure", proc);
 
@@ -320,7 +321,7 @@ fn vectorForEachFn(args: []const Value) PrimitiveError!Value {
 
 fn vectorMapFn(args: []const Value) PrimitiveError!Value {
     const vm = vm_mod.vm_instance orelse return PrimitiveError.OutOfMemory;
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const proc = args[0];
     if (!types.isProcedure(proc) and !types.isNativeFn(proc)) return primitives.typeError("vector-map", "procedure", proc);
 
@@ -367,7 +368,7 @@ fn vectorMapFn(args: []const Value) PrimitiveError!Value {
 // ---------------------------------------------------------------------------
 
 fn vectorToStringFn(args: []const Value) PrimitiveError!Value {
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     if (!types.isVector(args[0])) return primitives.typeError("vector->string", "vector", args[0]);
     const vec = types.toVector(args[0]);
     const len = vec.data.len;
@@ -434,7 +435,7 @@ fn vectorEmptyFn(args: []const Value) PrimitiveError!Value {
 
 // (vector-count pred v1 ...)
 fn vectorCountFn(args: []const Value) PrimitiveError!Value {
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const pred = args[0];
     if (!types.isVector(args[1])) return primitives.typeError("vector-count", "vector", args[1]);
     const vec = types.toVector(args[1]);
@@ -468,7 +469,7 @@ fn vectorCountFn(args: []const Value) PrimitiveError!Value {
 
 // (vector-any pred v1 ...)
 fn vectorAnyFn(args: []const Value) PrimitiveError!Value {
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const pred = args[0];
     if (!types.isVector(args[1])) return primitives.typeError("vector-any", "vector", args[1]);
     const vec = types.toVector(args[1]);
@@ -497,7 +498,7 @@ fn vectorAnyFn(args: []const Value) PrimitiveError!Value {
 
 // (vector-every pred v1 ...)
 fn vectorEveryFn(args: []const Value) PrimitiveError!Value {
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const pred = args[0];
     if (!types.isVector(args[1])) return primitives.typeError("vector-every", "vector", args[1]);
     const vec = types.toVector(args[1]);
@@ -528,7 +529,7 @@ fn vectorEveryFn(args: []const Value) PrimitiveError!Value {
 
 // (vector-index pred v1 ...)
 fn vectorIndexFn(args: []const Value) PrimitiveError!Value {
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const pred = args[0];
     if (!types.isVector(args[1])) return primitives.typeError("vector-index", "vector", args[1]);
     const vec = types.toVector(args[1]);
@@ -557,7 +558,7 @@ fn vectorIndexFn(args: []const Value) PrimitiveError!Value {
 
 // (vector-index-right pred v1 ...)
 fn vectorIndexRightFn(args: []const Value) PrimitiveError!Value {
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const pred = args[0];
     if (!types.isVector(args[1])) return primitives.typeError("vector-index-right", "vector", args[1]);
     const vec = types.toVector(args[1]);
@@ -671,7 +672,7 @@ fn vectorReverseBangFn(args: []const Value) PrimitiveError!Value {
 
 // (vector-reverse-copy vec [start [end]])
 fn vectorReverseCopyFn(args: []const Value) PrimitiveError!Value {
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     if (!types.isVector(args[0])) return primitives.typeError("vector-reverse-copy", "vector", args[0]);
     const vec = types.toVector(args[0]);
     var start: usize = 0;
@@ -700,7 +701,7 @@ fn vectorReverseCopyFn(args: []const Value) PrimitiveError!Value {
 
 // (vector-unfold f length [seeds ...])
 fn vectorUnfoldFn(args: []const Value) PrimitiveError!Value {
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const f = args[0];
     if (!types.isFixnum(args[1])) return primitives.typeError("vector-unfold", "exact non-negative integer", args[1]);
     const len_val = types.toFixnum(args[1]);
@@ -756,7 +757,7 @@ fn vectorUnfoldFn(args: []const Value) PrimitiveError!Value {
 
 // (vector-unfold-right f length [seeds ...])
 fn vectorUnfoldRightFn(args: []const Value) PrimitiveError!Value {
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const f = args[0];
     if (!types.isFixnum(args[1])) return primitives.typeError("vector-unfold-right", "exact non-negative integer", args[1]);
     const len_val = types.toFixnum(args[1]);
@@ -837,7 +838,7 @@ fn vectorBinarySearchFn(args: []const Value) PrimitiveError!Value {
 
 // (vector-concatenate list-of-vectors)
 fn vectorConcatenateFn(args: []const Value) PrimitiveError!Value {
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     var current = args[0];
     var total_len: usize = 0;
     // First pass: compute total length
@@ -863,7 +864,7 @@ fn vectorConcatenateFn(args: []const Value) PrimitiveError!Value {
 
 // (vector-cumulate f knil vec)
 fn vectorCumulateFn(args: []const Value) PrimitiveError!Value {
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const f = args[0];
     var acc = args[1];
     if (!types.isVector(args[2])) return primitives.typeError("vector-cumulate", "vector", args[2]);
@@ -883,7 +884,7 @@ fn vectorCumulateFn(args: []const Value) PrimitiveError!Value {
 
 // (vector-partition pred vec)
 fn vectorPartitionFn(args: []const Value) PrimitiveError!Value {
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const pred = args[0];
     if (!types.isVector(args[1])) return primitives.typeError("vector-partition", "vector", args[1]);
     const vec = types.toVector(args[1]);
@@ -924,7 +925,7 @@ fn vectorPartitionFn(args: []const Value) PrimitiveError!Value {
 }
 
 fn vectorAppendSubvectorsFn(args: []const Value) PrimitiveError!Value {
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     if (args.len % 3 != 0) return primitives.typeError("vector-append-subvectors", "multiple of 3 arguments", types.makeFixnum(@intCast(args.len)));
 
     var total: usize = 0;

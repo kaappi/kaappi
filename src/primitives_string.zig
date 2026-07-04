@@ -2,6 +2,7 @@ const std = @import("std");
 const types = @import("types.zig");
 const vm_mod = @import("vm.zig");
 const primitives = @import("primitives.zig");
+const memory = @import("memory.zig");
 const Value = types.Value;
 const NativeFn = types.NativeFn;
 const PrimitiveError = primitives.PrimitiveError;
@@ -119,7 +120,7 @@ pub fn utf8ByteLenAt(data: []const u8, byte_offset: usize) usize {
 // ---------------------------------------------------------------------------
 
 fn stringFn(args: []const Value) PrimitiveError!Value {
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     // Calculate total UTF-8 length
     var total: usize = 0;
     for (args) |a| {
@@ -145,7 +146,7 @@ fn stringFn(args: []const Value) PrimitiveError!Value {
 // ---------------------------------------------------------------------------
 
 fn makeStringFn(args: []const Value) PrimitiveError!Value {
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     if (!types.isFixnum(args[0])) return primitives.typeError("make-string", "exact integer", args[0]);
     const k = types.toFixnum(args[0]);
     if (k < 0) return primitives.typeError("make-string", "non-negative integer", args[0]);
@@ -189,7 +190,7 @@ fn stringSetFn(args: []const Value) PrimitiveError!Value {
     if (!types.isString(args[0])) return primitives.typeError("string-set!", "string", args[0]);
     if (!types.isFixnum(args[1])) return primitives.typeError("string-set!", "exact integer", args[1]);
     if (!types.isChar(args[2])) return primitives.typeError("string-set!", "character", args[2]);
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const str = types.toObject(args[0]).as(types.SchemeString);
     if (str.immutable) return primitives.typeError("string-set!", "mutable string", args[0]);
     const data = str.data[0..str.len];
@@ -228,7 +229,7 @@ fn stringSetFn(args: []const Value) PrimitiveError!Value {
 // ---------------------------------------------------------------------------
 
 fn substringFn(args: []const Value) PrimitiveError!Value {
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const data = try getStringSlice(args[0]);
     if (!types.isFixnum(args[1])) return primitives.typeError("substring", "exact integer", args[1]);
     if (!types.isFixnum(args[2])) return primitives.typeError("substring", "exact integer", args[2]);
@@ -250,7 +251,7 @@ fn substringFn(args: []const Value) PrimitiveError!Value {
 // ---------------------------------------------------------------------------
 
 fn stringCopyFn(args: []const Value) PrimitiveError!Value {
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const data = try getStringSlice(args[0]);
     const cp_count = utf8CodepointCount(data);
     const range = try primitives.parseOptionalRange(args, 1, cp_count, "string-copy");
@@ -268,7 +269,7 @@ fn stringCopyFn(args: []const Value) PrimitiveError!Value {
 fn stringCopyBangFn(args: []const Value) PrimitiveError!Value {
     if (!types.isString(args[0])) return primitives.typeError("string-copy!", "string", args[0]);
     if (!types.isFixnum(args[1])) return primitives.typeError("string-copy!", "exact integer", args[1]);
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const to_str = types.toObject(args[0]).as(types.SchemeString);
     if (to_str.immutable) return primitives.typeError("string-copy!", "mutable string", args[0]);
     const to_data = to_str.data[0..to_str.len];
@@ -325,7 +326,7 @@ fn stringCopyBangFn(args: []const Value) PrimitiveError!Value {
 fn stringFillFn(args: []const Value) PrimitiveError!Value {
     if (!types.isString(args[0])) return primitives.typeError("string-fill!", "string", args[0]);
     if (!types.isChar(args[1])) return primitives.typeError("string-fill!", "character", args[1]);
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const str = types.toObject(args[0]).as(types.SchemeString);
     if (str.immutable) return primitives.typeError("string-fill!", "mutable string", args[0]);
     const data = str.data[0..str.len];
@@ -364,7 +365,7 @@ fn stringFillFn(args: []const Value) PrimitiveError!Value {
 // ---------------------------------------------------------------------------
 
 fn stringToListFn(args: []const Value) PrimitiveError!Value {
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const data = try getStringSlice(args[0]);
     const cp_count = utf8CodepointCount(data);
     const range = try primitives.parseOptionalRange(args, 1, cp_count, "string->list");
@@ -399,7 +400,7 @@ fn stringToListFn(args: []const Value) PrimitiveError!Value {
 // ---------------------------------------------------------------------------
 
 fn listToStringFn(args: []const Value) PrimitiveError!Value {
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     // Count chars and calculate utf8 length
     var total: usize = 0;
     var current = args[0];
@@ -431,7 +432,7 @@ fn listToStringFn(args: []const Value) PrimitiveError!Value {
 // ---------------------------------------------------------------------------
 
 fn stringToSymbolFn(args: []const Value) PrimitiveError!Value {
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const data = try getStringSlice(args[0]);
     return gc.allocSymbol(data) catch return PrimitiveError.OutOfMemory;
 }
@@ -442,7 +443,7 @@ fn stringToSymbolFn(args: []const Value) PrimitiveError!Value {
 
 fn stringToVectorFn(args: []const Value) PrimitiveError!Value {
     if (!types.isString(args[0])) return primitives.typeError("string->vector", "string", args[0]);
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const str = types.toObject(args[0]).as(types.SchemeString);
     const data = str.data[0..str.len];
     const cp_count = utf8CodepointCount(data);
@@ -523,7 +524,7 @@ fn stringForEachFn(args: []const Value) PrimitiveError!Value {
 
 fn stringMapFn(args: []const Value) PrimitiveError!Value {
     const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError; // bare-ok: no VM
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const proc = args[0];
     if (!types.isProcedure(proc) and !types.isNativeFn(proc)) return primitives.typeError("string-map", "procedure", proc);
 
@@ -611,7 +612,7 @@ fn stringGtFn(args: []const Value) PrimitiveError!Value {
 // ---------------------------------------------------------------------------
 
 fn numberToStringFn(args: []const Value) PrimitiveError!Value {
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     if (types.isFixnum(args[0])) {
         var buf: [32]u8 = undefined;
         const s = std.fmt.bufPrint(&buf, "{d}", .{types.toFixnum(args[0])}) catch return PrimitiveError.OutOfMemory;
@@ -628,7 +629,7 @@ fn numberToStringFn(args: []const Value) PrimitiveError!Value {
 
 fn stringToNumberFn(args: []const Value) PrimitiveError!Value {
     if (!types.isString(args[0])) return primitives.typeError("string->number", "string", args[0]);
-    const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const s = try getStringSlice(args[0]);
 
     if (std.mem.eql(u8, s, "+inf.0")) return types.makeFlonum(std.math.inf(f64));
