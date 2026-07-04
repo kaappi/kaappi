@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783131196677,
+  "lastUpdate": 1783132919613,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "5ede035daed736f88cd83590c4d4854a19b5caa0",
-          "message": "Register ,condition in REPL help, tab completion, and usage table (#828) (#899)\n\nThe command worked but was missing from the completion array,\nthe ,help output, and getCommandUsage, so typing ,condition\nwithout args printed \"unknown command\" instead of usage.\n\nFixes #828\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-03T04:37:57+05:30",
-          "tree_id": "82c8e837e62d32a73660e90113be3ede5129db6c",
-          "url": "https://github.com/kaappi/kaappi/commit/5ede035daed736f88cd83590c4d4854a19b5caa0"
-        },
-        "date": 1783035164258,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.117737,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.313768,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.848327,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.173514,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.007288,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.032403,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.466394,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.06869,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.896626,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.77156,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.139014,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.471481,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 2.394978,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.876987,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044541,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.042478,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d8a5659cafa51f64ce5142e0a292cc1e7ed5d9a7",
+          "message": "Fix current-input-port corruption under extreme GC pressure (#1013) (#1015)\n\nRoot each standard port in extra_roots immediately after allocation\ninstead of batching all three roots after all three allocations. With\ngc-threshold=1, allocPort for stdout triggered collection before stdin\nwas rooted, freeing it and corrupting the current-input-port parameter.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-04T02:22:46Z",
+          "tree_id": "f7e1e7c5a99359429c72d5234a544738f66ebff6",
+          "url": "https://github.com/kaappi/kaappi/commit/d8a5659cafa51f64ce5142e0a292cc1e7ed5d9a7"
+        },
+        "date": 1783132918118,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.293413,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.67037,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.908306,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.249288,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.012457,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.210856,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.472778,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.07078,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 12.43276,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.810106,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 9.958726,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.958975,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 8.242573,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.69519,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.042686,
             "unit": "seconds"
           }
         ]
