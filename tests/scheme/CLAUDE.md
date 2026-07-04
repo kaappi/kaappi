@@ -12,7 +12,7 @@
 | `ffi/` | C FFI integration | yes |
 | `audit/` | Auto-generated primitives audit tests | yes |
 | `r7rs/` | Full R7RS suite (1,391 tests, `chibi test`) | yes (special) |
-| `errors/` | Error message format and exit code regression (`error-format.sh`, `exit-code.sh`) | no |
+| `errors/` | Error message format, exit code, and reader error regression tests | yes |
 | `bench/` | Micro-benchmarks (no assertions, timing only) | no |
 | `coverage/` | Coverage gap-fillers (`zig build coverage-scheme`) | no |
 | `deferred/` | Pre-compiled `.sbc` bytecode tests | no |

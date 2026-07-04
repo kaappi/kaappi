@@ -10,6 +10,11 @@ if [[ ! -x zig-out/bin/kaappi ]]; then
 fi
 KAAPPI=zig-out/bin/kaappi
 
+TMPOUT=$(mktemp /tmp/kaappi-test-XXXXXX)
+TMPSTDOUT=$(mktemp /tmp/kaappi-r7rs-stdout-XXXXXX)
+TMPSTDERR=$(mktemp /tmp/kaappi-r7rs-stderr-XXXXXX)
+trap 'rm -f "$TMPOUT" "$TMPSTDOUT" "$TMPSTDERR"' EXIT
+
 TIMEOUT=60
 PASS=0
 FAIL=0
@@ -21,7 +26,7 @@ R7RS_STATUS_FAIL=0
 run_file() {
     local file="$1"
     local output pid status
-    "$KAAPPI" "$file" > /tmp/kaappi-test-out 2>&1 &
+    "$KAAPPI" "$file" > "$TMPOUT" 2>&1 &
     pid=$!
     if wait_with_timeout "$pid" "$TIMEOUT"; then
         status=0
@@ -30,7 +35,7 @@ run_file() {
         kill "$pid" 2>/dev/null || true
         wait "$pid" 2>/dev/null || true
         echo "  TIMEOUT  $file  (killed after ${TIMEOUT}s)"
-        cat /tmp/kaappi-test-out
+        cat "$TMPOUT"
         TIMEDOUT=$((TIMEDOUT + 1))
         return
     fi
@@ -39,7 +44,7 @@ run_file() {
         PASS=$((PASS + 1))
     else
         echo "  FAIL  $file"
-        cat /tmp/kaappi-test-out
+        cat "$TMPOUT"
         FAIL=$((FAIL + 1))
     fi
 }
@@ -73,19 +78,20 @@ run_suite() {
     echo ""
 }
 
-run_suite "Smoke tests" tests/scheme/smoke/*.scm
-run_suite "Compliance tests" tests/scheme/compliance/*.scm
-run_suite "Continuation tests" tests/scheme/continuations/*.scm
-run_suite "Hygiene tests" tests/scheme/hygiene/*.scm
-run_suite "SRFI tests" tests/scheme/srfi/*.scm
-run_suite "FFI tests" tests/scheme/ffi/*.scm
-run_suite "Audit tests" tests/scheme/audit/*.scm
-
-echo "=== Compile tests ==="
-for test_script in tests/scheme/compile/*.sh; do
-    if [[ -x "$test_script" ]]; then
+run_shell_suite() {
+    local title="$1" dir="$2"
+    local matched=0
+    echo "=== $title ==="
+    for test_script in "$dir"/*.sh; do
+        [[ -e "$test_script" ]] || continue
+        if [[ ! -x "$test_script" ]]; then
+            echo "  FAIL  $test_script  (not executable)"
+            FAIL=$((FAIL + 1))
+            continue
+        fi
+        matched=1
         set +e
-        bash "$test_script" "$KAAPPI" > /tmp/kaappi-test-out 2>&1
+        KAAPPI="$KAAPPI" bash "$test_script" "$KAAPPI" > "$TMPOUT" 2>&1
         status=$?
         set -e
         if [[ $status -eq 0 ]]; then
@@ -93,19 +99,32 @@ for test_script in tests/scheme/compile/*.sh; do
             PASS=$((PASS + 1))
         else
             echo "  FAIL  $test_script"
-            cat /tmp/kaappi-test-out
+            cat "$TMPOUT"
             FAIL=$((FAIL + 1))
         fi
+    done
+    if [[ $matched -eq 0 ]]; then
+        echo "  (no tests matched)"
     fi
-done
-echo ""
+    echo ""
+}
+
+run_suite "Smoke tests" tests/scheme/smoke/*.scm
+run_shell_suite "Smoke shell tests" tests/scheme/smoke
+run_suite "Compliance tests" tests/scheme/compliance/*.scm
+run_suite "Continuation tests" tests/scheme/continuations/*.scm
+run_suite "Hygiene tests" tests/scheme/hygiene/*.scm
+run_suite "SRFI tests" tests/scheme/srfi/*.scm
+run_suite "FFI tests" tests/scheme/ffi/*.scm
+run_suite "Audit tests" tests/scheme/audit/*.scm
+run_shell_suite "Error tests" tests/scheme/errors
+run_shell_suite "Compile tests" tests/scheme/compile
 
 echo "=== R7RS test suite ==="
 set +e
-# Capture stdout and stderr separately to preserve panic messages
-"$KAAPPI" tests/scheme/r7rs/r7rs-tests.scm > /tmp/kaappi-r7rs-stdout 2> /tmp/kaappi-r7rs-stderr
+"$KAAPPI" tests/scheme/r7rs/r7rs-tests.scm > "$TMPSTDOUT" 2> "$TMPSTDERR"
 R7RS_STATUS=$?
-R7RS_OUTPUT="$(cat /tmp/kaappi-r7rs-stdout /tmp/kaappi-r7rs-stderr)"
+R7RS_OUTPUT="$(cat "$TMPSTDOUT" "$TMPSTDERR")"
 set -e
 
 R7RS_PASS=$(printf "%s\n" "$R7RS_OUTPUT" | awk '{for (i = 1; i < NF; i++) { w=$(i+1); gsub(",", "", w); if ($i ~ /^[0-9]+$/ && w == "pass") s += $i }} END {print s + 0}')
@@ -114,9 +133,9 @@ echo "  $R7RS_PASS pass, $R7RS_FAIL fail"
 if [[ $R7RS_STATUS -ne 0 ]]; then
     echo "  FAIL  tests/scheme/r7rs/r7rs-tests.scm (exit $R7RS_STATUS)"
     echo "--- stderr output ---"
-    cat /tmp/kaappi-r7rs-stderr 2>/dev/null || true
+    cat "$TMPSTDERR" 2>/dev/null || true
     echo "--- last 20 lines stdout ---"
-    tail -20 /tmp/kaappi-r7rs-stdout 2>/dev/null || true
+    tail -20 "$TMPSTDOUT" 2>/dev/null || true
     echo "--- end crash context ---"
     R7RS_STATUS_FAIL=1
 fi
