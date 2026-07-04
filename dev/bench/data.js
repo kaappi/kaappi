@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783184504820,
+  "lastUpdate": 1783184559120,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "3864fd83387fb33dc96ed945eac494e3fcd2e84a",
-          "message": "Retire replaced library envs instead of freeing them (#941)\n\nRe-registering a library (a second define-library with the same name)\nfreed the old library's lib_env, but closures compiled in the old\nlibrary's begin block still hold Function.env pointers to it and can\noutlive the library by escaping into vm.globals via import. Calling\nsuch a closure afterwards dereferenced the freed StringHashMap —\nuse-after-free that panics or silently corrupts memory.\n\nDetach the replaced env into a retired_envs list owned by the registry\nand free it only at registry teardown, and trace retired envs in\nmarkVMRoots so values reachable only through them (like non-exported\nlibrary internals) survive GC. The small leak is bounded by the number\nof re-registrations, which only happen when a program or REPL session\nredefines a library.\n\nFixes #820\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-03T14:05:40+05:30",
-          "tree_id": "2d8bc78e631540947c2ca771b718148c275123e5",
-          "url": "https://github.com/kaappi/kaappi/commit/3864fd83387fb33dc96ed945eac494e3fcd2e84a"
-        },
-        "date": 1783068618698,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.423291,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.445179,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.847584,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.382736,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006886,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.033201,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.464549,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.069534,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 4.09876,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.809504,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.136457,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.438357,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 2.485852,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.702144,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.042438,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.045071,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "8502aadb86ca1c244f818540a47e5228122a8014",
+          "message": "Extract MultiListIter and buildList helpers in SRFI-1 primitives (#1059) (#1107)\n\nTwo tangled repeats lived in primitives_srfi1.zig: multi-list iteration\nboilerplate (11 copies) and reverse-iterate-allocPair list building\n(~20 copies). Extract both as file-local helpers.\n\nMultiListIter encapsulates the currents array, all-pairs check,\ncar/pair gathering, and cdr advance. Supports car mode (default) and\npairs mode for pair-for-each/pair-fold.\n\nbuildList always roots the accumulator, fixing three GC bugs where\nsplitAtFn, spanFn, and breakFn were missing pushRoot — allocPair\nduring the build phase could trigger collection with the partially-built\nlist unreachable.\n\nNet: 140 insertions, 546 deletions (2185 → 1778 lines).\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-04T21:49:10+05:30",
+          "tree_id": "9dad5095305abe81ff88820adc5c1af727ee0a6d",
+          "url": "https://github.com/kaappi/kaappi/commit/8502aadb86ca1c244f818540a47e5228122a8014"
+        },
+        "date": 1783184558078,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.049798,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.623132,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.948485,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.37447,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.013599,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.234705,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.473691,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.068756,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 13.560236,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.849509,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 11.127742,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 1.068273,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 9.099886,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.847919,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.045304,
             "unit": "seconds"
           }
         ]
