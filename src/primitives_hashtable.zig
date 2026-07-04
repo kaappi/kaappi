@@ -494,6 +494,9 @@ fn hashTableFoldFn(args: []const Value) PrimitiveError!Value {
     const proc = args[1];
     var acc = args[2];
 
+    gc.pushRoot(&acc) catch return PrimitiveError.OutOfMemory;
+    defer gc.popRoot();
+
     const snapshot = snapshotLiveEntries(gc, ht) orelse return PrimitiveError.OutOfMemory;
     defer gc.allocator.free(snapshot);
 

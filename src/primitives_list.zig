@@ -388,11 +388,18 @@ fn mapFn(args: []const Value) PrimitiveError!Value {
         }
 
         // Call procedure
-        const result = vm.callWithArgs(proc, call_args[0..list_count]) catch |err| {
+        var result = vm.callWithArgs(proc, call_args[0..list_count]) catch |err| {
             return primitives.mapVMError(err);
         };
 
-        const new_pair = gc.allocPair(result, types.NIL) catch return PrimitiveError.OutOfMemory;
+        // Root result: callWithArgs pops its frame, so the return value has
+        // no GC root until it is consed into the result list.
+        gc.pushRoot(&result) catch return PrimitiveError.OutOfMemory;
+        const new_pair = gc.allocPair(result, types.NIL) catch {
+            gc.popRoot();
+            return PrimitiveError.OutOfMemory;
+        };
+        gc.popRoot();
         if (result_head == types.NIL) {
             result_head = new_pair;
         } else {
