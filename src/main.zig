@@ -655,15 +655,16 @@ fn mainImpl(init: std.process.Init.Minimal) !void {
         }
     }
 
-    // Auto-add ~/.kaappi/lib as a default library search path
+    // Auto-add $KAAPPI_HOME/lib (or ~/.kaappi/lib) as a default library search path
     if (!is_wasm) {
         const kaappi_lib_path = blk: {
-            const home = std.c.getenv("HOME") orelse break :blk null;
-            const home_len = std.mem.len(home);
-            const suffix = "/.kaappi/lib";
-            const path = allocator.alloc(u8, home_len + suffix.len) catch break :blk null;
-            @memcpy(path[0..home_len], home[0..home_len]);
-            @memcpy(path[home_len..], suffix);
+            const kaappi_paths = @import("kaappi_paths.zig");
+            var home_buf: [512]u8 = undefined;
+            const home = kaappi_paths.getHome(&home_buf) orelse break :blk null;
+            const lib_suffix = "/lib";
+            const path = allocator.alloc(u8, home.len + lib_suffix.len) catch break :blk null;
+            @memcpy(path[0..home.len], home);
+            @memcpy(path[home.len..][0..lib_suffix.len], lib_suffix);
             break :blk path;
         };
         if (kaappi_lib_path) |klp| {

@@ -411,11 +411,12 @@ pub fn repl(vm: *vm_mod.VM) !void {
 
     var hist_path_buf: [512]u8 = undefined;
     const hist_path: ?[*:0]const u8 = blk: {
-        const home_ptr: ?[*:0]const u8 = std.c.getenv("HOME");
-        const home = if (home_ptr) |p| std.mem.span(p) else break :blk null;
-        const dir = std.fmt.bufPrintZ(hist_path_buf[0..500], "{s}/.kaappi", .{home}) catch break :blk null;
+        const kaappi_paths = @import("kaappi_paths.zig");
+        var home_buf: [256]u8 = undefined;
+        const kaappi_home = kaappi_paths.getHome(&home_buf) orelse break :blk null;
+        const dir = std.fmt.bufPrintZ(hist_path_buf[0..500], "{s}", .{kaappi_home}) catch break :blk null;
         _ = std.c.mkdir(dir.ptr, 0o755);
-        const path = std.fmt.bufPrintZ(&hist_path_buf, "{s}/.kaappi/history", .{home}) catch break :blk null;
+        const path = std.fmt.bufPrintZ(&hist_path_buf, "{s}/history", .{kaappi_home}) catch break :blk null;
         break :blk path;
     };
     if (hist_path) |p| ln.historyLoad(p);
