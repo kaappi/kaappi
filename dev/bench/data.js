@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783173756457,
+  "lastUpdate": 1783176004977,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "77dda3040c439ce51045ea4f1b518583ed32ced3",
-          "message": "Fix wrong vector-partition expectation in SRFI-133 extended tests (#932)\n\nThe test expected (vector-partition even? #(1 2 3 4 5)) to return a\n2-element vector of only the satisfying elements. Per the SRFI 133\nspec, the first value is a vector the same size as the input —\nsatisfying elements first, then the rest, both in original order —\nand the implementation already conforms. The failure surfaced only\nafter script error exit codes were fixed; it had been masked before.\n\nStrengthen the check to compare full vector contents (guarding\nagainst a future regression that truncates the result) and add\nall-satisfying, none-satisfying, and empty-vector edge cases.\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-03T05:49:37Z",
-          "tree_id": "ec4dd20ab2959f4fe3e1499547abadec754016d9",
-          "url": "https://github.com/kaappi/kaappi/commit/77dda3040c439ce51045ea4f1b518583ed32ced3"
-        },
-        "date": 1783058612708,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.386059,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.697252,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.862063,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.176371,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.00709,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.033552,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.482992,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.070623,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.970605,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.849892,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.125868,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.433042,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 2.453228,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.675099,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.042166,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.046777,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "5e875a091d01e1f42e3efb53ce5e6efadc7bd325",
+          "message": "Root callWithArgs return values in map, fold, and unfold primitives (#1098)\n\ncallWithArgs pops its temporary VM frame before returning, so the\nreturn value has no GC root — it exists only in a Zig stack local.\nIf the next allocation triggers a collection, the unrooted value is\nswept and its memory reused, corrupting any structure that referenced\nit.\n\nThis manifested as SRFI-115 regexp \"unknown tag 0.0\" errors: map is\nused by %csre to build compiled regexp structures, and the unrooted\nmap callback results became dangling pointers after GC.\n\nRoot the return value in each affected primitive:\n- map: root result before allocPair\n- fold, fold-right, reduce, reduce-right: root acc across iterations\n- pair-fold, pair-fold-right: root acc across iterations\n- unfold-right: root seed and val before allocPair\n- map-in-order: root accumulated results via extra_roots\n- hash-table-fold: root acc across iterations\n- string-unfold, string-unfold-right: root seed across callVM calls\n\nFixes #1093.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-04T14:20:10Z",
+          "tree_id": "2b2a58eb6d6b664d5afd3320cbed32e773635509",
+          "url": "https://github.com/kaappi/kaappi/commit/5e875a091d01e1f42e3efb53ce5e6efadc7bd325"
+        },
+        "date": 1783176004459,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.359977,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.547635,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.924402,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.357934,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.014465,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.212329,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.478006,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.071075,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 12.442167,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.878017,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 9.926016,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.951975,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 8.284043,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.67623,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.04201,
             "unit": "seconds"
           }
         ]
