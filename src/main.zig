@@ -43,6 +43,7 @@ pub const ir_emitter = @import("ir_emitter.zig");
 pub const llvm_emit = @import("llvm_emit.zig");
 pub const native_compiler = @import("native_compiler.zig");
 pub const toplevel_driver = @import("toplevel_driver.zig");
+pub const cli = @import("cli.zig");
 
 pub const version = @import("build_options").version;
 
@@ -63,58 +64,11 @@ fn writeStdout(bytes: []const u8) void {
     writeToFd(1, bytes);
 }
 
-fn printUsage() void {
-    writeStdout(
-        "Kaappi Scheme v" ++ version ++ "\n" ++
-            "\n" ++
-            "Usage: kaappi [options] [file] [script-args...]\n" ++
-            "       kaappi compile <file.scm> [-o output]\n" ++
-            "\n" ++
-            "Commands:\n" ++
-            "  compile <file>     Compile to native binary via LLVM\n" ++
-            "\n" ++
-            "Options:\n" ++
-            "  -h, --help         Show this help message\n" ++
-            "  --version          Show version\n" ++
-            "  --lib-path <path>  Add library search path (up to 16)\n" ++
-            "  --compile          Compile file to bytecode (.sbc)\n" ++
-            "  --emit-llvm        Emit LLVM IR text (.ll)\n" ++
-            "  -o <file>          Output path\n" ++
-            "  --disassemble      Disassemble bytecode\n" ++
-            "  --sandbox          Restrict filesystem and process access\n" ++
-            "  --gc-stats         Print GC statistics on exit\n" ++
-            "  --profile          Enable profiling\n" ++
-            "  --coverage         Report library procedure coverage\n" ++
-            "  --coverage-xml <f> Write Cobertura XML coverage to file\n" ++
-            "  --timeout <ms>     Execution timeout in milliseconds\n" ++
-            "  --max-memory <n>   Maximum heap memory in bytes\n" ++
-            "  --completions <sh> Output completion script (bash, zsh, fish)\n" ++
-            "\n" ++
-            "Environment variables:\n" ++
-            "  KAAPPI_LIB_DIR     Directory containing libkaappi_rt.a (for compile)\n" ++
-            "\n" ++
-            "With no file argument, starts an interactive REPL.\n",
-    );
-}
-
 fn writeStderr(bytes: []const u8) void {
     writeToFd(2, bytes);
 }
 
-/// Exit code for command-line usage errors (missing flag argument, unknown
-/// option, unknown completions shell). Follows the common getopt convention
-/// of 2, distinct from the 1 used for script read/compile/runtime errors, so
-/// callers can tell "you invoked kaappi wrong" apart from "your program failed".
-const USAGE_ERROR_EXIT: u8 = 2;
-
-/// Report a command-line usage error and terminate the process with
-/// `USAGE_ERROR_EXIT`. Mirrors how `(exit n)` exits directly via
-/// `std.process.exit`; usage errors are detected before any real work begins,
-/// so there is nothing to unwind.
-fn usageError(msg: []const u8) noreturn {
-    writeStderr(msg);
-    std.process.exit(USAGE_ERROR_EXIT);
-}
+const usageError = cli.usageError;
 
 // Multiple values print one per line, matching other Scheme REPLs
 // (Chez, Guile, Racket, Chibi). Void results print nothing.
@@ -252,42 +206,7 @@ fn mainImpl(init: std.process.Init.Minimal) !void {
         return;
     }
 
-    // Pre-scan args for --sandbox (must happen before primitive registration).
-    // Stop at the first non-flag argument (the script filename) so that
-    // script arguments like `kaappi script.scm --sandbox` are not hijacked.
-    var is_sandboxed = false;
-    {
-        var pre_args = init.args.iterate();
-        _ = pre_args.skip(); // skip argv[0]
-        while (pre_args.next()) |arg| {
-            if (std.mem.eql(u8, arg, "--sandbox")) {
-                is_sandboxed = true;
-            } else if (std.mem.eql(u8, arg, "--lib-path") or
-                std.mem.eql(u8, arg, "--timeout") or
-                std.mem.eql(u8, arg, "--max-memory") or
-                std.mem.eql(u8, arg, "--profile-json") or
-                std.mem.eql(u8, arg, "--coverage-xml") or
-                std.mem.eql(u8, arg, "-o") or
-                std.mem.eql(u8, arg, "--completions"))
-            {
-                _ = pre_args.skip(); // consume the flag's value
-            } else if (std.mem.eql(u8, arg, "--gc-stats") or
-                std.mem.eql(u8, arg, "--profile") or
-                std.mem.eql(u8, arg, "--coverage") or
-                std.mem.eql(u8, arg, "--compile") or
-                std.mem.eql(u8, arg, "--emit-llvm") or
-                std.mem.eql(u8, arg, "--disassemble") or
-                std.mem.eql(u8, arg, "--help") or
-                std.mem.eql(u8, arg, "-h") or
-                std.mem.eql(u8, arg, "--version") or
-                std.mem.eql(u8, arg, "compile"))
-            {
-                // recognized boolean flag — keep scanning
-            } else {
-                break; // filename or unknown flag — stop scanning
-            }
-        }
-    }
+    const is_sandboxed = cli.preScanSandbox(init.args);
 
     if (is_sandboxed) {
         try primitives.registerSandboxed(vm);
@@ -300,65 +219,28 @@ fn mainImpl(init: std.process.Init.Minimal) !void {
         try library.registerStandardLibraries(&vm.libraries, vm.globals);
     }
 
+    const opts = cli.parse(init.args);
+    if (opts.action == .exit_ok) return;
+
+    // Apply parsed options to VM/GC
+    if (opts.timeout_ms) |ms| {
+        const clockNs = @import("vm_calls.zig").clockNs;
+        vm.timeout_deadline_ns = clockNs() + ms * 1_000_000;
+    }
+    if (opts.max_memory) |limit| gc.memory_limit = limit;
+    if (opts.coverage_xml_path) |p| vm.coverage_xml_path = p;
+    vm.command_line_args = opts.scriptArgs();
+
     // Standalone mode: run embedded bytecode and exit
     if (embedded_bytecode.bytecode) |bytecode_data| {
-        // Parse flags before file arguments
-        var sa: [64][]const u8 = undefined;
-        var sa_count: usize = 0;
-        var sa_gc_stats = false;
-        var sa_profile = false;
-        var sa_coverage = false;
-        var sa_iter = init.args.iterate();
-        _ = sa_iter.skip();
-        while (sa_iter.next()) |arg| {
-            if (std.mem.eql(u8, arg, "--help") or std.mem.eql(u8, arg, "-h")) {
-                printUsage();
-                return;
-            } else if (std.mem.eql(u8, arg, "--version")) {
-                writeStdout("Kaappi Scheme v" ++ version ++ "\n");
-                return;
-            } else if (std.mem.eql(u8, arg, "--completions")) {
-                if (sa_iter.next()) |shell| {
-                    if (@import("completions.zig").kaappi(shell)) |script| {
-                        writeStdout(script);
-                        return;
-                    }
-                    writeStderr("unknown shell: ");
-                    writeStderr(shell);
-                    writeStderr("\nSupported: bash, zsh, fish\n");
-                    std.process.exit(USAGE_ERROR_EXIT);
-                }
-                usageError("--completions requires a shell name (bash, zsh, fish)\n");
-            } else if (std.mem.eql(u8, arg, "--gc-stats")) {
-                sa_gc_stats = true;
-            } else if (std.mem.eql(u8, arg, "--profile")) {
-                sa_profile = true;
-            } else if (std.mem.eql(u8, arg, "--coverage")) {
-                sa_coverage = true;
-            } else if (std.mem.eql(u8, arg, "--coverage-xml")) {
-                sa_coverage = true;
-                if (sa_iter.next()) |p| {
-                    vm.coverage_xml_path = p;
-                } else {
-                    usageError("--coverage-xml requires a file path argument\n");
-                }
-            } else {
-                if (sa_count < 64) {
-                    sa[sa_count] = arg;
-                    sa_count += 1;
-                }
-            }
-        }
-        vm.command_line_args = sa[0..sa_count];
-
-        defer if (sa_gc_stats) reporting.printGcStats(&gc);
-        if (sa_profile) vm.profile_mode = true;
-        defer if (sa_profile) reporting.printProfileReport(&gc);
-        if (sa_coverage) {
+        defer if (opts.gc_stats_mode) reporting.printGcStats(&gc);
+        if (opts.profile_mode) vm.profile_mode = true;
+        defer if (opts.profile_mode) reporting.printProfileReport(&gc);
+        if (opts.coverage_mode) {
             vm.profile_mode = true;
             vm.coverage_mode = true;
         }
-        defer if (sa_coverage) {
+        defer if (opts.coverage_mode) {
             reporting.printCoverageReport(vm);
             if (vm.coverage_xml_path) |p| reporting.writeCoverageXml(vm, p);
         };
@@ -449,150 +331,17 @@ fn mainImpl(init: std.process.Init.Minimal) !void {
         return;
     }
 
-    var args = init.args.iterate();
-    _ = args.skip(); // skip program name
-
+    // Library path auto-discovery: script dir + ~/.kaappi/lib
     var lib_paths: [16][]const u8 = undefined;
     var lib_path_count: usize = 0;
-    var file_path: ?[]const u8 = null;
-    var compile_mode = false;
-    var native_compile_mode = false;
-    var emit_llvm_mode = false;
-    var compile_output: ?[]const u8 = null;
-    var disassemble_mode = false;
-    var gc_stats_mode = false;
-    var profile_mode = false;
-    var profile_json_path: ?[]const u8 = null;
-    var coverage_mode = false;
-    var sandbox_mode = false;
-
-    while (args.next()) |arg| {
-        if (std.mem.eql(u8, arg, "--gc-stats")) {
-            gc_stats_mode = true;
-        } else if (std.mem.eql(u8, arg, "--lib-path")) {
-            if (args.next()) |lp| {
-                if (lib_path_count < 16) {
-                    lib_paths[lib_path_count] = lp;
-                    lib_path_count += 1;
-                }
-            } else {
-                usageError("--lib-path requires a path argument\n");
-            }
-        } else if (std.mem.eql(u8, arg, "--profile")) {
-            profile_mode = true;
-        } else if (std.mem.eql(u8, arg, "--profile-json")) {
-            profile_mode = true;
-            profile_json_path = args.next();
-            if (profile_json_path == null) {
-                usageError("--profile-json requires a file path argument\n");
-            }
-        } else if (std.mem.eql(u8, arg, "--coverage")) {
-            coverage_mode = true;
-        } else if (std.mem.eql(u8, arg, "--coverage-xml")) {
-            coverage_mode = true;
-            if (args.next()) |p| {
-                vm.coverage_xml_path = p;
-            } else {
-                usageError("--coverage-xml requires a file path argument\n");
-            }
-        } else if (std.mem.eql(u8, arg, "--sandbox")) {
-            sandbox_mode = true;
-        } else if (std.mem.eql(u8, arg, "compile")) {
-            native_compile_mode = true;
-        } else if (std.mem.eql(u8, arg, "--compile")) {
-            compile_mode = true;
-        } else if (std.mem.eql(u8, arg, "--emit-llvm")) {
-            emit_llvm_mode = true;
-        } else if (std.mem.eql(u8, arg, "-o")) {
-            compile_output = args.next();
-            if (compile_output == null) {
-                usageError("-o requires a file path argument\n");
-            }
-        } else if (std.mem.eql(u8, arg, "--disassemble")) {
-            disassemble_mode = true;
-        } else if (std.mem.eql(u8, arg, "--timeout")) {
-            if (args.next()) |ms_str| {
-                const ms = std.fmt.parseInt(u64, ms_str, 10) catch {
-                    usageError("--timeout requires a positive integer milliseconds value\n");
-                };
-                if (ms == 0) {
-                    usageError("--timeout requires a positive integer milliseconds value\n");
-                }
-                const clockNs = @import("vm_calls.zig").clockNs;
-                vm.timeout_deadline_ns = clockNs() + ms * 1_000_000;
-            } else {
-                usageError("--timeout requires a milliseconds argument\n");
-            }
-        } else if (std.mem.eql(u8, arg, "--max-memory")) {
-            if (args.next()) |mem_str| {
-                const limit = std.fmt.parseInt(usize, mem_str, 10) catch {
-                    usageError("--max-memory requires a positive integer bytes value\n");
-                };
-                if (limit == 0) {
-                    usageError("--max-memory requires a positive integer bytes value\n");
-                }
-                gc.memory_limit = limit;
-            } else {
-                usageError("--max-memory requires a bytes argument\n");
-            }
-        } else if (std.mem.eql(u8, arg, "--help") or std.mem.eql(u8, arg, "-h")) {
-            printUsage();
-            return;
-        } else if (std.mem.eql(u8, arg, "--version")) {
-            writeStdout("Kaappi Scheme v" ++ version ++ "\n");
-            return;
-        } else if (std.mem.eql(u8, arg, "--completions")) {
-            if (args.next()) |shell| {
-                if (@import("completions.zig").kaappi(shell)) |script| {
-                    writeStdout(script);
-                    return;
-                }
-                writeStderr("unknown shell: ");
-                writeStderr(shell);
-                writeStderr("\nSupported: bash, zsh, fish\n");
-                std.process.exit(USAGE_ERROR_EXIT);
-            }
-            usageError("--completions requires a shell name (bash, zsh, fish)\n");
-        } else if (arg.len > 1 and arg[0] == '-') {
-            // Unknown flag. Treating it as a script filename hides the typo
-            // (the caller sees "Error opening file '--typo'" or a silent no-op),
-            // so reject it as a usage error instead. A lone "-" is left to fall
-            // through as a (nonexistent) filename to preserve prior behavior.
-            writeStderr("unknown option: ");
-            writeStderr(arg);
-            writeStderr("\nRun 'kaappi --help' for usage.\n");
-            std.process.exit(USAGE_ERROR_EXIT);
-        } else {
-            file_path = arg;
-            break;
+    for (opts.libPaths()) |lp| {
+        if (lib_path_count < 16) {
+            lib_paths[lib_path_count] = lp;
+            lib_path_count += 1;
         }
     }
 
-    // Collect remaining args after the file path for (command-line).
-    // Also check for -o which is valid after the file path for compile modes.
-    var script_args: [64][]const u8 = undefined;
-    var script_arg_count: usize = 0;
-    if (file_path) |fp| {
-        script_args[0] = fp;
-        script_arg_count = 1;
-        const consumes_output = compile_mode or native_compile_mode or disassemble_mode or emit_llvm_mode;
-        while (args.next()) |extra| {
-            if (consumes_output and std.mem.eql(u8, extra, "-o")) {
-                if (compile_output == null) compile_output = args.next();
-                continue;
-            }
-            if (script_arg_count < 64) {
-                script_args[script_arg_count] = extra;
-                script_arg_count += 1;
-            }
-        }
-    }
-    vm.command_line_args = script_args[0..script_arg_count];
-
-    // Resolve libraries relative to the script's directory, so a program can
-    // import libraries that live next to it regardless of the working
-    // directory. Explicit --lib-path entries stay ahead in the search order.
-    if (file_path) |fp| {
+    if (opts.file_path) |fp| {
         if (std.mem.lastIndexOfScalar(u8, fp, '/')) |pos| {
             if (lib_path_count < 16) {
                 lib_paths[lib_path_count] = if (pos == 0) fp[0..1] else fp[0..pos];
@@ -601,7 +350,6 @@ fn mainImpl(init: std.process.Init.Minimal) !void {
         }
     }
 
-    // Auto-add $KAAPPI_HOME/lib (or ~/.kaappi/lib) as a default library search path
     if (!is_wasm) {
         const kaappi_lib_path = blk: {
             const kaappi_paths = @import("kaappi_paths.zig");
@@ -618,7 +366,6 @@ fn mainImpl(init: std.process.Init.Minimal) !void {
                 lib_paths[lib_path_count] = klp;
                 lib_path_count += 1;
             }
-            // Set DYLD_LIBRARY_PATH / LD_LIBRARY_PATH for FFI dlopen
             const env_name = if (@import("builtin").os.tag == .macos)
                 "DYLD_LIBRARY_PATH"
             else
@@ -643,53 +390,51 @@ fn mainImpl(init: std.process.Init.Minimal) !void {
 
     vm.lib_paths = lib_paths[0..lib_path_count];
 
-    defer if (gc_stats_mode) reporting.printGcStats(&gc);
-    if (profile_mode) vm.profile_mode = true;
-    defer if (profile_mode) {
+    defer if (opts.gc_stats_mode) reporting.printGcStats(&gc);
+    if (opts.profile_mode) vm.profile_mode = true;
+    defer if (opts.profile_mode) {
         reporting.printProfileReport(&gc);
-        if (profile_json_path) |jp| {
+        if (opts.profile_json_path) |jp| {
             reporting.writeProfileJson(&gc, jp);
         }
     };
-    if (coverage_mode) {
+    if (opts.coverage_mode) {
         vm.profile_mode = true;
         vm.coverage_mode = true;
     }
-    defer if (coverage_mode) {
+    defer if (opts.coverage_mode) {
         reporting.printCoverageReport(vm);
         if (vm.coverage_xml_path) |p| reporting.writeCoverageXml(vm, p);
     };
 
-    if (native_compile_mode) {
-        if (file_path) |fp| {
-            try native_compiler.compileNative(vm, fp, compile_output);
+    if (opts.native_compile_mode) {
+        if (opts.file_path) |fp| {
+            try native_compiler.compileNative(vm, fp, opts.compile_output);
         } else {
-            // A build subcommand with no file is misuse, not a help request:
-            // fail loudly so a caller with an empty "$FILE" variable notices.
             usageError("Usage: kaappi compile <file.scm> [-o output]\n");
         }
         return;
     }
 
-    if (disassemble_mode) {
-        if (file_path) |fp| {
+    if (opts.disassemble_mode) {
+        if (opts.file_path) |fp| {
             try disassembleFile(vm, fp);
         } else {
             usageError("Usage: kaappi --disassemble <file.scm>\n");
         }
-    } else if (compile_mode) {
-        if (file_path) |fp| {
-            try compileFile(vm, fp, compile_output);
+    } else if (opts.compile_mode) {
+        if (opts.file_path) |fp| {
+            try compileFile(vm, fp, opts.compile_output);
         } else {
             usageError("Usage: kaappi --compile <file.scm> [-o output.sbc]\n");
         }
-    } else if (emit_llvm_mode) {
-        if (file_path) |fp| {
-            try native_compiler.emitLlvmFile(vm, fp, compile_output);
+    } else if (opts.emit_llvm_mode) {
+        if (opts.file_path) |fp| {
+            try native_compiler.emitLlvmFile(vm, fp, opts.compile_output);
         } else {
             usageError("Usage: kaappi --emit-llvm <file.scm> [-o output.ll]\n");
         }
-    } else if (file_path) |fp| {
+    } else if (opts.file_path) |fp| {
         try runFile(vm, fp);
     } else {
         if (is_wasm) {
@@ -1152,4 +897,5 @@ test {
     _ = native_compiler;
     _ = toplevel_driver;
     _ = repl_mod;
+    _ = cli;
 }
