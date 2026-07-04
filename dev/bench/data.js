@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783184559120,
+  "lastUpdate": 1783185099368,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "6fab131e061f36ff6dafe393cc28bf3f774c35f0",
-          "message": "Fix SRFI-64 test-end template in tests/scheme/CLAUDE.md (#943)\n\nThe documented template called (test-runner-current) after the outermost\n(test-end ...), but test-end resets the current runner, so the follow-up\ncall no longer returns the runner and test-runner-fail-count raises a type\nerror. Capture the runner before test-end, matching the pattern already\nused by existing smoke tests.\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-03T14:12:09+05:30",
-          "tree_id": "b5037c3d7a22d30796ab0e48a031827682c5d943",
-          "url": "https://github.com/kaappi/kaappi/commit/6fab131e061f36ff6dafe393cc28bf3f774c35f0"
-        },
-        "date": 1783068855009,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.438536,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.167766,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.821226,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.36761,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006886,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.033152,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.462426,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.069545,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 4.113099,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.811679,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.125258,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.430023,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 2.400974,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.503509,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.042063,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.045304,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d8ddf236b780457092d93d34dd5c8c5cd9b5d169",
+          "message": "Generate FFI call-signature matrix with comptime inline-for (#1058) (#1106)\n\nReplace 6 hand-enumerated callFfiN functions (~750 lines, 87 curated\nbranches) with a comptime-generic callFfiGeneric that uses nested\ninline-for over the 7 canonical types to generate exhaustive dispatch\nfor arities 0-3. Arities 4-5 remain curated but use shared marshalArg/\nmarshalRetValue helpers for consistency.\n\nCoverage: arities 1-3 go from 47%/7%/0.5% to 100% (2,800 branches).\nPreviously-unsupported signatures like (float,int)->double now work.\nBinary +13%, compile time +11%, file -37% (877 vs 1384 lines).\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-04T21:56:29+05:30",
+          "tree_id": "278391f29b9aa357473dcd93c01078dd7ef9149e",
+          "url": "https://github.com/kaappi/kaappi/commit/d8ddf236b780457092d93d34dd5c8c5cd9b5d169"
+        },
+        "date": 1783185098220,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.293771,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.7968,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.914258,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.319295,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.012478,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.211894,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.473622,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.071863,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 12.456724,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.818356,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 9.987746,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.952011,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 8.245163,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.705732,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044757,
             "unit": "seconds"
           }
         ]
