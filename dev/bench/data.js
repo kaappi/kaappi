@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783127152762,
+  "lastUpdate": 1783128024019,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "dc9183c19ca7848b4664588b13f81469f875b1d4",
-          "message": "Rewrite rational arithmetic paths to handle bignums without early return (#894)\n\n* Rewrite rational arithmetic paths to handle bignums without early return (#838, #839)\n\nThe rational paths for +, -, *, / used a fixnum-based accumulator that\nreturned early when encountering bignums, dropping remaining arguments.\nReplace with Value-based accumulation using bignum arithmetic throughout,\nso all arguments are processed correctly regardless of type mix.\n\nFixes #838\nFixes #839\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Add bare-ok annotations to rational type guards\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-03T02:42:21+05:30",
-          "tree_id": "d1a0cfbc9f8e5ae7b093c664c00aa78b6f42f341",
-          "url": "https://github.com/kaappi/kaappi/commit/dc9183c19ca7848b4664588b13f81469f875b1d4"
-        },
-        "date": 1783029079113,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.437316,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.709914,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.841897,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.174451,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.007066,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.032841,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.469577,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.070812,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.967133,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.788835,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.161677,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.430956,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 2.405708,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.704534,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.041686,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.039096,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "distinct": true,
+          "id": "3c8411eb6070fbc57fb03f2c20953a47c863d877",
+          "message": "Release v0.12.0",
+          "timestamp": "2026-07-04T06:33:44+05:30",
+          "tree_id": "cf9e93a738f93e142c255805726c4231c1fd1523",
+          "url": "https://github.com/kaappi/kaappi/commit/3c8411eb6070fbc57fb03f2c20953a47c863d877"
+        },
+        "date": 1783128022813,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.851396,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.607408,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.780101,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.812655,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006524,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.032342,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.42298,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.066072,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 4.218939,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.590562,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.18061,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.402892,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.629632,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.031845,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.03969,
             "unit": "seconds"
           }
         ]
