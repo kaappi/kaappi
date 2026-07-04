@@ -65,171 +65,48 @@ fn jsonInt(buf: *std.ArrayList(u8), allocator: std.mem.Allocator, n: i64) void {
     buf.appendSlice(allocator, s) catch return;
 }
 
-// Simple JSON value extractor — finds "key": "value" or "key": number
-fn jsonGetStringRaw(json: []const u8, key: []const u8) ?[]const u8 {
-    var search_buf: [256]u8 = undefined;
-    const search = std.fmt.bufPrint(&search_buf, "\"{s}\"", .{key}) catch return null;
-    const pos = std.mem.indexOf(u8, json, search) orelse return null;
-    var i = pos + search.len;
-    while (i < json.len and (json[i] == ' ' or json[i] == ':' or json[i] == '\t')) : (i += 1) {}
-    if (i >= json.len or json[i] != '"') return null;
-    i += 1;
-    const start = i;
-    while (i < json.len and json[i] != '"') : (i += 1) {
-        if (json[i] == '\\') {
-            i += 1;
-            if (i >= json.len) return null;
-        }
+fn getObjField(obj: std.json.ObjectMap, key: []const u8) ?std.json.ObjectMap {
+    const val = obj.get(key) orelse return null;
+    return switch (val) {
+        .object => |o| o,
+        else => null,
+    };
+}
+
+fn getStrField(obj: std.json.ObjectMap, key: []const u8) ?[]const u8 {
+    const val = obj.get(key) orelse return null;
+    return switch (val) {
+        .string => |s| s,
+        else => null,
+    };
+}
+
+fn getIntField(obj: std.json.ObjectMap, key: []const u8) ?i64 {
+    const val = obj.get(key) orelse return null;
+    return switch (val) {
+        .integer => |n| n,
+        else => null,
+    };
+}
+
+fn formatIdValue(buf: *std.ArrayList(u8), allocator: std.mem.Allocator, id_val: std.json.Value) bool {
+    switch (id_val) {
+        .integer => |n| {
+            jsonInt(buf, allocator, n);
+            return true;
+        },
+        .string => |s| {
+            jsonString(buf, allocator, s);
+            return true;
+        },
+        else => return false,
     }
-    return json[start..i];
-}
-
-fn jsonUnescape(allocator: std.mem.Allocator, raw: []const u8) ?[]const u8 {
-    if (std.mem.indexOfScalar(u8, raw, '\\') == null) return raw;
-    const buf = allocator.alloc(u8, raw.len) catch return null;
-    var out: usize = 0;
-    var i: usize = 0;
-    while (i < raw.len) {
-        if (raw[i] == '\\' and i + 1 < raw.len) {
-            i += 1;
-            switch (raw[i]) {
-                'n' => {
-                    buf[out] = '\n';
-                    out += 1;
-                },
-                'r' => {
-                    buf[out] = '\r';
-                    out += 1;
-                },
-                't' => {
-                    buf[out] = '\t';
-                    out += 1;
-                },
-                '"' => {
-                    buf[out] = '"';
-                    out += 1;
-                },
-                '\\' => {
-                    buf[out] = '\\';
-                    out += 1;
-                },
-                '/' => {
-                    buf[out] = '/';
-                    out += 1;
-                },
-                'b' => {
-                    buf[out] = 0x08;
-                    out += 1;
-                },
-                'f' => {
-                    buf[out] = 0x0C;
-                    out += 1;
-                },
-                'u' => {
-                    if (i + 4 < raw.len) {
-                        const hex = raw[i + 1 .. i + 5];
-                        const cp = std.fmt.parseInt(u21, hex, 16) catch {
-                            buf[out] = 'u';
-                            out += 1;
-                            i += 1;
-                            continue;
-                        };
-                        const len = std.unicode.utf8Encode(cp, buf[out..][0..4]) catch 0;
-                        out += len;
-                        i += 4;
-                    } else {
-                        buf[out] = 'u';
-                        out += 1;
-                    }
-                },
-                else => {
-                    buf[out] = raw[i];
-                    out += 1;
-                },
-            }
-        } else {
-            buf[out] = raw[i];
-            out += 1;
-        }
-        i += 1;
-    }
-    return buf[0..out];
-}
-
-fn jsonGetString(json: []const u8, key: []const u8) ?[]const u8 {
-    return jsonGetStringRaw(json, key);
-}
-
-fn jsonGetInt(json: []const u8, key: []const u8) ?i64 {
-    var search_buf: [256]u8 = undefined;
-    const search = std.fmt.bufPrint(&search_buf, "\"{s}\"", .{key}) catch return null;
-    const pos = std.mem.indexOf(u8, json, search) orelse return null;
-    var i = pos + search.len;
-    while (i < json.len and (json[i] == ' ' or json[i] == ':' or json[i] == '\t')) : (i += 1) {}
-    if (i >= json.len) return null;
-    const start = i;
-    if (json[i] == '-') i += 1;
-    while (i < json.len and json[i] >= '0' and json[i] <= '9') : (i += 1) {}
-    return std.fmt.parseInt(i64, json[start..i], 10) catch null;
 }
 
 fn clampToU32(val: i64) u32 {
     if (val < 0) return 0;
     if (val > std.math.maxInt(u32)) return std.math.maxInt(u32);
     return @intCast(@as(u64, @bitCast(val)));
-}
-
-fn jsonGetRawId(json: []const u8) ?[]const u8 {
-    var search_buf: [256]u8 = undefined;
-    const search = std.fmt.bufPrint(&search_buf, "\"id\"", .{}) catch return null;
-    const pos = std.mem.indexOf(u8, json, search) orelse return null;
-    var i = pos + search.len;
-    while (i < json.len and (json[i] == ' ' or json[i] == ':' or json[i] == '\t')) : (i += 1) {}
-    if (i >= json.len) return null;
-    if (json[i] == '"') {
-        // String id — include quotes
-        const start = i;
-        i += 1;
-        while (i < json.len) : (i += 1) {
-            if (json[i] == '\\') {
-                i += 1;
-                continue;
-            }
-            if (json[i] == '"') return json[start .. i + 1];
-        }
-        return null;
-    }
-    // Numeric id
-    const start = i;
-    if (json[i] == '-') i += 1;
-    while (i < json.len and json[i] >= '0' and json[i] <= '9') : (i += 1) {}
-    if (i == start) return null;
-    return json[start..i];
-}
-
-fn jsonGetObject(json: []const u8, key: []const u8) ?[]const u8 {
-    var search_buf: [256]u8 = undefined;
-    const search = std.fmt.bufPrint(&search_buf, "\"{s}\"", .{key}) catch return null;
-    const pos = std.mem.indexOf(u8, json, search) orelse return null;
-    var i = pos + search.len;
-    while (i < json.len and (json[i] == ' ' or json[i] == ':' or json[i] == '\t')) : (i += 1) {}
-    if (i >= json.len or json[i] != '{') return null;
-    var depth: usize = 0;
-    const start = i;
-    while (i < json.len) : (i += 1) {
-        if (json[i] == '"') {
-            i += 1;
-            while (i < json.len and json[i] != '"') : (i += 1) {
-                if (json[i] == '\\') i += 1;
-            }
-        } else if (json[i] == '{') {
-            depth += 1;
-        } else if (json[i] == '}') {
-            depth -= 1;
-            if (depth == 0) return json[start .. i + 1];
-        }
-    }
-    return null;
 }
 
 // ---- LSP message I/O ----
@@ -385,13 +262,12 @@ fn handleInitialize(allocator: std.mem.Allocator, id: []const u8) void {
     );
 }
 
-fn handleCompletion(allocator: std.mem.Allocator, vm: *vm_mod.VM, id: []const u8, params: []const u8) void {
-    // Get document and position
-    const td = jsonGetObject(params, "textDocument") orelse "";
-    const uri = jsonGetString(td, "uri") orelse "";
-    const pos_obj = jsonGetObject(params, "position") orelse "";
-    const line = jsonGetInt(pos_obj, "line") orelse 0;
-    const character = jsonGetInt(pos_obj, "character") orelse 0;
+fn handleCompletion(allocator: std.mem.Allocator, vm: *vm_mod.VM, id: []const u8, params: std.json.ObjectMap) void {
+    const td = getObjField(params, "textDocument") orelse return;
+    const uri = getStrField(td, "uri") orelse return;
+    const pos = getObjField(params, "position") orelse return;
+    const line = getIntField(pos, "line") orelse 0;
+    const character = getIntField(pos, "character") orelse 0;
 
     const text = getDocument(uri) orelse "";
     const prefix = getSymbolAtPosition(text, clampToU32(line), clampToU32(character));
@@ -426,12 +302,12 @@ fn handleCompletion(allocator: std.mem.Allocator, vm: *vm_mod.VM, id: []const u8
     sendResponse(allocator, id, buf.items);
 }
 
-fn handleHover(allocator: std.mem.Allocator, vm: *vm_mod.VM, id: []const u8, params: []const u8) void {
-    const td = jsonGetObject(params, "textDocument") orelse "";
-    const uri = jsonGetString(td, "uri") orelse "";
-    const pos_obj = jsonGetObject(params, "position") orelse "";
-    const line = jsonGetInt(pos_obj, "line") orelse 0;
-    const character = jsonGetInt(pos_obj, "character") orelse 0;
+fn handleHover(allocator: std.mem.Allocator, vm: *vm_mod.VM, id: []const u8, params: std.json.ObjectMap) void {
+    const td = getObjField(params, "textDocument") orelse return;
+    const uri = getStrField(td, "uri") orelse return;
+    const pos = getObjField(params, "position") orelse return;
+    const line = getIntField(pos, "line") orelse 0;
+    const character = getIntField(pos, "character") orelse 0;
 
     const text = getDocument(uri) orelse "";
     const symbol = getFullSymbolAtPosition(text, clampToU32(line), clampToU32(character));
@@ -472,9 +348,9 @@ fn handleHover(allocator: std.mem.Allocator, vm: *vm_mod.VM, id: []const u8, par
     sendResponse(allocator, id, buf.items);
 }
 
-fn handleDocumentSymbol(allocator: std.mem.Allocator, vm: *vm_mod.VM, id: []const u8, params: []const u8) void {
-    const td = jsonGetObject(params, "textDocument") orelse "";
-    const uri = jsonGetString(td, "uri") orelse "";
+fn handleDocumentSymbol(allocator: std.mem.Allocator, vm: *vm_mod.VM, id: []const u8, params: std.json.ObjectMap) void {
+    const td = getObjField(params, "textDocument") orelse return;
+    const uri = getStrField(td, "uri") orelse return;
     const text = getDocument(uri) orelse "";
 
     var result: std.ArrayList(u8) = .empty;
@@ -556,12 +432,12 @@ fn handleDocumentSymbol(allocator: std.mem.Allocator, vm: *vm_mod.VM, id: []cons
     sendResponse(allocator, id, result.items);
 }
 
-fn handleDefinition(allocator: std.mem.Allocator, vm: *vm_mod.VM, id: []const u8, params: []const u8) void {
-    const td = jsonGetObject(params, "textDocument") orelse "";
-    const uri = jsonGetString(td, "uri") orelse "";
-    const pos_obj = jsonGetObject(params, "position") orelse "";
-    const line = jsonGetInt(pos_obj, "line") orelse 0;
-    const character = jsonGetInt(pos_obj, "character") orelse 0;
+fn handleDefinition(allocator: std.mem.Allocator, vm: *vm_mod.VM, id: []const u8, params: std.json.ObjectMap) void {
+    const td = getObjField(params, "textDocument") orelse return;
+    const uri = getStrField(td, "uri") orelse return;
+    const pos = getObjField(params, "position") orelse return;
+    const line = getIntField(pos, "line") orelse 0;
+    const character = getIntField(pos, "character") orelse 0;
 
     const text = getDocument(uri) orelse {
         sendResponse(allocator, id, "null");
@@ -630,13 +506,13 @@ fn findDefineLocation(expr: types.Value, name: []const u8, form_line: u32) ?u32 
     return null;
 }
 
-fn handleReferences(allocator: std.mem.Allocator, vm: *vm_mod.VM, id: []const u8, params: []const u8) void {
+fn handleReferences(allocator: std.mem.Allocator, vm: *vm_mod.VM, id: []const u8, params: std.json.ObjectMap) void {
     _ = vm;
-    const td = jsonGetObject(params, "textDocument") orelse "";
-    const uri = jsonGetString(td, "uri") orelse "";
-    const pos_obj = jsonGetObject(params, "position") orelse "";
-    const line = jsonGetInt(pos_obj, "line") orelse 0;
-    const character = jsonGetInt(pos_obj, "character") orelse 0;
+    const td = getObjField(params, "textDocument") orelse return;
+    const uri = getStrField(td, "uri") orelse return;
+    const pos = getObjField(params, "position") orelse return;
+    const line = getIntField(pos, "line") orelse 0;
+    const character = getIntField(pos, "character") orelse 0;
 
     const text = getDocument(uri) orelse {
         sendResponse(allocator, id, "[]");
@@ -719,24 +595,33 @@ fn handleReferences(allocator: std.mem.Allocator, vm: *vm_mod.VM, id: []const u8
     sendResponse(allocator, id, result.items);
 }
 
-fn handleDidOpenOrChange(allocator: std.mem.Allocator, vm: *vm_mod.VM, params: []const u8) void {
-    const td = jsonGetObject(params, "textDocument") orelse "";
-    const uri = jsonGetString(td, "uri") orelse return;
+fn handleDidOpenOrChange(allocator: std.mem.Allocator, vm: *vm_mod.VM, params: std.json.ObjectMap) void {
+    const td = getObjField(params, "textDocument") orelse return;
+    const uri = getStrField(td, "uri") orelse return;
 
     // For didOpen, text is in textDocument.text
-    // For didChange with full sync, text is in contentChanges[0].text
-    var text = jsonGetString(td, "text");
+    // For didChange (full sync), text is in contentChanges[0].text
+    var text: ?[]const u8 = getStrField(td, "text");
+
     if (text == null) {
-        // Try contentChanges
-        if (std.mem.indexOf(u8, params, "\"text\"")) |_| {
-            // Find the last "text" field (usually in contentChanges)
-            text = jsonGetString(params, "text");
+        if (params.get("contentChanges")) |cc_val| {
+            switch (cc_val) {
+                .array => |arr| {
+                    if (arr.items.len > 0) {
+                        switch (arr.items[0]) {
+                            .object => |change_obj| {
+                                text = getStrField(change_obj, "text");
+                            },
+                            else => {},
+                        }
+                    }
+                },
+                else => {},
+            }
         }
     }
 
-    if (text) |raw_t| {
-        const t = jsonUnescape(allocator, raw_t) orelse raw_t;
-        defer if (t.ptr != raw_t.ptr) allocator.free(t);
+    if (text) |t| {
         storeDocument(uri, t);
         runDiagnostics(allocator, vm, uri, t);
     }
@@ -864,8 +749,31 @@ pub fn main(init: std.process.Init.Minimal) !void {
         const msg = readMessage(allocator) orelse break;
         defer allocator.free(msg);
 
-        const method = jsonGetString(msg, "method") orelse continue;
-        const id = jsonGetRawId(msg);
+        var parsed = std.json.parseFromSlice(std.json.Value, allocator, msg, .{}) catch continue;
+        defer parsed.deinit();
+
+        const root = switch (parsed.value) {
+            .object => |o| o,
+            else => continue,
+        };
+
+        const method = getStrField(root, "method") orelse continue;
+
+        // Format id for response splicing (null for notifications)
+        var id_buf: std.ArrayList(u8) = .empty;
+        defer id_buf.deinit(allocator);
+        if (root.get("id")) |id_val| {
+            _ = formatIdValue(&id_buf, allocator, id_val);
+        }
+        const id: ?[]const u8 = if (id_buf.items.len > 0) id_buf.items else null;
+
+        const params: ?std.json.ObjectMap = if (root.get("params")) |p|
+            switch (p) {
+                .object => |o| o,
+                else => null,
+            }
+        else
+            null;
 
         if (std.mem.eql(u8, method, "initialize")) {
             handleInitialize(allocator, id orelse "0");
@@ -880,33 +788,34 @@ pub fn main(init: std.process.Init.Minimal) !void {
             if (id) |req_id| {
                 sendError(allocator, req_id, -32002, "not initialized");
             }
-        } else if (std.mem.eql(u8, method, "textDocument/didOpen")) {
-            handleDidOpenOrChange(allocator, &vm, msg);
-        } else if (std.mem.eql(u8, method, "textDocument/didChange")) {
-            handleDidOpenOrChange(allocator, &vm, msg);
+        } else if (std.mem.eql(u8, method, "textDocument/didOpen") or
+            std.mem.eql(u8, method, "textDocument/didChange"))
+        {
+            if (params) |p| handleDidOpenOrChange(allocator, &vm, p);
         } else if (std.mem.eql(u8, method, "textDocument/didClose")) {
-            if (jsonGetObject(msg, "textDocument")) |td| {
-                if (jsonGetString(td, "uri")) |uri| {
-                    removeDocument(uri);
-                    // Clear diagnostics
-                    var pbuf: std.ArrayList(u8) = .empty;
-                    defer pbuf.deinit(allocator);
-                    pbuf.appendSlice(allocator, "{\"uri\":") catch continue;
-                    jsonString(&pbuf, allocator, uri);
-                    pbuf.appendSlice(allocator, ",\"diagnostics\":[]}") catch continue;
-                    sendNotification(allocator, "textDocument/publishDiagnostics", pbuf.items);
+            if (params) |po| {
+                if (getObjField(po, "textDocument")) |td| {
+                    if (getStrField(td, "uri")) |uri| {
+                        removeDocument(uri);
+                        var pbuf: std.ArrayList(u8) = .empty;
+                        defer pbuf.deinit(allocator);
+                        pbuf.appendSlice(allocator, "{\"uri\":") catch continue;
+                        jsonString(&pbuf, allocator, uri);
+                        pbuf.appendSlice(allocator, ",\"diagnostics\":[]}") catch continue;
+                        sendNotification(allocator, "textDocument/publishDiagnostics", pbuf.items);
+                    }
                 }
             }
         } else if (std.mem.eql(u8, method, "textDocument/completion")) {
-            handleCompletion(allocator, &vm, id orelse "0", msg);
+            if (params) |p| handleCompletion(allocator, &vm, id orelse "0", p);
         } else if (std.mem.eql(u8, method, "textDocument/hover")) {
-            handleHover(allocator, &vm, id orelse "0", msg);
+            if (params) |p| handleHover(allocator, &vm, id orelse "0", p);
         } else if (std.mem.eql(u8, method, "textDocument/documentSymbol")) {
-            handleDocumentSymbol(allocator, &vm, id orelse "0", msg);
+            if (params) |p| handleDocumentSymbol(allocator, &vm, id orelse "0", p);
         } else if (std.mem.eql(u8, method, "textDocument/definition")) {
-            handleDefinition(allocator, &vm, id orelse "0", msg);
+            if (params) |p| handleDefinition(allocator, &vm, id orelse "0", p);
         } else if (std.mem.eql(u8, method, "textDocument/references")) {
-            handleReferences(allocator, &vm, id orelse "0", msg);
+            if (params) |p| handleReferences(allocator, &vm, id orelse "0", p);
         } else if (id != null) {
             sendError(allocator, id.?, -32601, "MethodNotFound");
         }
@@ -915,28 +824,72 @@ pub fn main(init: std.process.Init.Minimal) !void {
     log("kaappi-lsp exiting\n");
 }
 
-test "jsonGetRawId parses integer id" {
-    const msg = "{\"jsonrpc\":\"2.0\",\"id\":42,\"method\":\"initialize\"}";
-    const id = jsonGetRawId(msg);
-    try std.testing.expect(id != null);
-    try std.testing.expectEqualStrings("42", id.?);
+test "formatIdValue formats integer id" {
+    var parsed = try std.json.parseFromSlice(std.json.Value, std.testing.allocator,
+        \\{"jsonrpc":"2.0","id":42,"method":"initialize"}
+    , .{});
+    defer parsed.deinit();
+    const root = parsed.value.object;
+    var buf: std.ArrayList(u8) = .empty;
+    defer buf.deinit(std.testing.allocator);
+    try std.testing.expect(formatIdValue(&buf, std.testing.allocator, root.get("id").?));
+    try std.testing.expectEqualStrings("42", buf.items);
 }
 
-test "jsonGetRawId parses string id" {
-    const msg = "{\"jsonrpc\":\"2.0\",\"id\":\"req-1\",\"method\":\"initialize\"}";
-    const id = jsonGetRawId(msg);
-    try std.testing.expect(id != null);
-    try std.testing.expectEqualStrings("\"req-1\"", id.?);
+test "formatIdValue formats string id" {
+    var parsed = try std.json.parseFromSlice(std.json.Value, std.testing.allocator,
+        \\{"jsonrpc":"2.0","id":"req-1","method":"initialize"}
+    , .{});
+    defer parsed.deinit();
+    const root = parsed.value.object;
+    var buf: std.ArrayList(u8) = .empty;
+    defer buf.deinit(std.testing.allocator);
+    try std.testing.expect(formatIdValue(&buf, std.testing.allocator, root.get("id").?));
+    try std.testing.expectEqualStrings("\"req-1\"", buf.items);
 }
 
-test "jsonGetRawId returns null for missing id" {
-    const msg = "{\"jsonrpc\":\"2.0\",\"method\":\"initialized\"}";
-    try std.testing.expect(jsonGetRawId(msg) == null);
+test "missing id returns null from object map" {
+    var parsed = try std.json.parseFromSlice(std.json.Value, std.testing.allocator,
+        \\{"jsonrpc":"2.0","method":"initialized"}
+    , .{});
+    defer parsed.deinit();
+    const root = parsed.value.object;
+    try std.testing.expect(root.get("id") == null);
 }
 
-test "jsonGetRawId parses negative id" {
-    const msg = "{\"jsonrpc\":\"2.0\",\"id\":-1,\"method\":\"shutdown\"}";
-    const id = jsonGetRawId(msg);
-    try std.testing.expect(id != null);
-    try std.testing.expectEqualStrings("-1", id.?);
+test "formatIdValue formats negative id" {
+    var parsed = try std.json.parseFromSlice(std.json.Value, std.testing.allocator,
+        \\{"jsonrpc":"2.0","id":-1,"method":"shutdown"}
+    , .{});
+    defer parsed.deinit();
+    const root = parsed.value.object;
+    var buf: std.ArrayList(u8) = .empty;
+    defer buf.deinit(std.testing.allocator);
+    try std.testing.expect(formatIdValue(&buf, std.testing.allocator, root.get("id").?));
+    try std.testing.expectEqualStrings("-1", buf.items);
+}
+
+test "getStrField extracts string values" {
+    var parsed = try std.json.parseFromSlice(std.json.Value, std.testing.allocator,
+        \\{"method":"textDocument/hover","uri":"file:///test.scm"}
+    , .{});
+    defer parsed.deinit();
+    const root = parsed.value.object;
+    try std.testing.expectEqualStrings("textDocument/hover", getStrField(root, "method").?);
+    try std.testing.expectEqualStrings("file:///test.scm", getStrField(root, "uri").?);
+    try std.testing.expect(getStrField(root, "missing") == null);
+}
+
+test "getObjField extracts nested objects" {
+    var parsed = try std.json.parseFromSlice(std.json.Value, std.testing.allocator,
+        \\{"params":{"textDocument":{"uri":"file:///a.scm"},"position":{"line":5,"character":10}}}
+    , .{});
+    defer parsed.deinit();
+    const root = parsed.value.object;
+    const p = getObjField(root, "params").?;
+    const td = getObjField(p, "textDocument").?;
+    try std.testing.expectEqualStrings("file:///a.scm", getStrField(td, "uri").?);
+    const pos = getObjField(p, "position").?;
+    try std.testing.expectEqual(@as(i64, 5), getIntField(pos, "line").?);
+    try std.testing.expectEqual(@as(i64, 10), getIntField(pos, "character").?);
 }
