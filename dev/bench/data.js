@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783185099368,
+  "lastUpdate": 1783185206061,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "117af15862427e183ac23bbdc8b62b48fbb700f3",
-          "message": "Root vector-partition yes/no accumulators (#810) (#944)\n\nThe #335 fix rooted intermediate results in vector-map, vector-unfold,\nand vector-cumulate but never touched vectorPartitionFn, even though\n#335 named its un-rooted yes/no accumulators as the same root cause.\n\nThe predicate runs arbitrary Scheme and can mutate the source vector.\nOnce an element is displaced from the vector, its only reference is the\nallocator-backed yes/no list, which the GC cannot see — the next\ncollection (a later predicate call, or the allocVector before the buffer\ncopy) frees it and hands back a recycled heap slot.\n\nApply the same extra_roots save/restore pattern vectorMapFn uses: root\neach element as it is classified so it survives later predicate calls.\n\nRegression test in vector-map-gc.scm: predicate mutates the source and\nchurns the heap; without the fix the first partition element returns as\na recycled object.\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
-          "timestamp": "2026-07-03T09:00:32Z",
-          "tree_id": "8bab79e36118a63ff65d55d3cdbaa418f537eddd",
-          "url": "https://github.com/kaappi/kaappi/commit/117af15862427e183ac23bbdc8b62b48fbb700f3"
-        },
-        "date": 1783070057371,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.414215,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.216938,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.821319,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.450771,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.007018,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.032795,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.461114,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.069569,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 4.05365,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.775975,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.137514,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.425617,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 2.378086,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.666127,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.042229,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044757,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "aaa28f3be8f91b7c50318fa792d461b5a8da5237",
+          "message": "Add arena allocator and helpers to LLVM emitter, remove 256-slot panic cliffs (#1071) (#1108)\n\nThe LLVM IR text emitter leaked every freshTemp/label/interned string\nallocation and used fixed [256][]const u8 stack arrays that panicked on\n>256-arg calls during compilation.\n\n- Add ArenaAllocator that frees all emitter-lifetime strings in bulk\n  at deinit, with backing_alloc for containers needing prompt cleanup\n- Add emitImm(), startBlock(), emitOrphanAfterTail(), freshLabel()\n  helpers to deduplicate 6 inline materialization patterns, 3 orphan-\n  label blocks, and ~10 manual current_block updates\n- Replace all [256] stack arrays in emitCallNode, emitSelfTailCall,\n  emitDirectCall, emitOr with arena-allocated slices sized to actual\n  argument count\n- Remove discarded freshTemp() call in emitAnd that wasted an\n  allocation and burned an SSA number per and-form\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-04T21:56:49+05:30",
+          "tree_id": "bf5e7b1d8b950fd6b575765c69f87806e71c9982",
+          "url": "https://github.com/kaappi/kaappi/commit/aaa28f3be8f91b7c50318fa792d461b5a8da5237"
+        },
+        "date": 1783185204936,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.374975,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.12806,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.916206,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.55456,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.012665,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.211767,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.478056,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.071249,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 12.47941,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.821126,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 10.00797,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.963047,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 8.282326,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.763993,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044705,
             "unit": "seconds"
           }
         ]
