@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783132919613,
+  "lastUpdate": 1783133997695,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "e90e67a4c69d0278d5e451806e5d65deb3446b21",
-          "message": "Fix exact denominator 2^47 wrapping and inexact NaN on huge rationals (#842, #848) (#898)\n\n- Change denominator threshold in exactFn from <= 47 to < 47: 2^47\n  overflows i48 fixnum range, producing a negative denominator (#842)\n- When inexact conversion produces NaN from inf/inf, fall back to\n  bignum quotient+remainder for the correct f64 result (#848)\n\nFixes #842\nFixes #848\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-03T04:37:52+05:30",
-          "tree_id": "8f8ef55419cf41e22bc85ec45885d51fb1a31efc",
-          "url": "https://github.com/kaappi/kaappi/commit/e90e67a4c69d0278d5e451806e5d65deb3446b21"
-        },
-        "date": 1783035180547,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.847137,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.625684,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.808531,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.690892,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.007327,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.031611,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.428164,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.066074,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.965717,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.631031,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.09573,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.415896,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 2.253662,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.099904,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.041987,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.042686,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "9465456181f99829b242509148a257d33ffbee31",
+          "message": "Propagate OutOfMemory from compiler hash map and list insertions (#1017)\n\ncatch {} on macros.put, globals.put, locals.append, and similar calls\nsilently swallowed OutOfMemory, causing macros or globals to fail to\nregister. This led to confusing \"undefined variable\" errors downstream\ninstead of a clear OOM signal.\n\nChange 13 catch {} to try across compiler.zig, compiler_bindings.zig,\nand compiler_lambda.zig. Change 3 void helpers (endBodyMacroScope,\ninjectHygCapturedWalk, CaptureScan.walk) to return errors so their\ncallers can propagate. The 3 remaining catch {} are in defer/errdefer\nblocks where error propagation is impossible.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-04T02:41:45Z",
+          "tree_id": "da217c175d039bc6035baa73b53d3d03b135a44b",
+          "url": "https://github.com/kaappi/kaappi/commit/9465456181f99829b242509148a257d33ffbee31"
+        },
+        "date": 1783133997050,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.846374,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.836603,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.90554,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.033028,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.012222,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.198489,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.452584,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.067663,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 11.919421,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.734685,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 9.272154,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.892065,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 7.658737,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 0.943264,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.038891,
             "unit": "seconds"
           }
         ]
