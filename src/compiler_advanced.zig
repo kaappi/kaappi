@@ -42,39 +42,46 @@ pub fn compileGuard(self: *Compiler, args: Value, dst: u16, is_tail: bool) Compi
     }
 
     const gc = self.gc;
-    gc.no_collect += 1;
 
-    var cond_clauses = clauses;
-    if (!has_else) {
-        const raise_sym = gc.allocSymbol("raise-continuable") catch return CompileError.OutOfMemory;
-        const raise_call = gc.allocPair(raise_sym, gc.allocPair(var_sym, types.NIL) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory;
-        const else_sym = gc.allocSymbol("else") catch return CompileError.OutOfMemory;
-        const else_clause = gc.allocPair(else_sym, gc.allocPair(raise_call, types.NIL) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory;
-        cond_clauses = appendToList(self, clauses, else_clause) catch return CompileError.OutOfMemory;
-    }
+    // Build the desugared form with collection disabled: every intermediate
+    // below is a fresh unrooted pair. The scoped defer restores the counter
+    // on every path; leaking an increment would disable collection for the
+    // rest of the process.
+    var form: Value = blk: {
+        gc.no_collect += 1;
+        defer gc.no_collect -= 1;
 
-    const lambda_sym = gc.allocSymbol("lambda") catch return CompileError.OutOfMemory;
-    const gk_counter = struct {
-        var n: u32 = 0;
+        var cond_clauses = clauses;
+        if (!has_else) {
+            const raise_sym = gc.allocSymbol("raise-continuable") catch return CompileError.OutOfMemory;
+            const raise_call = gc.allocPair(raise_sym, gc.allocPair(var_sym, types.NIL) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory;
+            const else_sym = gc.allocSymbol("else") catch return CompileError.OutOfMemory;
+            const else_clause = gc.allocPair(else_sym, gc.allocPair(raise_call, types.NIL) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory;
+            cond_clauses = appendToList(self, clauses, else_clause) catch return CompileError.OutOfMemory;
+        }
+
+        const lambda_sym = gc.allocSymbol("lambda") catch return CompileError.OutOfMemory;
+        const gk_counter = struct {
+            var n: u32 = 0;
+        };
+        gk_counter.n += 1;
+        var gk_buf: [32]u8 = undefined;
+        const gk_name = std.fmt.bufPrint(&gk_buf, "__gk{d}", .{gk_counter.n}) catch "__gk";
+        const gk = gc.allocSymbol(gk_name) catch return CompileError.OutOfMemory;
+
+        const cond_sym = gc.allocSymbol("cond") catch return CompileError.OutOfMemory;
+        const cond_form = gc.allocPair(cond_sym, cond_clauses) catch return CompileError.OutOfMemory;
+        const k_call = gc.allocPair(gk, gc.allocPair(cond_form, types.NIL) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory;
+        const h_formals = gc.allocPair(var_sym, types.NIL) catch return CompileError.OutOfMemory;
+        const handler = gc.allocPair(lambda_sym, gc.allocPair(h_formals, gc.allocPair(k_call, types.NIL) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory;
+        const thunk = gc.allocPair(lambda_sym, gc.allocPair(types.NIL, body) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory;
+        const weh_sym = gc.allocSymbol("with-exception-handler") catch return CompileError.OutOfMemory;
+        const weh = gc.allocPair(weh_sym, gc.allocPair(handler, gc.allocPair(thunk, types.NIL) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory;
+        const outer = gc.allocPair(lambda_sym, gc.allocPair(gc.allocPair(gk, types.NIL) catch return CompileError.OutOfMemory, gc.allocPair(weh, types.NIL) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory;
+        const ec_sym = gc.allocSymbol("call-with-escape-continuation") catch return CompileError.OutOfMemory;
+        break :blk gc.allocPair(ec_sym, gc.allocPair(outer, types.NIL) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory;
     };
-    gk_counter.n += 1;
-    var gk_buf: [32]u8 = undefined;
-    const gk_name = std.fmt.bufPrint(&gk_buf, "__gk{d}", .{gk_counter.n}) catch "__gk";
-    const gk = gc.allocSymbol(gk_name) catch return CompileError.OutOfMemory;
 
-    const cond_sym = gc.allocSymbol("cond") catch return CompileError.OutOfMemory;
-    const cond_form = gc.allocPair(cond_sym, cond_clauses) catch return CompileError.OutOfMemory;
-    const k_call = gc.allocPair(gk, gc.allocPair(cond_form, types.NIL) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory;
-    const h_formals = gc.allocPair(var_sym, types.NIL) catch return CompileError.OutOfMemory;
-    const handler = gc.allocPair(lambda_sym, gc.allocPair(h_formals, gc.allocPair(k_call, types.NIL) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory;
-    const thunk = gc.allocPair(lambda_sym, gc.allocPair(types.NIL, body) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory;
-    const weh_sym = gc.allocSymbol("with-exception-handler") catch return CompileError.OutOfMemory;
-    const weh = gc.allocPair(weh_sym, gc.allocPair(handler, gc.allocPair(thunk, types.NIL) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory;
-    const outer = gc.allocPair(lambda_sym, gc.allocPair(gc.allocPair(gk, types.NIL) catch return CompileError.OutOfMemory, gc.allocPair(weh, types.NIL) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory;
-    const ec_sym = gc.allocSymbol("call-with-escape-continuation") catch return CompileError.OutOfMemory;
-    var form = gc.allocPair(ec_sym, gc.allocPair(outer, types.NIL) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory;
-
-    gc.no_collect -= 1;
     try gc.pushRoot(&form);
     defer gc.popRoot();
     return self.compileExpr(form, dst, is_tail);
@@ -302,13 +309,22 @@ fn compileQQ(self: *Compiler, tmpl: Value, dst: u16, depth: u8) CompileError!voi
         // inner unquotes at depth > 0 remain literal (#850).
         const gc = self.gc;
         const vec = types.toVector(tmpl);
-        // Convert vector elements to a list
-        var list: Value = types.NIL;
-        var i = vec.data.len;
-        while (i > 0) {
-            i -= 1;
-            list = gc.allocPair(vec.data[i], list) catch return CompileError.OutOfMemory;
-        }
+        // Convert vector elements to a list. Built under no_collect (the
+        // growing list is fresh unrooted pairs, issue #1010), then rooted
+        // across the recursive compile.
+        var list: Value = blk: {
+            gc.no_collect += 1;
+            defer gc.no_collect -= 1;
+            var l: Value = types.NIL;
+            var i = vec.data.len;
+            while (i > 0) {
+                i -= 1;
+                l = gc.allocPair(vec.data[i], l) catch return CompileError.OutOfMemory;
+            }
+            break :blk l;
+        };
+        try gc.pushRoot(&list);
+        defer gc.popRoot();
         // Compile the list at the current quasiquote depth
         const fn_reg = try self.allocReg();
         const arg_reg = try self.allocReg();
@@ -513,7 +529,15 @@ fn hasUnquoteSplicing(tmpl: Value, depth: u8) bool {
 ///   (append (list (quote a)) (list 1 2) (list (quote b)))
 fn compileQQSplicing(self: *Compiler, tmpl: Value, dst: u16, depth: u8) CompileError!void {
     const gc = self.gc;
+    // no_collect protects the fresh segment sexprs (stack buffers the GC
+    // cannot see) until the final form is rooted. The flag keeps the counter
+    // balanced on the error returns below without extending the window past
+    // the explicit decrements before each compileExpr.
     gc.no_collect += 1;
+    var nc_held = true;
+    defer if (nc_held) {
+        gc.no_collect -= 1;
+    };
     const quote_sym = gc.allocSymbol("quote") catch return CompileError.OutOfMemory;
     const list_sym = gc.allocSymbol("list") catch return CompileError.OutOfMemory;
     const append_sym = gc.allocSymbol("append") catch return CompileError.OutOfMemory;
@@ -619,6 +643,7 @@ fn compileQQSplicing(self: *Compiler, tmpl: Value, dst: u16, depth: u8) CompileE
 
     if (seg_count == 0) {
         gc.no_collect -= 1;
+        nc_held = false;
         try self.emitOp(.load_nil);
         try self.emitU16(dst);
         return;
@@ -626,6 +651,7 @@ fn compileQQSplicing(self: *Compiler, tmpl: Value, dst: u16, depth: u8) CompileE
     if (seg_count == 1) {
         var seg0 = segments_buf[0];
         gc.no_collect -= 1;
+        nc_held = false;
         try gc.pushRoot(&seg0);
         defer gc.popRoot();
         return self.compileExpr(seg0, dst, false);
@@ -640,6 +666,7 @@ fn compileQQSplicing(self: *Compiler, tmpl: Value, dst: u16, depth: u8) CompileE
     }
     var append_call = gc.allocPair(append_sym, args_list) catch return CompileError.OutOfMemory;
     gc.no_collect -= 1;
+    nc_held = false;
     try gc.pushRoot(&append_call);
     defer gc.popRoot();
     return self.compileExpr(append_call, dst, false);
@@ -750,69 +777,75 @@ pub fn compileParameterize(self: *Compiler, args: Value, dst: u16, is_tail: bool
         b = types.cdr(b);
     }
 
-    gc.no_collect += 1;
+    // Build the desugared form with collection disabled: every intermediate
+    // below is a fresh unrooted pair. The scoped defer restores the counter
+    // on every path; leaking an increment would disable collection for the
+    // rest of the process.
+    var outer_let: Value = blk: {
+        gc.no_collect += 1;
+        defer gc.no_collect -= 1;
 
-    // Build let bindings — each param expr is wrapped in a let* so it's
-    // evaluated exactly once. The let* is needed so earlier bindings are
-    // visible when later ones reference them.
-    //   (let* ((%pp0 <param-expr0>) (old0 (%pp0)) (new0 (begin (%pp0 v0) (%pp0)))
-    //          (%pp1 <param-expr1>) (old1 (%pp1)) (new1 (begin (%pp1 v1) (%pp1))) ...)
-    //     (dynamic-wind ...))
-    const letstar_sym = gc.allocSymbol("let*") catch return CompileError.OutOfMemory;
-    var let_bindings: Value = types.NIL;
-    var i = binding_count;
-    while (i > 0) {
-        i -= 1;
-        // (new_i (begin (%pp_i v_i) (%pp_i))) — set with converter, read back converted value
-        const set_call = gc.allocPair(param_syms[i], gc.allocPair(val_exprs[i], types.NIL) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory;
-        const get_call = gc.allocPair(param_syms[i], types.NIL) catch return CompileError.OutOfMemory;
-        const begin_body = gc.allocPair(set_call, gc.allocPair(get_call, types.NIL) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory;
-        const begin_expr = gc.allocPair(begin_sym, begin_body) catch return CompileError.OutOfMemory;
-        const new_pair = gc.allocPair(new_syms[i], gc.allocPair(begin_expr, types.NIL) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory;
-        let_bindings = gc.allocPair(new_pair, let_bindings) catch return CompileError.OutOfMemory;
+        // Build let bindings — each param expr is wrapped in a let* so it's
+        // evaluated exactly once. The let* is needed so earlier bindings are
+        // visible when later ones reference them.
+        //   (let* ((%pp0 <param-expr0>) (old0 (%pp0)) (new0 (begin (%pp0 v0) (%pp0)))
+        //          (%pp1 <param-expr1>) (old1 (%pp1)) (new1 (begin (%pp1 v1) (%pp1))) ...)
+        //     (dynamic-wind ...))
+        const letstar_sym = gc.allocSymbol("let*") catch return CompileError.OutOfMemory;
+        var let_bindings: Value = types.NIL;
+        var i = binding_count;
+        while (i > 0) {
+            i -= 1;
+            // (new_i (begin (%pp_i v_i) (%pp_i))) — set with converter, read back converted value
+            const set_call = gc.allocPair(param_syms[i], gc.allocPair(val_exprs[i], types.NIL) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory;
+            const get_call = gc.allocPair(param_syms[i], types.NIL) catch return CompileError.OutOfMemory;
+            const begin_body = gc.allocPair(set_call, gc.allocPair(get_call, types.NIL) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory;
+            const begin_expr = gc.allocPair(begin_sym, begin_body) catch return CompileError.OutOfMemory;
+            const new_pair = gc.allocPair(new_syms[i], gc.allocPair(begin_expr, types.NIL) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory;
+            let_bindings = gc.allocPair(new_pair, let_bindings) catch return CompileError.OutOfMemory;
 
-        // (old_i (%pp_i)) — save old value
-        const old_get = gc.allocPair(param_syms[i], types.NIL) catch return CompileError.OutOfMemory;
-        const old_pair = gc.allocPair(old_syms[i], gc.allocPair(old_get, types.NIL) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory;
-        let_bindings = gc.allocPair(old_pair, let_bindings) catch return CompileError.OutOfMemory;
+            // (old_i (%pp_i)) — save old value
+            const old_get = gc.allocPair(param_syms[i], types.NIL) catch return CompileError.OutOfMemory;
+            const old_pair = gc.allocPair(old_syms[i], gc.allocPair(old_get, types.NIL) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory;
+            let_bindings = gc.allocPair(old_pair, let_bindings) catch return CompileError.OutOfMemory;
 
-        // (%pp_i <param-expr_i>) — evaluate param expression once
-        const pp_pair = gc.allocPair(param_syms[i], gc.allocPair(param_exprs[i], types.NIL) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory;
-        let_bindings = gc.allocPair(pp_pair, let_bindings) catch return CompileError.OutOfMemory;
-    }
+            // (%pp_i <param-expr_i>) — evaluate param expression once
+            const pp_pair = gc.allocPair(param_syms[i], gc.allocPair(param_exprs[i], types.NIL) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory;
+            let_bindings = gc.allocPair(pp_pair, let_bindings) catch return CompileError.OutOfMemory;
+        }
 
-    const dw_sym = gc.allocSymbol("dynamic-wind") catch return CompileError.OutOfMemory;
-    const lambda_sym = gc.allocSymbol("lambda") catch return CompileError.OutOfMemory;
-    const pset_sym = gc.allocSymbol("%parameter-set!") catch return CompileError.OutOfMemory;
+        const dw_sym = gc.allocSymbol("dynamic-wind") catch return CompileError.OutOfMemory;
+        const lambda_sym = gc.allocSymbol("lambda") catch return CompileError.OutOfMemory;
+        const pset_sym = gc.allocSymbol("%parameter-set!") catch return CompileError.OutOfMemory;
 
-    // before-thunk: (%parameter-set! %pp_i new_i) — install pre-converted values
-    var before_body: Value = types.NIL;
-    i = binding_count;
-    while (i > 0) {
-        i -= 1;
-        const set_call = gc.allocPair(pset_sym, gc.allocPair(param_syms[i], gc.allocPair(new_syms[i], types.NIL) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory;
-        before_body = gc.allocPair(set_call, before_body) catch return CompileError.OutOfMemory;
-    }
-    const before_thunk = gc.allocPair(lambda_sym, gc.allocPair(types.NIL, before_body) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory;
+        // before-thunk: (%parameter-set! %pp_i new_i) — install pre-converted values
+        var before_body: Value = types.NIL;
+        i = binding_count;
+        while (i > 0) {
+            i -= 1;
+            const set_call = gc.allocPair(pset_sym, gc.allocPair(param_syms[i], gc.allocPair(new_syms[i], types.NIL) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory;
+            before_body = gc.allocPair(set_call, before_body) catch return CompileError.OutOfMemory;
+        }
+        const before_thunk = gc.allocPair(lambda_sym, gc.allocPair(types.NIL, before_body) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory;
 
-    const body_thunk = gc.allocPair(lambda_sym, gc.allocPair(types.NIL, body) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory;
+        const body_thunk = gc.allocPair(lambda_sym, gc.allocPair(types.NIL, body) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory;
 
-    // after-thunk: (%parameter-set! %pp_i old_i) — restore old values
-    var after_body: Value = types.NIL;
-    i = binding_count;
-    while (i > 0) {
-        i -= 1;
-        const restore_call = gc.allocPair(pset_sym, gc.allocPair(param_syms[i], gc.allocPair(old_syms[i], types.NIL) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory;
-        after_body = gc.allocPair(restore_call, after_body) catch return CompileError.OutOfMemory;
-    }
-    const after_thunk = gc.allocPair(lambda_sym, gc.allocPair(types.NIL, after_body) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory;
+        // after-thunk: (%parameter-set! %pp_i old_i) — restore old values
+        var after_body: Value = types.NIL;
+        i = binding_count;
+        while (i > 0) {
+            i -= 1;
+            const restore_call = gc.allocPair(pset_sym, gc.allocPair(param_syms[i], gc.allocPair(old_syms[i], types.NIL) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory;
+            after_body = gc.allocPair(restore_call, after_body) catch return CompileError.OutOfMemory;
+        }
+        const after_thunk = gc.allocPair(lambda_sym, gc.allocPair(types.NIL, after_body) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory;
 
-    const dw_call = gc.allocPair(dw_sym, gc.allocPair(before_thunk, gc.allocPair(body_thunk, gc.allocPair(after_thunk, types.NIL) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory;
+        const dw_call = gc.allocPair(dw_sym, gc.allocPair(before_thunk, gc.allocPair(body_thunk, gc.allocPair(after_thunk, types.NIL) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory;
 
-    const outer_body = gc.allocPair(dw_call, types.NIL) catch return CompileError.OutOfMemory;
-    var outer_let = gc.allocPair(letstar_sym, gc.allocPair(let_bindings, outer_body) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory;
+        const outer_body = gc.allocPair(dw_call, types.NIL) catch return CompileError.OutOfMemory;
+        break :blk gc.allocPair(letstar_sym, gc.allocPair(let_bindings, outer_body) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory;
+    };
 
-    gc.no_collect -= 1;
     try gc.pushRoot(&outer_let);
     defer gc.popRoot();
     return self.compileExpr(outer_let, dst, is_tail);
@@ -831,90 +864,97 @@ pub fn compileParameterize(self: *Compiler, args: Value, dst: u16, is_tail: bool
 ///       (else (error "wrong number of arguments")))))
 pub fn compileCaseLambda(self: *Compiler, args: Value, dst: u16) CompileError!void {
     const gc = self.gc;
-    gc.no_collect += 1;
 
-    const lambda_sym = try gc.allocSymbol("lambda");
-    const let_sym = try gc.allocSymbol("let");
-    const cond_sym = try gc.allocSymbol("cond");
-    const eq_sym = try gc.allocSymbol("=");
-    const ge_sym = try gc.allocSymbol(">=");
-    const length_sym = try gc.allocSymbol("length");
-    const apply_sym = try gc.allocSymbol("apply");
-    const else_sym = try gc.allocSymbol("else");
-    const error_sym = try gc.allocSymbol("error");
-    const args_sym = try gc.allocSymbol("%cl-args");
-    const n_sym = try gc.allocSymbol("%cl-n");
+    // Build the desugared form with collection disabled: every intermediate
+    // below is a fresh unrooted pair. The scoped defer restores the counter
+    // on every path (including the InvalidSyntax returns); leaking an
+    // increment would disable collection for the rest of the process.
+    var outer_lambda: Value = blk: {
+        gc.no_collect += 1;
+        defer gc.no_collect -= 1;
 
-    var cond_clauses: Value = types.NIL;
-    var clause_list = args;
+        const lambda_sym = try gc.allocSymbol("lambda");
+        const let_sym = try gc.allocSymbol("let");
+        const cond_sym = try gc.allocSymbol("cond");
+        const eq_sym = try gc.allocSymbol("=");
+        const ge_sym = try gc.allocSymbol(">=");
+        const length_sym = try gc.allocSymbol("length");
+        const apply_sym = try gc.allocSymbol("apply");
+        const else_sym = try gc.allocSymbol("else");
+        const error_sym = try gc.allocSymbol("error");
+        const args_sym = try gc.allocSymbol("%cl-args");
+        const n_sym = try gc.allocSymbol("%cl-n");
 
-    // Values collected here stay reachable because no_collect is held until
-    // after the desugared form is fully built.
-    var clause_buf: std.ArrayList(Value) = .empty;
-    defer clause_buf.deinit(gc.allocator);
+        var cond_clauses: Value = types.NIL;
+        var clause_list = args;
 
-    while (clause_list != types.NIL) {
-        if (!types.isPair(clause_list)) return CompileError.InvalidSyntax;
-        const clause = types.car(clause_list);
-        clause_list = types.cdr(clause_list);
+        // Values collected here stay reachable because no_collect is held until
+        // after the desugared form is fully built.
+        var clause_buf: std.ArrayList(Value) = .empty;
+        defer clause_buf.deinit(gc.allocator);
 
-        if (!types.isPair(clause)) return CompileError.InvalidSyntax;
-        const formals = types.car(clause);
-        const body = types.cdr(clause);
-        if (body == types.NIL) return CompileError.InvalidSyntax;
+        while (clause_list != types.NIL) {
+            if (!types.isPair(clause_list)) return CompileError.InvalidSyntax;
+            const clause = types.car(clause_list);
+            clause_list = types.cdr(clause_list);
 
-        // Count arity from formals
-        var arity: i64 = 0;
-        var flist = formals;
-        while (flist != types.NIL) {
-            if (!types.isPair(flist)) break; // rest param
-            arity += 1;
-            flist = types.cdr(flist);
+            if (!types.isPair(clause)) return CompileError.InvalidSyntax;
+            const formals = types.car(clause);
+            const body = types.cdr(clause);
+            if (body == types.NIL) return CompileError.InvalidSyntax;
+
+            // Count arity from formals
+            var arity: i64 = 0;
+            var flist = formals;
+            while (flist != types.NIL) {
+                if (!types.isPair(flist)) break; // rest param
+                arity += 1;
+                flist = types.cdr(flist);
+            }
+
+            const has_rest = flist != types.NIL;
+            const arity_val = types.makeFixnum(arity);
+            const cmp_sym = if (has_rest) ge_sym else eq_sym;
+            const test_expr = try gc.allocPair(cmp_sym, try gc.allocPair(n_sym, try gc.allocPair(arity_val, types.NIL)));
+            // (lambda formals body...)
+            const inner_lambda = try gc.allocPair(lambda_sym, try gc.allocPair(formals, body));
+            // (apply inner_lambda args)
+            const apply_call = try gc.allocPair(apply_sym, try gc.allocPair(inner_lambda, try gc.allocPair(args_sym, types.NIL)));
+            // ((= n arity) (apply ...))
+            const cond_clause = try gc.allocPair(test_expr, try gc.allocPair(apply_call, types.NIL));
+
+            clause_buf.append(gc.allocator, cond_clause) catch return CompileError.OutOfMemory;
         }
 
-        const has_rest = flist != types.NIL;
-        const arity_val = types.makeFixnum(arity);
-        const cmp_sym = if (has_rest) ge_sym else eq_sym;
-        const test_expr = try gc.allocPair(cmp_sym, try gc.allocPair(n_sym, try gc.allocPair(arity_val, types.NIL)));
-        // (lambda formals body...)
-        const inner_lambda = try gc.allocPair(lambda_sym, try gc.allocPair(formals, body));
-        // (apply inner_lambda args)
-        const apply_call = try gc.allocPair(apply_sym, try gc.allocPair(inner_lambda, try gc.allocPair(args_sym, types.NIL)));
-        // ((= n arity) (apply ...))
-        const cond_clause = try gc.allocPair(test_expr, try gc.allocPair(apply_call, types.NIL));
+        // Build else clause: (else (error "wrong number of arguments"))
+        const err_msg = try gc.allocString("wrong number of arguments");
+        const err_call = try gc.allocPair(error_sym, try gc.allocPair(err_msg, types.NIL));
+        const else_clause = try gc.allocPair(else_sym, try gc.allocPair(err_call, types.NIL));
 
-        clause_buf.append(gc.allocator, cond_clause) catch return CompileError.OutOfMemory;
-    }
+        // Build cond clauses list (in order) ending with else
+        cond_clauses = try gc.allocPair(else_clause, types.NIL);
+        var ci = clause_buf.items.len;
+        while (ci > 0) {
+            ci -= 1;
+            cond_clauses = try gc.allocPair(clause_buf.items[ci], cond_clauses);
+        }
 
-    // Build else clause: (else (error "wrong number of arguments"))
-    const err_msg = try gc.allocString("wrong number of arguments");
-    const err_call = try gc.allocPair(error_sym, try gc.allocPair(err_msg, types.NIL));
-    const else_clause = try gc.allocPair(else_sym, try gc.allocPair(err_call, types.NIL));
+        // Build: (cond clauses...)
+        const cond_form = try gc.allocPair(cond_sym, cond_clauses);
 
-    // Build cond clauses list (in order) ending with else
-    cond_clauses = try gc.allocPair(else_clause, types.NIL);
-    var ci = clause_buf.items.len;
-    while (ci > 0) {
-        ci -= 1;
-        cond_clauses = try gc.allocPair(clause_buf.items[ci], cond_clauses);
-    }
+        // Build: (let ((n (length args))) cond_form)
+        // (length args)
+        const length_call = try gc.allocPair(length_sym, try gc.allocPair(args_sym, types.NIL));
+        // ((n (length args)))
+        const n_binding = try gc.allocPair(n_sym, try gc.allocPair(length_call, types.NIL));
+        const bindings = try gc.allocPair(n_binding, types.NIL);
+        // (let bindings cond_form)
+        const let_form = try gc.allocPair(let_sym, try gc.allocPair(bindings, try gc.allocPair(cond_form, types.NIL)));
 
-    // Build: (cond clauses...)
-    const cond_form = try gc.allocPair(cond_sym, cond_clauses);
+        // Build: (lambda args let_form)
+        break :blk try gc.allocPair(lambda_sym, try gc.allocPair(args_sym, try gc.allocPair(let_form, types.NIL)));
+    };
 
-    // Build: (let ((n (length args))) cond_form)
-    // (length args)
-    const length_call = try gc.allocPair(length_sym, try gc.allocPair(args_sym, types.NIL));
-    // ((n (length args)))
-    const n_binding = try gc.allocPair(n_sym, try gc.allocPair(length_call, types.NIL));
-    const bindings = try gc.allocPair(n_binding, types.NIL);
-    // (let bindings cond_form)
-    const let_form = try gc.allocPair(let_sym, try gc.allocPair(bindings, try gc.allocPair(cond_form, types.NIL)));
-
-    // Build: (lambda args let_form)
-    var outer_lambda = try gc.allocPair(lambda_sym, try gc.allocPair(args_sym, try gc.allocPair(let_form, types.NIL)));
-
-    gc.no_collect -= 1;
     try gc.pushRoot(&outer_lambda);
     defer gc.popRoot();
     return self.compileExpr(outer_lambda, dst, false);

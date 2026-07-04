@@ -251,14 +251,6 @@ pub fn compileNamedLet(self: *Compiler, args: Value, dst: u16, is_tail: bool) Co
         binding_list = types.cdr(binding_list);
     }
 
-    // Build formals list (var1 var2 ...)
-    var formals: Value = types.NIL;
-    var i = param_count;
-    while (i > 0) {
-        i -= 1;
-        formals = self.gc.allocPair(var_names[i], formals) catch return CompileError.OutOfMemory;
-    }
-
     // Bind the loop procedure to a boxed local (single-binding letrec) so the
     // loop lambda captures itself as an upvalue. It used to be bound to a
     // gensym'd global (__nlet_N_name), but executing that define_global from
@@ -266,9 +258,28 @@ pub fn compileNamedLet(self: *Compiler, args: Value, dst: u16, is_tail: bool) Co
     // globals map, leaving a dangling global after the child heap was freed
     // (issue #958). A local also stops polluting the global namespace. The
     // gensym rename is kept so nested named lets reusing a name stay distinct.
+    // (unique_sym is an interned symbol, kept alive by the symbol table.)
     const unique_sym = try makeUniqueLoopName(self.gc, types.symbolName(loop_name));
-    const renamed_body = try renameInBody(self.gc, body, types.symbolName(loop_name), unique_sym);
-    const renamed_lambda_args = self.gc.allocPair(formals, renamed_body) catch return CompileError.OutOfMemory;
+
+    // Build ((formals...) renamed-body...) under no_collect: the formals chain
+    // and renameInBody's partial copies are fresh unrooted pairs, and a
+    // collection landing mid-build sweeps them (issue #1010). Root the result
+    // for the compileLambda below, which also allocates.
+    var renamed_lambda_args: Value = types.NIL;
+    {
+        self.gc.no_collect += 1;
+        defer self.gc.no_collect -= 1;
+        var formals: Value = types.NIL;
+        var i = param_count;
+        while (i > 0) {
+            i -= 1;
+            formals = self.gc.allocPair(var_names[i], formals) catch return CompileError.OutOfMemory;
+        }
+        const renamed_body = try renameInBody(self.gc, body, types.symbolName(loop_name), unique_sym);
+        renamed_lambda_args = self.gc.allocPair(formals, renamed_body) catch return CompileError.OutOfMemory;
+    }
+    self.gc.pushRoot(&renamed_lambda_args) catch return CompileError.OutOfMemory;
+    defer self.gc.popRoot();
 
     self.beginScope();
 
@@ -593,6 +604,14 @@ pub fn compileLetBody(self: *Compiler, body: Value, dst: u16, is_tail: bool) Com
     var def_slots: [MAX_BODY_DEFS]u16 = undefined;
     var def_count: usize = 0;
 
+    // def_inits lives in a stack array the GC cannot see. The (define (name
+    // args...) body) case below allocates fresh lambda pairs into it, and both
+    // the rest of this scan and the init compileExpr calls allocate, so a
+    // collection would sweep the not-yet-compiled inits (issue #1010). Mirror
+    // them into extra_roots (by value, realloc-safe) for the duration.
+    const lb_roots_base = self.gc.extra_roots.items.len;
+    defer self.gc.extra_roots.shrinkRetainingCapacity(lb_roots_base);
+
     // Track define-syntax registrations (both the leading scan below and
     // any produced mid-body by macro expansion, which reach the macro table
     // via compileDefineSyntax) so they don't outlive the body (R7RS 5.3).
@@ -626,8 +645,13 @@ pub fn compileLetBody(self: *Compiler, body: Value, dst: u16, is_tail: bool) Com
                 def_names[def_count] = types.symbolName(fn_name);
                 const param_formals = types.cdr(target);
                 const lambda_sym = self.gc.allocSymbol("lambda") catch return CompileError.OutOfMemory;
-                const lambda_args = self.gc.allocPair(param_formals, def_rest) catch return CompileError.OutOfMemory;
-                def_inits[def_count] = self.gc.allocPair(lambda_sym, lambda_args) catch return CompileError.OutOfMemory;
+                {
+                    var lambda_args = self.gc.allocPair(param_formals, def_rest) catch return CompileError.OutOfMemory;
+                    self.gc.pushRoot(&lambda_args) catch return CompileError.OutOfMemory;
+                    defer self.gc.popRoot();
+                    def_inits[def_count] = self.gc.allocPair(lambda_sym, lambda_args) catch return CompileError.OutOfMemory;
+                }
+                self.gc.extra_roots.append(self.gc.allocator, def_inits[def_count]) catch return CompileError.OutOfMemory;
                 def_count += 1;
             } else {
                 break;
@@ -737,15 +761,21 @@ pub fn compileLetValues(self: *Compiler, args: Value, dst: u16, is_tail: bool) C
     const lambda_sym = gc.allocSymbol("lambda") catch return CompileError.OutOfMemory;
 
     for (0..count) |i| {
-        // Build (call-with-values (lambda () expr) list) and compile it
-        const producer_body = gc.allocPair(exprs[i], types.NIL) catch return CompileError.OutOfMemory;
-        const producer_lambda = gc.allocPair(lambda_sym, gc.allocPair(types.NIL, producer_body) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory;
-        var cwv_expr = gc.allocPair(cwv_sym, gc.allocPair(producer_lambda, gc.allocPair(list_sym, types.NIL) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory;
+        // Build (call-with-values (lambda () expr) list) and compile it.
+        // Built under no_collect (fresh unrooted pairs, issue #1010), then
+        // rooted across the compile.
+        var cwv_expr: Value = blk: {
+            gc.no_collect += 1;
+            defer gc.no_collect -= 1;
+            const producer_body = gc.allocPair(exprs[i], types.NIL) catch return CompileError.OutOfMemory;
+            const producer_lambda = gc.allocPair(lambda_sym, gc.allocPair(types.NIL, producer_body) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory;
+            break :blk gc.allocPair(cwv_sym, gc.allocPair(producer_lambda, gc.allocPair(list_sym, types.NIL) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory;
+        };
         try gc.pushRoot(&cwv_expr);
+        defer gc.popRoot();
         const slot = try self.allocReg();
         temp_slots[i] = slot;
         try self.compileExpr(cwv_expr, slot, false);
-        gc.popRoot();
     }
 
     // Now build nested (apply (lambda (formals) ...) temp) from inside out
@@ -760,21 +790,28 @@ pub fn compileLetValues(self: *Compiler, args: Value, dst: u16, is_tail: bool) C
         try self.addLocal(types.symbolName(temp_syms[i]), temp_slots[i]);
     }
 
-    var inner = body;
-    const begin_sym = gc.allocSymbol("begin") catch return CompileError.OutOfMemory;
-    inner = gc.allocPair(begin_sym, inner) catch return CompileError.OutOfMemory;
+    // Build the nested apply chain under no_collect: `inner` is a growing
+    // tree of fresh unrooted pairs and every iteration allocates (issue #1010).
+    var desugared: Value = blk: {
+        gc.no_collect += 1;
+        defer gc.no_collect -= 1;
 
-    var j = count;
-    while (j > 0) {
-        j -= 1;
-        const apply_sym = gc.allocSymbol("apply") catch return CompileError.OutOfMemory;
-        const inner_body = gc.allocPair(inner, types.NIL) catch return CompileError.OutOfMemory;
-        const consumer = gc.allocPair(lambda_sym, gc.allocPair(formals_arr[j], inner_body) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory;
-        const temp_sym = temp_syms[j];
-        inner = gc.allocPair(apply_sym, gc.allocPair(consumer, gc.allocPair(temp_sym, types.NIL) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory;
-    }
+        var inner = body;
+        const begin_sym = gc.allocSymbol("begin") catch return CompileError.OutOfMemory;
+        inner = gc.allocPair(begin_sym, inner) catch return CompileError.OutOfMemory;
 
-    var desugared = inner;
+        var j = count;
+        while (j > 0) {
+            j -= 1;
+            const apply_sym = gc.allocSymbol("apply") catch return CompileError.OutOfMemory;
+            const inner_body = gc.allocPair(inner, types.NIL) catch return CompileError.OutOfMemory;
+            const consumer = gc.allocPair(lambda_sym, gc.allocPair(formals_arr[j], inner_body) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory;
+            const temp_sym = temp_syms[j];
+            inner = gc.allocPair(apply_sym, gc.allocPair(consumer, gc.allocPair(temp_sym, types.NIL) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory;
+        }
+        break :blk inner;
+    };
+
     try gc.pushRoot(&desugared);
     defer gc.popRoot();
     try self.compileExpr(desugared, dst, is_tail);

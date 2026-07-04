@@ -9,11 +9,11 @@
 ;; or silently produced garbage. The impl now drives generators with plain
 ;; Scheme recursion (%call-generators in lib/srfi/158-impl.scm).
 ;;
-;; Uses manual counters rather than SRFI-64: importing (srfi 64) together
-;; with (srfi 158) currently triggers a separate, nondeterministic
-;; CompileError in the library loader (each library loads fine alone), so
-;; pulling in the SRFI-64 test framework here would make this regression
-;; test flaky for reasons unrelated to what it checks.
+;; Uses manual counters rather than SRFI-64. (Importing (srfi 64) together
+;; with (srfi 158) used to trigger a nondeterministic CompileError in the
+;; library loader — a GC hole fixed with issue #1010 and covered by
+;; srfi-import-order.scm — but manual counters are kept so this file stays
+;; independent of the test framework.)
 (import (scheme base) (scheme write) (scheme process-context) (srfi 158))
 
 (define pass 0)

@@ -42,6 +42,14 @@ pub fn handleTopLevelForm(vm: *VM, expr: Value) ?VMError!Value {
     if (!types.isSymbol(head)) return null;
     const name = types.symbolName(head);
 
+    // Root the form across the handlers: import/define-library load, compile,
+    // and execute entire libraries (GC runs many times) while still walking
+    // this datum, and most callers pass a freshly read, unrooted expr. Without
+    // this, the import form itself can be swept mid-walk (issue #1010).
+    var expr_root = expr;
+    vm.gc.pushRoot(&expr_root) catch return VMError.OutOfMemory;
+    defer vm.gc.popRoot();
+
     if (std.mem.eql(u8, name, "import")) return vm_library.handleImport(vm, types.cdr(expr));
     if (std.mem.eql(u8, name, "define-library")) return vm_library.handleDefineLibrary(vm, types.cdr(expr));
     if (std.mem.eql(u8, name, "define-record-type")) return vm_records.handleDefineRecordType(vm, types.cdr(expr));

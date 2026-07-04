@@ -411,7 +411,14 @@ fn tryLoadLibraryFromFile(vm: *VM, name_list: Value) !void {
             const saved_lib_dir = vm.current_lib_dir;
             vm.current_lib_dir = sld_dir;
             defer vm.current_lib_dir = saved_lib_dir;
-            loadLibrarySource(vm, found.source) catch return error.UndefinedVariable;
+            loadLibrarySource(vm, found.source) catch |err| {
+                // The library exists — don't let this surface as "library
+                // not found" (#1010).
+                if (vm.last_error_detail_len == 0) {
+                    vm.setErrorDetail("{s} while loading bundled library {s}", .{ @errorName(err), found.path });
+                }
+                return error.UndefinedVariable;
+            };
             return;
         }
     }
@@ -442,7 +449,13 @@ fn tryLoadLibraryFromFile(vm: *VM, name_list: Value) !void {
     // silently dropping exports from include-library-declarations and
     // cond-expand — if caching is ever reintroduced, serialize the export
     // table into the .sbc instead of re-deriving it from source.
-    loadLibrarySource(vm, source) catch {
+    loadLibrarySource(vm, source) catch |err| {
+        // The .sld file was found and read — a failure here is a load error,
+        // not a missing library. Say so instead of letting processImportSet
+        // report "library not found" (#1010).
+        if (vm.last_error_detail_len == 0) {
+            vm.setErrorDetail("{s} while loading library from {s}", .{ @errorName(err), sld_path });
+        }
         return error.UndefinedVariable;
     };
 }
@@ -994,7 +1007,24 @@ fn compileLibExpr(vm: *VM, lib_env: *std.StringHashMap(Value), expr: Value) VMEr
             lib_macros.put(entry.key_ptr.*, entry.value_ptr.*) catch return VMError.OutOfMemory;
         }
     }
-    const func = compiler_mod.compileExpressionInEnv(vm.gc, expr, &lib_macros, lib_env, types.NIL) catch return VMError.CompileError;
+    const func = compiler_mod.compileExpressionInEnv(vm.gc, expr, &lib_macros, lib_env, types.NIL) catch |err| {
+        // Name the failing form so a broken library body surfaces as itself
+        // instead of being masked as "library not found" upstream (#1010).
+        if (vm.last_error_detail_len == 0) {
+            var def_name: []const u8 = "";
+            if (types.isPair(expr) and types.isPair(types.cdr(expr))) {
+                var target = types.car(types.cdr(expr));
+                if (types.isPair(target)) target = types.car(target);
+                if (types.isSymbol(target)) def_name = types.symbolName(target);
+            }
+            if (def_name.len > 0) {
+                vm.setErrorDetail("{s} while compiling library definition '{s}'", .{ @errorName(err), def_name });
+            } else {
+                vm.setErrorDetail("{s} while compiling library body form", .{@errorName(err)});
+            }
+        }
+        return VMError.CompileError;
+    };
     if (vm.lib_compile_collect) |collect| {
         collect.append(vm.gc.allocator, func) catch return VMError.OutOfMemory;
     }
