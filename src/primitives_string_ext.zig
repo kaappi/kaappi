@@ -14,42 +14,38 @@ const utf8CodepointCount = pstr.utf8CodepointCount;
 const utf8DecodeAt = pstr.utf8DecodeAt;
 const utf8ByteLenAt = pstr.utf8ByteLenAt;
 
-fn reg(vm: *vm_mod.VM, name: []const u8, func: types.NativeFnType, arity: NativeFn.Arity) !void {
-    return primitives.reg(vm, name, func, arity);
-}
-
 pub fn registerStringExt(vm: *vm_mod.VM) !void {
-    try reg(vm, "string-contains", &stringContainsFn, .{ .variadic = 2 });
-    try reg(vm, "string-prefix?", &stringPrefixPFn, .{ .variadic = 2 });
-    try reg(vm, "string-suffix?", &stringSuffixPFn, .{ .variadic = 2 });
-    try reg(vm, "string-trim", &stringTrimFn, .{ .variadic = 1 });
-    try reg(vm, "string-trim-right", &stringTrimRightFn, .{ .variadic = 1 });
-    try reg(vm, "string-trim-both", &stringTrimBothFn, .{ .variadic = 1 });
-    try reg(vm, "string-index", &stringIndexFn, .{ .variadic = 2 });
-    try reg(vm, "string-count", &stringCountFn, .{ .variadic = 2 });
-    try reg(vm, "string-split", &stringSplitFn, .{ .exact = 2 });
-    try reg(vm, "string-join", &stringJoinFn, .{ .variadic = 1 });
-    try reg(vm, "string-concatenate", &stringConcatenateFn, .{ .exact = 1 });
+    try primitives.reg(vm, "string-contains", &stringContainsFn, .{ .variadic = 2 });
+    try primitives.reg(vm, "string-prefix?", &stringPrefixPFn, .{ .variadic = 2 });
+    try primitives.reg(vm, "string-suffix?", &stringSuffixPFn, .{ .variadic = 2 });
+    try primitives.reg(vm, "string-trim", &stringTrimFn, .{ .variadic = 1 });
+    try primitives.reg(vm, "string-trim-right", &stringTrimRightFn, .{ .variadic = 1 });
+    try primitives.reg(vm, "string-trim-both", &stringTrimBothFn, .{ .variadic = 1 });
+    try primitives.reg(vm, "string-index", &stringIndexFn, .{ .variadic = 2 });
+    try primitives.reg(vm, "string-count", &stringCountFn, .{ .variadic = 2 });
+    try primitives.reg(vm, "string-split", &stringSplitFn, .{ .exact = 2 });
+    try primitives.reg(vm, "string-join", &stringJoinFn, .{ .variadic = 1 });
+    try primitives.reg(vm, "string-concatenate", &stringConcatenateFn, .{ .exact = 1 });
     // SRFI 13 additions
-    try reg(vm, "string-take", &stringTakeFn, .{ .exact = 2 });
-    try reg(vm, "string-drop", &stringDropFn, .{ .exact = 2 });
-    try reg(vm, "string-take-right", &stringTakeRightFn, .{ .exact = 2 });
-    try reg(vm, "string-drop-right", &stringDropRightFn, .{ .exact = 2 });
-    try reg(vm, "string-pad", &stringPadFn, .{ .variadic = 2 });
-    try reg(vm, "string-pad-right", &stringPadRightFn, .{ .variadic = 2 });
-    try reg(vm, "string-reverse", &stringReverseFn, .{ .variadic = 1 });
-    try reg(vm, "string-filter", &stringFilterFn, .{ .variadic = 2 });
-    try reg(vm, "string-delete", &stringDeleteFn, .{ .variadic = 2 });
-    try reg(vm, "string-replace", &stringReplaceFn, .{ .exact = 4 });
-    try reg(vm, "string-titlecase", &stringTitlecaseFn, .{ .variadic = 1 });
-    try reg(vm, "string-every", &stringEveryFn, .{ .variadic = 2 });
-    try reg(vm, "string-any", &stringAnyFn, .{ .variadic = 2 });
-    try reg(vm, "string-tabulate", &stringTabulateFn, .{ .exact = 2 });
-    try reg(vm, "string-unfold", &stringUnfoldFn, .{ .variadic = 4 });
-    try reg(vm, "string-unfold-right", &stringUnfoldRightFn, .{ .variadic = 4 });
-    try reg(vm, "string-index-right", &stringIndexRightFn, .{ .variadic = 2 });
-    try reg(vm, "string-skip", &stringSkipFn, .{ .variadic = 2 });
-    try reg(vm, "string-skip-right", &stringSkipRightFn, .{ .variadic = 2 });
+    try primitives.reg(vm, "string-take", &stringTakeFn, .{ .exact = 2 });
+    try primitives.reg(vm, "string-drop", &stringDropFn, .{ .exact = 2 });
+    try primitives.reg(vm, "string-take-right", &stringTakeRightFn, .{ .exact = 2 });
+    try primitives.reg(vm, "string-drop-right", &stringDropRightFn, .{ .exact = 2 });
+    try primitives.reg(vm, "string-pad", &stringPadFn, .{ .variadic = 2 });
+    try primitives.reg(vm, "string-pad-right", &stringPadRightFn, .{ .variadic = 2 });
+    try primitives.reg(vm, "string-reverse", &stringReverseFn, .{ .variadic = 1 });
+    try primitives.reg(vm, "string-filter", &stringFilterFn, .{ .variadic = 2 });
+    try primitives.reg(vm, "string-delete", &stringDeleteFn, .{ .variadic = 2 });
+    try primitives.reg(vm, "string-replace", &stringReplaceFn, .{ .exact = 4 });
+    try primitives.reg(vm, "string-titlecase", &stringTitlecaseFn, .{ .variadic = 1 });
+    try primitives.reg(vm, "string-every", &stringEveryFn, .{ .variadic = 2 });
+    try primitives.reg(vm, "string-any", &stringAnyFn, .{ .variadic = 2 });
+    try primitives.reg(vm, "string-tabulate", &stringTabulateFn, .{ .exact = 2 });
+    try primitives.reg(vm, "string-unfold", &stringUnfoldFn, .{ .variadic = 4 });
+    try primitives.reg(vm, "string-unfold-right", &stringUnfoldRightFn, .{ .variadic = 4 });
+    try primitives.reg(vm, "string-index-right", &stringIndexRightFn, .{ .variadic = 2 });
+    try primitives.reg(vm, "string-skip", &stringSkipFn, .{ .variadic = 2 });
+    try primitives.reg(vm, "string-skip-right", &stringSkipRightFn, .{ .variadic = 2 });
 }
 // ---------------------------------------------------------------------------
 // SRFI-13 String Library

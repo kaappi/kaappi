@@ -72,75 +72,71 @@ fn floatToBignum(f: f64) PrimitiveError!Value {
 }
 const raiseDivByZero = arith.raiseDivByZero;
 
-fn reg(vm: *vm_mod.VM, name: []const u8, func: types.NativeFnType, arity: NativeFn.Arity) !void {
-    return primitives.reg(vm, name, func, arity);
-}
-
 pub fn registerNumeric(vm: *vm_mod.VM) !void {
     // Rounding
-    try reg(vm, "floor", &floorFn, .{ .exact = 1 });
-    try reg(vm, "ceiling", &ceilingFn, .{ .exact = 1 });
-    try reg(vm, "truncate", &truncateFn, .{ .exact = 1 });
-    try reg(vm, "round", &roundFn, .{ .exact = 1 });
+    try primitives.reg(vm, "floor", &floorFn, .{ .exact = 1 });
+    try primitives.reg(vm, "ceiling", &ceilingFn, .{ .exact = 1 });
+    try primitives.reg(vm, "truncate", &truncateFn, .{ .exact = 1 });
+    try primitives.reg(vm, "round", &roundFn, .{ .exact = 1 });
 
     // Exactness
-    try reg(vm, "exact?", &exactP, .{ .exact = 1 });
-    try reg(vm, "inexact?", &inexactP, .{ .exact = 1 });
-    try reg(vm, "exact-integer?", &exactIntegerP, .{ .exact = 1 });
-    try reg(vm, "exact", &exactFn, .{ .exact = 1 });
-    try reg(vm, "inexact", &inexactFn, .{ .exact = 1 });
+    try primitives.reg(vm, "exact?", &exactP, .{ .exact = 1 });
+    try primitives.reg(vm, "inexact?", &inexactP, .{ .exact = 1 });
+    try primitives.reg(vm, "exact-integer?", &exactIntegerP, .{ .exact = 1 });
+    try primitives.reg(vm, "exact", &exactFn, .{ .exact = 1 });
+    try primitives.reg(vm, "inexact", &inexactFn, .{ .exact = 1 });
 
     // Powers and roots
-    try reg(vm, "expt", &exptFn, .{ .exact = 2 });
-    try reg(vm, "square", &squareFn, .{ .exact = 1 });
-    try reg(vm, "sqrt", &sqrtFn, .{ .exact = 1 });
-    try reg(vm, "exact-integer-sqrt", &exactIntegerSqrt, .{ .exact = 1 });
+    try primitives.reg(vm, "expt", &exptFn, .{ .exact = 2 });
+    try primitives.reg(vm, "square", &squareFn, .{ .exact = 1 });
+    try primitives.reg(vm, "sqrt", &sqrtFn, .{ .exact = 1 });
+    try primitives.reg(vm, "exact-integer-sqrt", &exactIntegerSqrt, .{ .exact = 1 });
 
     // Trigonometry
-    try reg(vm, "sin", &sinFn, .{ .exact = 1 });
-    try reg(vm, "cos", &cosFn, .{ .exact = 1 });
-    try reg(vm, "tan", &tanFn, .{ .exact = 1 });
-    try reg(vm, "asin", &asinFn, .{ .exact = 1 });
-    try reg(vm, "acos", &acosFn, .{ .exact = 1 });
-    try reg(vm, "atan", &atanFn, .{ .variadic = 1 });
+    try primitives.reg(vm, "sin", &sinFn, .{ .exact = 1 });
+    try primitives.reg(vm, "cos", &cosFn, .{ .exact = 1 });
+    try primitives.reg(vm, "tan", &tanFn, .{ .exact = 1 });
+    try primitives.reg(vm, "asin", &asinFn, .{ .exact = 1 });
+    try primitives.reg(vm, "acos", &acosFn, .{ .exact = 1 });
+    try primitives.reg(vm, "atan", &atanFn, .{ .variadic = 1 });
 
     // Exp/Log
-    try reg(vm, "exp", &expFn, .{ .exact = 1 });
-    try reg(vm, "log", &logFn, .{ .variadic = 1 });
+    try primitives.reg(vm, "exp", &expFn, .{ .exact = 1 });
+    try primitives.reg(vm, "log", &logFn, .{ .variadic = 1 });
 
     // Float predicates
-    try reg(vm, "finite?", &finiteP, .{ .exact = 1 });
-    try reg(vm, "infinite?", &infiniteP, .{ .exact = 1 });
-    try reg(vm, "nan?", &nanP, .{ .exact = 1 });
+    try primitives.reg(vm, "finite?", &finiteP, .{ .exact = 1 });
+    try primitives.reg(vm, "infinite?", &infiniteP, .{ .exact = 1 });
+    try primitives.reg(vm, "nan?", &nanP, .{ .exact = 1 });
 
     // Number/string conversion
-    try reg(vm, "number->string", &numberToString, .{ .variadic = 1 });
-    try reg(vm, "string->number", &stringToNumber, .{ .variadic = 1 });
+    try primitives.reg(vm, "number->string", &numberToString, .{ .variadic = 1 });
+    try primitives.reg(vm, "string->number", &stringToNumber, .{ .variadic = 1 });
 
     // Complex numbers
-    try reg(vm, "make-rectangular", &makeRectangular, .{ .exact = 2 });
-    try reg(vm, "make-polar", &makePolar, .{ .exact = 2 });
-    try reg(vm, "real-part", &realPart, .{ .exact = 1 });
-    try reg(vm, "imag-part", &imagPart, .{ .exact = 1 });
-    try reg(vm, "magnitude", &magnitudeFn, .{ .exact = 1 });
-    try reg(vm, "angle", &angleFn, .{ .exact = 1 });
+    try primitives.reg(vm, "make-rectangular", &makeRectangular, .{ .exact = 2 });
+    try primitives.reg(vm, "make-polar", &makePolar, .{ .exact = 2 });
+    try primitives.reg(vm, "real-part", &realPart, .{ .exact = 1 });
+    try primitives.reg(vm, "imag-part", &imagPart, .{ .exact = 1 });
+    try primitives.reg(vm, "magnitude", &magnitudeFn, .{ .exact = 1 });
+    try primitives.reg(vm, "angle", &angleFn, .{ .exact = 1 });
 
     // Integer division
-    try reg(vm, "floor-quotient", &floorQuotient, .{ .exact = 2 });
-    try reg(vm, "floor-remainder", &floorRemainder, .{ .exact = 2 });
-    try reg(vm, "floor/", &floorDivide, .{ .exact = 2 });
-    try reg(vm, "truncate-quotient", &truncateQuotient, .{ .exact = 2 });
-    try reg(vm, "truncate-remainder", &truncateRemainder, .{ .exact = 2 });
-    try reg(vm, "truncate/", &truncateDivide, .{ .exact = 2 });
+    try primitives.reg(vm, "floor-quotient", &floorQuotient, .{ .exact = 2 });
+    try primitives.reg(vm, "floor-remainder", &floorRemainder, .{ .exact = 2 });
+    try primitives.reg(vm, "floor/", &floorDivide, .{ .exact = 2 });
+    try primitives.reg(vm, "truncate-quotient", &truncateQuotient, .{ .exact = 2 });
+    try primitives.reg(vm, "truncate-remainder", &truncateRemainder, .{ .exact = 2 });
+    try primitives.reg(vm, "truncate/", &truncateDivide, .{ .exact = 2 });
 
     // Rational
-    try reg(vm, "numerator", &numeratorFn, .{ .exact = 1 });
-    try reg(vm, "denominator", &denominatorFn, .{ .exact = 1 });
-    try reg(vm, "rationalize", &rationalizeFn, .{ .exact = 2 });
+    try primitives.reg(vm, "numerator", &numeratorFn, .{ .exact = 1 });
+    try primitives.reg(vm, "denominator", &denominatorFn, .{ .exact = 1 });
+    try primitives.reg(vm, "rationalize", &rationalizeFn, .{ .exact = 2 });
 
     // Aliases
-    try reg(vm, "exact->inexact", &inexactFn, .{ .exact = 1 });
-    try reg(vm, "inexact->exact", &exactFn, .{ .exact = 1 });
+    try primitives.reg(vm, "exact->inexact", &inexactFn, .{ .exact = 1 });
+    try primitives.reg(vm, "inexact->exact", &exactFn, .{ .exact = 1 });
 }
 // ---------------------------------------------------------------------------
 // Rounding

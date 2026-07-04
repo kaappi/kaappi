@@ -10,47 +10,43 @@ const Value = types.Value;
 const NativeFn = types.NativeFn;
 const PrimitiveError = primitives.PrimitiveError;
 
-fn reg(vm: *vm_mod.VM, name: []const u8, func: types.NativeFnType, arity: NativeFn.Arity) !void {
-    return primitives.reg(vm, name, func, arity);
-}
-
 pub fn registerR7RS(vm: *vm_mod.VM) !void {
     // (scheme time)
-    try reg(vm, "current-second", &currentSecond, .{ .exact = 0 });
-    try reg(vm, "current-jiffy", &currentJiffy, .{ .exact = 0 });
-    try reg(vm, "jiffies-per-second", &jiffiesPerSecond, .{ .exact = 0 });
+    try primitives.reg(vm, "current-second", &currentSecond, .{ .exact = 0 });
+    try primitives.reg(vm, "current-jiffy", &currentJiffy, .{ .exact = 0 });
+    try primitives.reg(vm, "jiffies-per-second", &jiffiesPerSecond, .{ .exact = 0 });
 
     // (scheme process-context)
-    try reg(vm, "command-line", &commandLine, .{ .exact = 0 });
-    try reg(vm, "exit", &exitFn, .{ .variadic = 0 });
-    try reg(vm, "emergency-exit", &emergencyExitFn, .{ .variadic = 0 });
-    try reg(vm, "get-environment-variable", &getEnvVar, .{ .exact = 1 });
-    try reg(vm, "get-environment-variables", &getEnvVars, .{ .exact = 0 });
+    try primitives.reg(vm, "command-line", &commandLine, .{ .exact = 0 });
+    try primitives.reg(vm, "exit", &exitFn, .{ .variadic = 0 });
+    try primitives.reg(vm, "emergency-exit", &emergencyExitFn, .{ .variadic = 0 });
+    try primitives.reg(vm, "get-environment-variable", &getEnvVar, .{ .exact = 1 });
+    try primitives.reg(vm, "get-environment-variables", &getEnvVars, .{ .exact = 0 });
 
     // Parameters (R7RS 4.2.6)
-    try reg(vm, "make-parameter", &makeParameterFn, .{ .variadic = 1 });
-    try reg(vm, "%parameter-set!", &parameterSetDirectFn, .{ .exact = 2 });
+    try primitives.reg(vm, "make-parameter", &makeParameterFn, .{ .variadic = 1 });
+    try primitives.reg(vm, "%parameter-set!", &parameterSetDirectFn, .{ .exact = 2 });
 
     // (scheme eval)
-    try reg(vm, "eval", &evalFn, .{ .variadic = 1 });
-    try reg(vm, "environment", &environmentFn, .{ .variadic = 0 });
-    try reg(vm, "interaction-environment", &interactionEnvironmentFn, .{ .exact = 0 });
-    try reg(vm, "null-environment", &nullEnvironmentFn, .{ .exact = 1 });
-    try reg(vm, "scheme-report-environment", &schemeReportEnvironmentFn, .{ .exact = 1 });
+    try primitives.reg(vm, "eval", &evalFn, .{ .variadic = 1 });
+    try primitives.reg(vm, "environment", &environmentFn, .{ .variadic = 0 });
+    try primitives.reg(vm, "interaction-environment", &interactionEnvironmentFn, .{ .exact = 0 });
+    try primitives.reg(vm, "null-environment", &nullEnvironmentFn, .{ .exact = 1 });
+    try primitives.reg(vm, "scheme-report-environment", &schemeReportEnvironmentFn, .{ .exact = 1 });
 
     // (scheme load)
-    try reg(vm, "load", &loadFn, .{ .exact = 1 });
+    try primitives.reg(vm, "load", &loadFn, .{ .exact = 1 });
 
     // (kaappi debug)
-    try reg(vm, "disassemble", &disassembleFn, .{ .exact = 1 });
+    try primitives.reg(vm, "disassemble", &disassembleFn, .{ .exact = 1 });
 }
 
 pub fn registerR7RSSandboxed(vm: *vm_mod.VM) !void {
-    try reg(vm, "current-second", &currentSecond, .{ .exact = 0 });
-    try reg(vm, "current-jiffy", &currentJiffy, .{ .exact = 0 });
-    try reg(vm, "jiffies-per-second", &jiffiesPerSecond, .{ .exact = 0 });
-    try reg(vm, "make-parameter", &makeParameterFn, .{ .variadic = 1 });
-    try reg(vm, "%parameter-set!", &parameterSetDirectFn, .{ .exact = 2 });
+    try primitives.reg(vm, "current-second", &currentSecond, .{ .exact = 0 });
+    try primitives.reg(vm, "current-jiffy", &currentJiffy, .{ .exact = 0 });
+    try primitives.reg(vm, "jiffies-per-second", &jiffiesPerSecond, .{ .exact = 0 });
+    try primitives.reg(vm, "make-parameter", &makeParameterFn, .{ .variadic = 1 });
+    try primitives.reg(vm, "%parameter-set!", &parameterSetDirectFn, .{ .exact = 2 });
 }
 
 fn disassembleFn(args: []const Value) PrimitiveError!Value {

@@ -15,10 +15,6 @@ const isAnyComplex = numeric.isAnyComplex;
 const toComplexParts = numeric.toComplexParts;
 const makeComplexOrReal = numeric.makeComplexOrReal;
 
-fn reg(vm: *vm_mod.VM, name: []const u8, func: types.NativeFnType, arity: NativeFn.Arity) !void {
-    return primitives.reg(vm, name, func, arity);
-}
-
 pub fn makeFixnumChecked(n: i64) PrimitiveError!Value {
     if (n >= std.math.minInt(i48) and n <= std.math.maxInt(i48))
         return types.makeFixnum(n);
@@ -41,12 +37,7 @@ pub fn toF64Ext(v: Value) PrimitiveError!f64 {
 }
 
 fn numberTypeError(v: Value) PrimitiveError {
-    const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError; // bare-ok: no VM
-    const p = @import("printer.zig");
-    const s = p.valueToString(vm.gc.allocator, v, .write) catch "";
-    defer if (s.len > 0) vm.gc.allocator.free(s);
-    vm.setErrorDetail("expected number, got {s}", .{s});
-    return PrimitiveError.TypeError; // bare-ok: helper fallback
+    return primitives.typeError("arithmetic", "number", v);
 }
 
 // ---------------------------------------------------------------------------
@@ -192,28 +183,28 @@ pub fn raiseDivByZero() PrimitiveError!Value {
 
 pub fn registerArithmetic(vm: *vm_mod.VM) !void {
     // Arithmetic
-    try reg(vm, "+", &add, .{ .variadic = 0 });
-    try reg(vm, "-", &sub, .{ .variadic = 1 });
-    try reg(vm, "*", &mul, .{ .variadic = 0 });
-    try reg(vm, "/", &divFn, .{ .variadic = 1 });
-    try reg(vm, "quotient", &quotient, .{ .exact = 2 });
-    try reg(vm, "remainder", &remainder, .{ .exact = 2 });
-    try reg(vm, "modulo", &modulo, .{ .exact = 2 });
-    try reg(vm, "=", &numEq, .{ .variadic = 2 });
-    try reg(vm, "<", &numLt, .{ .variadic = 2 });
-    try reg(vm, ">", &numGt, .{ .variadic = 2 });
-    try reg(vm, "<=", &numLe, .{ .variadic = 2 });
-    try reg(vm, ">=", &numGe, .{ .variadic = 2 });
-    try reg(vm, "zero?", &zeroP, .{ .exact = 1 });
-    try reg(vm, "positive?", &positiveP, .{ .exact = 1 });
-    try reg(vm, "negative?", &negativeP, .{ .exact = 1 });
-    try reg(vm, "abs", &absVal, .{ .exact = 1 });
-    try reg(vm, "min", &minVal, .{ .variadic = 1 });
-    try reg(vm, "max", &maxVal, .{ .variadic = 1 });
-    try reg(vm, "even?", &evenP, .{ .exact = 1 });
-    try reg(vm, "odd?", &oddP, .{ .exact = 1 });
-    try reg(vm, "gcd", &gcdFn, .{ .variadic = 0 });
-    try reg(vm, "lcm", &lcmFn, .{ .variadic = 0 });
+    try primitives.reg(vm, "+", &add, .{ .variadic = 0 });
+    try primitives.reg(vm, "-", &sub, .{ .variadic = 1 });
+    try primitives.reg(vm, "*", &mul, .{ .variadic = 0 });
+    try primitives.reg(vm, "/", &divFn, .{ .variadic = 1 });
+    try primitives.reg(vm, "quotient", &quotient, .{ .exact = 2 });
+    try primitives.reg(vm, "remainder", &remainder, .{ .exact = 2 });
+    try primitives.reg(vm, "modulo", &modulo, .{ .exact = 2 });
+    try primitives.reg(vm, "=", &numEq, .{ .variadic = 2 });
+    try primitives.reg(vm, "<", &numLt, .{ .variadic = 2 });
+    try primitives.reg(vm, ">", &numGt, .{ .variadic = 2 });
+    try primitives.reg(vm, "<=", &numLe, .{ .variadic = 2 });
+    try primitives.reg(vm, ">=", &numGe, .{ .variadic = 2 });
+    try primitives.reg(vm, "zero?", &zeroP, .{ .exact = 1 });
+    try primitives.reg(vm, "positive?", &positiveP, .{ .exact = 1 });
+    try primitives.reg(vm, "negative?", &negativeP, .{ .exact = 1 });
+    try primitives.reg(vm, "abs", &absVal, .{ .exact = 1 });
+    try primitives.reg(vm, "min", &minVal, .{ .variadic = 1 });
+    try primitives.reg(vm, "max", &maxVal, .{ .variadic = 1 });
+    try primitives.reg(vm, "even?", &evenP, .{ .exact = 1 });
+    try primitives.reg(vm, "odd?", &oddP, .{ .exact = 1 });
+    try primitives.reg(vm, "gcd", &gcdFn, .{ .variadic = 0 });
+    try primitives.reg(vm, "lcm", &lcmFn, .{ .variadic = 0 });
 
     // Rounding, exactness, trig, complex, division, rationals
     const primitives_numeric = @import("primitives_numeric.zig");

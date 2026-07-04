@@ -7,15 +7,11 @@ const Value = types.Value;
 const PrimitiveError = primitives.PrimitiveError;
 const NativeFn = types.NativeFn;
 
-fn reg(vm: *vm_mod.VM, name: []const u8, func: types.NativeFnType, arity: NativeFn.Arity) !void {
-    return primitives.reg(vm, name, func, arity);
-}
-
 pub fn registerLazy(vm: *vm_mod.VM) !void {
-    try reg(vm, "force", &forceFn, .{ .exact = 1 });
-    try reg(vm, "promise?", &promiseP, .{ .exact = 1 });
-    try reg(vm, "make-promise", &makePromiseFn, .{ .exact = 1 });
-    try reg(vm, "%make-promise-lazy", &makePromiseLazy, .{ .exact = 1 });
+    try primitives.reg(vm, "force", &forceFn, .{ .exact = 1 });
+    try primitives.reg(vm, "promise?", &promiseP, .{ .exact = 1 });
+    try primitives.reg(vm, "make-promise", &makePromiseFn, .{ .exact = 1 });
+    try primitives.reg(vm, "%make-promise-lazy", &makePromiseLazy, .{ .exact = 1 });
 }
 
 fn promiseP(args: []const Value) PrimitiveError!Value {

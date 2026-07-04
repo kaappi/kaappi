@@ -7,10 +7,6 @@ const Value = types.Value;
 const NativeFn = types.NativeFn;
 const PrimitiveError = primitives.PrimitiveError;
 
-fn reg(vm: *vm_mod.VM, name: []const u8, func: types.NativeFnType, arity: NativeFn.Arity) !void {
-    return primitives.reg(vm, name, func, arity);
-}
-
 fn freshSeed() u64 {
     if (@import("builtin").os.tag == .linux) {
         var buf: [8]u8 = undefined;
@@ -30,17 +26,17 @@ fn freshSeed() u64 {
 pub fn registerRandom(vm: *vm_mod.VM) !void {
     vm.default_random_source = vm.gc.allocRandomSource(freshSeed()) catch return error.OutOfMemory;
 
-    try reg(vm, "random-integer", &randomIntegerFn, .{ .exact = 1 });
-    try reg(vm, "random-real", &randomRealFn, .{ .exact = 0 });
-    try reg(vm, "default-random-source", &defaultRandomSourceFn, .{ .exact = 0 });
-    try reg(vm, "random-source?", &randomSourcePFn, .{ .exact = 1 });
-    try reg(vm, "make-random-source", &makeRandomSourceFn, .{ .exact = 0 });
-    try reg(vm, "random-source-randomize!", &randomSourceRandomizeFn, .{ .exact = 1 });
-    try reg(vm, "random-source-pseudo-randomize!", &randomSourcePseudoRandomizeFn, .{ .exact = 3 });
-    try reg(vm, "random-source-state-ref", &randomSourceStateRefFn, .{ .exact = 1 });
-    try reg(vm, "random-source-state-set!", &randomSourceStateSetFn, .{ .exact = 2 });
-    try reg(vm, "%rs-next-int", &rsNextIntFn, .{ .exact = 2 });
-    try reg(vm, "%rs-next-real", &rsNextRealFn, .{ .exact = 1 });
+    try primitives.reg(vm, "random-integer", &randomIntegerFn, .{ .exact = 1 });
+    try primitives.reg(vm, "random-real", &randomRealFn, .{ .exact = 0 });
+    try primitives.reg(vm, "default-random-source", &defaultRandomSourceFn, .{ .exact = 0 });
+    try primitives.reg(vm, "random-source?", &randomSourcePFn, .{ .exact = 1 });
+    try primitives.reg(vm, "make-random-source", &makeRandomSourceFn, .{ .exact = 0 });
+    try primitives.reg(vm, "random-source-randomize!", &randomSourceRandomizeFn, .{ .exact = 1 });
+    try primitives.reg(vm, "random-source-pseudo-randomize!", &randomSourcePseudoRandomizeFn, .{ .exact = 3 });
+    try primitives.reg(vm, "random-source-state-ref", &randomSourceStateRefFn, .{ .exact = 1 });
+    try primitives.reg(vm, "random-source-state-set!", &randomSourceStateSetFn, .{ .exact = 2 });
+    try primitives.reg(vm, "%rs-next-int", &rsNextIntFn, .{ .exact = 2 });
+    try primitives.reg(vm, "%rs-next-real", &rsNextRealFn, .{ .exact = 1 });
 }
 
 pub fn ensureDefaultRS() void {

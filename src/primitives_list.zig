@@ -12,28 +12,24 @@ fn getGC() ?*@import("memory.zig").GC {
 }
 const deepEqual = primitives.deepEqual;
 
-fn reg(vm: *vm_mod.VM, name: []const u8, func: types.NativeFnType, arity: NativeFn.Arity) !void {
-    return primitives.reg(vm, name, func, arity);
-}
-
 pub fn registerList(vm: *vm_mod.VM) !void {
-    try reg(vm, "list-ref", &listRefFn, .{ .exact = 2 });
-    try reg(vm, "list-tail", &listTailFn, .{ .exact = 2 });
-    try reg(vm, "list-set!", &listSetFn, .{ .exact = 3 });
-    try reg(vm, "list-copy", &listCopyFn, .{ .exact = 1 });
-    try reg(vm, "make-list", &makeListFn, .{ .variadic = 1 });
-    try reg(vm, "member", &memberFn, .{ .variadic = 2 });
-    try reg(vm, "memq", &memqFn, .{ .exact = 2 });
-    try reg(vm, "memv", &memvFn, .{ .exact = 2 });
-    try reg(vm, "assoc", &assocFn, .{ .variadic = 2 });
-    try reg(vm, "assq", &assqFn, .{ .exact = 2 });
-    try reg(vm, "assv", &assvFn, .{ .exact = 2 });
-    try reg(vm, "map", &mapFn, .{ .variadic = 2 });
-    try reg(vm, "for-each", &forEachFn, .{ .variadic = 2 });
-    try reg(vm, "boolean=?", &booleanEqP, .{ .variadic = 2 });
-    try reg(vm, "symbol=?", &symbolEqP, .{ .variadic = 2 });
-    try reg(vm, "features", &featuresFn, .{ .exact = 0 });
-    try reg(vm, "string->symbol", &stringToSymbol, .{ .exact = 1 });
+    try primitives.reg(vm, "list-ref", &listRefFn, .{ .exact = 2 });
+    try primitives.reg(vm, "list-tail", &listTailFn, .{ .exact = 2 });
+    try primitives.reg(vm, "list-set!", &listSetFn, .{ .exact = 3 });
+    try primitives.reg(vm, "list-copy", &listCopyFn, .{ .exact = 1 });
+    try primitives.reg(vm, "make-list", &makeListFn, .{ .variadic = 1 });
+    try primitives.reg(vm, "member", &memberFn, .{ .variadic = 2 });
+    try primitives.reg(vm, "memq", &memqFn, .{ .exact = 2 });
+    try primitives.reg(vm, "memv", &memvFn, .{ .exact = 2 });
+    try primitives.reg(vm, "assoc", &assocFn, .{ .variadic = 2 });
+    try primitives.reg(vm, "assq", &assqFn, .{ .exact = 2 });
+    try primitives.reg(vm, "assv", &assvFn, .{ .exact = 2 });
+    try primitives.reg(vm, "map", &mapFn, .{ .variadic = 2 });
+    try primitives.reg(vm, "for-each", &forEachFn, .{ .variadic = 2 });
+    try primitives.reg(vm, "boolean=?", &booleanEqP, .{ .variadic = 2 });
+    try primitives.reg(vm, "symbol=?", &symbolEqP, .{ .variadic = 2 });
+    try primitives.reg(vm, "features", &featuresFn, .{ .exact = 0 });
+    try primitives.reg(vm, "string->symbol", &stringToSymbol, .{ .exact = 1 });
 }
 // List utilities
 // ---------------------------------------------------------------------------
