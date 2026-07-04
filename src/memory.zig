@@ -1,6 +1,5 @@
 const std = @import("std");
 const types = @import("types.zig");
-const hashtable = @import("primitives_hashtable.zig");
 const Value = types.Value;
 const Object = types.Object;
 const ObjectTag = types.ObjectTag;
@@ -198,6 +197,12 @@ pub const GC = struct {
             self.stats.peak_bytes_allocated = self.bytes_allocated;
     }
 
+    pub inline fn finishAlloc(self: *GC, obj: *Object, size: usize) void {
+        self.bytes_allocated += size;
+        self.profileAlloc(size);
+        self.trackObject(obj);
+    }
+
     pub fn allocPair(self: *GC, car_val: Value, cdr_val: Value) !Value {
         try self.maybeCollect();
         const pair = try self.allocator.create(Pair);
@@ -206,10 +211,7 @@ pub const GC = struct {
             .car = car_val,
             .cdr = cdr_val,
         };
-        self.bytes_allocated += @sizeOf(Pair);
-
-        self.profileAlloc(@sizeOf(Pair));
-        self.trackObject(&pair.header);
+        self.finishAlloc(&pair.header, @sizeOf(Pair));
         return types.makePointer(@ptrCast(pair));
     }
 
@@ -241,8 +243,9 @@ pub const GC = struct {
             .header = .{ .tag = .symbol },
             .name = owned_name,
         };
-        self.bytes_allocated += @sizeOf(Symbol) + name.len;
-        self.profileAlloc(@sizeOf(Symbol) + name.len);
+        const size = @sizeOf(Symbol) + name.len;
+        self.bytes_allocated += size;
+        self.profileAlloc(size);
 
         if (is_child) {
             // The symbol lives in the parent's shared table and must outlive
@@ -276,10 +279,7 @@ pub const GC = struct {
             .data = owned,
             .len = data.len,
         };
-        self.bytes_allocated += @sizeOf(SchemeString) + data.len;
-
-        self.profileAlloc(@sizeOf(SchemeString) + data.len);
-        self.trackObject(&str.header);
+        self.finishAlloc(&str.header, @sizeOf(SchemeString) + data.len);
         return types.makePointer(@ptrCast(str));
     }
 
@@ -291,10 +291,7 @@ pub const GC = struct {
             .constants = .empty,
             .arity = 0,
         };
-        self.bytes_allocated += @sizeOf(Function);
-
-        self.profileAlloc(@sizeOf(Function));
-        self.trackObject(&func.header);
+        self.finishAlloc(&func.header, @sizeOf(Function));
         return func;
     }
 
@@ -311,11 +308,7 @@ pub const GC = struct {
             .func = func,
             .upvalues = upvalues,
         };
-        const closure_bytes = @sizeOf(Closure) + @as(usize, upvalue_count) * @sizeOf(Value);
-        self.bytes_allocated += closure_bytes;
-
-        self.profileAlloc(closure_bytes);
-        self.trackObject(&cls.header);
+        self.finishAlloc(&cls.header, @sizeOf(Closure) + @as(usize, upvalue_count) * @sizeOf(Value));
         return types.makePointer(@ptrCast(cls));
     }
 
@@ -327,10 +320,7 @@ pub const GC = struct {
             .name = name,
             .arity = arity,
         };
-        self.bytes_allocated += @sizeOf(NativeFn);
-
-        self.profileAlloc(@sizeOf(NativeFn));
-        self.trackObject(&nf.header);
+        self.finishAlloc(&nf.header, @sizeOf(NativeFn));
         return types.makePointer(@ptrCast(nf));
     }
 
@@ -347,9 +337,7 @@ pub const GC = struct {
             .arity = arity,
             .name = name,
         };
-        self.bytes_allocated += @sizeOf(types.NativeClosure) + upvalues.len * @sizeOf(Value);
-        self.profileAlloc(@sizeOf(types.NativeClosure));
-        self.trackObject(&nc.header);
+        self.finishAlloc(&nc.header, @sizeOf(types.NativeClosure) + upvalues.len * @sizeOf(Value));
         return types.makePointer(@ptrCast(nc));
     }
 
@@ -368,10 +356,7 @@ pub const GC = struct {
             .header = .{ .tag = .vector },
             .data = owned,
         };
-        self.bytes_allocated += @sizeOf(Vector) + data.len * @sizeOf(Value);
-
-        self.profileAlloc(@sizeOf(Vector) + data.len * @sizeOf(Value));
-        self.trackObject(&vec.header);
+        self.finishAlloc(&vec.header, @sizeOf(Vector) + data.len * @sizeOf(Value));
         return types.makePointer(@ptrCast(vec));
     }
 
@@ -385,10 +370,7 @@ pub const GC = struct {
             .header = .{ .tag = .vector },
             .data = data,
         };
-        self.bytes_allocated += @sizeOf(Vector) + size * @sizeOf(Value);
-
-        self.profileAlloc(@sizeOf(Vector) + size * @sizeOf(Value));
-        self.trackObject(&vec.header);
+        self.finishAlloc(&vec.header, @sizeOf(Vector) + size * @sizeOf(Value));
         return types.makePointer(@ptrCast(vec));
     }
 
@@ -400,10 +382,7 @@ pub const GC = struct {
             .message = message,
             .irritants = irritants,
         };
-        self.bytes_allocated += @sizeOf(types.ErrorObject);
-
-        self.profileAlloc(@sizeOf(types.ErrorObject));
-        self.trackObject(&err.header);
+        self.finishAlloc(&err.header, @sizeOf(types.ErrorObject));
         return types.makePointer(@ptrCast(err));
     }
 
@@ -424,10 +403,7 @@ pub const GC = struct {
             .templates = owned_tmps,
             .num_rules = num_rules,
         };
-        self.bytes_allocated += @sizeOf(Transformer) + (literals.len + patterns.len + templates.len) * @sizeOf(Value);
-
-        self.profileAlloc(@sizeOf(Transformer) + (literals.len + patterns.len + templates.len) * @sizeOf(Value));
-        self.trackObject(&tx.header);
+        self.finishAlloc(&tx.header, @sizeOf(Transformer) + (literals.len + patterns.len + templates.len) * @sizeOf(Value));
         return types.makePointer(@ptrCast(tx));
     }
 
@@ -441,10 +417,7 @@ pub const GC = struct {
             .name = owned_name,
             .num_fields = num_fields,
         };
-        self.bytes_allocated += @sizeOf(RecordType) + name.len;
-
-        self.profileAlloc(@sizeOf(RecordType) + name.len);
-        self.trackObject(&rt.header);
+        self.finishAlloc(&rt.header, @sizeOf(RecordType) + name.len);
         return types.makePointer(@ptrCast(rt));
     }
 
@@ -465,10 +438,7 @@ pub const GC = struct {
             .record_type = record_type,
             .fields = fields,
         };
-        self.bytes_allocated += @sizeOf(RecordInstance) + record_type.num_fields * @sizeOf(Value);
-
-        self.profileAlloc(@sizeOf(RecordInstance) + record_type.num_fields * @sizeOf(Value));
-        self.trackObject(&ri.header);
+        self.finishAlloc(&ri.header, @sizeOf(RecordInstance) + record_type.num_fields * @sizeOf(Value));
         return types.makePointer(@ptrCast(ri));
     }
 
@@ -491,10 +461,7 @@ pub const GC = struct {
             .string_out_len = 0,
             .string_out_cap = 0,
         };
-        self.bytes_allocated += @sizeOf(Port);
-
-        self.profileAlloc(@sizeOf(Port));
-        self.trackObject(&port.header);
+        self.finishAlloc(&port.header, @sizeOf(Port));
         return types.makePointer(@ptrCast(port));
     }
 
@@ -516,10 +483,7 @@ pub const GC = struct {
             .string_data = owned,
             .string_pos = 0,
         };
-        self.bytes_allocated += @sizeOf(Port) + data.len;
-
-        self.profileAlloc(@sizeOf(Port) + data.len);
-        self.trackObject(&port.header);
+        self.finishAlloc(&port.header, @sizeOf(Port) + data.len);
         return types.makePointer(@ptrCast(port));
     }
 
@@ -543,10 +507,7 @@ pub const GC = struct {
             .string_out_len = 0,
             .string_out_cap = initial_cap,
         };
-        self.bytes_allocated += @sizeOf(Port) + initial_cap;
-
-        self.profileAlloc(@sizeOf(Port) + initial_cap);
-        self.trackObject(&port.header);
+        self.finishAlloc(&port.header, @sizeOf(Port) + initial_cap);
         return types.makePointer(@ptrCast(port));
     }
 
@@ -559,10 +520,7 @@ pub const GC = struct {
             .header = .{ .tag = .bytevector },
             .data = owned,
         };
-        self.bytes_allocated += @sizeOf(Bytevector) + data.len;
-
-        self.profileAlloc(@sizeOf(Bytevector) + data.len);
-        self.trackObject(&bv.header);
+        self.finishAlloc(&bv.header, @sizeOf(Bytevector) + data.len);
         return types.makePointer(@ptrCast(bv));
     }
 
@@ -576,10 +534,7 @@ pub const GC = struct {
             .header = .{ .tag = .bytevector },
             .data = data,
         };
-        self.bytes_allocated += @sizeOf(Bytevector) + size;
-
-        self.profileAlloc(@sizeOf(Bytevector) + size);
-        self.trackObject(&bv.header);
+        self.finishAlloc(&bv.header, @sizeOf(Bytevector) + size);
         return types.makePointer(@ptrCast(bv));
     }
 
@@ -591,10 +546,7 @@ pub const GC = struct {
             .forced = forced,
             .value = value,
         };
-        self.bytes_allocated += @sizeOf(Promise);
-
-        self.profileAlloc(@sizeOf(Promise));
-        self.trackObject(&p.header);
+        self.finishAlloc(&p.header, @sizeOf(Promise));
         return types.makePointer(@ptrCast(p));
     }
 
@@ -663,12 +615,11 @@ pub const GC = struct {
             .dst_base = dst_base,
             .backing = backing,
         };
-        self.bytes_allocated += @sizeOf(Continuation) +
+        self.finishAlloc(&cont.header, @sizeOf(Continuation) +
             registers.len * @sizeOf(Value) +
             frames.len * @sizeOf(SavedFrame) +
             handlers.len * @sizeOf(SavedHandler) +
-            wind_records.len * @sizeOf(WindRecord);
-        self.trackObject(&cont.header);
+            wind_records.len * @sizeOf(WindRecord));
         return types.makePointer(@ptrCast(cont));
     }
 
@@ -704,10 +655,7 @@ pub const GC = struct {
             .target_wind_count = target_wind_count,
             .target_handler_count = target_handler_count,
         };
-        self.bytes_allocated += @sizeOf(Continuation);
-
-        self.profileAlloc(@sizeOf(Continuation));
-        self.trackObject(&cont.header);
+        self.finishAlloc(&cont.header, @sizeOf(Continuation));
         return types.makePointer(@ptrCast(cont));
     }
 
@@ -725,10 +673,7 @@ pub const GC = struct {
             .exact_real = exact_real,
             .exact_imag = exact_imag,
         };
-        self.bytes_allocated += @sizeOf(types.Complex);
-
-        self.profileAlloc(@sizeOf(types.Complex));
-        self.trackObject(&c.header);
+        self.finishAlloc(&c.header, @sizeOf(types.Complex));
         return types.makePointer(@ptrCast(c));
     }
 
@@ -740,10 +685,7 @@ pub const GC = struct {
             .value = init_value,
             .converter = converter,
         };
-        self.bytes_allocated += @sizeOf(types.ParameterObject);
-
-        self.profileAlloc(@sizeOf(types.ParameterObject));
-        self.trackObject(&p.header);
+        self.finishAlloc(&p.header, @sizeOf(types.ParameterObject));
         return types.makePointer(@ptrCast(p));
     }
 
@@ -757,10 +699,7 @@ pub const GC = struct {
             .handle = handle,
             .name = owned_name,
         };
-        self.bytes_allocated += @sizeOf(FfiLibrary) + name.len;
-
-        self.profileAlloc(@sizeOf(FfiLibrary) + name.len);
-        self.trackObject(&lib.header);
+        self.finishAlloc(&lib.header, @sizeOf(FfiLibrary) + name.len);
         return types.makePointer(@ptrCast(lib));
     }
 
@@ -780,10 +719,7 @@ pub const GC = struct {
             .return_type = return_type,
             .param_count = @intCast(param_types.len),
         };
-        self.bytes_allocated += @sizeOf(FfiFunction) + name.len + param_types.len * @sizeOf(FfiType);
-
-        self.profileAlloc(@sizeOf(FfiFunction) + name.len + param_types.len * @sizeOf(FfiType));
-        self.trackObject(&ffi_fn.header);
+        self.finishAlloc(&ffi_fn.header, @sizeOf(FfiFunction) + name.len + param_types.len * @sizeOf(FfiType));
         return types.makePointer(@ptrCast(ffi_fn));
     }
 
@@ -797,10 +733,7 @@ pub const GC = struct {
             .fn_ptr = fn_ptr,
             .active = true,
         };
-        self.bytes_allocated += @sizeOf(FfiCallback);
-
-        self.profileAlloc(@sizeOf(FfiCallback));
-        self.trackObject(&cb.header);
+        self.finishAlloc(&cb.header, @sizeOf(FfiCallback));
         return types.makePointer(@ptrCast(cb));
     }
 
@@ -811,20 +744,16 @@ pub const GC = struct {
             .header = .{ .tag = .random_source },
             .prng = std.Random.DefaultPrng.init(seed),
         };
-        self.bytes_allocated += @sizeOf(RandomSource);
-
-        self.profileAlloc(@sizeOf(RandomSource));
-        self.trackObject(&rs.header);
+        self.finishAlloc(&rs.header, @sizeOf(RandomSource));
         return types.makePointer(@ptrCast(rs));
     }
 
     pub fn allocFiber(self: *GC, thunk: Value, id: u32) !*@import("fiber.zig").Fiber {
         try self.maybeCollect();
         const fiber_mod = @import("fiber.zig");
-        const vm_m = @import("vm.zig");
-        const registers = try self.allocator.alloc(Value, vm_m.INITIAL_REGISTER_CAPACITY);
+        const registers = try self.allocator.alloc(Value, types.INITIAL_REGISTER_CAPACITY);
         errdefer self.allocator.free(registers);
-        const frames = try self.allocator.alloc(vm_m.CallFrame, vm_m.INITIAL_FRAME_CAPACITY);
+        const frames = try self.allocator.alloc(types.CallFrame, types.INITIAL_FRAME_CAPACITY);
         errdefer self.allocator.free(frames);
         const fiber = try self.allocator.create(fiber_mod.Fiber);
         fiber.* = .{
@@ -852,13 +781,9 @@ pub const GC = struct {
             .param_overrides = std.AutoHashMap(usize, Value).init(self.allocator),
         };
         @memset(fiber.registers, types.UNDEFINED);
-        const total_size = @sizeOf(fiber_mod.Fiber) +
+        self.finishAlloc(&fiber.header, @sizeOf(fiber_mod.Fiber) +
             registers.len * @sizeOf(Value) +
-            frames.len * @sizeOf(vm_m.CallFrame);
-        self.bytes_allocated += total_size;
-
-        self.profileAlloc(total_size);
-        self.trackObject(&fiber.header);
+            frames.len * @sizeOf(types.CallFrame));
         return fiber;
     }
 
@@ -870,10 +795,7 @@ pub const GC = struct {
             .head = types.NIL,
             .tail = types.NIL,
         };
-        self.bytes_allocated += @sizeOf(types.Channel);
-
-        self.profileAlloc(@sizeOf(types.Channel));
-        self.trackObject(&ch.header);
+        self.finishAlloc(&ch.header, @sizeOf(types.Channel));
         return types.makePointer(@ptrCast(ch));
     }
 
@@ -888,10 +810,7 @@ pub const GC = struct {
             .abandoned = false,
             .specific = types.VOID,
         };
-        self.bytes_allocated += @sizeOf(types.Mutex);
-
-        self.profileAlloc(@sizeOf(types.Mutex));
-        self.trackObject(&m.header);
+        self.finishAlloc(&m.header, @sizeOf(types.Mutex));
         return types.makePointer(@ptrCast(m));
     }
 
@@ -903,10 +822,7 @@ pub const GC = struct {
             .name = name,
             .specific = types.VOID,
         };
-        self.bytes_allocated += @sizeOf(types.ConditionVariable);
-
-        self.profileAlloc(@sizeOf(types.ConditionVariable));
-        self.trackObject(&cv.header);
+        self.finishAlloc(&cv.header, @sizeOf(types.ConditionVariable));
         return types.makePointer(@ptrCast(cv));
     }
 
@@ -917,10 +833,7 @@ pub const GC = struct {
             .header = .{ .tag = .srfi18_time },
             .seconds = seconds,
         };
-        self.bytes_allocated += @sizeOf(types.Srfi18Time);
-
-        self.profileAlloc(@sizeOf(types.Srfi18Time));
-        self.trackObject(&t.header);
+        self.finishAlloc(&t.header, @sizeOf(types.Srfi18Time));
         return types.makePointer(@ptrCast(t));
     }
 
@@ -943,10 +856,7 @@ pub const GC = struct {
             .count = 0,
             .capacity = cap,
         };
-        self.bytes_allocated += @sizeOf(HashTable) + cap * @sizeOf(HashEntry);
-
-        self.profileAlloc(@sizeOf(HashTable) + initial_capacity * @sizeOf(HashEntry));
-        self.trackObject(&ht.header);
+        self.finishAlloc(&ht.header, @sizeOf(HashTable) + cap * @sizeOf(HashEntry));
         return types.makePointer(@ptrCast(ht));
     }
 
@@ -963,10 +873,7 @@ pub const GC = struct {
             .len = if (mag == 0) 0 else 1,
             .positive = n >= 0,
         };
-        self.bytes_allocated += @sizeOf(Bignum) + @sizeOf(u64);
-
-        self.profileAlloc(@sizeOf(Bignum) + @sizeOf(u64));
-        self.trackObject(&bn.header);
+        self.finishAlloc(&bn.header, @sizeOf(Bignum) + @sizeOf(u64));
         return types.makePointer(@ptrCast(bn));
     }
 
@@ -982,10 +889,7 @@ pub const GC = struct {
             .len = len,
             .positive = positive,
         };
-        self.bytes_allocated += @sizeOf(Bignum) + limbs.len * @sizeOf(u64);
-
-        self.profileAlloc(@sizeOf(Bignum) + limbs.len * @sizeOf(u64));
-        self.trackObject(&bn.header);
+        self.finishAlloc(&bn.header, @sizeOf(Bignum) + limbs.len * @sizeOf(u64));
         return types.makePointer(@ptrCast(bn));
     }
 
@@ -997,10 +901,7 @@ pub const GC = struct {
             .numerator = num,
             .denominator = den,
         };
-        self.bytes_allocated += @sizeOf(Rational);
-
-        self.profileAlloc(@sizeOf(Rational));
-        self.trackObject(&rat.header);
+        self.finishAlloc(&rat.header, @sizeOf(Rational));
         return types.makePointer(@ptrCast(rat));
     }
 
@@ -1039,10 +940,7 @@ pub const GC = struct {
             .gid = info.gid,
             .file_type = info.file_type,
         };
-        self.bytes_allocated += @sizeOf(types.FileInfo);
-
-        self.profileAlloc(@sizeOf(types.FileInfo));
-        self.trackObject(&fi.header);
+        self.finishAlloc(&fi.header, @sizeOf(types.FileInfo));
         return types.makePointer(@ptrCast(fi));
     }
 
@@ -1066,10 +964,7 @@ pub const GC = struct {
             .shell = shell_copy,
             .full_name = gecos_copy,
         };
-        self.bytes_allocated += @sizeOf(types.UserInfo) + name.len + home_dir.len + shell.len + full_name.len;
-
-        self.profileAlloc(@sizeOf(types.UserInfo) + name.len + home_dir.len + shell.len + full_name.len);
-        self.trackObject(&ui.header);
+        self.finishAlloc(&ui.header, @sizeOf(types.UserInfo) + name.len + home_dir.len + shell.len + full_name.len);
         return types.makePointer(@ptrCast(ui));
     }
 
@@ -1083,10 +978,7 @@ pub const GC = struct {
             .name = name_copy,
             .gid = gid,
         };
-        self.bytes_allocated += @sizeOf(types.GroupInfo) + name.len;
-
-        self.profileAlloc(@sizeOf(types.GroupInfo) + name.len);
-        self.trackObject(&gi.header);
+        self.finishAlloc(&gi.header, @sizeOf(types.GroupInfo) + name.len);
         return types.makePointer(@ptrCast(gi));
     }
 
@@ -1098,10 +990,7 @@ pub const GC = struct {
             .env = env_map,
             .owned = owned,
         };
-        self.bytes_allocated += @sizeOf(types.SchemeEnvironment);
-
-        self.profileAlloc(@sizeOf(types.SchemeEnvironment));
-        self.trackObject(&se.header);
+        self.finishAlloc(&se.header, @sizeOf(types.SchemeEnvironment));
         return types.makePointer(@ptrCast(se));
     }
 
@@ -1113,10 +1002,7 @@ pub const GC = struct {
             .dir = dir,
             .include_dotfiles = include_dotfiles,
         };
-        self.bytes_allocated += @sizeOf(types.DirectoryObject);
-
-        self.profileAlloc(@sizeOf(types.DirectoryObject));
-        self.trackObject(&d.header);
+        self.finishAlloc(&d.header, @sizeOf(types.DirectoryObject));
         return types.makePointer(@ptrCast(d));
     }
 
@@ -1128,10 +1014,7 @@ pub const GC = struct {
             .header = .{ .tag = .multiple_values },
             .values = owned,
         };
-        self.bytes_allocated += @sizeOf(MultipleValues) + values.len * @sizeOf(Value);
-
-        self.profileAlloc(@sizeOf(MultipleValues) + values.len * @sizeOf(Value));
-        self.trackObject(&mv.header);
+        self.finishAlloc(&mv.header, @sizeOf(MultipleValues) + values.len * @sizeOf(Value));
         return types.makePointer(@ptrCast(mv));
     }
 

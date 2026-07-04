@@ -789,7 +789,7 @@ fn objectSize(obj: *Object) usize {
             const fiber = obj.as(@import("fiber.zig").Fiber);
             break :blk @sizeOf(@import("fiber.zig").Fiber) +
                 fiber.registers.len * @sizeOf(Value) +
-                fiber.frames.len * @sizeOf(@import("vm.zig").CallFrame);
+                fiber.frames.len * @sizeOf(types.CallFrame);
         },
         .channel => @sizeOf(types.Channel),
         .mutex => @sizeOf(types.Mutex),
