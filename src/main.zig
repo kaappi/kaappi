@@ -819,6 +819,13 @@ fn runFile(vm: *vm_mod.VM, path: []const u8) !void {
                 }
             }
 
+            // Set source_name on all loaded functions — the path is valid
+            // for the entire runFile scope, matching the fresh-compile path
+            // where the compiler sets source_name to the same pointer.
+            for (loaded.funcs) |func| {
+                func.source_name = path;
+            }
+
             const top_count = @min(loaded.top_level_count, @as(u32, @intCast(loaded.funcs.len)));
             for (loaded.funcs[0..top_count]) |func| {
                 var func_val = types.makePointer(@ptrCast(func));
@@ -827,14 +834,36 @@ fn runFile(vm: *vm_mod.VM, path: []const u8) !void {
                     vm.gc.popRoot();
                     script_had_error = true;
                     const detail = vm.getErrorDetail();
+                    const err_line = vm.last_error_line;
+                    const err_source = vm.last_error_source orelse path;
                     if (detail.len > 0) {
-                        var errbuf: [256]u8 = undefined;
-                        const s = std.fmt.bufPrint(&errbuf, "{s}: error: {s}\n", .{ path, detail }) catch "runtime error\n";
+                        var errbuf: [512]u8 = undefined;
+                        const s = if (err_line > 0)
+                            std.fmt.bufPrint(&errbuf, "{s}:{d}: error: {s}\n", .{ err_source, err_line, detail }) catch "runtime error\n"
+                        else
+                            std.fmt.bufPrint(&errbuf, "{s}: error: {s}\n", .{ err_source, detail }) catch "runtime error\n";
                         writeStderr(s);
                     } else {
-                        var errbuf: [256]u8 = undefined;
-                        const s = std.fmt.bufPrint(&errbuf, "{s}: runtime error: {}\n", .{ path, err }) catch "runtime error\n";
+                        var errbuf: [512]u8 = undefined;
+                        const s = if (err_line > 0)
+                            std.fmt.bufPrint(&errbuf, "{s}:{d}: runtime error: {}\n", .{ err_source, err_line, err }) catch "runtime error\n"
+                        else
+                            std.fmt.bufPrint(&errbuf, "{s}: runtime error: {}\n", .{ err_source, err }) catch "runtime error\n";
                         writeStderr(s);
+                    }
+                    if (err_line > 0) printSourceSnippet(source, err_line);
+                    const trace = vm.getLastStackTrace();
+                    if (trace.len > 1) {
+                        for (trace[1..]) |frame| {
+                            var tbuf: [256]u8 = undefined;
+                            if (frame.name) |name| {
+                                const ts = std.fmt.bufPrint(&tbuf, "  in {s} ({s}:{d})\n", .{ name, frame.source orelse "?", frame.line }) catch continue;
+                                writeStderr(ts);
+                            } else if (frame.line > 0) {
+                                const ts = std.fmt.bufPrint(&tbuf, "  called from {s}:{d}\n", .{ frame.source orelse "?", frame.line }) catch continue;
+                                writeStderr(ts);
+                            }
+                        }
                     }
                     vm.last_error_detail_len = 0;
                     continue;

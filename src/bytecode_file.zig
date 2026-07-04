@@ -10,7 +10,7 @@ const GC = memory.GC;
 
 // File format constants
 const MAGIC = [4]u8{ 'K', 'P', 'B', 'C' };
-const VERSION: u16 = 6;
+const VERSION: u16 = 7;
 const MAX_FUNCTIONS: u32 = 16_384;
 const MAX_TOP_LEVEL_FUNCTIONS: u32 = 4_096;
 const MAX_CODE_BYTES: u32 = 4_194_304;
@@ -640,6 +640,14 @@ fn writeFunctionsToBuffer(w: *Writer, allocator: std.mem.Allocator, top_level_fu
         for (func.constants.items) |constant| {
             try writeConstant(w, allocator, constant, all_funcs, 0);
         }
+
+        // Debug info: source_line and line_table (added in v7)
+        try w.writeU32(allocator, func.source_line);
+        try w.writeU32(allocator, @intCast(func.line_table.items.len));
+        for (func.line_table.items) |entry| {
+            try w.writeU16(allocator, entry.offset);
+            try w.writeU32(allocator, entry.line);
+        }
     }
 
     return all_funcs_list;
@@ -805,6 +813,16 @@ fn deserializeFromBuffer(gc: *GC, data: []const u8, expected_hash: ?u64) !?Deser
         for (0..const_count) |_| {
             const val = readConstant(&r, gc, all_funcs, 0) catch return null;
             func.constants.append(allocator, val) catch return BytecodeError.OutOfMemory;
+        }
+
+        // Debug info: source_line and line_table (added in v7)
+        func.source_line = r.readU32() catch return null;
+        const line_count = r.readU32() catch return null;
+        if (line_count > MAX_CODE_BYTES) return null;
+        for (0..line_count) |_| {
+            const offset = r.readU16() catch return null;
+            const line = r.readU32() catch return null;
+            func.line_table.append(allocator, .{ .offset = offset, .line = line }) catch return BytecodeError.OutOfMemory;
         }
     }
 
@@ -1307,6 +1325,50 @@ test "bytecode round-trip: vector pair bignum rational complex constants" {
     try std.testing.expectEqual(@as(f64, 4.0), loaded_cx.imag);
 }
 
+test "bytecode round-trip: line table and source_line preserved" {
+    const allocator = std.testing.allocator;
+    var gc = GC.init(allocator);
+    defer gc.deinit();
+
+    const func = try gc.allocFunction();
+    func.code.append(allocator, @intFromEnum(types.OpCode.load_const)) catch unreachable;
+    func.code.append(allocator, 0) catch unreachable;
+    func.code.append(allocator, 0) catch unreachable;
+    func.code.append(allocator, 0) catch unreachable;
+    func.code.append(allocator, 0) catch unreachable;
+    func.code.append(allocator, @intFromEnum(types.OpCode.@"return")) catch unreachable;
+    func.code.append(allocator, 0) catch unreachable;
+    func.code.append(allocator, 0) catch unreachable;
+    func.constants.append(allocator, types.makeFixnum(42)) catch unreachable;
+    func.arity = 1;
+    func.locals_count = 2;
+    func.source_line = 5;
+    func.line_table.append(allocator, .{ .offset = 0, .line = 5 }) catch unreachable;
+    func.line_table.append(allocator, .{ .offset = 5, .line = 7 }) catch unreachable;
+
+    var funcs_arr = [_]*Function{func};
+    const hash: u64 = 11111;
+    const path = "/tmp/kaappi_test_linetable.sbc";
+
+    try writeFileWithTopLevel(allocator, &funcs_arr, hash, path);
+    defer _ = std.posix.system.unlink(@ptrCast(path));
+
+    const result = try readFileWithTopLevel(&gc, hash, path);
+    try std.testing.expect(result != null);
+
+    const loaded = result.?;
+    defer allocator.free(loaded.funcs);
+
+    const lf = loaded.funcs[0];
+    try std.testing.expectEqual(@as(u32, 5), lf.source_line);
+    try std.testing.expectEqual(@as(usize, 2), lf.line_table.items.len);
+    try std.testing.expectEqual(@as(u16, 0), lf.line_table.items[0].offset);
+    try std.testing.expectEqual(@as(u32, 5), lf.line_table.items[0].line);
+    try std.testing.expectEqual(@as(u16, 5), lf.line_table.items[1].offset);
+    try std.testing.expectEqual(@as(u32, 7), lf.line_table.items[1].line);
+    try std.testing.expectEqual(@as(u32, 7), lf.lineForOffset(6));
+}
+
 test "bytecode validation rejects invalid opcode" {
     const allocator = std.testing.allocator;
     var gc = GC.init(allocator);
@@ -1334,6 +1396,8 @@ test "bytecode validation rejects invalid opcode" {
     try w.writeU32(allocator, 1); // code_len
     try w.writeU8(allocator, 0xFF);
     try w.writeU32(allocator, 0); // const_count
+    try w.writeU32(allocator, 0); // source_line
+    try w.writeU32(allocator, 0); // line_table count
 
     const path = "/tmp/kaappi_test_invalid_opcode.sbc";
     const fd = std.posix.openat(std.posix.AT.FDCWD, path, .{
