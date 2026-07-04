@@ -21,7 +21,7 @@ If dirty, ask the user to commit or stash. If not on `main`, ask to switch.
 ## Step 1: Analyze changes and determine version
 
 ```bash
-grep 'pub const version' src/main.zig
+grep '\.version' build.zig.zon
 git tag -l 'v*' --sort=-v:refname | head -1
 git log $(git tag -l 'v*' --sort=-v:refname | head -1)..HEAD --oneline --no-merges
 git log $(git tag -l 'v*' --sort=-v:refname | head -1)..HEAD --stat --no-merges
@@ -68,24 +68,17 @@ The file uses Keep a Changelog format. After editing, it should look like:
 - Use today's date in YYYY-MM-DD format
 - Preserve all existing versioned sections below
 
-## Step 4: Update version strings
+## Step 4: Update version string
 
-Three files, all must match (no `v` prefix):
-
-**`src/main.zig` line 35:**
-```zig
-pub const version = "X.Y.Z";
-```
-
-**`src/thottam.zig` line 5:**
-```zig
-const version = "X.Y.Z";
-```
+One file — `build.zig.zon` is the single source of truth (no `v` prefix):
 
 **`build.zig.zon` line 3:**
 ```zig
 .version = "X.Y.Z",
 ```
+
+`src/main.zig` and `src/thottam.zig` read the version from `build_options`
+at build time, so they pick it up automatically.
 
 The docs site's `kaappi_version` (`../kaappi.github.io/mkdocs.yml`) is **not**
 bumped here — it lives in a separate repo and tracks the *released* artifact,

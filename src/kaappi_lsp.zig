@@ -32,6 +32,8 @@ pub const fiber_mod = @import("fiber.zig");
 pub const primitives_fiber = @import("primitives_fiber.zig");
 
 const version = "0.1.0";
+const initialize_result =
+    "{\"capabilities\":{\"textDocumentSync\":1,\"completionProvider\":{\"resolveProvider\":false,\"triggerCharacters\":[]},\"hoverProvider\":true,\"documentSymbolProvider\":true,\"definitionProvider\":true,\"referencesProvider\":true},\"serverInfo\":{\"name\":\"kaappi-lsp\",\"version\":\"" ++ version ++ "\"}}";
 
 fn log(msg: []const u8) void {
     _ = std.posix.system.write(2, msg.ptr, msg.len);
@@ -257,9 +259,7 @@ fn getArity(val: types.Value, buf: *[32]u8) ?[]const u8 {
 // ---- LSP handlers ----
 
 fn handleInitialize(allocator: std.mem.Allocator, id: []const u8) void {
-    sendResponse(allocator, id,
-        \\{"capabilities":{"textDocumentSync":1,"completionProvider":{"resolveProvider":false,"triggerCharacters":[]},"hoverProvider":true,"documentSymbolProvider":true,"definitionProvider":true,"referencesProvider":true},"serverInfo":{"name":"kaappi-lsp","version":"0.1.0"}}
-    );
+    sendResponse(allocator, id, initialize_result);
 }
 
 fn handleCompletion(allocator: std.mem.Allocator, vm: *vm_mod.VM, id: []const u8, params: std.json.ObjectMap) void {

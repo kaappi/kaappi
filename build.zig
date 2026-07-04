@@ -1,4 +1,5 @@
 const std = @import("std");
+const zon = @import("build.zig.zon");
 
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
@@ -30,6 +31,7 @@ pub fn build(b: *std.Build) void {
     options.addOption(u32, "max_frames", max_frames);
     options.addOption(u32, "max_registers", max_registers);
     options.addOption(u32, "gc_initial_threshold", gc_threshold);
+    options.addOption([]const u8, "version", zon.version);
     const options_mod = options.createModule();
 
     const wf = b.addWriteFiles();

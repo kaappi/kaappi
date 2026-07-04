@@ -2,7 +2,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 
 const dylib_ext = if (builtin.os.tag == .macos) ".dylib" else ".so";
-const version = "0.12.0";
+const version = @import("build_options").version;
 
 const semver = @import("thottam_semver.zig");
 const proc = @import("thottam_proc.zig");
