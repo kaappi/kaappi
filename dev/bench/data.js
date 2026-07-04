@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783145289642,
+  "lastUpdate": 1783146106586,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "c22cd07b86f59c182bc0914b440ccb5bdd545789",
-          "message": "Fix string-join default delimiter from empty to single space (#825) (#909)\n\nSRFI-13 specifies a single space as the default delimiter.\n\nFixes #825\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-03T05:19:18+05:30",
-          "tree_id": "066213a4abf96c3f03b0c0bfed34aaf3366ac143",
-          "url": "https://github.com/kaappi/kaappi/commit/c22cd07b86f59c182bc0914b440ccb5bdd545789"
-        },
-        "date": 1783039789344,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.090852,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.292091,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.859427,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.15975,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.007311,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.032929,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.470387,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.067955,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.864332,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.803554,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.145767,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.479194,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 2.423506,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.813974,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044637,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.043521,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2fda2fac2ab79f6a94def762e6b5a4f6cbc1ea65",
+          "message": "Break compiler→VM circular dependency via globals.zig (#1022)\n\nThe compiler, IR, and expander files all imported vm.zig for globals\nlocking helpers (acquireGlobalsRead/Write) and the vm_instance\nthreadlocal, while vm.zig imported compiler.zig — creating a\nbidirectional dependency that prevented either subsystem from being\nunderstood or tested in isolation.\n\nExtract GlobalsRwLock, the four acquire/release helpers, and a\nGlobalsContext threadlocal into a new src/globals.zig module. The\ncompiler side now imports globals.zig instead of vm.zig. The VM\nsets/clears the GlobalsContext alongside vm_instance, and registers\na library-existence callback so cond-expand can check library\navailability without importing vm.zig.\n\nAfter this change:\n- compiler*.zig, ir.zig, expander.zig → globals.zig (no vm.zig)\n- vm*.zig → compiler.zig (natural direction, unchanged)\n- vm.zig re-exports GlobalsRwLock and lock helpers for compatibility\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-04T06:03:54Z",
+          "tree_id": "76c63d45f43387d67a8015eb70924f97f2f5f34a",
+          "url": "https://github.com/kaappi/kaappi/commit/2fda2fac2ab79f6a94def762e6b5a4f6cbc1ea65"
+        },
+        "date": 1783146105365,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.158319,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.541602,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.757748,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.264343,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.010895,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.181574,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.370717,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.053879,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 9.762277,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.419222,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 8.53749,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.833595,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 7.024446,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.385655,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.035023,
             "unit": "seconds"
           }
         ]
