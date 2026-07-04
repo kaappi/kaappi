@@ -9,7 +9,7 @@ const Value = types.Value;
 
 var rt_gc: memory.GC = undefined;
 
-export fn kaappi_runtime_init() callconv(.c) ?*vm_mod.VM {
+pub export fn kaappi_runtime_init() callconv(.c) ?*vm_mod.VM {
     const allocator = std.heap.c_allocator;
 
     rt_gc = memory.GC.init(allocator);
@@ -43,7 +43,7 @@ export fn kaappi_runtime_init() callconv(.c) ?*vm_mod.VM {
     return vm;
 }
 
-export fn kaappi_runtime_deinit(vm: ?*vm_mod.VM) callconv(.c) void {
+pub export fn kaappi_runtime_deinit(vm: ?*vm_mod.VM) callconv(.c) void {
     if (vm) |v| {
         v.deinit();
         std.heap.c_allocator.destroy(v);
@@ -51,7 +51,7 @@ export fn kaappi_runtime_deinit(vm: ?*vm_mod.VM) callconv(.c) void {
     rt_gc.deinit();
 }
 
-export fn kaappi_global_lookup(vm: ?*vm_mod.VM, name_ptr: [*]const u8, name_len: u64) callconv(.c) u64 {
+pub export fn kaappi_global_lookup(vm: ?*vm_mod.VM, name_ptr: [*]const u8, name_len: u64) callconv(.c) u64 {
     const v = vm orelse return 0;
     const len: usize = @intCast(name_len);
     const name = name_ptr[0..len];
@@ -63,7 +63,7 @@ export fn kaappi_global_lookup(vm: ?*vm_mod.VM, name_ptr: [*]const u8, name_len:
     };
 }
 
-export fn kaappi_define_global(vm: ?*vm_mod.VM, name_ptr: [*]const u8, name_len: u64, val: u64) callconv(.c) void {
+pub export fn kaappi_define_global(vm: ?*vm_mod.VM, name_ptr: [*]const u8, name_len: u64, val: u64) callconv(.c) void {
     const v = vm orelse return;
     const len: usize = @intCast(name_len);
     const name = name_ptr[0..len];
@@ -76,7 +76,7 @@ export fn kaappi_define_global(vm: ?*vm_mod.VM, name_ptr: [*]const u8, name_len:
 // set! on a global variable: mutate an existing binding, or error if the
 // variable is unbound (matching the interpreter's set! semantics). Distinct
 // from kaappi_define_global, which always creates/overwrites a binding.
-export fn kaappi_set_global(vm: ?*vm_mod.VM, name_ptr: [*]const u8, name_len: u64, val: u64) callconv(.c) void {
+pub export fn kaappi_set_global(vm: ?*vm_mod.VM, name_ptr: [*]const u8, name_len: u64, val: u64) callconv(.c) void {
     const v = vm orelse return;
     const len: usize = @intCast(name_len);
     const name = name_ptr[0..len];
@@ -90,7 +90,7 @@ export fn kaappi_set_global(vm: ?*vm_mod.VM, name_ptr: [*]const u8, name_len: u6
     }
 }
 
-export fn kaappi_make_string(vm: ?*vm_mod.VM, str_ptr: [*]const u8, str_len: u64) callconv(.c) u64 {
+pub export fn kaappi_make_string(vm: ?*vm_mod.VM, str_ptr: [*]const u8, str_len: u64) callconv(.c) u64 {
     const v = vm orelse return 0;
     const len: usize = @intCast(str_len);
     const data = str_ptr[0..len];
@@ -101,7 +101,7 @@ export fn kaappi_make_string(vm: ?*vm_mod.VM, str_ptr: [*]const u8, str_len: u64
     return result;
 }
 
-export fn kaappi_intern_symbol(vm: ?*vm_mod.VM, name_ptr: [*]const u8, name_len: u64) callconv(.c) u64 {
+pub export fn kaappi_intern_symbol(vm: ?*vm_mod.VM, name_ptr: [*]const u8, name_len: u64) callconv(.c) u64 {
     const v = vm orelse return 0;
     const len: usize = @intCast(name_len);
     const name = name_ptr[0..len];
@@ -112,7 +112,7 @@ export fn kaappi_intern_symbol(vm: ?*vm_mod.VM, name_ptr: [*]const u8, name_len:
     return result;
 }
 
-export fn kaappi_create_native_closure(vm: ?*vm_mod.VM, fn_ptr: ?*anyopaque, upvalues_ptr: ?[*]const u64, n_upvalues: u64, arity: u64, name_ptr: [*]const u8, name_len: u64) callconv(.c) u64 {
+pub export fn kaappi_create_native_closure(vm: ?*vm_mod.VM, fn_ptr: ?*anyopaque, upvalues_ptr: ?[*]const u64, n_upvalues: u64, arity: u64, name_ptr: [*]const u8, name_len: u64) callconv(.c) u64 {
     const v = vm orelse return 0;
     const n: usize = @intCast(n_upvalues);
     const uv: []const u64 = if (n > 0 and upvalues_ptr != null) upvalues_ptr.?[0..n] else &.{};
@@ -126,7 +126,7 @@ export fn kaappi_create_native_closure(vm: ?*vm_mod.VM, fn_ptr: ?*anyopaque, upv
     return result;
 }
 
-export fn kaappi_eval(vm: ?*vm_mod.VM, src_ptr: [*]const u8, src_len: u64) callconv(.c) u64 {
+pub export fn kaappi_eval(vm: ?*vm_mod.VM, src_ptr: [*]const u8, src_len: u64) callconv(.c) u64 {
     const v = vm orelse return 0;
     const len: usize = @intCast(src_len);
     const source = src_ptr[0..len];
@@ -153,7 +153,7 @@ fn callPrimitive(name: []const u8, a: u64, b: u64) u64 {
     };
 }
 
-export fn kaappi_fixnum_add(a: u64, b: u64) callconv(.c) u64 {
+pub export fn kaappi_fixnum_add(a: u64, b: u64) callconv(.c) u64 {
     if (types.isFixnum(a) and types.isFixnum(b)) {
         const va = types.toFixnum(a);
         const vb = types.toFixnum(b);
@@ -165,7 +165,7 @@ export fn kaappi_fixnum_add(a: u64, b: u64) callconv(.c) u64 {
     return callPrimitive("+", a, b);
 }
 
-export fn kaappi_fixnum_sub(a: u64, b: u64) callconv(.c) u64 {
+pub export fn kaappi_fixnum_sub(a: u64, b: u64) callconv(.c) u64 {
     if (types.isFixnum(a) and types.isFixnum(b)) {
         const va = types.toFixnum(a);
         const vb = types.toFixnum(b);
@@ -177,7 +177,7 @@ export fn kaappi_fixnum_sub(a: u64, b: u64) callconv(.c) u64 {
     return callPrimitive("-", a, b);
 }
 
-export fn kaappi_fixnum_mul(a: u64, b: u64) callconv(.c) u64 {
+pub export fn kaappi_fixnum_mul(a: u64, b: u64) callconv(.c) u64 {
     if (types.isFixnum(a) and types.isFixnum(b)) {
         const va = types.toFixnum(a);
         const vb = types.toFixnum(b);
@@ -189,31 +189,31 @@ export fn kaappi_fixnum_mul(a: u64, b: u64) callconv(.c) u64 {
     return callPrimitive("*", a, b);
 }
 
-export fn kaappi_fixnum_lt(a: u64, b: u64) callconv(.c) u64 {
+pub export fn kaappi_fixnum_lt(a: u64, b: u64) callconv(.c) u64 {
     if (types.isFixnum(a) and types.isFixnum(b))
         return if (types.toFixnum(a) < types.toFixnum(b)) types.TRUE else types.FALSE;
     return callPrimitive("<", a, b);
 }
 
-export fn kaappi_fixnum_eq(a: u64, b: u64) callconv(.c) u64 {
+pub export fn kaappi_fixnum_eq(a: u64, b: u64) callconv(.c) u64 {
     if (types.isFixnum(a) and types.isFixnum(b))
         return if (a == b) types.TRUE else types.FALSE;
     return callPrimitive("=", a, b);
 }
 
-export fn kaappi_car(v: u64) callconv(.c) u64 {
+pub export fn kaappi_car(v: u64) callconv(.c) u64 {
     if (types.isPair(v)) return types.car(v);
     _ = std.posix.system.write(2, "car: not a pair\n", 16);
     std.process.exit(1);
 }
 
-export fn kaappi_cdr(v: u64) callconv(.c) u64 {
+pub export fn kaappi_cdr(v: u64) callconv(.c) u64 {
     if (types.isPair(v)) return types.cdr(v);
     _ = std.posix.system.write(2, "cdr: not a pair\n", 16);
     std.process.exit(1);
 }
 
-export fn kaappi_cons(a: u64, b: u64) callconv(.c) u64 {
+pub export fn kaappi_cons(a: u64, b: u64) callconv(.c) u64 {
     const gc = memory.gc_instance orelse {
         _ = std.posix.system.write(2, "cons: no GC instance\n", 21);
         std.process.exit(1);
@@ -237,11 +237,11 @@ export fn kaappi_cons(a: u64, b: u64) callconv(.c) u64 {
     return result;
 }
 
-export fn kaappi_is_null(v: u64) callconv(.c) u64 {
+pub export fn kaappi_is_null(v: u64) callconv(.c) u64 {
     return if (v == types.NIL) types.TRUE else types.FALSE;
 }
 
-export fn kaappi_call_scheme(vm: ?*vm_mod.VM, callee: u64, args_ptr: ?[*]const u64, nargs: u64) callconv(.c) u64 {
+pub export fn kaappi_call_scheme(vm: ?*vm_mod.VM, callee: u64, args_ptr: ?[*]const u64, nargs: u64) callconv(.c) u64 {
     const v = vm orelse {
         _ = std.posix.system.write(2, "null vm\n", 8);
         std.process.exit(1);
@@ -259,7 +259,7 @@ export fn kaappi_call_scheme(vm: ?*vm_mod.VM, callee: u64, args_ptr: ?[*]const u
 // The LLVM emitter stores intermediate Values in alloca slots and registers
 // them here so the GC can see them during collection.
 
-export fn kaappi_gc_push_root(slot: *Value) callconv(.c) void {
+pub export fn kaappi_gc_push_root(slot: *Value) callconv(.c) void {
     const gc = memory.gc_instance orelse return;
     gc.pushRoot(slot) catch {
         _ = std.posix.system.write(2, "OOM: GC push root failed\n", 25);
@@ -267,7 +267,7 @@ export fn kaappi_gc_push_root(slot: *Value) callconv(.c) void {
     };
 }
 
-export fn kaappi_gc_pop_roots(n: u64) callconv(.c) void {
+pub export fn kaappi_gc_pop_roots(n: u64) callconv(.c) void {
     const gc = memory.gc_instance orelse return;
     var i: u64 = 0;
     while (i < n) : (i += 1) {
