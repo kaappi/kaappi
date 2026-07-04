@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783159265743,
+  "lastUpdate": 1783159332301,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "9d5d077074a56a3d76d13a402cefedda692932eb",
-          "message": "Reorganize dev docs: genre structure, index, staleness fixes, dedup (#922)\n\n* Add dev docs index and fix stale status headers\n\ndocs/dev had 21 files with no entry point and no way to tell evergreen\nguides from point-in-time bug records. Several of those records had\nrotted: bytecode-disassembler.md claimed --disassemble was not yet\nadded (it shipped 2026-06-18 in 96410f9), complex-number-test-precision\n.md said \"not yet fixed\" though its proposed fix landed verbatim the\nsame day it was written (82407ab), and fixnum-overflow-promotion.md\ndescribes the pre-NaN-boxing i63 encoding without saying so.\n\nAdd docs/dev/README.md as a genre index (guides / design decisions /\npostmortems / known issues / reference / policy) with conventions for\nwhere new docs go, correct the stale claims, date every Status header\nso freshness is judgeable, and link the index from README and\nCONTRIBUTING.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n* Reorganize dev docs into decisions/ and postmortems/\n\nThe genre of each doc (evergreen guide vs point-in-time record) was\ninvisible in a flat directory — a reader couldn't tell architecture.md\nfrom a closed bug write-up without opening both. Make the genre part of\nthe filesystem: design decisions move to decisions/, fixed-bug\nwrite-ups move to postmortems/ with a YYYY-MM-DD investigation-date\nprefix so the directory reads chronologically.\n\nEvergreen guides, the open known issue, reference notes, and policy\nstay at the top level, so all inbound links from README, CONTRIBUTING,\nCLAUDE.md, and CHANGELOG remain valid. complex-number-test-precision\njoins the postmortems now that it is confirmed fixed. All cross-links\nbetween docs updated; every relative link in docs/dev verified to\nresolve.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n* Dissolve status docs into references and tracker issues\n\nThe point-in-time \"status\" docs mixed reference material with roadmap\nwishlists, and both halves rot: the wishlists don't get checked off\n(repl-enhancements.md had 9 of 10 items shipped, unicode-case-mapping.md\nstill listed Armenian/Georgian/Cherokee as missing after they shipped\n2026-06-18), and open-bug docs drift from reality. Split each into its\ntwo real parts: current-state reference here, open work in the tracker.\n\n- bytecode-disassembler.md -> bytecode.md: now the single ISA reference\n  (adds the missing self_tail_call opcode, 32 total). The /bytecode-isa\n  skill had its own 19-opcode copy of the table, 13 opcodes stale — it\n  now points at the doc instead of duplicating it.\n- repl-enhancements.md -> repl.md: current-state reference with the\n  verified command list from ,help (repl.zig, not main.zig — the REPL\n  moved). Remaining wishlist item (pretty-printing) filed as #921.\n- unicode-case-mapping.md: rewritten as a coverage reference; the\n  already-shipped \"missing\" sections removed, genuine gaps (Latin\n  Ext-B/IPA, Cyrillic Supplement, six bicameral scripts, non-ASCII\n  #!fold-case) filed as #920.\n- nested-define-syntax-hygiene.md: deleted; full analysis plus the\n  current jabberwocky suite failure migrated to #919. Open bugs live in\n  the tracker so closing the bug closes the record.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n* Deduplicate dev docs and fix drift between paired documents\n\nSeveral documents held second copies of content owned elsewhere, and\nthe copies had drifted:\n\n- lessons-learned.md now works as the narrative index the README\n  convention promises: section 10 shrinks to a summary linking the\n  gc-reachability postmortem, section 3 cross-links the related\n  global-cache postmortem (a distinct bug in the same subsystem), and\n  new sections 12-14 index the three postmortems that had no entry.\n  Section 11 claimed NaN-boxing \"didn't work\" — it shipped 2026-06-25\n  with 48-bit fixnums and bignum auto-promotion; rewritten as a\n  \"rejected, then shipped\" entry with the actual lesson. The\n  tail_call_global entry now defers to the decisions doc, which\n  records the real blocker.\n\n- gc-safety-and-error-handling.md described the GC as plain\n  mark-and-sweep and never mentioned the write barrier, while the\n  enforced rule file (.claude/rules/gc-safety.md) requires it. The doc\n  now covers the generational design, the write barrier with its\n  rationale, Function* rooting before vm.execute(), and -Dgc-threshold=1\n  stress testing; doc and rule file cross-link and declare the rule\n  file the checklist / the doc the rationale.\n\n- CLAUDE.md's harness section now declares itself the summary and\n  points at docs/dev/claude-code-harness.md, whose /bytecode-isa\n  description (still \"19 opcodes\") is corrected to match the skill's\n  new pointer-to-doc form.\n\n- The self-tail-call decision's Key files table pointed at a dead\n  docs/benchmarks.md, pre-VM-split vm.zig line numbers, and a brittle\n  lessons-learned.md:157 reference — replaced with current paths and\n  a heading anchor.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-03T07:45:08+05:30",
-          "tree_id": "0895491aa75d18b6ee947bc5456570b4efe5ad81",
-          "url": "https://github.com/kaappi/kaappi/commit/9d5d077074a56a3d76d13a402cefedda692932eb"
-        },
-        "date": 1783045647572,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.381309,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.149337,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.847936,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.138111,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006963,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.033265,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.475398,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.070631,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.975347,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.831631,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.12256,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.435561,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 2.49577,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.53929,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.041986,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.043517,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "aeabf23c44181196453db073e03171471232946e",
+          "message": "Root SRFI-1 filter-map/append-map/unfold callback results via extra_roots (#1027) (#1085)\n\nfilterMapFn, appendMapFn, and unfoldFn accumulated callVM results in\nplain ArrayList locals invisible to GC markRoots. Any subsequent callback\ncould trigger collection of previously-stored values. Apply the\nestablished extra_roots save/restore idiom (matching vector-map) and\nroot unfold's seed across callbacks. Add GC stress tests with\nallocating lambdas for all three.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-04T09:39:51Z",
+          "tree_id": "3f5c59af40bf3e8ba4596767cc9fc466127765da",
+          "url": "https://github.com/kaappi/kaappi/commit/aeabf23c44181196453db073e03171471232946e"
+        },
+        "date": 1783159331760,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.067868,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.80695,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.976139,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.386526,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.013754,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.234325,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.478369,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.068553,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 13.451827,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.851073,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 11.020472,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 1.067313,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 9.084111,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.883509,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044436,
             "unit": "seconds"
           }
         ]
