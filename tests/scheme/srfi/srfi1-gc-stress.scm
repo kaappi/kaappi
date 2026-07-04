@@ -76,6 +76,29 @@
   (check "unfold first" (car result) 0)
   (check "unfold last" (list-ref result 499) 499))
 
+;; filter-map: allocating callback (cons creates heap pressure) — regression #1027
+(let ((result (filter-map (lambda (x) (cons x x))
+                          (list-tabulate 500 values))))
+  (check "filter-map length" (length result) 500)
+  (check "filter-map first" (car result) '(0 . 0))
+  (check "filter-map last" (list-ref result 499) '(499 . 499)))
+
+;; append-map: allocating callback — regression #1027
+(let ((result (append-map (lambda (x) (list (cons x x)))
+                          (list-tabulate 500 values))))
+  (check "append-map length" (length result) 500)
+  (check "append-map first" (car result) '(0 . 0))
+  (check "append-map last" (list-ref result 499) '(499 . 499)))
+
+;; unfold with allocating callbacks — regression #1027
+(let ((result (unfold (lambda (i) (= i 500))
+                      (lambda (i) (cons i (* i i)))
+                      (lambda (i) (+ i 1))
+                      0)))
+  (check "unfold-alloc length" (length result) 500)
+  (check "unfold-alloc first" (car result) '(0 . 0))
+  (check "unfold-alloc last" (list-ref result 499) '(499 . 249001)))
+
 (display pass) (display " passed, ") (display fail) (display " failed")
 (newline)
 (if (> fail 0) (error "SRFI-1 GC stress tests failed" fail))
