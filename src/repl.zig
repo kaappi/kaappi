@@ -857,41 +857,7 @@ fn containsSubstring(haystack: []const u8, needle: []const u8) bool {
     return false;
 }
 
-fn getTypeName(val: types.Value) []const u8 {
-    if (types.isFixnum(val)) return "integer";
-    if (val == types.NIL) return "nil";
-    if (val == types.TRUE or val == types.FALSE) return "boolean";
-    if (val == types.VOID) return "void";
-    if (val == types.EOF) return "eof-object";
-    if (types.isChar(val)) return "char";
-    if (!types.isPointer(val)) return "unknown";
-    const obj = types.toObject(val);
-    return switch (obj.tag) {
-        .pair => "pair",
-        .symbol => "symbol",
-        .string => "string",
-        .closure => "procedure",
-        .native_fn => "procedure",
-        .function => "function",
-        .vector => "vector",
-        .bytevector => "bytevector",
-        .port => "port",
-        .flonum => "number",
-        .complex => "complex",
-        .transformer => "syntax",
-        .error_object => "error",
-        .record_type => "record-type",
-        .record_instance => "record",
-        .continuation => "continuation",
-        .multiple_values => "values",
-        .promise => "promise",
-        .parameter => "parameter",
-        .rational => "rational",
-        .bignum => "integer",
-        .hash_table => "hash-table",
-        else => "object",
-    };
-}
+const getTypeName = types.typeName;
 
 fn describeSymbol(vm: *vm_mod.VM, allocator: std.mem.Allocator, name: []const u8) void {
     const val_opt = vm.globals.get(name);

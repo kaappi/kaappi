@@ -358,35 +358,7 @@ fn getDocument(uri: []const u8) ?[]const u8 {
     return documents.get(uri);
 }
 
-// ---- Type name helper (same as main.zig) ----
-
-fn getTypeName(val: types.Value) []const u8 {
-    if (types.isFixnum(val)) return "integer";
-    if (val == types.NIL) return "nil";
-    if (val == types.TRUE or val == types.FALSE) return "boolean";
-    if (val == types.VOID) return "void";
-    if (val == types.EOF) return "eof-object";
-    if (types.isChar(val)) return "char";
-    if (!types.isPointer(val)) return "unknown";
-    const obj = types.toObject(val);
-    return switch (obj.tag) {
-        .pair => "pair",
-        .symbol => "symbol",
-        .string => "string",
-        .closure => "procedure",
-        .native_fn => "procedure",
-        .function => "function",
-        .vector => "vector",
-        .bytevector => "bytevector",
-        .port => "port",
-        .flonum => "number",
-        .transformer => "syntax",
-        .error_object => "error",
-        .continuation => "continuation",
-        .hash_table => "hash-table",
-        else => "object",
-    };
-}
+const getTypeName = types.typeName;
 
 fn getArity(val: types.Value, buf: *[32]u8) ?[]const u8 {
     if (!types.isPointer(val)) return null;
