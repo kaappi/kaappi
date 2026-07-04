@@ -106,22 +106,9 @@ fn bytevectorCopy(args: []const Value) PrimitiveError!Value {
     const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
     const bv = types.toBytevector(args[0]);
 
-    var start: usize = 0;
-    var end: usize = bv.data.len;
-
-    if (args.len > 1) {
-        if (!types.isFixnum(args[1])) return primitives.typeError("bytevector-copy", "exact integer", args[1]);
-        const s = types.toFixnum(args[1]);
-        if (s < 0) return primitives.typeError("bytevector-copy", "non-negative integer", args[1]);
-        start = @intCast(@as(u64, @bitCast(s)));
-    }
-    if (args.len > 2) {
-        if (!types.isFixnum(args[2])) return primitives.typeError("bytevector-copy", "exact integer", args[2]);
-        const e = types.toFixnum(args[2]);
-        if (e < 0) return primitives.typeError("bytevector-copy", "non-negative integer", args[2]);
-        end = @intCast(@as(u64, @bitCast(e)));
-    }
-    if (start > end or end > bv.data.len) return primitives.typeError("bytevector-copy", "valid range", args[0]);
+    const range = try primitives.parseOptionalRange(args, 1, bv.data.len, "bytevector-copy");
+    const start = range.start;
+    const end = range.end;
     return gc.allocBytevector(bv.data[start..end]) catch return PrimitiveError.OutOfMemory;
 }
 
@@ -137,22 +124,9 @@ fn bytevectorCopyBang(args: []const Value) PrimitiveError!Value {
     const at: usize = @intCast(@as(u64, @bitCast(at_val)));
     const from = types.toBytevector(args[2]);
 
-    var start: usize = 0;
-    var end: usize = from.data.len;
-
-    if (args.len > 3) {
-        if (!types.isFixnum(args[3])) return primitives.typeError("bytevector-copy!", "exact integer", args[3]);
-        const s = types.toFixnum(args[3]);
-        if (s < 0) return primitives.typeError("bytevector-copy!", "non-negative integer", args[3]);
-        start = @intCast(@as(u64, @bitCast(s)));
-    }
-    if (args.len > 4) {
-        if (!types.isFixnum(args[4])) return primitives.typeError("bytevector-copy!", "exact integer", args[4]);
-        const e = types.toFixnum(args[4]);
-        if (e < 0) return primitives.typeError("bytevector-copy!", "non-negative integer", args[4]);
-        end = @intCast(@as(u64, @bitCast(e)));
-    }
-    if (start > end or end > from.data.len) return primitives.typeError("bytevector-copy!", "valid range", args[2]);
+    const range = try primitives.parseOptionalRange(args, 3, from.data.len, "bytevector-copy!");
+    const start = range.start;
+    const end = range.end;
     const count = end - start;
     if (at + count > to.data.len) return primitives.typeError("bytevector-copy!", "valid range", args[0]);
 
@@ -194,21 +168,9 @@ fn utf8ToString(args: []const Value) PrimitiveError!Value {
     const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
     const bv = types.toBytevector(args[0]);
 
-    var start: usize = 0;
-    var end: usize = bv.data.len;
-    if (args.len > 1) {
-        if (!types.isFixnum(args[1])) return primitives.typeError("utf8->string", "exact integer", args[1]);
-        const s = types.toFixnum(args[1]);
-        if (s < 0) return primitives.typeError("utf8->string", "non-negative integer", args[1]);
-        start = @intCast(@as(u64, @bitCast(s)));
-    }
-    if (args.len > 2) {
-        if (!types.isFixnum(args[2])) return primitives.typeError("utf8->string", "exact integer", args[2]);
-        const e = types.toFixnum(args[2]);
-        if (e < 0) return primitives.typeError("utf8->string", "non-negative integer", args[2]);
-        end = @intCast(@as(u64, @bitCast(e)));
-    }
-    if (start > end or end > bv.data.len) return primitives.typeError("utf8->string", "valid range", args[0]);
+    const range = try primitives.parseOptionalRange(args, 1, bv.data.len, "utf8->string");
+    const start = range.start;
+    const end = range.end;
     return gc.allocString(bv.data[start..end]) catch return PrimitiveError.OutOfMemory;
 }
 
@@ -219,21 +181,9 @@ fn stringToUtf8(args: []const Value) PrimitiveError!Value {
     const string_mod = @import("primitives_string.zig");
 
     const cp_count = string_mod.utf8CodepointCount(str.data[0..str.len]);
-    var start_cp: usize = 0;
-    var end_cp: usize = cp_count;
-    if (args.len > 1) {
-        if (!types.isFixnum(args[1])) return primitives.typeError("string->utf8", "exact integer", args[1]);
-        const s = types.toFixnum(args[1]);
-        if (s < 0) return primitives.typeError("string->utf8", "non-negative integer", args[1]);
-        start_cp = @intCast(@as(u64, @bitCast(s)));
-    }
-    if (args.len > 2) {
-        if (!types.isFixnum(args[2])) return primitives.typeError("string->utf8", "exact integer", args[2]);
-        const e = types.toFixnum(args[2]);
-        if (e < 0) return primitives.typeError("string->utf8", "non-negative integer", args[2]);
-        end_cp = @intCast(@as(u64, @bitCast(e)));
-    }
-    if (start_cp > end_cp or end_cp > cp_count) return primitives.typeError("string->utf8", "valid range", args[0]);
+    const range = try primitives.parseOptionalRange(args, 1, cp_count, "string->utf8");
+    const start_cp = range.start;
+    const end_cp = range.end;
     const byte_start = string_mod.utf8IndexToByteOffset(str.data[0..str.len], start_cp) orelse return primitives.typeError("string->utf8", "valid index", args[0]);
     const byte_end = string_mod.utf8IndexToByteOffset(str.data[0..str.len], end_cp) orelse return primitives.typeError("string->utf8", "valid index", args[0]);
     return gc.allocBytevector(str.data[byte_start..byte_end]) catch return PrimitiveError.OutOfMemory;
@@ -392,21 +342,9 @@ fn writeBytevectorFn(args: []const Value) PrimitiveError!Value {
     const bv = types.toBytevector(args[0]);
     const port = try getOutputPort(args, 1, "write-bytevector");
 
-    var start: usize = 0;
-    var end: usize = bv.data.len;
-    if (args.len > 2) {
-        if (!types.isFixnum(args[2])) return primitives.typeError("write-bytevector", "exact integer", args[2]);
-        const s = types.toFixnum(args[2]);
-        if (s < 0) return primitives.typeError("write-bytevector", "non-negative integer", args[2]);
-        start = @intCast(@as(u64, @bitCast(s)));
-    }
-    if (args.len > 3) {
-        if (!types.isFixnum(args[3])) return primitives.typeError("write-bytevector", "exact integer", args[3]);
-        const e = types.toFixnum(args[3]);
-        if (e < 0) return primitives.typeError("write-bytevector", "non-negative integer", args[3]);
-        end = @intCast(@as(u64, @bitCast(e)));
-    }
-    if (start > end or end > bv.data.len) return primitives.typeError("write-bytevector", "valid range", args[0]);
+    const range = try primitives.parseOptionalRange(args, 2, bv.data.len, "write-bytevector");
+    const start = range.start;
+    const end = range.end;
 
     if (port.is_string_port) {
         portWriteBytes(port, bv.data[start..end]);
@@ -455,21 +393,9 @@ fn readBytevectorMut(args: []const Value) PrimitiveError!Value {
     const port = try getInputPort(args, 1, "read-bytevector!");
     const len = bv.data.len;
 
-    var start: usize = 0;
-    var end: usize = len;
-    if (args.len > 2) {
-        if (!types.isFixnum(args[2])) return primitives.typeError("read-bytevector!", "exact integer", args[2]);
-        const s = types.toFixnum(args[2]);
-        if (s < 0) return PrimitiveError.IndexOutOfBounds;
-        start = @intCast(s);
-    }
-    if (args.len > 3) {
-        if (!types.isFixnum(args[3])) return primitives.typeError("read-bytevector!", "exact integer", args[3]);
-        const e = types.toFixnum(args[3]);
-        if (e < 0) return PrimitiveError.IndexOutOfBounds;
-        end = @intCast(e);
-    }
-    if (start > end or end > len) return primitives.typeError("read-bytevector!", "valid range", args[0]);
+    const range = try primitives.parseOptionalRange(args, 2, len, "read-bytevector!");
+    const start = range.start;
+    const end = range.end;
 
     var read_count: usize = 0;
     while (start + read_count < end) {

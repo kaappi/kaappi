@@ -249,21 +249,9 @@ fn stringCopyFn(args: []const Value) PrimitiveError!Value {
     const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
     const data = try getStringSlice(args[0]);
     const cp_count = utf8CodepointCount(data);
-    var start_cp: usize = 0;
-    var end_cp: usize = cp_count;
-    if (args.len > 1) {
-        if (!types.isFixnum(args[1])) return primitives.typeError("string-copy", "exact integer", args[1]);
-        const s = types.toFixnum(args[1]);
-        if (s < 0 or @as(usize, @intCast(s)) > cp_count) return primitives.typeError("string-copy", "valid index", args[1]);
-        start_cp = @intCast(s);
-    }
-    if (args.len > 2) {
-        if (!types.isFixnum(args[2])) return primitives.typeError("string-copy", "exact integer", args[2]);
-        const e = types.toFixnum(args[2]);
-        if (e < 0 or @as(usize, @intCast(e)) > cp_count) return primitives.typeError("string-copy", "valid index", args[2]);
-        end_cp = @intCast(e);
-    }
-    if (start_cp > end_cp) return primitives.typeError("string-copy", "start <= end", args[1]);
+    const range = try primitives.parseOptionalRange(args, 1, cp_count, "string-copy");
+    const start_cp = range.start;
+    const end_cp = range.end;
     const byte_start = utf8IndexToByteOffset(data, start_cp) orelse return primitives.typeError("string-copy", "valid index", args[1]);
     const byte_end = utf8IndexToByteOffset(data, end_cp) orelse return primitives.typeError("string-copy", "valid index", args[2]);
     return gc.allocString(data[byte_start..byte_end]) catch return PrimitiveError.OutOfMemory;
@@ -287,21 +275,9 @@ fn stringCopyBangFn(args: []const Value) PrimitiveError!Value {
     const from_data = try getStringSlice(args[2]);
     const from_cp_count = utf8CodepointCount(from_data);
 
-    var start_cp: usize = 0;
-    var end_cp: usize = from_cp_count;
-    if (args.len > 3) {
-        if (!types.isFixnum(args[3])) return primitives.typeError("string-copy!", "exact integer", args[3]);
-        const s = types.toFixnum(args[3]);
-        if (s < 0 or @as(usize, @intCast(s)) > from_cp_count) return primitives.typeError("string-copy!", "valid index", args[3]);
-        start_cp = @intCast(s);
-    }
-    if (args.len > 4) {
-        if (!types.isFixnum(args[4])) return primitives.typeError("string-copy!", "exact integer", args[4]);
-        const e = types.toFixnum(args[4]);
-        if (e < 0 or @as(usize, @intCast(e)) > from_cp_count) return primitives.typeError("string-copy!", "valid index", args[4]);
-        end_cp = @intCast(e);
-    }
-    if (start_cp > end_cp) return primitives.typeError("string-copy!", "start <= end", args[3]);
+    const range = try primitives.parseOptionalRange(args, 3, from_cp_count, "string-copy!");
+    const start_cp = range.start;
+    const end_cp = range.end;
     const copy_cp_count = end_cp - start_cp;
     if (at_cp + copy_cp_count > to_cp_count) return primitives.typeError("string-copy!", "valid range", args[1]);
 
@@ -351,24 +327,9 @@ fn stringFillFn(args: []const Value) PrimitiveError!Value {
     const data = str.data[0..str.len];
     const cp = types.toChar(args[1]);
     const char_count = utf8CodepointCount(data);
-    var start_cp: usize = 0;
-    if (args.len > 2) {
-        if (!types.isFixnum(args[2])) return primitives.typeError("string-fill!", "exact integer", args[2]);
-        const k = types.toFixnum(args[2]);
-        if (k < 0) return primitives.typeError("string-fill!", "non-negative integer", args[2]);
-        start_cp = @intCast(@as(u64, @bitCast(k)));
-    }
-    var end_cp: usize = char_count;
-    if (args.len > 3) {
-        if (!types.isFixnum(args[3])) return primitives.typeError("string-fill!", "exact integer", args[3]);
-        const k = types.toFixnum(args[3]);
-        if (k < 0) return primitives.typeError("string-fill!", "non-negative integer", args[3]);
-        end_cp = @intCast(@as(u64, @bitCast(k)));
-    }
-    if (start_cp > end_cp) return primitives.typeError("string-fill!", "start <= end", args[2]);
-    if (end_cp > char_count) return PrimitiveError.IndexOutOfBounds;
-    const start = start_cp;
-    const end = end_cp;
+    const range = try primitives.parseOptionalRange(args, 2, char_count, "string-fill!");
+    const start = range.start;
+    const end = range.end;
     var fill_buf: [4]u8 = undefined;
     const fill_len = std.unicode.utf8Encode(cp, &fill_buf) catch return primitives.typeError("string-fill!", "valid character", args[1]);
     // Build new string: [0..start] unchanged, [start..end] filled, [end..] unchanged
@@ -402,21 +363,9 @@ fn stringToListFn(args: []const Value) PrimitiveError!Value {
     const gc = primitives.gc_instance orelse return PrimitiveError.OutOfMemory;
     const data = try getStringSlice(args[0]);
     const cp_count = utf8CodepointCount(data);
-    var start_cp: usize = 0;
-    var end_cp: usize = cp_count;
-    if (args.len > 1) {
-        if (!types.isFixnum(args[1])) return primitives.typeError("string->list", "exact integer", args[1]);
-        const s = types.toFixnum(args[1]);
-        if (s < 0 or @as(usize, @intCast(s)) > cp_count) return primitives.typeError("string->list", "valid index", args[1]);
-        start_cp = @intCast(s);
-    }
-    if (args.len > 2) {
-        if (!types.isFixnum(args[2])) return primitives.typeError("string->list", "exact integer", args[2]);
-        const e = types.toFixnum(args[2]);
-        if (e < 0 or @as(usize, @intCast(e)) > cp_count) return primitives.typeError("string->list", "valid index", args[2]);
-        end_cp = @intCast(e);
-    }
-    if (start_cp > end_cp) return primitives.typeError("string->list", "start <= end", args[1]);
+    const range = try primitives.parseOptionalRange(args, 1, cp_count, "string->list");
+    const start_cp = range.start;
+    const end_cp = range.end;
     // Collect codepoints in the range
     const byte_start = utf8IndexToByteOffset(data, start_cp) orelse return primitives.typeError("string->list", "valid index", args[1]);
     const range_count = end_cp - start_cp;
@@ -493,21 +442,9 @@ fn stringToVectorFn(args: []const Value) PrimitiveError!Value {
     const str = types.toObject(args[0]).as(types.SchemeString);
     const data = str.data[0..str.len];
     const cp_count = utf8CodepointCount(data);
-    var start_cp: usize = 0;
-    var end_cp: usize = cp_count;
-    if (args.len > 1) {
-        if (!types.isFixnum(args[1])) return primitives.typeError("string->vector", "exact integer", args[1]);
-        const s = types.toFixnum(args[1]);
-        if (s < 0 or @as(usize, @intCast(s)) > cp_count) return primitives.typeError("string->vector", "valid index", args[1]);
-        start_cp = @intCast(s);
-    }
-    if (args.len > 2) {
-        if (!types.isFixnum(args[2])) return primitives.typeError("string->vector", "exact integer", args[2]);
-        const e = types.toFixnum(args[2]);
-        if (e < 0 or @as(usize, @intCast(e)) > cp_count) return primitives.typeError("string->vector", "valid index", args[2]);
-        end_cp = @intCast(e);
-    }
-    if (start_cp > end_cp) return primitives.typeError("string->vector", "start <= end", args[1]);
+    const range = try primitives.parseOptionalRange(args, 1, cp_count, "string->vector");
+    const start_cp = range.start;
+    const end_cp = range.end;
     const range_count = end_cp - start_cp;
     const byte_start = utf8IndexToByteOffset(data, start_cp) orelse return primitives.typeError("string->vector", "valid index", args[1]);
     const vec_data = gc.allocator.alloc(Value, range_count) catch return PrimitiveError.OutOfMemory;

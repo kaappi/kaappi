@@ -220,6 +220,27 @@ pub fn typeError(proc: []const u8, expected: []const u8, got: Value) PrimitiveEr
     return PrimitiveError.TypeError;
 }
 
+pub const Range = struct { start: usize, end: usize };
+
+pub fn parseOptionalRange(args: []const Value, arg_offset: usize, max_len: usize, proc_name: []const u8) PrimitiveError!Range {
+    var start: usize = 0;
+    var end: usize = max_len;
+    if (args.len > arg_offset) {
+        if (!types.isFixnum(args[arg_offset])) return typeError(proc_name, "exact integer", args[arg_offset]);
+        const s = types.toFixnum(args[arg_offset]);
+        if (s < 0 or @as(usize, @intCast(s)) > max_len) return typeError(proc_name, "valid index", args[arg_offset]);
+        start = @intCast(s);
+    }
+    if (args.len > arg_offset + 1) {
+        if (!types.isFixnum(args[arg_offset + 1])) return typeError(proc_name, "exact integer", args[arg_offset + 1]);
+        const e = types.toFixnum(args[arg_offset + 1]);
+        if (e < 0 or @as(usize, @intCast(e)) > max_len) return typeError(proc_name, "valid index", args[arg_offset + 1]);
+        end = @intCast(e);
+    }
+    if (start > end) return typeError(proc_name, "start <= end", args[arg_offset]);
+    return .{ .start = start, .end = end };
+}
+
 fn safeValueDescription(buf: *[128]u8, value: Value) []const u8 {
     if (types.isFixnum(value)) {
         return std.fmt.bufPrint(buf, "{d}", .{types.toFixnum(value)}) catch "?";

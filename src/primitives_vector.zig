@@ -126,22 +126,9 @@ fn vectorToListFn(args: []const Value) PrimitiveError!Value {
     const vec = types.toVector(args[0]);
     const len = vec.data.len;
 
-    var start: usize = 0;
-    var end: usize = len;
-
-    if (args.len > 1) {
-        if (!types.isFixnum(args[1])) return primitives.typeError("vector->list", "exact non-negative integer", args[1]);
-        const s = types.toFixnum(args[1]);
-        if (s < 0 or @as(usize, @intCast(s)) > len) return primitives.typeError("vector->list", "valid index", args[1]);
-        start = @intCast(s);
-    }
-    if (args.len > 2) {
-        if (!types.isFixnum(args[2])) return primitives.typeError("vector->list", "exact non-negative integer", args[2]);
-        const e = types.toFixnum(args[2]);
-        if (e < 0 or @as(usize, @intCast(e)) > len) return primitives.typeError("vector->list", "valid index", args[2]);
-        end = @intCast(e);
-    }
-    if (start > end) return primitives.typeError("vector->list", "start <= end", args[1]);
+    const range = try primitives.parseOptionalRange(args, 1, len, "vector->list");
+    const start = range.start;
+    const end = range.end;
 
     var result: Value = types.NIL;
     gc.pushRoot(&result) catch return PrimitiveError.OutOfMemory;
@@ -190,22 +177,9 @@ fn vectorFillFn(args: []const Value) PrimitiveError!Value {
     const vec = types.toVector(args[0]);
     const len = vec.data.len;
 
-    var start: usize = 0;
-    var end: usize = len;
-
-    if (args.len > 2) {
-        if (!types.isFixnum(args[2])) return primitives.typeError("vector-fill!", "exact non-negative integer", args[2]);
-        const s = types.toFixnum(args[2]);
-        if (s < 0 or @as(usize, @intCast(s)) > len) return primitives.typeError("vector-fill!", "valid index", args[2]);
-        start = @intCast(s);
-    }
-    if (args.len > 3) {
-        if (!types.isFixnum(args[3])) return primitives.typeError("vector-fill!", "exact non-negative integer", args[3]);
-        const e = types.toFixnum(args[3]);
-        if (e < 0 or @as(usize, @intCast(e)) > len) return primitives.typeError("vector-fill!", "valid index", args[3]);
-        end = @intCast(e);
-    }
-    if (start > end) return primitives.typeError("vector-fill!", "start <= end", args[2]);
+    const range = try primitives.parseOptionalRange(args, 2, len, "vector-fill!");
+    const start = range.start;
+    const end = range.end;
     if (primitives.gc_instance) |gc| gc.writeBarrier(types.toObject(args[0]), args[1]);
     @memset(vec.data[start..end], args[1]);
     return types.VOID;
@@ -221,22 +195,9 @@ fn vectorCopyFn(args: []const Value) PrimitiveError!Value {
     const vec = types.toVector(args[0]);
     const len = vec.data.len;
 
-    var start: usize = 0;
-    var end: usize = len;
-
-    if (args.len > 1) {
-        if (!types.isFixnum(args[1])) return primitives.typeError("vector-copy", "exact non-negative integer", args[1]);
-        const s = types.toFixnum(args[1]);
-        if (s < 0 or @as(usize, @intCast(s)) > len) return primitives.typeError("vector-copy", "valid index", args[1]);
-        start = @intCast(s);
-    }
-    if (args.len > 2) {
-        if (!types.isFixnum(args[2])) return primitives.typeError("vector-copy", "exact non-negative integer", args[2]);
-        const e = types.toFixnum(args[2]);
-        if (e < 0 or @as(usize, @intCast(e)) > len) return primitives.typeError("vector-copy", "valid index", args[2]);
-        end = @intCast(e);
-    }
-    if (start > end) return primitives.typeError("vector-copy", "start <= end", args[1]);
+    const range = try primitives.parseOptionalRange(args, 1, len, "vector-copy");
+    const start = range.start;
+    const end = range.end;
 
     return gc.allocVector(vec.data[start..end]) catch return PrimitiveError.OutOfMemory;
 }
@@ -258,22 +219,9 @@ fn vectorCopyBangFn(args: []const Value) PrimitiveError!Value {
     const from_vec = types.toVector(args[2]);
     const from_len = from_vec.data.len;
 
-    var start: usize = 0;
-    var end: usize = from_len;
-
-    if (args.len > 3) {
-        if (!types.isFixnum(args[3])) return primitives.typeError("vector-copy!", "exact non-negative integer", args[3]);
-        const s = types.toFixnum(args[3]);
-        if (s < 0 or @as(usize, @intCast(s)) > from_len) return primitives.typeError("vector-copy!", "valid index", args[3]);
-        start = @intCast(s);
-    }
-    if (args.len > 4) {
-        if (!types.isFixnum(args[4])) return primitives.typeError("vector-copy!", "exact non-negative integer", args[4]);
-        const e = types.toFixnum(args[4]);
-        if (e < 0 or @as(usize, @intCast(e)) > from_len) return primitives.typeError("vector-copy!", "valid index", args[4]);
-        end = @intCast(e);
-    }
-    if (start > end) return primitives.typeError("vector-copy!", "start <= end", args[3]);
+    const range = try primitives.parseOptionalRange(args, 3, from_len, "vector-copy!");
+    const start = range.start;
+    const end = range.end;
 
     const count = end - start;
     if (at + count > to_vec.data.len) return primitives.typeError("vector-copy!", "valid index range", args[1]);
