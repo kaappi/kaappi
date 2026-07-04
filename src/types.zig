@@ -1,3 +1,4 @@
+const builtin = @import("builtin");
 const std = @import("std");
 
 /// A Scheme value packed into a 64-bit word (NaN-boxing).
@@ -207,7 +208,54 @@ pub const Object = struct {
     _align: Align = .{},
     const Align = if (@alignOf(?*Object) < 8) struct { _: u64 align(8) = 0 } else struct {};
 
+    fn expectedTag(comptime T: type) ?ObjectTag {
+        return switch (T) {
+            Pair => .pair,
+            Symbol => .symbol,
+            SchemeString => .string,
+            Closure => .closure,
+            NativeFn => .native_fn,
+            NativeClosure => .native_closure,
+            Vector => .vector,
+            Bytevector => .bytevector,
+            Port => .port,
+            RecordType => .record_type,
+            Function => .function,
+            Flonum => .flonum,
+            Transformer => .transformer,
+            ErrorObject => .error_object,
+            RecordInstance => .record_instance,
+            Continuation => .continuation,
+            MultipleValues => .multiple_values,
+            Complex => .complex,
+            Promise => .promise,
+            ParameterObject => .parameter,
+            FfiLibrary => .ffi_library,
+            FfiFunction => .ffi_function,
+            FfiCallback => .ffi_callback,
+            HashTable => .hash_table,
+            Bignum => .bignum,
+            Rational => .rational,
+            FileInfo => .file_info,
+            UserInfo => .user_info,
+            GroupInfo => .group_info,
+            DirectoryObject => .directory_object,
+            RandomSource => .random_source,
+            Channel => .channel,
+            Mutex => .mutex,
+            ConditionVariable => .condition_variable,
+            Srfi18Time => .srfi18_time,
+            SchemeEnvironment => .scheme_environment,
+            else => null,
+        };
+    }
+
     pub fn as(self: *Object, comptime T: type) *T {
+        if (builtin.mode == .Debug) {
+            if (comptime expectedTag(T)) |expected| {
+                std.debug.assert(self.tag == expected);
+            }
+        }
         return @ptrCast(@alignCast(self));
     }
 };
@@ -671,6 +719,10 @@ pub fn isPair(v: Value) bool {
     return isPointer(v) and toObject(v).tag == .pair;
 }
 
+pub fn toPair(v: Value) *Pair {
+    return toObject(v).as(Pair);
+}
+
 pub fn isSymbol(v: Value) bool {
     return isPointer(v) and toObject(v).tag == .symbol;
 }
@@ -683,8 +735,16 @@ pub fn isClosure(v: Value) bool {
     return isPointer(v) and toObject(v).tag == .closure;
 }
 
+pub fn toClosure(v: Value) *Closure {
+    return toObject(v).as(Closure);
+}
+
 pub fn isNativeFn(v: Value) bool {
     return isPointer(v) and toObject(v).tag == .native_fn;
+}
+
+pub fn toNativeFn(v: Value) *NativeFn {
+    return toObject(v).as(NativeFn);
 }
 
 pub fn isNativeClosure(v: Value) bool {
@@ -701,6 +761,10 @@ pub fn isProcedure(v: Value) bool {
 
 pub fn isContinuation(v: Value) bool {
     return isPointer(v) and toObject(v).tag == .continuation;
+}
+
+pub fn toContinuation(v: Value) *Continuation {
+    return toObject(v).as(Continuation);
 }
 
 pub fn isMultipleValues(v: Value) bool {
@@ -939,23 +1003,39 @@ fn bignumToF64(bn: *const Bignum) f64 {
 // ---------------------------------------------------------------------------
 
 pub fn car(v: Value) Value {
-    return toObject(v).as(Pair).car;
+    return toPair(v).car;
 }
 
 pub fn cdr(v: Value) Value {
-    return toObject(v).as(Pair).cdr;
+    return toPair(v).cdr;
 }
 
 pub fn setCar(v: Value, val: Value) void {
-    toObject(v).as(Pair).car = val;
+    toPair(v).car = val;
 }
 
 pub fn setCdr(v: Value, val: Value) void {
-    toObject(v).as(Pair).cdr = val;
+    toPair(v).cdr = val;
 }
 
 pub fn symbolName(v: Value) []const u8 {
     return toObject(v).as(Symbol).name;
+}
+
+// ---------------------------------------------------------------------------
+// Box helpers (upvalue box = pair whose cdr is VOID)
+// ---------------------------------------------------------------------------
+
+pub fn isBox(v: Value) bool {
+    return isPair(v) and cdr(v) == VOID;
+}
+
+pub fn boxGet(v: Value) Value {
+    return toPair(v).car;
+}
+
+pub fn boxSet(v: Value, val: Value) void {
+    toPair(v).car = val;
 }
 
 // ---------------------------------------------------------------------------
