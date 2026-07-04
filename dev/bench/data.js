@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783176004977,
+  "lastUpdate": 1783177864031,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "320b3cb4f3a3189e30147b7b05a3019630000954",
-          "message": "Fix thread-terminate! never stopping OS threads, hanging thread-join! (#933)\n\nthread-terminate! only set cooperative-scheduler flags (fiber.terminated,\nwakeWaiters) that a child OS thread spawned by thread-start! never\nobserved, so a looping thunk ran forever and the parent's thread-join!\nblocked indefinitely in pthread_join. This hung tests/scheme/srfi/\nsrfi18.scm with zero output since at least v0.10.0; run-all.sh masked it\nas a 60s-timeout SKIP.\n\nGive child VMs a pointer to the shared fiber.terminated flag and poll it\n(atomically) at the existing 1024-instruction dispatch-loop safepoint,\nso termination adds no hot-path cost. On termination the child unwinds\nwith the new VMError.Terminated, the OS thread exits, and thread-join!\nraises terminated-thread-exception as SRFI-18 specifies.\n\nAlso repair srfi18.scm so it can actually run and fail meaningfully:\n\n- Rewrite the mutex-contention and condvar-signal tests against the\n  cooperative fiber path (spawn). OS threads run on isolated heaps and\n  mutexes/condvars are deliberately uncopyable, so the old OS-thread\n  versions could never pass; add a test pinning that capturing a mutex\n  in a thread thunk raises uncaught-exception at join.\n- Signal failure with (exit 1): a top-level (error ...) exits 0, so the\n  file previously could not fail run-all.sh even when tests failed.\n\nRegression test: tests_srfi18.zig terminates a pure busy-loop OS thread\nand joins it; without the safepoint this hangs zig build test.\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-03T11:43:54+05:30",
-          "tree_id": "ef204a5fee45e209425bfc3abd720ab161e995ec",
-          "url": "https://github.com/kaappi/kaappi/commit/320b3cb4f3a3189e30147b7b05a3019630000954"
-        },
-        "date": 1783060046953,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.413808,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.688596,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.836394,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.200471,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.00696,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.03293,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.466485,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.070334,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.972206,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.816008,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.151927,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.429787,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 2.421177,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.669209,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.042302,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.04201,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "1aa429833924d68ea082139cb0a42ddb49758109",
+          "message": "Remove duplicate primitive registrations and add reg() collision guard (#1030) (#1092)\n\nDelete 15 shadowed reg() calls and 8 dead function implementations across\nprimitives_string.zig and primitives_io.zig. The surviving implementations\nin primitives_bytevector.zig and primitives_list.zig are unchanged.\n\nAdd a runtime_safety assert in reg() that panics on duplicate registration,\npreventing this class of silent-overwrite bug from recurring.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-04T20:19:56+05:30",
+          "tree_id": "6d0eeb6e7d71f30c4fb00bcb246b92e2b8fc85fc",
+          "url": "https://github.com/kaappi/kaappi/commit/1aa429833924d68ea082139cb0a42ddb49758109"
+        },
+        "date": 1783177863520,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.342966,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.860279,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.898076,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.216855,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.012541,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.210912,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.471857,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.070396,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 12.423226,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.851192,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 9.901434,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.949204,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 8.282993,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.49552,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.045422,
             "unit": "seconds"
           }
         ]
