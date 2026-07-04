@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783146106586,
+  "lastUpdate": 1783147504386,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "2a3fc0445b8dc65a58addd77e367dc7bab0ce9ae",
-          "message": "Convert GC markValue from recursive to iterative using explicit worklist (#911)\n\nThe full-GC markValue function recursed per nesting level when both car\nand cdr of a pair were heap pointers, causing native stack overflow on\ndeeply nested structures (100k+ levels). Replace the recursive call\nwith an explicit ArrayList(Value) worklist: when both children are\npointers, push car onto the worklist and iterate cdr. Non-pair object\ntypes also push their contained values onto the worklist instead of\nrecursing. Vectors push all elements except the last and tail-call into\nthe last.\n\nFixes #864\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-03T05:48:00+05:30",
-          "tree_id": "4fdc88290c3e8c89e29be4802cd30b349e5478a7",
-          "url": "https://github.com/kaappi/kaappi/commit/2a3fc0445b8dc65a58addd77e367dc7bab0ce9ae"
-        },
-        "date": 1783040251979,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.393446,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.404348,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.82091,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.086802,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006942,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.032864,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.469559,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.070634,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 4.012788,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.804694,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.155095,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.427363,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 2.397883,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.662995,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.041695,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.035023,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c0d4f10f8ca0cffe4c79e4bfde5814b9e899b136",
+          "message": "Deduplicate primitives reg() wrappers, consolidate numberTypeError, merge compileAnd/compileOr (#1024)\n\nThree mechanical refactors to reduce duplication:\n\n- Delete identical 3-line reg() wrapper from all 18 primitives_*.zig files,\n  replacing ~532 call sites with direct primitives.reg() calls\n- Replace custom numberTypeError in primitives_arithmetic.zig (which used\n  allocating printer.valueToString) with primitives.typeError(), matching\n  the canonical stack-buffer pattern used everywhere else\n- Merge near-identical compileAnd/compileOr in compiler_conditionals.zig\n  into a shared compileShortCircuit helper parameterized by empty-case\n  opcode and jump opcode\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-04T06:25:42Z",
+          "tree_id": "8f74161e63b7ead1048d5859ef2d26764492908b",
+          "url": "https://github.com/kaappi/kaappi/commit/c0d4f10f8ca0cffe4c79e4bfde5814b9e899b136"
+        },
+        "date": 1783147503621,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.4199,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.839131,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.910764,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.429424,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.012481,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.211286,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.485375,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.069761,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 12.414382,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.856054,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 9.908115,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.947174,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 8.312223,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.696394,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.04323,
             "unit": "seconds"
           }
         ]
