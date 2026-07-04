@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783151007207,
+  "lastUpdate": 1783152190568,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "bf7ce0eecdea926abcc06d4dc5b81cd9ee9a65e4",
-          "message": "Add VT and FF to string-trim default whitespace criterion (#913)\n\n* Add VT and FF to string-trim default whitespace criterion (#826)\n\nThe default isWhitespace only checked space/tab/newline/return,\nmissing vertical tab (0x0B) and form feed (0x0C) which SRFI-13\nand char-whitespace? include.\n\nFixes #826\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Add regression test for VT/FF whitespace in string-trim (#826)\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-03T00:34:13Z",
-          "tree_id": "19d281dccfec3fb365325738d946530454bc5f39",
-          "url": "https://github.com/kaappi/kaappi/commit/bf7ce0eecdea926abcc06d4dc5b81cd9ee9a65e4"
-        },
-        "date": 1783040325096,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.126258,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.927293,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.866052,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.166108,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.007366,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.03357,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.469414,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.069008,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.913027,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.830903,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.172944,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.479187,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 2.413765,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.874555,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044733,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.042658,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ef31aaffecbf33225c0675f005bc6ae933982e12",
+          "message": "Add letrec* desugaring to bare-lambda IR path (#1026) (#1078)\n\nInternal defines in `(define f (lambda () ...))` bodies were compiled\nsequentially, so forward references to sibling defines failed at\nruntime (R7RS 5.3.2 requires letrec* semantics). The `compileLambdaWithIR`\npath now pre-scans leading defines, pre-declares all names as boxed\nlocals, then evaluates initializers with all names visible — matching\nwhat `compileBody` already does for the `(define (f) ...)` shorthand.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-04T07:43:22Z",
+          "tree_id": "4ea7fc39b6055089e51015f27a5e5d749cef2abc",
+          "url": "https://github.com/kaappi/kaappi/commit/ef31aaffecbf33225c0675f005bc6ae933982e12"
+        },
+        "date": 1783152190042,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.050418,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.567618,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.943143,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.368699,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.013813,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.234288,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.473546,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.068377,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 13.438335,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.828723,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 11.033571,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 1.072201,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 9.172195,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.846219,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044224,
             "unit": "seconds"
           }
         ]
