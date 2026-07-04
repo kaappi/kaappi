@@ -59,12 +59,7 @@ fn forceFn(args: []const Value) PrimitiveError!Value {
 
         const result = vm.callWithArgs(thunk, &[_]Value{}) catch |err| {
             promise.forcing = false;
-            return switch (err) {
-                vm_mod.VMError.ContinuationInvoked => PrimitiveError.ContinuationInvoked,
-                vm_mod.VMError.ExceptionRaised => PrimitiveError.ExceptionRaised,
-                vm_mod.VMError.OutOfMemory => PrimitiveError.OutOfMemory,
-                else => PrimitiveError.TypeError, // bare-ok: catch fallback
-            };
+            return primitives.mapVMError(err);
         };
 
         // SRFI-45 §8: after the thunk returns, check if another force

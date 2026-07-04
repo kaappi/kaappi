@@ -359,12 +359,7 @@ fn vectorForEachFn(args: []const Value) PrimitiveError!Value {
         }
 
         _ = vm.callWithArgs(proc, call_args) catch |err| {
-            return switch (err) {
-                vm_mod.VMError.ContinuationInvoked => PrimitiveError.ContinuationInvoked,
-                vm_mod.VMError.ExceptionRaised => PrimitiveError.ExceptionRaised,
-                vm_mod.VMError.OutOfMemory => PrimitiveError.OutOfMemory,
-                else => PrimitiveError.TypeError, // bare-ok: catch fallback
-            };
+            return primitives.mapVMError(err);
         };
     }
 
@@ -411,12 +406,7 @@ fn vectorMapFn(args: []const Value) PrimitiveError!Value {
         }
 
         results[i] = vm.callWithArgs(proc, call_args) catch |err| {
-            return switch (err) {
-                vm_mod.VMError.ContinuationInvoked => PrimitiveError.ContinuationInvoked,
-                vm_mod.VMError.ExceptionRaised => PrimitiveError.ExceptionRaised,
-                vm_mod.VMError.OutOfMemory => PrimitiveError.OutOfMemory,
-                else => PrimitiveError.TypeError, // bare-ok: catch fallback
-            };
+            return primitives.mapVMError(err);
         };
         gc.extra_roots.append(gc.allocator, results[i]) catch return PrimitiveError.OutOfMemory;
     }
@@ -483,12 +473,7 @@ fn vectorToStringFn(args: []const Value) PrimitiveError!Value {
 fn callVM(proc: Value, call_args: []const Value) PrimitiveError!Value {
     const vm = vm_mod.vm_instance orelse return PrimitiveError.OutOfMemory;
     return vm.callWithArgs(proc, call_args) catch |err| {
-        return switch (err) {
-            vm_mod.VMError.ContinuationInvoked => PrimitiveError.ContinuationInvoked,
-            vm_mod.VMError.ExceptionRaised => PrimitiveError.ExceptionRaised,
-            vm_mod.VMError.OutOfMemory => PrimitiveError.OutOfMemory,
-            else => PrimitiveError.TypeError, // bare-ok: catch fallback
-        };
+        return primitives.mapVMError(err);
     };
 }
 

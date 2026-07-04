@@ -151,11 +151,7 @@ fn memberFn(args: []const Value) PrimitiveError!Value {
             const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError; // bare-ok: no VM
             const call_args = [2]Value{ args[0], types.car(current) };
             const result = vm.callWithArgs(compare, &call_args) catch |err| {
-                return switch (err) {
-                    vm_mod.VMError.ContinuationInvoked => PrimitiveError.ContinuationInvoked,
-                    vm_mod.VMError.ExceptionRaised => PrimitiveError.ExceptionRaised,
-                    else => PrimitiveError.TypeError, // bare-ok: catch fallback
-                };
+                return primitives.mapVMError(err);
             };
             if (result != types.FALSE) return current;
         } else {
@@ -264,11 +260,7 @@ fn assocFn(args: []const Value) PrimitiveError!Value {
             const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError; // bare-ok: no VM
             const call_args = [2]Value{ args[0], types.car(pair) };
             const result = vm.callWithArgs(compare, &call_args) catch |err| {
-                return switch (err) {
-                    vm_mod.VMError.ContinuationInvoked => PrimitiveError.ContinuationInvoked,
-                    vm_mod.VMError.ExceptionRaised => PrimitiveError.ExceptionRaised,
-                    else => PrimitiveError.TypeError, // bare-ok: catch fallback
-                };
+                return primitives.mapVMError(err);
             };
             if (result != types.FALSE) return pair;
         } else {
@@ -400,12 +392,7 @@ fn mapFn(args: []const Value) PrimitiveError!Value {
 
         // Call procedure
         const result = vm.callWithArgs(proc, call_args[0..list_count]) catch |err| {
-            return switch (err) {
-                vm_mod.VMError.ContinuationInvoked => PrimitiveError.ContinuationInvoked,
-                vm_mod.VMError.ExceptionRaised => PrimitiveError.ExceptionRaised,
-                vm_mod.VMError.OutOfMemory => PrimitiveError.OutOfMemory,
-                else => PrimitiveError.TypeError, // bare-ok: catch fallback
-            };
+            return primitives.mapVMError(err);
         };
 
         const new_pair = gc.allocPair(result, types.NIL) catch return PrimitiveError.OutOfMemory;
@@ -460,12 +447,7 @@ fn forEachFn(args: []const Value) PrimitiveError!Value {
 
         // Call procedure (discard result)
         _ = vm.callWithArgs(proc, call_args[0..list_count]) catch |err| {
-            return switch (err) {
-                vm_mod.VMError.ContinuationInvoked => PrimitiveError.ContinuationInvoked,
-                vm_mod.VMError.ExceptionRaised => PrimitiveError.ExceptionRaised,
-                vm_mod.VMError.OutOfMemory => PrimitiveError.OutOfMemory,
-                else => PrimitiveError.TypeError, // bare-ok: catch fallback
-            };
+            return primitives.mapVMError(err);
         };
 
         // Advance each list

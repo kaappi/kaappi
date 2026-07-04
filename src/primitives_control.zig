@@ -70,12 +70,7 @@ fn raiseContinuableFn(args: []const Value) PrimitiveError!Value {
     vm.popHandler();
     const result = vm.callHandler(handler, args[0], 0) catch |err| {
         vm.pushHandler(handler) catch {};
-        return switch (err) {
-            vm_mod.VMError.ContinuationInvoked => PrimitiveError.ContinuationInvoked,
-            vm_mod.VMError.ExceptionRaised => PrimitiveError.ExceptionRaised,
-            vm_mod.VMError.OutOfMemory => PrimitiveError.OutOfMemory,
-            else => PrimitiveError.TypeError, // bare-ok: catch fallback
-        };
+        return primitives.mapVMError(err);
     };
     vm.pushHandler(handler) catch return PrimitiveError.OutOfMemory;
     return result;
@@ -108,12 +103,7 @@ fn withExceptionHandlerFn(args: []const Value) PrimitiveError!Value {
             gc.pushRoot(&exc) catch return PrimitiveError.OutOfMemory;
             defer gc.popRoot();
             _ = vm.callHandler(handler_root, exc, 0) catch |herr| {
-                return switch (herr) {
-                    vm_mod.VMError.ContinuationInvoked => PrimitiveError.ContinuationInvoked,
-                    vm_mod.VMError.ExceptionRaised => PrimitiveError.ExceptionRaised,
-                    vm_mod.VMError.OutOfMemory => PrimitiveError.OutOfMemory,
-                    else => PrimitiveError.TypeError, // bare-ok: catch fallback
-                };
+                return primitives.mapVMError(herr);
             };
             // Handler returned from non-continuable raise — re-raise per R7RS
             var reraise_msg = gc.allocString("handler returned") catch return PrimitiveError.OutOfMemory;
@@ -141,12 +131,7 @@ fn withExceptionHandlerFn(args: []const Value) PrimitiveError!Value {
         gc.pushRoot(&err_root) catch return PrimitiveError.OutOfMemory;
         defer gc.popRoot();
         const handler_result = vm.callHandler(handler_root, err_root, 0) catch |herr| {
-            return switch (herr) {
-                vm_mod.VMError.ContinuationInvoked => PrimitiveError.ContinuationInvoked,
-                vm_mod.VMError.ExceptionRaised => PrimitiveError.ExceptionRaised,
-                vm_mod.VMError.OutOfMemory => PrimitiveError.OutOfMemory,
-                else => PrimitiveError.TypeError, // bare-ok: catch fallback
-            };
+            return primitives.mapVMError(herr);
         };
         return handler_result;
     };
@@ -237,13 +222,7 @@ fn callWithCurrentContinuation(args: []const Value) PrimitiveError!Value {
 
     // Call proc(continuation)
     const result = vm.callHandler(proc, cont_val, base_reg) catch |err| {
-        return switch (err) {
-            vm_mod.VMError.ContinuationInvoked => PrimitiveError.ContinuationInvoked,
-            vm_mod.VMError.ExceptionRaised => PrimitiveError.ExceptionRaised,
-            vm_mod.VMError.OutOfMemory => PrimitiveError.OutOfMemory,
-            vm_mod.VMError.ArityMismatch => PrimitiveError.TypeError,
-            else => PrimitiveError.TypeError, // bare-ok: catch fallback
-        };
+        return primitives.mapVMError(err);
     };
 
     // If proc returned normally (without invoking the continuation),
@@ -279,13 +258,7 @@ fn callWithEscapeContinuation(args: []const Value) PrimitiveError!Value {
     const result = vm.callHandler(proc, cont_val, base_reg) catch |err| {
         // The extent has ended (escape unwound through here, or proc errored).
         cont_obj.valid = false;
-        return switch (err) {
-            vm_mod.VMError.ContinuationInvoked => PrimitiveError.ContinuationInvoked,
-            vm_mod.VMError.ExceptionRaised => PrimitiveError.ExceptionRaised,
-            vm_mod.VMError.OutOfMemory => PrimitiveError.OutOfMemory,
-            vm_mod.VMError.ArityMismatch => PrimitiveError.TypeError,
-            else => PrimitiveError.TypeError, // bare-ok: catch fallback
-        };
+        return primitives.mapVMError(err);
     };
 
     // proc returned normally without escaping; the extent is over.
@@ -305,12 +278,7 @@ fn dynamicWindFn(args: []const Value) PrimitiveError!Value {
 
     // Call before thunk
     _ = vm.callThunk(before) catch |err| {
-        return switch (err) {
-            vm_mod.VMError.ContinuationInvoked => PrimitiveError.ContinuationInvoked,
-            vm_mod.VMError.ExceptionRaised => PrimitiveError.ExceptionRaised,
-            vm_mod.VMError.OutOfMemory => PrimitiveError.OutOfMemory,
-            else => PrimitiveError.TypeError, // bare-ok: catch fallback
-        };
+        return primitives.mapVMError(err);
     };
 
     // Push wind record
@@ -330,11 +298,7 @@ fn dynamicWindFn(args: []const Value) PrimitiveError!Value {
             if (after_err == vm_mod.VMError.ContinuationInvoked)
                 return PrimitiveError.ContinuationInvoked;
         };
-        return switch (err) {
-            vm_mod.VMError.ExceptionRaised => PrimitiveError.ExceptionRaised,
-            vm_mod.VMError.OutOfMemory => PrimitiveError.OutOfMemory,
-            else => PrimitiveError.TypeError, // bare-ok: catch fallback
-        };
+        return primitives.mapVMError(err);
     };
 
     // Pop wind record
@@ -342,12 +306,7 @@ fn dynamicWindFn(args: []const Value) PrimitiveError!Value {
 
     // Call after thunk
     _ = vm.callThunk(after) catch |err| {
-        return switch (err) {
-            vm_mod.VMError.ContinuationInvoked => PrimitiveError.ContinuationInvoked,
-            vm_mod.VMError.ExceptionRaised => PrimitiveError.ExceptionRaised,
-            vm_mod.VMError.OutOfMemory => PrimitiveError.OutOfMemory,
-            else => PrimitiveError.TypeError, // bare-ok: catch fallback
-        };
+        return primitives.mapVMError(err);
     };
 
     return result;
@@ -369,12 +328,7 @@ fn callWithValuesFn(args: []const Value) PrimitiveError!Value {
 
     // Call producer
     const produced = vm.callThunk(producer) catch |err| {
-        return switch (err) {
-            vm_mod.VMError.ContinuationInvoked => PrimitiveError.ContinuationInvoked,
-            vm_mod.VMError.ExceptionRaised => PrimitiveError.ExceptionRaised,
-            vm_mod.VMError.OutOfMemory => PrimitiveError.OutOfMemory,
-            else => PrimitiveError.TypeError, // bare-ok: catch fallback
-        };
+        return primitives.mapVMError(err);
     };
 
     // Call consumer with the produced values
@@ -385,26 +339,14 @@ fn callWithValuesFn(args: []const Value) PrimitiveError!Value {
     if (types.isMultipleValues(produced_root)) {
         const mv = types.toObject(produced_root).as(types.MultipleValues);
         const result = vm.callWithArgs(consumer, mv.values) catch |err| {
-            return switch (err) {
-                vm_mod.VMError.ContinuationInvoked => PrimitiveError.ContinuationInvoked,
-                vm_mod.VMError.ExceptionRaised => PrimitiveError.ExceptionRaised,
-                vm_mod.VMError.OutOfMemory => PrimitiveError.OutOfMemory,
-                vm_mod.VMError.ArityMismatch => PrimitiveError.ArityMismatch,
-                else => PrimitiveError.TypeError, // bare-ok: catch fallback
-            };
+            return primitives.mapVMError(err);
         };
         return result;
     } else {
         // Single value -- call consumer with one argument (use callWithArgs
         // so arity is validated, matching the multi-value path)
         const result = vm.callWithArgs(consumer, &[_]Value{produced}) catch |err| {
-            return switch (err) {
-                vm_mod.VMError.ContinuationInvoked => PrimitiveError.ContinuationInvoked,
-                vm_mod.VMError.ExceptionRaised => PrimitiveError.ExceptionRaised,
-                vm_mod.VMError.OutOfMemory => PrimitiveError.OutOfMemory,
-                vm_mod.VMError.ArityMismatch => PrimitiveError.ArityMismatch,
-                else => PrimitiveError.TypeError, // bare-ok: catch fallback
-            };
+            return primitives.mapVMError(err);
         };
         return result;
     }

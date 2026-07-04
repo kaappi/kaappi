@@ -122,12 +122,7 @@ pub fn registerSrfi1(vm: *vm_mod.VM) !void {
 fn callVM(proc: Value, call_args: []const Value) PrimitiveError!Value {
     const vm = vm_mod.vm_instance orelse return PrimitiveError.OutOfMemory;
     return vm.callWithArgs(proc, call_args) catch |err| {
-        return switch (err) {
-            vm_mod.VMError.ContinuationInvoked => PrimitiveError.ContinuationInvoked,
-            vm_mod.VMError.ExceptionRaised => PrimitiveError.ExceptionRaised,
-            vm_mod.VMError.OutOfMemory => PrimitiveError.OutOfMemory,
-            else => PrimitiveError.TypeError, // bare-ok: catch fallback
-        };
+        return primitives.mapVMError(err);
     };
 }
 
