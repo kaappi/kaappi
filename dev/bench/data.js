@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783184114999,
+  "lastUpdate": 1783184416967,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "81adb3c0da5b0e8f658783acd52fa78b60fe88b6",
-          "message": "Mark hash-table entries occupied on insert via update!/default and alist->hash-table (#939)\n\nHashEntry.state defaults to .empty, and the insert paths in\nhash-table-update!/default and alist->hash-table omitted the state\nfield when writing new entries. The key and value were stored and the\ncount incremented, but findKey/findSlot treated the slot as empty, so\nthe key was invisible to lookup, duplicate detection in\nalist->hash-table never fired, and the phantom entry was silently\ndropped on the next rehash. hash-table-set! already set the state\nexplicitly, which is why only these two paths were affected.\n\nThe failures were masked until now because uncaught script errors\nexit 0, so the existing srfi69-ext and mutation-write-barrier tests\nreported PASS despite aborting mid-file.\n\nThe regression test uses manual counters with guard and an explicit\n(exit 1) rather than SRFI-64, because SRFI-64 asserts are currently\nbroken (undefined %test-on-test-begin) and would not gate the run.\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-03T07:19:17Z",
-          "tree_id": "9d49880d443471970922b3f4d55cefb1f1d6d19f",
-          "url": "https://github.com/kaappi/kaappi/commit/81adb3c0da5b0e8f658783acd52fa78b60fe88b6"
-        },
-        "date": 1783064139465,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.170938,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.981219,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.873797,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.23229,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.007315,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.033205,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.472981,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.070214,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 4.051218,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.804604,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.165355,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.48531,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 2.400323,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.860237,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.045352,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044502,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "33f2f171e2592130540ab374093c0f1be8bd6637",
+          "message": "Deduplicate export lists and add drift test (#1053) (#1104)\n\nHoists all library export name arrays from inside registerStandardLibraries()\nto file-scope pub const declarations, shared by both standard and sandboxed\nregistration. Adds a unit test that asserts every non-syntax name in every\nexport list resolves in globals after registerAll — converting silent export\ndrift into a test failure.\n\nPhases 1 and 2 of #1053. Net -156 lines (13 duplicate arrays removed).\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-04T21:42:20+05:30",
+          "tree_id": "7535f9dd3c0d7ae39576fa860aa87db79dc996a0",
+          "url": "https://github.com/kaappi/kaappi/commit/33f2f171e2592130540ab374093c0f1be8bd6637"
+        },
+        "date": 1783184416436,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.490087,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.118902,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.987723,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.307496,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.012887,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.213379,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.479543,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.071099,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 12.689815,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.877598,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 10.046945,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.957069,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 8.437307,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.572195,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.043737,
             "unit": "seconds"
           }
         ]
