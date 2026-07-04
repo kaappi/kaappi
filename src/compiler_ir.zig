@@ -5,6 +5,7 @@ const compiler_mod = @import("compiler.zig");
 const forms = @import("compiler_forms.zig");
 const advanced = @import("compiler_advanced.zig");
 const compiler_lambda = @import("compiler_lambda.zig");
+const globals_mod = @import("globals.zig");
 const ir_mod = @import("ir.zig");
 const Value = types.Value;
 const OpCode = types.OpCode;
@@ -239,40 +240,231 @@ pub fn compileLambdaWithIR(self: *Compiler, args: Value, dst: u16, name: ?[]cons
     const saved_body_scope = child.in_body_scope;
     child.in_body_scope = true;
 
+    // Pre-scan globals for macro expansion visibility (R7RS 5.3.2).
+    var prescan_names: std.ArrayList([]const u8) = .empty;
+    defer prescan_names.deinit(child.gc.allocator);
+    if (child.globals) |globals| {
+        const glk = globals_mod.acquireGlobalsWrite(globals);
+        defer globals_mod.releaseGlobalsWrite(glk);
+        var scan = body;
+        while (scan != types.NIL and types.isPair(scan)) {
+            const form = types.car(scan);
+            if (types.isPair(form)) {
+                const head = types.car(form);
+                if (types.isSymbol(head)) {
+                    const form_name = types.symbolName(head);
+                    if (std.mem.eql(u8, form_name, "define")) {
+                        const form_args = types.cdr(form);
+                        if (form_args != types.NIL and types.isPair(form_args)) {
+                            const target = types.car(form_args);
+                            var def_name: ?[]const u8 = null;
+                            if (types.isSymbol(target)) {
+                                def_name = types.symbolName(target);
+                            } else if (types.isPair(target)) {
+                                const fn_name = types.car(target);
+                                if (types.isSymbol(fn_name)) def_name = types.symbolName(fn_name);
+                            }
+                            if (def_name) |dn| {
+                                if (!globals.contains(dn)) {
+                                    globals.put(dn, types.VOID) catch return CompileError.OutOfMemory;
+                                    prescan_names.append(child.gc.allocator, dn) catch return CompileError.OutOfMemory;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            scan = types.cdr(scan);
+        }
+    }
+    defer {
+        if (child.globals) |globals| {
+            const glk = globals_mod.acquireGlobalsWrite(globals);
+            for (prescan_names.items) |pn| {
+                if (globals.get(pn)) |val| {
+                    if (val == types.VOID) _ = globals.remove(pn);
+                }
+            }
+            globals_mod.releaseGlobalsWrite(glk);
+        }
+    }
+
+    // Collect leading internal defines for letrec* desugaring (R7RS 5.3.2).
+    const MAX_BODY_DEFS = 512;
+    var def_names: [MAX_BODY_DEFS][]const u8 = undefined;
+    var def_inits: [MAX_BODY_DEFS]Value = undefined;
+    var def_slots: [MAX_BODY_DEFS]u16 = undefined;
+    var def_count: usize = 0;
+
+    const roots_base = child.gc.extra_roots.items.len;
+    defer child.gc.extra_roots.shrinkRetainingCapacity(roots_base);
+
     var current = body;
-    var last_dst: u16 = 0;
-    while (current != types.NIL) {
-        if (!types.isPair(current)) return CompileError.InvalidSyntax;
+    while (current != types.NIL and types.isPair(current)) {
         const expr = types.car(current);
-        const rest = types.cdr(current);
-        last_dst = try child.allocReg();
+        if (!types.isPair(expr)) break;
+        const head = types.car(expr);
+        if (!types.isSymbol(head)) break;
+        const head_name = types.symbolName(head);
+        if (!std.mem.eql(u8, head_name, "define")) break;
 
-        var ir = ir_mod.IR.init(child.gc.allocator);
-        ir.globals = child.globals;
-        ir.restricted_env = child.restricted_env;
-        ir.compiler = &child;
-        ir.set_targets = child.set_targets;
-        defer ir.deinit();
-        var root = try ir_mod.lowerWithMacros(&ir, expr, &child.macros);
-        ir_mod.markTailPositions(root, rest == types.NIL);
-        ir_mod.identifyPrimitives(root);
-        ir_mod.markConstants(root);
-        root = ir_mod.foldConstants(&ir, root);
-        root = ir_mod.eliminateDeadBranches(&ir, root);
-        root = ir_mod.simplifyBooleans(&ir, root);
-        root = ir_mod.eliminateIdentity(&ir, root);
-        root = ir_mod.simplifyBegin(&ir, root);
+        const def_args = types.cdr(expr);
+        if (def_args == types.NIL or !types.isPair(def_args)) break;
+        const target = types.car(def_args);
+        const def_rest = types.cdr(def_args);
 
-        if (rest == types.NIL) {
-            try compileFromNode(&child, root, last_dst, true);
+        if (types.isSymbol(target)) {
+            if (def_rest == types.NIL or !types.isPair(def_rest)) break;
+            if (def_count >= MAX_BODY_DEFS) return CompileError.TooManyLocals;
+            def_names[def_count] = types.symbolName(target);
+            def_inits[def_count] = types.car(def_rest);
+            def_count += 1;
+        } else if (types.isPair(target)) {
+            const fn_name = types.car(target);
+            if (!types.isSymbol(fn_name)) break;
+            if (def_count >= MAX_BODY_DEFS) return CompileError.TooManyLocals;
+            def_names[def_count] = types.symbolName(fn_name);
+            const param_formals = types.cdr(target);
+            const lambda_sym = child.gc.allocSymbol("lambda") catch return CompileError.OutOfMemory;
+            {
+                var lambda_args = child.gc.allocPair(param_formals, def_rest) catch return CompileError.OutOfMemory;
+                child.gc.pushRoot(&lambda_args) catch return CompileError.OutOfMemory;
+                defer child.gc.popRoot();
+                def_inits[def_count] = child.gc.allocPair(lambda_sym, lambda_args) catch return CompileError.OutOfMemory;
+            }
+            child.gc.extra_roots.append(child.gc.allocator, def_inits[def_count]) catch return CompileError.OutOfMemory;
+            def_count += 1;
         } else {
-            const saved_next = child.next_register;
+            break;
+        }
+        current = types.cdr(current);
+    }
+
+    var last_dst: u16 = 0;
+
+    if (def_count > 0) {
+        child.beginScope();
+
+        for (0..def_count) |i| {
+            const slot = try child.allocReg();
+            def_slots[i] = slot;
+            try child.emitOp(.load_void);
+            try child.emitU16(slot);
+            try child.addLocal(def_names[i], slot);
+            try child.markLocalBoxedBySlot(slot);
+        }
+
+        for (0..def_count) |i| {
+            last_dst = try child.allocReg();
+
+            var ir = ir_mod.IR.init(child.gc.allocator);
+            ir.globals = child.globals;
+            ir.restricted_env = child.restricted_env;
+            ir.compiler = &child;
+            ir.set_targets = child.set_targets;
+            defer ir.deinit();
+            var root = try ir_mod.lowerWithMacros(&ir, def_inits[i], &child.macros);
+            ir_mod.identifyPrimitives(root);
+            ir_mod.markConstants(root);
+            root = ir_mod.foldConstants(&ir, root);
+            root = ir_mod.eliminateDeadBranches(&ir, root);
+            root = ir_mod.simplifyBooleans(&ir, root);
+            root = ir_mod.eliminateIdentity(&ir, root);
+            root = ir_mod.simplifyBegin(&ir, root);
+
             try compileFromNode(&child, root, last_dst, false);
-            if (child.next_register == saved_next) {
-                child.freeReg();
+
+            if (child.func.constants.items.len > 0) {
+                const last_const = child.func.constants.items[child.func.constants.items.len - 1];
+                if (types.isFunction(last_const)) {
+                    const child_func = types.toObject(last_const).as(types.Function);
+                    if (child_func.name == null) {
+                        child_func.name = def_names[i];
+                    }
+                }
+            }
+
+            try child.emitOp(.set_box_local);
+            try child.emitU16(def_slots[i]);
+            try child.emitU16(last_dst);
+            child.freeReg();
+        }
+
+        if (current == types.NIL) {
+            last_dst = try child.allocReg();
+            try child.emitOp(.load_void);
+            try child.emitU16(last_dst);
+        } else {
+            while (current != types.NIL) {
+                if (!types.isPair(current)) return CompileError.InvalidSyntax;
+                const expr = types.car(current);
+                const rest = types.cdr(current);
+                last_dst = try child.allocReg();
+
+                var ir = ir_mod.IR.init(child.gc.allocator);
+                ir.globals = child.globals;
+                ir.restricted_env = child.restricted_env;
+                ir.compiler = &child;
+                ir.set_targets = child.set_targets;
+                defer ir.deinit();
+                var root = try ir_mod.lowerWithMacros(&ir, expr, &child.macros);
+                ir_mod.markTailPositions(root, rest == types.NIL);
+                ir_mod.identifyPrimitives(root);
+                ir_mod.markConstants(root);
+                root = ir_mod.foldConstants(&ir, root);
+                root = ir_mod.eliminateDeadBranches(&ir, root);
+                root = ir_mod.simplifyBooleans(&ir, root);
+                root = ir_mod.eliminateIdentity(&ir, root);
+                root = ir_mod.simplifyBegin(&ir, root);
+
+                if (rest == types.NIL) {
+                    try compileFromNode(&child, root, last_dst, true);
+                } else {
+                    const saved_next = child.next_register;
+                    try compileFromNode(&child, root, last_dst, false);
+                    if (child.next_register == saved_next) {
+                        child.freeReg();
+                    }
+                }
+                current = rest;
             }
         }
-        current = rest;
+
+        child.endScope();
+    } else {
+        while (current != types.NIL) {
+            if (!types.isPair(current)) return CompileError.InvalidSyntax;
+            const expr = types.car(current);
+            const rest = types.cdr(current);
+            last_dst = try child.allocReg();
+
+            var ir = ir_mod.IR.init(child.gc.allocator);
+            ir.globals = child.globals;
+            ir.restricted_env = child.restricted_env;
+            ir.compiler = &child;
+            ir.set_targets = child.set_targets;
+            defer ir.deinit();
+            var root = try ir_mod.lowerWithMacros(&ir, expr, &child.macros);
+            ir_mod.markTailPositions(root, rest == types.NIL);
+            ir_mod.identifyPrimitives(root);
+            ir_mod.markConstants(root);
+            root = ir_mod.foldConstants(&ir, root);
+            root = ir_mod.eliminateDeadBranches(&ir, root);
+            root = ir_mod.simplifyBooleans(&ir, root);
+            root = ir_mod.eliminateIdentity(&ir, root);
+            root = ir_mod.simplifyBegin(&ir, root);
+
+            if (rest == types.NIL) {
+                try compileFromNode(&child, root, last_dst, true);
+            } else {
+                const saved_next = child.next_register;
+                try compileFromNode(&child, root, last_dst, false);
+                if (child.next_register == saved_next) {
+                    child.freeReg();
+                }
+            }
+            current = rest;
+        }
     }
 
     child.in_body_scope = saved_body_scope;
