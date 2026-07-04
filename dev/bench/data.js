@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783152190568,
+  "lastUpdate": 1783153493781,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "bcba05cea8ae18a08e733b9334bc058ba739b827",
-          "message": "Stop flattening newlines in REPL history entries (#915)\n\n* Stop flattening newlines in REPL history entries (#821)\n\nReplacing newlines with spaces corrupted entries containing line\ncomments, making recalled history evaluate differently.\n\nFixes #821\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Add regression test for REPL history newline preservation (#821)\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-03T00:36:00Z",
-          "tree_id": "5abde1f473ed39df42b73a256f073d8bc41e3c00",
-          "url": "https://github.com/kaappi/kaappi/commit/bcba05cea8ae18a08e733b9334bc058ba739b827"
-        },
-        "date": 1783040618256,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.437748,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.395941,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.865634,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.172208,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.007124,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.033528,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.478015,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.071111,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 4.093852,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.84398,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.168974,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.438039,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 2.494222,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.724566,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.043007,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044224,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f91ac87f6af941f5e021002fd9dad183e870af46",
+          "message": "Panic on writeBarrier remembered-set OOM instead of silently dropping (#1036) (#1079)\n\nA dropped remembered-set entry lets minor GC sweep a live young object.\nFollows the precedent set for mark-stack OOM in gc_collect.zig.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-04T08:05:05Z",
+          "tree_id": "84fd5fb95f682c49ae29071540758ba8d6901b2d",
+          "url": "https://github.com/kaappi/kaappi/commit/f91ac87f6af941f5e021002fd9dad183e870af46"
+        },
+        "date": 1783153493291,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.439125,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.91138,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.932947,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.342142,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.012655,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.210856,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.475432,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.071463,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 12.38779,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.858453,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 9.892058,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.956226,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 8.298193,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.53661,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.042337,
             "unit": "seconds"
           }
         ]
