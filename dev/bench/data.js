@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783185206061,
+  "lastUpdate": 1783185436035,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "95ff929fbd43ca5797c8bfd22aad05b7567e6dc8",
-          "message": "thottam: copy visited-set keys to fix use-after-free on transitive deps (#947)\n\ndoInstall's cycle/dedup guard stored package-name keys by reference. For\na transitive dependency the name is a sub-slice of the caller's\nmanifest.depends buffer, which manifest.deinit frees when the caller's\ninstall frame unwinds — leaving dangling keys. Every later visited\nget/put bucket probe then read freed memory (use-after-free), and the\ndedup guard silently degraded (a diamond dependency printed \"rd already\ninstalled\" instead of a silent visited-hit early return, only avoiding\ndouble work because installed.txt caught it afterwards).\n\nExtract the guard into markVisited (inserts an owned dupe of the key)\nand freeVisited (frees the keys before deinit), so the map owns its keys\nfor its whole lifetime. Add a regression unit test that records a name,\nfrees the backing buffer, and re-probes — it faults on the dangling key\nwithout the fix.\n\nFixes #784\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
-          "timestamp": "2026-07-03T09:07:56Z",
-          "tree_id": "539d9db0db9cc8bfc956bd8907d3891543c8c619",
-          "url": "https://github.com/kaappi/kaappi/commit/95ff929fbd43ca5797c8bfd22aad05b7567e6dc8"
-        },
-        "date": 1783070426151,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.43612,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.556185,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.852221,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.367714,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.007033,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.032647,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.463596,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.069487,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 4.029979,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.776812,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.153653,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.435214,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 2.390887,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.732848,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.043146,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044705,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "62d616a3dac3ecd55052fcc9247fcd1609e1695a",
+          "message": "Extract buildRestList, lookupGlobalLocked, and raiseUndefinedVariable helpers (#1047) (#1109)\n\nDeduplicate three patterns in the hot dispatch loop:\n\n- buildRestList: variadic rest-arg cons-list building (5 copies across\n  vm_dispatch.zig, vm.zig, vm_calls.zig → 1 pub fn + 5 callsites)\n- lookupGlobalLocked: global lookup with hygienic-prefix fallback and\n  shared lock (3 identical copies in call_global/tail_call_global → 1\n  inline fn)\n- raiseUndefinedVariable: \"undefined variable\" error with did-you-mean\n  suggestion (5 copies → 1 noinline fn)\n\nAlso marks raiseDeadNativeReturn as noinline to keep error-path code out\nof the instruction cache.\n\nThe finishFrameReturn helper (7 copies of the frame-return epilogue) was\nbenchmarked but dropped: extracting it changed the dispatch loop's code\nlayout enough to cause a 12% regression on fib(35) from instruction\ncache alignment effects, even though fib uses no tail calls. The other\nthree helpers pass the <3% benchmark gate.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-04T22:25:19+05:30",
+          "tree_id": "6983fbee4801444f18c7154355bbfa05fbfbbfd4",
+          "url": "https://github.com/kaappi/kaappi/commit/62d616a3dac3ecd55052fcc9247fcd1609e1695a"
+        },
+        "date": 1783185434449,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.418565,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.67086,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.905061,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.253515,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.012912,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.211742,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.476262,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.070575,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 12.559017,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.807379,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 9.994399,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.958083,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 8.295075,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.559001,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.043953,
             "unit": "seconds"
           }
         ]
