@@ -369,24 +369,9 @@ fn vectorToStringFn(args: []const Value) PrimitiveError!Value {
     const vec = types.toVector(args[0]);
     const len = vec.data.len;
 
-    var start: usize = 0;
-    var end: usize = len;
+    const range = try primitives.parseOptionalRange(args, 1, len, "vector->string");
 
-    if (args.len > 1) {
-        if (!types.isFixnum(args[1])) return primitives.typeError("vector->string", "exact non-negative integer", args[1]);
-        const s = types.toFixnum(args[1]);
-        if (s < 0 or @as(usize, @intCast(s)) > len) return primitives.typeError("vector->string", "valid index", args[1]);
-        start = @intCast(s);
-    }
-    if (args.len > 2) {
-        if (!types.isFixnum(args[2])) return primitives.typeError("vector->string", "exact non-negative integer", args[2]);
-        const e = types.toFixnum(args[2]);
-        if (e < 0 or @as(usize, @intCast(e)) > len) return primitives.typeError("vector->string", "valid index", args[2]);
-        end = @intCast(e);
-    }
-    if (start > end) return primitives.typeError("vector->string", "start <= end", args[1]);
-
-    const data = vec.data[start..end];
+    const data = vec.data[range.start..range.end];
 
     // Calculate UTF-8 length
     var utf8_len: usize = 0;
@@ -639,23 +624,9 @@ fn vectorSwapFn(args: []const Value) PrimitiveError!Value {
 fn vectorReverseBangFn(args: []const Value) PrimitiveError!Value {
     if (!types.isVector(args[0])) return primitives.typeError("vector-reverse!", "vector", args[0]);
     const vec = types.toVector(args[0]);
-    var start: usize = 0;
-    var end: usize = vec.data.len;
-    if (args.len > 1) {
-        if (!types.isFixnum(args[1])) return primitives.typeError("vector-reverse!", "exact non-negative integer", args[1]);
-        const s = types.toFixnum(args[1]);
-        if (s < 0) return primitives.typeError("vector-reverse!", "exact non-negative integer", args[1]);
-        start = @intCast(s);
-    }
-    if (args.len > 2) {
-        if (!types.isFixnum(args[2])) return primitives.typeError("vector-reverse!", "exact non-negative integer", args[2]);
-        const e = types.toFixnum(args[2]);
-        if (e < 0) return primitives.typeError("vector-reverse!", "exact non-negative integer", args[2]);
-        end = @intCast(e);
-    }
-    if (start > end or end > vec.data.len) return primitives.typeError("vector-reverse!", "valid index range", args[0]);
-    var lo = start;
-    var hi = end;
+    const range = try primitives.parseOptionalRange(args, 1, vec.data.len, "vector-reverse!");
+    var lo = range.start;
+    var hi = range.end;
     while (lo < hi) {
         hi -= 1;
         const tmp = vec.data[lo];
@@ -671,26 +642,12 @@ fn vectorReverseCopyFn(args: []const Value) PrimitiveError!Value {
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     if (!types.isVector(args[0])) return primitives.typeError("vector-reverse-copy", "vector", args[0]);
     const vec = types.toVector(args[0]);
-    var start: usize = 0;
-    var end: usize = vec.data.len;
-    if (args.len > 1) {
-        if (!types.isFixnum(args[1])) return primitives.typeError("vector-reverse-copy", "exact non-negative integer", args[1]);
-        const s = types.toFixnum(args[1]);
-        if (s < 0) return primitives.typeError("vector-reverse-copy", "exact non-negative integer", args[1]);
-        start = @intCast(s);
-    }
-    if (args.len > 2) {
-        if (!types.isFixnum(args[2])) return primitives.typeError("vector-reverse-copy", "exact non-negative integer", args[2]);
-        const e = types.toFixnum(args[2]);
-        if (e < 0) return primitives.typeError("vector-reverse-copy", "exact non-negative integer", args[2]);
-        end = @intCast(e);
-    }
-    if (start > end or end > vec.data.len) return primitives.typeError("vector-reverse-copy", "valid index range", args[0]);
-    const len = end - start;
+    const range = try primitives.parseOptionalRange(args, 1, vec.data.len, "vector-reverse-copy");
+    const len = range.end - range.start;
     const new_data = gc.allocator.alloc(Value, len) catch return PrimitiveError.OutOfMemory;
     defer gc.allocator.free(new_data);
     for (0..len) |i| {
-        new_data[i] = vec.data[end - 1 - i];
+        new_data[i] = vec.data[range.end - 1 - i];
     }
     return gc.allocVector(new_data) catch return PrimitiveError.OutOfMemory;
 }
