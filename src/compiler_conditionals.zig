@@ -5,6 +5,25 @@ const Value = types.Value;
 const Compiler = compiler_mod.Compiler;
 const CompileError = compiler_mod.CompileError;
 
+pub fn emitArrowCall(self: *Compiler, source_reg: u16, proc_expr: Value, dst: u16, is_tail: bool) CompileError!void {
+    const proc_reg = try self.allocReg();
+    const arg_reg = try self.allocReg();
+    try self.emitOp(.move);
+    try self.emitU16(arg_reg);
+    try self.emitU16(source_reg);
+    try self.compileExpr(proc_expr, proc_reg, false);
+    if (is_tail) try self.emitOp(.tail_call) else try self.emitOp(.call);
+    try self.emitU16(proc_reg);
+    try self.emit(1);
+    if (!is_tail) {
+        try self.emitOp(.move);
+        try self.emitU16(dst);
+        try self.emitU16(proc_reg);
+    }
+    self.freeReg(); // arg_reg
+    self.freeReg(); // proc_reg
+}
+
 // -- Conditional expression forms --
 
 pub fn compileAnd(self: *Compiler, args: Value, dst: u16, is_tail: bool) CompileError!void {
@@ -148,39 +167,14 @@ pub fn compileCond(self: *Compiler, args: Value, dst: u16, is_tail: bool) Compil
                 self.resolveLocal("=>") == null and
                 (try self.resolveUpvalue("=>")) == null)
             {
-                // (test => proc) -- call proc with test value
                 try self.emitOp(.jump_false);
                 try self.emitU16(dst);
                 const next_clause = self.currentOffset();
                 try self.emitI16(0);
 
-                // test value is in dst, compile proc and call it
                 const arrow_rest = types.cdr(clause_body);
                 if (!types.isPair(arrow_rest)) return CompileError.InvalidSyntax;
-                const proc_expr = types.car(arrow_rest);
-                const proc_reg = try self.allocReg();
-                const arg_reg = try self.allocReg();
-                // Save test value to arg position (proc_reg + 1)
-                try self.emitOp(.move);
-                try self.emitU16(arg_reg);
-                try self.emitU16(dst);
-                // Compile proc into proc_reg
-                try self.compileExpr(proc_expr, proc_reg, false);
-                // Call at proc_reg (arg already at proc_reg + 1)
-                if (is_tail) {
-                    try self.emitOp(.tail_call);
-                } else {
-                    try self.emitOp(.call);
-                }
-                try self.emitU16(proc_reg);
-                try self.emit(1);
-                if (!is_tail) {
-                    try self.emitOp(.move);
-                    try self.emitU16(dst);
-                    try self.emitU16(proc_reg);
-                }
-                self.freeReg(); // arg_reg
-                self.freeReg(); // proc_reg
+                try emitArrowCall(self, dst, types.car(arrow_rest), dst, is_tail);
 
                 try self.emitOp(.jump);
                 end_jumps.append(self.gc.allocator, self.currentOffset()) catch return CompileError.TooManyLocals;

@@ -3,9 +3,27 @@ const types = @import("types.zig");
 const memory = @import("memory.zig");
 const compiler_mod = @import("compiler.zig");
 const globals_mod = @import("globals.zig");
+const passthrough = @import("compiler_passthrough.zig");
 const Compiler = compiler_mod.Compiler;
 const CompileError = compiler_mod.CompileError;
 const Value = types.Value;
+pub fn emitClosureEpilogue(self: *Compiler, child: *Compiler, target_reg: u16) CompileError!void {
+    for (child.upvalues.items) |uv| {
+        if (uv.is_local) {
+            try self.markLocalBoxedBySlot(uv.index);
+        }
+    }
+    const func_val = types.makePointer(@ptrCast(child.func));
+    const idx = try self.addConstant(func_val);
+    try self.emitOp(.closure);
+    try self.emitU16(target_reg);
+    try self.emitU16(idx);
+    for (child.upvalues.items) |uv| {
+        try self.emit(if (uv.is_local) 1 else 0);
+        try self.emitU16(uv.index);
+    }
+}
+
 pub fn compileLambda(self: *Compiler, args: Value, dst: u16, name: ?[]const u8) CompileError!void {
     if (args == types.NIL) return CompileError.InvalidSyntax;
     const formals = types.car(args);
@@ -66,47 +84,37 @@ pub fn compileLambda(self: *Compiler, args: Value, dst: u16, name: ?[]const u8) 
     // Compile body as implicit begin
     try compileBody(&child, body);
 
-    // Populate debug_locals for the debugger
-    if (child.locals.items.len > 0) {
-        const debug = self.gc.allocator.alloc(types.DebugLocal, child.locals.items.len) catch null;
-        if (debug) |d| {
-            for (child.locals.items, 0..) |local, i| {
-                d[i] = .{ .name = local.name, .slot = local.slot };
-            }
-            child.func.debug_locals = d;
-        }
-    }
-
-    // Box parent locals that are captured as upvalues (enables shared mutation)
-    for (child.upvalues.items) |uv| {
-        if (uv.is_local) {
-            try self.markLocalBoxedBySlot(uv.index);
-        }
-    }
-
-    // Store child function as constant and emit closure instruction
-    const func_val = types.makePointer(@ptrCast(child.func));
-    const idx = try self.addConstant(func_val);
-    try self.emitOp(.closure);
-    try self.emitU16(dst);
-    try self.emitU16(idx);
-
-    // Emit upvalue descriptors
-    for (child.upvalues.items) |uv| {
-        try self.emit(if (uv.is_local) 1 else 0);
-        try self.emitU16(uv.index);
-    }
+    child.populateDebugLocals();
+    try emitClosureEpilogue(self, &child, dst);
 }
 
 pub fn compileBody(self: *Compiler, body: Value) CompileError!void {
     const saved_body_scope = self.in_body_scope;
     self.in_body_scope = true;
+    const last_dst = try compileBodyForms(self, body, .{});
+    self.in_body_scope = saved_body_scope;
+    try self.emitOp(.@"return");
+    try self.emitU16(last_dst);
+}
 
+pub const BodyOpts = struct {
+    dst: ?u16 = null,
+    is_tail: ?bool = null,
+    handle_define_syntax: bool = false,
+};
+
+/// Shared implementation for lambda bodies and let-form bodies.
+/// In lambda mode (dst=null): allocates per-expression registers, last is
+/// always tail. In let-body mode (dst set): reuses caller's register.
+pub fn compileBodyForms(self: *Compiler, body: Value, opts: BodyOpts) CompileError!u16 {
+    const allocates_regs = opts.dst == null;
+
+    // --- Globals prescan sentinel dance (#958) ---
+    // Plant VOID sentinels for define names so macro expansion can see
+    // sibling defs. Clean up still-VOID entries on exit.
     var prescan_names: std.ArrayList([]const u8) = .empty;
     defer prescan_names.deinit(self.gc.allocator);
     if (self.globals) |globals| {
-        // Structural puts into the (possibly shared) globals map — exclude
-        // SRFI-18 child-thread readers while sentinels are planted (#958).
         const glk = globals_mod.acquireGlobalsWrite(globals);
         defer globals_mod.releaseGlobalsWrite(glk);
         var scan = body;
@@ -152,12 +160,9 @@ pub fn compileBody(self: *Compiler, body: Value) CompileError!void {
         }
     }
 
-    // Collect leading internal defines and desugar to letrec* (R7RS 5.3.2).
-    // Internal definitions must be equivalent to letrec* — all defined names
-    // are visible to their own initializers (self-recursion) and to each
-    // other (mutual recursion).
+    // --- Collect leading internal defines (R7RS 5.3.2 letrec* desugar) ---
     const MAX_BODY_DEFS = 256;
-    var def_names: [MAX_BODY_DEFS][]const u8 = undefined;
+    var def_names_arr: [MAX_BODY_DEFS][]const u8 = undefined;
     var def_inits: [MAX_BODY_DEFS]Value = undefined;
     var def_slots: [MAX_BODY_DEFS]u16 = undefined;
     var def_count: usize = 0;
@@ -170,127 +175,146 @@ pub fn compileBody(self: *Compiler, body: Value) CompileError!void {
     const roots_base = self.gc.extra_roots.items.len;
     defer self.gc.extra_roots.shrinkRetainingCapacity(roots_base);
 
+    var macro_count: usize = 0;
+    const macro_mark = if (opts.handle_define_syntax) self.beginBodyMacroScope() else 0;
+    defer if (opts.handle_define_syntax) self.endBodyMacroScope(macro_mark) catch {};
+
     var current = body;
-    // Scan leading defines
     while (current != types.NIL and types.isPair(current)) {
         const expr = types.car(current);
         if (!types.isPair(expr)) break;
         const head = types.car(expr);
         if (!types.isSymbol(head)) break;
         const head_name = types.symbolName(head);
-        if (!std.mem.eql(u8, head_name, "define")) break;
+        if (std.mem.eql(u8, head_name, "define")) {
+            const def_args = types.cdr(expr);
+            if (def_args == types.NIL or !types.isPair(def_args)) break;
+            const target = types.car(def_args);
+            const def_rest = types.cdr(def_args);
 
-        const def_args = types.cdr(expr);
-        if (def_args == types.NIL or !types.isPair(def_args)) break;
-        const target = types.car(def_args);
-        const def_rest = types.cdr(def_args);
-
-        if (types.isSymbol(target)) {
-            // (define x expr)
-            if (def_rest == types.NIL or !types.isPair(def_rest)) break;
-            if (def_count >= MAX_BODY_DEFS) return CompileError.TooManyLocals;
-            def_names[def_count] = types.symbolName(target);
-            def_inits[def_count] = types.car(def_rest);
-            def_count += 1;
-        } else if (types.isPair(target)) {
-            // (define (name args...) body) => lambda
-            const fn_name = types.car(target);
-            if (!types.isSymbol(fn_name)) break;
-            if (def_count >= MAX_BODY_DEFS) return CompileError.TooManyLocals;
-            def_names[def_count] = types.symbolName(fn_name);
-            // Build (lambda (args...) body...) as init expression
-            const param_formals = types.cdr(target);
-            const lambda_sym = self.gc.allocSymbol("lambda") catch return CompileError.OutOfMemory;
-            {
-                var lambda_args = self.gc.allocPair(param_formals, def_rest) catch return CompileError.OutOfMemory;
-                self.gc.pushRoot(&lambda_args) catch return CompileError.OutOfMemory;
-                defer self.gc.popRoot();
-                def_inits[def_count] = self.gc.allocPair(lambda_sym, lambda_args) catch return CompileError.OutOfMemory;
+            if (types.isSymbol(target)) {
+                if (def_rest == types.NIL or !types.isPair(def_rest)) break;
+                if (def_count >= MAX_BODY_DEFS) return CompileError.TooManyLocals;
+                def_names_arr[def_count] = types.symbolName(target);
+                def_inits[def_count] = types.car(def_rest);
+                def_count += 1;
+            } else if (types.isPair(target)) {
+                const fn_name = types.car(target);
+                if (!types.isSymbol(fn_name)) break;
+                if (def_count >= MAX_BODY_DEFS) return CompileError.TooManyLocals;
+                def_names_arr[def_count] = types.symbolName(fn_name);
+                const param_formals = types.cdr(target);
+                const lambda_sym = self.gc.allocSymbol("lambda") catch return CompileError.OutOfMemory;
+                {
+                    var lambda_args = self.gc.allocPair(param_formals, def_rest) catch return CompileError.OutOfMemory;
+                    self.gc.pushRoot(&lambda_args) catch return CompileError.OutOfMemory;
+                    defer self.gc.popRoot();
+                    def_inits[def_count] = self.gc.allocPair(lambda_sym, lambda_args) catch return CompileError.OutOfMemory;
+                }
+                self.gc.extra_roots.append(self.gc.allocator, def_inits[def_count]) catch return CompileError.OutOfMemory;
+                def_count += 1;
+            } else {
+                break;
             }
-            self.gc.extra_roots.append(self.gc.allocator, def_inits[def_count]) catch return CompileError.OutOfMemory;
-            def_count += 1;
+        } else if (opts.handle_define_syntax and std.mem.eql(u8, head_name, "define-syntax")) {
+            const ds_args = types.cdr(expr);
+            if (ds_args == types.NIL or !types.isPair(ds_args)) break;
+            const keyword = types.car(ds_args);
+            if (!types.isSymbol(keyword)) break;
+            const ds_rest = types.cdr(ds_args);
+            if (ds_rest == types.NIL or !types.isPair(ds_rest)) break;
+            const transformer_spec = types.car(ds_rest);
+
+            const transformer = passthrough.parseSyntaxRules(self, transformer_spec) catch break;
+            const name = types.symbolName(keyword);
+
+            try self.recordBodyMacro(name);
+            macro_count += 1;
+
+            const tx = types.toObject(transformer).as(types.Transformer);
+            if (self.lib_env) |env| {
+                tx.def_env = env;
+                tx.def_env_val = self.lib_env_val;
+            }
+            self.macros.put(name, transformer) catch return CompileError.OutOfMemory;
         } else {
             break;
         }
         current = types.cdr(current);
     }
-    // `current` now points to the remaining non-define body expressions.
 
-    var last_dst: u16 = 0;
+    // --- Compile defines + remaining body ---
+    var last_dst: u16 = opts.dst orelse 0;
 
     if (def_count > 0) {
-        // Compile as letrec*: pre-allocate all slots, then evaluate inits.
         self.beginScope();
 
-        // Phase 1: allocate locals initialized to void, box for closure capture
         for (0..def_count) |i| {
             const slot = try self.allocReg();
             def_slots[i] = slot;
             try self.emitOp(.load_void);
             try self.emitU16(slot);
-            try self.addLocal(def_names[i], slot);
+            try self.addLocal(def_names_arr[i], slot);
             try self.markLocalBoxedBySlot(slot);
         }
 
-        // Phase 2: evaluate initializers (all names are now visible)
         for (0..def_count) |i| {
-            last_dst = try self.allocReg();
-            try self.compileExpr(def_inits[i], last_dst, false);
-            try self.emitOp(.set_box_local);
-            try self.emitU16(def_slots[i]);
-            try self.emitU16(last_dst);
-            self.freeReg();
+            if (allocates_regs) {
+                last_dst = try self.allocReg();
+                try self.compileExpr(def_inits[i], last_dst, false);
+                try self.emitOp(.set_box_local);
+                try self.emitU16(def_slots[i]);
+                try self.emitU16(last_dst);
+                self.freeReg();
+            } else {
+                try self.compileExpr(def_inits[i], last_dst, false);
+                try self.emitOp(.set_box_local);
+                try self.emitU16(def_slots[i]);
+                try self.emitU16(last_dst);
+            }
         }
 
-        // Phase 3: compile remaining body expressions
-        if (current == types.NIL) {
-            // Body was all defines — return void
+        if (current == types.NIL and allocates_regs) {
             last_dst = try self.allocReg();
             try self.emitOp(.load_void);
             try self.emitU16(last_dst);
         } else {
-            while (current != types.NIL) {
-                if (!types.isPair(current)) return CompileError.InvalidSyntax;
-                const expr = types.car(current);
-                const rest = types.cdr(current);
-                last_dst = try self.allocReg();
-                if (rest == types.NIL) {
-                    try self.compileExpr(expr, last_dst, true);
-                } else {
-                    const saved_next = self.next_register;
-                    try self.compileExpr(expr, last_dst, false);
-                    if (self.next_register == saved_next) {
-                        self.freeReg();
-                    }
-                }
-                current = rest;
-            }
+            try compileExprSequence(self, &current, &last_dst, allocates_regs, opts.is_tail);
         }
 
         self.endScope();
-    } else {
-        // No internal defines — compile body expressions directly
-        while (current != types.NIL) {
-            if (!types.isPair(current)) return CompileError.InvalidSyntax;
-            const expr = types.car(current);
-            const rest = types.cdr(current);
-            last_dst = try self.allocReg();
-            if (rest == types.NIL) {
-                try self.compileExpr(expr, last_dst, true);
+    } else if (current != types.NIL) {
+        try compileExprSequence(self, &current, &last_dst, allocates_regs, opts.is_tail);
+    } else if (macro_count > 0 and !allocates_regs) {
+        try self.emitOp(.load_void);
+        try self.emitU16(last_dst);
+    }
+
+    return last_dst;
+}
+
+fn compileExprSequence(self: *Compiler, current: *Value, last_dst: *u16, allocates_regs: bool, caller_tail: ?bool) CompileError!void {
+    while (current.* != types.NIL) {
+        if (!types.isPair(current.*)) return CompileError.InvalidSyntax;
+        const expr = types.car(current.*);
+        current.* = types.cdr(current.*);
+        const is_last = current.* == types.NIL;
+        if (allocates_regs) {
+            last_dst.* = try self.allocReg();
+            if (is_last) {
+                try self.compileExpr(expr, last_dst.*, true);
             } else {
                 const saved_next = self.next_register;
-                try self.compileExpr(expr, last_dst, false);
+                try self.compileExpr(expr, last_dst.*, false);
                 if (self.next_register == saved_next) {
                     self.freeReg();
                 }
             }
-            current = rest;
+        } else {
+            const tail = (caller_tail orelse false) and is_last;
+            try self.compileExpr(expr, last_dst.*, tail);
         }
     }
-
-    self.in_body_scope = saved_body_scope;
-    try self.emitOp(.@"return");
-    try self.emitU16(last_dst);
 }
 
 pub fn compileDefine(self: *Compiler, args: Value, dst: u16) CompileError!void {
@@ -616,23 +640,8 @@ pub fn compileDelay(self: *Compiler, args: Value, dst: u16) CompileError!void {
     try child.emitOp(.@"return");
     try child.emitU16(body_dst);
 
-    // Box parent locals that are captured as upvalues (enables shared mutation)
-    for (child.upvalues.items) |uv| {
-        if (uv.is_local) try self.markLocalBoxedBySlot(uv.index);
-    }
-
-    // Store the lambda as a closure constant and emit closure + upvalue descriptors
-    const func_val = types.makePointer(@ptrCast(child.func));
-    const closure_idx = try self.addConstant(func_val);
     const thunk_reg = try self.allocReg();
-    try self.emitOp(.closure);
-    try self.emitU16(thunk_reg);
-    try self.emitU16(closure_idx);
-
-    for (child.upvalues.items) |uv| {
-        try self.emit(if (uv.is_local) 1 else 0);
-        try self.emitU16(uv.index);
-    }
+    try emitClosureEpilogue(self, &child, thunk_reg);
 
     // Call %make-promise-lazy(thunk) — use fresh registers to avoid clobbering
     const sym = self.gc.allocSymbol("%make-promise-lazy") catch return CompileError.OutOfMemory;
