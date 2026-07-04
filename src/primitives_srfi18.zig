@@ -15,8 +15,47 @@ const ChildThreadResources = struct {
     exception: ?Value = null,
 };
 
-var child_resources: std.AutoHashMap(usize, ChildThreadResources) = std.AutoHashMap(usize, ChildThreadResources).init(std.heap.page_allocator);
-var child_resources_mutex = std.atomic.Mutex.unlocked;
+// Entries are freed only when a thread is joined (freeChildResources called
+// from reapOsThread). Threads that complete but are never joined leak their
+// child VM and GC — the result must survive until the parent deep-copies it,
+// and automatic cleanup would race with that copy.
+const ChildRegistry = struct {
+    map: std.AutoHashMap(usize, ChildThreadResources),
+    mutex: std.atomic.Mutex,
+
+    fn put(self: *ChildRegistry, key: usize, res: ChildThreadResources) !void {
+        memory.spinLock(&self.mutex);
+        defer memory.spinUnlock(&self.mutex);
+        try self.map.put(key, res);
+    }
+
+    fn storeResult(self: *ChildRegistry, key: usize, result: Value, exception: ?Value) void {
+        memory.spinLock(&self.mutex);
+        defer memory.spinUnlock(&self.mutex);
+        if (self.map.getPtr(key)) |entry| {
+            entry.result = result;
+            entry.exception = exception;
+        }
+    }
+
+    fn get(self: *ChildRegistry, key: usize) ?ChildThreadResources {
+        memory.spinLock(&self.mutex);
+        defer memory.spinUnlock(&self.mutex);
+        return self.map.get(key);
+    }
+
+    fn fetchRemove(self: *ChildRegistry, key: usize) ?ChildThreadResources {
+        memory.spinLock(&self.mutex);
+        defer memory.spinUnlock(&self.mutex);
+        if (self.map.fetchRemove(key)) |kv| return kv.value;
+        return null;
+    }
+};
+
+var child_registry: ChildRegistry = .{
+    .map = std.AutoHashMap(usize, ChildThreadResources).init(std.heap.page_allocator),
+    .mutex = .unlocked,
+};
 
 pub fn registerSrfi18(vm: *vm_mod.VM) !void {
     // Thread
@@ -241,7 +280,7 @@ fn threadStartFn(args: []const Value) PrimitiveError!Value {
 fn threadEntryFn(fiber: *fiber_mod.Fiber, allocator: std.mem.Allocator, parent_gc: *memory.GC, parent_vm: *vm_mod.VM) void {
     _ = parent_gc;
     const child_gc = allocator.create(memory.GC) catch {
-        fiber.status = .errored;
+        @atomicStore(fiber_mod.FiberStatus, &fiber.status, .errored, .release);
         return;
     };
     child_gc.* = memory.GC.initForThread(allocator, parent_vm.gc);
@@ -249,7 +288,7 @@ fn threadEntryFn(fiber: *fiber_mod.Fiber, allocator: std.mem.Allocator, parent_g
     const child_vm = allocator.create(vm_mod.VM) catch {
         child_gc.deinit();
         allocator.destroy(child_gc);
-        fiber.status = .errored;
+        @atomicStore(fiber_mod.FiberStatus, &fiber.status, .errored, .release);
         return;
     };
     @memset(std.mem.asBytes(child_vm), 0);
@@ -257,7 +296,7 @@ fn threadEntryFn(fiber: *fiber_mod.Fiber, allocator: std.mem.Allocator, parent_g
         allocator.destroy(child_vm);
         child_gc.deinit();
         allocator.destroy(child_gc);
-        fiber.status = .errored;
+        @atomicStore(fiber_mod.FiberStatus, &fiber.status, .errored, .release);
         return;
     };
 
@@ -268,36 +307,32 @@ fn threadEntryFn(fiber: *fiber_mod.Fiber, allocator: std.mem.Allocator, parent_g
     // loop safepoint polls this flag and unwinds with VMError.Terminated.
     child_vm.terminate_flag = &fiber.terminated;
 
-    {
-        while (!child_resources_mutex.tryLock()) {}
-        defer child_resources_mutex.unlock();
-        child_resources.put(@intFromPtr(fiber), .{ .child_gc = child_gc, .child_vm = child_vm }) catch {
-            fiber.status = .errored;
-            fiber.result = types.VOID;
-            child_vm.deinit();
-            allocator.destroy(child_vm);
-            child_gc.deinit();
-            allocator.destroy(child_gc);
-            return;
-        };
-    }
+    child_registry.put(@intFromPtr(fiber), .{ .child_gc = child_gc, .child_vm = child_vm }) catch {
+        fiber.result = types.VOID;
+        @atomicStore(fiber_mod.FiberStatus, &fiber.status, .errored, .release);
+        child_vm.deinit();
+        allocator.destroy(child_vm);
+        child_gc.deinit();
+        allocator.destroy(child_gc);
+        return;
+    };
 
     const child_thunk = child_gc.deepCopy(fiber.thunk) catch |err| {
-        fiber.status = .errored;
         if (err == error.UncopyableType) {
             const exc = child_gc.allocErrorObject(
                 child_gc.allocString("thread thunk contains uncopyable type (port, continuation, etc.)") catch types.VOID,
                 types.NIL,
             ) catch null;
-            storeChildResult(@intFromPtr(fiber), types.VOID, exc);
+            child_registry.storeResult(@intFromPtr(fiber), types.VOID, exc);
         }
+        @atomicStore(fiber_mod.FiberStatus, &fiber.status, .errored, .release);
         return;
     };
 
     const result = child_vm.callWithArgs(child_thunk, &.{}) catch {
         if (child_vm.current_fiber) |cf| abandonFiberMutexes(child_gc, cf, child_vm.scheduler);
-        fiber.status = .errored;
-        storeChildResult(@intFromPtr(fiber), types.VOID, child_vm.current_exception);
+        child_registry.storeResult(@intFromPtr(fiber), types.VOID, child_vm.current_exception);
+        @atomicStore(fiber_mod.FiberStatus, &fiber.status, .errored, .release);
         return;
     };
 
@@ -305,17 +340,8 @@ fn threadEntryFn(fiber: *fiber_mod.Fiber, allocator: std.mem.Allocator, parent_g
 
     // Store result in child_resources (not on the fiber) so the parent
     // GC never traverses a child-heap pointer (Race C).
-    storeChildResult(@intFromPtr(fiber), result, null);
-    fiber.status = .completed;
-}
-
-fn storeChildResult(fiber_key: usize, result: Value, exception: ?Value) void {
-    while (!child_resources_mutex.tryLock()) {}
-    defer child_resources_mutex.unlock();
-    if (child_resources.getPtr(fiber_key)) |entry| {
-        entry.result = result;
-        entry.exception = exception;
-    }
+    child_registry.storeResult(@intFromPtr(fiber), result, null);
+    @atomicStore(fiber_mod.FiberStatus, &fiber.status, .completed, .release);
 }
 
 fn threadYieldFn(_: []const Value) PrimitiveError!Value {
@@ -376,8 +402,9 @@ fn threadTerminateFn(args: []const Value) PrimitiveError!Value {
 
     if (memory.gc_instance) |gc| abandonFiberMutexes(gc, fiber, ctx.sched);
 
-    if (fiber.status != .completed and fiber.status != .errored) {
-        fiber.status = .errored;
+    const status = @atomicLoad(fiber_mod.FiberStatus, &fiber.status, .acquire);
+    if (status != .completed and status != .errored) {
+        @atomicStore(fiber_mod.FiberStatus, &fiber.status, .errored, .release);
         ctx.sched.wakeWaiters(fiber);
     }
 
@@ -442,7 +469,7 @@ fn threadJoinFn(args: []const Value) PrimitiveError!Value {
     }
 
     // Never-started thread: poll until started+finished or timeout
-    if (target.status == .created) {
+    if (@atomicLoad(fiber_mod.FiberStatus, &target.status, .acquire) == .created) {
         while (@atomicLoad(fiber_mod.FiberStatus, &target.status, .acquire) != .completed and
             @atomicLoad(fiber_mod.FiberStatus, &target.status, .acquire) != .errored)
         {
@@ -460,7 +487,8 @@ fn threadJoinFn(args: []const Value) PrimitiveError!Value {
     }
 
     // Fiber path (cooperative scheduling)
-    if (target.status != .completed and target.status != .errored) {
+    const join_status = @atomicLoad(fiber_mod.FiberStatus, &target.status, .acquire);
+    if (join_status != .completed and join_status != .errored) {
         const ctx = try ensureScheduler();
         const me = ctx.vm.current_fiber orelse return PrimitiveError.OutOfMemory;
 
@@ -505,28 +533,22 @@ fn reapOsThread(target: *fiber_mod.Fiber, fiber_val: Value) PrimitiveError!Value
     }
     const fiber_key = @intFromPtr(target);
 
-    // Retrieve result/exception from child_resources (stored there to
+    // Retrieve result/exception from child_registry (stored there to
     // avoid the parent GC traversing child-heap pointers via the fiber).
-    {
-        while (!child_resources_mutex.tryLock()) {}
-        const entry = child_resources.get(fiber_key);
-        child_resources_mutex.unlock();
-
-        if (entry) |res| {
-            if (target.status == .completed and res.result != types.VOID) {
-                target.result = gc.deepCopy(res.result) catch |err| {
-                    target.result = types.VOID;
-                    freeChildResources(fiber_key);
-                    if (err == error.UncopyableType) {
-                        return raiseError(.general, "thread-join!: result contains uncopyable type (port, continuation, etc.)", types.VOID);
-                    }
-                    return PrimitiveError.OutOfMemory;
-                };
-            }
-            if (target.status == .errored) {
-                if (res.exception) |exc| {
-                    target.current_exception = gc.deepCopy(exc) catch null;
+    if (child_registry.get(fiber_key)) |res| {
+        if (target.status == .completed and res.result != types.VOID) {
+            target.result = gc.deepCopy(res.result) catch |err| {
+                target.result = types.VOID;
+                freeChildResources(fiber_key);
+                if (err == error.UncopyableType) {
+                    return raiseError(.general, "thread-join!: result contains uncopyable type (port, continuation, etc.)", types.VOID);
                 }
+                return PrimitiveError.OutOfMemory;
+            };
+        }
+        if (target.status == .errored) {
+            if (res.exception) |exc| {
+                target.current_exception = gc.deepCopy(exc) catch null;
             }
         }
     }
@@ -535,16 +557,12 @@ fn reapOsThread(target: *fiber_mod.Fiber, fiber_val: Value) PrimitiveError!Value
 }
 
 fn freeChildResources(fiber_key: usize) void {
-    while (!child_resources_mutex.tryLock()) {}
-    const entry = child_resources.fetchRemove(fiber_key);
-    child_resources_mutex.unlock();
-
-    if (entry) |kv| {
-        const allocator = kv.value.child_gc.allocator;
-        kv.value.child_vm.deinit();
-        allocator.destroy(kv.value.child_vm);
-        kv.value.child_gc.deinit();
-        allocator.destroy(kv.value.child_gc);
+    if (child_registry.fetchRemove(fiber_key)) |res| {
+        const allocator = res.child_gc.allocator;
+        res.child_vm.deinit();
+        allocator.destroy(res.child_vm);
+        res.child_gc.deinit();
+        allocator.destroy(res.child_gc);
     }
 }
 
