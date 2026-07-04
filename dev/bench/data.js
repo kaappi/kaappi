@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783163867082,
+  "lastUpdate": 1783164106701,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "f1edcbf7ca392d56111577f9ccb82d8853289558",
-          "message": "Fix use-after-free of frame pointer after re-entrant natives grow the frames array (#927)\n\nrunUntil captures `frame` as a pointer into self.frames at the top of\neach dispatch iteration. Handlers for tail_call, tail_apply, and\ntail_call_global invoke code that can re-enter the VM — natives that\ncall Scheme callbacks (map, sort, apply, ...), parameter converters via\ncallWithArgs, FFI callbacks — and afterwards read frame.dst. Re-entry\npushes a frame via ensureFrameCapacity, which on growth allocates a new\nframes array and frees the old one, leaving `frame` dangling. Depending\non heap reuse the stale read yielded a spurious InvalidBytecode error or\nsilently wrote the native's return value into the wrong caller register.\n\nRead frame.dst into a local before any potentially re-entrant call, and\nin the .return handler copy the caller's saved_wind_count/base instead\nof holding a pointer across the dynamic-wind after-thunk calls.\n\nThe regression tests shrink the frames array to 8 entries and scan a\ncontiguous nesting-depth range, which guarantees the re-entrant push\nlands exactly on a capacity boundary and forces the reallocation at the\nvulnerable moment.\n\nFixes #817\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-03T10:04:57+05:30",
-          "tree_id": "a7b5db7f4c291e93dc2f8fa364e89bbd5d16bebe",
-          "url": "https://github.com/kaappi/kaappi/commit/f1edcbf7ca392d56111577f9ccb82d8853289558"
-        },
-        "date": 1783054250687,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.900831,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.853081,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.789475,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.737369,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.007406,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.032395,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.433241,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.067071,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 4.019269,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.622101,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.163656,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.406742,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 2.264057,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 0.983262,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.039286,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.043135,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "959ee717fcadf54a15cfe44c60e1342d407eee6a",
+          "message": "Add debug-checked Object.as(), typed accessors, and box helpers (#1051) (#1090)\n\nObject.as(T) is used ~468 times with no tag verification. Add a comptime\nexpected-tag map so debug builds assert the tag matches before casting\n(zero cost in ReleaseSafe/Fast). Add toPair/toClosure/toNativeFn/\ntoContinuation accessors that the four hottest types were missing. Add\nisBox/boxGet/boxSet helpers for the upvalue box convention (pair whose\ncdr is VOID) and replace the 6 open-coded patterns in vm_dispatch.zig.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-04T16:25:13+05:30",
+          "tree_id": "cfdaba620dcb370bb2e71e8c1d37bc4521fb4076",
+          "url": "https://github.com/kaappi/kaappi/commit/959ee717fcadf54a15cfe44c60e1342d407eee6a"
+        },
+        "date": 1783164106154,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.087832,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.949804,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.964974,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.322898,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.013985,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.234257,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.480527,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.068598,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 13.450713,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.843726,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 11.019304,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 1.070929,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 9.152368,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.870561,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044301,
             "unit": "seconds"
           }
         ]
