@@ -42,6 +42,7 @@ pub const ir_mod = @import("ir.zig");
 pub const ir_emitter = @import("ir_emitter.zig");
 pub const llvm_emit = @import("llvm_emit.zig");
 pub const native_compiler = @import("native_compiler.zig");
+pub const toplevel_driver = @import("toplevel_driver.zig");
 
 pub const version = @import("build_options").version;
 
@@ -132,34 +133,6 @@ fn printSingleResult(allocator: std.mem.Allocator, value: types.Value) void {
     defer allocator.free(s);
     writeStdout(s);
     writeStdout("\n");
-}
-
-fn printSourceSnippet(source: []const u8, line: u32) void {
-    if (line == 0 or source.len == 0) return;
-    var current_line: u32 = 1;
-    var line_start: usize = 0;
-    for (source, 0..) |c, i| {
-        if (current_line == line) {
-            var line_end = i;
-            while (line_end < source.len and source[line_end] != '\n') : (line_end += 1) {}
-            const snippet = source[line_start..line_end];
-            if (snippet.len > 0) {
-                writeStderr("    ");
-                writeStderr(snippet);
-                writeStderr("\n");
-            }
-            return;
-        }
-        if (c == '\n') {
-            current_line += 1;
-            line_start = i + 1;
-        }
-    }
-    if (current_line == line and line_start < source.len) {
-        writeStderr("    ");
-        writeStderr(source[line_start..]);
-        writeStderr("\n");
-    }
 }
 
 fn readFileContents(allocator: std.mem.Allocator, path: []const u8) ![]u8 {
@@ -806,39 +779,10 @@ fn runFile(vm: *vm_mod.VM, path: []const u8) !void {
                 const result = vm.execute(func) catch |err| {
                     vm.gc.popRoot();
                     script_had_error = true;
-                    const detail = vm.getErrorDetail();
-                    const err_line = vm.last_error_line;
-                    const err_source = vm.last_error_source orelse path;
-                    if (detail.len > 0) {
-                        var errbuf: [512]u8 = undefined;
-                        const s = if (err_line > 0)
-                            std.fmt.bufPrint(&errbuf, "{s}:{d}: error: {s}\n", .{ err_source, err_line, detail }) catch "runtime error\n"
-                        else
-                            std.fmt.bufPrint(&errbuf, "{s}: error: {s}\n", .{ err_source, detail }) catch "runtime error\n";
-                        writeStderr(s);
-                    } else {
-                        var errbuf: [512]u8 = undefined;
-                        const s = if (err_line > 0)
-                            std.fmt.bufPrint(&errbuf, "{s}:{d}: runtime error: {}\n", .{ err_source, err_line, err }) catch "runtime error\n"
-                        else
-                            std.fmt.bufPrint(&errbuf, "{s}: runtime error: {}\n", .{ err_source, err }) catch "runtime error\n";
-                        writeStderr(s);
-                    }
-                    if (err_line > 0) printSourceSnippet(source, err_line);
-                    const trace = vm.getLastStackTrace();
-                    if (trace.len > 1) {
-                        for (trace[1..]) |frame| {
-                            var tbuf: [256]u8 = undefined;
-                            if (frame.name) |name| {
-                                const ts = std.fmt.bufPrint(&tbuf, "  in {s} ({s}:{d})\n", .{ name, frame.source orelse "?", frame.line }) catch continue;
-                                writeStderr(ts);
-                            } else if (frame.line > 0) {
-                                const ts = std.fmt.bufPrint(&tbuf, "  called from {s}:{d}\n", .{ frame.source orelse "?", frame.line }) catch continue;
-                                writeStderr(ts);
-                            }
-                        }
-                    }
-                    vm.last_error_detail_len = 0;
+                    const loc = toplevel_driver.vmErrorLocation(vm, path, 0);
+                    toplevel_driver.reportRuntimeError(vm, err, loc);
+                    if (loc.line > 0) toplevel_driver.printSourceSnippet(source, loc.line);
+                    toplevel_driver.printStackTrace(vm);
                     continue;
                 };
                 vm.gc.popRoot();
@@ -859,24 +803,18 @@ fn runFile(vm: *vm_mod.VM, path: []const u8) !void {
 
     while (r.hasMore() catch |err| {
         const lc = r.getLineCol();
-        var errbuf: [256]u8 = undefined;
-        const s = std.fmt.bufPrint(&errbuf, "{s}:{d}:{d}: read error: {}\n", .{ path, lc.line, lc.col, err }) catch "read error\n";
-        writeStderr(s);
+        toplevel_driver.reportReadError(path, lc.line, lc.col, err);
         script_had_error = true;
         return;
     }) {
         const datum_lc = r.getLineCol();
         var expr = r.readDatum() catch |err| {
             const lc = r.getLineCol();
-            var errbuf: [256]u8 = undefined;
-            const s = std.fmt.bufPrint(&errbuf, "{s}:{d}:{d}: read error: {}\n", .{ path, lc.line, lc.col, err }) catch "read error\n";
-            writeStderr(s);
+            toplevel_driver.reportReadError(path, lc.line, lc.col, err);
             script_had_error = true;
             return;
         };
 
-        // Root the form: evaluating it (e.g. an import that loads a library)
-        // can trigger GC, which would otherwise reclaim the AST mid-walk.
         vm.gc.pushRoot(&expr) catch {
             writeStderr("error: out of memory while rooting expression\n");
             script_had_error = true;
@@ -884,22 +822,11 @@ fn runFile(vm: *vm_mod.VM, path: []const u8) !void {
         };
         defer vm.gc.popRoot();
 
-        // Check for special top-level forms (import, define-library)
         if (vm.handleTopLevelForm(expr)) |top_result| {
             has_imports = true;
             const result = top_result catch |err| {
                 script_had_error = true;
-                const detail = vm.getErrorDetail();
-                if (detail.len > 0) {
-                    var errbuf: [256]u8 = undefined;
-                    const s = std.fmt.bufPrint(&errbuf, "{s}:{d}: error: {s}\n", .{ path, datum_lc.line, detail }) catch "runtime error\n";
-                    writeStderr(s);
-                } else {
-                    var errbuf: [256]u8 = undefined;
-                    const s = std.fmt.bufPrint(&errbuf, "{s}:{d}: runtime error: {}\n", .{ path, datum_lc.line, err }) catch "runtime error\n";
-                    writeStderr(s);
-                }
-                vm.last_error_detail_len = 0;
+                toplevel_driver.reportRuntimeError(vm, err, .{ .source = path, .line = datum_lc.line });
                 continue;
             };
             printTopLevelResult(allocator, result);
@@ -907,55 +834,24 @@ fn runFile(vm: *vm_mod.VM, path: []const u8) !void {
         }
 
         const func = compiler.compileExpressionWithMacrosAt(vm.gc, expr, &vm.macros, vm.globals, datum_lc.line, path) catch |err| {
-            var errbuf: [256]u8 = undefined;
-            const s = std.fmt.bufPrint(&errbuf, "{s}:{d}: compile error: {}\n", .{ path, datum_lc.line, err }) catch "compile error\n";
-            writeStderr(s);
+            toplevel_driver.reportCompileError(path, datum_lc.line, err);
             script_had_error = true;
             continue;
         };
 
-        // Collect for caching. Keep each collected function rooted for the rest
-        // of the run: the .sbc cache writer walks compiled_funcs at the end, so
-        // these pointers must survive GC triggered while executing later forms.
-        // (A plain ArrayList of *Function is not a GC root.)
         compiled_funcs.append(allocator, func) catch return error.OutOfMemory;
         vm.gc.extra_roots.append(allocator, types.makePointer(@ptrCast(func))) catch return error.OutOfMemory;
 
-        // Root the function to prevent GC from collecting it before execute wraps it in a closure
         var func_val = types.makePointer(@ptrCast(func));
         vm.gc.pushRoot(&func_val) catch return error.OutOfMemory;
 
         const result = vm.execute(func) catch |err| {
             vm.gc.popRoot();
             script_had_error = true;
-            const detail = vm.getErrorDetail();
-            const err_line = if (vm.last_error_line > 0) vm.last_error_line else datum_lc.line;
-            const err_source = vm.last_error_source orelse path;
-            if (detail.len > 0) {
-                var errbuf: [512]u8 = undefined;
-                const s = std.fmt.bufPrint(&errbuf, "{s}:{d}: error: {s}\n", .{ err_source, err_line, detail }) catch "runtime error\n";
-                writeStderr(s);
-            } else {
-                var errbuf: [512]u8 = undefined;
-                const s = std.fmt.bufPrint(&errbuf, "{s}:{d}: runtime error: {}\n", .{ err_source, err_line, err }) catch "runtime error\n";
-                writeStderr(s);
-            }
-            printSourceSnippet(source, err_line);
-            // Print stack trace for file execution
-            const trace = vm.getLastStackTrace();
-            if (trace.len > 1) {
-                for (trace[1..]) |frame| {
-                    var tbuf: [256]u8 = undefined;
-                    if (frame.name) |name| {
-                        const ts = std.fmt.bufPrint(&tbuf, "  in {s} ({s}:{d})\n", .{ name, frame.source orelse "?", frame.line }) catch continue;
-                        writeStderr(ts);
-                    } else if (frame.line > 0) {
-                        const ts = std.fmt.bufPrint(&tbuf, "  called from {s}:{d}\n", .{ frame.source orelse "?", frame.line }) catch continue;
-                        writeStderr(ts);
-                    }
-                }
-            }
-            vm.last_error_detail_len = 0;
+            const loc = toplevel_driver.vmErrorLocation(vm, path, datum_lc.line);
+            toplevel_driver.reportRuntimeError(vm, err, loc);
+            toplevel_driver.printSourceSnippet(source, loc.line);
+            toplevel_driver.printStackTrace(vm);
             continue;
         };
         vm.gc.popRoot();
@@ -986,23 +882,17 @@ fn runStdin(vm: *vm_mod.VM) !void {
 
     while (r.hasMore() catch |err| {
         const lc = r.getLineCol();
-        var errbuf: [256]u8 = undefined;
-        const s = std.fmt.bufPrint(&errbuf, "<stdin>:{d}:{d}: read error: {}\n", .{ lc.line, lc.col, err }) catch "read error\n";
-        writeStderr(s);
+        toplevel_driver.reportReadError("<stdin>", lc.line, lc.col, err);
         script_had_error = true;
         return;
     }) {
         var expr = r.readDatum() catch |err| {
             const lc = r.getLineCol();
-            var errbuf: [256]u8 = undefined;
-            const s = std.fmt.bufPrint(&errbuf, "<stdin>:{d}:{d}: read error: {}\n", .{ lc.line, lc.col, err }) catch "read error\n";
-            writeStderr(s);
+            toplevel_driver.reportReadError("<stdin>", lc.line, lc.col, err);
             script_had_error = true;
             return;
         };
 
-        // Root the form: evaluating it (e.g. an import that loads a library)
-        // can trigger GC, which would otherwise reclaim the AST mid-walk.
         vm.gc.pushRoot(&expr) catch {
             writeStderr("error: out of memory while rooting expression\n");
             script_had_error = true;
@@ -1013,17 +903,7 @@ fn runStdin(vm: *vm_mod.VM) !void {
         if (vm.handleTopLevelForm(expr)) |top_result| {
             const result = top_result catch |err| {
                 script_had_error = true;
-                const detail = vm.getErrorDetail();
-                if (detail.len > 0) {
-                    writeStderr("error: ");
-                    writeStderr(detail);
-                    writeStderr("\n");
-                } else {
-                    var errbuf: [256]u8 = undefined;
-                    const s = std.fmt.bufPrint(&errbuf, "runtime error: {}\n", .{err}) catch "runtime error\n";
-                    writeStderr(s);
-                }
-                vm.last_error_detail_len = 0;
+                toplevel_driver.reportRuntimeError(vm, err, null);
                 continue;
             };
             printTopLevelResult(allocator, result);
@@ -1032,9 +912,7 @@ fn runStdin(vm: *vm_mod.VM) !void {
 
         const func = compiler.compileExpressionWithMacrosAt(vm.gc, expr, &vm.macros, vm.globals, 0, "<stdin>") catch |err| {
             const lc = r.getLineCol();
-            var errbuf: [256]u8 = undefined;
-            const s = std.fmt.bufPrint(&errbuf, "<stdin>:{d}: compile error: {}\n", .{ lc.line, err }) catch "compile error\n";
-            writeStderr(s);
+            toplevel_driver.reportCompileError("<stdin>", lc.line, err);
             script_had_error = true;
             return;
         };
@@ -1049,17 +927,7 @@ fn runStdin(vm: *vm_mod.VM) !void {
         const result = vm.execute(func) catch |err| {
             vm.gc.popRoot();
             script_had_error = true;
-            const detail = vm.getErrorDetail();
-            if (detail.len > 0) {
-                writeStderr("error: ");
-                writeStderr(detail);
-                writeStderr("\n");
-            } else {
-                var errbuf: [256]u8 = undefined;
-                const s = std.fmt.bufPrint(&errbuf, "runtime error: {}\n", .{err}) catch "runtime error\n";
-                writeStderr(s);
-            }
-            vm.last_error_detail_len = 0;
+            toplevel_driver.reportRuntimeError(vm, err, null);
             continue;
         };
         vm.gc.popRoot();
@@ -1085,24 +953,18 @@ fn disassembleFile(vm: *vm_mod.VM, path: []const u8) !void {
 
     while (r.hasMore() catch |err| {
         const lc = r.getLineCol();
-        var errbuf: [256]u8 = undefined;
-        const s = std.fmt.bufPrint(&errbuf, "{s}:{d}:{d}: read error: {}\n", .{ path, lc.line, lc.col, err }) catch "read error\n";
-        writeStderr(s);
+        toplevel_driver.reportReadError(path, lc.line, lc.col, err);
         script_had_error = true;
         return;
     }) {
         const datum_lc = r.getLineCol();
         var expr = r.readDatum() catch |err| {
             const lc = r.getLineCol();
-            var errbuf: [256]u8 = undefined;
-            const s = std.fmt.bufPrint(&errbuf, "{s}:{d}:{d}: read error: {}\n", .{ path, lc.line, lc.col, err }) catch "read error\n";
-            writeStderr(s);
+            toplevel_driver.reportReadError(path, lc.line, lc.col, err);
             script_had_error = true;
             return;
         };
 
-        // Root the form: evaluating it (e.g. an import that loads a library)
-        // can trigger GC, which would otherwise reclaim the AST mid-walk.
         vm.gc.pushRoot(&expr) catch {
             writeStderr("error: out of memory while rooting expression\n");
             script_had_error = true;
@@ -1113,25 +975,13 @@ fn disassembleFile(vm: *vm_mod.VM, path: []const u8) !void {
         if (vm.handleTopLevelForm(expr)) |top_result| {
             _ = top_result catch |err| {
                 script_had_error = true;
-                const detail = vm.getErrorDetail();
-                if (detail.len > 0) {
-                    var errbuf: [256]u8 = undefined;
-                    const s = std.fmt.bufPrint(&errbuf, "{s}:{d}: error: {s}\n", .{ path, datum_lc.line, detail }) catch "runtime error\n";
-                    writeStderr(s);
-                } else {
-                    var errbuf: [256]u8 = undefined;
-                    const s = std.fmt.bufPrint(&errbuf, "{s}:{d}: runtime error: {}\n", .{ path, datum_lc.line, err }) catch "runtime error\n";
-                    writeStderr(s);
-                }
-                vm.last_error_detail_len = 0;
+                toplevel_driver.reportRuntimeError(vm, err, .{ .source = path, .line = datum_lc.line });
             };
             continue;
         }
 
         const func = compiler.compileExpressionWithMacrosAt(vm.gc, expr, &vm.macros, vm.globals, datum_lc.line, path) catch |err| {
-            var errbuf: [256]u8 = undefined;
-            const s = std.fmt.bufPrint(&errbuf, "{s}:{d}: compile error: {}\n", .{ path, datum_lc.line, err }) catch "compile error\n";
-            writeStderr(s);
+            toplevel_driver.reportCompileError(path, datum_lc.line, err);
             script_had_error = true;
             continue;
         };
@@ -1184,18 +1034,14 @@ fn compileFile(vm: *vm_mod.VM, path: []const u8, output_path: ?[]const u8) !void
 
     while (r.hasMore() catch |err| {
         const lc = r.getLineCol();
-        var errbuf: [256]u8 = undefined;
-        const s = std.fmt.bufPrint(&errbuf, "{s}:{d}:{d}: read error: {}\n", .{ path, lc.line, lc.col, err }) catch "read error\n";
-        writeStderr(s);
+        toplevel_driver.reportReadError(path, lc.line, lc.col, err);
         script_had_error = true;
         return;
     }) {
         const datum_lc = r.getLineCol();
         var expr = r.readDatum() catch |err| {
             const lc = r.getLineCol();
-            var errbuf: [256]u8 = undefined;
-            const s = std.fmt.bufPrint(&errbuf, "{s}:{d}:{d}: read error: {}\n", .{ path, lc.line, lc.col, err }) catch "read error\n";
-            writeStderr(s);
+            toplevel_driver.reportReadError(path, lc.line, lc.col, err);
             script_had_error = true;
             return;
         };
@@ -1207,17 +1053,7 @@ fn compileFile(vm: *vm_mod.VM, path: []const u8, output_path: ?[]const u8) !void
             const form_src = printer.valueToString(allocator, expr, .write) catch continue;
             _ = top_result catch |err| {
                 script_had_error = true;
-                const detail = vm.getErrorDetail();
-                if (detail.len > 0) {
-                    var errbuf: [256]u8 = undefined;
-                    const s = std.fmt.bufPrint(&errbuf, "{s}:{d}: error: {s}\n", .{ path, datum_lc.line, detail }) catch "runtime error\n";
-                    writeStderr(s);
-                } else {
-                    var errbuf: [256]u8 = undefined;
-                    const s = std.fmt.bufPrint(&errbuf, "{s}:{d}: runtime error: {}\n", .{ path, datum_lc.line, err }) catch "runtime error\n";
-                    writeStderr(s);
-                }
-                vm.last_error_detail_len = 0;
+                toplevel_driver.reportRuntimeError(vm, err, .{ .source = path, .line = datum_lc.line });
             };
             preamble.append(allocator, form_src) catch {
                 allocator.free(form_src);
@@ -1226,9 +1062,7 @@ fn compileFile(vm: *vm_mod.VM, path: []const u8, output_path: ?[]const u8) !void
         }
 
         const func = compiler.compileExpressionWithMacrosAt(vm.gc, expr, &vm.macros, vm.globals, datum_lc.line, path) catch |err| {
-            var errbuf: [256]u8 = undefined;
-            const s = std.fmt.bufPrint(&errbuf, "{s}:{d}: compile error: {}\n", .{ path, datum_lc.line, err }) catch "compile error\n";
-            writeStderr(s);
+            toplevel_driver.reportCompileError(path, datum_lc.line, err);
             script_had_error = true;
             continue;
         };
@@ -1316,5 +1150,6 @@ test {
     _ = ir_emitter;
     _ = llvm_emit;
     _ = native_compiler;
+    _ = toplevel_driver;
     _ = repl_mod;
 }
