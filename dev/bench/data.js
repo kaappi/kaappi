@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783190820270,
+  "lastUpdate": 1783191088438,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "f462e0ab32c159810455a401f311a6f3275f26d3",
-          "message": "gc_deep_copy: iterate cdr spine to fix stack overflow on long lists (#801) (#952)\n\ndeepCopyValue recursed on both car and cdr of every pair, so the cdr\nrecursion went N frames deep for a proper list of N elements. Deep copy\nruns at every SRFI-18 thread boundary (thunk closure at thread-start!,\nresult at thread-join!), so passing a flat list of a few tens of\nthousands of elements to or from a thread overflowed the native stack\nand killed the whole process with a Bus error — lists >=~15k crashed.\n\nWalk the cdr spine in a loop, allocating and linking each successor\npair, and recurse only on car. Native recursion is now bounded by\nstructural nesting depth rather than list length. Each spine pair is\nregistered in `visited` before its car is copied, so shared and cyclic\nstructure resolves exactly as before. This mirrors the worklist fix\napplied to the GC marker for #864.\n\nAdd Zig unit tests copying 200k-element proper and improper lists (both\nwould previously crash), plus a Scheme smoke test exercising both thread\ndirections from the issue's reproduction.\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
-          "timestamp": "2026-07-03T10:13:54Z",
-          "tree_id": "20b16771f5aab0a70609c948ce591da3569c96cc",
-          "url": "https://github.com/kaappi/kaappi/commit/f462e0ab32c159810455a401f311a6f3275f26d3"
-        },
-        "date": 1783074765180,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.419702,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.69433,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.812294,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.112722,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006903,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.032933,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.45679,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.070124,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 4.059321,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.763687,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.209117,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.428777,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 2.367485,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.709048,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.042899,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.045889,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "503118fa54e1627f27ad99527cf0fe5ead260059",
+          "message": "Add native backend unit tests, .sbc equivalence tests, and fix OOM error paths (#1072) (#1117)\n\n- Add 28 golden .ll snapshot tests for the LLVM emitter (tests_native.zig),\n  covering preamble, constants, globals, calls, inline primitives, control\n  flow, definitions, lambda, let/let*, and begin\n- Add 6 .sbc serialize-deserialize-execute equivalence tests over\n  representative programs (arithmetic, conditionals, let, booleans, lists,\n  tail recursion)\n- Fix silent OOM corruption in runtime_exports.zig: kaappi_cons,\n  kaappi_create_native_closure, callPrimitive, and kaappi_gc_push_root\n  now abort with a message instead of returning 0\n- Enable LLVM native e2e tests on macOS CI\n- Wire tests/scheme/coverage/*-coverage.scm into the CI coverage job\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-04T23:43:59+05:30",
+          "tree_id": "7d0ac36f29311a18528a196f6c7bd9057b75dd80",
+          "url": "https://github.com/kaappi/kaappi/commit/503118fa54e1627f27ad99527cf0fe5ead260059"
+        },
+        "date": 1783191087271,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.307031,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.740736,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.890525,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.151278,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.012555,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.211315,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.469695,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.070716,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 12.459688,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.82058,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 9.982986,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.955819,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 8.282574,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.702256,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.042764,
             "unit": "seconds"
           }
         ]
