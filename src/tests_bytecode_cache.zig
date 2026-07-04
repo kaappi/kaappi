@@ -17,6 +17,8 @@ const th = @import("testing_helpers.zig");
 const types = @import("types.zig");
 const memory = @import("memory.zig");
 const bytecode_file = @import("bytecode_file.zig");
+const compiler_mod = @import("compiler.zig");
+const reader_mod = @import("reader.zig");
 
 const GC = memory.GC;
 const Function = types.Function;
@@ -107,4 +109,91 @@ test "bytecode cache: deserialized top-level functions survive a mid-run GC" {
         try std.testing.expect(types.isFixnum(r));
         try std.testing.expectEqual(w, types.toFixnum(r));
     }
+}
+
+// -- .sbc serialize → deserialize → execute equivalence tests --
+//
+// Compile source to Functions via the bytecode compiler, serialize to a temp
+// .sbc file, deserialize, execute each top-level form, and compare the result
+// from the last form against the same source evaluated directly.
+
+fn expectSbcEquivalence(source: []const u8) !void {
+    const allocator = std.testing.allocator;
+
+    // Phase 1: evaluate directly to get the expected result
+    var gc1 = GC.init(allocator);
+    defer gc1.deinit();
+    var vm1 = try th.makeTestVM(&gc1);
+    defer vm1.deinit();
+    const expected = try vm1.eval(source);
+
+    // Phase 2: compile each top-level form to a Function
+    var gc2 = GC.init(allocator);
+    defer gc2.deinit();
+    var vm2 = try th.makeTestVM(&gc2);
+    defer vm2.deinit();
+
+    var funcs: std.ArrayList(*Function) = .empty;
+    defer funcs.deinit(allocator);
+
+    var reader = reader_mod.Reader.init(&gc2, source);
+    defer reader.deinit();
+    while (try reader.hasMore()) {
+        const expr = try reader.readDatum();
+        const func = try compiler_mod.compileExpression(&gc2, expr);
+        try funcs.append(allocator, func);
+    }
+
+    // Phase 3: serialize → deserialize
+    const hash: u64 = 0xE001;
+    const path = "/tmp/kaappi_test_sbc_equiv.sbc";
+    try bytecode_file.writeFileWithTopLevel(allocator, funcs.items, hash, path);
+    defer _ = std.posix.system.unlink(@ptrCast(path));
+
+    const loaded = (try bytecode_file.readFileWithTopLevel(&gc2, hash, path)) orelse
+        return error.TestUnexpectedResult;
+    defer allocator.free(loaded.funcs);
+
+    // Phase 4: execute deserialized functions and compare final result
+    var result: types.Value = types.VOID;
+    for (loaded.funcs[0..loaded.top_level_count]) |func| {
+        var fv = types.makePointer(@ptrCast(func));
+        try gc2.pushRoot(&fv);
+        defer gc2.popRoot();
+        result = try vm2.execute(func);
+    }
+
+    if (types.isFixnum(expected)) {
+        try std.testing.expect(types.isFixnum(result));
+        try std.testing.expectEqual(types.toFixnum(expected), types.toFixnum(result));
+    } else {
+        try std.testing.expectEqual(expected, result);
+    }
+}
+
+test "sbc equiv: fixnum arithmetic" {
+    try expectSbcEquivalence("(+ (* 3 4) 5)");
+}
+
+test "sbc equiv: conditional" {
+    try expectSbcEquivalence("(if (< 1 2) 10 20)");
+}
+
+test "sbc equiv: let binding" {
+    try expectSbcEquivalence("(let ((x 5) (y 3)) (+ x y))");
+}
+
+test "sbc equiv: boolean logic" {
+    try expectSbcEquivalence("(and (or #f #t) (not #f))");
+}
+
+test "sbc equiv: list operations" {
+    try expectSbcEquivalence("(car (cons 42 '()))");
+}
+
+test "sbc equiv: tail-recursive loop" {
+    try expectSbcEquivalence(
+        \\(define (loop n acc) (if (= n 0) acc (loop (- n 1) (+ acc 1))))
+        \\(loop 1000 0)
+    );
 }

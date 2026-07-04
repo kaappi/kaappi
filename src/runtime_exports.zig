@@ -119,7 +119,10 @@ export fn kaappi_create_native_closure(vm: ?*vm_mod.VM, fn_ptr: ?*anyopaque, upv
     const a: u8 = @intCast(arity);
     const name = name_ptr[0..@as(usize, @intCast(name_len))];
     const nc_fn: types.NativeClosureFnType = @ptrCast(@alignCast(fn_ptr));
-    const result = v.gc.allocNativeClosure(nc_fn, uv, a, name) catch return 0;
+    const result = v.gc.allocNativeClosure(nc_fn, uv, a, name) catch {
+        _ = std.posix.system.write(2, "OOM: failed to allocate native closure\n", 39);
+        std.process.exit(1);
+    };
     return result;
 }
 
@@ -135,10 +138,19 @@ export fn kaappi_eval(vm: ?*vm_mod.VM, src_ptr: [*]const u8, src_len: u64) callc
 }
 
 fn callPrimitive(name: []const u8, a: u64, b: u64) u64 {
-    const vm = vm_mod.vm_instance orelse return 0;
-    const proc = vm.globals.get(name) orelse return 0;
+    const vm = vm_mod.vm_instance orelse {
+        _ = std.posix.system.write(2, "runtime: no VM instance\n", 24);
+        std.process.exit(1);
+    };
+    const proc = vm.globals.get(name) orelse {
+        _ = std.posix.system.write(2, "runtime: undefined primitive\n", 29);
+        std.process.exit(1);
+    };
     const args = [_]u64{ a, b };
-    return vm.callWithArgs(proc, &args) catch return 0;
+    return vm.callWithArgs(proc, &args) catch {
+        _ = std.posix.system.write(2, "runtime error in primitive\n", 27);
+        std.process.exit(1);
+    };
 }
 
 export fn kaappi_fixnum_add(a: u64, b: u64) callconv(.c) u64 {
@@ -202,15 +214,23 @@ export fn kaappi_cdr(v: u64) callconv(.c) u64 {
 }
 
 export fn kaappi_cons(a: u64, b: u64) callconv(.c) u64 {
-    const gc = memory.gc_instance orelse return 0;
+    const gc = memory.gc_instance orelse {
+        _ = std.posix.system.write(2, "cons: no GC instance\n", 21);
+        std.process.exit(1);
+    };
     var val_a = a;
     var val_b = b;
-    gc.pushRoot(&val_a) catch return 0;
-    gc.pushRoot(&val_b) catch return 0;
+    gc.pushRoot(&val_a) catch {
+        _ = std.posix.system.write(2, "OOM: cons push root failed\n", 27);
+        std.process.exit(1);
+    };
+    gc.pushRoot(&val_b) catch {
+        _ = std.posix.system.write(2, "OOM: cons push root failed\n", 27);
+        std.process.exit(1);
+    };
     const result = gc.allocPair(val_a, val_b) catch {
-        gc.popRoot();
-        gc.popRoot();
-        return 0;
+        _ = std.posix.system.write(2, "OOM: failed to allocate pair\n", 29);
+        std.process.exit(1);
     };
     gc.popRoot();
     gc.popRoot();
@@ -241,7 +261,10 @@ export fn kaappi_call_scheme(vm: ?*vm_mod.VM, callee: u64, args_ptr: ?[*]const u
 
 export fn kaappi_gc_push_root(slot: *Value) callconv(.c) void {
     const gc = memory.gc_instance orelse return;
-    gc.pushRoot(slot) catch {};
+    gc.pushRoot(slot) catch {
+        _ = std.posix.system.write(2, "OOM: GC push root failed\n", 25);
+        std.process.exit(1);
+    };
 }
 
 export fn kaappi_gc_pop_roots(n: u64) callconv(.c) void {
