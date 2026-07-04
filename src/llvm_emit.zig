@@ -25,7 +25,8 @@ pub const LLVMEmitter = struct {
     string_counter: u32,
     sym_counter: u32,
     lambda_counter: u32,
-    allocator: std.mem.Allocator,
+    arena: std.heap.ArenaAllocator,
+    backing_alloc: std.mem.Allocator,
     current_fn_name: ?[]const u8 = null,
     body_label: ?[]const u8 = null,
     current_block: []const u8 = "entry",
@@ -33,14 +34,14 @@ pub const LLVMEmitter = struct {
     rest_param_name: ?[]const u8 = null,
     locals: ?std.StringHashMap([]const u8) = null,
 
-    pub fn init(allocator: std.mem.Allocator) LLVMEmitter {
+    pub fn init(backing: std.mem.Allocator) LLVMEmitter {
         return .{
             .buf = .empty,
-            .symbols = std.StringHashMap(u32).init(allocator),
+            .symbols = std.StringHashMap(u32).init(backing),
             .string_decls = .empty,
             .lambda_defs = .empty,
-            .native_fns = std.StringHashMap(NativeLambda).init(allocator),
-            .rebound_globals = std.StringHashMap(void).init(allocator),
+            .native_fns = std.StringHashMap(NativeLambda).init(backing),
+            .rebound_globals = std.StringHashMap(void).init(backing),
             .params = null,
             .upvalues = null,
             .tmp_counter = 0,
@@ -48,23 +49,29 @@ pub const LLVMEmitter = struct {
             .string_counter = 0,
             .sym_counter = 0,
             .lambda_counter = 0,
-            .allocator = allocator,
+            .arena = std.heap.ArenaAllocator.init(backing),
+            .backing_alloc = backing,
         };
     }
 
+    pub fn allocator(self: *LLVMEmitter) std.mem.Allocator {
+        return self.arena.allocator();
+    }
+
     pub fn deinit(self: *LLVMEmitter) void {
-        self.buf.deinit(self.allocator);
+        self.buf.deinit(self.backing_alloc);
         self.symbols.deinit();
-        self.string_decls.deinit(self.allocator);
-        self.lambda_defs.deinit(self.allocator);
+        self.string_decls.deinit(self.backing_alloc);
+        self.lambda_defs.deinit(self.backing_alloc);
         self.native_fns.deinit();
         self.rebound_globals.deinit();
+        self.arena.deinit();
     }
 
     pub fn emitProgram(self: *LLVMEmitter, nodes: []const *ir.Node) EmitError!void {
         // Emit body into a separate buffer to collect string decls
         var body: std.ArrayList(u8) = .empty;
-        defer body.deinit(self.allocator);
+        defer body.deinit(self.backing_alloc);
         const saved_buf = self.buf;
         self.buf = body;
 
@@ -154,10 +161,7 @@ pub const LLVMEmitter = struct {
         if (types.isPointer(value)) {
             return self.emitQuotedEvalExpr(value);
         }
-        const tmp = try self.freshTemp();
-        const signed: i64 = @bitCast(value);
-        try self.print("  {s} = add i64 0, {d}\n", .{ tmp, signed });
-        return tmp;
+        return self.emitImm(@bitCast(value));
     }
 
     fn isNameShadowed(self: *LLVMEmitter, name: []const u8) bool {
@@ -275,7 +279,7 @@ pub const LLVMEmitter = struct {
             root_count += 1;
         }
 
-        var arg_tmps: [256][]const u8 = undefined;
+        const arg_tmps = self.allocator().alloc([]const u8, nargs) catch return error.OutOfMemory;
         for (call.args, 0..) |arg, i| {
             arg_tmps[i] = try self.emitNode(arg);
             if (i + 1 < nargs) {
@@ -306,17 +310,14 @@ pub const LLVMEmitter = struct {
 
         if (is_tail) {
             try self.print("  ret i64 {s}\n", .{result});
-            const after_label = try std.fmt.allocPrint(self.allocator, "after_tail_{d}", .{self.label_counter});
-            self.label_counter += 1;
-            try self.print("{s}:\n", .{after_label});
-            self.current_block = after_label;
+            try self.emitOrphanAfterTail();
         }
 
         return result;
     }
 
     fn emitSelfTailCall(self: *LLVMEmitter, args: []const *ir.Node, body_lbl: []const u8) EmitError![]const u8 {
-        var arg_tmps: [256][]const u8 = undefined;
+        const arg_tmps = self.allocator().alloc([]const u8, args.len) catch return error.OutOfMemory;
         var root_count: usize = 0;
         for (args, 0..) |arg, i| {
             arg_tmps[i] = try self.emitNode(arg);
@@ -335,15 +336,9 @@ pub const LLVMEmitter = struct {
 
         try self.print("  br label %{s}\n", .{body_lbl});
 
-        const after_label = try std.fmt.allocPrint(self.allocator, "after_tail_{d}", .{self.label_counter});
-        self.label_counter += 1;
-        try self.print("{s}:\n", .{after_label});
-        self.current_block = after_label;
+        try self.emitOrphanAfterTail();
 
-        const void_val: i64 = @bitCast(types.VOID);
-        const dummy = try self.freshTemp();
-        try self.print("  {s} = add i64 0, {d}\n", .{ dummy, void_val });
-        return dummy;
+        return self.emitImm(@bitCast(types.VOID));
     }
 
     fn emitBegin(self: *LLVMEmitter, exprs: []const *ir.Node) EmitError![]const u8 {
@@ -360,19 +355,19 @@ pub const LLVMEmitter = struct {
         // The args value is `(bindings body ...)` — a list whose elements must
         // be printed individually (not as one list) to avoid extra parens.
         var source_buf: std.ArrayList(u8) = .empty;
-        defer source_buf.deinit(self.allocator);
-        source_buf.appendSlice(self.allocator, "(") catch return error.OutOfMemory;
-        source_buf.appendSlice(self.allocator, keyword) catch return error.OutOfMemory;
+        defer source_buf.deinit(self.backing_alloc);
+        source_buf.appendSlice(self.backing_alloc, "(") catch return error.OutOfMemory;
+        source_buf.appendSlice(self.backing_alloc, keyword) catch return error.OutOfMemory;
         var current = args;
         while (current != types.NIL and types.isPair(current)) {
-            source_buf.append(self.allocator, ' ') catch return error.OutOfMemory;
+            source_buf.append(self.backing_alloc, ' ') catch return error.OutOfMemory;
             const elem = types.car(current);
-            const elem_str = printer.valueToString(self.allocator, elem, .write) catch return error.OutOfMemory;
-            defer self.allocator.free(elem_str);
-            source_buf.appendSlice(self.allocator, elem_str) catch return error.OutOfMemory;
+            const elem_str = printer.valueToString(self.backing_alloc, elem, .write) catch return error.OutOfMemory;
+            defer self.backing_alloc.free(elem_str);
+            source_buf.appendSlice(self.backing_alloc, elem_str) catch return error.OutOfMemory;
             current = types.cdr(current);
         }
-        source_buf.append(self.allocator, ')') catch return error.OutOfMemory;
+        source_buf.append(self.backing_alloc, ')') catch return error.OutOfMemory;
         const str_name = try self.internString(source_buf.items);
         const tmp = try self.freshTemp();
         try self.print("  {s} = call i64 @kaappi_eval(ptr %vm, ptr {s}, i64 {d})\n", .{ tmp, str_name, source_buf.items.len });
@@ -414,7 +409,7 @@ pub const LLVMEmitter = struct {
         self.locals = if (saved_locals) |existing|
             existing.clone() catch return error.OutOfMemory
         else
-            std.StringHashMap([]const u8).init(self.allocator);
+            std.StringHashMap([]const u8).init(self.allocator());
 
         var binding_root_count: usize = 0;
 
@@ -438,7 +433,7 @@ pub const LLVMEmitter = struct {
                     return self.emitLetFallback(args, sequential);
                 }
 
-                const node = ir.lowerSingleExpr(self.allocator, init_expr) catch {
+                const node = ir.lowerSingleExpr(self.allocator(), init_expr) catch {
                     self.locals.?.deinit();
                     self.locals = saved_locals;
                     return self.emitLetFallback(args, sequential);
@@ -471,7 +466,7 @@ pub const LLVMEmitter = struct {
                     return self.emitLetFallback(args, sequential);
                 }
 
-                const node = ir.lowerSingleExpr(self.allocator, init_expr) catch {
+                const node = ir.lowerSingleExpr(self.allocator(), init_expr) catch {
                     self.locals.?.deinit();
                     self.locals = saved_locals;
                     return self.emitLetFallback(args, sequential);
@@ -492,7 +487,7 @@ pub const LLVMEmitter = struct {
         while (body_expr != types.NIL and types.isPair(body_expr)) {
             const rest = types.cdr(body_expr);
             const expr_is_tail = is_tail and (rest == types.NIL or !types.isPair(rest));
-            const node = ir.lowerSingleExprTail(self.allocator, types.car(body_expr), expr_is_tail) catch {
+            const node = ir.lowerSingleExprTail(self.allocator(), types.car(body_expr), expr_is_tail) catch {
                 self.locals.?.deinit();
                 self.locals = saved_locals;
                 return self.emitLetFallback(args, sequential);
@@ -528,10 +523,10 @@ pub const LLVMEmitter = struct {
         const label_id = self.label_counter;
         self.label_counter += 1;
 
-        const then_label = try std.fmt.allocPrint(self.allocator, "then{d}", .{label_id});
-        const else_label = try std.fmt.allocPrint(self.allocator, "else{d}", .{label_id});
-        const merge_label = try std.fmt.allocPrint(self.allocator, "merge{d}", .{label_id});
-        const pre_label = try std.fmt.allocPrint(self.allocator, "pre{d}", .{label_id});
+        const then_label = try std.fmt.allocPrint(self.allocator(), "then{d}", .{label_id});
+        const else_label = try std.fmt.allocPrint(self.allocator(), "else{d}", .{label_id});
+        const merge_label = try std.fmt.allocPrint(self.allocator(), "merge{d}", .{label_id});
+        const pre_label = try std.fmt.allocPrint(self.allocator(), "pre{d}", .{label_id});
 
         // Name the current block so phi can reference it
         try self.print("  br label %{s}\n{s}:\n", .{ pre_label, pre_label });
@@ -543,28 +538,24 @@ pub const LLVMEmitter = struct {
             try self.print("  br i1 {s}, label %{s}, label %{s}\n", .{ cmp, then_label, merge_label });
         }
 
-        try self.print("{s}:\n", .{then_label});
-        self.current_block = then_label;
+        try self.startBlock(then_label);
         const then_val = try self.emitNode(data.consequent);
         const then_end_block = self.current_block;
         try self.print("  br label %{s}\n", .{merge_label});
 
         if (data.alternate) |alt| {
-            try self.print("{s}:\n", .{else_label});
-            self.current_block = else_label;
+            try self.startBlock(else_label);
             const else_val = try self.emitNode(alt);
             const else_end_block = self.current_block;
             try self.print("  br label %{s}\n", .{merge_label});
 
-            try self.print("{s}:\n", .{merge_label});
-            self.current_block = merge_label;
+            try self.startBlock(merge_label);
             const result = try self.freshTemp();
             try self.print("  {s} = phi i64 [ {s}, %{s} ], [ {s}, %{s} ]\n", .{ result, then_val, then_end_block, else_val, else_end_block });
             return result;
         } else {
             const void_val: i64 = @bitCast(types.VOID);
-            try self.print("{s}:\n", .{merge_label});
-            self.current_block = merge_label;
+            try self.startBlock(merge_label);
             const result = try self.freshTemp();
             try self.print("  {s} = phi i64 [ {s}, %{s} ], [ {d}, %{s} ]\n", .{ result, then_val, then_end_block, void_val, pre_label });
             return result;
@@ -572,42 +563,34 @@ pub const LLVMEmitter = struct {
     }
 
     fn emitAnd(self: *LLVMEmitter, exprs: []const *ir.Node) EmitError![]const u8 {
-        if (exprs.len == 0) {
-            const tmp = try self.freshTemp();
-            const true_val: i64 = @bitCast(types.TRUE);
-            try self.print("  {s} = add i64 0, {d}\n", .{ tmp, true_val });
-            return tmp;
-        }
+        if (exprs.len == 0) return self.emitImm(@bitCast(types.TRUE));
         if (exprs.len == 1) return try self.emitNode(exprs[0]);
 
         const false_val: i64 = @bitCast(types.FALSE);
         const label_id = self.label_counter;
         self.label_counter += 1;
-        const merge_label = try std.fmt.allocPrint(self.allocator, "and_merge{d}", .{label_id});
+        const merge_label = try std.fmt.allocPrint(self.allocator(), "and_merge{d}", .{label_id});
 
         var prev_val = try self.emitNode(exprs[0]);
         for (exprs[1..], 0..) |expr, i| {
-            const next_label = try std.fmt.allocPrint(self.allocator, "and_next{d}_{d}", .{ label_id, i });
+            const next_label = try std.fmt.allocPrint(self.allocator(), "and_next{d}_{d}", .{ label_id, i });
             const cmp = try self.freshTemp();
             try self.print("  {s} = icmp ne i64 {s}, {d}\n", .{ cmp, prev_val, false_val });
-            const short_label = try std.fmt.allocPrint(self.allocator, "and_short{d}_{d}", .{ label_id, i });
+            const short_label = try std.fmt.allocPrint(self.allocator(), "and_short{d}_{d}", .{ label_id, i });
             try self.print("  br i1 {s}, label %{s}, label %{s}\n", .{ cmp, next_label, short_label });
             try self.print("{s}:\n", .{short_label});
             try self.print("  br label %{s}\n", .{merge_label});
             try self.print("{s}:\n", .{next_label});
             prev_val = try self.emitNode(expr);
         }
-        const last_next = try std.fmt.allocPrint(self.allocator, "and_done{d}", .{label_id});
+        const last_next = try std.fmt.allocPrint(self.allocator(), "and_done{d}", .{label_id});
         try self.print("  br label %{s}\n{s}:\n", .{ last_next, last_next });
         try self.print("  br label %{s}\n", .{merge_label});
-        try self.print("{s}:\n", .{merge_label});
-        self.current_block = merge_label;
+        try self.startBlock(merge_label);
 
         const result = try self.freshTemp();
         try self.print("  {s} = phi i64 [ {s}, %{s} ]", .{ result, prev_val, last_next });
         for (0..exprs.len - 1) |i| {
-            const short_false = try self.freshTemp();
-            _ = short_false;
             try self.print(", [ {d}, %and_short{d}_{d} ]", .{ false_val, label_id, i });
         }
         try self.write("\n");
@@ -615,30 +598,26 @@ pub const LLVMEmitter = struct {
     }
 
     fn emitOr(self: *LLVMEmitter, exprs: []const *ir.Node) EmitError![]const u8 {
-        if (exprs.len == 0) {
-            const tmp = try self.freshTemp();
-            const false_val: i64 = @bitCast(types.FALSE);
-            try self.print("  {s} = add i64 0, {d}\n", .{ tmp, false_val });
-            return tmp;
-        }
+        if (exprs.len == 0) return self.emitImm(@bitCast(types.FALSE));
         if (exprs.len == 1) return try self.emitNode(exprs[0]);
 
         const false_val: i64 = @bitCast(types.FALSE);
         const label_id = self.label_counter;
         self.label_counter += 1;
-        const merge_label = try std.fmt.allocPrint(self.allocator, "or_merge{d}", .{label_id});
+        const merge_label = try std.fmt.allocPrint(self.allocator(), "or_merge{d}", .{label_id});
 
-        var vals: [256][]const u8 = undefined;
-        var labels: [256][]const u8 = undefined;
+        const branch_count = exprs.len - 1;
+        const vals = self.allocator().alloc([]const u8, branch_count) catch return error.OutOfMemory;
+        const or_labels = self.allocator().alloc([]const u8, branch_count) catch return error.OutOfMemory;
         var count: usize = 0;
 
         for (exprs[0 .. exprs.len - 1], 0..) |expr, i| {
             const val = try self.emitNode(expr);
             vals[count] = val;
-            labels[count] = try std.fmt.allocPrint(self.allocator, "or_check{d}_{d}", .{ label_id, i });
+            or_labels[count] = try std.fmt.allocPrint(self.allocator(), "or_check{d}_{d}", .{ label_id, i });
             count += 1;
-            const next_label = try std.fmt.allocPrint(self.allocator, "or_next{d}_{d}", .{ label_id, i });
-            const pre_label = labels[count - 1];
+            const next_label = try std.fmt.allocPrint(self.allocator(), "or_next{d}_{d}", .{ label_id, i });
+            const pre_label = or_labels[count - 1];
             try self.print("  br label %{s}\n{s}:\n", .{ pre_label, pre_label });
             const cmp = try self.freshTemp();
             try self.print("  {s} = icmp ne i64 {s}, {d}\n", .{ cmp, val, false_val });
@@ -647,16 +626,15 @@ pub const LLVMEmitter = struct {
         }
 
         const last_val = try self.emitNode(exprs[exprs.len - 1]);
-        const last_label = try std.fmt.allocPrint(self.allocator, "or_last{d}", .{label_id});
+        const last_label = try std.fmt.allocPrint(self.allocator(), "or_last{d}", .{label_id});
         try self.print("  br label %{s}\n{s}:\n", .{ last_label, last_label });
         try self.print("  br label %{s}\n", .{merge_label});
-        try self.print("{s}:\n", .{merge_label});
-        self.current_block = merge_label;
+        try self.startBlock(merge_label);
 
         const result = try self.freshTemp();
         try self.print("  {s} = phi i64 [ {s}, %{s} ]", .{ result, last_val, last_label });
         for (0..count) |i| {
-            try self.print(", [ {s}, %{s} ]", .{ vals[i], labels[i] });
+            try self.print(", [ {s}, %{s} ]", .{ vals[i], or_labels[i] });
         }
         try self.write("\n");
         return result;
@@ -670,14 +648,13 @@ pub const LLVMEmitter = struct {
 
         const label_id = self.label_counter;
         self.label_counter += 1;
-        const body_label = try std.fmt.allocPrint(self.allocator, "when_body{d}", .{label_id});
-        const merge_label = try std.fmt.allocPrint(self.allocator, "when_merge{d}", .{label_id});
-        const pre_label = try std.fmt.allocPrint(self.allocator, "when_pre{d}", .{label_id});
+        const body_label = try std.fmt.allocPrint(self.allocator(), "when_body{d}", .{label_id});
+        const merge_label = try std.fmt.allocPrint(self.allocator(), "when_merge{d}", .{label_id});
+        const pre_label = try std.fmt.allocPrint(self.allocator(), "when_pre{d}", .{label_id});
 
         try self.print("  br label %{s}\n{s}:\n", .{ pre_label, pre_label });
         try self.print("  br i1 {s}, label %{s}, label %{s}\n", .{ cmp, body_label, merge_label });
-        try self.print("{s}:\n", .{body_label});
-        self.current_block = body_label;
+        try self.startBlock(body_label);
 
         var last: []const u8 = "";
         for (data.body) |expr| {
@@ -685,8 +662,7 @@ pub const LLVMEmitter = struct {
         }
         const body_end_block = self.current_block;
         try self.print("  br label %{s}\n", .{merge_label});
-        try self.print("{s}:\n", .{merge_label});
-        self.current_block = merge_label;
+        try self.startBlock(merge_label);
 
         const void_val: i64 = @bitCast(types.VOID);
         const result = try self.freshTemp();
@@ -702,14 +678,13 @@ pub const LLVMEmitter = struct {
 
         const label_id = self.label_counter;
         self.label_counter += 1;
-        const body_label = try std.fmt.allocPrint(self.allocator, "unless_body{d}", .{label_id});
-        const merge_label = try std.fmt.allocPrint(self.allocator, "unless_merge{d}", .{label_id});
-        const pre_label = try std.fmt.allocPrint(self.allocator, "unless_pre{d}", .{label_id});
+        const body_label = try std.fmt.allocPrint(self.allocator(), "unless_body{d}", .{label_id});
+        const merge_label = try std.fmt.allocPrint(self.allocator(), "unless_merge{d}", .{label_id});
+        const pre_label = try std.fmt.allocPrint(self.allocator(), "unless_pre{d}", .{label_id});
 
         try self.print("  br label %{s}\n{s}:\n", .{ pre_label, pre_label });
         try self.print("  br i1 {s}, label %{s}, label %{s}\n", .{ cmp, body_label, merge_label });
-        try self.print("{s}:\n", .{body_label});
-        self.current_block = body_label;
+        try self.startBlock(body_label);
 
         var last: []const u8 = "";
         for (data.body) |expr| {
@@ -717,8 +692,7 @@ pub const LLVMEmitter = struct {
         }
         const body_end_block = self.current_block;
         try self.print("  br label %{s}\n", .{merge_label});
-        try self.print("{s}:\n", .{merge_label});
-        self.current_block = merge_label;
+        try self.startBlock(merge_label);
 
         const void_val: i64 = @bitCast(types.VOID);
         const result = try self.freshTemp();
@@ -762,7 +736,7 @@ pub const LLVMEmitter = struct {
         // calls correctly; the standalone IR lowering below runs without a
         // macro table and would mis-lower a top-level (set! x (some-macro ...)).
         if (!self.inLexicalScope()) return self.emitEvalExpr(value);
-        const node = ir.lowerSingleExpr(self.allocator, value) catch return self.emitEvalExpr(value);
+        const node = ir.lowerSingleExpr(self.allocator(), value) catch return self.emitEvalExpr(value);
         return self.emitNode(node);
     }
 
@@ -806,10 +780,7 @@ pub const LLVMEmitter = struct {
     // Emit an SSA temp holding the unspecified/void value (the result of set!
     // and define).
     fn emitVoid(self: *LLVMEmitter) EmitError![]const u8 {
-        const result = try self.freshTemp();
-        const void_val: i64 = @bitCast(types.VOID);
-        try self.print("  {s} = add i64 0, {d}\n", .{ result, void_val });
-        return result;
+        return self.emitImm(@bitCast(types.VOID));
     }
 
     fn emitSexprEval(self: *LLVMEmitter, node: *const ir.Node) EmitError![]const u8 {
@@ -865,20 +836,20 @@ pub const LLVMEmitter = struct {
         try lambda.bindParamsAsGlobals(self);
 
         var source_buf: std.ArrayList(u8) = .empty;
-        defer source_buf.deinit(self.allocator);
-        source_buf.appendSlice(self.allocator, "(") catch return error.OutOfMemory;
-        source_buf.appendSlice(self.allocator, form_name) catch return error.OutOfMemory;
+        defer source_buf.deinit(self.backing_alloc);
+        source_buf.appendSlice(self.backing_alloc, "(") catch return error.OutOfMemory;
+        source_buf.appendSlice(self.backing_alloc, form_name) catch return error.OutOfMemory;
 
         var current = args;
         while (current != types.NIL and types.isPair(current)) {
-            source_buf.append(self.allocator, ' ') catch return error.OutOfMemory;
+            source_buf.append(self.backing_alloc, ' ') catch return error.OutOfMemory;
             const elem = types.car(current);
-            const elem_str = printer.valueToString(self.allocator, elem, .write) catch return error.OutOfMemory;
-            defer self.allocator.free(elem_str);
-            source_buf.appendSlice(self.allocator, elem_str) catch return error.OutOfMemory;
+            const elem_str = printer.valueToString(self.backing_alloc, elem, .write) catch return error.OutOfMemory;
+            defer self.backing_alloc.free(elem_str);
+            source_buf.appendSlice(self.backing_alloc, elem_str) catch return error.OutOfMemory;
             current = types.cdr(current);
         }
-        source_buf.append(self.allocator, ')') catch return error.OutOfMemory;
+        source_buf.append(self.backing_alloc, ')') catch return error.OutOfMemory;
 
         const str_name = try self.internString(source_buf.items);
         const tmp = try self.freshTemp();
@@ -1019,7 +990,7 @@ pub const LLVMEmitter = struct {
 
     fn emitDirectCall(self: *LLVMEmitter, fn_name: []const u8, args: []const *ir.Node, is_tail: bool) EmitError![]const u8 {
         const nargs = args.len;
-        var arg_tmps: [256][]const u8 = undefined;
+        const arg_tmps = self.allocator().alloc([]const u8, nargs) catch return error.OutOfMemory;
         var root_count: usize = 0;
         for (args, 0..) |arg, i| {
             arg_tmps[i] = try self.emitNode(arg);
@@ -1050,18 +1021,15 @@ pub const LLVMEmitter = struct {
 
         if (is_tail) {
             try self.print("  ret i64 {s}\n", .{result});
-            const after_label = try std.fmt.allocPrint(self.allocator, "after_tail_{d}", .{self.label_counter});
-            self.label_counter += 1;
-            try self.print("{s}:\n", .{after_label});
-            self.current_block = after_label;
+            try self.emitOrphanAfterTail();
         }
 
         return result;
     }
 
     fn emitEvalExpr(self: *LLVMEmitter, value: Value) EmitError![]const u8 {
-        const source = printer.valueToString(self.allocator, value, .write) catch return error.OutOfMemory;
-        defer self.allocator.free(source);
+        const source = printer.valueToString(self.backing_alloc, value, .write) catch return error.OutOfMemory;
+        defer self.backing_alloc.free(source);
         const str_name = try self.internString(source);
         const tmp = try self.freshTemp();
         try self.print("  {s} = call i64 @kaappi_eval(ptr %vm, ptr {s}, i64 {d})\n", .{ tmp, str_name, source.len });
@@ -1069,10 +1037,10 @@ pub const LLVMEmitter = struct {
     }
 
     fn emitQuotedEvalExpr(self: *LLVMEmitter, value: Value) EmitError![]const u8 {
-        const printed = printer.valueToString(self.allocator, value, .write) catch return error.OutOfMemory;
-        defer self.allocator.free(printed);
-        const source = std.fmt.allocPrint(self.allocator, "(quote {s})", .{printed}) catch return error.OutOfMemory;
-        defer self.allocator.free(source);
+        const printed = printer.valueToString(self.backing_alloc, value, .write) catch return error.OutOfMemory;
+        defer self.backing_alloc.free(printed);
+        const source = std.fmt.allocPrint(self.backing_alloc, "(quote {s})", .{printed}) catch return error.OutOfMemory;
+        defer self.backing_alloc.free(source);
         const str_name = try self.internString(source);
         const tmp = try self.freshTemp();
         try self.print("  {s} = call i64 @kaappi_eval(ptr %vm, ptr {s}, i64 {d})\n", .{ tmp, str_name, source.len });
@@ -1086,28 +1054,28 @@ pub const LLVMEmitter = struct {
             self.symbols.put(name, id) catch return error.OutOfMemory;
         }
         const id = self.symbols.get(name).?;
-        return std.fmt.allocPrint(self.allocator, "@.sym.{d}", .{id}) catch return error.OutOfMemory;
+        return std.fmt.allocPrint(self.allocator(), "@.sym.{d}", .{id}) catch return error.OutOfMemory;
     }
 
     pub fn internString(self: *LLVMEmitter, data: []const u8) EmitError![]const u8 {
         const id = self.string_counter;
         self.string_counter += 1;
-        const global_name = std.fmt.allocPrint(self.allocator, "@.str.{d}", .{id}) catch return error.OutOfMemory;
+        const global_name = std.fmt.allocPrint(self.allocator(), "@.str.{d}", .{id}) catch return error.OutOfMemory;
 
         var escaped: std.ArrayList(u8) = .empty;
-        defer escaped.deinit(self.allocator);
+        defer escaped.deinit(self.backing_alloc);
         for (data) |byte| {
             if (byte >= 0x20 and byte < 0x7F and byte != '"' and byte != '\\') {
-                escaped.append(self.allocator, byte) catch return error.OutOfMemory;
+                escaped.append(self.backing_alloc, byte) catch return error.OutOfMemory;
             } else {
-                const hex = std.fmt.allocPrint(self.allocator, "\\{X:0>2}", .{byte}) catch return error.OutOfMemory;
-                defer self.allocator.free(hex);
-                escaped.appendSlice(self.allocator, hex) catch return error.OutOfMemory;
+                const hex = std.fmt.allocPrint(self.backing_alloc, "\\{X:0>2}", .{byte}) catch return error.OutOfMemory;
+                defer self.backing_alloc.free(hex);
+                escaped.appendSlice(self.backing_alloc, hex) catch return error.OutOfMemory;
             }
         }
 
-        const decl = std.fmt.allocPrint(self.allocator, "{s} = private unnamed_addr constant [{d} x i8] c\"{s}\"\n", .{ global_name, data.len, escaped.items }) catch return error.OutOfMemory;
-        self.string_decls.append(self.allocator, decl) catch return error.OutOfMemory;
+        const decl = std.fmt.allocPrint(self.allocator(), "{s} = private unnamed_addr constant [{d} x i8] c\"{s}\"\n", .{ global_name, data.len, escaped.items }) catch return error.OutOfMemory;
+        self.string_decls.append(self.backing_alloc, decl) catch return error.OutOfMemory;
 
         return global_name;
     }
@@ -1173,17 +1141,39 @@ pub const LLVMEmitter = struct {
     pub fn freshTemp(self: *LLVMEmitter) EmitError![]const u8 {
         const n = self.tmp_counter;
         self.tmp_counter += 1;
-        const s = std.fmt.allocPrint(self.allocator, "%t{d}", .{n}) catch return error.OutOfMemory;
+        const s = std.fmt.allocPrint(self.allocator(), "%t{d}", .{n}) catch return error.OutOfMemory;
         return s;
     }
 
+    pub fn freshLabel(self: *LLVMEmitter, comptime prefix: []const u8) EmitError![]const u8 {
+        const id = self.label_counter;
+        self.label_counter += 1;
+        return std.fmt.allocPrint(self.allocator(), prefix ++ "{d}", .{id}) catch return error.OutOfMemory;
+    }
+
+    pub fn emitImm(self: *LLVMEmitter, val: i64) EmitError![]const u8 {
+        const tmp = try self.freshTemp();
+        try self.print("  {s} = add i64 0, {d}\n", .{ tmp, val });
+        return tmp;
+    }
+
+    pub fn startBlock(self: *LLVMEmitter, label: []const u8) EmitError!void {
+        try self.print("{s}:\n", .{label});
+        self.current_block = label;
+    }
+
+    fn emitOrphanAfterTail(self: *LLVMEmitter) EmitError!void {
+        const after_label = try self.freshLabel("after_tail_");
+        try self.startBlock(after_label);
+    }
+
     pub fn write(self: *LLVMEmitter, s: []const u8) EmitError!void {
-        self.buf.appendSlice(self.allocator, s) catch return error.OutOfMemory;
+        self.buf.appendSlice(self.backing_alloc, s) catch return error.OutOfMemory;
     }
 
     pub fn print(self: *LLVMEmitter, comptime fmt: []const u8, args: anytype) EmitError!void {
-        const s = std.fmt.allocPrint(self.allocator, fmt, args) catch return error.OutOfMemory;
-        defer self.allocator.free(s);
+        const s = std.fmt.allocPrint(self.backing_alloc, fmt, args) catch return error.OutOfMemory;
+        defer self.backing_alloc.free(s);
         try self.write(s);
     }
 
