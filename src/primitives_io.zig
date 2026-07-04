@@ -61,13 +61,6 @@ pub fn registerIO(vm: *vm_mod.VM) !void {
     // Binary port aliases (we don't distinguish text/binary)
     try primitives.reg(vm, "open-binary-input-file", &openBinaryInputFile, .{ .exact = 1 });
     try primitives.reg(vm, "open-binary-output-file", &openBinaryOutputFile, .{ .exact = 1 });
-    // Binary I/O
-    try primitives.reg(vm, "read-u8", &readU8Fn, .{ .variadic = 0 });
-    try primitives.reg(vm, "peek-u8", &peekU8Fn, .{ .variadic = 0 });
-    try primitives.reg(vm, "u8-ready?", &charReadyP, .{ .variadic = 0 });
-    try primitives.reg(vm, "write-u8", &writeU8Fn, .{ .variadic = 1 });
-    try primitives.reg(vm, "read-bytevector", &readBytevectorFn, .{ .variadic = 1 });
-    try primitives.reg(vm, "write-bytevector", &writeBytevectorFn, .{ .variadic = 1 });
 }
 
 pub fn registerIOSandboxed(vm: *vm_mod.VM) !void {
@@ -102,12 +95,6 @@ pub fn registerIOSandboxed(vm: *vm_mod.VM) !void {
     try primitives.reg(vm, "write-shared", &writeShared, .{ .variadic = 1 });
     try primitives.reg(vm, "write-simple", &write, .{ .variadic = 1 });
     try primitives.reg(vm, "call-with-port", &callWithPort, .{ .exact = 2 });
-    try primitives.reg(vm, "read-u8", &readU8Fn, .{ .variadic = 0 });
-    try primitives.reg(vm, "peek-u8", &peekU8Fn, .{ .variadic = 0 });
-    try primitives.reg(vm, "u8-ready?", &charReadyP, .{ .variadic = 0 });
-    try primitives.reg(vm, "write-u8", &writeU8Fn, .{ .variadic = 1 });
-    try primitives.reg(vm, "read-bytevector", &readBytevectorFn, .{ .variadic = 1 });
-    try primitives.reg(vm, "write-bytevector", &writeBytevectorFn, .{ .variadic = 1 });
 }
 
 // ---------------------------------------------------------------------------
@@ -973,79 +960,4 @@ fn setCurrentPort(vm: *vm_mod.VM, param_val: Value, port_val: Value) void {
     if (param_val != types.VOID) {
         vm.setParameterValue(types.toParameter(param_val), port_val) catch {};
     }
-}
-
-// ---------------------------------------------------------------------------
-// Binary I/O (R7RS 6.13.3)
-// ---------------------------------------------------------------------------
-
-fn readU8Fn(args: []const Value) PrimitiveError!Value {
-    const port = try getInputPort(args, 0, "read-u8");
-    const byte = readOneByte(port) orelse return types.EOF;
-    return types.makeFixnum(@intCast(byte));
-}
-
-fn peekU8Fn(args: []const Value) PrimitiveError!Value {
-    const port = try getInputPort(args, 0, "peek-u8");
-    if (port.peek_byte) |b| {
-        return types.makeFixnum(@intCast(b));
-    }
-    const byte = readOneByte(port) orelse return types.EOF;
-    port.peek_byte = byte;
-    return types.makeFixnum(@intCast(byte));
-}
-
-fn writeU8Fn(args: []const Value) PrimitiveError!Value {
-    if (!types.isFixnum(args[0])) return primitives.typeError("write-u8", "integer", args[0]);
-    const port = try getOutputPort(args, 1, "write-u8");
-    const val = types.toFixnum(args[0]);
-    if (val < 0 or val > 255) return primitives.typeError("write-u8", "exact integer 0-255", args[0]);
-    const byte: u8 = @intCast(@as(u64, @bitCast(val)));
-    const buf = [1]u8{byte};
-    writeToPort(port, &buf);
-    return types.VOID;
-}
-
-fn readBytevectorFn(args: []const Value) PrimitiveError!Value {
-    if (!types.isFixnum(args[0])) return primitives.typeError("read-bytevector", "integer", args[0]);
-    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
-    const k = types.toFixnum(args[0]);
-    if (k < 0) return primitives.typeError("read-bytevector", "non-negative integer", args[0]);
-    const count: usize = @intCast(@as(u64, @bitCast(k)));
-    const port = try getInputPort(args, 1, "read-bytevector");
-
-    var result: std.ArrayList(u8) = .empty;
-    defer result.deinit(gc.allocator);
-
-    var bytes_read: usize = 0;
-    while (bytes_read < count) {
-        const byte = readOneByte(port) orelse break;
-        result.append(gc.allocator, byte) catch return PrimitiveError.OutOfMemory;
-        bytes_read += 1;
-    }
-    if (result.items.len == 0) return types.EOF;
-    return gc.allocBytevector(result.items) catch return PrimitiveError.OutOfMemory;
-}
-
-fn writeBytevectorFn(args: []const Value) PrimitiveError!Value {
-    if (!types.isBytevector(args[0])) return primitives.typeError("write-bytevector", "bytevector", args[0]);
-    const port = try getOutputPort(args, 1, "write-bytevector");
-    const bv = types.toBytevector(args[0]);
-    var start: usize = 0;
-    var end: usize = bv.data.len;
-    if (args.len > 2) {
-        if (!types.isFixnum(args[2])) return primitives.typeError("write-bytevector", "integer", args[2]);
-        const s = types.toFixnum(args[2]);
-        if (s < 0) return primitives.typeError("write-bytevector", "non-negative integer", args[2]);
-        start = @intCast(s);
-    }
-    if (args.len > 3) {
-        if (!types.isFixnum(args[3])) return primitives.typeError("write-bytevector", "integer", args[3]);
-        const e = types.toFixnum(args[3]);
-        if (e < 0) return primitives.typeError("write-bytevector", "non-negative integer", args[3]);
-        end = @intCast(e);
-    }
-    if (start > end or end > bv.data.len) return primitives.typeError("write-bytevector", "valid range", args[0]);
-    writeToPort(port, bv.data[start..end]);
-    return types.VOID;
 }

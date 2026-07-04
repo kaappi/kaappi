@@ -23,9 +23,6 @@ pub fn registerString(vm: *vm_mod.VM) !void {
     // Conversion
     try primitives.reg(vm, "string->list", &stringToListFn, .{ .variadic = 1 });
     try primitives.reg(vm, "list->string", &listToStringFn, .{ .exact = 1 });
-    try primitives.reg(vm, "string->symbol", &stringToSymbolFn, .{ .exact = 1 });
-    try primitives.reg(vm, "string->utf8", &stringToUtf8Fn, .{ .exact = 1 });
-    try primitives.reg(vm, "utf8->string", &utf8ToStringFn, .{ .exact = 1 });
     try primitives.reg(vm, "string->vector", &stringToVectorFn, .{ .variadic = 1 });
 
     // Higher-order
@@ -424,16 +421,6 @@ fn listToStringFn(args: []const Value) PrimitiveError!Value {
 }
 
 // ---------------------------------------------------------------------------
-// (string->symbol str)
-// ---------------------------------------------------------------------------
-
-fn stringToSymbolFn(args: []const Value) PrimitiveError!Value {
-    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
-    const data = try getStringSlice(args[0]);
-    return gc.allocSymbol(data) catch return PrimitiveError.OutOfMemory;
-}
-
-// ---------------------------------------------------------------------------
 // (string->vector str) or (string->vector str start) or (string->vector str start end)
 // ---------------------------------------------------------------------------
 
@@ -457,25 +444,6 @@ fn stringToVectorFn(args: []const Value) PrimitiveError!Value {
         byte_i += utf8ByteLenAt(data, byte_i);
     }
     return gc.allocVector(vec_data[0..range_count]) catch return PrimitiveError.OutOfMemory;
-}
-
-// ---------------------------------------------------------------------------
-// (string->utf8 str)
-// ---------------------------------------------------------------------------
-
-fn stringToUtf8Fn(args: []const Value) PrimitiveError!Value {
-    // Bytevector not fully supported yet — return error
-    _ = try getStringSlice(args[0]);
-    return primitives.typeError("string->utf8", "supported operation", args[0]);
-}
-
-// ---------------------------------------------------------------------------
-// (utf8->string bv)
-// ---------------------------------------------------------------------------
-
-fn utf8ToStringFn(args: []const Value) PrimitiveError!Value {
-    // Bytevector not fully supported yet — return error
-    return primitives.typeError("utf8->string", "bytevector", args[0]);
 }
 
 // ---------------------------------------------------------------------------
