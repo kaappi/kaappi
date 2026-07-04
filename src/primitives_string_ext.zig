@@ -111,12 +111,7 @@ fn callPredOrCharset(pred: Value, cp: u21) PrimitiveError!bool {
     // If pred is a procedure, call it directly
     if (types.isProcedure(pred)) {
         const result = vm.callWithArgs(pred, &[_]Value{char_val}) catch |err| {
-            return switch (err) {
-                vm_mod.VMError.ContinuationInvoked => PrimitiveError.ContinuationInvoked,
-                vm_mod.VMError.ExceptionRaised => PrimitiveError.ExceptionRaised,
-                vm_mod.VMError.OutOfMemory => PrimitiveError.OutOfMemory,
-                else => PrimitiveError.TypeError, // bare-ok: catch fallback
-            };
+            return primitives.mapVMError(err);
         };
         return types.isTruthy(result);
     }
@@ -128,12 +123,7 @@ fn callPredOrCharset(pred: Value, cp: u21) PrimitiveError!bool {
         vm.unlockGlobalsShared();
         const cs_contains = cs_contains_opt orelse return PrimitiveError.TypeError;
         const result = vm.callWithArgs(cs_contains, &[_]Value{ pred, char_val }) catch |err| {
-            return switch (err) {
-                vm_mod.VMError.ContinuationInvoked => PrimitiveError.ContinuationInvoked,
-                vm_mod.VMError.ExceptionRaised => PrimitiveError.ExceptionRaised,
-                vm_mod.VMError.OutOfMemory => PrimitiveError.OutOfMemory,
-                else => PrimitiveError.TypeError, // bare-ok: catch fallback
-            };
+            return primitives.mapVMError(err);
         };
         return types.isTruthy(result);
     }
@@ -431,12 +421,7 @@ fn stringConcatenateFn(args: []const Value) PrimitiveError!Value {
 
 fn callVM(proc: Value, call_args: []const Value) PrimitiveError!Value {
     const vm = vm_mod.vm_instance orelse return PrimitiveError.OutOfMemory;
-    return vm.callWithArgs(proc, call_args) catch |err| switch (err) {
-        vm_mod.VMError.ContinuationInvoked => PrimitiveError.ContinuationInvoked,
-        vm_mod.VMError.ExceptionRaised => PrimitiveError.ExceptionRaised,
-        vm_mod.VMError.OutOfMemory => PrimitiveError.OutOfMemory,
-        else => PrimitiveError.TypeError, // bare-ok: catch fallback
-    };
+    return vm.callWithArgs(proc, call_args) catch |err| return primitives.mapVMError(err);
 }
 
 fn stringTakeFn(args: []const Value) PrimitiveError!Value {

@@ -267,6 +267,14 @@ pub fn handleNativeError(_: *VM, err: anyerror, _: u32, _: u8) VMError {
         error.ExceptionRaised => VMError.ExceptionRaised,
         error.ContinuationInvoked => VMError.ContinuationInvoked,
         error.Yielded => VMError.Yielded,
+        error.ArityMismatch => VMError.ArityMismatch,
+        error.StackOverflow => VMError.StackOverflow,
+        error.UndefinedVariable => VMError.UndefinedVariable,
+        error.NotAProcedure => VMError.NotAProcedure,
+        error.InvalidBytecode => VMError.InvalidBytecode,
+        error.CompileError => VMError.CompileError,
+        error.ExecutionTimeout => VMError.ExecutionTimeout,
+        error.Terminated => VMError.Terminated,
         else => VMError.InvalidBytecode,
     };
 }
@@ -502,6 +510,14 @@ pub fn callNative(vm: *VM, native: *types.NativeFn, base: u32, nargs: u8) VMErro
             error.ExceptionRaised => VMError.ExceptionRaised,
             error.ContinuationInvoked => VMError.ContinuationInvoked,
             error.Yielded => VMError.Yielded,
+            error.ArityMismatch => VMError.ArityMismatch,
+            error.StackOverflow => VMError.StackOverflow,
+            error.UndefinedVariable => VMError.UndefinedVariable,
+            error.NotAProcedure => VMError.NotAProcedure,
+            error.InvalidBytecode => VMError.InvalidBytecode,
+            error.CompileError => VMError.CompileError,
+            error.ExecutionTimeout => VMError.ExecutionTimeout,
+            error.Terminated => VMError.Terminated,
             else => VMError.InvalidBytecode,
         };
     };

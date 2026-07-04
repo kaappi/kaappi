@@ -205,12 +205,7 @@ fn evalFn(args: []const Value) PrimitiveError!Value {
         defer gc.popRoot();
 
         const result = vm.callWithArgs(closure_val, &[_]Value{}) catch |err| {
-            return switch (err) {
-                vm_mod.VMError.ContinuationInvoked => PrimitiveError.ContinuationInvoked,
-                vm_mod.VMError.ExceptionRaised => PrimitiveError.ExceptionRaised,
-                vm_mod.VMError.OutOfMemory => PrimitiveError.OutOfMemory,
-                else => PrimitiveError.TypeError, // bare-ok: catch fallback
-            };
+            return primitives.mapVMError(err);
         };
         return result;
     }
@@ -222,12 +217,7 @@ fn evalFn(args: []const Value) PrimitiveError!Value {
     defer gc.popRoot();
 
     const result = vm.callWithArgs(closure_val, &[_]Value{}) catch |err| {
-        return switch (err) {
-            vm_mod.VMError.ContinuationInvoked => PrimitiveError.ContinuationInvoked,
-            vm_mod.VMError.ExceptionRaised => PrimitiveError.ExceptionRaised,
-            vm_mod.VMError.OutOfMemory => PrimitiveError.OutOfMemory,
-            else => PrimitiveError.TypeError, // bare-ok: catch fallback
-        };
+        return primitives.mapVMError(err);
     };
     return result;
 }
@@ -317,12 +307,7 @@ fn loadFn(args: []const Value) PrimitiveError!Value {
             compiler_mod.Compiler.unrootFunction(gc, func);
 
             last_result = vm.execute(func) catch |err| {
-                return switch (err) {
-                    vm_mod.VMError.ContinuationInvoked => PrimitiveError.ContinuationInvoked,
-                    vm_mod.VMError.ExceptionRaised => PrimitiveError.ExceptionRaised,
-                    vm_mod.VMError.OutOfMemory => PrimitiveError.OutOfMemory,
-                    else => PrimitiveError.TypeError, // bare-ok: catch fallback
-                };
+                return primitives.mapVMError(err);
             };
         }
     }
@@ -345,12 +330,7 @@ fn makeParameterFn(args: []const Value) PrimitiveError!Value {
     if (converter != types.NIL) {
         const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError; // bare-ok: no VM
         val = vm.callWithArgs(converter, &[_]Value{init}) catch |err| {
-            return switch (err) {
-                vm_mod.VMError.ContinuationInvoked => PrimitiveError.ContinuationInvoked,
-                vm_mod.VMError.ExceptionRaised => PrimitiveError.ExceptionRaised,
-                vm_mod.VMError.OutOfMemory => PrimitiveError.OutOfMemory,
-                else => PrimitiveError.TypeError, // bare-ok: catch fallback
-            };
+            return primitives.mapVMError(err);
         };
     }
     return gc.allocParameter(val, converter) catch return PrimitiveError.OutOfMemory;

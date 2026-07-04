@@ -205,12 +205,7 @@ fn hashTableRefFn(args: []const Value) PrimitiveError!Value {
         if (types.isProcedure(args[2])) {
             const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError; // bare-ok: no VM
             return vm.callWithArgs(args[2], &[_]Value{}) catch |err| {
-                return switch (err) {
-                    vm_mod.VMError.ContinuationInvoked => PrimitiveError.ContinuationInvoked,
-                    vm_mod.VMError.ExceptionRaised => PrimitiveError.ExceptionRaised,
-                    vm_mod.VMError.OutOfMemory => PrimitiveError.OutOfMemory,
-                    else => PrimitiveError.TypeError, // bare-ok: catch fallback
-                };
+                return primitives.mapVMError(err);
             };
         }
         return args[2]; // non-procedure default (for backwards compat)
@@ -303,12 +298,7 @@ fn hashTableWalkFn(args: []const Value) PrimitiveError!Value {
     for (snapshot) |entry| {
         const call_args = [2]Value{ entry.key, entry.value };
         _ = vm.callWithArgs(proc, &call_args) catch |err| {
-            return switch (err) {
-                vm_mod.VMError.ContinuationInvoked => PrimitiveError.ContinuationInvoked,
-                vm_mod.VMError.ExceptionRaised => PrimitiveError.ExceptionRaised,
-                vm_mod.VMError.OutOfMemory => PrimitiveError.OutOfMemory,
-                else => PrimitiveError.TypeError, // bare-ok: catch fallback
-            };
+            return primitives.mapVMError(err);
         };
     }
     return types.VOID;
@@ -397,12 +387,7 @@ fn hashTableUpdateDefaultFn(args: []const Value) PrimitiveError!Value {
 
     const call_args = [1]Value{old_val};
     const new_val = vm.callWithArgs(proc, &call_args) catch |err| {
-        return switch (err) {
-            vm_mod.VMError.ContinuationInvoked => PrimitiveError.ContinuationInvoked,
-            vm_mod.VMError.ExceptionRaised => PrimitiveError.ExceptionRaised,
-            vm_mod.VMError.OutOfMemory => PrimitiveError.OutOfMemory,
-            else => PrimitiveError.TypeError, // bare-ok: catch fallback
-        };
+        return primitives.mapVMError(err);
     };
 
     try growIfNeeded(ht);
@@ -518,12 +503,7 @@ fn hashTableFoldFn(args: []const Value) PrimitiveError!Value {
     for (snapshot) |entry| {
         const call_args = [3]Value{ entry.key, entry.value, acc };
         acc = vm.callWithArgs(proc, &call_args) catch |err| {
-            return switch (err) {
-                vm_mod.VMError.ContinuationInvoked => PrimitiveError.ContinuationInvoked,
-                vm_mod.VMError.ExceptionRaised => PrimitiveError.ExceptionRaised,
-                vm_mod.VMError.OutOfMemory => PrimitiveError.OutOfMemory,
-                else => PrimitiveError.TypeError, // bare-ok: catch fallback
-            };
+            return primitives.mapVMError(err);
         };
     }
     return acc;

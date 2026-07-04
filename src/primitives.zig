@@ -32,7 +32,35 @@ pub const PrimitiveError = error{
     IndexOutOfBounds,
     InvalidArgument,
     Yielded,
+    StackOverflow,
+    UndefinedVariable,
+    NotAProcedure,
+    InvalidBytecode,
+    CompileError,
+    ExecutionTimeout,
+    Terminated,
 };
+
+pub fn mapVMError(err: vm_mod.VMError) PrimitiveError {
+    return switch (err) {
+        vm_mod.VMError.TypeError => PrimitiveError.TypeError,
+        vm_mod.VMError.DivisionByZero => PrimitiveError.DivisionByZero,
+        vm_mod.VMError.ArityMismatch => PrimitiveError.ArityMismatch,
+        vm_mod.VMError.OutOfMemory => PrimitiveError.OutOfMemory,
+        vm_mod.VMError.ExceptionRaised => PrimitiveError.ExceptionRaised,
+        vm_mod.VMError.ContinuationInvoked => PrimitiveError.ContinuationInvoked,
+        vm_mod.VMError.IndexOutOfBounds => PrimitiveError.IndexOutOfBounds,
+        vm_mod.VMError.InvalidArgument => PrimitiveError.InvalidArgument,
+        vm_mod.VMError.Yielded => PrimitiveError.Yielded,
+        vm_mod.VMError.StackOverflow => PrimitiveError.StackOverflow,
+        vm_mod.VMError.UndefinedVariable => PrimitiveError.UndefinedVariable,
+        vm_mod.VMError.NotAProcedure => PrimitiveError.NotAProcedure,
+        vm_mod.VMError.InvalidBytecode => PrimitiveError.InvalidBytecode,
+        vm_mod.VMError.CompileError => PrimitiveError.CompileError,
+        vm_mod.VMError.ExecutionTimeout => PrimitiveError.ExecutionTimeout,
+        vm_mod.VMError.Terminated => PrimitiveError.Terminated,
+    };
+}
 
 fn registerCore(vm: *vm_mod.VM) !void {
     // Pairs and lists
@@ -622,16 +650,7 @@ fn applyFn(args: []const Value) PrimitiveError!Value {
     }
 
     return vm.callWithArgs(proc, call_args.items) catch |err| {
-        return switch (err) {
-            @import("vm.zig").VMError.ContinuationInvoked => PrimitiveError.ContinuationInvoked,
-            @import("vm.zig").VMError.ExceptionRaised => PrimitiveError.ExceptionRaised,
-            @import("vm.zig").VMError.OutOfMemory => PrimitiveError.OutOfMemory,
-            // Parked fiber (yield_retry): apply is idempotent up to the
-            // block, so propagate and let the dispatch site retry the
-            // whole apply call on wake.
-            @import("vm.zig").VMError.Yielded => PrimitiveError.Yielded,
-            else => PrimitiveError.TypeError, // bare-ok: catch fallback
-        };
+        return mapVMError(err);
     };
 }
 

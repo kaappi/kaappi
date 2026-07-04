@@ -549,6 +549,14 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                             error.ExceptionRaised => VMError.ExceptionRaised,
                             error.ContinuationInvoked => VMError.ContinuationInvoked,
                             error.Yielded => VMError.Yielded,
+                            error.ArityMismatch => VMError.ArityMismatch,
+                            error.StackOverflow => VMError.StackOverflow,
+                            error.UndefinedVariable => VMError.UndefinedVariable,
+                            error.NotAProcedure => VMError.NotAProcedure,
+                            error.InvalidBytecode => VMError.InvalidBytecode,
+                            error.CompileError => VMError.CompileError,
+                            error.ExecutionTimeout => VMError.ExecutionTimeout,
+                            error.Terminated => VMError.Terminated,
                             else => VMError.InvalidBytecode,
                         };
                     };
@@ -733,6 +741,15 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                             error.OutOfMemory => VMError.OutOfMemory,
                             error.ExceptionRaised => VMError.ExceptionRaised,
                             error.Yielded => VMError.Yielded,
+                            error.ArityMismatch => VMError.ArityMismatch,
+                            error.StackOverflow => VMError.StackOverflow,
+                            error.UndefinedVariable => VMError.UndefinedVariable,
+                            error.NotAProcedure => VMError.NotAProcedure,
+                            error.InvalidBytecode => VMError.InvalidBytecode,
+                            error.CompileError => VMError.CompileError,
+                            error.ExecutionTimeout => VMError.ExecutionTimeout,
+                            error.Terminated => VMError.Terminated,
+                            error.ContinuationInvoked => VMError.ContinuationInvoked,
                             else => VMError.InvalidBytecode,
                         };
                     };
@@ -1199,6 +1216,14 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                                 error.ExceptionRaised => VMError.ExceptionRaised,
                                 error.ContinuationInvoked => VMError.ContinuationInvoked,
                                 error.Yielded => VMError.Yielded,
+                                error.ArityMismatch => VMError.ArityMismatch,
+                                error.StackOverflow => VMError.StackOverflow,
+                                error.UndefinedVariable => VMError.UndefinedVariable,
+                                error.NotAProcedure => VMError.NotAProcedure,
+                                error.InvalidBytecode => VMError.InvalidBytecode,
+                                error.CompileError => VMError.CompileError,
+                                error.ExecutionTimeout => VMError.ExecutionTimeout,
+                                error.Terminated => VMError.Terminated,
                                 else => VMError.InvalidBytecode,
                             };
                         };
