@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783190301411,
+  "lastUpdate": 1783190381983,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "14e7093a7a17a420b5050ccdcef9656e89267415",
-          "message": "Compare rationals exactly instead of falling back to f64 (#844) (#949)\n\nNumeric comparisons (=, <, >, <=, >=) lost precision whenever a rational\nwas involved. cmpPair's rational-vs-rational branch only handled operands\nwhose parts fit i48 fixnums with i64 cross-products that didn't overflow;\nanything else — bignum parts, overflow, or rational-vs-bignum — silently\nfell through to an f64 comparison. Rational-vs-flonum had no exact branch\nat all and always converted the exact side to a double.\n\nTwo user-visible consequences: distinct exact numbers within one double\nULP compared equal (e.g. (2^100+1)/2^101 = 1/2), and exact-vs-inexact\ncomparisons were non-transitive, e.g. (= 1/3 0.3333333333333333) => #t,\nviolating R7RS 6.2.6.\n\nRoute all exact-vs-exact comparisons through bignum cross-multiplication\n(na*db vs nb*da; denominators are positive) after the existing i64 fast\npath, covering rational-vs-rational, rational-vs-fixnum, and\nrational-vs-bignum without precision loss. Compare rational-vs-flonum\nagainst the flonum's exact value (a finite double is exactly\nmantissa*2^exp) so the predicates stay transitive across the\nexact/inexact boundary. Integer-vs-flonum fast paths are unchanged, so\ncommon comparisons keep their non-allocating path.\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
-          "timestamp": "2026-07-03T09:56:59Z",
-          "tree_id": "cb404a833e378eadfef8e97fa23bb7f3270b9b6c",
-          "url": "https://github.com/kaappi/kaappi/commit/14e7093a7a17a420b5050ccdcef9656e89267415"
-        },
-        "date": 1783073488139,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.5608,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.007236,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.845607,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.227564,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006952,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.0329,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.462821,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.069997,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 4.113531,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.792575,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.176729,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.427006,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 2.413764,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.663967,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.043259,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.047182,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ec3209b4ee1ee20ef0cd3b452ab732054b431a65",
+          "message": "Remove dead opcodes and extract CallFrame.frameWindow helper (#1052) (#1112)\n\nRemove get_local, set_local, close_upvalue from OpCode — never emitted\nby any compiler, get_local/set_local fell through to InvalidBytecode,\nclose_upvalue dispatched as a no-op. Bump bytecode cache VERSION 7→8.\n\nExtract the duplicated frame-register-window formula (locals_count or\n256) into CallFrame.frameWindow(), replacing 4 identical inline copies\nacross vm.zig, gc_collect.zig, vm_continuations.zig, and fiber.zig.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-04T23:31:56+05:30",
+          "tree_id": "5537e996e76586575e02d0f0e57516319431465c",
+          "url": "https://github.com/kaappi/kaappi/commit/ec3209b4ee1ee20ef0cd3b452ab732054b431a65"
+        },
+        "date": 1783190381400,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.987444,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.631207,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.944573,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.180827,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.014019,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.234361,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.470236,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.067436,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 13.53212,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.806112,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 11.086333,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 1.064279,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 9.068195,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.910851,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044725,
             "unit": "seconds"
           }
         ]
