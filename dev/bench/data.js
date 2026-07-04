@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783160740321,
+  "lastUpdate": 1783163716169,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "distinct": true,
-          "id": "d9aed21d1b7c19c2a3eefc10fa0ce0ee27d16a17",
-          "message": "Direct contributors through Discussions first\n\nIssues and PRs are now restricted to org members to reduce\nAI-generated spam. Update CONTRIBUTING.md with a \"How to get\ninvolved\" section and contributor path, update README Contributing\nsection to lead with Discussions.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-03T09:00:17+05:30",
-          "tree_id": "3b3a0a6f56acf51ce88a98812bce2943b4ef61c4",
-          "url": "https://github.com/kaappi/kaappi/commit/d9aed21d1b7c19c2a3eefc10fa0ce0ee27d16a17"
-        },
-        "date": 1783050194290,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.401283,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.329645,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.870165,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.172236,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.007179,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.033385,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.475494,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.070903,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.927792,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.838007,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.154981,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.431251,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 2.493116,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.596609,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.042054,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.04407,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "9f5634c6576b3808f703daedd49186c592b44671",
+          "message": "Extract kaappiModule helper, fix cov_mod/thottam_mod inconsistencies (#1065) (#1088)\n\nbuild.zig created 10 near-identical modules with hand-repeated createModule +\naddImport(\"build_options\") + linenoise C-source + embedded_bytecode blocks,\nbreeding inconsistencies:\n\n- cov_mod lacked link_libc = true (its sibling cov_main_mod had it)\n- thottam_mod lacked build_options entirely (blocked #1060)\n- Stack-size comment said \"16 MB\" but the value is 64 MB\n\nExtract a kaappiModule(b, options_mod, .{...}) helper that consolidates the\npattern: createModule + build_options import + optional linenoise C source +\noptional embedded_bytecode anonymous import. All 10 modules (plus the\ncompiler_mod in the bundle-src path) now use it.\n\nFixes: cov_mod gets link_libc, thottam_mod gets build_options, comment\ncorrected. Net -42 lines.\n\nCloses #1065\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-04T16:24:44+05:30",
+          "tree_id": "4a3c7d16adde1ba47f965b78904440100d3b3d8a",
+          "url": "https://github.com/kaappi/kaappi/commit/9f5634c6576b3808f703daedd49186c592b44671"
+        },
+        "date": 1783163715070,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.300599,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.074202,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.959024,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.341702,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.013243,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.210818,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.475004,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.070779,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 12.615461,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.80365,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 9.872868,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.962235,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 8.411335,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.758513,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.045448,
             "unit": "seconds"
           }
         ]
