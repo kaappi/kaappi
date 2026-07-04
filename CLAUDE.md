@@ -150,12 +150,13 @@ Exceptions: auto-generated data files (`unicode_tables.zig`) are exempt.
 | `expander.zig` | ~320 | Macro expansion engine (syntax-rules) |
 | `printer.zig` | ~300 | Value → string (write mode and display mode) |
 
-### Compiler & IR (7 files)
+### Compiler & IR (8 files)
 | File | Responsibility |
 |------|---------------|
 | `ir.zig` | IR node types (33), AST→IR lowering, 3 analysis passes, 5 optimization passes |
 | `ir_emitter.zig` | Standalone IR → bytecode emitter (used by Stage 1 parity tests) |
-| `compiler.zig` | Core: IR pipeline orchestration (`compile()` lowers to IR, runs passes, emits via `compileFromNode()`), retains `compileExpr()` for passthrough forms, scope/register management |
+| `compiler.zig` | Core: IR pipeline orchestration (`compile()` lowers to IR, runs passes), retains `compileExpr()` for passthrough forms, scope/register management, macro forms |
+| `compiler_ir.zig` | IR-to-bytecode: `compileFromNode()` dispatch, if, begin, call, lambda, define, set!, and, or, when, unless |
 | `compiler_lambda.zig` | lambda, define, set!, begin, delay, delay-force, body compilation |
 | `compiler_conditionals.zig` | and, or, when, unless, cond, cond-expand |
 | `compiler_bindings.zig` | let, let*, letrec, letrec*, named let, do, let-values, let*-values |
