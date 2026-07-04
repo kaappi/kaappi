@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783159332301,
+  "lastUpdate": 1783160740321,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "aef9898806209a5b53cc699265c5d91f600fa18f",
-          "message": "Fix double hygiene renaming in macro-generating macros (#923)\n\n* Fix double hygiene renaming in macro-generating macros\n\nWhen a macro's template defines another macro, identifiers in the inner\ntemplate that were already hygiene-renamed by the outer expansion (e.g.\n__hyg_369_march-hare) got renamed a second time when the inner macro\nexpanded, producing names like __hyg_373___hyg_369_march-hare that no\nlonger matched the binding the outer expansion created.\n\nRenaming an already-renamed identifier cannot prevent any capture —\ngensyms are globally unique and can never collide with user identifiers.\nIt only severs the reference from its binding. renameForHygiene now\nreturns identifiers carrying the __hyg_ prefix unchanged.\n\nThis fixes the jabberwocky test (r7rs-tests.scm:536), the last\nmacro-hygiene failure tracked in #919; the pattern-variable scoping\nvariant from that issue already worked and now has a guard test.\n\nFixes #919\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n* Clear threadlocal vm_instance in VM.deinit\n\nThe Linux CI runs of PR #923 crashed (SIGSEGV) in the new nested\nsyntax-rules unit test: execute() registers the VM in the threadlocal\nvm_instance, but deinit never unregistered it. In the unit-test binary,\nthe next test's first eval macro-expands at compile time — before its\nown execute() re-registers the threadlocal — so renameForHygiene read\nthe previous test's freed globals map through the stale pointer. The\nuse-after-free predates #923; the new test only shifted heap reuse\nenough for glibc to fault where macOS malloc stayed silent.\n\nDeinit now nulls vm_instance when it points at the dying VM, and a\nlifecycle test asserts the unregistration deterministically instead of\nrelying on platform-dependent memory reuse.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-03T08:30:10+05:30",
-          "tree_id": "d6baec9ce4f2d71521d3a3788aae5e6ff7b0659e",
-          "url": "https://github.com/kaappi/kaappi/commit/aef9898806209a5b53cc699265c5d91f600fa18f"
-        },
-        "date": 1783048487386,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.390018,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.073528,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.839651,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.154513,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.007063,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.03327,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.474525,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.070789,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.942397,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.838112,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.159133,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.427748,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 2.482564,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.711292,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.042043,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044436,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "073823db0937e2124baf7ab60cdc001666e82148",
+          "message": "Fix cross-thread fiber.status atomics and encapsulate child_resources (#1028) (#1087)\n\nThe child OS thread wrote fiber.status with plain stores while the parent\npolled it with @atomicLoad(.acquire) — the missing release on the write\nside breaks ordering on ARM and RISC-V. Error paths also published status\nbefore storing the result, creating a window where the parent could see\n.errored/.completed before the exception/result was visible.\n\n- All cross-thread fiber.status writes now use @atomicStore(.release)\n- All cross-thread reads now use @atomicLoad(.acquire)\n- Error paths reordered: data stored before status is published\n- Inline spinlock sites replaced with ChildRegistry struct using\n  memory.spinLock/spinUnlock (adds spinLoopHint)\n- Never-joined thread leak documented as by-design\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-04T15:36:06+05:30",
+          "tree_id": "412175058d71215fffd559ec40ee302c88380302",
+          "url": "https://github.com/kaappi/kaappi/commit/073823db0937e2124baf7ab60cdc001666e82148"
+        },
+        "date": 1783160739779,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.085676,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.826477,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.961493,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.461851,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.013699,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.234516,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.480218,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.068997,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 13.776304,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.849969,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 11.027269,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 1.06669,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 9.086669,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.829651,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.04407,
             "unit": "seconds"
           }
         ]
