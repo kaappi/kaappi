@@ -439,3 +439,70 @@ test "retired lib_env values survive GC (#820)" {
     const result = try vm.eval("(length (get))");
     try std.testing.expectEqual(@as(i64, 3), types.toFixnum(result));
 }
+
+test "export list names resolve in globals (drift guard)" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    // Syntax keywords handled by the compiler — not in globals by design
+    const syntax_keywords = [_][]const u8{
+        "define",        "lambda",         "if",           "cond",
+        "case",          "and",            "or",           "begin",
+        "let",           "let*",           "letrec",       "letrec*",
+        "let-syntax",    "letrec-syntax",  "do",           "quote",
+        "quasiquote",    "set!",           "syntax-rules", "define-syntax",
+        "else",          "=>",             "...",          "define-record-type",
+        "define-values", "define-library", "import",       "case-lambda",
+        "when",          "unless",         "guard",        "include",
+        "include-ci",    "parameterize",   "delay",        "delay-force",
+    };
+
+    const all_lists = .{
+        .{ "scheme.base", &library_mod.scheme_base_names },
+        .{ "scheme.write", &library_mod.scheme_write_names },
+        .{ "scheme.inexact", &library_mod.scheme_inexact_names },
+        .{ "scheme.read", &library_mod.scheme_read_names },
+        .{ "scheme.char", &library_mod.scheme_char_names },
+        .{ "scheme.lazy", &library_mod.scheme_lazy_names },
+        .{ "scheme.time", &library_mod.scheme_time_names },
+        .{ "scheme.process-context", &library_mod.scheme_pc_names },
+        .{ "scheme.eval", &library_mod.scheme_eval_names },
+        .{ "scheme.repl", &library_mod.scheme_repl_names },
+        .{ "scheme.load", &library_mod.scheme_load_names },
+        .{ "scheme.r5rs", &library_mod.scheme_r5rs_names },
+        .{ "scheme.file", &library_mod.scheme_file_names },
+        .{ "scheme.cxr", &library_mod.scheme_cxr_names },
+        .{ "scheme.complex", &library_mod.scheme_complex_names },
+        .{ "kaappi.ffi", &library_mod.kaappi_ffi_names },
+        .{ "kaappi.fibers", &library_mod.kaappi_fiber_names },
+        .{ "srfi.18", &library_mod.srfi18_names },
+        .{ "srfi.18 (reexports)", &library_mod.srfi18_base_reexports },
+        .{ "srfi.1", &library_mod.srfi1_names },
+        .{ "srfi.13", &library_mod.srfi13_names },
+        .{ "srfi.39", &library_mod.srfi39_names },
+        .{ "srfi.69", &library_mod.srfi69_names },
+        .{ "srfi.133", &library_mod.srfi133_names },
+        .{ "srfi.170", &library_mod.srfi170_names },
+    };
+
+    inline for (all_lists) |entry| {
+        for (entry[1]) |name| {
+            // Skip syntax keywords — the compiler handles them, not globals
+            var is_syntax = false;
+            for (&syntax_keywords) |kw| {
+                if (std.mem.eql(u8, name, kw)) {
+                    is_syntax = true;
+                    break;
+                }
+            }
+            if (is_syntax) continue;
+
+            if (vm.globals.get(name) == null) {
+                std.debug.print("DRIFT: {s} lists \"{s}\" but it is not in globals\n", .{ entry[0], name });
+                return error.TestUnexpectedResult;
+            }
+        }
+    }
+}
