@@ -177,7 +177,7 @@ pub const GC = struct {
             // GC, so it needs no remembered-set entry — and reading its
             // generation bit would race the owner's collection cycle.
             if (child.owner == self.id and child.generation == 0) {
-                self.remembered_set.append(self.allocator, container) catch {};
+                self.remembered_set.append(self.allocator, container) catch @panic("GC writeBarrier: remembered set OOM");
             }
         }
     }
