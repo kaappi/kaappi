@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783121289890,
+  "lastUpdate": 1783127152762,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "0eff476573dcbb328fd8ea39b9386d85237da6e1",
-          "message": "Fix char literal semicolon and string-prefix?/suffix? argument order (#891)\n\n* Fix char literal semicolon and string-prefix?/suffix? argument order (#855, #829)\n\n- Remove trailing semicolon from unnamed control character hex output\n  in write mode — R7RS char literal syntax is #\\xNN, not #\\xNN; (#855)\n- Apply optional start/end arguments to s1 (prefix/suffix string) per\n  SRFI-13, not to s2 (containing string); accept start2/end2 (#829)\n\nFixes #855\nFixes #829\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Update SRFI-13 prefix/suffix tests for corrected argument semantics\n\nThe tests checked the old incorrect behavior where start/end applied\nto s2. Update to match SRFI-13 semantics where start1/end1 apply to s1.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-03T02:42:16+05:30",
-          "tree_id": "1e1b448ec750c19a7a55025419bbb1694e3f65e1",
-          "url": "https://github.com/kaappi/kaappi/commit/0eff476573dcbb328fd8ea39b9386d85237da6e1"
-        },
-        "date": 1783029045130,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.815558,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.861914,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.791712,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.723756,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.007512,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.031573,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.416428,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.066495,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.954986,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.6286,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.050832,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.218443,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 2.326961,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 0.971674,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.039227,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.042481,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "63a93faa63aa147b43e931d3f3409b1cb2a5a931",
+          "message": "Fix GC corruption during library include-load (#1010) (#1012)\n\nImporting (srfi 158) after (srfi 115) failed with a CompileError masked\nas \"library not found\": a collection landing mid-compile corrupted the\ndesugared form of gdelete-neighbor-dups. Two holes conspired:\n\n- compileNamedLet built its formals list and renamed body from fresh\n  unrooted pairs across makeUniqueLoopName/renameInBody (which allocate\n  enough to collect on large bodies), and never rooted the desugared\n  lambda args across the nested compileLambda.\n- handleTopLevelForm never rooted the (import ...) datum itself, so a\n  collection during the library load could sweep the form while\n  handleImportInto was still walking it.\n\nHarden the same fresh-unrooted-desugar pattern elsewhere in the\ncompiler: compileBody/compileLetBody def_inits stack arrays (mirrored\ninto extra_roots), compileDefineValues, compileLetValues, and the\nquasiquote vector branch. Fix no_collect increments leaking on error\npaths in compileCaseLambda, compileGuard, compileParameterize, and\ncompileQQSplicing, which would have disabled collection for the rest of\nthe process after a malformed form.\n\nAlso stop masking load failures: when an .sld file is found and read\nbut fails to load, report the failing definition and file instead of\n\"library not found\".\n\nThis also fixes the nondeterministic CompileError when importing\n(srfi 64) and (srfi 158) together.\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-04T06:20:39+05:30",
+          "tree_id": "e0cf60026aa645dfb4af4855a9a23994500be977",
+          "url": "https://github.com/kaappi/kaappi/commit/63a93faa63aa147b43e931d3f3409b1cb2a5a931"
+        },
+        "date": 1783127151613,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.846035,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.667793,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.778081,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.800633,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.006682,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.032193,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.422852,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.066136,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 4.278378,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.58624,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 1.181216,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.405607,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 1.632572,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.052684,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.039096,
             "unit": "seconds"
           }
         ]
