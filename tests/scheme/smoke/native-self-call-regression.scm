@@ -1,6 +1,6 @@
 ;; Regression test for emitSelfCallSequence frame-base off-by-one bug.
 ;;
-;; Bug: When the JIT self-call optimization is enabled, emitSelfCallSequence
+;; Bug: When the native self-call optimization is enabled, emitSelfCallSequence
 ;; computes the callee's frame base incorrectly (off by one register slot).
 ;; The callee's FRAME_PTR points one slot before the actual frame base,
 ;; causing register reads/writes to hit wrong slots.  The return value ends
@@ -13,11 +13,9 @@
 ;;   4. The arity matches
 ;;
 ;; This test defines a minimal non-tail self-recursive function and runs
-;; it enough times to trigger JIT compilation (threshold = 100 calls).
+;; it enough times to trigger native compilation (threshold = 100 calls).
 ;; If the self-call frame base is wrong, the return value will be
 ;; corrupted and the final result will differ from the expected answer.
-;;
-;; Run:  zig build run -- tests/scheme/jit-self-call-regression.scm
 
 (import (scheme base) (scheme write) (scheme process-context))
 
@@ -56,10 +54,10 @@
       0
       (+ 1 (count-down (- n 1)))))
 
-;; Must call >100 times per function to cross JIT threshold.
+;; Must call >100 times per function to cross native compilation threshold.
 ;; count-down(10) makes 10 recursive non-tail calls per invocation.
 ;; 20 outer iterations * 10 calls = 200 total calls to count-down,
-;; enough to JIT-compile it and then exercise the JIT code path.
+;; enough to natively compile it and then exercise the native code path.
 
 (define (repeat f n expected)
   (if (= n 0)
@@ -67,14 +65,14 @@
       (begin (f expected)  ; warm up call_count
              (repeat f (- n 1) expected))))
 
-(display "=== JIT self-call regression ===") (newline)
+(display "=== Native self-call regression ===") (newline)
 
 (check "count-down 0"  0  (count-down 0))
 (check "count-down 1"  1  (count-down 1))
 (check "count-down 10" 10 (count-down 10))
 
-;; Warm up to trigger JIT, then verify post-JIT correctness.
-(check "count-down 10 post-JIT" 10 (repeat count-down 20 10))
+;; Warm up to trigger native compilation, then verify post-compilation correctness.
+(check "count-down 10 post-native" 10 (repeat count-down 20 10))
 
 ;; ---------- Test 2: multi-arg self-recursion (sum-range) ----------
 ;;
@@ -87,7 +85,7 @@
       (+ lo (sum-range (+ lo 1) hi))))
 
 (check "sum-range 1..10" 55 (sum-range 1 10))
-(check "sum-range 1..10 post-JIT" 55 (repeat (lambda (x) (sum-range 1 x)) 20 10))
+(check "sum-range 1..10 post-native" 55 (repeat (lambda (x) (sum-range 1 x)) 20 10))
 
 ;; ---------- Test 3: nested self-call (double recursion) ----------
 ;;
@@ -102,7 +100,7 @@
       (+ (fib-like (- n 1)) (fib-like (- n 2)))))
 
 (check "fib-like 10" 55 (fib-like 10))
-(check "fib-like 10 post-JIT" 55 (repeat fib-like 25 10))
+(check "fib-like 10 post-native" 55 (repeat fib-like 25 10))
 
 ;; ---------- Summary ----------
 

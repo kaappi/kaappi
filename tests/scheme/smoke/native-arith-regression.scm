@@ -1,5 +1,5 @@
-;; JIT arithmetic NaN-boxing regression test
-;; Exercises JIT-compiled fixnum arithmetic, comparisons, and predicates
+;; Native backend arithmetic NaN-boxing regression test
+;; Exercises natively compiled fixnum arithmetic, comparisons, and predicates
 ;; with positive, negative, zero, and mixed-sign operands.
 
 (import (scheme base) (scheme write) (scheme process-context))
@@ -34,7 +34,7 @@
 (define (get-car x) (car x))
 (define (get-cdr x) (cdr x))
 
-;; Call each function 200+ times to trigger JIT compilation (threshold=100)
+;; Call each function 200+ times to trigger native compilation (threshold=100)
 (let loop ((i 0))
   (when (< i 200)
     (add 1 2) (sub 5 3) (mul 2 3) (lt? 1 2) (gt? 2 1) (le? 1 1) (ge? 1 1) (eq? 5 5)
@@ -43,7 +43,7 @@
     (add -1 -2) (sub -1 1) (mul -2 3) (lt? -1 1) (gt? 1 -1) (eq? -1 -1)
     (loop (+ i 1))))
 
-;; Now test with JIT-compiled versions
+;; Now test with natively compiled versions
 (check "add positive" 5 (add 2 3))
 (check "add zero" 42 (add 42 0))
 (check "add negative" -3 (add -1 -2))
