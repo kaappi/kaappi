@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783141862680,
+  "lastUpdate": 1783144157213,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "54573c293181c6d9500a59942301dc4da7327517",
-          "message": "Fix thread-sleep! to use OS nanosleep instead of fiber yield (#876) (#904)\n\nthread-sleep! set vm.yielded=true expecting a fiber scheduler, but\non the main thread this either raised error.Yielded or silently\nabandoned the enclosing form. Use POSIX nanosleep directly for\nactual blocking sleep regardless of scheduler context.\n\nFixes #876\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-03T04:38:24+05:30",
-          "tree_id": "e0520df995b2f2b454c2c53fd2784a142e561639",
-          "url": "https://github.com/kaappi/kaappi/commit/54573c293181c6d9500a59942301dc4da7327517"
-        },
-        "date": 1783035869203,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 2.279775,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.111244,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.484282,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.931459,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.005174,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.018149,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.248179,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.036437,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 1.799907,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 0.936705,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 0.621942,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.321882,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.325833,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.412568,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.026463,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.043895,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "distinct": true,
+          "id": "69a7e54676dbf7ea0b7789dcd89b671db07734b3",
+          "message": "Release skill: sync docs WASM via workflow, not local copy\n\nStep 11 copied the locally built zig-out/bin/kaappi.wasm into the docs site,\nso the playground ran a binary that wasn't the one attested in the release\nSHA256SUMS. Point it at the new kaappi.github.io update-wasm workflow, which\ndownloads the released wasm, verifies it against SHA256SUMS, bumps\nkaappi_version, and deploys. Also drop the manual mkdocs.yml version bump from\nStep 4 (a separate repo, now handled by that workflow post-release).\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-04T11:01:54+05:30",
+          "tree_id": "66d2700dc6d754eaa753720c67d9379219ccac57",
+          "url": "https://github.com/kaappi/kaappi/commit/69a7e54676dbf7ea0b7789dcd89b671db07734b3"
+        },
+        "date": 1783144156733,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.247405,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.754845,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.908286,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.285608,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.012434,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.210578,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.476831,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.070887,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 12.448181,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.827789,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 9.914827,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.956891,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 8.267025,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.712513,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.043184,
             "unit": "seconds"
           }
         ]
