@@ -461,6 +461,13 @@ pub const Compiler = struct {
         self.populateDebugLocals();
     }
 
+    pub fn compileDesugared(self: *Compiler, form: Value, dst: u16, is_tail: bool) CompileError!void {
+        var rooted = form;
+        try self.gc.pushRoot(&rooted);
+        defer self.gc.popRoot();
+        return self.compileExpr(rooted, dst, is_tail);
+    }
+
     pub fn compileExpr(self: *Compiler, expr: Value, dst: u16, is_tail: bool) CompileError!void {
         if (types.isFixnum(expr)) {
             const idx = try self.addConstant(expr);

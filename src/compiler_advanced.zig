@@ -47,7 +47,7 @@ pub fn compileGuard(self: *Compiler, args: Value, dst: u16, is_tail: bool) Compi
     // below is a fresh unrooted pair. The scoped defer restores the counter
     // on every path; leaking an increment would disable collection for the
     // rest of the process.
-    var form: Value = blk: {
+    const form: Value = blk: {
         gc.no_collect += 1;
         defer gc.no_collect -= 1;
 
@@ -85,9 +85,7 @@ pub fn compileGuard(self: *Compiler, args: Value, dst: u16, is_tail: bool) Compi
         break :blk gc.allocPair(ec_sym, gc.allocPair(outer, types.NIL) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory;
     };
 
-    try gc.pushRoot(&form);
-    defer gc.popRoot();
-    return self.compileExpr(form, dst, is_tail);
+    return self.compileDesugared(form, dst, is_tail);
 }
 
 /// Append an element to the end of a proper list, returning a new list.
@@ -748,7 +746,7 @@ pub fn compileParameterize(self: *Compiler, args: Value, dst: u16, is_tail: bool
     // below is a fresh unrooted pair. The scoped defer restores the counter
     // on every path; leaking an increment would disable collection for the
     // rest of the process.
-    var outer_let: Value = blk: {
+    const outer_let: Value = blk: {
         gc.no_collect += 1;
         defer gc.no_collect -= 1;
 
@@ -813,9 +811,7 @@ pub fn compileParameterize(self: *Compiler, args: Value, dst: u16, is_tail: bool
         break :blk gc.allocPair(letstar_sym, gc.allocPair(let_bindings, outer_body) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory;
     };
 
-    try gc.pushRoot(&outer_let);
-    defer gc.popRoot();
-    return self.compileExpr(outer_let, dst, is_tail);
+    return self.compileDesugared(outer_let, dst, is_tail);
 }
 
 /// Compile (case-lambda (formals body ...) ...)
@@ -836,7 +832,7 @@ pub fn compileCaseLambda(self: *Compiler, args: Value, dst: u16) CompileError!vo
     // below is a fresh unrooted pair. The scoped defer restores the counter
     // on every path (including the InvalidSyntax returns); leaking an
     // increment would disable collection for the rest of the process.
-    var outer_lambda: Value = blk: {
+    const outer_lambda: Value = blk: {
         gc.no_collect += 1;
         defer gc.no_collect -= 1;
 
@@ -922,7 +918,5 @@ pub fn compileCaseLambda(self: *Compiler, args: Value, dst: u16) CompileError!vo
         break :blk try gc.allocPair(lambda_sym, try gc.allocPair(args_sym, try gc.allocPair(let_form, types.NIL)));
     };
 
-    try gc.pushRoot(&outer_lambda);
-    defer gc.popRoot();
-    return self.compileExpr(outer_lambda, dst, false);
+    return self.compileDesugared(outer_lambda, dst, false);
 }
