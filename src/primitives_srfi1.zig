@@ -127,6 +127,51 @@ fn isTruthyResult(v: Value) bool {
     return types.isTruthy(v);
 }
 
+fn buildList(gc: *memory.GC, items: []const Value, tail: Value) PrimitiveError!Value {
+    var result = tail;
+    gc.pushRoot(&result) catch return PrimitiveError.OutOfMemory;
+    defer gc.popRoot();
+    var i = items.len;
+    while (i > 0) {
+        i -= 1;
+        result = gc.allocPair(items[i], result) catch return PrimitiveError.OutOfMemory;
+    }
+    return result;
+}
+
+const MultiListIter = struct {
+    currents: [256]Value,
+    call_args: [257]Value,
+    list_count: usize,
+    use_pairs: bool,
+
+    fn init(lists: []const Value, use_pairs: bool) MultiListIter {
+        var self: MultiListIter = .{
+            .currents = undefined,
+            .call_args = undefined,
+            .list_count = lists.len,
+            .use_pairs = use_pairs,
+        };
+        for (0..lists.len) |i| self.currents[i] = lists[i];
+        return self;
+    }
+
+    fn next(self: *MultiListIter, name: []const u8) PrimitiveError!?[]Value {
+        for (0..self.list_count) |i| {
+            if (self.currents[i] == types.NIL) return null;
+            if (!types.isPair(self.currents[i])) return primitives.typeError(name, "pair", self.currents[i]);
+        }
+        for (0..self.list_count) |i| {
+            self.call_args[i] = if (self.use_pairs) self.currents[i] else types.car(self.currents[i]);
+        }
+        return self.call_args[0..self.list_count];
+    }
+
+    fn advance(self: *MultiListIter) void {
+        for (0..self.list_count) |i| self.currents[i] = types.cdr(self.currents[i]);
+    }
+};
+
 // ---------------------------------------------------------------------------
 // Folds
 // ---------------------------------------------------------------------------
@@ -136,44 +181,16 @@ fn foldFn(args: []const Value) PrimitiveError!Value {
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const proc = args[0];
     var acc = args[1];
-    const list_count = args.len - 2;
-    if (list_count == 0) return PrimitiveError.ArityMismatch;
+    if (args.len < 3) return PrimitiveError.ArityMismatch;
 
     gc.pushRoot(&acc) catch return PrimitiveError.OutOfMemory;
     defer gc.popRoot();
 
-    // Current pointers for each list
-    var currents: [256]Value = undefined;
-    for (0..list_count) |i| {
-        currents[i] = args[2 + i];
-    }
-
-    var call_args_buf: [257]Value = undefined;
-
-    while (true) {
-        // Check if any list is exhausted
-        var all_pairs = true;
-        for (0..list_count) |i| {
-            if (currents[i] == types.NIL) {
-                all_pairs = false;
-                break;
-            }
-            if (!types.isPair(currents[i])) return primitives.typeError("fold", "pair", currents[i]);
-        }
-        if (!all_pairs) break;
-
-        // call_args = (car(list1), car(list2), ..., acc)
-        for (0..list_count) |i| {
-            call_args_buf[i] = types.car(currents[i]);
-        }
-        call_args_buf[list_count] = acc;
-
-        acc = try callVM(proc, call_args_buf[0 .. list_count + 1]);
-
-        // Advance
-        for (0..list_count) |i| {
-            currents[i] = types.cdr(currents[i]);
-        }
+    var iter = MultiListIter.init(args[2..], false);
+    while (try iter.next("fold")) |_| {
+        iter.call_args[iter.list_count] = acc;
+        acc = try callVM(proc, iter.call_args[0 .. iter.list_count + 1]);
+        iter.advance();
     }
     return acc;
 }
@@ -310,16 +327,7 @@ fn filterFn(args: []const Value) PrimitiveError!Value {
         current = types.cdr(current);
     }
 
-    // Build result list
-    var result_list: Value = types.NIL;
-    gc.pushRoot(&result_list) catch return PrimitiveError.OutOfMemory;
-    defer gc.popRoot();
-    var i = results.items.len;
-    while (i > 0) {
-        i -= 1;
-        result_list = gc.allocPair(results.items[i], result_list) catch return PrimitiveError.OutOfMemory;
-    }
-    return result_list;
+    return buildList(gc, results.items, types.NIL);
 }
 
 // (remove pred list) — opposite of filter
@@ -342,15 +350,7 @@ fn removeFn(args: []const Value) PrimitiveError!Value {
         current = types.cdr(current);
     }
 
-    var result_list: Value = types.NIL;
-    gc.pushRoot(&result_list) catch return PrimitiveError.OutOfMemory;
-    defer gc.popRoot();
-    var i = results.items.len;
-    while (i > 0) {
-        i -= 1;
-        result_list = gc.allocPair(results.items[i], result_list) catch return PrimitiveError.OutOfMemory;
-    }
-    return result_list;
+    return buildList(gc, results.items, types.NIL);
 }
 
 // (partition pred list) — returns two values: (matching, non-matching)
@@ -377,27 +377,10 @@ fn partitionFn(args: []const Value) PrimitiveError!Value {
         current = types.cdr(current);
     }
 
-    // Build yes list
-    var yes_list: Value = types.NIL;
+    var yes_list = try buildList(gc, yes.items, types.NIL);
     gc.pushRoot(&yes_list) catch return PrimitiveError.OutOfMemory;
     defer gc.popRoot();
-    var i = yes.items.len;
-    while (i > 0) {
-        i -= 1;
-        yes_list = gc.allocPair(yes.items[i], yes_list) catch return PrimitiveError.OutOfMemory;
-    }
-
-    // Build no list
-    var no_list: Value = types.NIL;
-    gc.pushRoot(&no_list) catch return PrimitiveError.OutOfMemory;
-    defer gc.popRoot();
-    i = no.items.len;
-    while (i > 0) {
-        i -= 1;
-        no_list = gc.allocPair(no.items[i], no_list) catch return PrimitiveError.OutOfMemory;
-    }
-
-    // Return as multiple values
+    const no_list = try buildList(gc, no.items, types.NIL);
     const vals = [2]Value{ yes_list, no_list };
     return gc.allocMultipleValues(&vals) catch return PrimitiveError.OutOfMemory;
 }
@@ -441,37 +424,13 @@ fn findTailFn(args: []const Value) PrimitiveError!Value {
 // (any pred list1 ...) — returns first truthy pred result
 fn anyFn(args: []const Value) PrimitiveError!Value {
     const pred = args[0];
-    const list_count = args.len - 1;
-    if (list_count == 0) return PrimitiveError.ArityMismatch;
+    if (args.len < 2) return PrimitiveError.ArityMismatch;
 
-    var currents: [256]Value = undefined;
-    for (0..list_count) |i| {
-        currents[i] = args[1 + i];
-    }
-
-    var call_args_buf: [256]Value = undefined;
-
-    while (true) {
-        var all_pairs = true;
-        for (0..list_count) |i| {
-            if (currents[i] == types.NIL) {
-                all_pairs = false;
-                break;
-            }
-            if (!types.isPair(currents[i])) return primitives.typeError("any", "pair", currents[i]);
-        }
-        if (!all_pairs) break;
-
-        for (0..list_count) |i| {
-            call_args_buf[i] = types.car(currents[i]);
-        }
-
-        const result = try callVM(pred, call_args_buf[0..list_count]);
+    var iter = MultiListIter.init(args[1..], false);
+    while (try iter.next("any")) |call_args| {
+        const result = try callVM(pred, call_args);
         if (isTruthyResult(result)) return result;
-
-        for (0..list_count) |i| {
-            currents[i] = types.cdr(currents[i]);
-        }
+        iter.advance();
     }
     return types.FALSE;
 }
@@ -479,39 +438,15 @@ fn anyFn(args: []const Value) PrimitiveError!Value {
 // (every pred list1 ...) — returns last truthy result or #f
 fn everyFn(args: []const Value) PrimitiveError!Value {
     const pred = args[0];
-    const list_count = args.len - 1;
-    if (list_count == 0) return PrimitiveError.ArityMismatch;
+    if (args.len < 2) return PrimitiveError.ArityMismatch;
 
-    var currents: [256]Value = undefined;
-    for (0..list_count) |i| {
-        currents[i] = args[1 + i];
-    }
-
-    var call_args_buf: [256]Value = undefined;
+    var iter = MultiListIter.init(args[1..], false);
     var last_result: Value = types.TRUE;
-
-    while (true) {
-        var all_pairs = true;
-        for (0..list_count) |i| {
-            if (currents[i] == types.NIL) {
-                all_pairs = false;
-                break;
-            }
-            if (!types.isPair(currents[i])) return primitives.typeError("every", "pair", currents[i]);
-        }
-        if (!all_pairs) break;
-
-        for (0..list_count) |i| {
-            call_args_buf[i] = types.car(currents[i]);
-        }
-
-        const result = try callVM(pred, call_args_buf[0..list_count]);
+    while (try iter.next("every")) |call_args| {
+        const result = try callVM(pred, call_args);
         if (!isTruthyResult(result)) return types.FALSE;
         last_result = result;
-
-        for (0..list_count) |i| {
-            currents[i] = types.cdr(currents[i]);
-        }
+        iter.advance();
     }
     return last_result;
 }
@@ -519,38 +454,14 @@ fn everyFn(args: []const Value) PrimitiveError!Value {
 // (count pred list1 ...) — count satisfying elements
 fn countFn(args: []const Value) PrimitiveError!Value {
     const pred = args[0];
-    const list_count = args.len - 1;
-    if (list_count == 0) return PrimitiveError.ArityMismatch;
+    if (args.len < 2) return PrimitiveError.ArityMismatch;
 
-    var currents: [256]Value = undefined;
-    for (0..list_count) |i| {
-        currents[i] = args[1 + i];
-    }
-
-    var call_args_buf: [256]Value = undefined;
+    var iter = MultiListIter.init(args[1..], false);
     var n: i64 = 0;
-
-    while (true) {
-        var all_pairs = true;
-        for (0..list_count) |i| {
-            if (currents[i] == types.NIL) {
-                all_pairs = false;
-                break;
-            }
-            if (!types.isPair(currents[i])) return primitives.typeError("count", "pair", currents[i]);
-        }
-        if (!all_pairs) break;
-
-        for (0..list_count) |i| {
-            call_args_buf[i] = types.car(currents[i]);
-        }
-
-        const result = try callVM(pred, call_args_buf[0..list_count]);
+    while (try iter.next("count")) |call_args| {
+        const result = try callVM(pred, call_args);
         if (isTruthyResult(result)) n += 1;
-
-        for (0..list_count) |i| {
-            currents[i] = types.cdr(currents[i]);
-        }
+        iter.advance();
     }
     return types.makeFixnum(n);
 }
@@ -621,54 +532,24 @@ fn iotaFn(args: []const Value) PrimitiveError!Value {
 // (zip list1 list2 ...) — transpose lists into list of lists
 fn zipFn(args: []const Value) PrimitiveError!Value {
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
-    const list_count = args.len;
-    if (list_count == 0) return types.NIL;
+    if (args.len == 0) return types.NIL;
 
-    var currents: [256]Value = undefined;
-    for (0..list_count) |i| {
-        currents[i] = args[i];
-    }
-
+    var iter = MultiListIter.init(args, false);
     var results: std.ArrayList(Value) = .empty;
     defer results.deinit(gc.allocator);
 
-    while (true) {
-        // Check if any list is exhausted
-        var all_pairs = true;
-        for (0..list_count) |i| {
-            if (currents[i] == types.NIL) {
-                all_pairs = false;
-                break;
-            }
-            if (!types.isPair(currents[i])) return primitives.typeError("zip", "pair", currents[i]);
-        }
-        if (!all_pairs) break;
-
-        // Build a list of cars
+    while (try iter.next("zip")) |call_args| {
         var row: Value = types.NIL;
-        var j = list_count;
+        var j = call_args.len;
         while (j > 0) {
             j -= 1;
-            row = gc.allocPair(types.car(currents[j]), row) catch return PrimitiveError.OutOfMemory;
+            row = gc.allocPair(call_args[j], row) catch return PrimitiveError.OutOfMemory;
         }
         results.append(gc.allocator, row) catch return PrimitiveError.OutOfMemory;
-
-        // Advance
-        for (0..list_count) |i| {
-            currents[i] = types.cdr(currents[i]);
-        }
+        iter.advance();
     }
 
-    // Build result list
-    var result: Value = types.NIL;
-    gc.pushRoot(&result) catch return PrimitiveError.OutOfMemory;
-    defer gc.popRoot();
-    var i = results.items.len;
-    while (i > 0) {
-        i -= 1;
-        result = gc.allocPair(results.items[i], result) catch return PrimitiveError.OutOfMemory;
-    }
-    return result;
+    return buildList(gc, results.items, types.NIL);
 }
 
 // (concatenate list-of-lists)
@@ -688,7 +569,6 @@ fn concatenateFn(args: []const Value) PrimitiveError!Value {
 
     if (sublists.items.len == 0) return types.NIL;
 
-    // Append them all: result starts as last sublist, then prepend in reverse
     var result = sublists.items[sublists.items.len - 1];
     gc.pushRoot(&result) catch return PrimitiveError.OutOfMemory;
     defer gc.popRoot();
@@ -696,7 +576,6 @@ fn concatenateFn(args: []const Value) PrimitiveError!Value {
     while (idx > 0) {
         idx -= 1;
         var lst = sublists.items[idx];
-        // Collect elements of this list
         var elems: std.ArrayList(Value) = .empty;
         defer elems.deinit(gc.allocator);
         while (lst != types.NIL) {
@@ -704,11 +583,7 @@ fn concatenateFn(args: []const Value) PrimitiveError!Value {
             elems.append(gc.allocator, types.car(lst)) catch return PrimitiveError.OutOfMemory;
             lst = types.cdr(lst);
         }
-        var j = elems.items.len;
-        while (j > 0) {
-            j -= 1;
-            result = gc.allocPair(elems.items[j], result) catch return PrimitiveError.OutOfMemory;
-        }
+        result = try buildList(gc, elems.items, result);
     }
     return result;
 }
@@ -736,15 +611,7 @@ fn takeFn(args: []const Value) PrimitiveError!Value {
         current = types.cdr(current);
     }
 
-    var result: Value = types.NIL;
-    gc.pushRoot(&result) catch return PrimitiveError.OutOfMemory;
-    defer gc.popRoot();
-    var j = elems.items.len;
-    while (j > 0) {
-        j -= 1;
-        result = gc.allocPair(elems.items[j], result) catch return PrimitiveError.OutOfMemory;
-    }
-    return result;
+    return buildList(gc, elems.items, types.NIL);
 }
 
 // (drop list k) — remaining after first k
@@ -781,15 +648,7 @@ fn takeWhileFn(args: []const Value) PrimitiveError!Value {
         current = types.cdr(current);
     }
 
-    var result: Value = types.NIL;
-    gc.pushRoot(&result) catch return PrimitiveError.OutOfMemory;
-    defer gc.popRoot();
-    var i = elems.items.len;
-    while (i > 0) {
-        i -= 1;
-        result = gc.allocPair(elems.items[i], result) catch return PrimitiveError.OutOfMemory;
-    }
-    return result;
+    return buildList(gc, elems.items, types.NIL);
 }
 
 // (drop-while pred list)
@@ -816,92 +675,40 @@ fn dropWhileFn(args: []const Value) PrimitiveError!Value {
 fn filterMapFn(args: []const Value) PrimitiveError!Value {
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const proc = args[0];
-    const list_count = args.len - 1;
-    if (list_count == 0) return PrimitiveError.ArityMismatch;
-
-    var currents: [256]Value = undefined;
-    for (0..list_count) |i| {
-        currents[i] = args[1 + i];
-    }
+    if (args.len < 2) return PrimitiveError.ArityMismatch;
 
     var results: std.ArrayList(Value) = .empty;
     defer results.deinit(gc.allocator);
     const roots_base = gc.extra_roots.items.len;
     defer gc.extra_roots.shrinkRetainingCapacity(roots_base);
-    var call_args_buf: [256]Value = undefined;
 
-    while (true) {
-        var all_pairs = true;
-        for (0..list_count) |i| {
-            if (currents[i] == types.NIL) {
-                all_pairs = false;
-                break;
-            }
-            if (!types.isPair(currents[i])) return primitives.typeError("filter-map", "pair", currents[i]);
-        }
-        if (!all_pairs) break;
-
-        for (0..list_count) |i| {
-            call_args_buf[i] = types.car(currents[i]);
-        }
-
-        const result = try callVM(proc, call_args_buf[0..list_count]);
+    var iter = MultiListIter.init(args[1..], false);
+    while (try iter.next("filter-map")) |call_args| {
+        const result = try callVM(proc, call_args);
         if (isTruthyResult(result)) {
             results.append(gc.allocator, result) catch return PrimitiveError.OutOfMemory;
             gc.extra_roots.append(gc.allocator, result) catch return PrimitiveError.OutOfMemory;
         }
-
-        for (0..list_count) |i| {
-            currents[i] = types.cdr(currents[i]);
-        }
+        iter.advance();
     }
 
-    var result_list: Value = types.NIL;
-    gc.pushRoot(&result_list) catch return PrimitiveError.OutOfMemory;
-    defer gc.popRoot();
-    var i = results.items.len;
-    while (i > 0) {
-        i -= 1;
-        result_list = gc.allocPair(results.items[i], result_list) catch return PrimitiveError.OutOfMemory;
-    }
-    return result_list;
+    return buildList(gc, results.items, types.NIL);
 }
 
 // (append-map proc list1 ...) — map then append results
 fn appendMapFn(args: []const Value) PrimitiveError!Value {
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const proc = args[0];
-    const list_count = args.len - 1;
-    if (list_count == 0) return PrimitiveError.ArityMismatch;
-
-    var currents: [256]Value = undefined;
-    for (0..list_count) |i| {
-        currents[i] = args[1 + i];
-    }
+    if (args.len < 2) return PrimitiveError.ArityMismatch;
 
     var all_elems: std.ArrayList(Value) = .empty;
     defer all_elems.deinit(gc.allocator);
     const roots_base = gc.extra_roots.items.len;
     defer gc.extra_roots.shrinkRetainingCapacity(roots_base);
-    var call_args_buf: [256]Value = undefined;
 
-    while (true) {
-        var all_pairs = true;
-        for (0..list_count) |i| {
-            if (currents[i] == types.NIL) {
-                all_pairs = false;
-                break;
-            }
-            if (!types.isPair(currents[i])) return primitives.typeError("append-map", "pair", currents[i]);
-        }
-        if (!all_pairs) break;
-
-        for (0..list_count) |i| {
-            call_args_buf[i] = types.car(currents[i]);
-        }
-
-        const result = try callVM(proc, call_args_buf[0..list_count]);
-        // result should be a list — flatten it
+    var iter = MultiListIter.init(args[1..], false);
+    while (try iter.next("append-map")) |call_args| {
+        const result = try callVM(proc, call_args);
         var sub = result;
         while (sub != types.NIL) {
             if (!types.isPair(sub)) return primitives.typeError("append-map", "pair", sub);
@@ -910,21 +717,10 @@ fn appendMapFn(args: []const Value) PrimitiveError!Value {
             gc.extra_roots.append(gc.allocator, elem) catch return PrimitiveError.OutOfMemory;
             sub = types.cdr(sub);
         }
-
-        for (0..list_count) |i| {
-            currents[i] = types.cdr(currents[i]);
-        }
+        iter.advance();
     }
 
-    var result_list: Value = types.NIL;
-    gc.pushRoot(&result_list) catch return PrimitiveError.OutOfMemory;
-    defer gc.popRoot();
-    var i = all_elems.items.len;
-    while (i > 0) {
-        i -= 1;
-        result_list = gc.allocPair(all_elems.items[i], result_list) catch return PrimitiveError.OutOfMemory;
-    }
-    return result_list;
+    return buildList(gc, all_elems.items, types.NIL);
 }
 
 // ---------------------------------------------------------------------------
@@ -1084,15 +880,7 @@ fn lsetIntersectionFn(args: []const Value) PrimitiveError!Value {
         current = types.cdr(current);
     }
 
-    var result_list: Value = types.NIL;
-    gc.pushRoot(&result_list) catch return PrimitiveError.OutOfMemory;
-    defer gc.popRoot();
-    var i = results.items.len;
-    while (i > 0) {
-        i -= 1;
-        result_list = gc.allocPair(results.items[i], result_list) catch return PrimitiveError.OutOfMemory;
-    }
-    return result_list;
+    return buildList(gc, results.items, types.NIL);
 }
 
 // (lset-difference = list1 list2 ...) — elements of list1 NOT in any other list
@@ -1125,15 +913,7 @@ fn lsetDifferenceFn(args: []const Value) PrimitiveError!Value {
         current = types.cdr(current);
     }
 
-    var result_list: Value = types.NIL;
-    gc.pushRoot(&result_list) catch return PrimitiveError.OutOfMemory;
-    defer gc.popRoot();
-    var i = results.items.len;
-    while (i > 0) {
-        i -= 1;
-        result_list = gc.allocPair(results.items[i], result_list) catch return PrimitiveError.OutOfMemory;
-    }
-    return result_list;
+    return buildList(gc, results.items, types.NIL);
 }
 
 // (lset= = list1 list2 ...) — all lists contain the same elements
@@ -1209,15 +989,7 @@ fn listTabulateFn(args: []const Value) PrimitiveError!Value {
         elems.append(gc.allocator, val) catch return PrimitiveError.OutOfMemory;
     }
 
-    var result: Value = types.NIL;
-    gc.pushRoot(&result) catch return PrimitiveError.OutOfMemory;
-    defer gc.popRoot();
-    var j = elems.items.len;
-    while (j > 0) {
-        j -= 1;
-        result = gc.allocPair(elems.items[j], result) catch return PrimitiveError.OutOfMemory;
-    }
-    return result;
+    return buildList(gc, elems.items, types.NIL);
 }
 
 // (circular-list v1 v2 ...) — create circular list
@@ -1417,15 +1189,7 @@ fn dropRightFn(args: []const Value) PrimitiveError!Value {
         current = types.cdr(current);
     }
 
-    var result: Value = types.NIL;
-    gc.pushRoot(&result) catch return PrimitiveError.OutOfMemory;
-    defer gc.popRoot();
-    var j = elems.items.len;
-    while (j > 0) {
-        j -= 1;
-        result = gc.allocPair(elems.items[j], result) catch return PrimitiveError.OutOfMemory;
-    }
-    return result;
+    return buildList(gc, elems.items, types.NIL);
 }
 
 // (split-at list k) — returns (values (take list k) (drop list k))
@@ -1447,13 +1211,9 @@ fn splitAtFn(args: []const Value) PrimitiveError!Value {
         current = types.cdr(current);
     }
 
-    var prefix: Value = types.NIL;
-    var j = elems.items.len;
-    while (j > 0) {
-        j -= 1;
-        prefix = gc.allocPair(elems.items[j], prefix) catch return PrimitiveError.OutOfMemory;
-    }
-
+    var prefix = try buildList(gc, elems.items, types.NIL);
+    gc.pushRoot(&prefix) catch return PrimitiveError.OutOfMemory;
+    defer gc.popRoot();
     const vals = [2]Value{ prefix, current };
     return gc.allocMultipleValues(&vals) catch return PrimitiveError.OutOfMemory;
 }
@@ -1465,36 +1225,14 @@ fn splitAtFn(args: []const Value) PrimitiveError!Value {
 // (list-index pred list1 ...) — index of first match
 fn listIndexFn(args: []const Value) PrimitiveError!Value {
     const pred = args[0];
-    const list_count = args.len - 1;
-    if (list_count == 0) return PrimitiveError.ArityMismatch;
+    if (args.len < 2) return PrimitiveError.ArityMismatch;
 
-    var currents: [256]Value = undefined;
-    for (0..list_count) |i| {
-        currents[i] = args[1 + i];
-    }
-    var call_args_buf: [256]Value = undefined;
+    var iter = MultiListIter.init(args[1..], false);
     var idx: i64 = 0;
-
-    while (true) {
-        var all_pairs = true;
-        for (0..list_count) |i| {
-            if (currents[i] == types.NIL) {
-                all_pairs = false;
-                break;
-            }
-            if (!types.isPair(currents[i])) return primitives.typeError("list-index", "pair", currents[i]);
-        }
-        if (!all_pairs) break;
-
-        for (0..list_count) |i| {
-            call_args_buf[i] = types.car(currents[i]);
-        }
-        const result = try callVM(pred, call_args_buf[0..list_count]);
+    while (try iter.next("list-index")) |call_args| {
+        const result = try callVM(pred, call_args);
         if (isTruthyResult(result)) return types.makeFixnum(idx);
-
-        for (0..list_count) |i| {
-            currents[i] = types.cdr(currents[i]);
-        }
+        iter.advance();
         idx += 1;
     }
     return types.FALSE;
@@ -1519,13 +1257,9 @@ fn spanFn(args: []const Value) PrimitiveError!Value {
         current = types.cdr(current);
     }
 
-    var prefix: Value = types.NIL;
-    var i = elems.items.len;
-    while (i > 0) {
-        i -= 1;
-        prefix = gc.allocPair(elems.items[i], prefix) catch return PrimitiveError.OutOfMemory;
-    }
-
+    var prefix = try buildList(gc, elems.items, types.NIL);
+    gc.pushRoot(&prefix) catch return PrimitiveError.OutOfMemory;
+    defer gc.popRoot();
     const vals = [2]Value{ prefix, current };
     return gc.allocMultipleValues(&vals) catch return PrimitiveError.OutOfMemory;
 }
@@ -1549,13 +1283,9 @@ fn breakFn(args: []const Value) PrimitiveError!Value {
         current = types.cdr(current);
     }
 
-    var prefix: Value = types.NIL;
-    var i = elems.items.len;
-    while (i > 0) {
-        i -= 1;
-        prefix = gc.allocPair(elems.items[i], prefix) catch return PrimitiveError.OutOfMemory;
-    }
-
+    var prefix = try buildList(gc, elems.items, types.NIL);
+    gc.pushRoot(&prefix) catch return PrimitiveError.OutOfMemory;
+    defer gc.popRoot();
     const vals = [2]Value{ prefix, current };
     return gc.allocMultipleValues(&vals) catch return PrimitiveError.OutOfMemory;
 }
@@ -1592,15 +1322,7 @@ fn deleteFn(args: []const Value) PrimitiveError!Value {
         current = types.cdr(current);
     }
 
-    var result_list: Value = types.NIL;
-    gc.pushRoot(&result_list) catch return PrimitiveError.OutOfMemory;
-    defer gc.popRoot();
-    var i = results.items.len;
-    while (i > 0) {
-        i -= 1;
-        result_list = gc.allocPair(results.items[i], result_list) catch return PrimitiveError.OutOfMemory;
-    }
-    return result_list;
+    return buildList(gc, results.items, types.NIL);
 }
 
 // (delete-duplicates list [=]) — remove duplicate elements
@@ -1638,15 +1360,7 @@ fn deleteDuplicatesFn(args: []const Value) PrimitiveError!Value {
         current = types.cdr(current);
     }
 
-    var result_list: Value = types.NIL;
-    gc.pushRoot(&result_list) catch return PrimitiveError.OutOfMemory;
-    defer gc.popRoot();
-    var i = results.items.len;
-    while (i > 0) {
-        i -= 1;
-        result_list = gc.allocPair(results.items[i], result_list) catch return PrimitiveError.OutOfMemory;
-    }
-    return result_list;
+    return buildList(gc, results.items, types.NIL);
 }
 
 // ---------------------------------------------------------------------------
@@ -1677,15 +1391,7 @@ fn alistCopyFn(args: []const Value) PrimitiveError!Value {
         current = types.cdr(current);
     }
 
-    var result: Value = types.NIL;
-    gc.pushRoot(&result) catch return PrimitiveError.OutOfMemory;
-    defer gc.popRoot();
-    var i = elems.items.len;
-    while (i > 0) {
-        i -= 1;
-        result = gc.allocPair(elems.items[i], result) catch return PrimitiveError.OutOfMemory;
-    }
-    return result;
+    return buildList(gc, elems.items, types.NIL);
 }
 
 // (alist-delete key alist [=]) — remove entries with matching key
@@ -1718,15 +1424,7 @@ fn alistDeleteFn(args: []const Value) PrimitiveError!Value {
         current = types.cdr(current);
     }
 
-    var result_list: Value = types.NIL;
-    gc.pushRoot(&result_list) catch return PrimitiveError.OutOfMemory;
-    defer gc.popRoot();
-    var i = results.items.len;
-    while (i > 0) {
-        i -= 1;
-        result_list = gc.allocPair(results.items[i], result_list) catch return PrimitiveError.OutOfMemory;
-    }
-    return result_list;
+    return buildList(gc, results.items, types.NIL);
 }
 
 // ---------------------------------------------------------------------------
@@ -1814,13 +1512,7 @@ fn lsetXorFn(args: []const Value) PrimitiveError!Value {
             current = types.cdr(current);
         }
 
-        // Build list
-        result = types.NIL;
-        var i = new_result.items.len;
-        while (i > 0) {
-            i -= 1;
-            result = gc.allocPair(new_result.items[i], result) catch return PrimitiveError.OutOfMemory;
-        }
+        result = try buildList(gc, new_result.items, types.NIL);
     }
     return result;
 }
@@ -1859,23 +1551,12 @@ fn unfoldFn(args: []const Value) PrimitiveError!Value {
         seed = try callVM(g, &succ_args);
     }
 
-    // Build list from right with optional tail
-    var result: Value = undefined;
+    var tail: Value = types.NIL;
     if (has_tail) {
         const tail_args = [1]Value{seed};
-        result = try callVM(args[4], &tail_args);
-    } else {
-        result = types.NIL;
+        tail = try callVM(args[4], &tail_args);
     }
-    gc.pushRoot(&result) catch return PrimitiveError.OutOfMemory;
-    defer gc.popRoot();
-
-    var i = elems.items.len;
-    while (i > 0) {
-        i -= 1;
-        result = gc.allocPair(elems.items[i], result) catch return PrimitiveError.OutOfMemory;
-    }
-    return result;
+    return buildList(gc, elems.items, tail);
 }
 
 // (unfold-right p f g seed [tail]) — build list from right
@@ -1972,15 +1653,7 @@ fn unzip1Fn(args: []const Value) PrimitiveError!Value {
         current = types.cdr(current);
     }
 
-    var result: Value = types.NIL;
-    gc.pushRoot(&result) catch return PrimitiveError.OutOfMemory;
-    defer gc.popRoot();
-    var i = elems.items.len;
-    while (i > 0) {
-        i -= 1;
-        result = gc.allocPair(elems.items[i], result) catch return PrimitiveError.OutOfMemory;
-    }
-    return result;
+    return buildList(gc, elems.items, types.NIL);
 }
 
 // (unzip2 list) — returns (values (map car list) (map cadr list))
@@ -2003,23 +1676,10 @@ fn unzip2Fn(args: []const Value) PrimitiveError!Value {
         current = types.cdr(current);
     }
 
-    var list1: Value = types.NIL;
+    var list1 = try buildList(gc, firsts.items, types.NIL);
     gc.pushRoot(&list1) catch return PrimitiveError.OutOfMemory;
     defer gc.popRoot();
-    var i = firsts.items.len;
-    while (i > 0) {
-        i -= 1;
-        list1 = gc.allocPair(firsts.items[i], list1) catch return PrimitiveError.OutOfMemory;
-    }
-    var list2: Value = types.NIL;
-    gc.pushRoot(&list2) catch return PrimitiveError.OutOfMemory;
-    defer gc.popRoot();
-    i = seconds.items.len;
-    while (i > 0) {
-        i -= 1;
-        list2 = gc.allocPair(seconds.items[i], list2) catch return PrimitiveError.OutOfMemory;
-    }
-
+    const list2 = try buildList(gc, seconds.items, types.NIL);
     const vals = [2]Value{ list1, list2 };
     return gc.allocMultipleValues(&vals) catch return PrimitiveError.OutOfMemory;
 }
@@ -2027,34 +1687,12 @@ fn unzip2Fn(args: []const Value) PrimitiveError!Value {
 // (pair-for-each proc list1 ...) — like for-each but passes pairs not elements
 fn pairForEachFn(args: []const Value) PrimitiveError!Value {
     const proc = args[0];
-    const list_count = args.len - 1;
-    if (list_count == 0) return PrimitiveError.ArityMismatch;
+    if (args.len < 2) return PrimitiveError.ArityMismatch;
 
-    var currents: [256]Value = undefined;
-    for (0..list_count) |i| {
-        currents[i] = args[1 + i];
-    }
-    var call_args_buf: [256]Value = undefined;
-
-    while (true) {
-        var all_pairs = true;
-        for (0..list_count) |i| {
-            if (currents[i] == types.NIL) {
-                all_pairs = false;
-                break;
-            }
-            if (!types.isPair(currents[i])) return primitives.typeError("pair-for-each", "pair", currents[i]);
-        }
-        if (!all_pairs) break;
-
-        for (0..list_count) |i| {
-            call_args_buf[i] = currents[i]; // pass pair, not car
-        }
-        _ = try callVM(proc, call_args_buf[0..list_count]);
-
-        for (0..list_count) |i| {
-            currents[i] = types.cdr(currents[i]);
-        }
+    var iter = MultiListIter.init(args[1..], true);
+    while (try iter.next("pair-for-each")) |call_args| {
+        _ = try callVM(proc, call_args);
+        iter.advance();
     }
     return types.VOID;
 }
@@ -2064,38 +1702,16 @@ fn pairFoldFn(args: []const Value) PrimitiveError!Value {
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const proc = args[0];
     var acc = args[1];
-    const list_count = args.len - 2;
-    if (list_count == 0) return PrimitiveError.ArityMismatch;
+    if (args.len < 3) return PrimitiveError.ArityMismatch;
 
     gc.pushRoot(&acc) catch return PrimitiveError.OutOfMemory;
     defer gc.popRoot();
 
-    var currents: [256]Value = undefined;
-    for (0..list_count) |i| {
-        currents[i] = args[2 + i];
-    }
-    var call_args_buf: [257]Value = undefined;
-
-    while (true) {
-        var all_pairs = true;
-        for (0..list_count) |i| {
-            if (currents[i] == types.NIL) {
-                all_pairs = false;
-                break;
-            }
-            if (!types.isPair(currents[i])) return primitives.typeError("pair-fold", "pair", currents[i]);
-        }
-        if (!all_pairs) break;
-
-        for (0..list_count) |i| {
-            call_args_buf[i] = currents[i]; // pass pair, not car
-        }
-        call_args_buf[list_count] = acc;
-        acc = try callVM(proc, call_args_buf[0 .. list_count + 1]);
-
-        for (0..list_count) |i| {
-            currents[i] = types.cdr(currents[i]);
-        }
+    var iter = MultiListIter.init(args[2..], true);
+    while (try iter.next("pair-fold")) |_| {
+        iter.call_args[iter.list_count] = acc;
+        acc = try callVM(proc, iter.call_args[0 .. iter.list_count + 1]);
+        iter.advance();
     }
     return acc;
 }
@@ -2143,42 +1759,20 @@ fn pairFoldRightFn(args: []const Value) PrimitiveError!Value {
 fn mapInOrderFn(args: []const Value) PrimitiveError!Value {
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const proc = args[0];
-    const list_count = args.len - 1;
-    if (list_count == 0) return PrimitiveError.ArityMismatch;
-
-    var currents: [256]Value = undefined;
-    for (0..list_count) |i| currents[i] = args[1 + i];
+    if (args.len < 2) return PrimitiveError.ArityMismatch;
 
     var results: std.ArrayList(Value) = .empty;
     defer results.deinit(gc.allocator);
-    var call_args_buf: [256]Value = undefined;
-
     const extra_roots_base = gc.extra_roots.items.len;
-    while (true) {
-        var all_pairs = true;
-        for (0..list_count) |i| {
-            if (currents[i] == types.NIL) {
-                all_pairs = false;
-                break;
-            }
-            if (!types.isPair(currents[i])) return primitives.typeError("map-in-order", "pair", currents[i]);
-        }
-        if (!all_pairs) break;
-        for (0..list_count) |i| call_args_buf[i] = types.car(currents[i]);
-        const result = try callVM(proc, call_args_buf[0..list_count]);
+    defer gc.extra_roots.shrinkRetainingCapacity(extra_roots_base);
+
+    var iter = MultiListIter.init(args[1..], false);
+    while (try iter.next("map-in-order")) |call_args| {
+        const result = try callVM(proc, call_args);
         results.append(gc.allocator, result) catch return PrimitiveError.OutOfMemory;
         gc.extra_roots.append(gc.allocator, result) catch return PrimitiveError.OutOfMemory;
-        for (0..list_count) |i| currents[i] = types.cdr(currents[i]);
+        iter.advance();
     }
-    gc.extra_roots.shrinkRetainingCapacity(extra_roots_base);
 
-    var result_list: Value = types.NIL;
-    gc.pushRoot(&result_list) catch return PrimitiveError.OutOfMemory;
-    defer gc.popRoot();
-    var i = results.items.len;
-    while (i > 0) {
-        i -= 1;
-        result_list = gc.allocPair(results.items[i], result_list) catch return PrimitiveError.OutOfMemory;
-    }
-    return result_list;
+    return buildList(gc, results.items, types.NIL);
 }
