@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783154838913,
+  "lastUpdate": 1783155189438,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "389c5e25e3faab50d7a7cbe5e48b10b49a8d3e2a",
-          "message": "Fix cond-expand (library ...) and include in library bodies (#917)\n\n* Fix cond-expand (library ...) and include in library bodies (#868, #879)\n\n- cond-expand (library ...) now checks .sld file existence on the\n  library path, not just the already-loaded registry (#868)\n- include inside library begin blocks is routed through\n  handleTopLevelForm which supports it (#879)\n\nFixes #868\nFixes #879\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Add .sld file check to compiler cond-expand and regression tests (#868, #879)\n\nThe compiler-level evalFeatureReq for (library ...) only checked a\nhardcoded list. Now it also checks the VM library registry and .sld\nfiles on the library path, matching the vm_library.zig behavior.\n\nAlso adds include routing in library begin blocks (#879) and\nregression tests for both fixes.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-03T00:45:05Z",
-          "tree_id": "077914239bf02fe5f3c6bdd84e1a9b8593a58649",
-          "url": "https://github.com/kaappi/kaappi/commit/389c5e25e3faab50d7a7cbe5e48b10b49a8d3e2a"
-        },
-        "date": 1783040974940,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.160152,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 6.912282,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.669714,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 3.989955,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.005755,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.026364,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.367279,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.053499,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.335727,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.388337,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 0.907878,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.37056,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.868015,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.45475,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.03588,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.043631,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "8a6238442a9db94e446f8a4c6ffd6a17717a6fca",
+          "message": "Port self-tail-call optimization and line-table recording to IR path (#1035) (#1083)\n\nThe IR compilation path missed two features the legacy path had:\n\n1. (define f (lambda (n) (f ...))) compiled recursive tail calls as\n   generic tail_call instead of self_tail_call (a loop). Fixed by\n   injecting the define's name into the lambda IR node before body\n   compilation and adding self-tail-call detection to compileCallFromIR.\n\n2. compileFromNode never recorded line-table entries, so IR-compiled\n   code lost per-line error attribution. Fixed by adding source_line\n   to IR Annotations (populated during lowering from gc.source_lines)\n   and emitting line-table entries at the top of compileFromNode.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-04T08:34:23Z",
+          "tree_id": "88f02beeef52366ff3a0f2091b677605bf06849d",
+          "url": "https://github.com/kaappi/kaappi/commit/8a6238442a9db94e446f8a4c6ffd6a17717a6fca"
+        },
+        "date": 1783155188471,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.410799,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.851593,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.944078,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.358614,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.01247,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.211121,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.484068,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.071328,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 12.440335,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.886773,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 9.907565,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.952135,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 8.296928,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.680686,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.042712,
             "unit": "seconds"
           }
         ]
