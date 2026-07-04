@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783164285809,
+  "lastUpdate": 1783167718115,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "9fc850558728c7a64407d838c1f1810bcafc5494",
-          "message": "Search the script's directory for libraries; unify cond-expand library checks (#930)\n\nTwo library-loading test failures surfaced once uncaught script errors\nstopped exiting 0 (#924). Neither test had ever exercised what it claimed:\n\n1. tests/scheme/compliance/include-lib-decls-exports.scm was never a test.\n   It is the include-library-declarations fixture for include-lib-decls.scm,\n   but living as a loose .scm in a globbed suite directory, run-all.sh\n   executed it standalone and the top-level (export ...) errored. The\n   fixture now lives in compliance/fixtures/, which the glob skips.\n\n2. tests/scheme/smoke/condexpand-include-lib-868-879.scm (from #917) could\n   never load its lib868/ fixture libraries: .sld resolution searched only\n   the working directory, cwd/lib/, --lib-path entries, and ~/.kaappi/lib —\n   never anywhere near the script. runFile already resolved include paths\n   against the script's directory, but library lookup did not. main.zig now\n   appends the script's directory to the library search path (after\n   --lib-path entries, before ~/.kaappi/lib), so programs can import\n   libraries that sit next to them regardless of the working directory.\n\nThe two cond-expand (library ...) feature checks (compiler-side\nevalFeatureReq and VM-side evalLibFeatureReq) each had a hand-rolled\nexistence loop over vm.lib_paths that skipped the cwd and lib/ prefixes\nimport actually uses, so cond-expand could disagree with what import can\nload. Both now call a shared libraryFileExists() in vm_library.zig that\nmirrors import's search order, including bundled files.\n\nBoth Scheme tests now assert with explicit (exit 1) instead of printing\nvalues, so wrong output fails the run even before the #924 exit-code fix\nlands. A new unit test covers cond-expand .sld detection in expression and\ndeclaration contexts.\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-03T11:11:06+05:30",
-          "tree_id": "db2a3ed7541af4efb239dd45cc7e794d18039820",
-          "url": "https://github.com/kaappi/kaappi/commit/9fc850558728c7a64407d838c1f1810bcafc5494"
-        },
-        "date": 1783058169052,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.429027,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.005141,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.861356,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.122742,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.00705,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.03371,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.476877,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.071113,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 4.027517,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.838694,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.1486,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.43727,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 2.486265,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.564963,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.042707,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.043702,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "3e646ef1b5b093ff29918fa7ef422cead8f643c7",
+          "message": "Reduce gcd-gc-843 iterations to fix flaky macOS CI OOM (#1094) (#1095)\n\n500 iterations caused 234k bignum allocations that intermittently OOM\non macOS CI runners. 50 iterations still trigger 3 GC collections —\nenough to catch the original use-after-free bug from #843.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-04T17:30:57+05:30",
+          "tree_id": "3303588383fc1d7c4e9d0f638072ef4035e2fde3",
+          "url": "https://github.com/kaappi/kaappi/commit/3e646ef1b5b093ff29918fa7ef422cead8f643c7"
+        },
+        "date": 1783167717072,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.063845,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.685214,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.95642,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.495464,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.013805,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.234414,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.478951,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.068491,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 13.371349,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.822396,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 11.023266,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 1.064441,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 9.092247,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.816621,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.043218,
             "unit": "seconds"
           }
         ]
