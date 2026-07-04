@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783185436035,
+  "lastUpdate": 1783187901898,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "ed919ae35032960a7f988e62345615bd8f03f6bb",
-          "message": "Add /do-linux-test skill for x86-64 Linux testing via DigitalOcean (#946)\n\n* Add /do-linux-test skill for x86-64 Linux testing via DigitalOcean\n\nCreates a temporary DigitalOcean droplet (s-2vcpu-4gb, Ubuntu 24.04)\nto run the full Kaappi test suite on real x86-64 hardware. Complements\nthe existing /linux-test skill which uses podman with emulation.\n\nThe workflow: create droplet → install Zig 0.16 → clone repo at\ncurrent branch → build → unit tests → Scheme test suites → destroy.\nDroplet is always destroyed, even on failure/timeout.\n\nCloses #942\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Fix /do-linux-test skill based on real-world test run\n\nSplit the single SSH session into separate provision/build/unit-test/scheme-test\ncommands to avoid hitting the Bash tool's 14-minute timeout. Add apt lock wait\nfor fresh droplets, use ln -sf for idempotent Zig install, and add\nServerAliveInterval to keep connections open during long compile tests.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Add lessons learned from first test run to /do-linux-test skill\n\n- Redirect Scheme test output to file on remote so results survive\n  SSH disconnects; fetch separately\n- Document bash guard hook caveat (blocks rm -rf in SSH heredocs)\n- Document macOS timeout absence (use split commands instead)\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Add 55-minute self-destruct timer to /do-linux-test skill\n\nAfter SSH is up, install a background process on the droplet that calls\nthe DO API to delete itself after 55 minutes. Guarantees the droplet is\ndestroyed even if the Claude session dies mid-run.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-03T14:55:53+05:30",
-          "tree_id": "24dd5031a2e504bb72987555f523de658e44a6de",
-          "url": "https://github.com/kaappi/kaappi/commit/ed919ae35032960a7f988e62345615bd8f03f6bb"
-        },
-        "date": 1783071729043,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.180016,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.231051,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.861802,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.284465,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.00727,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.033287,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.474279,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.069002,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 4.017112,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.795466,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.16039,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.469496,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 2.40021,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.876678,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.045563,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.043953,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "146b88374fed679ecebc27f7e3451a43e121b5f1",
+          "message": "Remove dead code: unused fn, unreachable logic, dead param, doubled comment (#1075) (#1110)\n\n- Delete unused `emitSexprEvalValue` (zero callers) in llvm_emit.zig\n- Remove unreachable rest-param handling in llvm_emit_lambda.zig\n  (early `return null` at line 51 makes extra/allowed logic dead)\n- Remove dead `_: bool` discriminator from `compileLetrecImpl`\n  (compileLetrec and compileLetrecStar passed different bools,\n  but the parameter was always discarded)\n- Remove doubled `// Optimization passes` comment in compiler.zig\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-04T22:57:29+05:30",
+          "tree_id": "a54f313c4dafc209f8d79e7d7919bc640124b21a",
+          "url": "https://github.com/kaappi/kaappi/commit/146b88374fed679ecebc27f7e3451a43e121b5f1"
+        },
+        "date": 1783187901393,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.424914,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.61582,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.902873,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.398411,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.012577,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.211251,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.464715,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.070517,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 12.521551,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.810633,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 10.033681,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.958778,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 8.279785,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.518787,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.043099,
             "unit": "seconds"
           }
         ]
