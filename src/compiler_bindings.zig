@@ -826,7 +826,10 @@ pub fn compileLetStarValues(self: *Compiler, args: Value, dst: u16, is_tail: boo
     const body = types.cdr(args);
     if (body == types.NIL) return CompileError.InvalidSyntax;
 
-    var desugared = buildLetValues(self, bindings, body) catch return CompileError.OutOfMemory;
+    var desugared = buildLetValues(self, bindings, body) catch |err| return switch (err) {
+        error.InvalidSyntax => CompileError.InvalidSyntax,
+        else => CompileError.OutOfMemory,
+    };
     try self.gc.pushRoot(&desugared);
     defer self.gc.popRoot();
     return self.compileExpr(desugared, dst, is_tail);

@@ -57,7 +57,10 @@ pub fn compileGuard(self: *Compiler, args: Value, dst: u16, is_tail: bool) Compi
             const raise_call = gc.allocPair(raise_sym, gc.allocPair(var_sym, types.NIL) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory;
             const else_sym = gc.allocSymbol("else") catch return CompileError.OutOfMemory;
             const else_clause = gc.allocPair(else_sym, gc.allocPair(raise_call, types.NIL) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory;
-            cond_clauses = appendToList(self, clauses, else_clause) catch return CompileError.OutOfMemory;
+            cond_clauses = appendToList(self, clauses, else_clause) catch |err| return switch (err) {
+                error.InvalidSyntax => CompileError.InvalidSyntax,
+                else => CompileError.OutOfMemory,
+            };
         }
 
         const lambda_sym = gc.allocSymbol("lambda") catch return CompileError.OutOfMemory;
