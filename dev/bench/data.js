@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783134037598,
+  "lastUpdate": 1783138528738,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "55001b3066b91bc97a9a5ab79c069a2dc9f76c0d",
-          "message": "Fix LLVM emitLet fallback to include let/let* keyword (#831) (#900)\n\nThe bail-out paths called emitSexprEvalValue(args) which passed only\nthe let's tail (bindings + body) without the keyword, causing\nkaappi_eval to evaluate a malformed expression. Add emitLetFallback\nthat wraps args with the correct keyword before eval.\n\nFixes #831\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-03T04:38:03+05:30",
-          "tree_id": "1b3335eff3dbafc46b5c7193f7922fcefad3bed8",
-          "url": "https://github.com/kaappi/kaappi/commit/55001b3066b91bc97a9a5ab79c069a2dc9f76c0d"
-        },
-        "date": 1783035522530,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.510654,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.633153,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.845912,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.179433,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.007188,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.032805,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.467257,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.070523,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.965983,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.804891,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.128411,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.433214,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 2.420974,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.706764,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.042479,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044621,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "dfd461546a326e5255abadcc09db4bf253c0d9d2",
+          "message": "Replace last inline VMError switches with shared mapVMError helper (#1019)\n\nThe string-for-each and string-map catch blocks were the last two sites\nusing inline 4-arm switch blocks instead of the shared mapVMError helper.\nThe else arm collapsed unexpected VM errors into TypeError, hiding the\nreal error variant.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-04T03:56:40Z",
+          "tree_id": "2c206568899b7b5239621cc96a75e27b825c0acd",
+          "url": "https://github.com/kaappi/kaappi/commit/dfd461546a326e5255abadcc09db4bf253c0d9d2"
+        },
+        "date": 1783138527582,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.521467,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.740465,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.931879,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.40639,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.012464,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.210722,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.467642,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.070825,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 12.388048,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.826125,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 9.916997,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.967263,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 8.266865,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.713545,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.042899,
             "unit": "seconds"
           }
         ]
