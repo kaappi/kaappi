@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783153946840,
+  "lastUpdate": 1783154092148,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "38b06874a5c9cd83707d163f4f69e0f25aab05c7",
-          "message": "Restore debug_mode after ,step instead of unconditionally disabling (#914)\n\n* Restore debug_mode after ,step instead of unconditionally disabling (#823)\n\n,step was setting debug_mode=false after the expression, which\ncleared breakpoints set via ,break. Save and restore the prior state.\n\nFixes #823\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Add regression test for ,step preserving debug_mode (#823)\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-03T00:42:23Z",
-          "tree_id": "f29af25b1ff16e7732963133d096bce598a85a80",
-          "url": "https://github.com/kaappi/kaappi/commit/38b06874a5c9cd83707d163f4f69e0f25aab05c7"
-        },
-        "date": 1783040691767,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.070075,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.944975,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.858913,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.157747,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.007288,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.033425,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.469985,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.068453,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.877332,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.804636,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.244022,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.472156,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 2.419222,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.813476,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044186,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.042515,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d0c0a239936b3152c1e304f7127f1fb385b0e9e7",
+          "message": "Propagate InvalidSyntax from let*-values and guard instead of swallowing as OOM (#1032) (#1081)\n\nbuildLetValues and appendToList can return error.InvalidSyntax, but\ncompileLetStarValues and compileGuard caught all errors as OutOfMemory.\nSwitch to error-specific catch so malformed syntax gets the correct\ndiagnostic.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-04T08:14:40Z",
+          "tree_id": "1a2bf3f08db7f9f9cddbed3dc2d28b554bc5e936",
+          "url": "https://github.com/kaappi/kaappi/commit/d0c0a239936b3152c1e304f7127f1fb385b0e9e7"
+        },
+        "date": 1783154091176,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.335431,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.476078,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.935874,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.408959,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.012457,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.211299,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.478556,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.071308,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 12.514975,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.82835,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 9.874737,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.958875,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 8.266414,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.662024,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.042731,
             "unit": "seconds"
           }
         ]
