@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783184416967,
+  "lastUpdate": 1783184465555,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "0b148c5e2f43d5c2086b14d429d5d8088f042704",
-          "message": "Fix top-level thread-yield! scheduler interaction and pre-scheduler parameter loss (#940)\n\n* Fix top-level thread-yield! aborting defines and leaking fiber results\n\nCalling (thread-yield!) from the main fiber at the top level of a file\nmisbehaved in two ways. First, run() committed to the non-scheduler\npath once at entry, so when spawn created the scheduler lazily during\nthe form's execution, the subsequent yield escaped as a raw\nerror.Yielded and aborted the form (leaving a top-level define\nunbound). Second, runWithScheduler marked the main fiber .completed\nafter every top-level form and never reset it, so later forms could\nnot reschedule main after a yield; and when main's form completed\ninside a nested scheduler loop (a blocked fiber's native primitive\nresuming it via runUntil), the outer loop returned the spawned\nfiber's thunk result as the top-level form's value.\n\nrun() now re-checks vm.scheduler when catching Yielded and enters the\nscheduler loop; execute() resets the scheduler to fiber 0 per\ntop-level form; and runWithScheduler returns the main fiber's saved\nresult when the last runUntil unwinds out of a spawned fiber. The\nnested scheduler loops in primitives_srfi18.zig no longer abandon\nfiber 0's mutexes when it finishes a form — completing one top-level\nform is not thread death, and the mutexes stay valid for later forms.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n* Fix parameters set before scheduler creation being lost\n\ngetParameterValue consulted only the current fiber's override map once\na fiber existed. Parameter values set at the top level before the\nscheduler is lazily created live in the VM-level override map, so they\nvanished the moment spawn created the scheduler (the main fiber starts\nwith an empty override map) — e.g. a test runner installed with\n(test-runner-current r) before any fiber was spawned would read back\nas #f afterwards. Reads now fall through fiber overrides to the\nVM-level map before the parameter's default. Writes are unchanged, and\nonce a scheduler exists they all target fiber maps, so the VM-level\nlayer is effectively a frozen pre-scheduler base that spawned fibers\ncorrectly inherit through the same fallback.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-03T07:25:46Z",
-          "tree_id": "ea29041846664779718c76271aada0a560ad93f8",
-          "url": "https://github.com/kaappi/kaappi/commit/0b148c5e2f43d5c2086b14d429d5d8088f042704"
-        },
-        "date": 1783064469792,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.463701,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.636852,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.857695,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.222359,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.007054,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.033077,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.468866,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.07053,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 4.073255,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.800474,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.140545,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.433109,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 2.430468,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.685288,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044435,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.043737,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "6d7a96322e1206619373ec7429258a2191fd63ae",
+          "message": "Deduplicate compiler body, closure, debug, and arrow helpers (#1042) (#1105)\n\nExtract shared helpers from near-clone code across the compiler:\n\n- compileBodyForms: unifies compileBody (~190 lines) and compileLetBody\n  (~180 lines) into a single parameterized function. Also fixes a latent\n  bug where compileLetBody silently dropped prescan names past 64.\n- populateDebugLocals: replaces 4 identical 8-line copies.\n- emitClosureEpilogue: replaces 3 copies of the 15-line box-upvalues +\n  emit-closure + emit-descriptors sequence.\n- emitArrowCall: replaces 3 copies of the => arrow-clause call emission.\n\nNet: -239 lines. All 1701 tests pass including GC stress and hygiene.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-04T21:39:45+05:30",
+          "tree_id": "f31a8fdbbd6ebea6ea50722a072ed8bb7bfdb722",
+          "url": "https://github.com/kaappi/kaappi/commit/6d7a96322e1206619373ec7429258a2191fd63ae"
+        },
+        "date": 1783184464483,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.084241,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 10.468223,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.9441,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.317363,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.013939,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.235406,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.47819,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.068257,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 13.665509,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.839732,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 11.110285,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 1.061126,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 9.093885,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.887808,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.045289,
             "unit": "seconds"
           }
         ]
