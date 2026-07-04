@@ -27,13 +27,22 @@ fn compileViaIR(gc: *memory.GC, source: []const u8) !*types.Function {
     return emitter.func;
 }
 
-fn expectBehavioralParity(source: []const u8) !void {
+fn expectEvalBool(source: []const u8, expected: bool) !void {
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
     var vm = try th.makeTestVM(&gc);
     defer vm.deinit();
     const result = try vm.eval(source);
-    _ = result;
+    try std.testing.expectEqual(if (expected) types.TRUE else types.FALSE, result);
+}
+
+fn expectEvalVoid(source: []const u8) !void {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+    const result = try vm.eval(source);
+    try std.testing.expectEqual(types.VOID, result);
 }
 
 fn expectBytecodeParity(source: []const u8) !void {
@@ -50,164 +59,165 @@ fn expectBytecodeParity(source: []const u8) !void {
     try std.testing.expectEqual(direct.constants.items.len, ir_func.constants.items.len);
 }
 
-test "IR parity: integer literal" {
+// Bytecode-parity tests: delete each when its legacy compileExpr form is retired (#1038).
+test "IR parity: integer literal" { // legacy: compileExpr literal
     try expectBytecodeParity("42");
 }
 
-test "IR parity: boolean true" {
+test "IR parity: boolean true" { // legacy: compileExpr literal
     try expectBytecodeParity("#t");
 }
 
-test "IR parity: boolean false" {
+test "IR parity: boolean false" { // legacy: compileExpr literal
     try expectBytecodeParity("#f");
 }
 
 test "IR behavioral: if with boolean test and constant branches" {
-    try expectBehavioralParity("(if #t 1 2)");
+    try expectEvalFixnum("(if #t 1 2)", 1);
 }
 
 test "IR behavioral: if false" {
-    try expectBehavioralParity("(if #f 10 20)");
+    try expectEvalFixnum("(if #f 10 20)", 20);
 }
 
 test "IR behavioral: if without else" {
-    try expectBehavioralParity("(if #t 42)");
+    try expectEvalFixnum("(if #t 42)", 42);
 }
 
-test "IR parity: constant-folded arithmetic" {
+test "IR parity: constant-folded arithmetic" { // legacy: compileExpr call
     try expectBytecodeParity("(+ 3 4)");
 }
 
-test "IR parity: constant-folded comparison" {
+test "IR parity: constant-folded comparison" { // legacy: compileExpr call
     try expectBytecodeParity("(< 1 2)");
 }
 
 test "IR behavioral: nested if with constant folding" {
-    try expectBehavioralParity("(if (< 1 2) (+ 3 4) 5)");
+    try expectEvalFixnum("(if (< 1 2) (+ 3 4) 5)", 7);
 }
 
-test "IR parity: quoted datum" {
+test "IR parity: quoted datum" { // legacy: compileExpr quote
     try expectBytecodeParity("(quote 42)");
 }
 
-test "IR parity: quoted list" {
+test "IR parity: quoted list" { // legacy: compileExpr quote
     try expectBytecodeParity("(quote (1 2 3))");
 }
 
-test "IR parity: global variable reference" {
+test "IR parity: global variable reference" { // legacy: compileExpr global_ref
     try expectBytecodeParity("x");
 }
 
 test "IR behavioral: nested calls" {
-    try expectBehavioralParity("(+ (+ 1 2) (+ 3 4))");
+    try expectEvalFixnum("(+ (+ 1 2) (+ 3 4))", 10);
 }
 
 test "IR behavioral: call with global args" {
-    try expectBehavioralParity("(define x 5) (+ x 1)");
+    try expectEvalFixnum("(define x 5) (+ x 1)", 6);
 }
 
 test "IR behavioral: if with call in test position" {
-    try expectBehavioralParity("(define x 5) (if (< x 10) 1 2)");
+    try expectEvalFixnum("(define x 5) (if (< x 10) 1 2)", 1);
 }
 
 test "IR behavioral: if with calls in all positions" {
-    try expectBehavioralParity("(define x 5) (if (< x 10) (+ x 1) (- x 1))");
+    try expectEvalFixnum("(define x 5) (if (< x 10) (+ x 1) (- x 1))", 6);
 }
 
-test "IR parity: unary constant fold (not)" {
+test "IR parity: unary constant fold (not)" { // legacy: compileExpr call
     try expectBytecodeParity("(not #f)");
 }
 
-test "IR parity: unary constant fold (zero?)" {
+test "IR parity: unary constant fold (zero?)" { // legacy: compileExpr call
     try expectBytecodeParity("(zero? 0)");
 }
 
-test "IR parity: constant fold multiplication" {
+test "IR parity: constant fold multiplication" { // legacy: compileExpr call
     try expectBytecodeParity("(* 6 7)");
 }
 
 test "IR behavioral: and with true" {
-    try expectBehavioralParity("(and 1 2 3)");
+    try expectEvalFixnum("(and 1 2 3)", 3);
 }
 
 test "IR behavioral: and short-circuit" {
-    try expectBehavioralParity("(and 1 #f 3)");
+    try expectEvalBool("(and 1 #f 3)", false);
 }
 
 test "IR behavioral: and empty" {
-    try expectBehavioralParity("(and)");
+    try expectEvalBool("(and)", true);
 }
 
 test "IR behavioral: or with false" {
-    try expectBehavioralParity("(or #f #f 3)");
+    try expectEvalFixnum("(or #f #f 3)", 3);
 }
 
 test "IR behavioral: or short-circuit" {
-    try expectBehavioralParity("(or 1 2 3)");
+    try expectEvalFixnum("(or 1 2 3)", 1);
 }
 
 test "IR behavioral: or empty" {
-    try expectBehavioralParity("(or)");
+    try expectEvalBool("(or)", false);
 }
 
 test "IR behavioral: when true" {
-    try expectBehavioralParity("(when #t 42)");
+    try expectEvalFixnum("(when #t 42)", 42);
 }
 
 test "IR behavioral: when false" {
-    try expectBehavioralParity("(when #f 42)");
+    try expectEvalVoid("(when #f 42)");
 }
 
 test "IR behavioral: unless true" {
-    try expectBehavioralParity("(unless #t 42)");
+    try expectEvalVoid("(unless #t 42)");
 }
 
 test "IR behavioral: unless false" {
-    try expectBehavioralParity("(unless #f 42)");
+    try expectEvalFixnum("(unless #f 42)", 42);
 }
 
 test "IR behavioral: begin with define" {
-    try expectBehavioralParity("(begin (define x 1) (define y 2) (+ x y))");
+    try expectEvalFixnum("(begin (define x 1) (define y 2) (+ x y))", 3);
 }
 
 test "IR behavioral: lambda and call" {
-    try expectBehavioralParity("((lambda (x) (+ x 1)) 41)");
+    try expectEvalFixnum("((lambda (x) (+ x 1)) 41)", 42);
 }
 
 test "IR behavioral: let binding" {
-    try expectBehavioralParity("(let ((x 10) (y 20)) (+ x y))");
+    try expectEvalFixnum("(let ((x 10) (y 20)) (+ x y))", 30);
 }
 
 test "IR behavioral: define and call" {
-    try expectBehavioralParity("(define (f x) (* x x)) (f 7)");
+    try expectEvalFixnum("(define (f x) (* x x)) (f 7)", 49);
 }
 
 test "IR behavioral: set!" {
-    try expectBehavioralParity("(define x 1) (set! x 42) x");
+    try expectEvalFixnum("(define x 1) (set! x 42) x", 42);
 }
 
 test "IR behavioral: cond" {
-    try expectBehavioralParity("(cond (#f 1) (#t 2) (else 3))");
+    try expectEvalFixnum("(cond (#f 1) (#t 2) (else 3))", 2);
 }
 
 test "IR behavioral: case" {
-    try expectBehavioralParity("(case (+ 1 1) ((1) 10) ((2) 20) (else 30))");
+    try expectEvalFixnum("(case (+ 1 1) ((1) 10) ((2) 20) (else 30))", 20);
 }
 
 test "IR behavioral: do loop" {
-    try expectBehavioralParity("(do ((i 0 (+ i 1))) ((= i 5) i))");
+    try expectEvalFixnum("(do ((i 0 (+ i 1))) ((= i 5) i))", 5);
 }
 
 test "IR behavioral: guard" {
-    try expectBehavioralParity("(guard (e (#t 42)) (error \"test\"))");
+    try expectEvalFixnum("(guard (e (#t 42)) (error \"test\"))", 42);
 }
 
 test "IR behavioral: quasiquote" {
-    try expectBehavioralParity("(let ((x 5)) `(a ,x b))");
+    try expectEvalBool("(equal? (let ((x 5)) `(a ,x b)) '(a 5 b))", true);
 }
 
 test "IR behavioral: macros" {
-    try expectBehavioralParity("(define-syntax my-add (syntax-rules () ((my-add a b) (+ a b)))) (my-add 3 4)");
+    try expectEvalFixnum("(define-syntax my-add (syntax-rules () ((my-add a b) (+ a b)))) (my-add 3 4)", 7);
 }
 
 test "IR behavioral: macro in bare-lambda body (#1025)" {
