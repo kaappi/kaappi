@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783191334707,
+  "lastUpdate": 1783191577510,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "0f9d56cc13506b0562215cf8026fcd2688b8c357",
-          "message": "Clear global cache on set_global/define_global rebind (#812) (#955)\n\nset_global and define_global bumped global_version but then re-stamped\nthe whole Function cache as current after refreshing only their own slot.\nAny entry cached before an unrelated rebinding (which had already bumped\nglobal_version) was re-blessed and served stale by the cache-hit fast\npaths in get_global/call_global/tail_call_global.\n\nMirror get_global's version-mismatch path: memset the cache to VOID\nbefore revalidating the written slot, so stale entries are re-checked\nagainst the environment on next access.\n\nAdd regression tests covering set_global (call + tail position),\nget_global (reference position), and define_global (via named let).\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
-          "timestamp": "2026-07-03T15:58:29+05:30",
-          "tree_id": "67569d216dc817d74e398ee1adb9e2ff8e48b90e",
-          "url": "https://github.com/kaappi/kaappi/commit/0f9d56cc13506b0562215cf8026fcd2688b8c357"
-        },
-        "date": 1783075386392,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.061259,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.36491,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.843904,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.107879,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.007348,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.032615,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.461279,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.068261,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 4.06277,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.776939,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.159116,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.474929,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 2.355431,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.862776,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044719,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.04412,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "9fc5ecde5cf823be697efd7de9ea3906724cdf26",
+          "message": "Extract shared error reporting helpers into toplevel_driver.zig (#1061) (#1118)\n\nThe same read→compile→execute→report error formatting was duplicated\nacross 5 call sites (runFile, runStdin, disassembleFile, compileFile in\nmain.zig, evalInputInner in repl.zig).  The stack trace printer was\nbyte-identical in 3 places, and the getErrorDetail→format→reset pattern\nappeared ~10 times.\n\nAdd src/toplevel_driver.zig with 6 public helpers:\n- reportReadError, reportCompileError, reportRuntimeError\n- vmErrorLocation, printStackTrace, printSourceSnippet\n\nEach call site keeps its own loop and control flow but delegates error\nformatting to the shared helpers.  Net -85 lines, all error message\nformats preserved (verified by tests/scheme/errors/*.sh).\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-04T23:57:50+05:30",
+          "tree_id": "7dceafbaa0cb157aae24dd3ea3db86759e142fda",
+          "url": "https://github.com/kaappi/kaappi/commit/9fc5ecde5cf823be697efd7de9ea3906724cdf26"
+        },
+        "date": 1783191576322,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.026865,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.421491,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.924124,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.240871,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.013766,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.234655,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.473205,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.067596,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 13.441908,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.817165,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 11.096568,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 1.062432,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 9.133368,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.917993,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.045638,
             "unit": "seconds"
           }
         ]
