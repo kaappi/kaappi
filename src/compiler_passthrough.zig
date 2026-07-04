@@ -2,7 +2,7 @@ const std = @import("std");
 const types = @import("types.zig");
 const expander = @import("expander.zig");
 const compiler_mod = @import("compiler.zig");
-const vm_mod = @import("vm.zig");
+const globals_mod = @import("globals.zig");
 const Compiler = compiler_mod.Compiler;
 const CompileError = compiler_mod.CompileError;
 const Value = types.Value;
@@ -226,8 +226,8 @@ fn tryConstantFold(self: *Compiler, expr: Value, dst: u16) bool {
     if (self.resolveLocal(name) != null) return false;
     if ((self.resolveUpvalue(name) catch null) != null) return false;
     if (self.globals) |globals| {
-        const glk = vm_mod.acquireGlobalsRead(globals);
-        defer vm_mod.releaseGlobalsRead(glk);
+        const glk = globals_mod.acquireGlobalsRead(globals);
+        defer globals_mod.releaseGlobalsRead(glk);
         if (globals.get(name)) |val| {
             if (!types.isPointer(val)) return false;
             const obj = types.toObject(val);

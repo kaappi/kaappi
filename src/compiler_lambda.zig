@@ -2,7 +2,7 @@ const std = @import("std");
 const types = @import("types.zig");
 const memory = @import("memory.zig");
 const compiler_mod = @import("compiler.zig");
-const vm_mod = @import("vm.zig");
+const globals_mod = @import("globals.zig");
 const Compiler = compiler_mod.Compiler;
 const CompileError = compiler_mod.CompileError;
 const Value = types.Value;
@@ -107,8 +107,8 @@ pub fn compileBody(self: *Compiler, body: Value) CompileError!void {
     if (self.globals) |globals| {
         // Structural puts into the (possibly shared) globals map — exclude
         // SRFI-18 child-thread readers while sentinels are planted (#958).
-        const glk = vm_mod.acquireGlobalsWrite(globals);
-        defer vm_mod.releaseGlobalsWrite(glk);
+        const glk = globals_mod.acquireGlobalsWrite(globals);
+        defer globals_mod.releaseGlobalsWrite(glk);
         var scan = body;
         while (scan != types.NIL and types.isPair(scan)) {
             const form = types.car(scan);
@@ -142,13 +142,13 @@ pub fn compileBody(self: *Compiler, body: Value) CompileError!void {
     }
     defer {
         if (self.globals) |globals| {
-            const glk = vm_mod.acquireGlobalsWrite(globals);
+            const glk = globals_mod.acquireGlobalsWrite(globals);
             for (prescan_names.items) |pn| {
                 if (globals.get(pn)) |val| {
                     if (val == types.VOID) _ = globals.remove(pn);
                 }
             }
-            vm_mod.releaseGlobalsWrite(glk);
+            globals_mod.releaseGlobalsWrite(glk);
         }
     }
 

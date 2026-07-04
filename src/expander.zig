@@ -762,10 +762,10 @@ fn renameForHygiene(gc: *GC, name: []const u8, scope: u32, globals: ?*std.String
     if (std.mem.startsWith(u8, name, "__hyg_")) return gc.allocSymbol(name);
     const in_binding = (scope & BINDING_FLAG) != 0;
     const clean_scope = scope & ~BINDING_FLAG;
-    const vm_mod = @import("vm.zig");
+    const gmod = @import("globals.zig");
     if (globals) |g| {
-        const glk = vm_mod.acquireGlobalsRead(g);
-        defer vm_mod.releaseGlobalsRead(glk);
+        const glk = gmod.acquireGlobalsRead(g);
+        defer gmod.releaseGlobalsRead(glk);
         if (g.get(name)) |val| {
             if (types.isProcedure(val) or types.isTransformer(val)) {
                 // A template binding of the same name in this expansion
@@ -789,10 +789,10 @@ fn renameForHygiene(gc: *GC, name: []const u8, scope: u32, globals: ?*std.String
             }
         }
     }
-    if (vm_mod.vm_instance) |vm| {
-        vm.lockGlobalsShared();
-        const found = vm.globals.get(name);
-        vm.unlockGlobalsShared();
+    if (gmod.globals_ctx) |gctx| {
+        gctx.lockShared();
+        const found = gctx.globals.get(name);
+        gctx.unlockShared();
         if (found) |val| {
             if (types.isTransformer(val)) return gc.allocSymbol(name);
         }
