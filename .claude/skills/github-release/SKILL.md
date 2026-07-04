@@ -87,10 +87,9 @@ const version = "X.Y.Z";
 .version = "X.Y.Z",
 ```
 
-**`../kaappi.github.io/mkdocs.yml` (in `extra:` section):**
-```yaml
-  kaappi_version: X.Y.Z
-```
+The docs site's `kaappi_version` (`../kaappi.github.io/mkdocs.yml`) is **not**
+bumped here — it lives in a separate repo and tracks the *released* artifact,
+so Step 11's workflow bumps it after the release is published.
 
 ## Step 5: Refresh the built-in procedure count
 
@@ -186,23 +185,28 @@ install script verification. If it fails, investigate before updating the
 docs site — a failure means the release artifacts have a problem (e.g.
 missing entitlement, broken binary, bad checksum).
 
-## Step 11: Update docs site (playground WASM + downloads page)
+## Step 11: Update docs site (playground WASM + version)
 
-After the release workflow completes, update the docs site's playground,
-tour, and downloads page:
+After the release workflow completes (so the release assets exist), trigger
+the docs site's `update-wasm` workflow. It downloads the **released**
+`kaappi.wasm`, verifies it against the release `SHA256SUMS` (so the playground
+runs the same binary users install), bumps `kaappi_version`, then commits and
+deploys — no local file copy:
 
 ```bash
-cd ../kaappi.github.io
-cp ../kaappi/zig-out/bin/kaappi.wasm docs/wasm/kaappi.wasm
-git add docs/wasm/kaappi.wasm mkdocs.yml
-git commit -m "Update playground WASM binary and version to vX.Y.Z"
-git push
+gh workflow run update-wasm.yml -R kaappi/kaappi.github.io -f tag=vX.Y.Z
+# then watch it in the Actions tab, or:
+gh run watch -R kaappi/kaappi.github.io "$(gh run list -R kaappi/kaappi.github.io -w update-wasm.yml -L 1 --json databaseId -q '.[0].databaseId')"
 ```
 
 This updates `/playground/`, `/tour/` (shared WASM binary), and the version
 shown on `/download/`, `/guide/first-program/`, and `/guide/repl/` (all read
 from `kaappi_version` in `mkdocs.yml`). Verify at `kaappi-lang.org/playground/`
-and `kaappi-lang.org/download/` after GitHub Pages deploys.
+and `kaappi-lang.org/download/` after it deploys.
+
+> The old manual path — `cp ../kaappi/zig-out/bin/kaappi.wasm docs/wasm/` —
+> is deprecated: it shipped the *locally built* binary, not the released,
+> checksum-attested one.
 
 ## Error recovery
 
