@@ -815,6 +815,8 @@ fn filterMapFn(args: []const Value) PrimitiveError!Value {
 
     var results: std.ArrayList(Value) = .empty;
     defer results.deinit(gc.allocator);
+    const roots_base = gc.extra_roots.items.len;
+    defer gc.extra_roots.shrinkRetainingCapacity(roots_base);
     var call_args_buf: [256]Value = undefined;
 
     while (true) {
@@ -835,6 +837,7 @@ fn filterMapFn(args: []const Value) PrimitiveError!Value {
         const result = try callVM(proc, call_args_buf[0..list_count]);
         if (isTruthyResult(result)) {
             results.append(gc.allocator, result) catch return PrimitiveError.OutOfMemory;
+            gc.extra_roots.append(gc.allocator, result) catch return PrimitiveError.OutOfMemory;
         }
 
         for (0..list_count) |i| {
@@ -867,6 +870,8 @@ fn appendMapFn(args: []const Value) PrimitiveError!Value {
 
     var all_elems: std.ArrayList(Value) = .empty;
     defer all_elems.deinit(gc.allocator);
+    const roots_base = gc.extra_roots.items.len;
+    defer gc.extra_roots.shrinkRetainingCapacity(roots_base);
     var call_args_buf: [256]Value = undefined;
 
     while (true) {
@@ -889,7 +894,9 @@ fn appendMapFn(args: []const Value) PrimitiveError!Value {
         var sub = result;
         while (sub != types.NIL) {
             if (!types.isPair(sub)) return primitives.typeError("append-map", "pair", sub);
-            all_elems.append(gc.allocator, types.car(sub)) catch return PrimitiveError.OutOfMemory;
+            const elem = types.car(sub);
+            all_elems.append(gc.allocator, elem) catch return PrimitiveError.OutOfMemory;
+            gc.extra_roots.append(gc.allocator, elem) catch return PrimitiveError.OutOfMemory;
             sub = types.cdr(sub);
         }
 
@@ -1822,6 +1829,10 @@ fn unfoldFn(args: []const Value) PrimitiveError!Value {
 
     var elems: std.ArrayList(Value) = .empty;
     defer elems.deinit(gc.allocator);
+    const roots_base = gc.extra_roots.items.len;
+    defer gc.extra_roots.shrinkRetainingCapacity(roots_base);
+    gc.pushRoot(&seed) catch return PrimitiveError.OutOfMemory;
+    defer gc.popRoot();
 
     while (true) {
         const stop_args = [1]Value{seed};
@@ -1831,6 +1842,7 @@ fn unfoldFn(args: []const Value) PrimitiveError!Value {
         const map_args = [1]Value{seed};
         const val = try callVM(f, &map_args);
         elems.append(gc.allocator, val) catch return PrimitiveError.OutOfMemory;
+        gc.extra_roots.append(gc.allocator, val) catch return PrimitiveError.OutOfMemory;
 
         const succ_args = [1]Value{seed};
         seed = try callVM(g, &succ_args);
