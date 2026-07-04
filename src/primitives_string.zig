@@ -174,8 +174,9 @@ fn stringRefFn(args: []const Value) PrimitiveError!Value {
     const data = try getStringSlice(args[0]);
     if (!types.isFixnum(args[1])) return primitives.typeError("string-ref", "exact integer", args[1]);
     const k = types.toFixnum(args[1]);
-    if (k < 0) return PrimitiveError.IndexOutOfBounds;
-    const byte_off = utf8IndexToByteOffset(data, @intCast(k)) orelse return PrimitiveError.IndexOutOfBounds;
+    const str_len = utf8CodepointCount(data);
+    if (k < 0 or @as(usize, @intCast(k)) >= str_len) return primitives.indexError("string-ref", k, str_len);
+    const byte_off = utf8IndexToByteOffset(data, @intCast(k)) orelse return primitives.indexError("string-ref", k, str_len);
     const cp = utf8DecodeAt(data, byte_off) orelse return primitives.typeError("string-ref", "valid UTF-8 string", args[0]);
     return types.makeChar(cp);
 }
@@ -193,11 +194,12 @@ fn stringSetFn(args: []const Value) PrimitiveError!Value {
     if (str.immutable) return primitives.typeError("string-set!", "mutable string", args[0]);
     const data = str.data[0..str.len];
     const k = types.toFixnum(args[1]);
-    if (k < 0) return PrimitiveError.IndexOutOfBounds;
+    const str_len = utf8CodepointCount(data);
+    if (k < 0 or @as(usize, @intCast(k)) >= str_len) return primitives.indexError("string-set!", k, str_len);
     const char_idx: usize = @intCast(k);
-    const byte_start = utf8IndexToByteOffset(data, char_idx) orelse return PrimitiveError.IndexOutOfBounds;
+    const byte_start = utf8IndexToByteOffset(data, char_idx) orelse return primitives.indexError("string-set!", k, str_len);
     const old_cp_len = utf8ByteLenAt(data, byte_start);
-    if (old_cp_len == 0) return PrimitiveError.IndexOutOfBounds;
+    if (old_cp_len == 0) return primitives.indexError("string-set!", k, str_len);
     if (byte_start + old_cp_len > data.len) return primitives.typeError("string-set!", "valid UTF-8 string", args[0]);
 
     const new_cp = types.toChar(args[2]);
@@ -232,12 +234,14 @@ fn substringFn(args: []const Value) PrimitiveError!Value {
     if (!types.isFixnum(args[2])) return primitives.typeError("substring", "exact integer", args[2]);
     const start_i = types.toFixnum(args[1]);
     const end_i = types.toFixnum(args[2]);
-    if (start_i < 0 or end_i < 0) return PrimitiveError.IndexOutOfBounds;
+    const str_len = utf8CodepointCount(data);
+    if (start_i < 0) return primitives.indexError("substring", start_i, str_len);
+    if (end_i < 0) return primitives.indexError("substring", end_i, str_len);
     const start_cp: usize = @intCast(start_i);
     const end_cp: usize = @intCast(end_i);
-    if (start_cp > end_cp) return PrimitiveError.IndexOutOfBounds;
-    const byte_start = utf8IndexToByteOffset(data, start_cp) orelse return PrimitiveError.IndexOutOfBounds;
-    const byte_end = utf8IndexToByteOffset(data, end_cp) orelse return PrimitiveError.IndexOutOfBounds;
+    if (start_cp > end_cp) return primitives.indexError("substring", end_i, str_len);
+    const byte_start = utf8IndexToByteOffset(data, start_cp) orelse return primitives.indexError("substring", start_i, str_len);
+    const byte_end = utf8IndexToByteOffset(data, end_cp) orelse return primitives.indexError("substring", end_i, str_len);
     return gc.allocString(data[byte_start..byte_end]) catch return PrimitiveError.OutOfMemory;
 }
 
