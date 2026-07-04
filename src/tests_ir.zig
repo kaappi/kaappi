@@ -27,24 +27,6 @@ fn compileViaIR(gc: *memory.GC, source: []const u8) !*types.Function {
     return emitter.func;
 }
 
-fn expectEvalBool(source: []const u8, expected: bool) !void {
-    var gc = memory.GC.init(std.testing.allocator);
-    defer gc.deinit();
-    var vm = try th.makeTestVM(&gc);
-    defer vm.deinit();
-    const result = try vm.eval(source);
-    try std.testing.expectEqual(if (expected) types.TRUE else types.FALSE, result);
-}
-
-fn expectEvalVoid(source: []const u8) !void {
-    var gc = memory.GC.init(std.testing.allocator);
-    defer gc.deinit();
-    var vm = try th.makeTestVM(&gc);
-    defer vm.deinit();
-    const result = try vm.eval(source);
-    try std.testing.expectEqual(types.VOID, result);
-}
-
 fn expectBytecodeParity(source: []const u8) !void {
     var gc1 = memory.GC.init(std.testing.allocator);
     defer gc1.deinit();
@@ -73,15 +55,15 @@ test "IR parity: boolean false" { // legacy: compileExpr literal
 }
 
 test "IR behavioral: if with boolean test and constant branches" {
-    try expectEvalFixnum("(if #t 1 2)", 1);
+    try th.expectEval("(if #t 1 2)", 1);
 }
 
 test "IR behavioral: if false" {
-    try expectEvalFixnum("(if #f 10 20)", 20);
+    try th.expectEval("(if #f 10 20)", 20);
 }
 
 test "IR behavioral: if without else" {
-    try expectEvalFixnum("(if #t 42)", 42);
+    try th.expectEval("(if #t 42)", 42);
 }
 
 test "IR parity: constant-folded arithmetic" { // legacy: compileExpr call
@@ -93,7 +75,7 @@ test "IR parity: constant-folded comparison" { // legacy: compileExpr call
 }
 
 test "IR behavioral: nested if with constant folding" {
-    try expectEvalFixnum("(if (< 1 2) (+ 3 4) 5)", 7);
+    try th.expectEval("(if (< 1 2) (+ 3 4) 5)", 7);
 }
 
 test "IR parity: quoted datum" { // legacy: compileExpr quote
@@ -109,19 +91,19 @@ test "IR parity: global variable reference" { // legacy: compileExpr global_ref
 }
 
 test "IR behavioral: nested calls" {
-    try expectEvalFixnum("(+ (+ 1 2) (+ 3 4))", 10);
+    try th.expectEval("(+ (+ 1 2) (+ 3 4))", 10);
 }
 
 test "IR behavioral: call with global args" {
-    try expectEvalFixnum("(define x 5) (+ x 1)", 6);
+    try th.expectEval("(define x 5) (+ x 1)", 6);
 }
 
 test "IR behavioral: if with call in test position" {
-    try expectEvalFixnum("(define x 5) (if (< x 10) 1 2)", 1);
+    try th.expectEval("(define x 5) (if (< x 10) 1 2)", 1);
 }
 
 test "IR behavioral: if with calls in all positions" {
-    try expectEvalFixnum("(define x 5) (if (< x 10) (+ x 1) (- x 1))", 6);
+    try th.expectEval("(define x 5) (if (< x 10) (+ x 1) (- x 1))", 6);
 }
 
 test "IR parity: unary constant fold (not)" { // legacy: compileExpr call
@@ -137,116 +119,106 @@ test "IR parity: constant fold multiplication" { // legacy: compileExpr call
 }
 
 test "IR behavioral: and with true" {
-    try expectEvalFixnum("(and 1 2 3)", 3);
+    try th.expectEval("(and 1 2 3)", 3);
 }
 
 test "IR behavioral: and short-circuit" {
-    try expectEvalBool("(and 1 #f 3)", false);
+    try th.expectEvalBool("(and 1 #f 3)", false);
 }
 
 test "IR behavioral: and empty" {
-    try expectEvalBool("(and)", true);
+    try th.expectEvalBool("(and)", true);
 }
 
 test "IR behavioral: or with false" {
-    try expectEvalFixnum("(or #f #f 3)", 3);
+    try th.expectEval("(or #f #f 3)", 3);
 }
 
 test "IR behavioral: or short-circuit" {
-    try expectEvalFixnum("(or 1 2 3)", 1);
+    try th.expectEval("(or 1 2 3)", 1);
 }
 
 test "IR behavioral: or empty" {
-    try expectEvalBool("(or)", false);
+    try th.expectEvalBool("(or)", false);
 }
 
 test "IR behavioral: when true" {
-    try expectEvalFixnum("(when #t 42)", 42);
+    try th.expectEval("(when #t 42)", 42);
 }
 
 test "IR behavioral: when false" {
-    try expectEvalVoid("(when #f 42)");
+    try th.expectEvalVoid("(when #f 42)");
 }
 
 test "IR behavioral: unless true" {
-    try expectEvalVoid("(unless #t 42)");
+    try th.expectEvalVoid("(unless #t 42)");
 }
 
 test "IR behavioral: unless false" {
-    try expectEvalFixnum("(unless #f 42)", 42);
+    try th.expectEval("(unless #f 42)", 42);
 }
 
 test "IR behavioral: begin with define" {
-    try expectEvalFixnum("(begin (define x 1) (define y 2) (+ x y))", 3);
+    try th.expectEval("(begin (define x 1) (define y 2) (+ x y))", 3);
 }
 
 test "IR behavioral: lambda and call" {
-    try expectEvalFixnum("((lambda (x) (+ x 1)) 41)", 42);
+    try th.expectEval("((lambda (x) (+ x 1)) 41)", 42);
 }
 
 test "IR behavioral: let binding" {
-    try expectEvalFixnum("(let ((x 10) (y 20)) (+ x y))", 30);
+    try th.expectEval("(let ((x 10) (y 20)) (+ x y))", 30);
 }
 
 test "IR behavioral: define and call" {
-    try expectEvalFixnum("(define (f x) (* x x)) (f 7)", 49);
+    try th.expectEval("(define (f x) (* x x)) (f 7)", 49);
 }
 
 test "IR behavioral: set!" {
-    try expectEvalFixnum("(define x 1) (set! x 42) x", 42);
+    try th.expectEval("(define x 1) (set! x 42) x", 42);
 }
 
 test "IR behavioral: cond" {
-    try expectEvalFixnum("(cond (#f 1) (#t 2) (else 3))", 2);
+    try th.expectEval("(cond (#f 1) (#t 2) (else 3))", 2);
 }
 
 test "IR behavioral: case" {
-    try expectEvalFixnum("(case (+ 1 1) ((1) 10) ((2) 20) (else 30))", 20);
+    try th.expectEval("(case (+ 1 1) ((1) 10) ((2) 20) (else 30))", 20);
 }
 
 test "IR behavioral: do loop" {
-    try expectEvalFixnum("(do ((i 0 (+ i 1))) ((= i 5) i))", 5);
+    try th.expectEval("(do ((i 0 (+ i 1))) ((= i 5) i))", 5);
 }
 
 test "IR behavioral: guard" {
-    try expectEvalFixnum("(guard (e (#t 42)) (error \"test\"))", 42);
+    try th.expectEval("(guard (e (#t 42)) (error \"test\"))", 42);
 }
 
 test "IR behavioral: quasiquote" {
-    try expectEvalBool("(equal? (let ((x 5)) `(a ,x b)) '(a 5 b))", true);
+    try th.expectEvalBool("(equal? (let ((x 5)) `(a ,x b)) '(a 5 b))", true);
 }
 
 test "IR behavioral: macros" {
-    try expectEvalFixnum("(define-syntax my-add (syntax-rules () ((my-add a b) (+ a b)))) (my-add 3 4)", 7);
+    try th.expectEval("(define-syntax my-add (syntax-rules () ((my-add a b) (+ a b)))) (my-add 3 4)", 7);
 }
 
 test "IR behavioral: macro in bare-lambda body (#1025)" {
-    var gc = memory.GC.init(std.testing.allocator);
-    defer gc.deinit();
-    var vm = try th.makeTestVM(&gc);
-    defer vm.deinit();
-    const result = try vm.eval(
+    try th.expectEval(
         \\(define-syntax my-add
         \\  (syntax-rules ()
         \\    ((_ a b) (+ a b))))
         \\(define f (lambda () (my-add 1 2)))
         \\(f)
-    );
-    try std.testing.expectEqual(@as(i64, 3), types.toFixnum(result));
+    , 3);
 }
 
 test "IR behavioral: macro in immediately-applied lambda (#1025)" {
-    var gc = memory.GC.init(std.testing.allocator);
-    defer gc.deinit();
-    var vm = try th.makeTestVM(&gc);
-    defer vm.deinit();
-    const result = try vm.eval(
+    try th.expectEval(
         \\(define-syntax my-add
         \\  (syntax-rules ()
         \\    ((_ a b) (+ a b))))
         \\((lambda () (my-add 1 2)))
-    );
-    try std.testing.expectEqual(@as(i64, 3), types.toFixnum(result));
+    , 3);
 }
 
 // --- Semantic analysis tests ---
@@ -391,43 +363,34 @@ test "IR optimization: set! target suppresses constant folding" {
     try std.testing.expect(folded.tag == .call); // must stay a call, not fold to 7
 }
 
-fn expectEvalFixnum(source: []const u8, expected: i64) !void {
-    var gc = memory.GC.init(std.testing.allocator);
-    defer gc.deinit();
-    var vm = try th.makeTestVM(&gc);
-    defer vm.deinit();
-    const result = try vm.eval(source);
-    try std.testing.expectEqual(expected, types.toFixnum(result));
-}
-
 test "IR fold: set! of + in lambda body is not folded (stale global rebind)" {
     // (+ 5 2) must not fold to 7: + is set! to - before the call runs.
-    try expectEvalFixnum("(define f (lambda () (set! + -) (+ 5 2))) (f)", 3);
+    try th.expectEval("(define f (lambda () (set! + -) (+ 5 2))) (f)", 3);
 }
 
 test "IR fold: set! of + inside let body is not folded (legacy passthrough path)" {
-    try expectEvalFixnum("(define g (lambda () (let ((x 1)) (set! + -) (+ 5 2)))) (g)", 3);
+    try th.expectEval("(define g (lambda () (let ((x 1)) (set! + -) (+ 5 2)))) (g)", 3);
 }
 
 test "IR fold: set! in outer body suppresses fold in nested lambda" {
-    try expectEvalFixnum("(define k (lambda () (set! + -) (lambda () (+ 5 2)))) ((k))", 3);
+    try th.expectEval("(define k (lambda () (set! + -) (lambda () (+ 5 2)))) ((k))", 3);
 }
 
 test "IR fold: every + call in a set!-body is suppressed" {
-    try expectEvalFixnum("(define h (lambda () (+ 100 1) (set! + -) (+ 5 2))) (h)", 3);
+    try th.expectEval("(define h (lambda () (+ 100 1) (set! + -) (+ 5 2))) (h)", 3);
 }
 
 test "IR fold: set! of * in lambda body is not folded" {
-    try expectEvalFixnum("(define f (lambda () (set! * -) (* 10 3))) (f)", 7);
+    try th.expectEval("(define f (lambda () (set! * -) (* 10 3))) (f)", 7);
 }
 
 test "IR fold: primitive still folds when no set! targets it" {
-    try expectEvalFixnum("((lambda () (+ 5 2)))", 7);
+    try th.expectEval("((lambda () (+ 5 2)))", 7);
 }
 
 test "IR fold: set! inside quoted data does not suppress folding" {
     // (quote (set! + -)) is data, not a rebind; (+ 5 2) still folds to 7.
-    try expectEvalFixnum("(define p (lambda () (quote (set! + -)) (+ 5 2))) (p)", 7);
+    try th.expectEval("(define p (lambda () (quote (set! + -)) (+ 5 2))) (p)", 7);
 }
 
 test "IR optimization: constant folding through if" {
@@ -660,48 +623,23 @@ test "IR optimization: begin simplification — single expr" {
 }
 
 test "IR analysis: emission uses tail annotation" {
-    var gc = memory.GC.init(std.testing.allocator);
-    defer gc.deinit();
-    var vm = try th.makeTestVM(&gc);
-    defer vm.deinit();
-    const result = try vm.eval("(define (f x) (if (< x 10) (+ x 1) (- x 1))) (f 5)");
-    try std.testing.expectEqual(@as(i64, 6), types.toFixnum(result));
+    try th.expectEval("(define (f x) (if (< x 10) (+ x 1) (- x 1))) (f 5)", 6);
 }
 
 test "bare lambda with single internal define" {
-    var gc = memory.GC.init(std.testing.allocator);
-    defer gc.deinit();
-    var vm = try th.makeTestVM(&gc);
-    defer vm.deinit();
-    const result = try vm.eval("(define b (lambda () (define q 7) (- q))) (b)");
-    try std.testing.expectEqual(@as(i64, -7), types.toFixnum(result));
+    try th.expectEval("(define b (lambda () (define q 7) (- q))) (b)", -7);
 }
 
 test "bare lambda with internal define and complex expression" {
-    var gc = memory.GC.init(std.testing.allocator);
-    defer gc.deinit();
-    var vm = try th.makeTestVM(&gc);
-    defer vm.deinit();
-    const result = try vm.eval("(define h (lambda () (define z 5) (+ (* z z) z))) (h)");
-    try std.testing.expectEqual(@as(i64, 30), types.toFixnum(result));
+    try th.expectEval("(define h (lambda () (define z 5) (+ (* z z) z))) (h)", 30);
 }
 
 test "bare lambda with multiple internal defines" {
-    var gc = memory.GC.init(std.testing.allocator);
-    defer gc.deinit();
-    var vm = try th.makeTestVM(&gc);
-    defer vm.deinit();
-    const result = try vm.eval("(define m (lambda () (define a 3) (define b 4) (+ a b))) (m)");
-    try std.testing.expectEqual(@as(i64, 7), types.toFixnum(result));
+    try th.expectEval("(define m (lambda () (define a 3) (define b 4) (+ a b))) (m)", 7);
 }
 
 test "bare lambda internal define with lambda application" {
-    var gc = memory.GC.init(std.testing.allocator);
-    defer gc.deinit();
-    var vm = try th.makeTestVM(&gc);
-    defer vm.deinit();
-    const result = try vm.eval("(define g (lambda () (define x 10) ((lambda (a) a) x))) (g)");
-    try std.testing.expectEqual(@as(i64, 10), types.toFixnum(result));
+    try th.expectEval("(define g (lambda () (define x 10) ((lambda (a) a) x))) (g)", 10);
 }
 
 // Issue #790: IR constant folding / simplifyBooleans must not fold a call to a
@@ -712,83 +650,37 @@ test "bare lambda internal define with lambda application" {
 // lambda is compiled via the IR path, not the legacy passthrough compiler.
 
 test "issue #790: lambda param shadows + (binary fold suppressed)" {
-    var gc = memory.GC.init(std.testing.allocator);
-    defer gc.deinit();
-    var vm = try th.makeTestVM(&gc);
-    defer vm.deinit();
-    // + is bound to -, so (+ 1 2) evaluates as (- 1 2) = -1, not the folded 3.
-    const result = try vm.eval("((lambda (+) (+ 1 2)) -)");
-    try std.testing.expectEqual(@as(i64, -1), types.toFixnum(result));
+    try th.expectEval("((lambda (+) (+ 1 2)) -)", -1);
 }
 
 test "issue #790: lambda param shadows < (comparison fold suppressed)" {
-    var gc = memory.GC.init(std.testing.allocator);
-    defer gc.deinit();
-    var vm = try th.makeTestVM(&gc);
-    defer vm.deinit();
-    // < is bound to +, so (< 1 2) evaluates as (+ 1 2) = 3, not #t.
-    const result = try vm.eval("((lambda (<) (< 1 2)) +)");
-    try std.testing.expectEqual(@as(i64, 3), types.toFixnum(result));
+    try th.expectEval("((lambda (<) (< 1 2)) +)", 3);
 }
 
 test "issue #790: lambda param shadows zero? (unary fold suppressed)" {
-    var gc = memory.GC.init(std.testing.allocator);
-    defer gc.deinit();
-    var vm = try th.makeTestVM(&gc);
-    defer vm.deinit();
-    // zero? is bound to (lambda (x) #f), so (if (zero? 0) 10 20) = 20, not 10.
-    const result = try vm.eval("((lambda (zero?) (if (zero? 0) 10 20)) (lambda (x) #f))");
-    try std.testing.expectEqual(@as(i64, 20), types.toFixnum(result));
+    try th.expectEval("((lambda (zero?) (if (zero? 0) 10 20)) (lambda (x) #f))", 20);
 }
 
 test "issue #790: lambda param shadows not (simplifyBooleans suppressed)" {
-    var gc = memory.GC.init(std.testing.allocator);
-    defer gc.deinit();
-    var vm = try th.makeTestVM(&gc);
-    defer vm.deinit();
-    // not is bound to odd?; (odd? 5) is #t, so (if (not 5) 100 200) = 100. The
-    // buggy (if (not X) A B) -> (if X B A) rewrite would yield 200.
-    const result = try vm.eval("((lambda (not) (if (not 5) 100 200)) odd?)");
-    try std.testing.expectEqual(@as(i64, 100), types.toFixnum(result));
+    try th.expectEval("((lambda (not) (if (not 5) 100 200)) odd?)", 100);
 }
 
 test "issue #790: shadowed operator with pre-folded args (foldConstants pass)" {
-    var gc = memory.GC.init(std.testing.allocator);
-    defer gc.deinit();
-    var vm = try th.makeTestVM(&gc);
-    defer vm.deinit();
-    // (- 5 4) folds to 1 (- is not shadowed); the outer + is shadowed by *, so
-    // the IR foldConstants pass must not fold (+ 1 2). Result: (* 1 2) = 2.
-    const result = try vm.eval("((lambda (+) (+ (- 5 4) 2)) *)");
-    try std.testing.expectEqual(@as(i64, 2), types.toFixnum(result));
+    try th.expectEval("((lambda (+) (+ (- 5 4) 2)) *)", 2);
 }
 
 test "issue #790: enclosing lambda param shadows via upvalue chain" {
-    var gc = memory.GC.init(std.testing.allocator);
-    defer gc.deinit();
-    var vm = try th.makeTestVM(&gc);
-    defer vm.deinit();
-    // The inner lambda's (+ 3 4) sees + as an upvalue bound to -, so isRedefined
-    // must walk the enclosing compiler chain. Result: (- 3 4) = -1, not 7.
-    const result = try vm.eval("((lambda (+) ((lambda (y) (+ 3 4)) 10)) -)");
-    try std.testing.expectEqual(@as(i64, -1), types.toFixnum(result));
+    try th.expectEval("((lambda (+) ((lambda (y) (+ 3 4)) 10)) -)", -1);
 }
 
 test "issue #790: unshadowed operator still folds in a lambda body" {
-    var gc = memory.GC.init(std.testing.allocator);
-    defer gc.deinit();
-    var vm = try th.makeTestVM(&gc);
-    defer vm.deinit();
-    // + is not shadowed here, so folding must still happen normally.
-    const result = try vm.eval("((lambda (y) (+ 1 2)) 99)");
-    try std.testing.expectEqual(@as(i64, 3), types.toFixnum(result));
+    try th.expectEval("((lambda (y) (+ 1 2)) 99)", 3);
 }
 
 test "IR lowering: begin with >256 sub-expressions" {
-    var gc = memory.GC.init(std.testing.allocator);
-    defer gc.deinit();
-    var vm = try th.makeTestVM(&gc);
-    defer vm.deinit();
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
     var src: [300 * 4 + 20]u8 = undefined;
     var pos: usize = 0;
     @memcpy(src[pos..][0..7], "(begin ");
@@ -798,15 +690,14 @@ test "IR lowering: begin with >256 sub-expressions" {
         pos += written.len;
     }
     src[pos - 1] = ')';
-    const result = try vm.eval(src[0..pos]);
+    const result = try ctx.vm.eval(src[0..pos]);
     try std.testing.expectEqual(@as(i64, 299), types.toFixnum(result));
 }
 
 test "IR lowering: and with >256 sub-expressions" {
-    var gc = memory.GC.init(std.testing.allocator);
-    defer gc.deinit();
-    var vm = try th.makeTestVM(&gc);
-    defer vm.deinit();
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
     var src: [300 * 3 + 20]u8 = undefined;
     var pos: usize = 0;
     @memcpy(src[pos..][0..5], "(and ");
@@ -817,15 +708,14 @@ test "IR lowering: and with >256 sub-expressions" {
     }
     @memcpy(src[pos..][0..3], "42)");
     pos += 3;
-    const result = try vm.eval(src[0..pos]);
+    const result = try ctx.vm.eval(src[0..pos]);
     try std.testing.expectEqual(@as(i64, 42), types.toFixnum(result));
 }
 
 test "IR lowering: or with >256 sub-expressions" {
-    var gc = memory.GC.init(std.testing.allocator);
-    defer gc.deinit();
-    var vm = try th.makeTestVM(&gc);
-    defer vm.deinit();
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
     var src: [300 * 3 + 20]u8 = undefined;
     var pos: usize = 0;
     @memcpy(src[pos..][0..4], "(or ");
@@ -836,7 +726,7 @@ test "IR lowering: or with >256 sub-expressions" {
     }
     @memcpy(src[pos..][0..3], "42)");
     pos += 3;
-    const result = try vm.eval(src[0..pos]);
+    const result = try ctx.vm.eval(src[0..pos]);
     try std.testing.expectEqual(@as(i64, 42), types.toFixnum(result));
 }
 
@@ -849,46 +739,35 @@ fn readExpr(gc: *memory.GC, source: []const u8) !types.Value {
 // -- Issue #1026: bare-lambda internal defines need letrec* desugaring --
 
 test "IR: bare lambda mutual recursion with fresh names (#1026)" {
-    var gc = memory.GC.init(std.testing.allocator);
-    defer gc.deinit();
-    var vm = try th.makeTestVM(&gc);
-    defer vm.deinit();
-    const result = try vm.eval(
+    try th.expectEvalTrue(
         \\((lambda ()
         \\   (define (e? n) (if (= n 0) #t (o? (- n 1))))
         \\   (define (o? n) (if (= n 0) #f (e? (- n 1))))
         \\   (e? 10)))
     );
-    try std.testing.expect(result == types.TRUE);
 }
 
 test "IR: bare lambda internal defines shadow builtins (#1026)" {
-    var gc = memory.GC.init(std.testing.allocator);
-    defer gc.deinit();
-    var vm = try th.makeTestVM(&gc);
-    defer vm.deinit();
-    const result = try vm.eval(
+    try th.expectEvalTrue(
         \\((lambda ()
         \\   (define (even? n) (if (= n 0) #t (odd? (- n 1))))
         \\   (define (odd? n) (if (= n 0) #f (even? (- n 1))))
         \\   (even? 10)))
     );
-    try std.testing.expect(result == types.TRUE);
 }
 
 test "IR: define shorthand parity with bare lambda (#1026)" {
-    var gc = memory.GC.init(std.testing.allocator);
-    defer gc.deinit();
-    var vm = try th.makeTestVM(&gc);
-    defer vm.deinit();
-    const r1 = try vm.eval(
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
+    const r1 = try ctx.vm.eval(
         \\((lambda ()
         \\   (define (e? n) (if (= n 0) #t (o? (- n 1))))
         \\   (define (o? n) (if (= n 0) #f (e? (- n 1))))
         \\   (e? 4)))
     );
     try std.testing.expect(r1 == types.TRUE);
-    const r2 = try vm.eval(
+    const r2 = try ctx.vm.eval(
         \\(let ()
         \\   (define (e? n) (if (= n 0) #t (o? (- n 1))))
         \\   (define (o? n) (if (= n 0) #f (e? (- n 1))))
@@ -898,17 +777,12 @@ test "IR: define shorthand parity with bare lambda (#1026)" {
 }
 
 test "IR: bare lambda define-value form (#1026)" {
-    var gc = memory.GC.init(std.testing.allocator);
-    defer gc.deinit();
-    var vm = try th.makeTestVM(&gc);
-    defer vm.deinit();
-    const result = try vm.eval(
+    try th.expectEval(
         \\((lambda ()
         \\   (define x 10)
         \\   (define y (+ x 5))
         \\   y))
-    );
-    try std.testing.expectEqual(@as(i64, 15), types.toFixnum(result));
+    , 15);
 }
 
 // -- Issue #1035: self-tail-call + line-table for IR path --
@@ -945,16 +819,10 @@ test "IR: bare-lambda define emits self_tail_call" {
 }
 
 test "IR: bare-lambda self-tail-call does not overflow stack" {
-    var gc = memory.GC.init(std.testing.allocator);
-    defer gc.deinit();
-    var vm = try th.makeTestVM(&gc);
-    defer vm.deinit();
-
-    const result = try vm.eval(
+    try th.expectEval(
         \\(define f (lambda (n acc) (if (= n 0) acc (f (- n 1) (+ acc 1)))))
         \\(f 100000 0)
-    );
-    try std.testing.expectEqual(@as(i64, 100000), types.toFixnum(result));
+    , 100000);
 }
 
 test "IR: line-table entries recorded for IR-compiled code" {

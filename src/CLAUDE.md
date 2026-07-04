@@ -5,27 +5,30 @@ This file covers patterns specific to working in this directory.
 
 ## Test files (`tests_*.zig`)
 
-16 test files, one per feature area. Every test follows this structure:
+20 test files, one per feature area. Use helpers from `testing_helpers.zig`:
 
 ```zig
-const std = @import("std");
 const th = @import("testing_helpers.zig");
-const types = @import("types.zig");
 
+// Shortest form — eval source, assert fixnum result:
 test "descriptive name" {
-    var gc = try th.makeTestGc();
-    defer gc.deinit();
-    var vm = try th.makeTestVM(&gc);
-    defer vm.deinit();
+    try th.expectEval("(+ 1 2)", 3);
+}
 
-    const result = try vm.run(
-        \\(+ 1 2)
-    );
-    try std.testing.expectEqual(@as(i64, 3), types.toFixnum(result));
+// When the test needs multiple evals or result inspection:
+test "multi-step test" {
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
+    _ = try ctx.vm.eval("(define x 42)");
+    const result = try ctx.vm.eval("x");
+    try std.testing.expectEqual(@as(i64, 42), types.toFixnum(result));
 }
 ```
 
-Always use `th.makeTestVM` — no ad-hoc VM initialization.
+Available helpers: `th.expectEval(src, fixnum)`, `th.expectEvalTrue(src)`,
+`th.expectEvalBool(src, bool)`, `th.expectEvalVoid(src)`.
+Use `th.TestContext` when you need the VM for multiple evals or complex assertions.
 
 ## Compiler split
 

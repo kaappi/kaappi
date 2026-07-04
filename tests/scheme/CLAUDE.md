@@ -14,8 +14,8 @@
 | `r7rs/` | Full R7RS suite (1,391 tests, `chibi test`) | yes (special) |
 | `errors/` | Error message format, exit code, and reader error regression tests | yes |
 | `bench/` | Micro-benchmarks (no assertions, timing only) | no |
+| `compile/` | Native compiler regression tests | no |
 | `coverage/` | Coverage gap-fillers (`zig build coverage-scheme`) | no |
-| `deferred/` | Pre-compiled `.sbc` bytecode tests | no |
 | `robustness/` | Stress tests | no |
 | `sandbox/` | Sandbox isolation tests | no |
 
