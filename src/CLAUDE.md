@@ -33,6 +33,7 @@ Forms are split by semantic domain. Add new forms to the right file:
 
 | File | Forms |
 |------|-------|
+| `compiler_ir.zig` | IR-to-bytecode: compileFromNode dispatch, if, begin, call, lambda, define, set!, and, or, when, unless |
 | `compiler_lambda.zig` | lambda, define, set!, begin, delay |
 | `compiler_conditionals.zig` | and, or, when, unless, cond, cond-expand |
 | `compiler_bindings.zig` | let, let*, letrec, letrec*, named let, do |
