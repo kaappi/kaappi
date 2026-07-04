@@ -5,7 +5,7 @@ const memory = @import("memory.zig");
 const Value = types.Value;
 const VM = vm_mod.VM;
 const VMError = vm_mod.VMError;
-const CallFrame = vm_mod.CallFrame;
+const CallFrame = types.CallFrame;
 
 pub const MAX_FIBERS = 64;
 
@@ -29,9 +29,9 @@ pub const Fiber = struct {
     registers: []Value,
     frames: []CallFrame,
     frame_count: usize,
-    handler_stack: [vm_mod.MAX_HANDLERS]vm_mod.ExceptionHandler,
+    handler_stack: [types.MAX_HANDLERS]types.ExceptionHandler,
     handler_count: usize,
-    wind_stack: [vm_mod.MAX_WINDS]types.WindRecord,
+    wind_stack: [types.MAX_WINDS]types.WindRecord,
     wind_count: usize,
     current_exception: ?Value,
     continuation_invoked: bool,

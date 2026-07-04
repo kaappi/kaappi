@@ -30,13 +30,12 @@ pub const VMError = error{
     Terminated,
 };
 
-const build_options = @import("build_options");
-pub const INITIAL_FRAME_CAPACITY: usize = build_options.max_frames;
-pub const INITIAL_REGISTER_CAPACITY: usize = build_options.max_registers;
-pub const MAX_FRAME_LIMIT: usize = 32768;
-pub const MAX_REGISTER_LIMIT: usize = 65536;
-pub const MAX_HANDLERS = 64;
-pub const MAX_WINDS = 64;
+pub const INITIAL_FRAME_CAPACITY = types.INITIAL_FRAME_CAPACITY;
+pub const INITIAL_REGISTER_CAPACITY = types.INITIAL_REGISTER_CAPACITY;
+pub const MAX_FRAME_LIMIT = types.MAX_FRAME_LIMIT;
+pub const MAX_REGISTER_LIMIT = types.MAX_REGISTER_LIMIT;
+pub const MAX_HANDLERS = types.MAX_HANDLERS;
+pub const MAX_WINDS = types.MAX_WINDS;
 
 pub threadlocal var vm_instance: ?*VM = null;
 
@@ -140,10 +139,7 @@ fn markVMRoots(gc: *memory.GC) void {
     }
 }
 
-pub const ExceptionHandler = struct {
-    handler: Value, // the handler procedure
-    frame_count: usize, // saved call stack depth for unwinding
-};
+pub const ExceptionHandler = types.ExceptionHandler;
 
 fn writeToFd(fd: std.posix.fd_t, bytes: []const u8) void {
     var total: usize = 0;
@@ -162,38 +158,7 @@ pub fn writeStderr(bytes: []const u8) void {
     writeToFd(2, bytes);
 }
 
-pub const CallFrame = struct {
-    closure: ?*types.Closure,
-    native: ?*types.NativeFn = null,
-    code: []const u8,
-    ip: usize,
-    base: u32,
-    dst: u16,
-    saved_wind_count: u16 = 0,
-    // True for frames pushed by callWithArgs: the frame's result is consumed
-    // by the re-entrant native Zig caller (map, for-each, sort, apply, ...)
-    // via runUntil's return value, and dst is a placeholder. If such a frame
-    // returns inside an OUTER dispatch loop, that native caller has already
-    // returned (a continuation captured under it was resumed after the native
-    // call ended) — there is no register to deliver into and the native's
-    // iteration state is gone, so the dispatch loop raises an error instead
-    // of silently corrupting the caller's registers. Preserved across tail
-    // calls and continuation capture/restore, like seq.
-    returns_to_native: bool = false,
-    // Birth id, unique per pushed frame (VM.nextFrameSeq). Tail calls reuse
-    // the frame and keep its seq; continuation capture/restore preserves it.
-    // Dispatch loops use it to tell whether a restored frame stack still
-    // contains the loop's own scope-root frame (resume here) or jumps to a
-    // different program point (propagate ContinuationInvoked outward).
-    seq: u64 = 0,
-
-    pub fn frameWindow(self: CallFrame) usize {
-        return if (self.closure) |cls| blk: {
-            const lc = cls.func.locals_count;
-            break :blk if (lc == 0) 256 else @as(usize, lc);
-        } else 256;
-    }
-};
+pub const CallFrame = types.CallFrame;
 
 pub const StepMode = enum { none, step, next, step_out, continue_to_break };
 

@@ -1,5 +1,6 @@
 const builtin = @import("builtin");
 const std = @import("std");
+const build_options = @import("build_options");
 
 /// A Scheme value packed into a 64-bit word (NaN-boxing).
 ///
@@ -480,6 +481,39 @@ pub const SavedHandler = struct {
 pub const WindRecord = struct {
     before: Value,
     after: Value,
+};
+
+// --- Live execution frame types (used by VM, fiber, and GC) ---
+
+pub const INITIAL_FRAME_CAPACITY: usize = build_options.max_frames;
+pub const INITIAL_REGISTER_CAPACITY: usize = build_options.max_registers;
+pub const MAX_FRAME_LIMIT: usize = 32768;
+pub const MAX_REGISTER_LIMIT: usize = 65536;
+pub const MAX_HANDLERS = 64;
+pub const MAX_WINDS = 64;
+
+pub const ExceptionHandler = struct {
+    handler: Value,
+    frame_count: usize,
+};
+
+pub const CallFrame = struct {
+    closure: ?*Closure,
+    native: ?*NativeFn = null,
+    code: []const u8,
+    ip: usize,
+    base: u32,
+    dst: u16,
+    saved_wind_count: u16 = 0,
+    returns_to_native: bool = false,
+    seq: u64 = 0,
+
+    pub fn frameWindow(self: CallFrame) usize {
+        return if (self.closure) |cls| blk: {
+            const lc = cls.func.locals_count;
+            break :blk if (lc == 0) 256 else @as(usize, lc);
+        } else 256;
+    }
 };
 
 /// A captured continuation (R7RS call/cc).
