@@ -835,3 +835,68 @@ fn readExpr(gc: *memory.GC, source: []const u8) !types.Value {
     defer reader.deinit();
     return reader.readDatum();
 }
+
+// -- Issue #1026: bare-lambda internal defines need letrec* desugaring --
+
+test "IR: bare lambda mutual recursion with fresh names (#1026)" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+    const result = try vm.eval(
+        \\((lambda ()
+        \\   (define (e? n) (if (= n 0) #t (o? (- n 1))))
+        \\   (define (o? n) (if (= n 0) #f (e? (- n 1))))
+        \\   (e? 10)))
+    );
+    try std.testing.expect(result == types.TRUE);
+}
+
+test "IR: bare lambda internal defines shadow builtins (#1026)" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+    const result = try vm.eval(
+        \\((lambda ()
+        \\   (define (even? n) (if (= n 0) #t (odd? (- n 1))))
+        \\   (define (odd? n) (if (= n 0) #f (even? (- n 1))))
+        \\   (even? 10)))
+    );
+    try std.testing.expect(result == types.TRUE);
+}
+
+test "IR: define shorthand parity with bare lambda (#1026)" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+    const r1 = try vm.eval(
+        \\((lambda ()
+        \\   (define (e? n) (if (= n 0) #t (o? (- n 1))))
+        \\   (define (o? n) (if (= n 0) #f (e? (- n 1))))
+        \\   (e? 4)))
+    );
+    try std.testing.expect(r1 == types.TRUE);
+    const r2 = try vm.eval(
+        \\(let ()
+        \\   (define (e? n) (if (= n 0) #t (o? (- n 1))))
+        \\   (define (o? n) (if (= n 0) #f (e? (- n 1))))
+        \\   (e? 4))
+    );
+    try std.testing.expect(r2 == types.TRUE);
+}
+
+test "IR: bare lambda define-value form (#1026)" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+    const result = try vm.eval(
+        \\((lambda ()
+        \\   (define x 10)
+        \\   (define y (+ x 5))
+        \\   y))
+    );
+    try std.testing.expectEqual(@as(i64, 15), types.toFixnum(result));
+}
