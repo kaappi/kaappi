@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783214533176,
+  "lastUpdate": 1783215616327,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "75f6c1351cb3e0d93eeb01b8b44ef9ed4b6a57da",
-          "message": "Honor lexical shadowing of keywords in IR lowering (#788) (#967)\n\nIR lowering dispatched special forms (if, and, begin, quote, when, ...)\npurely by symbol name, ignoring lexical scope. A lambda parameter that\nshadowed a keyword was still compiled as the special form instead of a\ncall to the parameter — eliminateDeadBranches even folded (if 1 2 3) to a\nconstant. R7RS has no reserved words, so a lexical binding must shadow the\nsyntax; the legacy compileForm path already did this via its is_shadowed\nguard, but the IR path (used for lambda bodies) had no access to locals.\n\nThread the compiler's lexical scope into the IR: add an optional compiler\nreference to IR, guard the special-form/macro dispatch with a shadow check\n(mirroring compileForm), and extend isRedefined so a shadowed primitive\nisn't constant-folded as the builtin. The new isLexicallyBound probe is\nread-only (walks locals + parent chain, registers no upvalues), so it is\nsafe to call during lowering. Hygienic renames keep their special-form\nmeaning because the guard requires effective_name == name.\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
-          "timestamp": "2026-07-03T11:54:17Z",
-          "tree_id": "2375afda90c095f022acb1c1df7590cdf940f8d0",
-          "url": "https://github.com/kaappi/kaappi/commit/75f6c1351cb3e0d93eeb01b8b44ef9ed4b6a57da"
-        },
-        "date": 1783080575771,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.343774,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.792711,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.836088,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.077039,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006889,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.032656,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.456325,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.068831,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 4.039744,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.77535,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.166617,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.435144,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 2.374747,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.657993,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.041167,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.04383,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c7dbbc1638a57a42449c2d85f36aae7dcd06cd01",
+          "message": "GC safety by construction: arg_roots, infallible pushRoot, stress mode (#1045) (#1125)\n\nEliminate the recurring \"unrooted fresh value\" bug class structurally:\n\n1. arg_roots — allocXxx functions that take Value arguments (allocPair,\n   allocErrorObject, allocRational, etc.) now root them in a fixed [4]Value\n   buffer before maybeCollect(). markRoots traces this buffer first.\n\n2. Infallible pushRoot — replace the growable ArrayList with a fixed\n   [1024]*Value buffer. pushRoot is now void (panics on overflow),\n   removing ~181 catch-return / try noise sites across 35 files.\n\n3. GC stress mode — -Dgc-stress=true forces collect() on every\n   maybeCollect() call regardless of threshold growth. In Debug builds,\n   freed objects are poisoned with 0xAA via poisonAndDestroy() to surface\n   use-after-free immediately.\n\nAll 602 unit tests and 1702 Scheme tests (including 1395 R7RS) pass.\nStress mode exposes pre-existing unrooted-value bugs as expected.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-05T06:46:36+05:30",
+          "tree_id": "d0d6fd442d58050da787727bad7c1c19e5987e44",
+          "url": "https://github.com/kaappi/kaappi/commit/c7dbbc1638a57a42449c2d85f36aae7dcd06cd01"
+        },
+        "date": 1783215615816,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.304436,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.887075,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.915126,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.14513,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.012522,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.211799,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.466692,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.070759,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 12.43773,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.835396,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 9.970582,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.951888,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 8.300162,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.705734,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.043015,
             "unit": "seconds"
           }
         ]
