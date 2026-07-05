@@ -127,7 +127,7 @@ and issue numbers, e.g. `[x] ... (2026-07-06, #1101–#1105)`.
 - [x] 2.5: `primitives_filesystem.zig` (SRFI-170) (2026-07-05, #1161–#1164; 65 audit tests + 3 disabled — group-info-by-name gid=0 via upstream Zig getgrnam misdeclaration, bare-fixnum time objects, missing chown sentinels, SRFI-60 export gap found in passing; covers SRFI-170 for Phase 3.1)
 - [x] 2.6: `primitives_srfi1.zig` (SRFI-1) (2026-07-05, #1166; 105 audit tests + 2 disabled — take-right/drop-right reject dotted lists; fold/unfold/lset/predicate semantics all conform; gc-stress clean)
 - [x] 2.7: `primitives_control.zig` (call/cc, guard) (2026-07-05, #1168–#1169; 33 audit tests + 2 disabled — set! rollback on continuation re-entry (hangs!), multi-value continuation invocation drops values; dynamic-wind spec example conforms)
-- [ ] 2.8: `primitives_vector.zig`
+- [x] 2.8: `primitives_vector.zig` (2026-07-05, #1171–#1174; 175 audit tests + 7 disabled — vector-skip/-right reject multi-vector form, 9 SRFI-133 procs missing (vector=, folds, in-place ops), vector literals mutable while strings aren't, only/except/rename don't validate names; all R7RS 6.8 + SRFI-133 spec examples conform; gc-stress clean)
 - [ ] 2.9: `primitives_list.zig`
 - [ ] 2.10: `primitives_bytevector.zig`
 - [ ] 2.11: `primitives_hashtable.zig` (SRFI-69)
