@@ -124,22 +124,7 @@ fn markVMRoots(gc: *memory.GC) void {
 
 pub const ExceptionHandler = types.ExceptionHandler;
 
-fn writeToFd(fd: std.posix.fd_t, bytes: []const u8) void {
-    var total: usize = 0;
-    while (total < bytes.len) {
-        const result = std.posix.system.write(fd, bytes.ptr + total, bytes.len - total);
-        if (result < 0) {
-            if (std.posix.errno(result) == .INTR) continue;
-            break;
-        }
-        if (result == 0) break;
-        total += @as(usize, @intCast(result));
-    }
-}
-
-pub fn writeStderr(bytes: []const u8) void {
-    writeToFd(2, bytes);
-}
+pub const writeStderr = @import("reporting.zig").writeStderr;
 
 pub const CallFrame = types.CallFrame;
 

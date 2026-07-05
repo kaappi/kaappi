@@ -1,22 +1,8 @@
 const std = @import("std");
 const vm_mod = @import("vm.zig");
+const reporting = @import("reporting.zig");
 
-fn writeToFd(fd: std.posix.fd_t, bytes: []const u8) void {
-    var total: usize = 0;
-    while (total < bytes.len) {
-        const result = std.posix.system.write(fd, bytes.ptr + total, bytes.len - total);
-        if (result <= 0) {
-            if (result < 0 and std.posix.errno(result) == .INTR) continue;
-            break;
-        }
-        const written: usize = @intCast(result);
-        total += written;
-    }
-}
-
-fn writeStderr(bytes: []const u8) void {
-    writeToFd(2, bytes);
-}
+const writeStderr = reporting.writeStderr;
 
 pub const Location = struct {
     source: []const u8,

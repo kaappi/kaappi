@@ -4,6 +4,7 @@ const OpCode = types.OpCode;
 const Value = types.Value;
 const printer = @import("printer.zig");
 const memory = @import("memory.zig");
+const reporting = @import("reporting.zig");
 
 pub fn disassemble(func: *types.Function, allocator: std.mem.Allocator) void {
     printHeader(func, allocator);
@@ -492,14 +493,5 @@ threadlocal var suppress_output: bool = false;
 
 fn writeStderr(bytes: []const u8) void {
     if (suppress_output) return;
-    var total: usize = 0;
-    while (total < bytes.len) {
-        const result: isize = std.posix.system.write(2, bytes.ptr + total, bytes.len - total);
-        if (result < 0) {
-            if (std.posix.errno(result) == .INTR) continue;
-            break;
-        }
-        if (result == 0) break;
-        total += @intCast(result);
-    }
+    reporting.writeToFd(2, bytes);
 }
