@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783264319817,
+  "lastUpdate": 1783266567519,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "f0458df788c702d6aa9b5c92680a478b6690c805",
-          "message": "Fix read after peek-char reordering stream bytes (#804) (#997)\n\nreadDatumFn assembled its parse buffer as read_buf ++ peek_byte, but\npeek_byte holds a byte taken from the front of read_buf — so it must\ncome first. Reorder to peek_byte → peek_extra → read_buf → fd,\nmatching readOneByte's drain order.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-03T20:33:46Z",
-          "tree_id": "2c8fd2f4cfa1c45f68e1abbbdcdd8a7cdb325b9c",
-          "url": "https://github.com/kaappi/kaappi/commit/f0458df788c702d6aa9b5c92680a478b6690c805"
-        },
-        "date": 1783111885572,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.120718,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.016412,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.682846,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.203885,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.005225,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.026377,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.378509,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.053358,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.42506,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.468756,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 0.931204,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.366332,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.314747,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.424364,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.035226,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.042965,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "419836ad7ef67093c7eb3f16eb1cc6fca27c9271",
+          "message": "Add SRFI-9 and SRFI-39 conformance tests (audit Phase 3.1) (#1204)\n\n* Add SRFI-9 and SRFI-39 conformance tests (audit Phase 3.1)\n\nDedicated test files for the two built-in SRFIs that had no direct\ncoverage (SRFI-170 was covered by Phase 2.5). 68 assertions pass; 6 are\ndisabled with FAIL markers awaiting the referenced issues:\n\n- see #1202: parameterize installs bindings sequentially, so later\n  value expressions observe earlier bindings - the normative SRFI-39\n  example (parameterize ((radix 8) (prompt (f 10))) (prompt)) returns\n  \"12\" instead of \"1010\", and results depend on clause order\n- see #1203: record-type redefinition retargets previously-created\n  constructors and predicates because the desugar resolves the hidden\n  __record_type_ global at call time instead of capturing the type\n- see #560 (reopened): define-record-type inside lambda/let bodies is\n  compiled as an expression; the earlier fix covered only begin\n- see #1199: cross-type accessor check (known, one disabled line)\n\nEverything else conforms: constructor field tags map by name and may\nlist a subset in any order, records are disjoint from all R5RS types,\nconverters run at creation/assignment/parameterize (never on restore),\none-argument parameter assignment works, and non-local exits restore\nouter parameter values.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n* Check off audit Phase 3.1 in the tracker\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-05T20:58:38+05:30",
+          "tree_id": "917e9be97be551b597bbc3dea7e7c66db2be01a9",
+          "url": "https://github.com/kaappi/kaappi/commit/419836ad7ef67093c7eb3f16eb1cc6fca27c9271"
+        },
+        "date": 1783266566341,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.356177,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.912402,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.955908,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.057314,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.012565,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.211198,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.472038,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.069715,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 12.367002,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.821458,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 9.943394,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.955366,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 8.302512,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.690323,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.043361,
             "unit": "seconds"
           }
         ]
