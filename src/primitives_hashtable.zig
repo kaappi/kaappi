@@ -257,7 +257,7 @@ fn hashTableKeysFn(args: []const Value) PrimitiveError!Value {
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const ht = try getHashTable("hash-table-keys", args[0]);
     var result: Value = types.NIL;
-    gc.pushRoot(&result) catch return PrimitiveError.OutOfMemory;
+    gc.pushRoot(&result);
     defer gc.popRoot();
     for (ht.entries[0..ht.capacity]) |entry| {
         if (entry.state == .occupied) {
@@ -272,7 +272,7 @@ fn hashTableValuesFn(args: []const Value) PrimitiveError!Value {
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const ht = try getHashTable("hash-table-values", args[0]);
     var result: Value = types.NIL;
-    gc.pushRoot(&result) catch return PrimitiveError.OutOfMemory;
+    gc.pushRoot(&result);
     defer gc.popRoot();
     for (ht.entries[0..ht.capacity]) |entry| {
         if (entry.state == .occupied) {
@@ -306,12 +306,12 @@ fn hashTableToAlistFn(args: []const Value) PrimitiveError!Value {
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const ht = try getHashTable("hash-table->alist", args[0]);
     var result: Value = types.NIL;
-    gc.pushRoot(&result) catch return PrimitiveError.OutOfMemory;
+    gc.pushRoot(&result);
     defer gc.popRoot();
     for (ht.entries[0..ht.capacity]) |entry| {
         if (entry.state == .occupied) {
             var pair = gc.allocPair(entry.key, entry.value) catch return PrimitiveError.OutOfMemory;
-            gc.pushRoot(&pair) catch return PrimitiveError.OutOfMemory;
+            gc.pushRoot(&pair);
             result = gc.allocPair(pair, result) catch {
                 gc.popRoot();
                 return PrimitiveError.OutOfMemory;
@@ -494,7 +494,7 @@ fn hashTableFoldFn(args: []const Value) PrimitiveError!Value {
     const proc = args[1];
     var acc = args[2];
 
-    gc.pushRoot(&acc) catch return PrimitiveError.OutOfMemory;
+    gc.pushRoot(&acc);
     defer gc.popRoot();
 
     const snapshot = snapshotLiveEntries(gc, ht) orelse return PrimitiveError.OutOfMemory;

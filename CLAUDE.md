@@ -19,6 +19,7 @@ zig build -Dbundle=program.sbc     # standalone binary from pre-compiled .sbc
 zig build -Dmax-frames=1024        # initial frame capacity (default: 480, grows to 32768)
 zig build -Dmax-registers=4096     # initial register count (default: 2048, grows to 65536)
 zig build -Dgc-threshold=16384     # custom initial GC threshold (default: 8192)
+zig build -Dgc-stress=true         # force GC on every allocation (stress testing)
 ```
 
 CLI flags: `-h`/`--help`, `--version`, `--lib-path <path>`, `--compile`,

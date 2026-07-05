@@ -89,7 +89,7 @@ pub const FiberScheduler = struct {
 
     pub fn spawnFiber(self: *FiberScheduler, thunk: Value) !*Fiber {
         var thunk_val = thunk;
-        try self.vm.gc.pushRoot(&thunk_val);
+        self.vm.gc.pushRoot(&thunk_val);
         const fiber = try self.vm.gc.allocFiber(thunk_val, self.next_id);
         self.vm.gc.popRoot();
         self.next_id += 1;

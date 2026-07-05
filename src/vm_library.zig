@@ -256,7 +256,7 @@ fn loadLibrarySource(vm: *VM, source: []const u8) !void {
 
     while (rdr.hasMore() catch return error.InvalidSyntax) {
         var expr = rdr.readDatum() catch return error.InvalidSyntax;
-        vm.gc.pushRoot(&expr) catch return error.OutOfMemory;
+        vm.gc.pushRoot(&expr);
         defer vm.gc.popRoot();
 
         if (vm.handleTopLevelForm(expr)) |result| {
@@ -264,7 +264,7 @@ fn loadLibrarySource(vm: *VM, source: []const u8) !void {
         } else {
             const func = compiler_mod.compileExpressionWithMacros(vm.gc, expr, &vm.macros, vm.globals) catch return error.InvalidSyntax;
             var func_val = types.makePointer(@ptrCast(func));
-            try vm.gc.pushRoot(&func_val);
+            vm.gc.pushRoot(&func_val);
             defer vm.gc.popRoot();
             compiler_mod.Compiler.unrootFunction(vm.gc, func);
             _ = try vm.execute(func);
@@ -565,7 +565,7 @@ pub fn handleTopLevelInclude(vm: *VM, args: Value, ci: bool) VMError!Value {
     // trigger GC, which would otherwise reclaim the pair list and filename
     // strings we are still walking.
     var file_list = args;
-    vm.gc.pushRoot(&file_list) catch return VMError.OutOfMemory;
+    vm.gc.pushRoot(&file_list);
     defer vm.gc.popRoot();
 
     while (file_list != types.NIL) {
@@ -628,10 +628,7 @@ fn evalIncludedForm(vm: *VM, expr: Value, path: []const u8, line: u32) void {
         collect.append(vm.gc.allocator, func) catch {};
     }
     var func_val = types.makePointer(@ptrCast(func));
-    vm.gc.pushRoot(&func_val) catch {
-        reportIncludeError(vm, path, line, null, error.OutOfMemory);
-        return;
-    };
+    vm.gc.pushRoot(&func_val);
     defer vm.gc.popRoot();
     compiler_mod.Compiler.unrootFunction(vm.gc, func);
     _ = vm.execute(func) catch |err| {
@@ -798,7 +795,7 @@ pub fn handleDefineLibrary(vm: *VM, args: Value) VMError!Value {
 
     // Root the AST so it survives GC during nested library loading
     // (e.g. when (import (srfi 35)) triggers loading a .sld file).
-    vm.gc.pushRoot(&decls) catch return VMError.OutOfMemory;
+    vm.gc.pushRoot(&decls);
     defer vm.gc.popRoot();
 
     const lib_name = library_mod.libraryNameToString(vm.gc.allocator, name_list) catch return VMError.CompileError;
@@ -927,7 +924,7 @@ fn compileLibExpr(vm: *VM, lib_env: *std.StringHashMap(Value), expr: Value) VMEr
         collect.append(vm.gc.allocator, func) catch return VMError.OutOfMemory;
     }
     var func_val = types.makePointer(@ptrCast(func));
-    vm.gc.pushRoot(&func_val) catch return VMError.OutOfMemory;
+    vm.gc.pushRoot(&func_val);
     compiler_mod.Compiler.unrootFunction(vm.gc, func);
     defer vm.gc.popRoot();
     _ = try vm.execute(func);
@@ -1066,7 +1063,7 @@ fn includeLibraryDeclarations(
 
         while (file_reader.hasMore() catch return VMError.CompileError) {
             var declaration = file_reader.readDatum() catch return VMError.CompileError;
-            vm.gc.pushRoot(&declaration) catch return VMError.CompileError;
+            vm.gc.pushRoot(&declaration);
             defer vm.gc.popRoot();
             try processLibDeclaration(vm, lib_env, declaration, export_names, export_renames);
         }

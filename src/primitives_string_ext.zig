@@ -279,7 +279,7 @@ fn stringSplitFn(args: []const Value) PrimitiveError!Value {
     if (delim.len == 0) {
         // Split into individual characters
         var result: Value = types.NIL;
-        gc.pushRoot(&result) catch return PrimitiveError.OutOfMemory;
+        gc.pushRoot(&result);
         defer gc.popRoot();
         var byte_i = data.len;
         while (byte_i > 0) {
@@ -289,7 +289,7 @@ fn stringSplitFn(args: []const Value) PrimitiveError!Value {
                 start -= 1;
             }
             var str_val = gc.allocString(data[start..byte_i]) catch return PrimitiveError.OutOfMemory;
-            gc.pushRoot(&str_val) catch return PrimitiveError.OutOfMemory;
+            gc.pushRoot(&str_val);
             result = gc.allocPair(str_val, result) catch {
                 gc.popRoot();
                 return PrimitiveError.OutOfMemory;
@@ -315,10 +315,10 @@ fn stringSplitFn(args: []const Value) PrimitiveError!Value {
     }
 
     var str_val: Value = types.NIL;
-    gc.pushRoot(&str_val) catch return PrimitiveError.OutOfMemory;
+    gc.pushRoot(&str_val);
     defer gc.popRoot();
     var result: Value = types.NIL;
-    gc.pushRoot(&result) catch return PrimitiveError.OutOfMemory;
+    gc.pushRoot(&result);
     defer gc.popRoot();
     var i = splits.items.len;
     while (i > 0) {
@@ -798,7 +798,7 @@ fn stringUnfoldFn(args: []const Value) PrimitiveError!Value {
     const f = args[1];
     const g = args[2];
     var seed = args[3];
-    gc.pushRoot(&seed) catch return PrimitiveError.OutOfMemory;
+    gc.pushRoot(&seed);
     defer gc.popRoot();
 
     var result: std.ArrayList(u8) = .empty;
@@ -837,7 +837,7 @@ fn stringUnfoldRightFn(args: []const Value) PrimitiveError!Value {
     const f = args[1];
     const g = args[2];
     var seed = args[3];
-    gc.pushRoot(&seed) catch return PrimitiveError.OutOfMemory;
+    gc.pushRoot(&seed);
     defer gc.popRoot();
 
     var chars: std.ArrayList(u21) = .empty;

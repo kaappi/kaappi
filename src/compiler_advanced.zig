@@ -85,7 +85,7 @@ pub fn compileGuard(self: *Compiler, args: Value, dst: u16, is_tail: bool) Compi
         break :blk gc.allocPair(ec_sym, gc.allocPair(outer, types.NIL) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory;
     };
 
-    try gc.pushRoot(&form);
+    gc.pushRoot(&form);
     defer gc.popRoot();
     return self.compileExpr(form, dst, is_tail);
 }
@@ -290,7 +290,7 @@ fn compileQQ(self: *Compiler, tmpl: Value, dst: u16, depth: u8) CompileError!voi
             }
             break :blk l;
         };
-        try gc.pushRoot(&list);
+        gc.pushRoot(&list);
         defer gc.popRoot();
         // Compile the list at the current quasiquote depth
         const fn_reg = try self.allocReg();
@@ -619,7 +619,7 @@ fn compileQQSplicing(self: *Compiler, tmpl: Value, dst: u16, depth: u8) CompileE
         var seg0 = segments_buf[0];
         gc.no_collect -= 1;
         nc_held = false;
-        try gc.pushRoot(&seg0);
+        gc.pushRoot(&seg0);
         defer gc.popRoot();
         return self.compileExpr(seg0, dst, false);
     }
@@ -634,7 +634,7 @@ fn compileQQSplicing(self: *Compiler, tmpl: Value, dst: u16, depth: u8) CompileE
     var append_call = gc.allocPair(append_sym, args_list) catch return CompileError.OutOfMemory;
     gc.no_collect -= 1;
     nc_held = false;
-    try gc.pushRoot(&append_call);
+    gc.pushRoot(&append_call);
     defer gc.popRoot();
     return self.compileExpr(append_call, dst, false);
 }
@@ -813,7 +813,7 @@ pub fn compileParameterize(self: *Compiler, args: Value, dst: u16, is_tail: bool
         break :blk gc.allocPair(letstar_sym, gc.allocPair(let_bindings, outer_body) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory;
     };
 
-    try gc.pushRoot(&outer_let);
+    gc.pushRoot(&outer_let);
     defer gc.popRoot();
     return self.compileExpr(outer_let, dst, is_tail);
 }
@@ -922,7 +922,7 @@ pub fn compileCaseLambda(self: *Compiler, args: Value, dst: u16) CompileError!vo
         break :blk try gc.allocPair(lambda_sym, try gc.allocPair(args_sym, try gc.allocPair(let_form, types.NIL)));
     };
 
-    try gc.pushRoot(&outer_lambda);
+    gc.pushRoot(&outer_lambda);
     defer gc.popRoot();
     return self.compileExpr(outer_lambda, dst, false);
 }

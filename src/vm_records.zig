@@ -94,7 +94,7 @@ pub fn handleDefineRecordType(vm: *VM, args: Value) VMError!Value {
 
     // Create the RecordType value
     var rt_val = vm.gc.allocRecordType(type_name, num_fields) catch return VMError.OutOfMemory;
-    vm.gc.pushRoot(&rt_val) catch return VMError.OutOfMemory;
+    vm.gc.pushRoot(&rt_val);
     defer vm.gc.popRoot();
 
     // Store in a global with an internal name (space prefix prevents user access)
@@ -163,7 +163,7 @@ pub fn handleDefineRecordType(vm: *VM, args: Value) VMError!Value {
         }
 
         var body_list = vm.gc.makeList(body_args[0 .. 2 + all_field_count]) catch return VMError.OutOfMemory;
-        vm.gc.pushRoot(&body_list) catch return VMError.OutOfMemory;
+        vm.gc.pushRoot(&body_list);
         defer vm.gc.popRoot();
 
         // Build parameter list
@@ -208,7 +208,7 @@ pub fn handleDefineRecordType(vm: *VM, args: Value) VMError!Value {
         const name_and_params = vm.gc.makeList(&[_]Value{ pred_sym, v_sym }) catch return VMError.OutOfMemory;
         var define_expr = vm.gc.makeList(&[_]Value{ define_sym, name_and_params, body }) catch return VMError.OutOfMemory;
         vm.gc.no_collect -= 1;
-        vm.gc.pushRoot(&define_expr) catch return VMError.OutOfMemory;
+        vm.gc.pushRoot(&define_expr);
         defer vm.gc.popRoot();
 
         const func = if (vm.current_lib_env) |env|
@@ -236,7 +236,7 @@ pub fn handleDefineRecordType(vm: *VM, args: Value) VMError!Value {
             const name_and_params = vm.gc.makeList(&[_]Value{ acc_sym, p_sym }) catch return VMError.OutOfMemory;
             var define_expr = vm.gc.makeList(&[_]Value{ define_sym, name_and_params, body }) catch return VMError.OutOfMemory;
             vm.gc.no_collect -= 1;
-            vm.gc.pushRoot(&define_expr) catch return VMError.OutOfMemory;
+            vm.gc.pushRoot(&define_expr);
             defer vm.gc.popRoot();
 
             const func = if (vm.current_lib_env) |env|
@@ -263,7 +263,7 @@ pub fn handleDefineRecordType(vm: *VM, args: Value) VMError!Value {
             const name_and_params = vm.gc.makeList(&[_]Value{ mut_sym, p_sym, v_sym }) catch return VMError.OutOfMemory;
             var define_expr = vm.gc.makeList(&[_]Value{ define_sym, name_and_params, body }) catch return VMError.OutOfMemory;
             vm.gc.no_collect -= 1;
-            vm.gc.pushRoot(&define_expr) catch return VMError.OutOfMemory;
+            vm.gc.pushRoot(&define_expr);
             defer vm.gc.popRoot();
 
             const func = if (vm.current_lib_env) |env|

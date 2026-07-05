@@ -95,11 +95,11 @@ fn commandLine(args: []const Value) PrimitiveError!Value {
     const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError; // bare-ok: no VM
 
     var result: Value = types.NIL;
-    gc.pushRoot(&result) catch return PrimitiveError.OutOfMemory;
+    gc.pushRoot(&result);
     defer gc.popRoot();
 
     var str_val: Value = types.NIL;
-    gc.pushRoot(&str_val) catch return PrimitiveError.OutOfMemory;
+    gc.pushRoot(&str_val);
     defer gc.popRoot();
 
     var i = vm.command_line_args.len;
@@ -159,15 +159,15 @@ fn getEnvVars(args: []const Value) PrimitiveError!Value {
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
 
     var result: Value = types.NIL;
-    gc.pushRoot(&result) catch return PrimitiveError.OutOfMemory;
+    gc.pushRoot(&result);
     defer gc.popRoot();
 
     var pair_val: Value = types.NIL;
-    gc.pushRoot(&pair_val) catch return PrimitiveError.OutOfMemory;
+    gc.pushRoot(&pair_val);
     defer gc.popRoot();
 
     var key_val: Value = types.NIL;
-    gc.pushRoot(&key_val) catch return PrimitiveError.OutOfMemory;
+    gc.pushRoot(&key_val);
     defer gc.popRoot();
 
     var i: usize = 0;
@@ -198,7 +198,7 @@ fn evalFn(args: []const Value) PrimitiveError!Value {
         const func = compiler_mod.compileExpressionInEnv(gc, expr, &vm.macros, se.env, args[1]) catch return PrimitiveError.TypeError; // bare-ok: compile error
         var closure_val = gc.allocClosure(func) catch return PrimitiveError.OutOfMemory;
         compiler_mod.Compiler.unrootFunction(gc, func);
-        gc.pushRoot(&closure_val) catch return PrimitiveError.OutOfMemory;
+        gc.pushRoot(&closure_val);
         defer gc.popRoot();
 
         const result = vm.callWithArgs(closure_val, &[_]Value{}) catch |err| {
@@ -210,7 +210,7 @@ fn evalFn(args: []const Value) PrimitiveError!Value {
     const func = compiler_mod.compileExpressionWithMacros(gc, expr, &vm.macros, vm.globals) catch return PrimitiveError.TypeError;
     var closure_val = gc.allocClosure(func) catch return PrimitiveError.OutOfMemory;
     compiler_mod.Compiler.unrootFunction(gc, func);
-    gc.pushRoot(&closure_val) catch return PrimitiveError.OutOfMemory;
+    gc.pushRoot(&closure_val);
     defer gc.popRoot();
 
     const result = vm.callWithArgs(closure_val, &[_]Value{}) catch |err| {
@@ -263,12 +263,12 @@ fn loadFn(args: []const Value) PrimitiveError!Value {
     const fd = std.c.open(path_z, .{});
     if (fd < 0) {
         var msg = gc.allocString("cannot open file") catch return PrimitiveError.OutOfMemory;
-        gc.pushRoot(&msg) catch return PrimitiveError.OutOfMemory;
+        gc.pushRoot(&msg);
         defer gc.popRoot();
         const irritant = args[0];
         const irritants = gc.allocPair(irritant, types.NIL) catch return PrimitiveError.OutOfMemory;
         var irritants_root = irritants;
-        gc.pushRoot(&irritants_root) catch return PrimitiveError.OutOfMemory;
+        gc.pushRoot(&irritants_root);
         defer gc.popRoot();
         const err_obj = gc.allocErrorObject(msg, irritants_root) catch return PrimitiveError.OutOfMemory;
         types.toObject(err_obj).as(types.ErrorObject).error_type = .file;
@@ -299,7 +299,7 @@ fn loadFn(args: []const Value) PrimitiveError!Value {
         const func = compiler_mod.compileExpressionWithMacros(gc, expr, &vm.macros, vm.globals) catch return PrimitiveError.TypeError;
         {
             var func_val = types.makePointer(@ptrCast(func));
-            gc.pushRoot(&func_val) catch return PrimitiveError.OutOfMemory;
+            gc.pushRoot(&func_val);
             defer gc.popRoot();
             compiler_mod.Compiler.unrootFunction(gc, func);
 
@@ -322,7 +322,7 @@ fn makeParameterFn(args: []const Value) PrimitiveError!Value {
     const converter: Value = if (args.len > 1) args[1] else types.NIL;
     // If converter provided, apply it to initial value
     var val = init;
-    gc.pushRoot(&val) catch return PrimitiveError.OutOfMemory;
+    gc.pushRoot(&val);
     defer gc.popRoot();
     if (converter != types.NIL) {
         const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError; // bare-ok: no VM

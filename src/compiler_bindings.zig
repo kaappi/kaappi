@@ -277,7 +277,7 @@ pub fn compileNamedLet(self: *Compiler, args: Value, dst: u16, is_tail: bool) Co
         const renamed_body = try renameInBody(self.gc, body, types.symbolName(loop_name), unique_sym);
         renamed_lambda_args = self.gc.allocPair(formals, renamed_body) catch return CompileError.OutOfMemory;
     }
-    self.gc.pushRoot(&renamed_lambda_args) catch return CompileError.OutOfMemory;
+    self.gc.pushRoot(&renamed_lambda_args);
     defer self.gc.popRoot();
 
     self.beginScope();
@@ -309,7 +309,7 @@ pub fn compileNamedLet(self: *Compiler, args: Value, dst: u16, is_tail: bool) Co
         }
         call_expr = self.gc.allocPair(unique_sym, call_expr) catch return CompileError.OutOfMemory;
     }
-    self.gc.pushRoot(&call_expr) catch return CompileError.OutOfMemory;
+    self.gc.pushRoot(&call_expr);
     defer self.gc.popRoot();
     try self.compileExpr(call_expr, dst, is_tail);
 
@@ -594,7 +594,7 @@ pub fn compileLetValues(self: *Compiler, args: Value, dst: u16, is_tail: bool) C
             const producer_lambda = gc.allocPair(lambda_sym, gc.allocPair(types.NIL, producer_body) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory;
             break :blk gc.allocPair(cwv_sym, gc.allocPair(producer_lambda, gc.allocPair(list_sym, types.NIL) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory;
         };
-        try gc.pushRoot(&cwv_expr);
+        gc.pushRoot(&cwv_expr);
         defer gc.popRoot();
         const slot = try self.allocReg();
         temp_slots[i] = slot;
@@ -635,7 +635,7 @@ pub fn compileLetValues(self: *Compiler, args: Value, dst: u16, is_tail: bool) C
         break :blk inner;
     };
 
-    try gc.pushRoot(&desugared);
+    gc.pushRoot(&desugared);
     defer gc.popRoot();
     try self.compileExpr(desugared, dst, is_tail);
     self.endScope();
@@ -653,7 +653,7 @@ pub fn compileLetStarValues(self: *Compiler, args: Value, dst: u16, is_tail: boo
         error.InvalidSyntax => CompileError.InvalidSyntax,
         else => CompileError.OutOfMemory,
     };
-    try self.gc.pushRoot(&desugared);
+    self.gc.pushRoot(&desugared);
     defer self.gc.popRoot();
     return self.compileExpr(desugared, dst, is_tail);
 }

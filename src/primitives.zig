@@ -343,7 +343,7 @@ fn append(args: []const Value) PrimitiveError!Value {
     if (args.len == 1) return args[0];
 
     var result = args[args.len - 1];
-    gc.pushRoot(&result) catch return PrimitiveError.OutOfMemory;
+    gc.pushRoot(&result);
     defer gc.popRoot();
     var i = args.len - 1;
     while (i > 0) {
@@ -368,7 +368,7 @@ fn append(args: []const Value) PrimitiveError!Value {
 fn reverse(args: []const Value) PrimitiveError!Value {
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     var result: Value = types.NIL;
-    gc.pushRoot(&result) catch return PrimitiveError.OutOfMemory;
+    gc.pushRoot(&result);
     defer gc.popRoot();
     var current = args[0];
     while (current != types.NIL) {
