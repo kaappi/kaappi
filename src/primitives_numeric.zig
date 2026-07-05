@@ -8,6 +8,7 @@ const arith = @import("primitives_arithmetic.zig");
 const Value = types.Value;
 const NativeFn = types.NativeFn;
 const PrimitiveError = primitives.PrimitiveError;
+const LS = primitives.LibSet;
 const toF64 = primitives.toF64;
 const anyFlonum = primitives.anyFlonum;
 fn anyBignum(args: []const Value) bool {
@@ -72,72 +73,52 @@ fn floatToBignum(f: f64) PrimitiveError!Value {
 }
 const raiseDivByZero = arith.raiseDivByZero;
 
-pub fn registerNumeric(vm: *vm_mod.VM) !void {
-    // Rounding
-    try primitives.reg(vm, "floor", &floorFn, .{ .exact = 1 });
-    try primitives.reg(vm, "ceiling", &ceilingFn, .{ .exact = 1 });
-    try primitives.reg(vm, "truncate", &truncateFn, .{ .exact = 1 });
-    try primitives.reg(vm, "round", &roundFn, .{ .exact = 1 });
+pub const specs = [_]primitives.PrimSpec{
+    .{ .name = "floor", .func = &floorFn, .arity = .{ .exact = 1 }, .libs = LS.initMany(&.{ .scheme_base, .scheme_r5rs }) },
+    .{ .name = "ceiling", .func = &ceilingFn, .arity = .{ .exact = 1 }, .libs = LS.initMany(&.{ .scheme_base, .scheme_r5rs }) },
+    .{ .name = "truncate", .func = &truncateFn, .arity = .{ .exact = 1 }, .libs = LS.initMany(&.{ .scheme_base, .scheme_r5rs }) },
+    .{ .name = "round", .func = &roundFn, .arity = .{ .exact = 1 }, .libs = LS.initMany(&.{ .scheme_base, .scheme_r5rs }) },
+    .{ .name = "exact?", .func = &exactP, .arity = .{ .exact = 1 }, .libs = LS.initMany(&.{ .scheme_base, .scheme_r5rs }) },
+    .{ .name = "inexact?", .func = &inexactP, .arity = .{ .exact = 1 }, .libs = LS.initMany(&.{ .scheme_base, .scheme_r5rs }) },
+    .{ .name = "exact-integer?", .func = &exactIntegerP, .arity = .{ .exact = 1 }, .libs = LS.initOne(.scheme_base) },
+    .{ .name = "exact", .func = &exactFn, .arity = .{ .exact = 1 }, .libs = LS.initOne(.scheme_base) },
+    .{ .name = "inexact", .func = &inexactFn, .arity = .{ .exact = 1 }, .libs = LS.initOne(.scheme_base) },
+    .{ .name = "expt", .func = &exptFn, .arity = .{ .exact = 2 }, .libs = LS.initMany(&.{ .scheme_base, .scheme_r5rs }) },
+    .{ .name = "square", .func = &squareFn, .arity = .{ .exact = 1 }, .libs = LS.initOne(.scheme_base) },
+    .{ .name = "sqrt", .func = &sqrtFn, .arity = .{ .exact = 1 }, .libs = LS.initMany(&.{ .scheme_base, .scheme_inexact, .scheme_r5rs }) },
+    .{ .name = "exact-integer-sqrt", .func = &exactIntegerSqrt, .arity = .{ .exact = 1 }, .libs = LS.initOne(.scheme_base) },
+    .{ .name = "sin", .func = &sinFn, .arity = .{ .exact = 1 }, .libs = LS.initMany(&.{ .scheme_inexact, .scheme_r5rs }) },
+    .{ .name = "cos", .func = &cosFn, .arity = .{ .exact = 1 }, .libs = LS.initMany(&.{ .scheme_inexact, .scheme_r5rs }) },
+    .{ .name = "tan", .func = &tanFn, .arity = .{ .exact = 1 }, .libs = LS.initMany(&.{ .scheme_inexact, .scheme_r5rs }) },
+    .{ .name = "asin", .func = &asinFn, .arity = .{ .exact = 1 }, .libs = LS.initMany(&.{ .scheme_inexact, .scheme_r5rs }) },
+    .{ .name = "acos", .func = &acosFn, .arity = .{ .exact = 1 }, .libs = LS.initMany(&.{ .scheme_inexact, .scheme_r5rs }) },
+    .{ .name = "atan", .func = &atanFn, .arity = .{ .variadic = 1 }, .libs = LS.initMany(&.{ .scheme_inexact, .scheme_r5rs }) },
+    .{ .name = "exp", .func = &expFn, .arity = .{ .exact = 1 }, .libs = LS.initMany(&.{ .scheme_inexact, .scheme_r5rs }) },
+    .{ .name = "log", .func = &logFn, .arity = .{ .variadic = 1 }, .libs = LS.initMany(&.{ .scheme_inexact, .scheme_r5rs }) },
+    .{ .name = "finite?", .func = &finiteP, .arity = .{ .exact = 1 }, .libs = LS.initOne(.scheme_inexact) },
+    .{ .name = "infinite?", .func = &infiniteP, .arity = .{ .exact = 1 }, .libs = LS.initOne(.scheme_inexact) },
+    .{ .name = "nan?", .func = &nanP, .arity = .{ .exact = 1 }, .libs = LS.initOne(.scheme_inexact) },
+    .{ .name = "number->string", .func = &numberToString, .arity = .{ .variadic = 1 }, .libs = LS.initMany(&.{ .scheme_base, .scheme_r5rs }) },
+    .{ .name = "string->number", .func = &stringToNumber, .arity = .{ .variadic = 1 }, .libs = LS.initMany(&.{ .scheme_base, .scheme_r5rs }) },
+    .{ .name = "make-rectangular", .func = &makeRectangular, .arity = .{ .exact = 2 }, .libs = LS.initMany(&.{ .scheme_base, .scheme_complex, .scheme_r5rs }) },
+    .{ .name = "make-polar", .func = &makePolar, .arity = .{ .exact = 2 }, .libs = LS.initMany(&.{ .scheme_base, .scheme_complex, .scheme_r5rs }) },
+    .{ .name = "real-part", .func = &realPart, .arity = .{ .exact = 1 }, .libs = LS.initMany(&.{ .scheme_base, .scheme_complex, .scheme_r5rs }) },
+    .{ .name = "imag-part", .func = &imagPart, .arity = .{ .exact = 1 }, .libs = LS.initMany(&.{ .scheme_base, .scheme_complex, .scheme_r5rs }) },
+    .{ .name = "magnitude", .func = &magnitudeFn, .arity = .{ .exact = 1 }, .libs = LS.initMany(&.{ .scheme_base, .scheme_complex, .scheme_r5rs }) },
+    .{ .name = "angle", .func = &angleFn, .arity = .{ .exact = 1 }, .libs = LS.initMany(&.{ .scheme_base, .scheme_complex, .scheme_r5rs }) },
+    .{ .name = "floor-quotient", .func = &floorQuotient, .arity = .{ .exact = 2 }, .libs = LS.initOne(.scheme_base) },
+    .{ .name = "floor-remainder", .func = &floorRemainder, .arity = .{ .exact = 2 }, .libs = LS.initOne(.scheme_base) },
+    .{ .name = "floor/", .func = &floorDivide, .arity = .{ .exact = 2 }, .libs = LS.initOne(.scheme_base) },
+    .{ .name = "truncate-quotient", .func = &truncateQuotient, .arity = .{ .exact = 2 }, .libs = LS.initOne(.scheme_base) },
+    .{ .name = "truncate-remainder", .func = &truncateRemainder, .arity = .{ .exact = 2 }, .libs = LS.initOne(.scheme_base) },
+    .{ .name = "truncate/", .func = &truncateDivide, .arity = .{ .exact = 2 }, .libs = LS.initOne(.scheme_base) },
+    .{ .name = "numerator", .func = &numeratorFn, .arity = .{ .exact = 1 }, .libs = LS.initMany(&.{ .scheme_base, .scheme_r5rs }) },
+    .{ .name = "denominator", .func = &denominatorFn, .arity = .{ .exact = 1 }, .libs = LS.initMany(&.{ .scheme_base, .scheme_r5rs }) },
+    .{ .name = "rationalize", .func = &rationalizeFn, .arity = .{ .exact = 2 }, .libs = LS.initMany(&.{ .scheme_base, .scheme_r5rs }) },
+    .{ .name = "exact->inexact", .func = &inexactFn, .arity = .{ .exact = 1 }, .libs = LS.initMany(&.{ .scheme_base, .scheme_r5rs }) },
+    .{ .name = "inexact->exact", .func = &exactFn, .arity = .{ .exact = 1 }, .libs = LS.initMany(&.{ .scheme_base, .scheme_r5rs }) },
+};
 
-    // Exactness
-    try primitives.reg(vm, "exact?", &exactP, .{ .exact = 1 });
-    try primitives.reg(vm, "inexact?", &inexactP, .{ .exact = 1 });
-    try primitives.reg(vm, "exact-integer?", &exactIntegerP, .{ .exact = 1 });
-    try primitives.reg(vm, "exact", &exactFn, .{ .exact = 1 });
-    try primitives.reg(vm, "inexact", &inexactFn, .{ .exact = 1 });
-
-    // Powers and roots
-    try primitives.reg(vm, "expt", &exptFn, .{ .exact = 2 });
-    try primitives.reg(vm, "square", &squareFn, .{ .exact = 1 });
-    try primitives.reg(vm, "sqrt", &sqrtFn, .{ .exact = 1 });
-    try primitives.reg(vm, "exact-integer-sqrt", &exactIntegerSqrt, .{ .exact = 1 });
-
-    // Trigonometry
-    try primitives.reg(vm, "sin", &sinFn, .{ .exact = 1 });
-    try primitives.reg(vm, "cos", &cosFn, .{ .exact = 1 });
-    try primitives.reg(vm, "tan", &tanFn, .{ .exact = 1 });
-    try primitives.reg(vm, "asin", &asinFn, .{ .exact = 1 });
-    try primitives.reg(vm, "acos", &acosFn, .{ .exact = 1 });
-    try primitives.reg(vm, "atan", &atanFn, .{ .variadic = 1 });
-
-    // Exp/Log
-    try primitives.reg(vm, "exp", &expFn, .{ .exact = 1 });
-    try primitives.reg(vm, "log", &logFn, .{ .variadic = 1 });
-
-    // Float predicates
-    try primitives.reg(vm, "finite?", &finiteP, .{ .exact = 1 });
-    try primitives.reg(vm, "infinite?", &infiniteP, .{ .exact = 1 });
-    try primitives.reg(vm, "nan?", &nanP, .{ .exact = 1 });
-
-    // Number/string conversion
-    try primitives.reg(vm, "number->string", &numberToString, .{ .variadic = 1 });
-    try primitives.reg(vm, "string->number", &stringToNumber, .{ .variadic = 1 });
-
-    // Complex numbers
-    try primitives.reg(vm, "make-rectangular", &makeRectangular, .{ .exact = 2 });
-    try primitives.reg(vm, "make-polar", &makePolar, .{ .exact = 2 });
-    try primitives.reg(vm, "real-part", &realPart, .{ .exact = 1 });
-    try primitives.reg(vm, "imag-part", &imagPart, .{ .exact = 1 });
-    try primitives.reg(vm, "magnitude", &magnitudeFn, .{ .exact = 1 });
-    try primitives.reg(vm, "angle", &angleFn, .{ .exact = 1 });
-
-    // Integer division
-    try primitives.reg(vm, "floor-quotient", &floorQuotient, .{ .exact = 2 });
-    try primitives.reg(vm, "floor-remainder", &floorRemainder, .{ .exact = 2 });
-    try primitives.reg(vm, "floor/", &floorDivide, .{ .exact = 2 });
-    try primitives.reg(vm, "truncate-quotient", &truncateQuotient, .{ .exact = 2 });
-    try primitives.reg(vm, "truncate-remainder", &truncateRemainder, .{ .exact = 2 });
-    try primitives.reg(vm, "truncate/", &truncateDivide, .{ .exact = 2 });
-
-    // Rational
-    try primitives.reg(vm, "numerator", &numeratorFn, .{ .exact = 1 });
-    try primitives.reg(vm, "denominator", &denominatorFn, .{ .exact = 1 });
-    try primitives.reg(vm, "rationalize", &rationalizeFn, .{ .exact = 2 });
-
-    // Aliases
-    try primitives.reg(vm, "exact->inexact", &inexactFn, .{ .exact = 1 });
-    try primitives.reg(vm, "inexact->exact", &exactFn, .{ .exact = 1 });
-}
 // ---------------------------------------------------------------------------
 // Rounding
 // ---------------------------------------------------------------------------

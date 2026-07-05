@@ -7,17 +7,18 @@ const fiber_mod = @import("fiber.zig");
 const Value = types.Value;
 const NativeFn = types.NativeFn;
 const PrimitiveError = primitives.PrimitiveError;
+const LS = primitives.LibSet;
 
-pub fn registerFiber(vm: *vm_mod.VM) !void {
-    try primitives.reg(vm, "spawn", &spawnFn, .{ .exact = 1 });
-    try primitives.reg(vm, "yield", &yieldFn, .{ .exact = 0 });
-    try primitives.reg(vm, "fiber-join", &fiberJoinFn, .{ .exact = 1 });
-    try primitives.reg(vm, "fiber?", &fiberPredFn, .{ .exact = 1 });
-    try primitives.reg(vm, "make-channel", &makeChannelFn, .{ .exact = 0 });
-    try primitives.reg(vm, "channel-send", &channelSendFn, .{ .exact = 2 });
-    try primitives.reg(vm, "channel-receive", &channelReceiveFn, .{ .exact = 1 });
-    try primitives.reg(vm, "channel?", &channelPredFn, .{ .exact = 1 });
-}
+pub const specs = [_]primitives.PrimSpec{
+    .{ .name = "spawn", .func = &spawnFn, .arity = .{ .exact = 1 }, .libs = LS.initOne(.kaappi_fibers) },
+    .{ .name = "yield", .func = &yieldFn, .arity = .{ .exact = 0 }, .libs = LS.initOne(.kaappi_fibers) },
+    .{ .name = "fiber-join", .func = &fiberJoinFn, .arity = .{ .exact = 1 }, .libs = LS.initOne(.kaappi_fibers) },
+    .{ .name = "fiber?", .func = &fiberPredFn, .arity = .{ .exact = 1 }, .libs = LS.initOne(.kaappi_fibers) },
+    .{ .name = "make-channel", .func = &makeChannelFn, .arity = .{ .exact = 0 }, .libs = LS.initOne(.kaappi_fibers) },
+    .{ .name = "channel-send", .func = &channelSendFn, .arity = .{ .exact = 2 }, .libs = LS.initOne(.kaappi_fibers) },
+    .{ .name = "channel-receive", .func = &channelReceiveFn, .arity = .{ .exact = 1 }, .libs = LS.initOne(.kaappi_fibers) },
+    .{ .name = "channel?", .func = &channelPredFn, .arity = .{ .exact = 1 }, .libs = LS.initOne(.kaappi_fibers) },
+};
 
 fn getScheduler() ?*fiber_mod.FiberScheduler {
     const vm = vm_mod.vm_instance orelse return null;

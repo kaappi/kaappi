@@ -6,53 +6,35 @@ const memory = @import("memory.zig");
 const Value = types.Value;
 const NativeFn = types.NativeFn;
 const PrimitiveError = primitives.PrimitiveError;
+const LS = primitives.LibSet;
 
-pub fn registerString(vm: *vm_mod.VM) !void {
-    // String construction
-    try primitives.reg(vm, "string", &stringFn, .{ .variadic = 0 });
-    try primitives.reg(vm, "make-string", &makeStringFn, .{ .variadic = 1 });
-
-    // String access
-    try primitives.reg(vm, "string-ref", &stringRefFn, .{ .exact = 2 });
-    try primitives.reg(vm, "string-set!", &stringSetFn, .{ .exact = 3 });
-    try primitives.reg(vm, "substring", &substringFn, .{ .exact = 3 });
-    try primitives.reg(vm, "string-copy", &stringCopyFn, .{ .variadic = 1 });
-    try primitives.reg(vm, "string-copy!", &stringCopyBangFn, .{ .variadic = 3 });
-    try primitives.reg(vm, "string-fill!", &stringFillFn, .{ .variadic = 2 });
-
-    // Conversion
-    try primitives.reg(vm, "string->list", &stringToListFn, .{ .variadic = 1 });
-    try primitives.reg(vm, "list->string", &listToStringFn, .{ .exact = 1 });
-    try primitives.reg(vm, "string->vector", &stringToVectorFn, .{ .variadic = 1 });
-
-    // Higher-order
-    try primitives.reg(vm, "string-for-each", &stringForEachFn, .{ .variadic = 2 });
-    try primitives.reg(vm, "string-map", &stringMapFn, .{ .variadic = 2 });
-
-    // Comparison
-    try primitives.reg(vm, "string<?", &stringLtFn, .{ .variadic = 2 });
-    try primitives.reg(vm, "string<=?", &stringLeFn, .{ .variadic = 2 });
-    try primitives.reg(vm, "string=?", &stringEqFn, .{ .variadic = 2 });
-    try primitives.reg(vm, "string>=?", &stringGeFn, .{ .variadic = 2 });
-    try primitives.reg(vm, "string>?", &stringGtFn, .{ .variadic = 2 });
-
-    // Number/string conversion (also in arithmetic, but base library needs these)
-    // number->string is registered in primitives_arithmetic.zig (handles bignums)
-    // string->number registered in primitives_numeric.zig (supports radix parameter)
-
-    // Char operations
-    try primitives.reg(vm, "char->integer", &charToIntegerFn, .{ .exact = 1 });
-    try primitives.reg(vm, "integer->char", &integerToCharFn, .{ .exact = 1 });
-    try primitives.reg(vm, "char<?", &charLtFn, .{ .variadic = 2 });
-    try primitives.reg(vm, "char<=?", &charLeFn, .{ .variadic = 2 });
-    try primitives.reg(vm, "char=?", &charEqFn, .{ .variadic = 2 });
-    try primitives.reg(vm, "char>=?", &charGeFn, .{ .variadic = 2 });
-    try primitives.reg(vm, "char>?", &charGtFn, .{ .variadic = 2 });
-
-    // SRFI-13 string library (in primitives_string_ext.zig)
-    const string_ext = @import("primitives_string_ext.zig");
-    try string_ext.registerStringExt(vm);
-}
+pub const specs = [_]primitives.PrimSpec{
+    .{ .name = "string", .func = &stringFn, .arity = .{ .variadic = 0 }, .libs = LS.initMany(&.{ .scheme_base, .scheme_r5rs }) },
+    .{ .name = "make-string", .func = &makeStringFn, .arity = .{ .variadic = 1 }, .libs = LS.initMany(&.{ .scheme_base, .scheme_r5rs }) },
+    .{ .name = "string-ref", .func = &stringRefFn, .arity = .{ .exact = 2 }, .libs = LS.initMany(&.{ .scheme_base, .scheme_r5rs, .srfi_13 }) },
+    .{ .name = "string-set!", .func = &stringSetFn, .arity = .{ .exact = 3 }, .libs = LS.initMany(&.{ .scheme_base, .scheme_r5rs, .srfi_13 }) },
+    .{ .name = "substring", .func = &substringFn, .arity = .{ .exact = 3 }, .libs = LS.initMany(&.{ .scheme_base, .scheme_r5rs, .srfi_13 }) },
+    .{ .name = "string-copy", .func = &stringCopyFn, .arity = .{ .variadic = 1 }, .libs = LS.initMany(&.{ .scheme_base, .scheme_r5rs, .srfi_13 }) },
+    .{ .name = "string-copy!", .func = &stringCopyBangFn, .arity = .{ .variadic = 3 }, .libs = LS.initOne(.scheme_base) },
+    .{ .name = "string-fill!", .func = &stringFillFn, .arity = .{ .variadic = 2 }, .libs = LS.initMany(&.{ .scheme_base, .scheme_r5rs }) },
+    .{ .name = "string->list", .func = &stringToListFn, .arity = .{ .variadic = 1 }, .libs = LS.initMany(&.{ .scheme_base, .scheme_r5rs }) },
+    .{ .name = "list->string", .func = &listToStringFn, .arity = .{ .exact = 1 }, .libs = LS.initMany(&.{ .scheme_base, .scheme_r5rs }) },
+    .{ .name = "string->vector", .func = &stringToVectorFn, .arity = .{ .variadic = 1 }, .libs = LS.initMany(&.{ .scheme_base, .srfi_133 }) },
+    .{ .name = "string-for-each", .func = &stringForEachFn, .arity = .{ .variadic = 2 }, .libs = LS.initOne(.scheme_base) },
+    .{ .name = "string-map", .func = &stringMapFn, .arity = .{ .variadic = 2 }, .libs = LS.initOne(.scheme_base) },
+    .{ .name = "string<?", .func = &stringLtFn, .arity = .{ .variadic = 2 }, .libs = LS.initMany(&.{ .scheme_base, .scheme_r5rs, .srfi_13 }) },
+    .{ .name = "string<=?", .func = &stringLeFn, .arity = .{ .variadic = 2 }, .libs = LS.initMany(&.{ .scheme_base, .scheme_r5rs, .srfi_13 }) },
+    .{ .name = "string=?", .func = &stringEqFn, .arity = .{ .variadic = 2 }, .libs = LS.initMany(&.{ .scheme_base, .scheme_r5rs, .srfi_13 }) },
+    .{ .name = "string>=?", .func = &stringGeFn, .arity = .{ .variadic = 2 }, .libs = LS.initMany(&.{ .scheme_base, .scheme_r5rs, .srfi_13 }) },
+    .{ .name = "string>?", .func = &stringGtFn, .arity = .{ .variadic = 2 }, .libs = LS.initMany(&.{ .scheme_base, .scheme_r5rs, .srfi_13 }) },
+    .{ .name = "char->integer", .func = &charToIntegerFn, .arity = .{ .exact = 1 }, .libs = LS.initMany(&.{ .scheme_base, .scheme_r5rs }) },
+    .{ .name = "integer->char", .func = &integerToCharFn, .arity = .{ .exact = 1 }, .libs = LS.initMany(&.{ .scheme_base, .scheme_r5rs }) },
+    .{ .name = "char<?", .func = &charLtFn, .arity = .{ .variadic = 2 }, .libs = LS.initMany(&.{ .scheme_base, .scheme_r5rs }) },
+    .{ .name = "char<=?", .func = &charLeFn, .arity = .{ .variadic = 2 }, .libs = LS.initMany(&.{ .scheme_base, .scheme_r5rs }) },
+    .{ .name = "char=?", .func = &charEqFn, .arity = .{ .variadic = 2 }, .libs = LS.initMany(&.{ .scheme_base, .scheme_r5rs }) },
+    .{ .name = "char>=?", .func = &charGeFn, .arity = .{ .variadic = 2 }, .libs = LS.initMany(&.{ .scheme_base, .scheme_r5rs }) },
+    .{ .name = "char>?", .func = &charGtFn, .arity = .{ .variadic = 2 }, .libs = LS.initMany(&.{ .scheme_base, .scheme_r5rs }) },
+};
 
 // ---------------------------------------------------------------------------
 // Helpers

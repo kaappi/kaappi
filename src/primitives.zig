@@ -24,104 +24,201 @@ const primitives_filesystem = @import("primitives_filesystem.zig");
 
 pub const PrimitiveError = @import("errors.zig").KaappiError;
 
-fn registerCore(vm: *vm_mod.VM) !void {
-    // Pairs and lists
-    try reg(vm, "cons", &cons, .{ .exact = 2 });
-    try reg(vm, "car", &car, .{ .exact = 1 });
-    try reg(vm, "cdr", &cdr, .{ .exact = 1 });
-    try reg(vm, "set-car!", &setCar, .{ .exact = 2 });
-    try reg(vm, "set-cdr!", &setCdr, .{ .exact = 2 });
-    try reg(vm, "list", &list, .{ .variadic = 0 });
-    try reg(vm, "length", &length, .{ .exact = 1 });
-    try reg(vm, "append", &append, .{ .variadic = 0 });
-    try reg(vm, "reverse", &reverse, .{ .exact = 1 });
+// ---------------------------------------------------------------------------
+// Spec table types — single source of truth for registration and export
+// ---------------------------------------------------------------------------
 
-    // Composed car/cdr (base library)
-    try reg(vm, "caar", &caarFn, .{ .exact = 1 });
-    try reg(vm, "cadr", &cadrFn, .{ .exact = 1 });
-    try reg(vm, "cdar", &cdarFn, .{ .exact = 1 });
-    try reg(vm, "cddr", &cddrFn, .{ .exact = 1 });
+pub const Lib = enum {
+    scheme_base,
+    scheme_write,
+    scheme_inexact,
+    scheme_read,
+    scheme_char,
+    scheme_lazy,
+    scheme_time,
+    scheme_process_context,
+    scheme_eval,
+    scheme_repl,
+    scheme_load,
+    scheme_r5rs,
+    scheme_file,
+    scheme_cxr,
+    scheme_complex,
+    kaappi_ffi,
+    kaappi_fibers,
+    srfi_1,
+    srfi_13,
+    srfi_18,
+    srfi_39,
+    srfi_69,
+    srfi_133,
+    srfi_170,
 
-    // List utilities, map, for-each, member, assoc
-    const primitives_list = @import("primitives_list.zig");
-    try primitives_list.registerList(vm);
+    pub fn canonicalName(self: Lib) []const u8 {
+        return switch (self) {
+            .scheme_base => "scheme.base",
+            .scheme_write => "scheme.write",
+            .scheme_inexact => "scheme.inexact",
+            .scheme_read => "scheme.read",
+            .scheme_char => "scheme.char",
+            .scheme_lazy => "scheme.lazy",
+            .scheme_time => "scheme.time",
+            .scheme_process_context => "scheme.process-context",
+            .scheme_eval => "scheme.eval",
+            .scheme_repl => "scheme.repl",
+            .scheme_load => "scheme.load",
+            .scheme_r5rs => "scheme.r5rs",
+            .scheme_file => "scheme.file",
+            .scheme_cxr => "scheme.cxr",
+            .scheme_complex => "scheme.complex",
+            .kaappi_ffi => "kaappi.ffi",
+            .kaappi_fibers => "kaappi.fibers",
+            .srfi_1 => "srfi.1",
+            .srfi_13 => "srfi.13",
+            .srfi_18 => "srfi.18",
+            .srfi_39 => "srfi.39",
+            .srfi_69 => "srfi.69",
+            .srfi_133 => "srfi.133",
+            .srfi_170 => "srfi.170",
+        };
+    }
 
-    // Type predicates
-    try reg(vm, "pair?", &pairP, .{ .exact = 1 });
-    try reg(vm, "null?", &nullP, .{ .exact = 1 });
-    try reg(vm, "number?", &numberP, .{ .exact = 1 });
-    try reg(vm, "integer?", &integerP, .{ .exact = 1 });
-    try reg(vm, "real?", &realP, .{ .exact = 1 });
-    try reg(vm, "complex?", &complexP, .{ .exact = 1 });
-    try reg(vm, "rational?", &rationalP, .{ .exact = 1 });
-    try reg(vm, "symbol?", &symbolP, .{ .exact = 1 });
-    try reg(vm, "string?", &stringP, .{ .exact = 1 });
-    try reg(vm, "boolean?", &booleanP, .{ .exact = 1 });
-    try reg(vm, "char?", &charP, .{ .exact = 1 });
-    try reg(vm, "procedure?", &procedureP, .{ .exact = 1 });
-    try reg(vm, "list?", &listP, .{ .exact = 1 });
+    pub fn sandboxAllowed(self: Lib) bool {
+        return switch (self) {
+            .scheme_file,
+            .scheme_load,
+            .scheme_eval,
+            .scheme_repl,
+            .scheme_process_context,
+            .scheme_r5rs,
+            .kaappi_ffi,
+            .srfi_18,
+            .srfi_170,
+            => false,
+            else => true,
+        };
+    }
 
-    // Equivalence
-    try reg(vm, "eq?", &eqP, .{ .exact = 2 });
-    try reg(vm, "eqv?", &eqvP, .{ .exact = 2 });
-    try reg(vm, "equal?", &equalP, .{ .exact = 2 });
+    pub fn wasmAvailable(self: Lib) bool {
+        return switch (self) {
+            .kaappi_ffi, .srfi_18, .srfi_170 => false,
+            else => true,
+        };
+    }
+};
 
-    // Boolean
-    try reg(vm, "not", &notFn, .{ .exact = 1 });
+pub const LibSet = std.EnumSet(Lib);
 
-    // String (moved to primitives_string.zig, but keep registration here for backward compat)
-    try reg(vm, "string-length", &stringLength, .{ .exact = 1 });
-    try reg(vm, "string-append", &stringAppend, .{ .variadic = 0 });
-    try reg(vm, "symbol->string", &symbolToString, .{ .exact = 1 });
+pub const PrimSpec = struct {
+    name: []const u8,
+    func: types.NativeFnType,
+    arity: NativeFn.Arity,
+    libs: LibSet,
+    sandbox: bool = true,
+    wasm: bool = true,
+};
 
-    // Record system (R7RS 5.5) -- internal primitives
-    try reg(vm, "%make-record-type", &makeRecordTypeFn, .{ .exact = 2 });
-    try reg(vm, "%make-record", &makeRecordFn, .{ .variadic = 1 });
-    try reg(vm, "%record?", &recordCheckFn, .{ .exact = 2 });
-    try reg(vm, "%record-ref", &recordRefFn, .{ .exact = 2 });
-    try reg(vm, "%record-set!", &recordSetFn, .{ .exact = 3 });
+const LS = LibSet;
+const BR = LS.initMany(&.{ .scheme_base, .scheme_r5rs });
+const BRS1 = LS.initMany(&.{ .scheme_base, .scheme_r5rs, .srfi_1 });
+const BCRS1 = LS.initMany(&.{ .scheme_base, .scheme_cxr, .scheme_r5rs, .srfi_1 });
 
-    // Misc
-    try reg(vm, "apply", &applyFn, .{ .variadic = 2 });
+const core_specs = [_]PrimSpec{
+    .{ .name = "cons", .func = &cons, .arity = .{ .exact = 2 }, .libs = BRS1 },
+    .{ .name = "car", .func = &car, .arity = .{ .exact = 1 }, .libs = BRS1 },
+    .{ .name = "cdr", .func = &cdr, .arity = .{ .exact = 1 }, .libs = BRS1 },
+    .{ .name = "set-car!", .func = &setCar, .arity = .{ .exact = 2 }, .libs = BRS1 },
+    .{ .name = "set-cdr!", .func = &setCdr, .arity = .{ .exact = 2 }, .libs = BRS1 },
+    .{ .name = "list", .func = &list, .arity = .{ .variadic = 0 }, .libs = BRS1 },
+    .{ .name = "length", .func = &length, .arity = .{ .exact = 1 }, .libs = BRS1 },
+    .{ .name = "append", .func = &append, .arity = .{ .variadic = 0 }, .libs = BRS1 },
+    .{ .name = "reverse", .func = &reverse, .arity = .{ .exact = 1 }, .libs = BRS1 },
+    .{ .name = "caar", .func = &caarFn, .arity = .{ .exact = 1 }, .libs = BCRS1 },
+    .{ .name = "cadr", .func = &cadrFn, .arity = .{ .exact = 1 }, .libs = BCRS1 },
+    .{ .name = "cdar", .func = &cdarFn, .arity = .{ .exact = 1 }, .libs = BCRS1 },
+    .{ .name = "cddr", .func = &cddrFn, .arity = .{ .exact = 1 }, .libs = BCRS1 },
+    .{ .name = "pair?", .func = &pairP, .arity = .{ .exact = 1 }, .libs = BRS1 },
+    .{ .name = "null?", .func = &nullP, .arity = .{ .exact = 1 }, .libs = BRS1 },
+    .{ .name = "number?", .func = &numberP, .arity = .{ .exact = 1 }, .libs = BR },
+    .{ .name = "integer?", .func = &integerP, .arity = .{ .exact = 1 }, .libs = BR },
+    .{ .name = "real?", .func = &realP, .arity = .{ .exact = 1 }, .libs = BR },
+    .{ .name = "complex?", .func = &complexP, .arity = .{ .exact = 1 }, .libs = BR },
+    .{ .name = "rational?", .func = &rationalP, .arity = .{ .exact = 1 }, .libs = BR },
+    .{ .name = "symbol?", .func = &symbolP, .arity = .{ .exact = 1 }, .libs = BR },
+    .{ .name = "string?", .func = &stringP, .arity = .{ .exact = 1 }, .libs = BR },
+    .{ .name = "boolean?", .func = &booleanP, .arity = .{ .exact = 1 }, .libs = BR },
+    .{ .name = "char?", .func = &charP, .arity = .{ .exact = 1 }, .libs = BR },
+    .{ .name = "procedure?", .func = &procedureP, .arity = .{ .exact = 1 }, .libs = BR },
+    .{ .name = "list?", .func = &listP, .arity = .{ .exact = 1 }, .libs = BR },
+    .{ .name = "eq?", .func = &eqP, .arity = .{ .exact = 2 }, .libs = BR },
+    .{ .name = "eqv?", .func = &eqvP, .arity = .{ .exact = 2 }, .libs = BR },
+    .{ .name = "equal?", .func = &equalP, .arity = .{ .exact = 2 }, .libs = BR },
+    .{ .name = "not", .func = &notFn, .arity = .{ .exact = 1 }, .libs = BR },
+    .{ .name = "string-length", .func = &stringLength, .arity = .{ .exact = 1 }, .libs = LS.initMany(&.{ .scheme_base, .scheme_r5rs, .srfi_13 }) },
+    .{ .name = "string-append", .func = &stringAppend, .arity = .{ .variadic = 0 }, .libs = LS.initMany(&.{ .scheme_base, .scheme_r5rs, .srfi_13 }) },
+    .{ .name = "symbol->string", .func = &symbolToString, .arity = .{ .exact = 1 }, .libs = BR },
+    .{ .name = "%make-record-type", .func = &makeRecordTypeFn, .arity = .{ .exact = 2 }, .libs = LS.initOne(.scheme_base) },
+    .{ .name = "%make-record", .func = &makeRecordFn, .arity = .{ .variadic = 1 }, .libs = LS.initOne(.scheme_base) },
+    .{ .name = "%record?", .func = &recordCheckFn, .arity = .{ .exact = 2 }, .libs = LS.initOne(.scheme_base) },
+    .{ .name = "%record-ref", .func = &recordRefFn, .arity = .{ .exact = 2 }, .libs = LS.initOne(.scheme_base) },
+    .{ .name = "%record-set!", .func = &recordSetFn, .arity = .{ .exact = 3 }, .libs = LS.initOne(.scheme_base) },
+    .{ .name = "apply", .func = &applyFn, .arity = .{ .variadic = 2 }, .libs = BR },
+};
+
+const no_specs = [0]PrimSpec{};
+
+pub const all_specs = core_specs ++
+    @import("primitives_list.zig").specs ++
+    primitives_arithmetic.specs ++
+    @import("primitives_numeric.zig").specs ++
+    primitives_io.specs ++
+    primitives_control.specs ++
+    primitives_vector.specs ++
+    primitives_string.specs ++
+    @import("primitives_string_ext.zig").specs ++
+    primitives_char.specs ++
+    primitives_cxr.specs ++
+    primitives_bytevector.specs ++
+    primitives_lazy.specs ++
+    primitives_r7rs.specs ++
+    (if (is_wasm) no_specs else primitives_ffi.specs) ++
+    primitives_srfi1.specs ++
+    primitives_hashtable.specs ++
+    primitives_random.specs ++
+    (if (is_wasm) no_specs else primitives_filesystem.specs) ++
+    @import("primitives_fiber.zig").specs ++
+    (if (is_wasm) no_specs else @import("primitives_srfi18.zig").specs);
+
+comptime {
+    @setEvalBranchQuota(all_specs.len * all_specs.len * 30);
+    for (all_specs, 0..) |a, i| {
+        for (all_specs[i + 1 ..]) |b| {
+            if (std.mem.eql(u8, a.name, b.name))
+                @compileError("duplicate spec: " ++ a.name);
+        }
+    }
+    for (all_specs) |spec| {
+        if (spec.libs.count() == 0)
+            @compileError("orphan spec (no libraries): " ++ spec.name);
+    }
 }
 
 pub fn registerAll(vm: *vm_mod.VM) !void {
-    try primitives_arithmetic.registerArithmetic(vm);
-    try primitives_io.registerIO(vm);
-    try primitives_control.registerControl(vm);
-    try primitives_vector.registerVector(vm);
-    try primitives_string.registerString(vm);
-    try primitives_char.registerChar(vm);
-    try primitives_cxr.registerCxr(vm);
-    try primitives_bytevector.registerBytevector(vm);
-    try primitives_lazy.registerLazy(vm);
-    try primitives_r7rs.registerR7RS(vm);
-    if (!is_wasm) try primitives_ffi.registerFfi(vm);
-    try primitives_srfi1.registerSrfi1(vm);
-    try primitives_hashtable.registerHashTable(vm);
-    try primitives_random.registerRandom(vm);
-    if (!is_wasm) try primitives_filesystem.registerFilesystem(vm);
-    try @import("primitives_fiber.zig").registerFiber(vm);
-    if (!is_wasm) try @import("primitives_srfi18.zig").registerSrfi18(vm);
-    try registerCore(vm);
+    try primitives_io.initPortParams(vm);
+    primitives_random.initDefaultRS(vm);
+    for (&all_specs) |spec| {
+        if (!is_wasm or spec.wasm)
+            try reg(vm, spec.name, spec.func, spec.arity);
+    }
 }
 
 pub fn registerSandboxed(vm: *vm_mod.VM) !void {
-    try primitives_arithmetic.registerArithmetic(vm);
-    try primitives_io.registerIOSandboxed(vm);
-    try primitives_control.registerControl(vm);
-    try primitives_vector.registerVector(vm);
-    try primitives_string.registerString(vm);
-    try primitives_char.registerChar(vm);
-    try primitives_cxr.registerCxr(vm);
-    try primitives_bytevector.registerBytevector(vm);
-    try primitives_lazy.registerLazy(vm);
-    try primitives_r7rs.registerR7RSSandboxed(vm);
-    try primitives_srfi1.registerSrfi1(vm);
-    try primitives_hashtable.registerHashTable(vm);
-    try primitives_random.registerRandom(vm);
-    try @import("primitives_fiber.zig").registerFiber(vm);
-    try registerCore(vm);
+    try primitives_io.initPortParams(vm);
+    primitives_random.initDefaultRS(vm);
+    for (&all_specs) |spec| {
+        if (spec.sandbox and (!is_wasm or spec.wasm))
+            try reg(vm, spec.name, spec.func, spec.arity);
+    }
 }
 
 pub fn reg(vm: *vm_mod.VM, name: []const u8, func: types.NativeFnType, arity: NativeFn.Arity) !void {

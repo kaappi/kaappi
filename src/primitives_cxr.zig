@@ -5,36 +5,36 @@ const primitives = @import("primitives.zig");
 const Value = types.Value;
 const NativeFn = types.NativeFn;
 const PrimitiveError = primitives.PrimitiveError;
+const LS = primitives.LibSet;
 
-pub fn registerCxr(vm: *vm_mod.VM) !void {
-    // Three-level compositions (8 total)
-    try primitives.reg(vm, "caaar", &caaarFn, .{ .exact = 1 });
-    try primitives.reg(vm, "caadr", &caadrFn, .{ .exact = 1 });
-    try primitives.reg(vm, "cadar", &cadarFn, .{ .exact = 1 });
-    try primitives.reg(vm, "caddr", &caddrFn, .{ .exact = 1 });
-    try primitives.reg(vm, "cdaar", &cdaarFn, .{ .exact = 1 });
-    try primitives.reg(vm, "cdadr", &cdadrFn, .{ .exact = 1 });
-    try primitives.reg(vm, "cddar", &cddarFn, .{ .exact = 1 });
-    try primitives.reg(vm, "cdddr", &cdddrFn, .{ .exact = 1 });
+const cxr_libs = LS.initMany(&.{ .scheme_cxr, .scheme_r5rs });
 
-    // Four-level compositions (16 total)
-    try primitives.reg(vm, "caaaar", &caaaarFn, .{ .exact = 1 });
-    try primitives.reg(vm, "caaadr", &caaadrFn, .{ .exact = 1 });
-    try primitives.reg(vm, "caadar", &caadarFn, .{ .exact = 1 });
-    try primitives.reg(vm, "caaddr", &caaddrFn, .{ .exact = 1 });
-    try primitives.reg(vm, "cadaar", &cadaarFn, .{ .exact = 1 });
-    try primitives.reg(vm, "cadadr", &cadadrFn, .{ .exact = 1 });
-    try primitives.reg(vm, "caddar", &caddarFn, .{ .exact = 1 });
-    try primitives.reg(vm, "cadddr", &cadddrFn, .{ .exact = 1 });
-    try primitives.reg(vm, "cdaaar", &cdaaarFn, .{ .exact = 1 });
-    try primitives.reg(vm, "cdaadr", &cdaadrFn, .{ .exact = 1 });
-    try primitives.reg(vm, "cdadar", &cdadarFn, .{ .exact = 1 });
-    try primitives.reg(vm, "cdaddr", &cdaddrFn, .{ .exact = 1 });
-    try primitives.reg(vm, "cddaar", &cddaarFn, .{ .exact = 1 });
-    try primitives.reg(vm, "cddadr", &cddadrFn, .{ .exact = 1 });
-    try primitives.reg(vm, "cdddar", &cdddarFn, .{ .exact = 1 });
-    try primitives.reg(vm, "cddddr", &cddddrFn, .{ .exact = 1 });
-}
+pub const specs = [_]primitives.PrimSpec{
+    .{ .name = "caaar", .func = &caaarFn, .arity = .{ .exact = 1 }, .libs = cxr_libs },
+    .{ .name = "caadr", .func = &caadrFn, .arity = .{ .exact = 1 }, .libs = cxr_libs },
+    .{ .name = "cadar", .func = &cadarFn, .arity = .{ .exact = 1 }, .libs = cxr_libs },
+    .{ .name = "caddr", .func = &caddrFn, .arity = .{ .exact = 1 }, .libs = cxr_libs },
+    .{ .name = "cdaar", .func = &cdaarFn, .arity = .{ .exact = 1 }, .libs = cxr_libs },
+    .{ .name = "cdadr", .func = &cdadrFn, .arity = .{ .exact = 1 }, .libs = cxr_libs },
+    .{ .name = "cddar", .func = &cddarFn, .arity = .{ .exact = 1 }, .libs = cxr_libs },
+    .{ .name = "cdddr", .func = &cdddrFn, .arity = .{ .exact = 1 }, .libs = cxr_libs },
+    .{ .name = "caaaar", .func = &caaaarFn, .arity = .{ .exact = 1 }, .libs = cxr_libs },
+    .{ .name = "caaadr", .func = &caaadrFn, .arity = .{ .exact = 1 }, .libs = cxr_libs },
+    .{ .name = "caadar", .func = &caadarFn, .arity = .{ .exact = 1 }, .libs = cxr_libs },
+    .{ .name = "caaddr", .func = &caaddrFn, .arity = .{ .exact = 1 }, .libs = cxr_libs },
+    .{ .name = "cadaar", .func = &cadaarFn, .arity = .{ .exact = 1 }, .libs = cxr_libs },
+    .{ .name = "cadadr", .func = &cadadrFn, .arity = .{ .exact = 1 }, .libs = cxr_libs },
+    .{ .name = "caddar", .func = &caddarFn, .arity = .{ .exact = 1 }, .libs = cxr_libs },
+    .{ .name = "cadddr", .func = &cadddrFn, .arity = .{ .exact = 1 }, .libs = cxr_libs },
+    .{ .name = "cdaaar", .func = &cdaaarFn, .arity = .{ .exact = 1 }, .libs = cxr_libs },
+    .{ .name = "cdaadr", .func = &cdaadrFn, .arity = .{ .exact = 1 }, .libs = cxr_libs },
+    .{ .name = "cdadar", .func = &cdadarFn, .arity = .{ .exact = 1 }, .libs = cxr_libs },
+    .{ .name = "cdaddr", .func = &cdaddrFn, .arity = .{ .exact = 1 }, .libs = cxr_libs },
+    .{ .name = "cddaar", .func = &cddaarFn, .arity = .{ .exact = 1 }, .libs = cxr_libs },
+    .{ .name = "cddadr", .func = &cddadrFn, .arity = .{ .exact = 1 }, .libs = cxr_libs },
+    .{ .name = "cdddar", .func = &cdddarFn, .arity = .{ .exact = 1 }, .libs = cxr_libs },
+    .{ .name = "cddddr", .func = &cddddrFn, .arity = .{ .exact = 1 }, .libs = cxr_libs },
+};
 
 // ---------------------------------------------------------------------------
 // Helpers

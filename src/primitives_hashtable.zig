@@ -6,34 +6,35 @@ const memory = @import("memory.zig");
 const Value = types.Value;
 const NativeFn = types.NativeFn;
 const PrimitiveError = primitives.PrimitiveError;
+const LS = primitives.LibSet;
 const HashTable = types.HashTable;
 const HashEntry = types.HashEntry;
 
-pub fn registerHashTable(vm: *vm_mod.VM) !void {
-    try primitives.reg(vm, "make-hash-table", &makeHashTableFn, .{ .variadic = 0 });
-    try primitives.reg(vm, "hash-table?", &hashTablePFn, .{ .exact = 1 });
-    try primitives.reg(vm, "hash-table-ref", &hashTableRefFn, .{ .variadic = 2 });
-    try primitives.reg(vm, "hash-table-set!", &hashTableSetFn, .{ .exact = 3 });
-    try primitives.reg(vm, "hash-table-delete!", &hashTableDeleteFn, .{ .exact = 2 });
-    try primitives.reg(vm, "hash-table-exists?", &hashTableExistsFn, .{ .exact = 2 });
-    try primitives.reg(vm, "hash-table-size", &hashTableSizeFn, .{ .exact = 1 });
-    try primitives.reg(vm, "hash-table-keys", &hashTableKeysFn, .{ .exact = 1 });
-    try primitives.reg(vm, "hash-table-values", &hashTableValuesFn, .{ .exact = 1 });
-    try primitives.reg(vm, "hash-table-walk", &hashTableWalkFn, .{ .exact = 2 });
-    try primitives.reg(vm, "hash-table->alist", &hashTableToAlistFn, .{ .exact = 1 });
-    try primitives.reg(vm, "alist->hash-table", &alistToHashTableFn, .{ .variadic = 1 });
-    try primitives.reg(vm, "hash-table-copy", &hashTableCopyFn, .{ .exact = 1 });
-    try primitives.reg(vm, "hash-table-update!/default", &hashTableUpdateDefaultFn, .{ .exact = 4 });
-    try primitives.reg(vm, "hash", &hashFn, .{ .variadic = 1 });
-    try primitives.reg(vm, "string-hash", &stringHashFn, .{ .variadic = 1 });
-    try primitives.reg(vm, "string-ci-hash", &stringCiHashFn, .{ .variadic = 1 });
-    try primitives.reg(vm, "hash-by-identity", &hashByIdentityFn, .{ .variadic = 1 });
-    try primitives.reg(vm, "hash-table-ref/default", &hashTableRefDefaultFn, .{ .exact = 3 });
-    try primitives.reg(vm, "hash-table-fold", &hashTableFoldFn, .{ .exact = 3 });
-    try primitives.reg(vm, "hash-table-merge!", &hashTableMergeFn, .{ .exact = 2 });
-    try primitives.reg(vm, "hash-table-equivalence-function", &hashTableEquivFn, .{ .exact = 1 });
-    try primitives.reg(vm, "hash-table-hash-function", &hashTableHashFn, .{ .exact = 1 });
-}
+pub const specs = [_]primitives.PrimSpec{
+    .{ .name = "make-hash-table", .func = &makeHashTableFn, .arity = .{ .variadic = 0 }, .libs = LS.initOne(.srfi_69) },
+    .{ .name = "hash-table?", .func = &hashTablePFn, .arity = .{ .exact = 1 }, .libs = LS.initOne(.srfi_69) },
+    .{ .name = "hash-table-ref", .func = &hashTableRefFn, .arity = .{ .variadic = 2 }, .libs = LS.initOne(.srfi_69) },
+    .{ .name = "hash-table-set!", .func = &hashTableSetFn, .arity = .{ .exact = 3 }, .libs = LS.initOne(.srfi_69) },
+    .{ .name = "hash-table-delete!", .func = &hashTableDeleteFn, .arity = .{ .exact = 2 }, .libs = LS.initOne(.srfi_69) },
+    .{ .name = "hash-table-exists?", .func = &hashTableExistsFn, .arity = .{ .exact = 2 }, .libs = LS.initOne(.srfi_69) },
+    .{ .name = "hash-table-size", .func = &hashTableSizeFn, .arity = .{ .exact = 1 }, .libs = LS.initOne(.srfi_69) },
+    .{ .name = "hash-table-keys", .func = &hashTableKeysFn, .arity = .{ .exact = 1 }, .libs = LS.initOne(.srfi_69) },
+    .{ .name = "hash-table-values", .func = &hashTableValuesFn, .arity = .{ .exact = 1 }, .libs = LS.initOne(.srfi_69) },
+    .{ .name = "hash-table-walk", .func = &hashTableWalkFn, .arity = .{ .exact = 2 }, .libs = LS.initOne(.srfi_69) },
+    .{ .name = "hash-table->alist", .func = &hashTableToAlistFn, .arity = .{ .exact = 1 }, .libs = LS.initOne(.srfi_69) },
+    .{ .name = "alist->hash-table", .func = &alistToHashTableFn, .arity = .{ .variadic = 1 }, .libs = LS.initOne(.srfi_69) },
+    .{ .name = "hash-table-copy", .func = &hashTableCopyFn, .arity = .{ .exact = 1 }, .libs = LS.initOne(.srfi_69) },
+    .{ .name = "hash-table-update!/default", .func = &hashTableUpdateDefaultFn, .arity = .{ .exact = 4 }, .libs = LS.initOne(.srfi_69) },
+    .{ .name = "hash", .func = &hashFn, .arity = .{ .variadic = 1 }, .libs = LS.initOne(.srfi_69) },
+    .{ .name = "string-hash", .func = &stringHashFn, .arity = .{ .variadic = 1 }, .libs = LS.initOne(.srfi_69) },
+    .{ .name = "string-ci-hash", .func = &stringCiHashFn, .arity = .{ .variadic = 1 }, .libs = LS.initOne(.srfi_69) },
+    .{ .name = "hash-by-identity", .func = &hashByIdentityFn, .arity = .{ .variadic = 1 }, .libs = LS.initOne(.srfi_69) },
+    .{ .name = "hash-table-ref/default", .func = &hashTableRefDefaultFn, .arity = .{ .exact = 3 }, .libs = LS.initOne(.srfi_69) },
+    .{ .name = "hash-table-fold", .func = &hashTableFoldFn, .arity = .{ .exact = 3 }, .libs = LS.initOne(.srfi_69) },
+    .{ .name = "hash-table-merge!", .func = &hashTableMergeFn, .arity = .{ .exact = 2 }, .libs = LS.initOne(.srfi_69) },
+    .{ .name = "hash-table-equivalence-function", .func = &hashTableEquivFn, .arity = .{ .exact = 1 }, .libs = LS.initOne(.srfi_69) },
+    .{ .name = "hash-table-hash-function", .func = &hashTableHashFn, .arity = .{ .exact = 1 }, .libs = LS.initOne(.srfi_69) },
+};
 
 // ---------------------------------------------------------------------------
 // Helpers

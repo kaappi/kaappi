@@ -9,45 +9,27 @@ const printer = @import("printer.zig");
 const Value = types.Value;
 const NativeFn = types.NativeFn;
 const PrimitiveError = primitives.PrimitiveError;
+const LS = primitives.LibSet;
 
-pub fn registerR7RS(vm: *vm_mod.VM) !void {
-    // (scheme time)
-    try primitives.reg(vm, "current-second", &currentSecond, .{ .exact = 0 });
-    try primitives.reg(vm, "current-jiffy", &currentJiffy, .{ .exact = 0 });
-    try primitives.reg(vm, "jiffies-per-second", &jiffiesPerSecond, .{ .exact = 0 });
-
-    // (scheme process-context)
-    try primitives.reg(vm, "command-line", &commandLine, .{ .exact = 0 });
-    try primitives.reg(vm, "exit", &exitFn, .{ .variadic = 0 });
-    try primitives.reg(vm, "emergency-exit", &emergencyExitFn, .{ .variadic = 0 });
-    try primitives.reg(vm, "get-environment-variable", &getEnvVar, .{ .exact = 1 });
-    try primitives.reg(vm, "get-environment-variables", &getEnvVars, .{ .exact = 0 });
-
-    // Parameters (R7RS 4.2.6)
-    try primitives.reg(vm, "make-parameter", &makeParameterFn, .{ .variadic = 1 });
-    try primitives.reg(vm, "%parameter-set!", &parameterSetDirectFn, .{ .exact = 2 });
-
-    // (scheme eval)
-    try primitives.reg(vm, "eval", &evalFn, .{ .variadic = 1 });
-    try primitives.reg(vm, "environment", &environmentFn, .{ .variadic = 0 });
-    try primitives.reg(vm, "interaction-environment", &interactionEnvironmentFn, .{ .exact = 0 });
-    try primitives.reg(vm, "null-environment", &nullEnvironmentFn, .{ .exact = 1 });
-    try primitives.reg(vm, "scheme-report-environment", &schemeReportEnvironmentFn, .{ .exact = 1 });
-
-    // (scheme load)
-    try primitives.reg(vm, "load", &loadFn, .{ .exact = 1 });
-
-    // (kaappi debug)
-    try primitives.reg(vm, "disassemble", &disassembleFn, .{ .exact = 1 });
-}
-
-pub fn registerR7RSSandboxed(vm: *vm_mod.VM) !void {
-    try primitives.reg(vm, "current-second", &currentSecond, .{ .exact = 0 });
-    try primitives.reg(vm, "current-jiffy", &currentJiffy, .{ .exact = 0 });
-    try primitives.reg(vm, "jiffies-per-second", &jiffiesPerSecond, .{ .exact = 0 });
-    try primitives.reg(vm, "make-parameter", &makeParameterFn, .{ .variadic = 1 });
-    try primitives.reg(vm, "%parameter-set!", &parameterSetDirectFn, .{ .exact = 2 });
-}
+pub const specs = [_]primitives.PrimSpec{
+    .{ .name = "current-second", .func = &currentSecond, .arity = .{ .exact = 0 }, .libs = LS.initOne(.scheme_time) },
+    .{ .name = "current-jiffy", .func = &currentJiffy, .arity = .{ .exact = 0 }, .libs = LS.initOne(.scheme_time) },
+    .{ .name = "jiffies-per-second", .func = &jiffiesPerSecond, .arity = .{ .exact = 0 }, .libs = LS.initOne(.scheme_time) },
+    .{ .name = "command-line", .func = &commandLine, .arity = .{ .exact = 0 }, .libs = LS.initOne(.scheme_process_context), .sandbox = false },
+    .{ .name = "exit", .func = &exitFn, .arity = .{ .variadic = 0 }, .libs = LS.initOne(.scheme_process_context), .sandbox = false },
+    .{ .name = "emergency-exit", .func = &emergencyExitFn, .arity = .{ .variadic = 0 }, .libs = LS.initOne(.scheme_process_context), .sandbox = false },
+    .{ .name = "get-environment-variable", .func = &getEnvVar, .arity = .{ .exact = 1 }, .libs = LS.initOne(.scheme_process_context), .sandbox = false },
+    .{ .name = "get-environment-variables", .func = &getEnvVars, .arity = .{ .exact = 0 }, .libs = LS.initOne(.scheme_process_context), .sandbox = false },
+    .{ .name = "make-parameter", .func = &makeParameterFn, .arity = .{ .variadic = 1 }, .libs = LS.initMany(&.{ .scheme_base, .srfi_39 }) },
+    .{ .name = "%parameter-set!", .func = &parameterSetDirectFn, .arity = .{ .exact = 2 }, .libs = LS.initOne(.scheme_base) },
+    .{ .name = "eval", .func = &evalFn, .arity = .{ .variadic = 1 }, .libs = LS.initMany(&.{ .scheme_eval, .scheme_r5rs }), .sandbox = false },
+    .{ .name = "environment", .func = &environmentFn, .arity = .{ .variadic = 0 }, .libs = LS.initOne(.scheme_eval), .sandbox = false },
+    .{ .name = "interaction-environment", .func = &interactionEnvironmentFn, .arity = .{ .exact = 0 }, .libs = LS.initMany(&.{ .scheme_eval, .scheme_r5rs, .scheme_repl }), .sandbox = false },
+    .{ .name = "null-environment", .func = &nullEnvironmentFn, .arity = .{ .exact = 1 }, .libs = LS.initOne(.scheme_r5rs), .sandbox = false },
+    .{ .name = "scheme-report-environment", .func = &schemeReportEnvironmentFn, .arity = .{ .exact = 1 }, .libs = LS.initOne(.scheme_r5rs), .sandbox = false },
+    .{ .name = "load", .func = &loadFn, .arity = .{ .exact = 1 }, .libs = LS.initMany(&.{ .scheme_load, .scheme_r5rs }), .sandbox = false },
+    .{ .name = "disassemble", .func = &disassembleFn, .arity = .{ .exact = 1 }, .libs = LS.initOne(.scheme_base), .sandbox = false },
+};
 
 fn disassembleFn(args: []const Value) PrimitiveError!Value {
     if (!types.isClosure(args[0])) return primitives.typeError("disassemble", "procedure", args[0]);

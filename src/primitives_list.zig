@@ -7,30 +7,32 @@ const bignum_mod = @import("bignum.zig");
 const Value = types.Value;
 const NativeFn = types.NativeFn;
 const PrimitiveError = primitives.PrimitiveError;
+const LS = primitives.LibSet;
 fn getGC() ?*@import("memory.zig").GC {
     return memory.gc_instance;
 }
 const deepEqual = primitives.deepEqual;
 
-pub fn registerList(vm: *vm_mod.VM) !void {
-    try primitives.reg(vm, "list-ref", &listRefFn, .{ .exact = 2 });
-    try primitives.reg(vm, "list-tail", &listTailFn, .{ .exact = 2 });
-    try primitives.reg(vm, "list-set!", &listSetFn, .{ .exact = 3 });
-    try primitives.reg(vm, "list-copy", &listCopyFn, .{ .exact = 1 });
-    try primitives.reg(vm, "make-list", &makeListFn, .{ .variadic = 1 });
-    try primitives.reg(vm, "member", &memberFn, .{ .variadic = 2 });
-    try primitives.reg(vm, "memq", &memqFn, .{ .exact = 2 });
-    try primitives.reg(vm, "memv", &memvFn, .{ .exact = 2 });
-    try primitives.reg(vm, "assoc", &assocFn, .{ .variadic = 2 });
-    try primitives.reg(vm, "assq", &assqFn, .{ .exact = 2 });
-    try primitives.reg(vm, "assv", &assvFn, .{ .exact = 2 });
-    try primitives.reg(vm, "map", &mapFn, .{ .variadic = 2 });
-    try primitives.reg(vm, "for-each", &forEachFn, .{ .variadic = 2 });
-    try primitives.reg(vm, "boolean=?", &booleanEqP, .{ .variadic = 2 });
-    try primitives.reg(vm, "symbol=?", &symbolEqP, .{ .variadic = 2 });
-    try primitives.reg(vm, "features", &featuresFn, .{ .exact = 0 });
-    try primitives.reg(vm, "string->symbol", &stringToSymbol, .{ .exact = 1 });
-}
+pub const specs = [_]primitives.PrimSpec{
+    .{ .name = "list-ref", .func = &listRefFn, .arity = .{ .exact = 2 }, .libs = LS.initMany(&.{ .scheme_base, .scheme_r5rs, .srfi_1 }) },
+    .{ .name = "list-tail", .func = &listTailFn, .arity = .{ .exact = 2 }, .libs = LS.initMany(&.{ .scheme_base, .scheme_r5rs }) },
+    .{ .name = "list-set!", .func = &listSetFn, .arity = .{ .exact = 3 }, .libs = LS.initOne(.scheme_base) },
+    .{ .name = "list-copy", .func = &listCopyFn, .arity = .{ .exact = 1 }, .libs = LS.initMany(&.{ .scheme_base, .srfi_1 }) },
+    .{ .name = "make-list", .func = &makeListFn, .arity = .{ .variadic = 1 }, .libs = LS.initMany(&.{ .scheme_base, .srfi_1 }) },
+    .{ .name = "member", .func = &memberFn, .arity = .{ .variadic = 2 }, .libs = LS.initMany(&.{ .scheme_base, .scheme_r5rs, .srfi_1 }) },
+    .{ .name = "memq", .func = &memqFn, .arity = .{ .exact = 2 }, .libs = LS.initMany(&.{ .scheme_base, .scheme_r5rs, .srfi_1 }) },
+    .{ .name = "memv", .func = &memvFn, .arity = .{ .exact = 2 }, .libs = LS.initMany(&.{ .scheme_base, .scheme_r5rs, .srfi_1 }) },
+    .{ .name = "assoc", .func = &assocFn, .arity = .{ .variadic = 2 }, .libs = LS.initMany(&.{ .scheme_base, .scheme_r5rs, .srfi_1 }) },
+    .{ .name = "assq", .func = &assqFn, .arity = .{ .exact = 2 }, .libs = LS.initMany(&.{ .scheme_base, .scheme_r5rs, .srfi_1 }) },
+    .{ .name = "assv", .func = &assvFn, .arity = .{ .exact = 2 }, .libs = LS.initMany(&.{ .scheme_base, .scheme_r5rs, .srfi_1 }) },
+    .{ .name = "map", .func = &mapFn, .arity = .{ .variadic = 2 }, .libs = LS.initMany(&.{ .scheme_base, .scheme_r5rs, .srfi_1 }) },
+    .{ .name = "for-each", .func = &forEachFn, .arity = .{ .variadic = 2 }, .libs = LS.initMany(&.{ .scheme_base, .scheme_r5rs, .srfi_1 }) },
+    .{ .name = "boolean=?", .func = &booleanEqP, .arity = .{ .variadic = 2 }, .libs = LS.initOne(.scheme_base) },
+    .{ .name = "symbol=?", .func = &symbolEqP, .arity = .{ .variadic = 2 }, .libs = LS.initOne(.scheme_base) },
+    .{ .name = "features", .func = &featuresFn, .arity = .{ .exact = 0 }, .libs = LS.initOne(.scheme_base) },
+    .{ .name = "string->symbol", .func = &stringToSymbol, .arity = .{ .exact = 1 }, .libs = LS.initMany(&.{ .scheme_base, .scheme_r5rs }) },
+};
+
 // List utilities
 // ---------------------------------------------------------------------------
 

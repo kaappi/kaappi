@@ -6,43 +6,43 @@ const memory = @import("memory.zig");
 const Value = types.Value;
 const NativeFn = types.NativeFn;
 const PrimitiveError = primitives.PrimitiveError;
+const LS = primitives.LibSet;
 
-pub fn registerVector(vm: *vm_mod.VM) !void {
-    try primitives.reg(vm, "vector", &vectorFn, .{ .variadic = 0 });
-    try primitives.reg(vm, "make-vector", &makeVectorFn, .{ .variadic = 1 });
-    try primitives.reg(vm, "vector?", &vectorP, .{ .exact = 1 });
-    try primitives.reg(vm, "vector-length", &vectorLengthFn, .{ .exact = 1 });
-    try primitives.reg(vm, "vector-ref", &vectorRefFn, .{ .exact = 2 });
-    try primitives.reg(vm, "vector-set!", &vectorSetFn, .{ .exact = 3 });
-    try primitives.reg(vm, "vector->list", &vectorToListFn, .{ .variadic = 1 });
-    try primitives.reg(vm, "list->vector", &listToVectorFn, .{ .exact = 1 });
-    try primitives.reg(vm, "vector-fill!", &vectorFillFn, .{ .variadic = 2 });
-    try primitives.reg(vm, "vector-copy", &vectorCopyFn, .{ .variadic = 1 });
-    try primitives.reg(vm, "vector-copy!", &vectorCopyBangFn, .{ .variadic = 3 });
-    try primitives.reg(vm, "vector-append", &vectorAppendFn, .{ .variadic = 0 });
-    try primitives.reg(vm, "vector-for-each", &vectorForEachFn, .{ .variadic = 2 });
-    try primitives.reg(vm, "vector-map", &vectorMapFn, .{ .variadic = 2 });
-    try primitives.reg(vm, "vector->string", &vectorToStringFn, .{ .variadic = 1 });
-    // SRFI 133 additions
-    try primitives.reg(vm, "vector-empty?", &vectorEmptyFn, .{ .exact = 1 });
-    try primitives.reg(vm, "vector-count", &vectorCountFn, .{ .variadic = 2 });
-    try primitives.reg(vm, "vector-any", &vectorAnyFn, .{ .variadic = 2 });
-    try primitives.reg(vm, "vector-every", &vectorEveryFn, .{ .variadic = 2 });
-    try primitives.reg(vm, "vector-index", &vectorIndexFn, .{ .variadic = 2 });
-    try primitives.reg(vm, "vector-index-right", &vectorIndexRightFn, .{ .variadic = 2 });
-    try primitives.reg(vm, "vector-skip", &vectorSkipFn, .{ .exact = 2 });
-    try primitives.reg(vm, "vector-skip-right", &vectorSkipRightFn, .{ .exact = 2 });
-    try primitives.reg(vm, "vector-swap!", &vectorSwapFn, .{ .exact = 3 });
-    try primitives.reg(vm, "vector-reverse!", &vectorReverseBangFn, .{ .variadic = 1 });
-    try primitives.reg(vm, "vector-reverse-copy", &vectorReverseCopyFn, .{ .variadic = 1 });
-    try primitives.reg(vm, "vector-unfold", &vectorUnfoldFn, .{ .variadic = 2 });
-    try primitives.reg(vm, "vector-unfold-right", &vectorUnfoldRightFn, .{ .variadic = 2 });
-    try primitives.reg(vm, "vector-binary-search", &vectorBinarySearchFn, .{ .exact = 3 });
-    try primitives.reg(vm, "vector-concatenate", &vectorConcatenateFn, .{ .exact = 1 });
-    try primitives.reg(vm, "vector-cumulate", &vectorCumulateFn, .{ .exact = 3 });
-    try primitives.reg(vm, "vector-partition", &vectorPartitionFn, .{ .exact = 2 });
-    try primitives.reg(vm, "vector-append-subvectors", &vectorAppendSubvectorsFn, .{ .variadic = 0 });
-}
+pub const specs = [_]primitives.PrimSpec{
+    .{ .name = "vector", .func = &vectorFn, .arity = .{ .variadic = 0 }, .libs = LS.initMany(&.{ .scheme_base, .scheme_r5rs }) },
+    .{ .name = "make-vector", .func = &makeVectorFn, .arity = .{ .variadic = 1 }, .libs = LS.initMany(&.{ .scheme_base, .scheme_r5rs }) },
+    .{ .name = "vector?", .func = &vectorP, .arity = .{ .exact = 1 }, .libs = LS.initMany(&.{ .scheme_base, .scheme_r5rs }) },
+    .{ .name = "vector-length", .func = &vectorLengthFn, .arity = .{ .exact = 1 }, .libs = LS.initMany(&.{ .scheme_base, .scheme_r5rs }) },
+    .{ .name = "vector-ref", .func = &vectorRefFn, .arity = .{ .exact = 2 }, .libs = LS.initMany(&.{ .scheme_base, .scheme_r5rs }) },
+    .{ .name = "vector-set!", .func = &vectorSetFn, .arity = .{ .exact = 3 }, .libs = LS.initMany(&.{ .scheme_base, .scheme_r5rs }) },
+    .{ .name = "vector->list", .func = &vectorToListFn, .arity = .{ .variadic = 1 }, .libs = LS.initMany(&.{ .scheme_base, .scheme_r5rs }) },
+    .{ .name = "list->vector", .func = &listToVectorFn, .arity = .{ .exact = 1 }, .libs = LS.initMany(&.{ .scheme_base, .scheme_r5rs }) },
+    .{ .name = "vector-fill!", .func = &vectorFillFn, .arity = .{ .variadic = 2 }, .libs = LS.initMany(&.{ .scheme_base, .scheme_r5rs }) },
+    .{ .name = "vector-copy", .func = &vectorCopyFn, .arity = .{ .variadic = 1 }, .libs = LS.initOne(.scheme_base) },
+    .{ .name = "vector-copy!", .func = &vectorCopyBangFn, .arity = .{ .variadic = 3 }, .libs = LS.initOne(.scheme_base) },
+    .{ .name = "vector-append", .func = &vectorAppendFn, .arity = .{ .variadic = 0 }, .libs = LS.initOne(.scheme_base) },
+    .{ .name = "vector-for-each", .func = &vectorForEachFn, .arity = .{ .variadic = 2 }, .libs = LS.initMany(&.{ .scheme_base, .scheme_r5rs }) },
+    .{ .name = "vector-map", .func = &vectorMapFn, .arity = .{ .variadic = 2 }, .libs = LS.initMany(&.{ .scheme_base, .scheme_r5rs }) },
+    .{ .name = "vector->string", .func = &vectorToStringFn, .arity = .{ .variadic = 1 }, .libs = LS.initOne(.scheme_base) },
+    .{ .name = "vector-empty?", .func = &vectorEmptyFn, .arity = .{ .exact = 1 }, .libs = LS.initOne(.srfi_133) },
+    .{ .name = "vector-count", .func = &vectorCountFn, .arity = .{ .variadic = 2 }, .libs = LS.initOne(.srfi_133) },
+    .{ .name = "vector-any", .func = &vectorAnyFn, .arity = .{ .variadic = 2 }, .libs = LS.initOne(.srfi_133) },
+    .{ .name = "vector-every", .func = &vectorEveryFn, .arity = .{ .variadic = 2 }, .libs = LS.initOne(.srfi_133) },
+    .{ .name = "vector-index", .func = &vectorIndexFn, .arity = .{ .variadic = 2 }, .libs = LS.initOne(.srfi_133) },
+    .{ .name = "vector-index-right", .func = &vectorIndexRightFn, .arity = .{ .variadic = 2 }, .libs = LS.initOne(.srfi_133) },
+    .{ .name = "vector-skip", .func = &vectorSkipFn, .arity = .{ .exact = 2 }, .libs = LS.initOne(.srfi_133) },
+    .{ .name = "vector-skip-right", .func = &vectorSkipRightFn, .arity = .{ .exact = 2 }, .libs = LS.initOne(.srfi_133) },
+    .{ .name = "vector-swap!", .func = &vectorSwapFn, .arity = .{ .exact = 3 }, .libs = LS.initOne(.srfi_133) },
+    .{ .name = "vector-reverse!", .func = &vectorReverseBangFn, .arity = .{ .variadic = 1 }, .libs = LS.initOne(.srfi_133) },
+    .{ .name = "vector-reverse-copy", .func = &vectorReverseCopyFn, .arity = .{ .variadic = 1 }, .libs = LS.initOne(.srfi_133) },
+    .{ .name = "vector-unfold", .func = &vectorUnfoldFn, .arity = .{ .variadic = 2 }, .libs = LS.initOne(.srfi_133) },
+    .{ .name = "vector-unfold-right", .func = &vectorUnfoldRightFn, .arity = .{ .variadic = 2 }, .libs = LS.initOne(.srfi_133) },
+    .{ .name = "vector-binary-search", .func = &vectorBinarySearchFn, .arity = .{ .exact = 3 }, .libs = LS.initOne(.srfi_133) },
+    .{ .name = "vector-concatenate", .func = &vectorConcatenateFn, .arity = .{ .exact = 1 }, .libs = LS.initOne(.srfi_133) },
+    .{ .name = "vector-cumulate", .func = &vectorCumulateFn, .arity = .{ .exact = 3 }, .libs = LS.initOne(.srfi_133) },
+    .{ .name = "vector-partition", .func = &vectorPartitionFn, .arity = .{ .exact = 2 }, .libs = LS.initOne(.srfi_133) },
+    .{ .name = "vector-append-subvectors", .func = &vectorAppendSubvectorsFn, .arity = .{ .variadic = 0 }, .libs = LS.initOne(.srfi_133) },
+};
 
 // ---------------------------------------------------------------------------
 // (vector e1 e2 ...) — create a vector from arguments

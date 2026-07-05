@@ -4,6 +4,7 @@ const primitives = @import("primitives.zig");
 const vm_mod = @import("vm.zig");
 const Value = types.Value;
 const PrimitiveError = primitives.PrimitiveError;
+const LS = primitives.LibSet;
 const memory = @import("memory.zig");
 const GC = memory.GC;
 const arith = @import("primitives_arithmetic.zig");
@@ -110,91 +111,76 @@ fn doStat(path: [*:0]const u8, follow: bool) ?StatResult {
     }
 }
 
-pub fn registerFilesystem(vm: *vm_mod.VM) !void {
-    try primitives.reg(vm, "directory-files", &directoryFiles, .{ .variadic = 1 });
-    try primitives.reg(vm, "file-info", &fileInfoFn, .{ .variadic = 1 });
-    try primitives.reg(vm, "file-info?", &fileInfoP, .{ .exact = 1 });
-    try primitives.reg(vm, "file-info-directory?", &fileInfoDirectoryP, .{ .exact = 1 });
-    try primitives.reg(vm, "file-info-regular?", &fileInfoRegularP, .{ .exact = 1 });
-    try primitives.reg(vm, "file-info-symlink?", &fileInfoSymlinkP, .{ .exact = 1 });
-    try primitives.reg(vm, "file-info:size", &fileInfoSize, .{ .exact = 1 });
-    try primitives.reg(vm, "file-info:mtime", &fileInfoMtime, .{ .exact = 1 });
-    try primitives.reg(vm, "file-info:mode", &fileInfoMode, .{ .exact = 1 });
-    try primitives.reg(vm, "file-info:device", &fileInfoDevice, .{ .exact = 1 });
-    try primitives.reg(vm, "file-info:inode", &fileInfoInode, .{ .exact = 1 });
-    try primitives.reg(vm, "file-info:nlinks", &fileInfoNlinks, .{ .exact = 1 });
-    try primitives.reg(vm, "file-info:uid", &fileInfoUid, .{ .exact = 1 });
-    try primitives.reg(vm, "file-info:gid", &fileInfoGid, .{ .exact = 1 });
-    try primitives.reg(vm, "file-info:rdev", &fileInfoRdev, .{ .exact = 1 });
-    try primitives.reg(vm, "file-info:blksize", &fileInfoBlksize, .{ .exact = 1 });
-    try primitives.reg(vm, "file-info:blocks", &fileInfoBlocks, .{ .exact = 1 });
-    try primitives.reg(vm, "file-info:atime", &fileInfoAtime, .{ .exact = 1 });
-    try primitives.reg(vm, "file-info:ctime", &fileInfoCtime, .{ .exact = 1 });
-    try primitives.reg(vm, "file-info-fifo?", &fileInfoFifoP, .{ .exact = 1 });
-    try primitives.reg(vm, "file-info-socket?", &fileInfoSocketP, .{ .exact = 1 });
-    try primitives.reg(vm, "file-info-device?", &fileInfoDeviceP, .{ .exact = 1 });
-    try primitives.reg(vm, "create-directory", &createDirectoryFn, .{ .variadic = 1 });
-    try primitives.reg(vm, "delete-directory", &deleteDirectoryFn, .{ .exact = 1 });
-
-    // File system operations
-    try primitives.reg(vm, "rename-file", &renameFileFn, .{ .exact = 2 });
-    try primitives.reg(vm, "create-symlink", &createSymlinkFn, .{ .exact = 2 });
-    try primitives.reg(vm, "read-symlink", &readSymlinkFn, .{ .exact = 1 });
-    try primitives.reg(vm, "create-hard-link", &createHardLinkFn, .{ .exact = 2 });
-    try primitives.reg(vm, "real-path", &realPathFn, .{ .exact = 1 });
-    try primitives.reg(vm, "set-file-mode", &setFileModeFn, .{ .exact = 2 });
-    try primitives.reg(vm, "truncate-file", &truncateFileFn, .{ .exact = 2 });
-    try primitives.reg(vm, "create-fifo", &createFifoFn, .{ .variadic = 1 });
-    try primitives.reg(vm, "set-file-owner", &setFileOwnerFn, .{ .exact = 3 });
-    try primitives.reg(vm, "set-file-times", &setFileTimesFn, .{ .variadic = 1 });
-
-    try primitives.reg(vm, "file-info-type", &fileInfoTypeFn, .{ .exact = 1 });
-    try primitives.reg(vm, "temp-file-prefix", &tempFilePrefixFn, .{ .exact = 0 });
-    try primitives.reg(vm, "create-temp-file", &createTempFileFn, .{ .variadic = 0 });
-
-    // Process state
-    try primitives.reg(vm, "pid", &pidFn, .{ .exact = 0 });
-    try primitives.reg(vm, "umask", &umaskFn, .{ .exact = 0 });
-    try primitives.reg(vm, "set-umask!", &setUmaskFn, .{ .exact = 1 });
-    try primitives.reg(vm, "current-directory", &currentDirectoryFn, .{ .exact = 0 });
-    try primitives.reg(vm, "set-current-directory!", &setCurrentDirectoryFn, .{ .exact = 1 });
-    try primitives.reg(vm, "user-uid", &userUidFn, .{ .exact = 0 });
-    try primitives.reg(vm, "user-gid", &userGidFn, .{ .exact = 0 });
-    try primitives.reg(vm, "user-effective-uid", &userEffectiveUidFn, .{ .exact = 0 });
-    try primitives.reg(vm, "user-effective-gid", &userEffectiveGidFn, .{ .exact = 0 });
-    try primitives.reg(vm, "user-supplementary-gids", &userSupplementaryGidsFn, .{ .exact = 0 });
-    try primitives.reg(vm, "nice", &niceFn, .{ .variadic = 0 });
-
-    // Environment variables
-    try primitives.reg(vm, "set-environment-variable!", &setEnvVarFn, .{ .exact = 2 });
-    try primitives.reg(vm, "delete-environment-variable!", &deleteEnvVarFn, .{ .exact = 1 });
-
-    // Terminal
-    try primitives.reg(vm, "terminal?", &terminalP, .{ .exact = 1 });
-
-    // User/group database
-    try primitives.reg(vm, "user-info", &userInfoFn, .{ .exact = 1 });
-    try primitives.reg(vm, "user-info?", &userInfoP, .{ .exact = 1 });
-    try primitives.reg(vm, "user-info:name", &userInfoName, .{ .exact = 1 });
-    try primitives.reg(vm, "user-info:uid", &userInfoUid, .{ .exact = 1 });
-    try primitives.reg(vm, "user-info:gid", &userInfoGidFn, .{ .exact = 1 });
-    try primitives.reg(vm, "user-info:home-dir", &userInfoHomeDir, .{ .exact = 1 });
-    try primitives.reg(vm, "user-info:shell", &userInfoShell, .{ .exact = 1 });
-    try primitives.reg(vm, "user-info:full-name", &userInfoFullName, .{ .exact = 1 });
-    try primitives.reg(vm, "group-info", &groupInfoFn, .{ .exact = 1 });
-    try primitives.reg(vm, "group-info?", &groupInfoP, .{ .exact = 1 });
-    try primitives.reg(vm, "group-info:name", &groupInfoName, .{ .exact = 1 });
-    try primitives.reg(vm, "group-info:gid", &groupInfoGidFn, .{ .exact = 1 });
-
-    // Directory traversal
-    try primitives.reg(vm, "open-directory", &openDirectoryFn, .{ .variadic = 1 });
-    try primitives.reg(vm, "read-directory", &readDirectoryFn, .{ .exact = 1 });
-    try primitives.reg(vm, "close-directory", &closeDirectoryFn, .{ .exact = 1 });
-
-    // POSIX time
-    try primitives.reg(vm, "posix-time", &posixTimeFn, .{ .exact = 0 });
-    try primitives.reg(vm, "monotonic-time", &monotonicTimeFn, .{ .exact = 0 });
-}
+pub const specs = [_]primitives.PrimSpec{
+    .{ .name = "directory-files", .func = &directoryFiles, .arity = .{ .variadic = 1 }, .libs = LS.initOne(.srfi_170), .sandbox = false, .wasm = false },
+    .{ .name = "file-info", .func = &fileInfoFn, .arity = .{ .variadic = 1 }, .libs = LS.initOne(.srfi_170), .sandbox = false, .wasm = false },
+    .{ .name = "file-info?", .func = &fileInfoP, .arity = .{ .exact = 1 }, .libs = LS.initOne(.srfi_170), .sandbox = false, .wasm = false },
+    .{ .name = "file-info-directory?", .func = &fileInfoDirectoryP, .arity = .{ .exact = 1 }, .libs = LS.initOne(.srfi_170), .sandbox = false, .wasm = false },
+    .{ .name = "file-info-regular?", .func = &fileInfoRegularP, .arity = .{ .exact = 1 }, .libs = LS.initOne(.srfi_170), .sandbox = false, .wasm = false },
+    .{ .name = "file-info-symlink?", .func = &fileInfoSymlinkP, .arity = .{ .exact = 1 }, .libs = LS.initOne(.srfi_170), .sandbox = false, .wasm = false },
+    .{ .name = "file-info:size", .func = &fileInfoSize, .arity = .{ .exact = 1 }, .libs = LS.initOne(.srfi_170), .sandbox = false, .wasm = false },
+    .{ .name = "file-info:mtime", .func = &fileInfoMtime, .arity = .{ .exact = 1 }, .libs = LS.initOne(.srfi_170), .sandbox = false, .wasm = false },
+    .{ .name = "file-info:mode", .func = &fileInfoMode, .arity = .{ .exact = 1 }, .libs = LS.initOne(.srfi_170), .sandbox = false, .wasm = false },
+    .{ .name = "file-info:device", .func = &fileInfoDevice, .arity = .{ .exact = 1 }, .libs = LS.initOne(.srfi_170), .sandbox = false, .wasm = false },
+    .{ .name = "file-info:inode", .func = &fileInfoInode, .arity = .{ .exact = 1 }, .libs = LS.initOne(.srfi_170), .sandbox = false, .wasm = false },
+    .{ .name = "file-info:nlinks", .func = &fileInfoNlinks, .arity = .{ .exact = 1 }, .libs = LS.initOne(.srfi_170), .sandbox = false, .wasm = false },
+    .{ .name = "file-info:uid", .func = &fileInfoUid, .arity = .{ .exact = 1 }, .libs = LS.initOne(.srfi_170), .sandbox = false, .wasm = false },
+    .{ .name = "file-info:gid", .func = &fileInfoGid, .arity = .{ .exact = 1 }, .libs = LS.initOne(.srfi_170), .sandbox = false, .wasm = false },
+    .{ .name = "file-info:rdev", .func = &fileInfoRdev, .arity = .{ .exact = 1 }, .libs = LS.initOne(.srfi_170), .sandbox = false, .wasm = false },
+    .{ .name = "file-info:blksize", .func = &fileInfoBlksize, .arity = .{ .exact = 1 }, .libs = LS.initOne(.srfi_170), .sandbox = false, .wasm = false },
+    .{ .name = "file-info:blocks", .func = &fileInfoBlocks, .arity = .{ .exact = 1 }, .libs = LS.initOne(.srfi_170), .sandbox = false, .wasm = false },
+    .{ .name = "file-info:atime", .func = &fileInfoAtime, .arity = .{ .exact = 1 }, .libs = LS.initOne(.srfi_170), .sandbox = false, .wasm = false },
+    .{ .name = "file-info:ctime", .func = &fileInfoCtime, .arity = .{ .exact = 1 }, .libs = LS.initOne(.srfi_170), .sandbox = false, .wasm = false },
+    .{ .name = "file-info-fifo?", .func = &fileInfoFifoP, .arity = .{ .exact = 1 }, .libs = LS.initOne(.srfi_170), .sandbox = false, .wasm = false },
+    .{ .name = "file-info-socket?", .func = &fileInfoSocketP, .arity = .{ .exact = 1 }, .libs = LS.initOne(.srfi_170), .sandbox = false, .wasm = false },
+    .{ .name = "file-info-device?", .func = &fileInfoDeviceP, .arity = .{ .exact = 1 }, .libs = LS.initOne(.srfi_170), .sandbox = false, .wasm = false },
+    .{ .name = "create-directory", .func = &createDirectoryFn, .arity = .{ .variadic = 1 }, .libs = LS.initMany(&.{ .scheme_file, .srfi_170 }), .sandbox = false, .wasm = false },
+    .{ .name = "delete-directory", .func = &deleteDirectoryFn, .arity = .{ .exact = 1 }, .libs = LS.initMany(&.{ .scheme_file, .srfi_170 }), .sandbox = false, .wasm = false },
+    .{ .name = "rename-file", .func = &renameFileFn, .arity = .{ .exact = 2 }, .libs = LS.initOne(.srfi_170), .sandbox = false, .wasm = false },
+    .{ .name = "create-symlink", .func = &createSymlinkFn, .arity = .{ .exact = 2 }, .libs = LS.initOne(.srfi_170), .sandbox = false, .wasm = false },
+    .{ .name = "read-symlink", .func = &readSymlinkFn, .arity = .{ .exact = 1 }, .libs = LS.initOne(.srfi_170), .sandbox = false, .wasm = false },
+    .{ .name = "create-hard-link", .func = &createHardLinkFn, .arity = .{ .exact = 2 }, .libs = LS.initOne(.srfi_170), .sandbox = false, .wasm = false },
+    .{ .name = "real-path", .func = &realPathFn, .arity = .{ .exact = 1 }, .libs = LS.initOne(.srfi_170), .sandbox = false, .wasm = false },
+    .{ .name = "set-file-mode", .func = &setFileModeFn, .arity = .{ .exact = 2 }, .libs = LS.initOne(.srfi_170), .sandbox = false, .wasm = false },
+    .{ .name = "truncate-file", .func = &truncateFileFn, .arity = .{ .exact = 2 }, .libs = LS.initOne(.srfi_170), .sandbox = false, .wasm = false },
+    .{ .name = "create-fifo", .func = &createFifoFn, .arity = .{ .variadic = 1 }, .libs = LS.initOne(.srfi_170), .sandbox = false, .wasm = false },
+    .{ .name = "set-file-owner", .func = &setFileOwnerFn, .arity = .{ .exact = 3 }, .libs = LS.initOne(.srfi_170), .sandbox = false, .wasm = false },
+    .{ .name = "set-file-times", .func = &setFileTimesFn, .arity = .{ .variadic = 1 }, .libs = LS.initOne(.srfi_170), .sandbox = false, .wasm = false },
+    .{ .name = "file-info-type", .func = &fileInfoTypeFn, .arity = .{ .exact = 1 }, .libs = LS.initOne(.srfi_170), .sandbox = false, .wasm = false },
+    .{ .name = "temp-file-prefix", .func = &tempFilePrefixFn, .arity = .{ .exact = 0 }, .libs = LS.initOne(.srfi_170), .sandbox = false, .wasm = false },
+    .{ .name = "create-temp-file", .func = &createTempFileFn, .arity = .{ .variadic = 0 }, .libs = LS.initOne(.srfi_170), .sandbox = false, .wasm = false },
+    .{ .name = "pid", .func = &pidFn, .arity = .{ .exact = 0 }, .libs = LS.initOne(.srfi_170), .sandbox = false, .wasm = false },
+    .{ .name = "umask", .func = &umaskFn, .arity = .{ .exact = 0 }, .libs = LS.initOne(.srfi_170), .sandbox = false, .wasm = false },
+    .{ .name = "set-umask!", .func = &setUmaskFn, .arity = .{ .exact = 1 }, .libs = LS.initOne(.srfi_170), .sandbox = false, .wasm = false },
+    .{ .name = "current-directory", .func = &currentDirectoryFn, .arity = .{ .exact = 0 }, .libs = LS.initOne(.srfi_170), .sandbox = false, .wasm = false },
+    .{ .name = "set-current-directory!", .func = &setCurrentDirectoryFn, .arity = .{ .exact = 1 }, .libs = LS.initOne(.srfi_170), .sandbox = false, .wasm = false },
+    .{ .name = "user-uid", .func = &userUidFn, .arity = .{ .exact = 0 }, .libs = LS.initOne(.srfi_170), .sandbox = false, .wasm = false },
+    .{ .name = "user-gid", .func = &userGidFn, .arity = .{ .exact = 0 }, .libs = LS.initOne(.srfi_170), .sandbox = false, .wasm = false },
+    .{ .name = "user-effective-uid", .func = &userEffectiveUidFn, .arity = .{ .exact = 0 }, .libs = LS.initOne(.srfi_170), .sandbox = false, .wasm = false },
+    .{ .name = "user-effective-gid", .func = &userEffectiveGidFn, .arity = .{ .exact = 0 }, .libs = LS.initOne(.srfi_170), .sandbox = false, .wasm = false },
+    .{ .name = "user-supplementary-gids", .func = &userSupplementaryGidsFn, .arity = .{ .exact = 0 }, .libs = LS.initOne(.srfi_170), .sandbox = false, .wasm = false },
+    .{ .name = "nice", .func = &niceFn, .arity = .{ .variadic = 0 }, .libs = LS.initOne(.srfi_170), .sandbox = false, .wasm = false },
+    .{ .name = "set-environment-variable!", .func = &setEnvVarFn, .arity = .{ .exact = 2 }, .libs = LS.initOne(.srfi_170), .sandbox = false, .wasm = false },
+    .{ .name = "delete-environment-variable!", .func = &deleteEnvVarFn, .arity = .{ .exact = 1 }, .libs = LS.initOne(.srfi_170), .sandbox = false, .wasm = false },
+    .{ .name = "terminal?", .func = &terminalP, .arity = .{ .exact = 1 }, .libs = LS.initOne(.srfi_170), .sandbox = false, .wasm = false },
+    .{ .name = "user-info", .func = &userInfoFn, .arity = .{ .exact = 1 }, .libs = LS.initOne(.srfi_170), .sandbox = false, .wasm = false },
+    .{ .name = "user-info?", .func = &userInfoP, .arity = .{ .exact = 1 }, .libs = LS.initOne(.srfi_170), .sandbox = false, .wasm = false },
+    .{ .name = "user-info:name", .func = &userInfoName, .arity = .{ .exact = 1 }, .libs = LS.initOne(.srfi_170), .sandbox = false, .wasm = false },
+    .{ .name = "user-info:uid", .func = &userInfoUid, .arity = .{ .exact = 1 }, .libs = LS.initOne(.srfi_170), .sandbox = false, .wasm = false },
+    .{ .name = "user-info:gid", .func = &userInfoGidFn, .arity = .{ .exact = 1 }, .libs = LS.initOne(.srfi_170), .sandbox = false, .wasm = false },
+    .{ .name = "user-info:home-dir", .func = &userInfoHomeDir, .arity = .{ .exact = 1 }, .libs = LS.initOne(.srfi_170), .sandbox = false, .wasm = false },
+    .{ .name = "user-info:shell", .func = &userInfoShell, .arity = .{ .exact = 1 }, .libs = LS.initOne(.srfi_170), .sandbox = false, .wasm = false },
+    .{ .name = "user-info:full-name", .func = &userInfoFullName, .arity = .{ .exact = 1 }, .libs = LS.initOne(.srfi_170), .sandbox = false, .wasm = false },
+    .{ .name = "group-info", .func = &groupInfoFn, .arity = .{ .exact = 1 }, .libs = LS.initOne(.srfi_170), .sandbox = false, .wasm = false },
+    .{ .name = "group-info?", .func = &groupInfoP, .arity = .{ .exact = 1 }, .libs = LS.initOne(.srfi_170), .sandbox = false, .wasm = false },
+    .{ .name = "group-info:name", .func = &groupInfoName, .arity = .{ .exact = 1 }, .libs = LS.initOne(.srfi_170), .sandbox = false, .wasm = false },
+    .{ .name = "group-info:gid", .func = &groupInfoGidFn, .arity = .{ .exact = 1 }, .libs = LS.initOne(.srfi_170), .sandbox = false, .wasm = false },
+    .{ .name = "open-directory", .func = &openDirectoryFn, .arity = .{ .variadic = 1 }, .libs = LS.initOne(.srfi_170), .sandbox = false, .wasm = false },
+    .{ .name = "read-directory", .func = &readDirectoryFn, .arity = .{ .exact = 1 }, .libs = LS.initOne(.srfi_170), .sandbox = false, .wasm = false },
+    .{ .name = "close-directory", .func = &closeDirectoryFn, .arity = .{ .exact = 1 }, .libs = LS.initOne(.srfi_170), .sandbox = false, .wasm = false },
+    .{ .name = "posix-time", .func = &posixTimeFn, .arity = .{ .exact = 0 }, .libs = LS.initOne(.srfi_170), .sandbox = false, .wasm = false },
+    .{ .name = "monotonic-time", .func = &monotonicTimeFn, .arity = .{ .exact = 0 }, .libs = LS.initOne(.srfi_170), .sandbox = false, .wasm = false },
+};
 
 fn raiseFileError(gc: *GC, msg_text: []const u8, irritant: Value) PrimitiveError!Value {
     const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError; // bare-ok: no VM
