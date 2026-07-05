@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783219842375,
+  "lastUpdate": 1783223508965,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "1ba4e8df6dca95633649ed8e24d1b1632593646d",
-          "message": "Print all values of a multiple-values result at the top level (#972) (#973)\n\nEvery top-level result-printing path truncated a multiple-values result\nto its first value, so (values 3 2) printed just 3. The interactive\nREPL's compiled path was worse: it didn't unwrap at all and echoed the\nraw object (#<values 3 2>). Chez, Guile, Racket, and Chibi all print\neach value on its own line — match that everywhere: interactive REPL,\npiped stdin, file execution (fresh and .sbc-cached), and bundled\nbinaries. (values) and void values print nothing.\n\nThe six copies of the unwrap block in main.zig collapse into one\nprintTopLevelResult helper. In repl.zig the fix must handle .store_last\nmode (the REPL main loop evaluates with it, not .normal); _ still binds\nthe first value and ,type still reports the first value's type.\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-03T14:00:48Z",
-          "tree_id": "c382a3451dffa4760b89d014ea7dfa3f94b4a517",
-          "url": "https://github.com/kaappi/kaappi/commit/1ba4e8df6dca95633649ed8e24d1b1632593646d"
-        },
-        "date": 1783088144202,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.382544,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.860103,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.849179,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.266793,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006396,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.033255,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.475041,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.071496,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 4.161099,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.824731,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.163842,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.441404,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.784368,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.720108,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.045458,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.045637,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "7ad56d23246e7c103c1e30e695c7af8474dcd36e",
+          "message": "Delete ir_emitter.zig — duplicate emitter kept alive by obsolete parity tests (#1039) (#1130)\n\nThe standalone Emitter duplicated compiler_ir.zig's emission nearly\nbyte-for-byte, with copy drift (addConstant off-by-one at 65535 vs\n65536). Its only consumer was 11 Stage-1 bytecode-parity tests whose\npurpose is obsolete now that Compiler.compile() itself goes through IR.\n\n- Delete src/ir_emitter.zig (282 lines)\n- Convert all 11 parity tests to behavioral tests with expected values\n- Remove dead helpers (compileViaIR, compileViaDirectCompiler,\n  expectBytecodeParity)\n- Drop CompileError.NotImplemented (only used by deleted emitter)\n- Remove re-export from ir.zig and import from main.zig\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-05T08:59:05+05:30",
+          "tree_id": "54a4b0dc289d96b480623c455e1e7200a6d1bf1c",
+          "url": "https://github.com/kaappi/kaappi/commit/7ad56d23246e7c103c1e30e695c7af8474dcd36e"
+        },
+        "date": 1783223508418,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.277544,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.899919,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.915749,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.187928,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.0124,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.211453,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.467259,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.070968,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 12.531141,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.825374,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 10.007991,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.958473,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 8.39564,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.740552,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.046942,
             "unit": "seconds"
           }
         ]
