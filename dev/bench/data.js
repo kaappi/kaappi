@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783225246536,
+  "lastUpdate": 1783229395908,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "ee8d0580532300c15f131502f9bd64e6c9e34062",
-          "message": "Range-check FFI args against declared narrow int types (#795) (#980)\n\nnormalizeType() collapsed int8/uint8/int16/uint16/uint32/char into\ncarrier types (int/long) before validation, so toCheckedInt only\nenforced the carrier's range. A uint8 parameter silently accepted\nany value in c_int range, and uint32 accepted any c_long value,\ndelivering wrapped values to C.\n\nAdd checkNarrowIntRange() that validates arguments against the\ndeclared FfiType's exact range in validateArgs(), before dispatch.\n\nCloses #795\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-03T15:07:03Z",
-          "tree_id": "40a5dcf53551f7d0633e61c4d1847a2136bd1233",
-          "url": "https://github.com/kaappi/kaappi/commit/ee8d0580532300c15f131502f9bd64e6c9e34062"
-        },
-        "date": 1783092223585,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.508836,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.469554,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.707962,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.462116,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.005943,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.026361,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.39044,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.054332,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.391952,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.456798,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 0.914774,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.377163,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.328424,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.438486,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.035398,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.043618,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "0d91e8db70beddda42091853a68ec2672da3856c",
+          "message": "Collapse 17 SexprArgs NodeTag variants into .sexpr_form with FormKind (#1040) (#1134)\n\nReplace 17 identical SexprArgs NodeTag variants with a single .sexpr_form\ntag carrying a FormKind discriminant. Replace string-comparison chains in\nlowerFormWithMacros and isSpecialForm with StaticStringMap lookups. Adding\na new delegating compiler form now takes ~4 edits instead of 8+.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-05T10:38:06+05:30",
+          "tree_id": "db492030693c959a60aefcc17904e7e44e8d627f",
+          "url": "https://github.com/kaappi/kaappi/commit/0d91e8db70beddda42091853a68ec2672da3856c"
+        },
+        "date": 1783229394692,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.348399,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.73238,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.895534,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.836651,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.012516,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.211747,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.476449,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.070648,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 12.382618,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.800922,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 9.965699,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.954128,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 8.257149,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.690229,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.042814,
             "unit": "seconds"
           }
         ]
