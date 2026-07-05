@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783242067686,
+  "lastUpdate": 1783242894081,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "270034a9d57377fb75fcbd2bee37d33646b8d172",
-          "message": "Use fstatat instead of open in file-exists? (#808) (#990)\n\nfile-exists? was implemented with openat+close, which hangs on FIFOs\n(blocks until a writer connects) and returns #f for existing but\nunreadable files (e.g. mode 000). Switch to fstatat which checks\nexistence without opening, matching R7RS 6.14.1 semantics.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-03T19:12:30Z",
-          "tree_id": "dc0bf5153a53cddca163efe7e43f5c9b9fa29dd4",
-          "url": "https://github.com/kaappi/kaappi/commit/270034a9d57377fb75fcbd2bee37d33646b8d172"
-        },
-        "date": 1783106873094,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 2.291936,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 6.735142,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.459722,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 3.072978,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.004189,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.018482,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.254753,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.036952,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 1.859807,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 0.921954,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 0.638715,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.315138,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 0.924682,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.203395,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.025103,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.04296,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "83718b6706d4c1bcb47267b9ce15ef19bec300e2",
+          "message": "Phases 2.2-2.4: SRFI-13, char, and IO primitives audit tests (#1160)\n\n* Add primitives_string_ext.zig audit tests (audit Phase 2.2)\n\n84 assertions covering the SRFI-13 surface: codepoint indexing in\ncontains/take/reverse/pad, left-only trim semantics, pad truncation\ndirections, criterion-first filter/delete, every/any return values,\nunfold/unfold-right base and make-final placement, callback error\npropagation, and type-error catchability. gc-stress clean.\n\nSix assertions disabled with FAIL markers: #825 (string-join grammar\nstill ignored - reopened), #826 (default trim misses Unicode\nwhitespace - reopened), #1158 (string-contains ignores start2/end2,\nstring-replace rejects them), #1159 (wrong-typed optional args\nsilently ignored). Part of the #1137 audit campaign.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n* Add primitives_char and primitives_io audit tests (Phases 2.3, 2.4)\n\nPhase 2.3 (primitives_char.zig, 59 assertions): no new bugs. The\nhard Unicode paths all conform - contextual final-sigma downcasing,\nligature expansion in string-upcase, Cherokee case pairs, sigma\nfoldcase equivalence, Numeric_Type=Decimal discrimination in\nchar-numeric?/digit-value. Three property-based classification\nassertions stay disabled pending #1145 (filed in Phase 1C).\n\nPhase 2.4 (primitives_io.zig, 49 assertions): no bugs. Closed-port\nerrors, read-string boundaries, write/write-shared/write-simple\ndatum-label semantics, write escape behavior, textual and binary\nfile round-trips, and file-error discrimination all conform.\n\nChecks off 2.2-2.4 in the tracker (2.2's test file is the previous\ncommit on this branch). Part of the #1137 audit campaign.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-05T08:53:24Z",
+          "tree_id": "b1d397955f6afc5eae2e15d8c9d502a473205943",
+          "url": "https://github.com/kaappi/kaappi/commit/83718b6706d4c1bcb47267b9ce15ef19bec300e2"
+        },
+        "date": 1783242892946,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.338501,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.543303,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.923249,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.080603,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.012516,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.211345,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.471181,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.069609,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 12.367369,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.823383,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 9.946592,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.948013,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 8.344881,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.65661,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.042739,
             "unit": "seconds"
           }
         ]
