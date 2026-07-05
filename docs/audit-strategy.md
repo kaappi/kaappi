@@ -134,9 +134,9 @@ and issue numbers, e.g. `[x] ... (2026-07-06, #1101–#1105)`.
 - [ ] 2.12: `primitives_fiber.zig`
 - [ ] 2.13: `primitives_ffi.zig`
 - [ ] 2.14: `primitives_r7rs.zig`
-- [ ] 2.15: `primitives_random.zig` (SRFI-27)
-- [ ] 2.16: `primitives_lazy.zig`
-- [ ] 2.17: `primitives_cxr.zig`
+- [x] 2.15: `primitives_random.zig` (SRFI-27) (2026-07-05, #1192–#1196; 49 audit tests + 5 disabled — default-random-source is a procedure not a variable, fixnum-only n/i/j, make-reals ignores unit, random-real [0,1) code-inspection, chibi-test shim swallows errored assertions)
+- [x] 2.16: `primitives_lazy.zig` (2026-07-05, #1191; 35 audit tests + 1 disabled — direct re-entrant force panics via GC root stack overflow (general VM nested-native-re-entrancy crash); delay-force chains, memoization, SRFI-45 cycle detection all conform)
+- [x] 2.17: `primitives_cxr.zig` (2026-07-05, no bugs — 41 audit tests; all 24 accessors correct via self-labeling trees, catchable errors on every bad input)
 - [ ] 2.18: `primitives.zig` (core)
 
 **Phase 3 — SRFI conformance**
