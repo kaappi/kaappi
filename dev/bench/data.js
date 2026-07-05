@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783271736425,
+  "lastUpdate": 1783276367742,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "2cca1cc81439727cf5d2d579b5ffda8de320eecc",
-          "message": "Fix peek-char returning raw lead byte for multi-byte UTF-8 on fd ports (#798) (#1001)\n\nWhen peek_byte held a multi-byte UTF-8 lead byte (e.g. after read-line\npushed back the byte following \\r), peekCharFn fell through to returning\nthe raw lead byte as a Latin-1 character instead of decoding the full\nUTF-8 sequence. Add an else branch that temporarily clears peek_byte,\nreads continuation bytes from the fd via readOneByte, restores peek_byte,\nand stashes the continuation bytes in peek_extra for subsequent read-char.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-03T21:29:32Z",
-          "tree_id": "9695834586976ed668728dd34bd9b9d5c20912d7",
-          "url": "https://github.com/kaappi/kaappi/commit/2cca1cc81439727cf5d2d579b5ffda8de320eecc"
-        },
-        "date": 1783115355583,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.949674,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.572518,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.815625,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.96942,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006542,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.03228,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.430245,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.06692,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 4.159785,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.627032,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.140897,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.406365,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.682373,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.028364,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.041096,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044137,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "27e610b089e19e69fd01718fe6016752c8f5bf06",
+          "message": "Phase 5 synthesis: harden run-all.sh, check final tracker box (#1247)\n\nCloses out the audit campaign (tracking: see #1137). The synthesis\ndeliverables live on the tracking issue: 87 findings grouped into 9\nroot-cause clusters, priority order (crashes > wrong results > missing\nfeatures > edge cases), a 197-marker disabled-test inventory, and two\nepics (see #1245 native VM re-entrancy, see #1246 portable SRFI\nquality). Six issues already fixed still have stale FAIL markers to\nre-enable.\n\nrun-all.sh now inspects each passing file's output for chibi-test\n\"N fail\" and SRFI-64 \"unexpected failures\" counts: the chibi shim exits\n0 even when assertions fail (see #1196), so exit codes alone silently\npassed failing files. Verified: a failing chibi file is now caught,\nsrfi64.scm's intentional expected-failure still passes, and the full\nsuite is green (373 files + 1395 R7RS assertions).\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-05T23:40:10+05:30",
+          "tree_id": "42b78d0c750408d97c39b90fd53163471c0a4fde",
+          "url": "https://github.com/kaappi/kaappi/commit/27e610b089e19e69fd01718fe6016752c8f5bf06"
+        },
+        "date": 1783276367146,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.373492,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.173682,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.918152,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.077662,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.012427,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.211586,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.471555,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.070426,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 12.313531,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.809301,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 9.960267,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.951579,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 8.353927,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.515903,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.042428,
             "unit": "seconds"
           }
         ]
