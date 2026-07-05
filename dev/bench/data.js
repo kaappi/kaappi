@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783246685684,
+  "lastUpdate": 1783251512509,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "19b31e0e5af0d8660fb54f627881d81eb4e52eb9",
-          "message": "Include compiler version in .sbc cache validity check (#925) (#993)\n\nThe bytecode cache was keyed on source hash only, so a .sbc produced by\na buggy compiler kept replaying the bug even after rebuilding with a fix.\nAdd a compiler hash (derived from the version string) to the .sbc header\nand reject caches written by a different compiler version. Bump the\non-disk format VERSION from 5 to 6 so all pre-existing caches are also\ninvalidated.\n\nCloses #925\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-03T20:00:29Z",
-          "tree_id": "06a0a93aa7594092e3d19844862bc5c2a01e3c81",
-          "url": "https://github.com/kaappi/kaappi/commit/19b31e0e5af0d8660fb54f627881d81eb4e52eb9"
-        },
-        "date": 1783109859481,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.34568,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.609126,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.971873,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.432484,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.00643,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.037883,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.508305,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.074893,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 4.136005,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 2.026441,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.226796,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.431326,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.815923,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.697888,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.04285,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.04234,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "96ce73b03a84fe0330e8000cb03465037b58901a",
+          "message": "Add primitives_control.zig audit tests (audit Phase 2.7) (#1170)\n\n33 assertions covering exceptions, call/cc, call/ec, dynamic-wind,\nand values: raise vs raise-continuable semantics, secondary\nexceptions when a raise handler returns, handler-runs-in-outer-env,\nerror-object accessors and predicate discrimination, escape and\nre-entry behavior including the R7RS 6.10 dynamic-wind spec example,\nafter-thunk execution on escape and on raise, multi-values through\ndynamic-wind, and type-error catchability. gc-stress clean.\n\nTwo assertions disabled with FAIL markers:\n- #1168 re-entrant call/cc rolls back set! mutations of non-captured\n  locals (register snapshot violates R7RS store semantics; the\n  disabled test HANGS without the fix). Heap-cell and closure-\n  captured counters work - those contrasts are committed enabled.\n- #1169 invoking a continuation with multiple arguments drops all\n  but the first value.\n\nPart of the #1137 audit campaign.\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-05T11:17:23Z",
+          "tree_id": "4a294f0e4e07824172752c73b17056d270a6e680",
+          "url": "https://github.com/kaappi/kaappi/commit/96ce73b03a84fe0330e8000cb03465037b58901a"
+        },
+        "date": 1783251511880,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.995166,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.537263,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.980942,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.000805,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.014488,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.234716,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.474359,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.068233,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 13.707412,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.808522,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 11.128486,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 1.067331,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 9.335849,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.92305,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044815,
             "unit": "seconds"
           }
         ]
