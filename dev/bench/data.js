@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783215616327,
+  "lastUpdate": 1783218464753,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "aca967d30d6a7a00fcc3ec6d5317993971d8cd20",
-          "message": "Exit non-zero on CLI usage and compile/standalone errors (#964)\n\nThe interpreter exited 0 for every kind of failure except an explicit\n(exit n), so shell scripts, Makefiles, and CI could not detect that\nkaappi was misinvoked or that a build/bundled step failed. Script\nread/compile/runtime errors already flip the exit code (#929); this\nextends the same guarantee to the remaining silent paths.\n\nCommand-line usage errors now exit 2 (getopt convention, distinct from\nthe 1 used for script failures): a missing argument to a value-taking\nflag (--lib-path, --timeout, --max-memory, -o, --coverage-xml,\n--profile-json, --completions), an unknown --completions shell, a\nbuild/inspect mode invoked with no file, and — new — an unknown flag,\nwhich was previously swallowed as a script filename and hid the typo.\n\nCompile-time and bundled-app failures now exit 1: --compile and\n--disassemble read/compile errors, and standalone-binary runtime,\npreamble, and corrupt-embedded-bytecode errors.\n\nExtends tests/scheme/errors/exit-code.sh with 19 new cases covering the\nusage and compile-mode paths.\n\nFixes #781\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
-          "timestamp": "2026-07-03T12:30:04Z",
-          "tree_id": "49409ee6240e0c301736349f213976f85a98df25",
-          "url": "https://github.com/kaappi/kaappi/commit/aca967d30d6a7a00fcc3ec6d5317993971d8cd20"
-        },
-        "date": 1783082622317,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.41391,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.020468,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.837705,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.217694,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006831,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.032636,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.465618,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.070615,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 4.172703,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.76798,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.159241,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.434992,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 2.379835,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.720767,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.048273,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.043015,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "88720ac566abb3e404e7027fb7e3e4a4a9887b22",
+          "message": "Delete dead identifyPrimitives/markConstants IR passes (#1041) (#1127)\n\nThe is_primitive_call, primitive_name, and is_constant annotations were\nproduced by ~140 lines of analysis passes but consumed by no backend:\ncompiler_ir.zig explicitly discarded is_primitive_call, foldConstants\nre-derived everything from node tags, and is_constant had zero downstream\nreaders. Remove both passes, their annotation fields, the dead parameter\nin compileCallFromIR, and the test-only assertions. Keep the primitives\nlist and isKnownGlobal (used by the LLVM backend) and the live is_tail\nand source_line annotations.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-05T07:33:02+05:30",
+          "tree_id": "8296f4e4894a8ede8e08a1a0dbec62bb82001ba7",
+          "url": "https://github.com/kaappi/kaappi/commit/88720ac566abb3e404e7027fb7e3e4a4a9887b22"
+        },
+        "date": 1783218463703,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.907944,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.86476,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.948455,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.199248,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.013722,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.234867,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.47051,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.068089,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 13.445745,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.820031,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 11.107483,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 1.069214,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 9.124251,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.861821,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044143,
             "unit": "seconds"
           }
         ]
