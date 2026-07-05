@@ -1,6 +1,6 @@
 # Systematic R7RS Conformance and SRFI Audit Strategy
 
-**Status:** not started · **Last updated:** 2026-07-05 · **Tracking issue:** _(created in Phase 0)_
+**Status:** in progress · **Last updated:** 2026-07-05 · **Tracking issue:** [#1137](https://github.com/kaappi/kaappi/issues/1137)
 
 ## The Core Problem
 
@@ -96,6 +96,9 @@ below only specify *what* to audit; this section specifies *how*.
   allocation-heavy tests and mask use-after-free differently.
 - **Use timeouts** when running thread/fiber/continuation tests individually:
   `timeout 30 zig-out/bin/kaappi <file>`. A hang is a finding — file it.
+  **Stock macOS has no `timeout`** — use the `run_timeout` helper pattern
+  from `tests/scheme/audit-baseline.sh` (falls back to `gtimeout`, then
+  `perl -e 'alarm shift; exec @ARGV' 30 <cmd>`).
 - **PDF reading:** the R7RS spec (`docs/errata-corrected-r7rs.pdf`) is ~88
   pages; the Read tool takes page ranges (max 20/request). Read the table of
   contents first, then only your domain's pages. Never read the whole spec.
@@ -108,7 +111,7 @@ Check off each unit when its PR is open and issues are filed. Add the date
 and issue numbers, e.g. `[x] ... (2026-07-06, #1101–#1105)`.
 
 **Phase 0 — Baseline**
-- [ ] 0: Baseline run, tracking issue, labels created, `audit-baseline.sh` committed
+- [x] 0: Baseline run, tracking issue, labels created, `audit-baseline.sh` committed (2026-07-05, #1137; baseline fully green at b2317e8 — 0 failures across all suites, no issues filed)
 
 **Phase 1 — R7RS spec gap analysis** (independent; run in parallel)
 - [ ] 1A: Expressions & syntax (4.1–4.3) + Libraries (5.6–5.7)
@@ -250,33 +253,12 @@ Any existing failures are **free bug discoveries** that need no agent time.
    Include section-by-section R7RS pass/fail counts in the issue body, plus a
    checklist mirroring the Progress tracker above.
 3. **Commit the baseline script** as `tests/scheme/audit-baseline.sh` so every
-   later session can rerun it:
-
-   ```bash
-   #!/bin/bash
-   # audit-baseline.sh — structured failure report
-   set -uo pipefail
-   OUT=${1:-/tmp/audit-baseline}
-   mkdir -p "$OUT"
-
-   echo "=== Unit Tests ==="
-   zig build test 2>&1 | tee "$OUT/unit-tests.log"
-
-   echo "=== R7RS Suite ==="
-   zig build run -- tests/scheme/r7rs/r7rs-tests.scm 2>&1 | tee "$OUT/r7rs.log"
-
-   echo "=== Scheme Suites ==="
-   bash tests/scheme/run-all.sh 2>&1 | tee "$OUT/all-suites.log"
-
-   echo "=== SRFI Tests (individually, with fail counts) ==="
-   for f in tests/scheme/srfi/*.scm; do
-     echo "--- $(basename "$f") ---"
-     timeout 30 zig-out/bin/kaappi "$f" 2>&1 | tail -3
-   done | tee "$OUT/srfi-tests.log"
-
-   echo "=== Summary ==="
-   grep -E "(FAIL|ERROR|TIMEOUT)" "$OUT"/*.log | sort | uniq -c | sort -rn
-   ```
+   later session can rerun it. _Done — see the committed script._ It runs
+   unit tests, the R7RS suite, `run-all.sh`, and each SRFI file individually
+   (with a portable timeout helper — see Footguns), teeing each stage to
+   `$OUT/*.log` and ending with a grep summary of FAIL/ERROR/TIMEOUT lines.
+   Usage: `bash tests/scheme/audit-baseline.sh [output-dir]` (default
+   `/tmp/audit-baseline`).
 
 4. **File issues for any existing failures** found by the baseline (following
    the Session protocol's verification steps).
