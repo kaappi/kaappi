@@ -40,8 +40,6 @@ fn emitSourceResult(source: []const u8) !EmitResult {
 
     var root = try ir_mod.lower(&ir_instance, expr);
     ir_mod.markTailPositions(root, false);
-    ir_mod.identifyPrimitives(root);
-    ir_mod.markConstants(root);
     root = ir_mod.foldConstants(&ir_instance, root);
     root = ir_mod.eliminateDeadBranches(&ir_instance, root);
     root = ir_mod.simplifyBooleans(&ir_instance, root);
@@ -73,8 +71,6 @@ fn emitMultiResult(source: []const u8) !EmitResult {
         const expr = try reader.readDatum();
         var root = try ir_mod.lower(&ir_instance, expr);
         ir_mod.markTailPositions(root, false);
-        ir_mod.identifyPrimitives(root);
-        ir_mod.markConstants(root);
         root = ir_mod.foldConstants(&ir_instance, root);
         root = ir_mod.eliminateDeadBranches(&ir_instance, root);
         root = ir_mod.simplifyBooleans(&ir_instance, root);
