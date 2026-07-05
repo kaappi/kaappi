@@ -189,7 +189,7 @@ fn evalFn(args: []const Value) PrimitiveError!Value {
         return result;
     }
 
-    const func = compiler_mod.compileExpressionWithMacros(gc, expr, &vm.macros, vm.globals) catch return PrimitiveError.TypeError;
+    const func = compiler_mod.compileExpressionWithMacros(gc, expr, &vm.macros, vm.globals) catch return primitives.typeError("eval", "valid expression", args[0]);
     var closure_val = gc.allocClosure(func) catch return PrimitiveError.OutOfMemory;
     compiler_mod.Compiler.unrootFunction(gc, func);
     gc.pushRoot(&closure_val);
@@ -276,9 +276,9 @@ fn loadFn(args: []const Value) PrimitiveError!Value {
 
     var last_result: Value = types.VOID;
     while (reader.hasMore() catch return PrimitiveError.TypeError) { // bare-ok: reader error in load
-        const expr = reader.readDatum() catch return PrimitiveError.TypeError;
+        const expr = reader.readDatum() catch return primitives.typeError("load", "valid datum", args[0]);
 
-        const func = compiler_mod.compileExpressionWithMacros(gc, expr, &vm.macros, vm.globals) catch return PrimitiveError.TypeError;
+        const func = compiler_mod.compileExpressionWithMacros(gc, expr, &vm.macros, vm.globals) catch return primitives.typeError("load", "valid expression", args[0]);
         {
             var func_val = types.makePointer(@ptrCast(func));
             gc.pushRoot(&func_val);

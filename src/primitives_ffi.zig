@@ -35,16 +35,16 @@ fn ffiOpen(args: []const Value) PrimitiveError!Value {
 
     if (args[0] == types.FALSE) {
         // Open default process (all linked symbols including libc)
-        const handle = std.c.dlopen(null, std.c.RTLD{ .LAZY = true }) orelse return PrimitiveError.TypeError;
+        const handle = std.c.dlopen(null, std.c.RTLD{ .LAZY = true }) orelse return primitives.typeError("ffi-open", "openable library", args[0]);
         return gc.allocFfiLibrary(handle, "default") catch return PrimitiveError.OutOfMemory;
     }
 
-    if (!types.isString(args[0])) return PrimitiveError.TypeError;
+    if (!types.isString(args[0])) return primitives.typeError("ffi-open", "string", args[0]);
     const str = types.toObject(args[0]).as(types.SchemeString);
 
     // Build null-terminated name
     var buf: [256]u8 = undefined;
-    if (str.len >= buf.len) return PrimitiveError.TypeError;
+    if (str.len >= buf.len) return primitives.typeError("ffi-open", "string shorter than 256 bytes", args[0]);
     @memcpy(buf[0..str.len], str.data[0..str.len]);
     buf[str.len] = 0;
     const cname: [*:0]const u8 = @ptrCast(buf[0..str.len :0]);
@@ -99,7 +99,7 @@ fn ffiOpen(args: []const Value) PrimitiveError!Value {
     } else {
         vm.setErrorDetail("ffi-open: cannot open '{s}'", .{str.data[0..str.len]});
     }
-    return PrimitiveError.TypeError;
+    return PrimitiveError.TypeError; // bare-ok: detail set above
 }
 
 /// (ffi-fn lib "name" '(param-types...) 'return-type)
@@ -109,17 +109,17 @@ fn ffiFn(args: []const Value) PrimitiveError!Value {
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
 
     // arg0: library
-    if (!types.isFfiLibrary(args[0])) return PrimitiveError.TypeError;
+    if (!types.isFfiLibrary(args[0])) return primitives.typeError("ffi-fn", "ffi-library", args[0]);
     const lib = types.toObject(args[0]).as(types.FfiLibrary);
-    const handle = lib.handle orelse return PrimitiveError.TypeError; // library closed
+    const handle = lib.handle orelse return primitives.typeError("ffi-fn", "open ffi-library", args[0]);
 
     // arg1: symbol name (string)
-    if (!types.isString(args[1])) return PrimitiveError.TypeError;
+    if (!types.isString(args[1])) return primitives.typeError("ffi-fn", "string", args[1]);
     const name_str = types.toObject(args[1]).as(types.SchemeString);
 
     // Build null-terminated name for dlsym
     var name_buf: [256]u8 = undefined;
-    if (name_str.len >= name_buf.len) return PrimitiveError.TypeError;
+    if (name_str.len >= name_buf.len) return primitives.typeError("ffi-fn", "string shorter than 256 bytes", args[1]);
     @memcpy(name_buf[0..name_str.len], name_str.data[0..name_str.len]);
     name_buf[name_str.len] = 0;
     const cname: [*:0]const u8 = @ptrCast(name_buf[0..name_str.len :0]);
@@ -132,7 +132,7 @@ fn ffiFn(args: []const Value) PrimitiveError!Value {
         } else {
             vm.setErrorDetail("ffi-fn: symbol '{s}' not found", .{name_str.data[0..name_str.len]});
         }
-        return PrimitiveError.TypeError;
+        return PrimitiveError.TypeError; // bare-ok: detail set above
     };
 
     // arg2: parameter type list (a Scheme list of symbols)
@@ -140,20 +140,20 @@ fn ffiFn(args: []const Value) PrimitiveError!Value {
     var param_count: u8 = 0;
     var param_list = args[2];
     while (param_list != types.NIL) {
-        if (!types.isPair(param_list)) return PrimitiveError.TypeError;
+        if (!types.isPair(param_list)) return primitives.typeError("ffi-fn", "proper list of types", args[2]);
         if (param_count >= 16) {
             const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError; // bare-ok: no VM
             vm.setErrorDetail("ffi-fn: too many parameters (max 16)", .{});
-            return PrimitiveError.TypeError;
+            return PrimitiveError.TypeError; // bare-ok: detail set above
         }
         const type_sym = types.car(param_list);
-        param_types_buf[param_count] = parseType(type_sym) orelse return PrimitiveError.TypeError;
+        param_types_buf[param_count] = parseType(type_sym) orelse return primitives.typeError("ffi-fn", "valid FFI type symbol", type_sym);
         param_count += 1;
         param_list = types.cdr(param_list);
     }
 
     // arg3: return type (a symbol)
-    const return_type = parseType(args[3]) orelse return PrimitiveError.TypeError;
+    const return_type = parseType(args[3]) orelse return primitives.typeError("ffi-fn", "valid FFI type symbol", args[3]);
 
     return gc.allocFfiFunction(
         symbol,
@@ -168,7 +168,7 @@ fn ffiFn(args: []const Value) PrimitiveError!Value {
 /// Closes a previously opened FFI library.
 fn ffiClose(args: []const Value) PrimitiveError!Value {
     try checkSandbox("ffi-close");
-    if (!types.isFfiLibrary(args[0])) return PrimitiveError.TypeError;
+    if (!types.isFfiLibrary(args[0])) return primitives.typeError("ffi-close", "ffi-library", args[0]);
     const lib = types.toObject(args[0]).as(types.FfiLibrary);
     if (lib.handle) |handle| {
         _ = std.c.dlclose(handle);
@@ -190,18 +190,18 @@ fn ffiCallbackFn(args: []const Value) PrimitiveError!Value {
     var param_count: u8 = 0;
     var param_list = args[1];
     while (param_list != types.NIL) {
-        if (!types.isPair(param_list)) return PrimitiveError.TypeError;
-        if (param_count >= 8) return PrimitiveError.TypeError;
-        param_types[param_count] = parseType(types.car(param_list)) orelse return PrimitiveError.TypeError;
+        if (!types.isPair(param_list)) return primitives.typeError("ffi-callback", "proper list of types", args[1]);
+        if (param_count >= 8) return primitives.typeError("ffi-callback", "at most 8 parameter types", args[1]);
+        param_types[param_count] = parseType(types.car(param_list)) orelse return primitives.typeError("ffi-callback", "valid FFI type symbol", types.car(param_list));
         param_count += 1;
         param_list = types.cdr(param_list);
     }
-    const ret_type = parseType(args[2]) orelse return PrimitiveError.TypeError;
+    const ret_type = parseType(args[2]) orelse return primitives.typeError("ffi-callback", "valid FFI type symbol", args[2]);
 
     const sig = matchCallbackSig(param_types[0..param_count], ret_type) orelse {
         const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError; // bare-ok: no VM
         vm.setErrorDetail("ffi-callback: unsupported callback signature", .{});
-        return PrimitiveError.TypeError;
+        return PrimitiveError.TypeError; // bare-ok: detail set above
     };
 
     const slot = ffi_callback.allocSlot(proc, sig) orelse {

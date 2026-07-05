@@ -40,8 +40,8 @@ pub const specs = [_]primitives.PrimSpec{
 // Helpers
 // ---------------------------------------------------------------------------
 
-pub fn getStringSlice(v: Value) PrimitiveError![]const u8 {
-    if (!types.isString(v)) return primitives.typeError("string operation", "string", v);
+pub fn getStringSlice(proc: []const u8, v: Value) PrimitiveError![]const u8 {
+    if (!types.isString(v)) return primitives.typeError(proc, "string", v);
     const str = types.toObject(v).as(types.SchemeString);
     return str.data[0..str.len];
 }
@@ -147,7 +147,7 @@ fn makeStringFn(args: []const Value) PrimitiveError!Value {
 // ---------------------------------------------------------------------------
 
 fn stringRefFn(args: []const Value) PrimitiveError!Value {
-    const data = try getStringSlice(args[0]);
+    const data = try getStringSlice("string-ref", args[0]);
     if (!types.isFixnum(args[1])) return primitives.typeError("string-ref", "exact integer", args[1]);
     const k = types.toFixnum(args[1]);
     const str_len = utf8CodepointCount(data);
@@ -205,7 +205,7 @@ fn stringSetFn(args: []const Value) PrimitiveError!Value {
 
 fn substringFn(args: []const Value) PrimitiveError!Value {
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
-    const data = try getStringSlice(args[0]);
+    const data = try getStringSlice("substring", args[0]);
     if (!types.isFixnum(args[1])) return primitives.typeError("substring", "exact integer", args[1]);
     if (!types.isFixnum(args[2])) return primitives.typeError("substring", "exact integer", args[2]);
     const start_i = types.toFixnum(args[1]);
@@ -227,7 +227,7 @@ fn substringFn(args: []const Value) PrimitiveError!Value {
 
 fn stringCopyFn(args: []const Value) PrimitiveError!Value {
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
-    const data = try getStringSlice(args[0]);
+    const data = try getStringSlice("string-copy", args[0]);
     const cp_count = utf8CodepointCount(data);
     const range = try primitives.parseOptionalRange(args, 1, cp_count, "string-copy");
     const start_cp = range.start;
@@ -252,7 +252,7 @@ fn stringCopyBangFn(args: []const Value) PrimitiveError!Value {
     const at_val = types.toFixnum(args[1]);
     if (at_val < 0) return primitives.typeError("string-copy!", "non-negative integer", args[1]);
     const at_cp: usize = @intCast(at_val);
-    const from_data = try getStringSlice(args[2]);
+    const from_data = try getStringSlice("string-copy!", args[2]);
     const from_cp_count = utf8CodepointCount(from_data);
 
     const range = try primitives.parseOptionalRange(args, 3, from_cp_count, "string-copy!");
@@ -341,7 +341,7 @@ fn stringFillFn(args: []const Value) PrimitiveError!Value {
 
 fn stringToListFn(args: []const Value) PrimitiveError!Value {
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
-    const data = try getStringSlice(args[0]);
+    const data = try getStringSlice("string->list", args[0]);
     const cp_count = utf8CodepointCount(data);
     const range = try primitives.parseOptionalRange(args, 1, cp_count, "string->list");
     const start_cp = range.start;
@@ -438,13 +438,13 @@ fn stringForEachFn(args: []const Value) PrimitiveError!Value {
     if (!types.isProcedure(proc) and !types.isNativeFn(proc)) return primitives.typeError("string-for-each", "procedure", proc);
 
     const str_count = args.len - 1;
-    if (str_count == 0) return PrimitiveError.ArityMismatch;
+    std.debug.assert(str_count > 0);
     if (str_count > 256) return PrimitiveError.ArityMismatch;
 
     // Find minimum codepoint length
     var min_cp_len: usize = std.math.maxInt(usize);
     for (args[1..]) |a| {
-        const data = try getStringSlice(a);
+        const data = try getStringSlice("string-for-each", a);
         const cp_len = utf8CodepointCount(data);
         if (cp_len < min_cp_len) min_cp_len = cp_len;
     }
@@ -452,7 +452,7 @@ fn stringForEachFn(args: []const Value) PrimitiveError!Value {
     var call_args: [256]Value = undefined;
     for (0..min_cp_len) |cp_idx| {
         for (0..str_count) |si| {
-            const data = try getStringSlice(args[1 + si]);
+            const data = try getStringSlice("string-for-each", args[1 + si]);
             const byte_off = utf8IndexToByteOffset(data, cp_idx) orelse return primitives.typeError("string-for-each", "valid UTF-8 string", args[1 + si]);
             const cp = utf8DecodeAt(data, byte_off) orelse return primitives.typeError("string-for-each", "valid UTF-8 string", args[1 + si]);
             call_args[si] = types.makeChar(cp);
@@ -475,13 +475,13 @@ fn stringMapFn(args: []const Value) PrimitiveError!Value {
     if (!types.isProcedure(proc) and !types.isNativeFn(proc)) return primitives.typeError("string-map", "procedure", proc);
 
     const str_count = args.len - 1;
-    if (str_count == 0) return PrimitiveError.ArityMismatch;
+    std.debug.assert(str_count > 0);
     if (str_count > 256) return PrimitiveError.ArityMismatch;
 
     // Find minimum codepoint length
     var min_cp_len: usize = std.math.maxInt(usize);
     for (args[1..]) |a| {
-        const data = try getStringSlice(a);
+        const data = try getStringSlice("string-map", a);
         const cp_len = utf8CodepointCount(data);
         if (cp_len < min_cp_len) min_cp_len = cp_len;
     }
@@ -493,7 +493,7 @@ fn stringMapFn(args: []const Value) PrimitiveError!Value {
     var call_args: [256]Value = undefined;
     for (0..min_cp_len) |cp_idx| {
         for (0..str_count) |si| {
-            const data = try getStringSlice(args[1 + si]);
+            const data = try getStringSlice("string-map", args[1 + si]);
             const byte_off = utf8IndexToByteOffset(data, cp_idx) orelse return primitives.typeError("string-map", "valid UTF-8 string", args[1 + si]);
             const cp = utf8DecodeAt(data, byte_off) orelse return primitives.typeError("string-map", "valid UTF-8 string", args[1 + si]);
             call_args[si] = types.makeChar(cp);
@@ -517,8 +517,8 @@ fn stringMapFn(args: []const Value) PrimitiveError!Value {
 
 fn compareStrings(args: []const Value, comptime cmp: enum { lt, le, eq, ge, gt }) PrimitiveError!Value {
     for (0..args.len - 1) |i| {
-        const a = try getStringSlice(args[i]);
-        const b = try getStringSlice(args[i + 1]);
+        const a = try getStringSlice("string-compare", args[i]);
+        const b = try getStringSlice("string-compare", args[i + 1]);
         const order = std.mem.order(u8, a, b);
         const pass = switch (cmp) {
             .lt => order == .lt,
@@ -576,7 +576,7 @@ fn numberToStringFn(args: []const Value) PrimitiveError!Value {
 fn stringToNumberFn(args: []const Value) PrimitiveError!Value {
     if (!types.isString(args[0])) return primitives.typeError("string->number", "string", args[0]);
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
-    const s = try getStringSlice(args[0]);
+    const s = try getStringSlice("string->number", args[0]);
 
     if (std.mem.eql(u8, s, "+inf.0")) return types.makeFlonum(std.math.inf(f64));
     if (std.mem.eql(u8, s, "-inf.0")) return types.makeFlonum(-std.math.inf(f64));

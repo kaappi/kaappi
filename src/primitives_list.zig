@@ -354,12 +354,13 @@ fn mapFn(args: []const Value) PrimitiveError!Value {
     if (!types.isProcedure(proc) and !types.isNativeFn(proc)) return primitives.typeError("map", "procedure", proc);
 
     const list_count = args.len - 1;
-    if (list_count == 0) return PrimitiveError.ArityMismatch;
+    std.debug.assert(list_count > 0);
 
     // Build result list incrementally (rooted head + tail)
     var result_head: Value = types.NIL;
     gc.pushRoot(&result_head);
     defer gc.popRoot();
+
     var result_tail: Value = types.NIL;
     gc.pushRoot(&result_tail);
     defer gc.popRoot();
@@ -424,7 +425,7 @@ fn forEachFn(args: []const Value) PrimitiveError!Value {
     if (!types.isProcedure(proc) and !types.isNativeFn(proc)) return primitives.typeError("for-each", "procedure", proc);
 
     const list_count = args.len - 1;
-    if (list_count == 0) return PrimitiveError.ArityMismatch;
+    std.debug.assert(list_count > 0);
 
     // Current pointers for each list
     var currents: [256]Value = undefined;

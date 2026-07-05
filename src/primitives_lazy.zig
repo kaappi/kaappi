@@ -99,5 +99,5 @@ fn forceFn(args: []const Value) PrimitiveError!Value {
         return result;
     }
 
-    return PrimitiveError.TypeError;
+    return primitives.typeError("force", "non-circular promise chain", args[0]);
 }

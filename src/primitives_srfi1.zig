@@ -151,7 +151,7 @@ fn foldFn(args: []const Value) PrimitiveError!Value {
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const proc = args[0];
     var acc = args[1];
-    if (args.len < 3) return PrimitiveError.ArityMismatch;
+    std.debug.assert(args.len >= 3);
 
     gc.pushRoot(&acc);
     defer gc.popRoot();
@@ -171,7 +171,7 @@ fn foldRightFn(args: []const Value) PrimitiveError!Value {
     const proc = args[0];
     const init = args[1];
     const list_count = args.len - 2;
-    if (list_count == 0) return PrimitiveError.ArityMismatch;
+    std.debug.assert(list_count > 0);
 
     // For fold-right, we need to collect all elements first
     // Collect elements from each list
@@ -394,7 +394,7 @@ fn findTailFn(args: []const Value) PrimitiveError!Value {
 // (any pred list1 ...) — returns first truthy pred result
 fn anyFn(args: []const Value) PrimitiveError!Value {
     const pred = args[0];
-    if (args.len < 2) return PrimitiveError.ArityMismatch;
+    std.debug.assert(args.len >= 2);
 
     var iter = MultiListIter.init(args[1..], false);
     while (try iter.next("any")) |call_args| {
@@ -408,7 +408,7 @@ fn anyFn(args: []const Value) PrimitiveError!Value {
 // (every pred list1 ...) — returns last truthy result or #f
 fn everyFn(args: []const Value) PrimitiveError!Value {
     const pred = args[0];
-    if (args.len < 2) return PrimitiveError.ArityMismatch;
+    std.debug.assert(args.len >= 2);
 
     var iter = MultiListIter.init(args[1..], false);
     var last_result: Value = types.TRUE;
@@ -424,7 +424,7 @@ fn everyFn(args: []const Value) PrimitiveError!Value {
 // (count pred list1 ...) — count satisfying elements
 fn countFn(args: []const Value) PrimitiveError!Value {
     const pred = args[0];
-    if (args.len < 2) return PrimitiveError.ArityMismatch;
+    std.debug.assert(args.len >= 2);
 
     var iter = MultiListIter.init(args[1..], false);
     var n: i64 = 0;
@@ -645,7 +645,7 @@ fn dropWhileFn(args: []const Value) PrimitiveError!Value {
 fn filterMapFn(args: []const Value) PrimitiveError!Value {
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const proc = args[0];
-    if (args.len < 2) return PrimitiveError.ArityMismatch;
+    std.debug.assert(args.len >= 2);
 
     var results: std.ArrayList(Value) = .empty;
     defer results.deinit(gc.allocator);
@@ -669,7 +669,7 @@ fn filterMapFn(args: []const Value) PrimitiveError!Value {
 fn appendMapFn(args: []const Value) PrimitiveError!Value {
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const proc = args[0];
-    if (args.len < 2) return PrimitiveError.ArityMismatch;
+    std.debug.assert(args.len >= 2);
 
     var all_elems: std.ArrayList(Value) = .empty;
     defer all_elems.deinit(gc.allocator);
@@ -929,7 +929,7 @@ fn xconsFn(args: []const Value) PrimitiveError!Value {
 // (cons* a1 a2 ... an) — like list but last element is tail
 fn consStarFn(args: []const Value) PrimitiveError!Value {
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
-    if (args.len == 0) return PrimitiveError.ArityMismatch;
+    std.debug.assert(args.len > 0);
     if (args.len == 1) return args[0];
     var result = args[args.len - 1];
     gc.pushRoot(&result);
@@ -1195,7 +1195,7 @@ fn splitAtFn(args: []const Value) PrimitiveError!Value {
 // (list-index pred list1 ...) — index of first match
 fn listIndexFn(args: []const Value) PrimitiveError!Value {
     const pred = args[0];
-    if (args.len < 2) return PrimitiveError.ArityMismatch;
+    std.debug.assert(args.len >= 2);
 
     var iter = MultiListIter.init(args[1..], false);
     var idx: i64 = 0;
@@ -1657,7 +1657,7 @@ fn unzip2Fn(args: []const Value) PrimitiveError!Value {
 // (pair-for-each proc list1 ...) — like for-each but passes pairs not elements
 fn pairForEachFn(args: []const Value) PrimitiveError!Value {
     const proc = args[0];
-    if (args.len < 2) return PrimitiveError.ArityMismatch;
+    std.debug.assert(args.len >= 2);
 
     var iter = MultiListIter.init(args[1..], true);
     while (try iter.next("pair-for-each")) |call_args| {
@@ -1672,7 +1672,7 @@ fn pairFoldFn(args: []const Value) PrimitiveError!Value {
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const proc = args[0];
     var acc = args[1];
-    if (args.len < 3) return PrimitiveError.ArityMismatch;
+    std.debug.assert(args.len >= 3);
 
     gc.pushRoot(&acc);
     defer gc.popRoot();
@@ -1692,7 +1692,7 @@ fn pairFoldRightFn(args: []const Value) PrimitiveError!Value {
     const proc = args[0];
     const init = args[1];
     const list_count = args.len - 2;
-    if (list_count == 0) return PrimitiveError.ArityMismatch;
+    std.debug.assert(list_count > 0);
 
     var all_pairs: [256]std.ArrayList(Value) = undefined;
     for (0..list_count) |i| all_pairs[i] = .empty;
@@ -1729,7 +1729,7 @@ fn pairFoldRightFn(args: []const Value) PrimitiveError!Value {
 fn mapInOrderFn(args: []const Value) PrimitiveError!Value {
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const proc = args[0];
-    if (args.len < 2) return PrimitiveError.ArityMismatch;
+    std.debug.assert(args.len >= 2);
 
     var results: std.ArrayList(Value) = .empty;
     defer results.deinit(gc.allocator);
