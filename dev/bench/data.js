@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783223508965,
+  "lastUpdate": 1783223520994,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "d0414d88001d2b558172da54d09add60cd13908f",
-          "message": "Signal read-error? when read hits EOF mid-datum (R7RS 6.13.2) (#977)\n\n(read port) returned the EOF object whenever the reader ran out of\ninput, even when end of file interrupted an incomplete datum like\n\"(unclosed\" or an unterminated string. R7RS 6.13.2 requires an error\nsatisfying read-error? in that case; only EOF before any datum text\nbegins may return the EOF object. The file-loading path already\nreported such input as a read error — the deviation was specific to\nthe read procedure, on both string ports and file-descriptor ports.\n\nDistinguish the two cases with Reader.hasMore(): if only whitespace\nand comments remain, return the EOF object as before; otherwise a\ndatum has begun and any reader failure — now including UnexpectedEof —\nraises a read error. An OutOfMemory from the reader now propagates as\nan allocation failure instead of masquerading as end of input.\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-03T14:21:52Z",
-          "tree_id": "14ac1a1b33e1e1bee8dc4a7187322cfd8e83cc33",
-          "url": "https://github.com/kaappi/kaappi/commit/d0414d88001d2b558172da54d09add60cd13908f"
-        },
-        "date": 1783089417002,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.423152,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.099809,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.843341,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.235674,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006384,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.032829,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.495102,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.068828,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 4.104372,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.806804,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.151471,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.436479,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.781436,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.694006,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.041752,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.046942,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "baf276b9ffde181939239ccb82630cdef01306d7",
+          "message": "Consolidate writeToFd/writeStdout/writeStderr into reporting.zig (#1067) (#1131)\n\nNine copies of the write-with-retry loop existed across the interpreter,\nwith thottam.zig missing EINTR handling entirely. Consolidate to one pub\nimplementation in reporting.zig, re-exported through vm.zig and\nprimitives_io.zig for backward compat. Fix thottam's own copy (separate\nbinary) to retry on EINTR. Also replace an inline write loop in\nreporting.zig's XML coverage output with a writeToFd call.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-05T08:59:19+05:30",
+          "tree_id": "9dc6bc9f9c3a11c7c2c864f6c94a438371e38491",
+          "url": "https://github.com/kaappi/kaappi/commit/baf276b9ffde181939239ccb82630cdef01306d7"
+        },
+        "date": 1783223520379,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.937268,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.959489,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.957216,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.215701,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.013817,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.235287,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.467778,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.067686,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 13.493247,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.814305,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 11.12702,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 1.067095,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 9.118356,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.762608,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044712,
             "unit": "seconds"
           }
         ]
