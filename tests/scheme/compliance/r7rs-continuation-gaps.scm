@@ -1,8 +1,7 @@
 ;; R7RS continuation-interaction gap tests — audit Phase 4B.
 ;; call/cc x dynamic-wind / guard / parameterize / multiple values.
-;; All state mutated across a continuation re-entry lives in globals:
-;; set! of register-allocated locals is rolled back on re-entry (#1168),
-;; and that bug class turns these tests into infinite loops.
+;; State mutated across continuation re-entry lives in globals (a style
+;; choice — #1168 fixed set! register rollback, so locals would also work).
 ;; Spec references cite docs/errata-corrected-r7rs.pdf sections 6.10/6.11.
 
 (import (scheme base) (scheme write) (scheme process-context) (srfi 64))

@@ -282,6 +282,10 @@ pub fn compileLambdaWithIR(self: *Compiler, args: Value, dst: u16, name: ?[]cons
     child.func.name = name;
     child.scope_depth = 1;
 
+    for (child.locals.items) |local| {
+        try child.boxIfSetTarget(local.name, local.slot);
+    }
+
     const saved_body_scope = child.in_body_scope;
     child.in_body_scope = true;
 
