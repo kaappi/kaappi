@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783241745836,
+  "lastUpdate": 1783242067686,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "6dabe8d65fd6d4ad7a88d1e638cd1647904e20af",
-          "message": "Reject invalid --timeout and --max-memory values instead of silently ignoring them (#787) (#989)\n\n`catch 0` on parseInt silently dropped non-numeric, zero, and negative\nvalues — the resource limit the user asked for was never applied.\nReplace with explicit error reporting (exit 2) consistent with the\nmissing-argument handling added in #778.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-03T18:57:54Z",
-          "tree_id": "8ee989b2556ac8d87fbb76e45657e079a79e1263",
-          "url": "https://github.com/kaappi/kaappi/commit/6dabe8d65fd6d4ad7a88d1e638cd1647904e20af"
-        },
-        "date": 1783105980530,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.408348,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.377874,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.878778,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.303588,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006382,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.033368,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.472475,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.071249,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 4.080033,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.844023,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.188143,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.42788,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.799232,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.656909,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044718,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.043055,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d270c399d249c6be32226a11d6aad979f82f6505",
+          "message": "Phase 2.1: SRFI-18 primitives audit tests (#1157)\n\n* Add primitives_srfi18.zig audit tests (audit Phase 2.1)\n\n73 assertions covering the SRFI-18 surface beyond the existing\nsrfi18*.scm suite: type-error catchability for every accessor,\nthread lifecycle rules (double-start, self-join, timeout-val,\njoin-timeout exceptions), thread-sleep! edge cases (zero, negative,\nrational, past time objects), mutex state transitions, condvar\nno-waiter signal/broadcast, time conversion round-trips, and\nexception predicate discrimination.\n\nFour assertions disabled with FAIL markers:\n- #1153 mutex-lock! with timeout on a locked mutex steals the lock\n  (and the same scheduler-dry bug makes timed condvar waits in\n  mutex-unlock! return #t immediately)\n- #1154 explicit #f thread argument assigns current thread as owner\n- #1155 make-thread rejects native procedures\n\nAlso filed #1156: this file crashes with a deterministic SIGSEGV in\nminor-GC marking under -Dgc-stress=true (stale root after thread\nstart/join cycles); it passes 73/0 on the default build. Part of\nthe #1137 audit campaign.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n* Check off Phase 2.1 in the audit tracker\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-05T08:40:06Z",
+          "tree_id": "2c5bf445b824abcf413b18fec46ecaf583580b09",
+          "url": "https://github.com/kaappi/kaappi/commit/d270c399d249c6be32226a11d6aad979f82f6505"
+        },
+        "date": 1783242066376,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.321337,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.741155,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.936911,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.058831,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.012572,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.211579,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.469972,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.070111,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 12.387336,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.821625,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 9.948298,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.972851,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 8.31276,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.699261,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.04296,
             "unit": "seconds"
           }
         ]
