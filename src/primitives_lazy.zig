@@ -56,7 +56,7 @@ fn forceFn(args: []const Value) PrimitiveError!Value {
 
         const result = vm.callWithArgs(thunk, &[_]Value{}) catch |err| {
             promise.forcing = false;
-            return primitives.mapVMError(err);
+            return err;
         };
 
         // SRFI-45 §8: after the thunk returns, check if another force

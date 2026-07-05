@@ -11,24 +11,7 @@ pub const vm_library = @import("vm_library.zig");
 pub const vm_records = @import("vm_records.zig");
 pub const vm_continuations = @import("vm_continuations.zig");
 
-pub const VMError = error{
-    StackOverflow,
-    TypeError,
-    ArityMismatch,
-    UndefinedVariable,
-    NotAProcedure,
-    OutOfMemory,
-    InvalidBytecode,
-    DivisionByZero,
-    CompileError,
-    ExceptionRaised,
-    ContinuationInvoked,
-    IndexOutOfBounds,
-    InvalidArgument,
-    Yielded,
-    ExecutionTimeout,
-    Terminated,
-};
+pub const VMError = @import("errors.zig").KaappiError;
 
 pub const INITIAL_FRAME_CAPACITY = types.INITIAL_FRAME_CAPACITY;
 pub const INITIAL_REGISTER_CAPACITY = types.INITIAL_REGISTER_CAPACITY;

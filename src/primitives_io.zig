@@ -893,7 +893,7 @@ fn callWithInputFile(args: []const Value) PrimitiveError!Value {
     const result = vm.callWithArgs(args[1], &[_]Value{port_val}) catch |err| {
         // Close port on error
         _ = closePort(&[_]Value{port_val}) catch {};
-        return primitives.mapVMError(err);
+        return err;
     };
     // Close port
     _ = try closePort(&[_]Value{port_val});
@@ -906,7 +906,7 @@ fn callWithOutputFile(args: []const Value) PrimitiveError!Value {
     const port_val = try openOutputFile(&[_]Value{args[0]});
     const result = vm.callWithArgs(args[1], &[_]Value{port_val}) catch |err| {
         _ = closePort(&[_]Value{port_val}) catch {};
-        return primitives.mapVMError(err);
+        return err;
     };
     _ = try closePort(&[_]Value{port_val});
     return result;
@@ -918,7 +918,7 @@ fn callWithPort(args: []const Value) PrimitiveError!Value {
     const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError; // bare-ok: no VM
     const result = vm.callWithArgs(args[1], &[_]Value{args[0]}) catch |err| {
         _ = closePort(&[_]Value{args[0]}) catch {};
-        return primitives.mapVMError(err);
+        return err;
     };
     _ = try closePort(&[_]Value{args[0]});
     return result;
@@ -933,7 +933,7 @@ fn withInputFromFile(args: []const Value) PrimitiveError!Value {
     const result = vm.callWithArgs(args[1], &[_]Value{}) catch |err| {
         setCurrentPort(vm, vm.current_input_port_param, saved);
         _ = closePort(&[_]Value{port_val}) catch {};
-        return primitives.mapVMError(err);
+        return err;
     };
     setCurrentPort(vm, vm.current_input_port_param, saved);
     _ = try closePort(&[_]Value{port_val});
@@ -949,7 +949,7 @@ fn withOutputToFile(args: []const Value) PrimitiveError!Value {
     const result = vm.callWithArgs(args[1], &[_]Value{}) catch |err| {
         setCurrentPort(vm, vm.current_output_port_param, saved);
         _ = closePort(&[_]Value{port_val}) catch {};
-        return primitives.mapVMError(err);
+        return err;
     };
     setCurrentPort(vm, vm.current_output_port_param, saved);
     _ = try closePort(&[_]Value{port_val});

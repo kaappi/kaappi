@@ -252,12 +252,32 @@ fn mainFiberResult(sched: *fiber_mod.FiberScheduler) Value {
     return types.VOID;
 }
 
-pub fn handleNativeError(_: *VM, err: anyerror, _: u32, _: u8) VMError {
+pub fn mapNativeError(vm: *VM, err: anyerror, name: []const u8, args: []const Value) VMError {
     return switch (err) {
-        error.TypeError => VMError.TypeError,
+        error.TypeError => blk: {
+            if (vm.last_error_detail_len == 0) {
+                if (args.len > 0) {
+                    const p = @import("printer.zig");
+                    const s = p.valueToString(vm.gc.allocator, args[0], .write) catch "";
+                    defer if (s.len > 0) vm.gc.allocator.free(s);
+                    vm.setErrorDetail("type error in '{s}': got {s}", .{ name, s });
+                } else {
+                    vm.setErrorDetail("type error in '{s}'", .{name});
+                }
+            }
+            break :blk VMError.TypeError;
+        },
         error.DivisionByZero => VMError.DivisionByZero,
-        error.IndexOutOfBounds => VMError.IndexOutOfBounds,
-        error.InvalidArgument => VMError.InvalidArgument,
+        error.IndexOutOfBounds => blk_iob: {
+            if (vm.last_error_detail_len == 0)
+                vm.setErrorDetail("index out of bounds in '{s}'", .{name});
+            break :blk_iob VMError.IndexOutOfBounds;
+        },
+        error.InvalidArgument => blk_ia: {
+            if (vm.last_error_detail_len == 0)
+                vm.setErrorDetail("invalid argument in '{s}'", .{name});
+            break :blk_ia VMError.InvalidArgument;
+        },
         error.OutOfMemory => VMError.OutOfMemory,
         error.ExceptionRaised => VMError.ExceptionRaised,
         error.ContinuationInvoked => VMError.ContinuationInvoked,
@@ -462,45 +482,7 @@ pub fn callNative(vm: *VM, native: *types.NativeFn, base: u32, nargs: u8) VMErro
             vm.profile_last_ns = clockNs();
             vm.gc.profile_alloc_target = saved_alloc_target;
         }
-        return switch (err) {
-            error.TypeError => blk: {
-                if (vm.last_error_detail_len == 0) {
-                    if (args.len > 0) {
-                        const p = @import("printer.zig");
-                        const s = p.valueToString(vm.gc.allocator, args[0], .write) catch "";
-                        defer if (s.len > 0) vm.gc.allocator.free(s);
-                        vm.setErrorDetail("type error in '{s}': got {s}", .{ native.name, s });
-                    } else {
-                        vm.setErrorDetail("type error in '{s}'", .{native.name});
-                    }
-                }
-                break :blk VMError.TypeError;
-            },
-            error.DivisionByZero => VMError.DivisionByZero,
-            error.IndexOutOfBounds => blk_iob: {
-                if (vm.last_error_detail_len == 0)
-                    vm.setErrorDetail("index out of bounds in '{s}'", .{native.name});
-                break :blk_iob VMError.IndexOutOfBounds;
-            },
-            error.InvalidArgument => blk_ia: {
-                if (vm.last_error_detail_len == 0)
-                    vm.setErrorDetail("invalid argument in '{s}'", .{native.name});
-                break :blk_ia VMError.InvalidArgument;
-            },
-            error.OutOfMemory => VMError.OutOfMemory,
-            error.ExceptionRaised => VMError.ExceptionRaised,
-            error.ContinuationInvoked => VMError.ContinuationInvoked,
-            error.Yielded => VMError.Yielded,
-            error.ArityMismatch => VMError.ArityMismatch,
-            error.StackOverflow => VMError.StackOverflow,
-            error.UndefinedVariable => VMError.UndefinedVariable,
-            error.NotAProcedure => VMError.NotAProcedure,
-            error.InvalidBytecode => VMError.InvalidBytecode,
-            error.CompileError => VMError.CompileError,
-            error.ExecutionTimeout => VMError.ExecutionTimeout,
-            error.Terminated => VMError.Terminated,
-            else => VMError.InvalidBytecode,
-        };
+        return mapNativeError(vm, err, native.name, args);
     };
 
     if (vm.profile_mode) {
@@ -591,35 +573,7 @@ pub fn callHandler(vm: *VM, handler_val: Value, arg: Value, return_dst: u8) VMEr
         const args = [1]Value{arg};
         vm.last_error_detail_len = 0;
         const result = native.func(&args) catch |err| {
-            return switch (err) {
-                error.TypeError => blk: {
-                    if (vm.last_error_detail_len == 0) {
-                        if (args.len > 0) {
-                            const p = @import("printer.zig");
-                            const s = p.valueToString(vm.gc.allocator, args[0], .write) catch "";
-                            defer if (s.len > 0) vm.gc.allocator.free(s);
-                            vm.setErrorDetail("type error in '{s}': got {s}", .{ native.name, s });
-                        } else {
-                            vm.setErrorDetail("type error in '{s}'", .{native.name});
-                        }
-                    }
-                    break :blk VMError.TypeError;
-                },
-                error.DivisionByZero => VMError.DivisionByZero,
-                error.IndexOutOfBounds => blk_iob: {
-                    if (vm.last_error_detail_len == 0)
-                        vm.setErrorDetail("index out of bounds in '{s}'", .{native.name});
-                    break :blk_iob VMError.IndexOutOfBounds;
-                },
-                error.InvalidArgument => blk_ia: {
-                    vm.setErrorDetail("invalid argument in '{s}'", .{native.name});
-                    break :blk_ia VMError.InvalidArgument;
-                },
-                error.OutOfMemory => VMError.OutOfMemory,
-                error.ExceptionRaised => VMError.ExceptionRaised,
-                error.ContinuationInvoked => VMError.ContinuationInvoked,
-                else => VMError.InvalidBytecode,
-            };
+            return mapNativeError(vm, err, native.name, &args);
         };
         return result;
     } else {
@@ -645,22 +599,7 @@ pub fn callThunk(vm: *VM, thunk_val: Value) VMError!Value {
         const native = types.toObject(thunk_val).as(types.NativeFn);
         const empty_args: []const Value = &.{};
         const result = native.func(empty_args) catch |err| {
-            return switch (err) {
-                error.TypeError => VMError.TypeError,
-                error.DivisionByZero => VMError.DivisionByZero,
-                error.IndexOutOfBounds => blk_iob: {
-                    vm.setErrorDetail("index out of bounds in '{s}'", .{native.name});
-                    break :blk_iob VMError.IndexOutOfBounds;
-                },
-                error.InvalidArgument => blk_ia: {
-                    vm.setErrorDetail("invalid argument in '{s}'", .{native.name});
-                    break :blk_ia VMError.InvalidArgument;
-                },
-                error.OutOfMemory => VMError.OutOfMemory,
-                error.ExceptionRaised => VMError.ExceptionRaised,
-                error.ContinuationInvoked => VMError.ContinuationInvoked,
-                else => VMError.InvalidBytecode,
-            };
+            return mapNativeError(vm, err, native.name, empty_args);
         };
         return result;
     } else {
@@ -754,36 +693,7 @@ pub fn callWithArgs(vm: *VM, proc: Value, args: []const Value) VMError!Value {
         }
         vm.last_error_detail_len = 0;
         const result = native.func(args) catch |err| {
-            return switch (err) {
-                error.TypeError => blk: {
-                    if (vm.last_error_detail_len == 0) {
-                        if (args.len > 0) {
-                            const p = @import("printer.zig");
-                            const s = p.valueToString(vm.gc.allocator, args[0], .write) catch "";
-                            defer if (s.len > 0) vm.gc.allocator.free(s);
-                            vm.setErrorDetail("type error in '{s}': got {s}", .{ native.name, s });
-                        } else {
-                            vm.setErrorDetail("type error in '{s}'", .{native.name});
-                        }
-                    }
-                    break :blk VMError.TypeError;
-                },
-                error.DivisionByZero => VMError.DivisionByZero,
-                error.IndexOutOfBounds => blk_iob: {
-                    if (vm.last_error_detail_len == 0)
-                        vm.setErrorDetail("index out of bounds in '{s}'", .{native.name});
-                    break :blk_iob VMError.IndexOutOfBounds;
-                },
-                error.InvalidArgument => blk_ia: {
-                    vm.setErrorDetail("invalid argument in '{s}'", .{native.name});
-                    break :blk_ia VMError.InvalidArgument;
-                },
-                error.OutOfMemory => VMError.OutOfMemory,
-                error.ExceptionRaised => VMError.ExceptionRaised,
-                error.ContinuationInvoked => VMError.ContinuationInvoked,
-                error.Yielded => VMError.Yielded,
-                else => VMError.InvalidBytecode,
-            };
+            return mapNativeError(vm, err, native.name, args);
         };
         return result;
     } else {

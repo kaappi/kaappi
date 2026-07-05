@@ -22,45 +22,7 @@ const primitives_hashtable = @import("primitives_hashtable.zig");
 const primitives_random = @import("primitives_random.zig");
 const primitives_filesystem = @import("primitives_filesystem.zig");
 
-pub const PrimitiveError = error{
-    TypeError,
-    DivisionByZero,
-    ArityMismatch,
-    OutOfMemory,
-    ExceptionRaised,
-    ContinuationInvoked,
-    IndexOutOfBounds,
-    InvalidArgument,
-    Yielded,
-    StackOverflow,
-    UndefinedVariable,
-    NotAProcedure,
-    InvalidBytecode,
-    CompileError,
-    ExecutionTimeout,
-    Terminated,
-};
-
-pub fn mapVMError(err: vm_mod.VMError) PrimitiveError {
-    return switch (err) {
-        vm_mod.VMError.TypeError => PrimitiveError.TypeError,
-        vm_mod.VMError.DivisionByZero => PrimitiveError.DivisionByZero,
-        vm_mod.VMError.ArityMismatch => PrimitiveError.ArityMismatch,
-        vm_mod.VMError.OutOfMemory => PrimitiveError.OutOfMemory,
-        vm_mod.VMError.ExceptionRaised => PrimitiveError.ExceptionRaised,
-        vm_mod.VMError.ContinuationInvoked => PrimitiveError.ContinuationInvoked,
-        vm_mod.VMError.IndexOutOfBounds => PrimitiveError.IndexOutOfBounds,
-        vm_mod.VMError.InvalidArgument => PrimitiveError.InvalidArgument,
-        vm_mod.VMError.Yielded => PrimitiveError.Yielded,
-        vm_mod.VMError.StackOverflow => PrimitiveError.StackOverflow,
-        vm_mod.VMError.UndefinedVariable => PrimitiveError.UndefinedVariable,
-        vm_mod.VMError.NotAProcedure => PrimitiveError.NotAProcedure,
-        vm_mod.VMError.InvalidBytecode => PrimitiveError.InvalidBytecode,
-        vm_mod.VMError.CompileError => PrimitiveError.CompileError,
-        vm_mod.VMError.ExecutionTimeout => PrimitiveError.ExecutionTimeout,
-        vm_mod.VMError.Terminated => PrimitiveError.Terminated,
-    };
-}
+pub const PrimitiveError = @import("errors.zig").KaappiError;
 
 fn registerCore(vm: *vm_mod.VM) !void {
     // Pairs and lists
@@ -678,7 +640,7 @@ fn applyFn(args: []const Value) PrimitiveError!Value {
     }
 
     return vm.callWithArgs(proc, call_args.items) catch |err| {
-        return mapVMError(err);
+        return err;
     };
 }
 
