@@ -336,8 +336,8 @@ fn vectorMapFn(args: []const Value) PrimitiveError!Value {
     const results = gc.allocator.alloc(Value, min_len) catch return PrimitiveError.OutOfMemory;
     defer gc.allocator.free(results);
 
-    const roots_base = gc.extra_roots.items.len;
-    defer gc.extra_roots.shrinkRetainingCapacity(roots_base);
+    const scope = gc.rootedScope();
+    defer scope.release();
 
     var stack_buf: [256]Value = undefined;
     const call_args = if (vec_count > 256)
@@ -670,8 +670,8 @@ fn vectorUnfoldFn(args: []const Value) PrimitiveError!Value {
     const new_data = gc.allocator.alloc(Value, length) catch return PrimitiveError.OutOfMemory;
     defer gc.allocator.free(new_data);
 
-    const roots_base = gc.extra_roots.items.len;
-    defer gc.extra_roots.shrinkRetainingCapacity(roots_base);
+    const scope = gc.rootedScope();
+    defer scope.release();
 
     const call_count = 1 + seeds.items.len;
     var stack_buf: [257]Value = undefined;
@@ -726,8 +726,8 @@ fn vectorUnfoldRightFn(args: []const Value) PrimitiveError!Value {
     const new_data = gc.allocator.alloc(Value, length) catch return PrimitiveError.OutOfMemory;
     defer gc.allocator.free(new_data);
 
-    const roots_base = gc.extra_roots.items.len;
-    defer gc.extra_roots.shrinkRetainingCapacity(roots_base);
+    const scope = gc.rootedScope();
+    defer scope.release();
 
     const call_count = 1 + seeds.items.len;
     var stack_buf_r: [257]Value = undefined;
@@ -824,8 +824,8 @@ fn vectorCumulateFn(args: []const Value) PrimitiveError!Value {
     const vec = types.toVector(args[2]);
     const new_data = gc.allocator.alloc(Value, vec.data.len) catch return PrimitiveError.OutOfMemory;
     defer gc.allocator.free(new_data);
-    const roots_base = gc.extra_roots.items.len;
-    defer gc.extra_roots.shrinkRetainingCapacity(roots_base);
+    const scope = gc.rootedScope();
+    defer scope.release();
     for (0..vec.data.len) |i| {
         const call_args_buf = [2]Value{ acc, vec.data[i] };
         acc = try callVM(f, &call_args_buf);
@@ -850,8 +850,8 @@ fn vectorPartitionFn(args: []const Value) PrimitiveError!Value {
     // element whose only remaining reference is the yes/no accumulator. Those
     // lists are invisible to the GC, so root every classified element to keep
     // it alive across later predicate calls (which can trigger collection).
-    const roots_base = gc.extra_roots.items.len;
-    defer gc.extra_roots.shrinkRetainingCapacity(roots_base);
+    const scope = gc.rootedScope();
+    defer scope.release();
 
     for (vec.data) |elem| {
         const call_args_buf = [1]Value{elem};

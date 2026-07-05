@@ -679,8 +679,8 @@ fn filterMapFn(args: []const Value) PrimitiveError!Value {
 
     var results: std.ArrayList(Value) = .empty;
     defer results.deinit(gc.allocator);
-    const roots_base = gc.extra_roots.items.len;
-    defer gc.extra_roots.shrinkRetainingCapacity(roots_base);
+    const scope = gc.rootedScope();
+    defer scope.release();
 
     var iter = MultiListIter.init(args[1..], false);
     while (try iter.next("filter-map")) |call_args| {
@@ -703,8 +703,8 @@ fn appendMapFn(args: []const Value) PrimitiveError!Value {
 
     var all_elems: std.ArrayList(Value) = .empty;
     defer all_elems.deinit(gc.allocator);
-    const roots_base = gc.extra_roots.items.len;
-    defer gc.extra_roots.shrinkRetainingCapacity(roots_base);
+    const scope = gc.rootedScope();
+    defer scope.release();
 
     var iter = MultiListIter.init(args[1..], false);
     while (try iter.next("append-map")) |call_args| {
@@ -1532,8 +1532,8 @@ fn unfoldFn(args: []const Value) PrimitiveError!Value {
 
     var elems: std.ArrayList(Value) = .empty;
     defer elems.deinit(gc.allocator);
-    const roots_base = gc.extra_roots.items.len;
-    defer gc.extra_roots.shrinkRetainingCapacity(roots_base);
+    const scope = gc.rootedScope();
+    defer scope.release();
     gc.pushRoot(&seed);
     defer gc.popRoot();
 
@@ -1763,8 +1763,8 @@ fn mapInOrderFn(args: []const Value) PrimitiveError!Value {
 
     var results: std.ArrayList(Value) = .empty;
     defer results.deinit(gc.allocator);
-    const extra_roots_base = gc.extra_roots.items.len;
-    defer gc.extra_roots.shrinkRetainingCapacity(extra_roots_base);
+    const scope = gc.rootedScope();
+    defer scope.release();
 
     var iter = MultiListIter.init(args[1..], false);
     while (try iter.next("map-in-order")) |call_args| {
