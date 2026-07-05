@@ -309,9 +309,7 @@ pub fn compileNamedLet(self: *Compiler, args: Value, dst: u16, is_tail: bool) Co
         }
         call_expr = self.gc.allocPair(unique_sym, call_expr) catch return CompileError.OutOfMemory;
     }
-    self.gc.pushRoot(&call_expr) catch return CompileError.OutOfMemory;
-    defer self.gc.popRoot();
-    try self.compileExpr(call_expr, dst, is_tail);
+    try self.compileDesugared(call_expr, dst, is_tail);
 
     self.endScope();
 }
@@ -615,7 +613,7 @@ pub fn compileLetValues(self: *Compiler, args: Value, dst: u16, is_tail: bool) C
 
     // Build the nested apply chain under no_collect: `inner` is a growing
     // tree of fresh unrooted pairs and every iteration allocates (issue #1010).
-    var desugared: Value = blk: {
+    const desugared: Value = blk: {
         gc.no_collect += 1;
         defer gc.no_collect -= 1;
 
@@ -635,9 +633,7 @@ pub fn compileLetValues(self: *Compiler, args: Value, dst: u16, is_tail: bool) C
         break :blk inner;
     };
 
-    try gc.pushRoot(&desugared);
-    defer gc.popRoot();
-    try self.compileExpr(desugared, dst, is_tail);
+    try self.compileDesugared(desugared, dst, is_tail);
     self.endScope();
 }
 
@@ -649,13 +645,11 @@ pub fn compileLetStarValues(self: *Compiler, args: Value, dst: u16, is_tail: boo
     const body = types.cdr(args);
     if (body == types.NIL) return CompileError.InvalidSyntax;
 
-    var desugared = buildLetValues(self, bindings, body) catch |err| return switch (err) {
+    const desugared = buildLetValues(self, bindings, body) catch |err| return switch (err) {
         error.InvalidSyntax => CompileError.InvalidSyntax,
         else => CompileError.OutOfMemory,
     };
-    try self.gc.pushRoot(&desugared);
-    defer self.gc.popRoot();
-    return self.compileExpr(desugared, dst, is_tail);
+    return self.compileDesugared(desugared, dst, is_tail);
 }
 
 /// Build nested call-with-values for a list of bindings.
