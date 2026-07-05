@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783276367742,
+  "lastUpdate": 1783276423741,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "3e65aebfee372f5f7a97b148bf39495c6d4a84cc",
-          "message": "Fix Unicode reader gaps and fold-case for non-ASCII identifiers (#920) (#1004)\n\nThe reader's isUnicodeLetter was missing several bicameral scripts\n(Cherokee, Georgian Mtavruli, Coptic, Glagolitic, Deseret, Osage,\nWarang Citi, Adlam), preventing them from being used as bare\nidentifiers. Add these ranges and a fallback to the Unicode case\ntables so any cased letter is recognized.\n\nThe #!fold-case directive used std.ascii.toLower byte-by-byte, so\nnon-ASCII identifiers were never folded. Replace with UTF-8-aware\ndecoding that applies charFoldcase per codepoint.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-03T21:39:18Z",
-          "tree_id": "691d219e89913c7c3bc40d7cf05c175d7bf34b67",
-          "url": "https://github.com/kaappi/kaappi/commit/3e65aebfee372f5f7a97b148bf39495c6d4a84cc"
-        },
-        "date": 1783115809464,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 5.959407,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.714738,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.842484,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.299795,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006397,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.033123,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.477538,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.070285,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 4.131335,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.835647,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.216942,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.429313,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.782278,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.6949,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044955,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.042428,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "acb409b038185941ba8731e584cebf1daceec001",
+          "message": "Add compiler/VM edge-case tests (audit Phases 4A-4C) (#1244)\n\nPhase 4 of the audit campaign (tracking: see #1137): five compliance\nfiles covering proper tail recursion in every R7RS 3.5 context,\nthin-coverage forms, continuation interactions, syntax-rules edges, and\nmacro exports through import sets. 99 passing assertions, 8 disabled\nwith FAIL markers.\n\nFour new issues (see #1240 through #1243):\n- call-with-values consumer, call/cc receiver, and eval are not\n  tail-called as 3.5 requires - each panics uncatchably at native\n  re-entry depth ~1024 (see #1240; crash mechanism is #1191's)\n- let*-values body is not a tail context, even with one binding\n  clause; let-values is fine (see #1241)\n- force caps promise chains at 100,000 iterations and reports longer\n  legitimate delay-force chains as circular (see #1242)\n- doubled-ellipsis templates (x ... ...) expand to garbage containing\n  a literal ... instead of flattening (see #1243)\n\nEverything else conforms: all syntactic 3.5 tail contexts at 1e5-1e6\ndepth, the R7RS 6.10 dynamic-wind re-entry example, multi-shot\ncontinuations, parameterize across re-entry, guard/raise-continuable\nsemantics, be-like-begin, custom ellipsis, vector patterns, macro\nexports through prefix/only/rename/except, cond-expand library\ndeclarations, and circular-import detection.\n\nTracker updated: 4A-4C checked in docs/audit-strategy.md.\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-05T18:09:53Z",
+          "tree_id": "2210db112f7467503c5c7274142fee896af81098",
+          "url": "https://github.com/kaappi/kaappi/commit/acb409b038185941ba8731e584cebf1daceec001"
+        },
+        "date": 1783276422511,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.355125,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.497679,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.946921,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.083963,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.012704,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.212281,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.469117,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.070515,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 12.350501,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.810185,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 9.998305,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.957054,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 8.40985,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.682381,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.042936,
             "unit": "seconds"
           }
         ]
