@@ -101,26 +101,10 @@ pub fn registerIOSandboxed(vm: *vm_mod.VM) !void {
 // Port helpers
 // ---------------------------------------------------------------------------
 
-pub fn writeToFd(fd: std.posix.fd_t, bytes: []const u8) void {
-    var total: usize = 0;
-    while (total < bytes.len) {
-        const result = std.posix.system.write(fd, bytes.ptr + total, bytes.len - total);
-        if (result < 0) {
-            if (std.posix.errno(result) == .INTR) continue;
-            break;
-        }
-        if (result == 0) break;
-        total += @as(usize, @intCast(result));
-    }
-}
-
-pub fn writeStdout(bytes: []const u8) void {
-    writeToFd(1, bytes);
-}
-
-pub fn writeStderr(bytes: []const u8) void {
-    writeToFd(2, bytes);
-}
+const reporting = @import("reporting.zig");
+pub const writeToFd = reporting.writeToFd;
+pub const writeStdout = reporting.writeStdout;
+pub const writeStderr = reporting.writeStderr;
 
 /// Get the output port: use args[arg_idx] if provided, else current-output-port.
 fn getOutputPort(args: []const Value, arg_idx: usize, proc: []const u8) PrimitiveError!*types.Port {

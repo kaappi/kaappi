@@ -6,27 +6,10 @@ const vm_mod = @import("vm.zig");
 const ir_mod = @import("ir.zig");
 const llvm_emit = @import("llvm_emit.zig");
 const file_utils = @import("file_utils.zig");
+const reporting = @import("reporting.zig");
 
-fn writeToFd(fd: std.posix.fd_t, bytes: []const u8) void {
-    var total: usize = 0;
-    while (total < bytes.len) {
-        const result = std.posix.system.write(fd, bytes.ptr + total, bytes.len - total);
-        if (result <= 0) {
-            if (result < 0 and std.posix.errno(result) == .INTR) continue;
-            break;
-        }
-        const written: usize = @intCast(result);
-        total += written;
-    }
-}
-
-fn writeStdout(bytes: []const u8) void {
-    writeToFd(1, bytes);
-}
-
-fn writeStderr(bytes: []const u8) void {
-    writeToFd(2, bytes);
-}
+const writeStdout = reporting.writeStdout;
+const writeStderr = reporting.writeStderr;
 
 pub fn emitLlvmFile(vm: *vm_mod.VM, path: []const u8, output_path: ?[]const u8) !void {
     const allocator = vm.gc.allocator;

@@ -47,26 +47,8 @@ pub const cli = @import("cli.zig");
 
 pub const version = @import("build_options").version;
 
-fn writeToFd(fd: std.posix.fd_t, bytes: []const u8) void {
-    var total: usize = 0;
-    while (total < bytes.len) {
-        const result = std.posix.system.write(fd, bytes.ptr + total, bytes.len - total);
-        if (result <= 0) {
-            if (result < 0 and std.posix.errno(result) == .INTR) continue;
-            break;
-        }
-        const written: usize = @intCast(result);
-        total += written;
-    }
-}
-
-fn writeStdout(bytes: []const u8) void {
-    writeToFd(1, bytes);
-}
-
-fn writeStderr(bytes: []const u8) void {
-    writeToFd(2, bytes);
-}
+const writeStdout = reporting.writeStdout;
+const writeStderr = reporting.writeStderr;
 
 const usageError = cli.usageError;
 
