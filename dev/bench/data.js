@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783264225101,
+  "lastUpdate": 1783264236644,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "1cd5d84bb55442e63b447342fa737ce2cfc690dc",
-          "message": "Accept full unsigned 64-bit range for uint64/size_t FFI arguments (#794) (#992)\n\nThe argument-direction marshaling forced uint64 and size_t parameters\nthrough the signed i64 path (toCheckedInt → toIntArgOpt), rejecting\nany value ≥ 2^63.  The return direction already handled the full\nunsigned range via marshalLongOrUlong; this adds the symmetric path\nfor arguments via toLongArg/toUnsignedArgOpt and fixes checkNarrowIntRange\nto validate unsigned types through the unsigned conversion.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-03T20:09:51Z",
-          "tree_id": "e78eaac850d926a250e163796662b52d81136ed6",
-          "url": "https://github.com/kaappi/kaappi/commit/1cd5d84bb55442e63b447342fa737ce2cfc690dc"
-        },
-        "date": 1783110693636,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.128215,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.93514,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.689633,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.255103,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.005319,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.026384,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.37974,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.054329,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.403329,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.460348,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 0.917382,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.370792,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.316103,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.284763,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.034941,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.042371,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "063744f7f85f88d9eb118208f1b43a0d8c037955",
+          "message": "Add primitives.zig core audit tests (audit Phase 2.18) (#1200)\n\nAudits the core primitives file: pairs/lists, 13 type predicates, the\nequivalence trio, not, core string ops, apply, and the internal record\nprimitives. 196 assertions pass; 4 are disabled with FAIL markers\nawaiting the referenced issues:\n\n- see #1198: reverse, append (non-last args), and the native applyFn\n  hang with unbounded allocation on circular lists, while length/list?\n  use Floyd detection and tail-position apply compiles to a bounded\n  tail_apply opcode - same-expression behavior differs by position\n- see #1199: record accessors/mutators omit the record-type check, so\n  cross-type access silently reads/writes another type's field\n  (non-record arguments do raise)\n\nEverything else conforms: R7RS 6.2.6 predicate examples, eqv?/equal?\nacross the numeric tower (bignum/rational/complex, NaN, -0.0), circular\nequal? termination, append tail sharing, symbol->string immutability,\nUTF-8 codepoint string-length, and apply argument flattening.\n\nThe tracker also re-applies the 2.15-2.17 lines byte-identically to\nPR #1197 so the two PRs merge cleanly in either order.\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-05T20:19:33+05:30",
+          "tree_id": "6ad7bf18f9fa70bda998e01dbe90b3c1ab9c1852",
+          "url": "https://github.com/kaappi/kaappi/commit/063744f7f85f88d9eb118208f1b43a0d8c037955"
+        },
+        "date": 1783264235391,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.35215,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.88116,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.951541,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.059431,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.012599,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.211228,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.470711,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.069765,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 12.4381,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.824428,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 9.980423,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.959384,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 8.541072,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.733384,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.043634,
             "unit": "seconds"
           }
         ]
