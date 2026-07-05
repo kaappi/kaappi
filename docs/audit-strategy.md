@@ -132,7 +132,7 @@ and issue numbers, e.g. `[x] ... (2026-07-06, #1101–#1105)`.
 - [x] 2.10: `primitives_bytevector.zig` (2026-07-05, #1178–#1179 + #1173 widened to bytevectors; 116 audit tests + 7 disabled — utf8->string skips validation (corrupt strings break string-ref later), u8-ready? returns #f at EOF (the #280 "fix" inverted the spec); copies/overlaps/ports/ranges all conform; gc-stress clean)
 - [x] 2.11: `primitives_hashtable.zig` (SRFI-69) (2026-07-05, #1180–#1183; 71 audit tests + 8 disabled — bignum/rational/deep keys unfindable (pointer hash vs equal? lookup), walk/fold snapshot use-after-free under gc-stress, hash-table-update! missing, custom comparators silently ignored; core ops/growth/tombstones/merge/copy all conform)
 - [x] 2.12: `primitives_fiber.zig` (2026-07-05, #1184 + #1155 widened to spawn; 31 audit tests + 1 disabled — yield raises contentless error when all 64 slots hold parked fibers; deadlock detection (incl. cyclic join), error re-raise at join, FIFO channels, spawn limit all conform; gc-stress clean)
-- [ ] 2.13: `primitives_ffi.zig`
+- [x] 2.13: `primitives_ffi.zig` (2026-07-05, #1185–#1187; 47 audit tests + 3 disabled — callback errors silently swallowed (last_callback_error write-only), char type rejects characters/returns fixnums, call-time marshaling errors carry no detail; open/close lifecycle, slot exhaustion+reuse, qsort callbacks, pointer round trips all conform; gc-stress clean)
 - [ ] 2.14: `primitives_r7rs.zig`
 - [ ] 2.15: `primitives_random.zig` (SRFI-27)
 - [ ] 2.16: `primitives_lazy.zig`
