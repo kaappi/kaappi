@@ -62,7 +62,7 @@ fn disassembleInstruction(func: *types.Function, code: []const u8, offset: usize
     const off_str = std.fmt.bufPrint(&buf, "  {d:0>4}  ", .{offset}) catch "  ????  ";
     writeStderr(off_str);
 
-    if (raw_op > @intFromEnum(OpCode.self_tail_call)) {
+    if (raw_op > @intFromEnum(OpCode.tail_eval)) {
         const s = std.fmt.bufPrint(&buf, "<invalid opcode 0x{x:0>2}>\n", .{raw_op}) catch "<invalid opcode>\n";
         writeStderr(s);
         return ip;
@@ -89,6 +89,8 @@ fn disassembleInstruction(func: *types.Function, code: []const u8, offset: usize
         .box_local => 2,
         .get_box_local, .set_box_local => 4,
         .self_tail_call => 3,
+        .tail_call_cc => 2,
+        .tail_eval => 3,
     };
     if (ip + fixed_operand_bytes > code.len) {
         writeStderr("<truncated instruction>\n");
@@ -312,6 +314,18 @@ fn disassembleInstruction(func: *types.Function, code: []const u8, offset: usize
             const nargs = code[ip];
             ip += 1;
             const s = std.fmt.bufPrint(&buf, "self_tail_call  r{d}, {d}\n", .{ base, nargs }) catch "self_tail_call\n";
+            writeStderr(s);
+        },
+        .tail_call_cc => {
+            const base = readU16(code, &ip);
+            const s = std.fmt.bufPrint(&buf, "tail_call_cc    r{d}\n", .{base}) catch "tail_call_cc\n";
+            writeStderr(s);
+        },
+        .tail_eval => {
+            const base = readU16(code, &ip);
+            const nargs = code[ip];
+            ip += 1;
+            const s = std.fmt.bufPrint(&buf, "tail_eval       r{d}, {d}\n", .{ base, nargs }) catch "tail_eval\n";
             writeStderr(s);
         },
     }

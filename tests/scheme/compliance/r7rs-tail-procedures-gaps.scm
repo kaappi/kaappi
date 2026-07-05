@@ -22,11 +22,10 @@
       (let-values (((m) (values (- n 1)))) (loop-lv m))))
 (test-equal "let-values body tail" 'done (loop-lv N))
 
-;; FAIL: #1241 (let*-values body re-enters the VM natively; panics ~1024 deep)
-;; (define (loop-lsv n)
-;;   (if (= n 0) 'done
-;;       (let*-values (((m) (values (- n 1))) ((m2) (values m))) (loop-lsv m2))))
-;; (test-equal "let*-values body tail" 'done (loop-lsv N))
+(define (loop-lsv n)
+  (if (= n 0) 'done
+      (let*-values (((m) (values (- n 1))) ((m2) (values m))) (loop-lsv m2))))
+(test-equal "let*-values body tail" 'done (loop-lsv N))
 
 ;; --- let-syntax / letrec-syntax: tail body ---
 (define (loop-lsyn n)
@@ -47,28 +46,26 @@
 
 ;; "the second argument passed to call-with-values must be called via a
 ;; tail call"
-;; FAIL: #1240 (consumer re-enters the VM natively; panics at depth ~1024)
-;; (define (loop-cwv n)
-;;   (if (= n 0) 'done
-;;       (call-with-values (lambda () (values (- n 1))) loop-cwv)))
-;; (test-equal "call-with-values consumer tail call" 'done (loop-cwv N))
+(define (loop-cwv n)
+  (if (= n 0) 'done
+      (call-with-values (lambda () (values (- n 1))) loop-cwv)))
+(test-equal "call-with-values consumer tail call" 'done (loop-cwv N))
 
 ;; "The first argument passed ... to call-with-current-continuation must be
 ;; called via a tail call."
-;; FAIL: #1240 (receiver re-enters the VM natively; panics at depth ~1024)
-;; (define (loop-cc n)
-;;   (if (= n 0) 'done
-;;       (call-with-current-continuation
-;;         (lambda (k) (loop-cc (- n 1))))))
-;; (test-equal "call/cc receiver tail call" 'done (loop-cc N))
+(define (loop-cc n)
+  (if (= n 0) 'done
+      (call-with-current-continuation
+        (lambda (k) (loop-cc (- n 1))))))
+(test-equal "call/cc receiver tail call" 'done (loop-cc N))
 
 ;; "eval must evaluate its first argument as if it were in tail position
 ;; within the eval procedure."
-;; FAIL: #1240 (eval re-enters the VM natively; panics at depth ~1024)
-;; (define (loop-eval n)
-;;   (if (= n 0) 'done
-;;       (eval (list 'loop-eval (- n 1)) (interaction-environment))))
-;; (test-equal "eval tail evaluation" 'done (loop-eval N))
+(import (scheme eval) (scheme repl))
+(define (loop-eval n)
+  (if (= n 0) 'done
+      (eval (list 'loop-eval (- n 1)) (interaction-environment))))
+(test-equal "eval tail evaluation" 'done (loop-eval N))
 
 (let ((runner (test-runner-current)))
   (test-end "r7rs-tail-procedures-gaps")

@@ -457,6 +457,10 @@ const other_special_forms = std.StaticStringMap(void).initComptime(.{
     .{ "syntax-error", {} },
     .{ "syntax-rules", {} },
     .{ "apply", {} },
+    .{ "call-with-values", {} },
+    .{ "call-with-current-continuation", {} },
+    .{ "call/cc", {} },
+    .{ "eval", {} },
 });
 
 fn isSpecialForm(name: []const u8) bool {

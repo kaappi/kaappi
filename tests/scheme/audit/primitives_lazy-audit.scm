@@ -91,12 +91,9 @@
 (define cyc (delay-force cyc))
 (test 'caught (guard (e (#t 'caught)) (force cyc)))
 
-;; Direct re-entrant force — the thunk calls (force p) on its own promise —
-;; crashes the interpreter with an uncatchable Zig panic
-;; ("GC root stack overflow (1024)") instead of raising a Scheme error:
-;; FAIL: #1191 (deep native re-entrancy overflows the GC root stack — panic)
-;; (define selfp (delay (force selfp)))
-;; (test 'caught (guard (e (#t 'caught)) (force selfp)))
+;; Direct re-entrant force — catchable error:
+(define selfp (delay (force selfp)))
+(test 'caught (guard (e (#t 'caught)) (force selfp)))
 
 ;;; --- stream-style self-reference after memoization ---
 (letrec ((ones (delay (cons 1 (delay (force ones))))))

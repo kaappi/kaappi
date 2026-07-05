@@ -111,7 +111,7 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
         if (frame.ip >= frame.code.len) return VMError.InvalidBytecode;
 
         const raw_op = frame.code[frame.ip];
-        if (raw_op > @intFromEnum(OpCode.self_tail_call)) return VMError.InvalidBytecode;
+        if (raw_op > @intFromEnum(OpCode.tail_eval)) return VMError.InvalidBytecode;
         const op: OpCode = @enumFromInt(raw_op);
         frame.ip += 1;
 
@@ -136,6 +136,8 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
             .box_local => 2,
             .get_box_local, .set_box_local => 4,
             .self_tail_call => 3,
+            .tail_call_cc => 2,
+            .tail_eval => 3,
         };
         try ensureOperands(self, frame, fixed_operand_bytes);
 
@@ -1099,6 +1101,99 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                     }
                     vm_calls.profileCreditSelf(self);
                 }
+                frame.ip = 0;
+            },
+            .tail_call_cc => {
+                const base_reg = readU16(self, frame);
+                const abs_base_wide = @as(usize, frame.base) + @as(usize, base_reg);
+                try ensureCallWindow(self, abs_base_wide, 1);
+                const abs_base: u32 = try toBase(abs_base_wide);
+                const receiver = self.registers[abs_base];
+
+                var cont_val = try vm_continuations.captureContinuation(self, @intCast(base_reg), frame.base);
+                self.gc.pushRoot(&cont_val);
+                defer self.gc.popRoot();
+
+                if (types.isClosure(receiver)) {
+                    const closure = types.toObject(receiver).as(types.Closure);
+                    const func = closure.func;
+                    if (!func.is_variadic and func.arity != 1) {
+                        self.setErrorDetail("call/cc receiver: expected 1 argument, got arity {d}", .{func.arity});
+                        return VMError.ArityMismatch;
+                    }
+                    if (func.is_variadic and func.arity > 1) {
+                        self.setErrorDetail("call/cc receiver: expected at most 1 required argument, got {d}", .{func.arity});
+                        return VMError.ArityMismatch;
+                    }
+                    self.registers[frame.base] = cont_val;
+                    if (func.is_variadic and func.arity == 0) {
+                        self.registers[frame.base] = try buildRestList(self.gc, self.registers[frame.base .. frame.base + 1]);
+                    } else if (func.is_variadic) {
+                        if (@as(usize, frame.base) + 1 >= self.registers.len) try self.ensureRegisterCapacity(@as(usize, frame.base) + 2);
+                        self.registers[frame.base + 1] = types.NIL;
+                    }
+                    if (self.profile_mode) func.profile_calls += 1;
+                    frame.closure = closure;
+                    frame.code = func.code.items;
+                    frame.ip = 0;
+                } else if (types.isNativeFn(receiver)) {
+                    const native = types.toObject(receiver).as(types.NativeFn);
+                    const nargs_slice = &[_]Value{cont_val};
+                    const return_dst = frame.dst;
+                    const from_native_call = frame.returns_to_native;
+                    const result = native.func(nargs_slice) catch |err| {
+                        if (err == error.ContinuationInvoked) {
+                            if (resumesHere(self, target_frame_count, scope_root_seq)) continue;
+                            return VMError.ContinuationInvoked;
+                        }
+                        return vm_calls.mapNativeError(self, err, native.name, nargs_slice);
+                    };
+                    self.frame_count -= 1;
+                    if (self.frame_count <= target_frame_count) return result;
+                    if (from_native_call) return raiseDeadNativeReturn(self);
+                    const caller = &self.frames[self.frame_count - 1];
+                    const ret_idx = try registerIndex(self, caller.base, return_dst);
+                    self.registers[ret_idx] = result;
+                } else if (types.isContinuation(receiver)) {
+                    const cont = types.toObject(receiver).as(types.Continuation);
+                    if (cont.is_escape) {
+                        try self.invokeEscape(cont, cont_val);
+                    } else {
+                        try self.performWindTransition(cont.wind_records[0..cont.wind_count], cont.wind_count);
+                        try self.restoreContinuation(cont, cont_val);
+                    }
+                    if (resumesHere(self, target_frame_count, scope_root_seq)) continue;
+                    return VMError.ContinuationInvoked;
+                } else {
+                    return VMError.NotAProcedure;
+                }
+            },
+            .tail_eval => {
+                const base_reg = readU16(self, frame);
+                const nargs = readU8(self, frame);
+                const abs_base_wide = @as(usize, frame.base) + @as(usize, base_reg);
+                try ensureCallWindow(self, abs_base_wide, nargs);
+                const abs_base: u32 = try toBase(abs_base_wide);
+                const expr_val = self.registers[abs_base];
+
+                const compiler_mod = @import("compiler.zig");
+                const func_val = blk: {
+                    if (nargs >= 2 and types.isEnvironment(self.registers[abs_base + 1])) {
+                        const se = types.toEnvironment(self.registers[abs_base + 1]);
+                        break :blk compiler_mod.compileExpressionInEnv(self.gc, expr_val, &self.macros, se.env, self.registers[abs_base + 1]) catch return VMError.CompileError;
+                    }
+                    break :blk compiler_mod.compileExpressionWithMacros(self.gc, expr_val, &self.macros, self.globals) catch return VMError.CompileError;
+                };
+                var closure_val = self.gc.allocClosure(func_val) catch return VMError.OutOfMemory;
+                compiler_mod.Compiler.unrootFunction(self.gc, func_val);
+                self.gc.pushRoot(&closure_val);
+                defer self.gc.popRoot();
+
+                const closure = types.toObject(closure_val).as(types.Closure);
+                const func = closure.func;
+                if (self.profile_mode) func.profile_calls += 1;
+                frame.closure = closure;
+                frame.code = func.code.items;
                 frame.ip = 0;
             },
         }

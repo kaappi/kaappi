@@ -64,11 +64,10 @@
 ;; non-last arguments must be proper lists
 (test #t (guard (e (#t (error-object? e))) (append '(1 . 2) '(3)) #f))
 (test #t (guard (e (#t (error-object? e))) (append 5 '(3)) #f))
-;; circular non-last argument hangs with unbounded allocation:
-;; FAIL: #1198 (append lacks cycle detection on non-last arguments)
-;; (let ((c (list 1 2)))
-;;   (set-cdr! (cdr c) c)
-;;   (test #t (guard (e (#t (error-object? e))) (append c '(9)) #f)))
+;; circular non-last argument must error, not hang:
+(let ((c (list 1 2)))
+  (set-cdr! (cdr c) c)
+  (test #t (guard (e (#t (error-object? e))) (append c '(9)) #f)))
 
 ;;; --- reverse ---
 (test '() (reverse '()))
@@ -76,11 +75,10 @@
 (test '((3) (1 2)) (reverse (list (list 1 2) (list 3))))
 (test #t (guard (e (#t (error-object? e))) (reverse '(1 2 . 3)) #f))
 (test #t (guard (e (#t (error-object? e))) (reverse 5) #f))
-;; circular argument hangs with unbounded allocation:
-;; FAIL: #1198 (reverse lacks cycle detection)
-;; (let ((c (list 1 2)))
-;;   (set-cdr! (cdr c) c)
-;;   (test #t (guard (e (#t (error-object? e))) (reverse c) #f)))
+;; circular argument must error, not hang:
+(let ((c (list 1 2)))
+  (set-cdr! (cdr c) c)
+  (test #t (guard (e (#t (error-object? e))) (reverse c) #f)))
 
 ;;; --- caar / cadr / cdar / cddr ---
 (test 1 (caar '((1 2) 3)))
@@ -280,12 +278,10 @@
 (let ((c (list 1 2)))
   (set-cdr! (cdr c) c)
   (test 'caught (guard (e (#t 'caught)) (apply + c))))
-;; ...but in non-tail position the native applyFn walks the circular final
-;; list forever with unbounded allocation:
-;; FAIL: #1198 (native applyFn lacks cycle detection on the final list)
-;; (let ((c (list 1 2)))
-;;   (set-cdr! (cdr c) c)
-;;   (test #t (guard (e (#t #t)) (apply + c) #f)))
+;; non-tail position native applyFn must also detect circular final list:
+(let ((c (list 1 2)))
+  (set-cdr! (cdr c) c)
+  (test #t (guard (e (#t #t)) (apply + c) #f)))
 
 ;;; --- records (define-record-type over %record primitives) ---
 (define-record-type point (make-point x y) point? (x point-x set-point-x!) (y point-y))

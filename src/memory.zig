@@ -103,7 +103,7 @@ pub const GC = struct {
     /// For a child gc: the parent gc's id, stamped on symbols the child
     /// interns into the shared table (the parent owns and frees those).
     shared_owner_id: u32 = 0,
-    root_buffer: [1024]*Value = undefined,
+    root_buffer: [4096]*Value = undefined,
     root_count: u16 = 0,
     extra_roots: std.ArrayList(Value),
     arg_roots: [4]Value = .{ 0, 0, 0, 0 },
@@ -1120,7 +1120,7 @@ pub const GC = struct {
 
     pub fn pushRoot(self: *GC, root: *Value) void {
         if (self.root_count >= self.root_buffer.len)
-            @panic("GC root stack overflow (1024)");
+            @panic("GC root stack overflow");
         self.root_buffer[self.root_count] = root;
         self.root_count += 1;
     }

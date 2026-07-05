@@ -511,6 +511,10 @@ fn computeReentrantBase(vm: *VM) u32 {
 }
 
 fn callReentrant(vm: *VM, closure: *types.Closure, base: u32, dst: u8, returns_to_native: bool) VMError!Value {
+    if (vm.gc.root_count > vm.gc.root_buffer.len - 32) {
+        vm.setErrorDetail("native re-entrancy too deep (GC root stack exhausted)", .{});
+        return VMError.StackOverflow;
+    }
     try vm.ensureFrameCapacity(vm.frame_count + 1);
 
     const saved_frame_count = vm.frame_count;
