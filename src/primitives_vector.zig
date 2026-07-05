@@ -304,7 +304,7 @@ fn vectorForEachFn(args: []const Value) PrimitiveError!Value {
         }
 
         _ = vm.callWithArgs(proc, call_args) catch |err| {
-            return primitives.mapVMError(err);
+            return err;
         };
     }
 
@@ -351,7 +351,7 @@ fn vectorMapFn(args: []const Value) PrimitiveError!Value {
         }
 
         results[i] = vm.callWithArgs(proc, call_args) catch |err| {
-            return primitives.mapVMError(err);
+            return err;
         };
         gc.extra_roots.append(gc.allocator, results[i]) catch return PrimitiveError.OutOfMemory;
     }
@@ -403,7 +403,7 @@ fn vectorToStringFn(args: []const Value) PrimitiveError!Value {
 fn callVM(proc: Value, call_args: []const Value) PrimitiveError!Value {
     const vm = vm_mod.vm_instance orelse return PrimitiveError.OutOfMemory;
     return vm.callWithArgs(proc, call_args) catch |err| {
-        return primitives.mapVMError(err);
+        return err;
     };
 }
 

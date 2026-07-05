@@ -506,37 +506,7 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                             return VMError.ContinuationInvoked;
                         }
                         if (err == error.Yielded) maybeRewindRetry(self, 1 + fixed_operand_bytes);
-                        return switch (err) {
-                            error.TypeError => blk: {
-                                if (self.last_error_detail_len == 0)
-                                    self.setErrorDetail("type error in '{s}'", .{native.name});
-                                break :blk VMError.TypeError;
-                            },
-                            error.DivisionByZero => VMError.DivisionByZero,
-                            error.IndexOutOfBounds => blk_iob: {
-                                if (self.last_error_detail_len == 0)
-                                    self.setErrorDetail("index out of bounds in '{s}'", .{native.name});
-                                break :blk_iob VMError.IndexOutOfBounds;
-                            },
-                            error.InvalidArgument => blk_ia: {
-                                if (self.last_error_detail_len == 0)
-                                    self.setErrorDetail("invalid argument in '{s}'", .{native.name});
-                                break :blk_ia VMError.InvalidArgument;
-                            },
-                            error.OutOfMemory => VMError.OutOfMemory,
-                            error.ExceptionRaised => VMError.ExceptionRaised,
-                            error.ContinuationInvoked => VMError.ContinuationInvoked,
-                            error.Yielded => VMError.Yielded,
-                            error.ArityMismatch => VMError.ArityMismatch,
-                            error.StackOverflow => VMError.StackOverflow,
-                            error.UndefinedVariable => VMError.UndefinedVariable,
-                            error.NotAProcedure => VMError.NotAProcedure,
-                            error.InvalidBytecode => VMError.InvalidBytecode,
-                            error.CompileError => VMError.CompileError,
-                            error.ExecutionTimeout => VMError.ExecutionTimeout,
-                            error.Terminated => VMError.Terminated,
-                            else => VMError.InvalidBytecode,
-                        };
+                        return vm_calls.mapNativeError(self, err, native.name, nargs_slice);
                     };
                     if (self.profile_mode) {
                         native.profile_time_ns +%= vm_calls.clockNs() -% native_start;
@@ -690,25 +660,7 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                             return VMError.ContinuationInvoked;
                         }
                         if (err == error.Yielded) maybeRewindRetry(self, 1 + fixed_operand_bytes);
-                        return switch (err) {
-                            error.TypeError => VMError.TypeError,
-                            error.DivisionByZero => VMError.DivisionByZero,
-                            error.IndexOutOfBounds => VMError.IndexOutOfBounds,
-                            error.InvalidArgument => VMError.InvalidArgument,
-                            error.OutOfMemory => VMError.OutOfMemory,
-                            error.ExceptionRaised => VMError.ExceptionRaised,
-                            error.Yielded => VMError.Yielded,
-                            error.ArityMismatch => VMError.ArityMismatch,
-                            error.StackOverflow => VMError.StackOverflow,
-                            error.UndefinedVariable => VMError.UndefinedVariable,
-                            error.NotAProcedure => VMError.NotAProcedure,
-                            error.InvalidBytecode => VMError.InvalidBytecode,
-                            error.CompileError => VMError.CompileError,
-                            error.ExecutionTimeout => VMError.ExecutionTimeout,
-                            error.Terminated => VMError.Terminated,
-                            error.ContinuationInvoked => VMError.ContinuationInvoked,
-                            else => VMError.InvalidBytecode,
-                        };
+                        return vm_calls.mapNativeError(self, err, native.name, flat_args[0..count]);
                     };
                     self.frame_count -= 1;
                     if (self.frame_count <= target_frame_count) return result;
@@ -948,7 +900,7 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                                 return VMError.ContinuationInvoked;
                             }
                             if (err == error.Yielded) maybeRewindRetry(self, 1 + fixed_operand_bytes);
-                            return vm_calls.handleNativeError(self, err, base, nargs);
+                            return vm_calls.mapNativeError(self, err, native.name, args);
                         };
                         self.registers[base] = result;
                     } else {
@@ -1062,7 +1014,7 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                                 return VMError.ContinuationInvoked;
                             }
                             if (err == error.Yielded) maybeRewindRetry(self, 1 + fixed_operand_bytes);
-                            return vm_calls.handleNativeError(self, err, abs_base, nargs);
+                            return vm_calls.mapNativeError(self, err, native.name, args);
                         }
                     else blk: {
                         native.profile_calls += 1;
@@ -1080,37 +1032,7 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                                 return VMError.ContinuationInvoked;
                             }
                             if (err == error.Yielded) maybeRewindRetry(self, 1 + fixed_operand_bytes);
-                            return switch (err) {
-                                error.TypeError => b2: {
-                                    if (self.last_error_detail_len == 0)
-                                        self.setErrorDetail("type error in '{s}'", .{native.name});
-                                    break :b2 VMError.TypeError;
-                                },
-                                error.DivisionByZero => VMError.DivisionByZero,
-                                error.IndexOutOfBounds => b_iob: {
-                                    if (self.last_error_detail_len == 0)
-                                        self.setErrorDetail("index out of bounds in '{s}'", .{native.name});
-                                    break :b_iob VMError.IndexOutOfBounds;
-                                },
-                                error.InvalidArgument => b_ia: {
-                                    if (self.last_error_detail_len == 0)
-                                        self.setErrorDetail("invalid argument in '{s}'", .{native.name});
-                                    break :b_ia VMError.InvalidArgument;
-                                },
-                                error.OutOfMemory => VMError.OutOfMemory,
-                                error.ExceptionRaised => VMError.ExceptionRaised,
-                                error.ContinuationInvoked => VMError.ContinuationInvoked,
-                                error.Yielded => VMError.Yielded,
-                                error.ArityMismatch => VMError.ArityMismatch,
-                                error.StackOverflow => VMError.StackOverflow,
-                                error.UndefinedVariable => VMError.UndefinedVariable,
-                                error.NotAProcedure => VMError.NotAProcedure,
-                                error.InvalidBytecode => VMError.InvalidBytecode,
-                                error.CompileError => VMError.CompileError,
-                                error.ExecutionTimeout => VMError.ExecutionTimeout,
-                                error.Terminated => VMError.Terminated,
-                                else => VMError.InvalidBytecode,
-                            };
+                            return vm_calls.mapNativeError(self, err, native.name, args);
                         };
                         native.profile_time_ns +%= vm_calls.clockNs() -% native_start;
                         self.profile_last_ns = vm_calls.clockNs();

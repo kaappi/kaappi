@@ -193,6 +193,12 @@ assert_output_contains "mismatched ellipsis lengths rejected cleanly" \
     '(define-syntax zip (syntax-rules () ((zip (a ...) (b ...)) (quote ((a b) ...))))) (zip (1 2 3) (4 5))' \
     "compile error"
 
+# --- Issue #1046: apply-position type errors must include procedure name ---
+echo
+echo "-- Apply-position error detail (issue #1046) --"
+assert_output_contains "apply-position type error includes diagnostic" \
+    '(apply + (list 1 "x"))' "type error"
+
 # --- Uncaught exceptions carry message and irritants ---
 echo
 echo "-- Uncaught exceptions --"

@@ -148,7 +148,7 @@ fn memberFn(args: []const Value) PrimitiveError!Value {
             const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError; // bare-ok: no VM
             const call_args = [2]Value{ args[0], types.car(current) };
             const result = vm.callWithArgs(compare, &call_args) catch |err| {
-                return primitives.mapVMError(err);
+                return err;
             };
             if (result != types.FALSE) return current;
         } else {
@@ -257,7 +257,7 @@ fn assocFn(args: []const Value) PrimitiveError!Value {
             const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError; // bare-ok: no VM
             const call_args = [2]Value{ args[0], types.car(pair) };
             const result = vm.callWithArgs(compare, &call_args) catch |err| {
-                return primitives.mapVMError(err);
+                return err;
             };
             if (result != types.FALSE) return pair;
         } else {
@@ -389,7 +389,7 @@ fn mapFn(args: []const Value) PrimitiveError!Value {
 
         // Call procedure
         var result = vm.callWithArgs(proc, call_args[0..list_count]) catch |err| {
-            return primitives.mapVMError(err);
+            return err;
         };
 
         // Root result: callWithArgs pops its frame, so the return value has
@@ -451,7 +451,7 @@ fn forEachFn(args: []const Value) PrimitiveError!Value {
 
         // Call procedure (discard result)
         _ = vm.callWithArgs(proc, call_args[0..list_count]) catch |err| {
-            return primitives.mapVMError(err);
+            return err;
         };
 
         // Advance each list

@@ -476,7 +476,7 @@ fn stringForEachFn(args: []const Value) PrimitiveError!Value {
             call_args[si] = types.makeChar(cp);
         }
         _ = vm.callWithArgs(proc, call_args[0..str_count]) catch |err| {
-            return primitives.mapVMError(err);
+            return err;
         };
     }
     return types.VOID;
@@ -517,7 +517,7 @@ fn stringMapFn(args: []const Value) PrimitiveError!Value {
             call_args[si] = types.makeChar(cp);
         }
         const result = vm.callWithArgs(proc, call_args[0..str_count]) catch |err| {
-            return primitives.mapVMError(err);
+            return err;
         };
         if (!types.isChar(result)) return primitives.typeError("string-map", "character", result);
         const cp = types.toChar(result);

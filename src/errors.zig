@@ -1,0 +1,18 @@
+pub const KaappiError = error{
+    StackOverflow,
+    TypeError,
+    ArityMismatch,
+    UndefinedVariable,
+    NotAProcedure,
+    OutOfMemory,
+    InvalidBytecode,
+    DivisionByZero,
+    CompileError,
+    ExceptionRaised,
+    ContinuationInvoked,
+    IndexOutOfBounds,
+    InvalidArgument,
+    Yielded,
+    ExecutionTimeout,
+    Terminated,
+};
