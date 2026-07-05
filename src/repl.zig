@@ -15,6 +15,7 @@ const version = @import("main.zig").version;
 
 var repl_vm: ?*vm_mod.VM = null;
 var terminal_width: u16 = 80;
+var accumulated_input: []const u8 = "";
 
 fn getTerminalWidth() u16 {
     if (comptime is_wasm) return 80;
@@ -85,6 +86,7 @@ const ANSI_NUMBER = "\x1b[33m"; // yellow
 const ANSI_COMMENT = "\x1b[90m"; // bright black (gray)
 const ANSI_BOOLEAN = "\x1b[36m"; // cyan
 const ANSI_PAREN = "\x1b[90m"; // gray
+const ANSI_MATCH_PAREN = "\x1b[1;93m"; // bold bright yellow
 
 fn isSchemeKeyword(word: []const u8) bool {
     const keywords = [_][]const u8{
@@ -107,7 +109,92 @@ fn isDelimiter(ch: u8) bool {
     return ch == ' ' or ch == '\t' or ch == '(' or ch == ')' or ch == '"' or ch == ';' or ch == '\n' or ch == '\r';
 }
 
-fn highlightCallback(buf: [*c]const u8, len: usize, out_len: [*c]usize) callconv(.c) [*c]u8 {
+fn findMatchingOpen(input: []const u8, close_pos: usize) ?usize {
+    const close_ch = input[close_pos];
+    const open_ch: u8 = if (close_ch == ')') '(' else if (close_ch == ']') '[' else return null;
+    var stack: [512]usize = undefined;
+    var stack_len: usize = 0;
+    var i: usize = 0;
+    while (i <= close_pos) {
+        const ch = input[i];
+        if (ch == ';') {
+            while (i < input.len and input[i] != '\n') : (i += 1) {}
+            continue;
+        }
+        if (ch == '#' and i + 1 < input.len and input[i + 1] == '|') {
+            i += 2;
+            var depth: u32 = 1;
+            while (i < input.len and depth > 0) {
+                if (input[i] == '#' and i + 1 < input.len and input[i + 1] == '|') {
+                    depth += 1;
+                    i += 2;
+                } else if (input[i] == '|' and i + 1 < input.len and input[i + 1] == '#') {
+                    depth -= 1;
+                    i += 2;
+                } else {
+                    i += 1;
+                }
+            }
+            continue;
+        }
+        if (ch == '"') {
+            i += 1;
+            while (i < input.len) {
+                if (input[i] == '\\' and i + 1 < input.len) {
+                    i += 2;
+                    continue;
+                }
+                if (input[i] == '"') {
+                    i += 1;
+                    break;
+                }
+                i += 1;
+            }
+            continue;
+        }
+        if (ch == '#' and i + 1 < input.len and input[i + 1] == '\\') {
+            i += 2;
+            if (i < input.len) {
+                const first = input[i];
+                if ((first >= 'a' and first <= 'z') or (first >= 'A' and first <= 'Z')) {
+                    while (i < input.len and ((input[i] >= 'a' and input[i] <= 'z') or (input[i] >= 'A' and input[i] <= 'Z'))) : (i += 1) {}
+                } else {
+                    i += 1;
+                }
+            }
+            continue;
+        }
+        if (ch == '|') {
+            i += 1;
+            while (i < input.len and input[i] != '|') {
+                if (input[i] == '\\' and i + 1 < input.len) i += 1;
+                i += 1;
+            }
+            if (i < input.len) i += 1;
+            continue;
+        }
+        if (ch == open_ch) {
+            if (stack_len < stack.len) {
+                stack[stack_len] = i;
+                stack_len += 1;
+            }
+            i += 1;
+            continue;
+        }
+        if (ch == close_ch) {
+            if (i == close_pos) {
+                return if (stack_len > 0) stack[stack_len - 1] else null;
+            }
+            if (stack_len > 0) stack_len -= 1;
+            i += 1;
+            continue;
+        }
+        i += 1;
+    }
+    return null;
+}
+
+fn highlightCallback(buf: [*c]const u8, len: usize, pos: usize, out_len: [*c]usize) callconv(.c) [*c]u8 {
     if (len == 0) {
         out_len.* = 0;
         return null;
@@ -116,6 +203,32 @@ fn highlightCallback(buf: [*c]const u8, len: usize, out_len: [*c]usize) callconv
 
     var result: std.ArrayList(u8) = .empty;
     const allocator = std.heap.c_allocator;
+
+    var match_open: ?usize = null;
+    var match_close: ?usize = null;
+    if (pos > 0 and pos <= input.len and (input[pos - 1] == ')' or input[pos - 1] == ']')) {
+        match_open = findMatchingOpen(input, pos - 1);
+        if (match_open != null) {
+            match_close = pos - 1;
+        } else if (accumulated_input.len > 0) {
+            const ctx = accumulated_input;
+            const total = ctx.len + 1 + input.len;
+            const combined = allocator.alloc(u8, total) catch null;
+            if (combined) |buf2| {
+                defer allocator.free(buf2);
+                @memcpy(buf2[0..ctx.len], ctx);
+                buf2[ctx.len] = '\n';
+                @memcpy(buf2[ctx.len + 1 ..][0..input.len], input);
+                if (findMatchingOpen(buf2, ctx.len + 1 + pos - 1)) |abs_pos| {
+                    if (abs_pos >= ctx.len + 1)
+                        match_open = abs_pos - ctx.len - 1
+                    else
+                        match_open = null;
+                    match_close = pos - 1;
+                }
+            }
+        }
+    }
 
     var i: usize = 0;
     while (i < input.len) {
@@ -173,8 +286,11 @@ fn highlightCallback(buf: [*c]const u8, len: usize, out_len: [*c]usize) callconv
             continue;
         }
 
-        if (ch == '(' or ch == ')') {
-            result.appendSlice(allocator, ANSI_PAREN) catch return null;
+        if (ch == '(' or ch == ')' or ch == '[' or ch == ']') {
+            const is_match = (match_open != null and i == match_open.?) or
+                (match_close != null and i == match_close.?);
+            const color = if (is_match) ANSI_MATCH_PAREN else ANSI_PAREN;
+            result.appendSlice(allocator, color) catch return null;
             result.append(allocator, ch) catch return null;
             result.appendSlice(allocator, ANSI_RESET) catch return null;
             i += 1;
@@ -412,6 +528,7 @@ pub fn repl(vm: *vm_mod.VM) !void {
 
     while (true) {
         const prompt: [*:0]const u8 = if (input_buf.items.len > 0) "  ... " else "kaappi> ";
+        accumulated_input = input_buf.items;
         const line_ptr = ln.linenoise(prompt) orelse {
             const err = std.c._errno().*;
             if (err == @intFromEnum(std.posix.E.AGAIN)) {
@@ -906,6 +1023,85 @@ fn evalInputTyped(vm: *vm_mod.VM, allocator: std.mem.Allocator, input: []const u
 
 fn evalInput(vm: *vm_mod.VM, allocator: std.mem.Allocator, input: []const u8) void {
     evalInputInner(vm, allocator, input, .normal);
+}
+
+test "findMatchingOpen — simple" {
+    try std.testing.expectEqual(@as(?usize, 0), findMatchingOpen("(+ 1 2)", 6));
+}
+
+test "findMatchingOpen — nested" {
+    try std.testing.expectEqual(@as(?usize, 3), findMatchingOpen("(+ (* 3) 2)", 7));
+    try std.testing.expectEqual(@as(?usize, 0), findMatchingOpen("(+ (* 3) 2)", 10));
+}
+
+test "findMatchingOpen — unmatched" {
+    try std.testing.expectEqual(@as(?usize, null), findMatchingOpen("+ 1)", 3));
+}
+
+test "findMatchingOpen — string containing parens" {
+    try std.testing.expectEqual(@as(?usize, 0), findMatchingOpen("(display \"(hi)\")", 15));
+}
+
+test "findMatchingOpen — character literal paren" {
+    try std.testing.expectEqual(@as(?usize, 0), findMatchingOpen("(char=? #\\( x)", 13));
+}
+
+test "findMatchingOpen — line comment" {
+    try std.testing.expectEqual(@as(?usize, 0), findMatchingOpen("(+ 1 ; )\n 2)", 11));
+}
+
+test "findMatchingOpen — block comment" {
+    try std.testing.expectEqual(@as(?usize, 0), findMatchingOpen("(+ #| ) |# 2)", 12));
+}
+
+test "findMatchingOpen — square brackets" {
+    try std.testing.expectEqual(@as(?usize, 6), findMatchingOpen("(cond [#t 1])", 11));
+}
+
+test "findMatchingOpen — pipe-quoted symbol" {
+    try std.testing.expectEqual(@as(?usize, 0), findMatchingOpen("(|foo(|)", 7));
+}
+
+test "highlightCallback — matching parens highlighted" {
+    const input = "(+ 1)";
+    var out_len: usize = 0;
+    const result = highlightCallback(input.ptr, input.len, input.len, &out_len);
+    if (result) |r| {
+        defer std.heap.c_allocator.free(r[0..out_len]);
+        const output = r[0..out_len];
+        try std.testing.expect(std.mem.indexOf(u8, output, ANSI_MATCH_PAREN) != null);
+    } else {
+        return error.TestUnexpectedResult;
+    }
+}
+
+test "highlightCallback — match across continuation lines" {
+    const saved = accumulated_input;
+    defer accumulated_input = saved;
+    accumulated_input = "(define (foo x)";
+    const line = "  (+ x 1))";
+    var out_len: usize = 0;
+    const result = highlightCallback(line.ptr, line.len, line.len, &out_len);
+    if (result) |r| {
+        defer std.heap.c_allocator.free(r[0..out_len]);
+        const output = r[0..out_len];
+        try std.testing.expect(std.mem.indexOf(u8, output, ANSI_MATCH_PAREN) != null);
+    } else {
+        return error.TestUnexpectedResult;
+    }
+}
+
+test "highlightCallback — no match when cursor not after close paren" {
+    const input = "(+ 1)";
+    var out_len: usize = 0;
+    const result = highlightCallback(input.ptr, input.len, 3, &out_len);
+    if (result) |r| {
+        defer std.heap.c_allocator.free(r[0..out_len]);
+        const output = r[0..out_len];
+        try std.testing.expect(std.mem.indexOf(u8, output, ANSI_MATCH_PAREN) == null);
+    } else {
+        return error.TestUnexpectedResult;
+    }
 }
 
 fn evalInputInner(vm: *vm_mod.VM, allocator: std.mem.Allocator, input: []const u8, mode: EvalMode) void {
