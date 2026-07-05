@@ -441,10 +441,17 @@ fn append(args: []const Value) PrimitiveError!Value {
         var lst = args[i];
         var elems: std.ArrayList(Value) = .empty;
         defer elems.deinit(gc.allocator);
+        var slow = lst;
+        var step: bool = false;
         while (lst != types.NIL) {
             if (!types.isPair(lst)) return typeError("append", "proper list", lst);
             elems.append(gc.allocator, types.car(lst)) catch return PrimitiveError.OutOfMemory;
             lst = types.cdr(lst);
+            if (step) {
+                slow = types.cdr(slow);
+                if (slow == lst) return typeError("append", "proper list", lst);
+            }
+            step = !step;
         }
         var j = elems.items.len;
         while (j > 0) {
@@ -461,10 +468,17 @@ fn reverse(args: []const Value) PrimitiveError!Value {
     gc.pushRoot(&result);
     defer gc.popRoot();
     var current = args[0];
+    var slow = current;
+    var step: bool = false;
     while (current != types.NIL) {
         if (!types.isPair(current)) return typeError("reverse", "proper list", current);
         result = gc.allocPair(types.car(current), result) catch return PrimitiveError.OutOfMemory;
         current = types.cdr(current);
+        if (step) {
+            slow = types.cdr(slow);
+            if (slow == current) return typeError("reverse", "proper list", current);
+        }
+        step = !step;
     }
     return result;
 }
@@ -759,10 +773,17 @@ fn applyFn(args: []const Value) PrimitiveError!Value {
 
     // Flatten the last arg (must be a proper list)
     var rest = args[args.len - 1];
+    var slow = rest;
+    var step: bool = false;
     while (rest != types.NIL) {
         if (!types.isPair(rest)) return typeError("apply", "proper list", rest);
         call_args.append(gc.allocator, types.car(rest)) catch return PrimitiveError.OutOfMemory;
         rest = types.cdr(rest);
+        if (step) {
+            slow = types.cdr(slow);
+            if (slow == rest) return typeError("apply", "proper list", rest);
+        }
+        step = !step;
     }
 
     return vm.callWithArgs(proc, call_args.items) catch |err| {

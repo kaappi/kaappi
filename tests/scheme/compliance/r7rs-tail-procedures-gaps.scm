@@ -22,11 +22,10 @@
       (let-values (((m) (values (- n 1)))) (loop-lv m))))
 (test-equal "let-values body tail" 'done (loop-lv N))
 
-;; FAIL: #1241 (let*-values body re-enters the VM natively; panics ~1024 deep)
-;; (define (loop-lsv n)
-;;   (if (= n 0) 'done
-;;       (let*-values (((m) (values (- n 1))) ((m2) (values m))) (loop-lsv m2))))
-;; (test-equal "let*-values body tail" 'done (loop-lsv N))
+(define (loop-lsv n)
+  (if (= n 0) 'done
+      (let*-values (((m) (values (- n 1))) ((m2) (values m))) (loop-lsv m2))))
+(test-equal "let*-values body tail" 'done (loop-lsv N))
 
 ;; --- let-syntax / letrec-syntax: tail body ---
 (define (loop-lsyn n)
@@ -47,28 +46,74 @@
 
 ;; "the second argument passed to call-with-values must be called via a
 ;; tail call"
-;; FAIL: #1240 (consumer re-enters the VM natively; panics at depth ~1024)
-;; (define (loop-cwv n)
-;;   (if (= n 0) 'done
-;;       (call-with-values (lambda () (values (- n 1))) loop-cwv)))
-;; (test-equal "call-with-values consumer tail call" 'done (loop-cwv N))
+(define (loop-cwv n)
+  (if (= n 0) 'done
+      (call-with-values (lambda () (values (- n 1))) loop-cwv)))
+(test-equal "call-with-values consumer tail call" 'done (loop-cwv N))
 
 ;; "The first argument passed ... to call-with-current-continuation must be
 ;; called via a tail call."
-;; FAIL: #1240 (receiver re-enters the VM natively; panics at depth ~1024)
-;; (define (loop-cc n)
-;;   (if (= n 0) 'done
-;;       (call-with-current-continuation
-;;         (lambda (k) (loop-cc (- n 1))))))
-;; (test-equal "call/cc receiver tail call" 'done (loop-cc N))
+(define (loop-cc n)
+  (if (= n 0) 'done
+      (call-with-current-continuation
+        (lambda (k) (loop-cc (- n 1))))))
+(test-equal "call/cc receiver tail call" 'done (loop-cc N))
 
 ;; "eval must evaluate its first argument as if it were in tail position
 ;; within the eval procedure."
-;; FAIL: #1240 (eval re-enters the VM natively; panics at depth ~1024)
-;; (define (loop-eval n)
-;;   (if (= n 0) 'done
-;;       (eval (list 'loop-eval (- n 1)) (interaction-environment))))
-;; (test-equal "eval tail evaluation" 'done (loop-eval N))
+(define (loop-eval n)
+  (if (= n 0) 'done
+      (eval (list 'loop-eval (- n 1)) (interaction-environment))))
+(test-equal "eval tail evaluation" 'done (loop-eval N))
+
+;; --- call/cc continuation value in rebase context ---
+(define k-rebase #f)
+(define log-rebase '())
+(define (cc-rebase)
+  (let ((pad 'stale))
+    (call/cc (lambda (c) (set! k-rebase c) 'first))))
+(set! log-rebase (cons (cc-rebase) log-rebase))
+(if (< (length log-rebase) 3) (k-rebase 'again))
+(test-equal "call/cc rebase continuation value" '(first again) (reverse log-rebase))
+
+;; --- call/cc without enclosing let (no rebase) ---
+(define k-norb #f)
+(define log-norb '())
+(define (cc-norb)
+  (call/cc (lambda (c) (set! k-norb c) 'first)))
+(set! log-norb (cons (cc-norb) log-norb))
+(if (< (length log-norb) 3) (k-norb 'again))
+(test-equal "call/cc no-rebase continuation value" '(first again) (reverse log-norb))
+
+;; --- hygiene: shadowed list/apply must not break let*-values or cwv ---
+(define (shadow-list list)
+  (let*-values (((a b) (values 1 2))) (+ a b)))
+(test-equal "let*-values with shadowed list" 3 (shadow-list 99))
+
+(define (shadow-apply apply)
+  (let*-values (((a) (values 5))) a))
+(test-equal "let*-values with shadowed apply" 5 (shadow-apply 99))
+
+(define (shadow-cwv list)
+  (call-with-values (lambda () (values 1 2)) +))
+(test-equal "tail cwv with shadowed list" 3 (shadow-cwv 99))
+
+;; Defensive: promise.forcing cleared on SRFI-45 chain collapse.
+;; The flag reset is not directly observable from Scheme (all other exit
+;; paths already clear it), but guards against future code paths that
+;; might read forcing before the next thunk call sets it again.
+(define (chain-test n)
+  (let loop ((i 0) (p (delay 'done)))
+    (if (= i n) p
+        (loop (+ i 1) (delay-force p)))))
+(test-equal "delay-force chain resolves" 'done (force (chain-test 100)))
+
+;; --- deep native re-entrancy raises catchable error ---
+(define (deep-map n)
+  (if (= n 0) 0
+      (car (map (lambda (x) (deep-map (- x 1))) (list n)))))
+(test-equal "deep native map catchable" 'caught
+  (guard (e (#t 'caught)) (deep-map 2500)))
 
 (let ((runner (test-runner-current)))
   (test-end "r7rs-tail-procedures-gaps")

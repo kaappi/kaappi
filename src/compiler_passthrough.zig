@@ -294,6 +294,100 @@ pub fn compileApplyTail(self: *Compiler, expr: Value, dst: u16) CompileError!voi
     }
 }
 
+pub fn compileCallWithValuesTail(self: *Compiler, expr: Value, dst: u16) CompileError!void {
+    // (call-with-values producer consumer) in tail position.
+    // Emits bytecode directly: call_global("call-with-values", producer, list) → values,
+    // then tail_apply(consumer, values). Uses get_global/call_global to avoid
+    // resolving `list`/`call-with-values` in the user's lexical scope.
+    const args = types.cdr(expr);
+    if (args == types.NIL or !types.isPair(args)) return CompileError.InvalidSyntax;
+    const producer = types.car(args);
+    const rest = types.cdr(args);
+    if (rest == types.NIL or !types.isPair(rest)) return CompileError.InvalidSyntax;
+    const consumer = types.car(rest);
+    if (types.cdr(rest) != types.NIL) return CompileError.InvalidSyntax;
+
+    const gc = self.gc;
+    const needs_rebase = (dst + 1 != self.next_register);
+    const base = if (needs_rebase) try self.allocReg() else dst;
+
+    try self.compileExprViaIR(consumer, base, false);
+
+    const cwv_base = try self.allocReg();
+    const producer_reg = try self.allocReg();
+    const list_reg = try self.allocReg();
+
+    try self.compileExprViaIR(producer, producer_reg, false);
+
+    const list_sym = gc.allocSymbol("list") catch return CompileError.OutOfMemory;
+    const list_idx = try self.addConstant(list_sym);
+    try self.emitOp(.get_global);
+    try self.emitU16(list_reg);
+    try self.emitU16(list_idx);
+
+    const cwv_sym = gc.allocSymbol("call-with-values") catch return CompileError.OutOfMemory;
+    const cwv_idx = try self.addConstant(cwv_sym);
+    try self.emitOp(.call_global);
+    try self.emitU16(cwv_base);
+    try self.emitU16(cwv_idx);
+    try self.emit(2);
+
+    self.freeReg(); // list_reg
+    self.freeReg(); // producer_reg
+
+    try self.emitOp(.tail_apply);
+    try self.emitU16(base);
+    try self.emit(1);
+
+    self.freeReg(); // cwv_base
+    if (needs_rebase) self.freeReg();
+}
+
+pub fn compileCallCCTail(self: *Compiler, expr: Value, dst: u16) CompileError!void {
+    const args = types.cdr(expr);
+    if (args == types.NIL or !types.isPair(args)) return CompileError.InvalidSyntax;
+    const receiver = types.car(args);
+    if (types.cdr(args) != types.NIL) return CompileError.InvalidSyntax;
+
+    const needs_rebase = (dst + 1 != self.next_register);
+    const base = if (needs_rebase) try self.allocReg() else dst;
+    try self.compileExprViaIR(receiver, base, false);
+
+    try self.emitOp(.tail_call_cc);
+    try self.emitU16(base);
+    try self.emitU16(dst);
+
+    if (needs_rebase) {
+        self.freeReg();
+    }
+}
+
+pub fn compileEvalTail(self: *Compiler, expr: Value, dst: u16) CompileError!void {
+    // (eval expr) or (eval expr env) in tail position
+    // Emits tail_eval opcode: compiles expr at runtime and tail-calls the result.
+    const args = types.cdr(expr);
+    if (args == types.NIL or !types.isPair(args)) return CompileError.InvalidSyntax;
+
+    const needs_rebase = (dst + 1 != self.next_register);
+    const base = if (needs_rebase) try self.allocReg() else dst;
+
+    try self.compileExprViaIR(types.car(args), base, false);
+    const rest = types.cdr(args);
+    var nargs: u8 = 1;
+    if (rest != types.NIL and types.isPair(rest)) {
+        const arg_reg = try self.allocReg();
+        try self.compileExprViaIR(types.car(rest), arg_reg, false);
+        nargs = 2;
+    }
+
+    try self.emitOp(.tail_eval);
+    try self.emitU16(base);
+    try self.emit(nargs);
+
+    if (nargs == 2) self.freeReg();
+    if (needs_rebase) self.freeReg();
+}
+
 fn compileCallGlobal(self: *Compiler, expr: Value, operator: Value, dst: u16, is_tail: bool) CompileError!void {
     const sym_idx = try self.addConstant(operator);
 

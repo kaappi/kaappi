@@ -88,6 +88,7 @@ fn forceFn(args: []const Value) PrimitiveError!Value {
             inner.forced = true;
             inner.value = types.makePointer(@ptrCast(promise));
             gc.writeBarrier(&inner.header, types.makePointer(@ptrCast(promise)));
+            promise.forcing = false;
             current = types.makePointer(@ptrCast(promise));
             continue;
         }

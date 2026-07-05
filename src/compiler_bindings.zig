@@ -652,10 +652,17 @@ pub fn compileLetStarValues(self: *Compiler, args: Value, dst: u16, is_tail: boo
     return self.compileDesugared(desugared, dst, is_tail);
 }
 
-/// Build nested call-with-values for a list of bindings.
-/// (let-values (((a b) e1) ((c) e2)) body)
+/// Build nested call-with-values for sequential let*-values.
+/// (let*-values (((a b) e1) ((c) e2)) body)
 /// =>
-/// (call-with-values (lambda () e1) (lambda (a b) (call-with-values (lambda () e2) (lambda (c) body))))
+/// (call-with-values (lambda () e1)
+///   (lambda (a b)
+///     (call-with-values (lambda () e2) (lambda (c) (begin body)))))
+///
+/// Each call-with-values is the body of its enclosing consumer lambda, so
+/// it is always in tail position. The compiler's compileCallWithValuesTail
+/// handles the tail case by emitting call_global + tail_apply bytecode
+/// directly, avoiding native re-entrancy and hygiene issues.
 pub fn buildLetValues(self: *Compiler, bindings: Value, body: Value) !Value {
     const gc = self.gc;
     gc.no_collect += 1;
@@ -678,17 +685,16 @@ pub fn buildLetValues(self: *Compiler, bindings: Value, body: Value) !Value {
     if (!types.isPair(expr_rest)) return error.InvalidSyntax;
     const expr = types.car(expr_rest);
 
-    // Build the inner expression recursively
     const inner = try buildLetValues(self, rest_bindings, body);
 
-    // Build (lambda () expr)
+    // (lambda () expr)
     const producer_body = try gc.allocPair(expr, types.NIL);
     const producer_lambda = try gc.allocPair(lambda_sym, try gc.allocPair(types.NIL, producer_body));
 
-    // Build (lambda (formals) inner)
+    // (lambda (formals) inner)
     const consumer_body = try gc.allocPair(inner, types.NIL);
     const consumer_lambda = try gc.allocPair(lambda_sym, try gc.allocPair(formals, consumer_body));
 
-    // Build (call-with-values producer consumer)
+    // (call-with-values producer consumer)
     return try gc.allocPair(cwv_sym, try gc.allocPair(producer_lambda, try gc.allocPair(consumer_lambda, types.NIL)));
 }

@@ -675,11 +675,37 @@ pub const Compiler = struct {
             }
         }
 
-        if (is_tail and types.isSymbol(head) and std.mem.eql(u8, types.symbolName(head), "apply")) {
-            if (self.resolveLocal(types.symbolName(head)) == null and
-                (try self.resolveUpvalue(types.symbolName(head))) == null)
+        if (is_tail and types.isSymbol(head)) {
+            const sym_name = types.symbolName(head);
+            if (std.mem.eql(u8, sym_name, "apply")) {
+                if (self.resolveLocal(sym_name) == null and
+                    (try self.resolveUpvalue(sym_name)) == null)
+                {
+                    return passthrough.compileApplyTail(self, expr, dst);
+                }
+            }
+            if (std.mem.eql(u8, sym_name, "call-with-values")) {
+                if (self.resolveLocal(sym_name) == null and
+                    (try self.resolveUpvalue(sym_name)) == null)
+                {
+                    return passthrough.compileCallWithValuesTail(self, expr, dst);
+                }
+            }
+            if (std.mem.eql(u8, sym_name, "call-with-current-continuation") or
+                std.mem.eql(u8, sym_name, "call/cc"))
             {
-                return passthrough.compileApplyTail(self, expr, dst);
+                if (self.resolveLocal(sym_name) == null and
+                    (try self.resolveUpvalue(sym_name)) == null)
+                {
+                    return passthrough.compileCallCCTail(self, expr, dst);
+                }
+            }
+            if (std.mem.eql(u8, sym_name, "eval")) {
+                if (self.resolveLocal(sym_name) == null and
+                    (try self.resolveUpvalue(sym_name)) == null)
+                {
+                    return passthrough.compileEvalTail(self, expr, dst);
+                }
             }
         }
 

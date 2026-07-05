@@ -172,6 +172,7 @@ pub const VM = struct {
     libraries: library_mod.LibraryRegistry,
     handler_stack: [MAX_HANDLERS]ExceptionHandler = undefined,
     handler_count: usize = 0,
+    native_reentry_depth: u16 = 0,
     current_exception: ?Value = null,
     wind_stack: [MAX_WINDS]types.WindRecord = undefined,
     wind_count: usize = 0,
