@@ -115,7 +115,7 @@ and issue numbers, e.g. `[x] ... (2026-07-06, #1101–#1105)`.
 
 **Phase 1 — R7RS spec gap analysis** (independent; run in parallel)
 - [x] 1A: Expressions & syntax (4.1–4.3) + Libraries (5.6–5.7) (2026-07-05, #1139–#1142; 34 new gap tests, 3 disabled pending fixes; libraries 5.6 fully green)
-- [ ] 1B: Equivalence, numbers, booleans, lists, symbols (6.1–6.5)
+- [x] 1B: Equivalence, numbers, booleans, lists, symbols (6.1–6.5) (2026-07-05, no bugs found — 40 gap tests all pass, incl. circular equal? termination and numeric I/O round-trips)
 - [ ] 1C: Characters, strings, vectors, bytevectors (6.6–6.9)
 - [ ] 1D: Control, exceptions, eval, I/O, system (6.10–6.14)
 
