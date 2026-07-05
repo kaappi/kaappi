@@ -10,92 +10,50 @@ const primitives_control = @import("primitives_control.zig");
 const Value = types.Value;
 const NativeFn = types.NativeFn;
 const PrimitiveError = primitives.PrimitiveError;
+const LS = primitives.LibSet;
 
-pub fn registerIO(vm: *vm_mod.VM) !void {
-    // I/O (with optional port argument)
-    try primitives.reg(vm, "display", &display, .{ .variadic = 1 });
-    try primitives.reg(vm, "write", &write, .{ .variadic = 1 });
-    try primitives.reg(vm, "newline", &newline, .{ .variadic = 0 });
-
-    // Port parameters (R7RS 6.13.1 — these must be parameter objects)
-    try registerPortParams(vm);
-    try primitives.reg(vm, "port?", &portP, .{ .exact = 1 });
-    try primitives.reg(vm, "input-port?", &inputPortP, .{ .exact = 1 });
-    try primitives.reg(vm, "output-port?", &outputPortP, .{ .exact = 1 });
-    try primitives.reg(vm, "textual-port?", &textualPortP, .{ .exact = 1 });
-    try primitives.reg(vm, "binary-port?", &binaryPortP, .{ .exact = 1 });
-    try primitives.reg(vm, "input-port-open?", &inputPortOpenP, .{ .exact = 1 });
-    try primitives.reg(vm, "output-port-open?", &outputPortOpenP, .{ .exact = 1 });
-    try primitives.reg(vm, "open-input-file", &openInputFile, .{ .exact = 1 });
-    try primitives.reg(vm, "open-output-file", &openOutputFile, .{ .exact = 1 });
-    try primitives.reg(vm, "close-port", &closePort, .{ .exact = 1 });
-    try primitives.reg(vm, "close-input-port", &closePort, .{ .exact = 1 });
-    try primitives.reg(vm, "close-output-port", &closePort, .{ .exact = 1 });
-    try primitives.reg(vm, "read-char", &readCharFn, .{ .variadic = 0 });
-    try primitives.reg(vm, "peek-char", &peekCharFn, .{ .variadic = 0 });
-    try primitives.reg(vm, "read-line", &readLineFn, .{ .variadic = 0 });
-    try primitives.reg(vm, "char-ready?", &charReadyP, .{ .variadic = 0 });
-    try primitives.reg(vm, "write-char", &writeCharFn, .{ .variadic = 1 });
-    try primitives.reg(vm, "write-string", &writeStringFn, .{ .variadic = 1 });
-    try primitives.reg(vm, "read", &readDatumFn, .{ .variadic = 0 });
-    try primitives.reg(vm, "file-exists?", &fileExistsP, .{ .exact = 1 });
-    try primitives.reg(vm, "eof-object?", &eofObjectP, .{ .exact = 1 });
-    try primitives.reg(vm, "eof-object", &eofObjectFn, .{ .exact = 0 });
-    // String ports
-    try primitives.reg(vm, "open-input-string", &openInputString, .{ .exact = 1 });
-    try primitives.reg(vm, "open-output-string", &openOutputString, .{ .exact = 0 });
-    try primitives.reg(vm, "get-output-string", &getOutputString, .{ .exact = 1 });
-    // Additional I/O
-    try primitives.reg(vm, "read-string", &readStringFn, .{ .variadic = 1 });
-    try primitives.reg(vm, "flush-output-port", &flushOutputPort, .{ .variadic = 0 });
-    try primitives.reg(vm, "delete-file", &deleteFile, .{ .exact = 1 });
-    // (scheme write) completions
-    try primitives.reg(vm, "write-shared", &writeShared, .{ .variadic = 1 });
-    try primitives.reg(vm, "write-simple", &write, .{ .variadic = 1 });
-    // File I/O wrappers (R7RS 6.13)
-    try primitives.reg(vm, "call-with-input-file", &callWithInputFile, .{ .exact = 2 });
-    try primitives.reg(vm, "call-with-output-file", &callWithOutputFile, .{ .exact = 2 });
-    try primitives.reg(vm, "call-with-port", &callWithPort, .{ .exact = 2 });
-    try primitives.reg(vm, "with-input-from-file", &withInputFromFile, .{ .exact = 2 });
-    try primitives.reg(vm, "with-output-to-file", &withOutputToFile, .{ .exact = 2 });
-    // Binary port aliases (we don't distinguish text/binary)
-    try primitives.reg(vm, "open-binary-input-file", &openBinaryInputFile, .{ .exact = 1 });
-    try primitives.reg(vm, "open-binary-output-file", &openBinaryOutputFile, .{ .exact = 1 });
-}
-
-pub fn registerIOSandboxed(vm: *vm_mod.VM) !void {
-    try primitives.reg(vm, "display", &display, .{ .variadic = 1 });
-    try primitives.reg(vm, "write", &write, .{ .variadic = 1 });
-    try primitives.reg(vm, "newline", &newline, .{ .variadic = 0 });
-    try registerPortParams(vm);
-    try primitives.reg(vm, "port?", &portP, .{ .exact = 1 });
-    try primitives.reg(vm, "input-port?", &inputPortP, .{ .exact = 1 });
-    try primitives.reg(vm, "output-port?", &outputPortP, .{ .exact = 1 });
-    try primitives.reg(vm, "textual-port?", &textualPortP, .{ .exact = 1 });
-    try primitives.reg(vm, "binary-port?", &binaryPortP, .{ .exact = 1 });
-    try primitives.reg(vm, "input-port-open?", &inputPortOpenP, .{ .exact = 1 });
-    try primitives.reg(vm, "output-port-open?", &outputPortOpenP, .{ .exact = 1 });
-    try primitives.reg(vm, "close-port", &closePort, .{ .exact = 1 });
-    try primitives.reg(vm, "close-input-port", &closePort, .{ .exact = 1 });
-    try primitives.reg(vm, "close-output-port", &closePort, .{ .exact = 1 });
-    try primitives.reg(vm, "read-char", &readCharFn, .{ .variadic = 0 });
-    try primitives.reg(vm, "peek-char", &peekCharFn, .{ .variadic = 0 });
-    try primitives.reg(vm, "read-line", &readLineFn, .{ .variadic = 0 });
-    try primitives.reg(vm, "char-ready?", &charReadyP, .{ .variadic = 0 });
-    try primitives.reg(vm, "write-char", &writeCharFn, .{ .variadic = 1 });
-    try primitives.reg(vm, "write-string", &writeStringFn, .{ .variadic = 1 });
-    try primitives.reg(vm, "read", &readDatumFn, .{ .variadic = 0 });
-    try primitives.reg(vm, "eof-object?", &eofObjectP, .{ .exact = 1 });
-    try primitives.reg(vm, "eof-object", &eofObjectFn, .{ .exact = 0 });
-    try primitives.reg(vm, "open-input-string", &openInputString, .{ .exact = 1 });
-    try primitives.reg(vm, "open-output-string", &openOutputString, .{ .exact = 0 });
-    try primitives.reg(vm, "get-output-string", &getOutputString, .{ .exact = 1 });
-    try primitives.reg(vm, "read-string", &readStringFn, .{ .variadic = 1 });
-    try primitives.reg(vm, "flush-output-port", &flushOutputPort, .{ .variadic = 0 });
-    try primitives.reg(vm, "write-shared", &writeShared, .{ .variadic = 1 });
-    try primitives.reg(vm, "write-simple", &write, .{ .variadic = 1 });
-    try primitives.reg(vm, "call-with-port", &callWithPort, .{ .exact = 2 });
-}
+pub const specs = [_]primitives.PrimSpec{
+    .{ .name = "display", .func = &display, .arity = .{ .variadic = 1 }, .libs = LS.initMany(&.{ .scheme_base, .scheme_r5rs, .scheme_write }) },
+    .{ .name = "write", .func = &write, .arity = .{ .variadic = 1 }, .libs = LS.initMany(&.{ .scheme_base, .scheme_r5rs, .scheme_write }) },
+    .{ .name = "newline", .func = &newline, .arity = .{ .variadic = 0 }, .libs = LS.initMany(&.{ .scheme_base, .scheme_r5rs }) },
+    .{ .name = "port?", .func = &portP, .arity = .{ .exact = 1 }, .libs = LS.initOne(.scheme_base) },
+    .{ .name = "input-port?", .func = &inputPortP, .arity = .{ .exact = 1 }, .libs = LS.initMany(&.{ .scheme_base, .scheme_r5rs }) },
+    .{ .name = "output-port?", .func = &outputPortP, .arity = .{ .exact = 1 }, .libs = LS.initMany(&.{ .scheme_base, .scheme_r5rs }) },
+    .{ .name = "textual-port?", .func = &textualPortP, .arity = .{ .exact = 1 }, .libs = LS.initOne(.scheme_base) },
+    .{ .name = "binary-port?", .func = &binaryPortP, .arity = .{ .exact = 1 }, .libs = LS.initOne(.scheme_base) },
+    .{ .name = "input-port-open?", .func = &inputPortOpenP, .arity = .{ .exact = 1 }, .libs = LS.initOne(.scheme_base) },
+    .{ .name = "output-port-open?", .func = &outputPortOpenP, .arity = .{ .exact = 1 }, .libs = LS.initOne(.scheme_base) },
+    .{ .name = "open-input-file", .func = &openInputFile, .arity = .{ .exact = 1 }, .libs = LS.initMany(&.{ .scheme_file, .scheme_r5rs }), .sandbox = false },
+    .{ .name = "open-output-file", .func = &openOutputFile, .arity = .{ .exact = 1 }, .libs = LS.initMany(&.{ .scheme_file, .scheme_r5rs }), .sandbox = false },
+    .{ .name = "close-port", .func = &closePort, .arity = .{ .exact = 1 }, .libs = LS.initOne(.scheme_base) },
+    .{ .name = "close-input-port", .func = &closePort, .arity = .{ .exact = 1 }, .libs = LS.initMany(&.{ .scheme_base, .scheme_r5rs }) },
+    .{ .name = "close-output-port", .func = &closePort, .arity = .{ .exact = 1 }, .libs = LS.initMany(&.{ .scheme_base, .scheme_r5rs }) },
+    .{ .name = "read-char", .func = &readCharFn, .arity = .{ .variadic = 0 }, .libs = LS.initMany(&.{ .scheme_base, .scheme_r5rs }) },
+    .{ .name = "peek-char", .func = &peekCharFn, .arity = .{ .variadic = 0 }, .libs = LS.initMany(&.{ .scheme_base, .scheme_r5rs }) },
+    .{ .name = "read-line", .func = &readLineFn, .arity = .{ .variadic = 0 }, .libs = LS.initOne(.scheme_base) },
+    .{ .name = "char-ready?", .func = &charReadyP, .arity = .{ .variadic = 0 }, .libs = LS.initMany(&.{ .scheme_base, .scheme_r5rs }) },
+    .{ .name = "write-char", .func = &writeCharFn, .arity = .{ .variadic = 1 }, .libs = LS.initMany(&.{ .scheme_base, .scheme_r5rs }) },
+    .{ .name = "write-string", .func = &writeStringFn, .arity = .{ .variadic = 1 }, .libs = LS.initOne(.scheme_base) },
+    .{ .name = "read", .func = &readDatumFn, .arity = .{ .variadic = 0 }, .libs = LS.initMany(&.{ .scheme_r5rs, .scheme_read }) },
+    .{ .name = "file-exists?", .func = &fileExistsP, .arity = .{ .exact = 1 }, .libs = LS.initOne(.scheme_file), .sandbox = false },
+    .{ .name = "eof-object?", .func = &eofObjectP, .arity = .{ .exact = 1 }, .libs = LS.initMany(&.{ .scheme_base, .scheme_r5rs }) },
+    .{ .name = "eof-object", .func = &eofObjectFn, .arity = .{ .exact = 0 }, .libs = LS.initOne(.scheme_base) },
+    .{ .name = "open-input-string", .func = &openInputString, .arity = .{ .exact = 1 }, .libs = LS.initOne(.scheme_base) },
+    .{ .name = "open-output-string", .func = &openOutputString, .arity = .{ .exact = 0 }, .libs = LS.initOne(.scheme_base) },
+    .{ .name = "get-output-string", .func = &getOutputString, .arity = .{ .exact = 1 }, .libs = LS.initOne(.scheme_base) },
+    .{ .name = "read-string", .func = &readStringFn, .arity = .{ .variadic = 1 }, .libs = LS.initOne(.scheme_base) },
+    .{ .name = "flush-output-port", .func = &flushOutputPort, .arity = .{ .variadic = 0 }, .libs = LS.initOne(.scheme_base) },
+    .{ .name = "delete-file", .func = &deleteFile, .arity = .{ .exact = 1 }, .libs = LS.initOne(.scheme_file), .sandbox = false },
+    .{ .name = "write-shared", .func = &writeShared, .arity = .{ .variadic = 1 }, .libs = LS.initOne(.scheme_write) },
+    .{ .name = "write-simple", .func = &write, .arity = .{ .variadic = 1 }, .libs = LS.initOne(.scheme_write) },
+    .{ .name = "call-with-input-file", .func = &callWithInputFile, .arity = .{ .exact = 2 }, .libs = LS.initMany(&.{ .scheme_file, .scheme_r5rs }), .sandbox = false },
+    .{ .name = "call-with-output-file", .func = &callWithOutputFile, .arity = .{ .exact = 2 }, .libs = LS.initMany(&.{ .scheme_file, .scheme_r5rs }), .sandbox = false },
+    .{ .name = "call-with-port", .func = &callWithPort, .arity = .{ .exact = 2 }, .libs = LS.initOne(.scheme_base) },
+    .{ .name = "with-input-from-file", .func = &withInputFromFile, .arity = .{ .exact = 2 }, .libs = LS.initMany(&.{ .scheme_file, .scheme_r5rs }), .sandbox = false },
+    .{ .name = "with-output-to-file", .func = &withOutputToFile, .arity = .{ .exact = 2 }, .libs = LS.initMany(&.{ .scheme_file, .scheme_r5rs }), .sandbox = false },
+    .{ .name = "open-binary-input-file", .func = &openBinaryInputFile, .arity = .{ .exact = 1 }, .libs = LS.initOne(.scheme_file), .sandbox = false },
+    .{ .name = "open-binary-output-file", .func = &openBinaryOutputFile, .arity = .{ .exact = 1 }, .libs = LS.initOne(.scheme_file), .sandbox = false },
+};
 
 // ---------------------------------------------------------------------------
 // Port helpers
@@ -235,7 +193,7 @@ fn newline(args: []const Value) PrimitiveError!Value {
 // Port procedures (R7RS 6.13)
 // ---------------------------------------------------------------------------
 
-fn registerPortParams(vm: *vm_mod.VM) !void {
+pub fn initPortParams(vm: *vm_mod.VM) !void {
     const gc = vm.gc;
     vm.current_input_port_param = gc.allocParameter(vm.stdin_port, types.NIL) catch return error.OutOfMemory;
     gc.extra_roots.append(gc.allocator, vm.current_input_port_param) catch return error.OutOfMemory;

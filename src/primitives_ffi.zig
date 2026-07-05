@@ -5,18 +5,19 @@ const memory = @import("memory.zig");
 const vm_mod = @import("vm.zig");
 const Value = types.Value;
 const PrimitiveError = primitives.PrimitiveError;
+const LS = primitives.LibSet;
 
 const ffi_callback = @import("ffi_callback.zig");
 
-pub fn registerFfi(vm: *vm_mod.VM) !void {
-    try primitives.reg(vm, "ffi-open", &ffiOpen, .{ .exact = 1 });
-    try primitives.reg(vm, "ffi-fn", &ffiFn, .{ .exact = 4 });
-    try primitives.reg(vm, "ffi-close", &ffiClose, .{ .exact = 1 });
-    try primitives.reg(vm, "ffi-callback", &ffiCallbackFn, .{ .exact = 3 });
-    try primitives.reg(vm, "ffi-callback-release", &ffiCallbackRelease, .{ .exact = 1 });
-    try primitives.reg(vm, "ffi-callback?", &ffiCallbackPred, .{ .exact = 1 });
-    try primitives.reg(vm, "ffi-bytevector-ptr", &ffiBytevectorPtr, .{ .exact = 1 });
-}
+pub const specs = [_]primitives.PrimSpec{
+    .{ .name = "ffi-open", .func = &ffiOpen, .arity = .{ .exact = 1 }, .libs = LS.initOne(.kaappi_ffi), .sandbox = false, .wasm = false },
+    .{ .name = "ffi-fn", .func = &ffiFn, .arity = .{ .exact = 4 }, .libs = LS.initOne(.kaappi_ffi), .sandbox = false, .wasm = false },
+    .{ .name = "ffi-close", .func = &ffiClose, .arity = .{ .exact = 1 }, .libs = LS.initOne(.kaappi_ffi), .sandbox = false, .wasm = false },
+    .{ .name = "ffi-callback", .func = &ffiCallbackFn, .arity = .{ .exact = 3 }, .libs = LS.initOne(.kaappi_ffi), .sandbox = false, .wasm = false },
+    .{ .name = "ffi-callback-release", .func = &ffiCallbackRelease, .arity = .{ .exact = 1 }, .libs = LS.initOne(.kaappi_ffi), .sandbox = false, .wasm = false },
+    .{ .name = "ffi-callback?", .func = &ffiCallbackPred, .arity = .{ .exact = 1 }, .libs = LS.initOne(.kaappi_ffi), .sandbox = false, .wasm = false },
+    .{ .name = "ffi-bytevector-ptr", .func = &ffiBytevectorPtr, .arity = .{ .exact = 1 }, .libs = LS.initOne(.kaappi_ffi), .sandbox = false, .wasm = false },
+};
 
 fn checkSandbox(comptime name: []const u8) PrimitiveError!void {
     const vm = vm_mod.vm_instance orelse return;

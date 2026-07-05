@@ -5,14 +5,15 @@ const memory = @import("memory.zig");
 const vm_mod = @import("vm.zig");
 const Value = types.Value;
 const PrimitiveError = primitives.PrimitiveError;
+const LS = primitives.LibSet;
 const NativeFn = types.NativeFn;
 
-pub fn registerLazy(vm: *vm_mod.VM) !void {
-    try primitives.reg(vm, "force", &forceFn, .{ .exact = 1 });
-    try primitives.reg(vm, "promise?", &promiseP, .{ .exact = 1 });
-    try primitives.reg(vm, "make-promise", &makePromiseFn, .{ .exact = 1 });
-    try primitives.reg(vm, "%make-promise-lazy", &makePromiseLazy, .{ .exact = 1 });
-}
+pub const specs = [_]primitives.PrimSpec{
+    .{ .name = "force", .func = &forceFn, .arity = .{ .exact = 1 }, .libs = LS.initMany(&.{ .scheme_lazy, .scheme_r5rs }) },
+    .{ .name = "promise?", .func = &promiseP, .arity = .{ .exact = 1 }, .libs = LS.initMany(&.{ .scheme_base, .scheme_lazy }) },
+    .{ .name = "make-promise", .func = &makePromiseFn, .arity = .{ .exact = 1 }, .libs = LS.initMany(&.{ .scheme_base, .scheme_lazy }) },
+    .{ .name = "%make-promise-lazy", .func = &makePromiseLazy, .arity = .{ .exact = 1 }, .libs = LS.initOne(.scheme_base) },
+};
 
 fn promiseP(args: []const Value) PrimitiveError!Value {
     return if (types.isPromise(args[0])) types.TRUE else types.FALSE;

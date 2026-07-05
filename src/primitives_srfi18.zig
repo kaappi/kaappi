@@ -7,6 +7,45 @@ const memory = @import("memory.zig");
 const Value = types.Value;
 const NativeFn = types.NativeFn;
 const PrimitiveError = primitives.PrimitiveError;
+const LS = primitives.LibSet;
+
+pub const specs = [_]primitives.PrimSpec{
+    .{ .name = "current-thread", .func = &currentThreadFn, .arity = .{ .exact = 0 }, .libs = LS.initOne(.srfi_18), .sandbox = false, .wasm = false },
+    .{ .name = "thread?", .func = &threadPredFn, .arity = .{ .exact = 1 }, .libs = LS.initOne(.srfi_18), .sandbox = false, .wasm = false },
+    .{ .name = "make-thread", .func = &makeThreadFn, .arity = .{ .variadic = 1 }, .libs = LS.initOne(.srfi_18), .sandbox = false, .wasm = false },
+    .{ .name = "thread-name", .func = &threadNameFn, .arity = .{ .exact = 1 }, .libs = LS.initOne(.srfi_18), .sandbox = false, .wasm = false },
+    .{ .name = "thread-specific", .func = &threadSpecificFn, .arity = .{ .exact = 1 }, .libs = LS.initOne(.srfi_18), .sandbox = false, .wasm = false },
+    .{ .name = "thread-specific-set!", .func = &threadSpecificSetFn, .arity = .{ .exact = 2 }, .libs = LS.initOne(.srfi_18), .sandbox = false, .wasm = false },
+    .{ .name = "thread-start!", .func = &threadStartFn, .arity = .{ .exact = 1 }, .libs = LS.initOne(.srfi_18), .sandbox = false, .wasm = false },
+    .{ .name = "thread-yield!", .func = &threadYieldFn, .arity = .{ .exact = 0 }, .libs = LS.initOne(.srfi_18), .sandbox = false, .wasm = false },
+    .{ .name = "thread-sleep!", .func = &threadSleepFn, .arity = .{ .exact = 1 }, .libs = LS.initOne(.srfi_18), .sandbox = false, .wasm = false },
+    .{ .name = "thread-terminate!", .func = &threadTerminateFn, .arity = .{ .exact = 1 }, .libs = LS.initOne(.srfi_18), .sandbox = false, .wasm = false },
+    .{ .name = "thread-join!", .func = &threadJoinFn, .arity = .{ .variadic = 1 }, .libs = LS.initOne(.srfi_18), .sandbox = false, .wasm = false },
+    .{ .name = "mutex?", .func = &mutexPredFn, .arity = .{ .exact = 1 }, .libs = LS.initOne(.srfi_18), .sandbox = false, .wasm = false },
+    .{ .name = "make-mutex", .func = &makeMutexFn, .arity = .{ .variadic = 0 }, .libs = LS.initOne(.srfi_18), .sandbox = false, .wasm = false },
+    .{ .name = "mutex-name", .func = &mutexNameFn, .arity = .{ .exact = 1 }, .libs = LS.initOne(.srfi_18), .sandbox = false, .wasm = false },
+    .{ .name = "mutex-specific", .func = &mutexSpecificFn, .arity = .{ .exact = 1 }, .libs = LS.initOne(.srfi_18), .sandbox = false, .wasm = false },
+    .{ .name = "mutex-specific-set!", .func = &mutexSpecificSetFn, .arity = .{ .exact = 2 }, .libs = LS.initOne(.srfi_18), .sandbox = false, .wasm = false },
+    .{ .name = "mutex-state", .func = &mutexStateFn, .arity = .{ .exact = 1 }, .libs = LS.initOne(.srfi_18), .sandbox = false, .wasm = false },
+    .{ .name = "mutex-lock!", .func = &mutexLockFn, .arity = .{ .variadic = 1 }, .libs = LS.initOne(.srfi_18), .sandbox = false, .wasm = false },
+    .{ .name = "mutex-unlock!", .func = &mutexUnlockFn, .arity = .{ .variadic = 1 }, .libs = LS.initOne(.srfi_18), .sandbox = false, .wasm = false },
+    .{ .name = "condition-variable?", .func = &condvarPredFn, .arity = .{ .exact = 1 }, .libs = LS.initOne(.srfi_18), .sandbox = false, .wasm = false },
+    .{ .name = "make-condition-variable", .func = &makeCondvarFn, .arity = .{ .variadic = 0 }, .libs = LS.initOne(.srfi_18), .sandbox = false, .wasm = false },
+    .{ .name = "condition-variable-name", .func = &condvarNameFn, .arity = .{ .exact = 1 }, .libs = LS.initOne(.srfi_18), .sandbox = false, .wasm = false },
+    .{ .name = "condition-variable-specific", .func = &condvarSpecificFn, .arity = .{ .exact = 1 }, .libs = LS.initOne(.srfi_18), .sandbox = false, .wasm = false },
+    .{ .name = "condition-variable-specific-set!", .func = &condvarSpecificSetFn, .arity = .{ .exact = 2 }, .libs = LS.initOne(.srfi_18), .sandbox = false, .wasm = false },
+    .{ .name = "condition-variable-signal!", .func = &condvarSignalFn, .arity = .{ .exact = 1 }, .libs = LS.initOne(.srfi_18), .sandbox = false, .wasm = false },
+    .{ .name = "condition-variable-broadcast!", .func = &condvarBroadcastFn, .arity = .{ .exact = 1 }, .libs = LS.initOne(.srfi_18), .sandbox = false, .wasm = false },
+    .{ .name = "current-time", .func = &currentTimeFn, .arity = .{ .exact = 0 }, .libs = LS.initOne(.srfi_18), .sandbox = false, .wasm = false },
+    .{ .name = "time?", .func = &timePredFn, .arity = .{ .exact = 1 }, .libs = LS.initOne(.srfi_18), .sandbox = false, .wasm = false },
+    .{ .name = "time->seconds", .func = &timeToSecondsFn, .arity = .{ .exact = 1 }, .libs = LS.initOne(.srfi_18), .sandbox = false, .wasm = false },
+    .{ .name = "seconds->time", .func = &secondsToTimeFn, .arity = .{ .exact = 1 }, .libs = LS.initOne(.srfi_18), .sandbox = false, .wasm = false },
+    .{ .name = "join-timeout-exception?", .func = &joinTimeoutPredFn, .arity = .{ .exact = 1 }, .libs = LS.initOne(.srfi_18), .sandbox = false, .wasm = false },
+    .{ .name = "abandoned-mutex-exception?", .func = &abandonedMutexPredFn, .arity = .{ .exact = 1 }, .libs = LS.initOne(.srfi_18), .sandbox = false, .wasm = false },
+    .{ .name = "terminated-thread-exception?", .func = &terminatedThreadPredFn, .arity = .{ .exact = 1 }, .libs = LS.initOne(.srfi_18), .sandbox = false, .wasm = false },
+    .{ .name = "uncaught-exception?", .func = &uncaughtExceptionPredFn, .arity = .{ .exact = 1 }, .libs = LS.initOne(.srfi_18), .sandbox = false, .wasm = false },
+    .{ .name = "uncaught-exception-reason", .func = &uncaughtExceptionReasonFn, .arity = .{ .exact = 1 }, .libs = LS.initOne(.srfi_18), .sandbox = false, .wasm = false },
+};
 
 const ChildThreadResources = struct {
     child_gc: *memory.GC,
@@ -56,53 +95,6 @@ var child_registry: ChildRegistry = .{
     .map = std.AutoHashMap(usize, ChildThreadResources).init(std.heap.page_allocator),
     .mutex = .unlocked,
 };
-
-pub fn registerSrfi18(vm: *vm_mod.VM) !void {
-    // Thread
-    try primitives.reg(vm, "current-thread", &currentThreadFn, .{ .exact = 0 });
-    try primitives.reg(vm, "thread?", &threadPredFn, .{ .exact = 1 });
-    try primitives.reg(vm, "make-thread", &makeThreadFn, .{ .variadic = 1 });
-    try primitives.reg(vm, "thread-name", &threadNameFn, .{ .exact = 1 });
-    try primitives.reg(vm, "thread-specific", &threadSpecificFn, .{ .exact = 1 });
-    try primitives.reg(vm, "thread-specific-set!", &threadSpecificSetFn, .{ .exact = 2 });
-    try primitives.reg(vm, "thread-start!", &threadStartFn, .{ .exact = 1 });
-    try primitives.reg(vm, "thread-yield!", &threadYieldFn, .{ .exact = 0 });
-    try primitives.reg(vm, "thread-sleep!", &threadSleepFn, .{ .exact = 1 });
-    try primitives.reg(vm, "thread-terminate!", &threadTerminateFn, .{ .exact = 1 });
-    try primitives.reg(vm, "thread-join!", &threadJoinFn, .{ .variadic = 1 });
-
-    // Mutex
-    try primitives.reg(vm, "mutex?", &mutexPredFn, .{ .exact = 1 });
-    try primitives.reg(vm, "make-mutex", &makeMutexFn, .{ .variadic = 0 });
-    try primitives.reg(vm, "mutex-name", &mutexNameFn, .{ .exact = 1 });
-    try primitives.reg(vm, "mutex-specific", &mutexSpecificFn, .{ .exact = 1 });
-    try primitives.reg(vm, "mutex-specific-set!", &mutexSpecificSetFn, .{ .exact = 2 });
-    try primitives.reg(vm, "mutex-state", &mutexStateFn, .{ .exact = 1 });
-    try primitives.reg(vm, "mutex-lock!", &mutexLockFn, .{ .variadic = 1 });
-    try primitives.reg(vm, "mutex-unlock!", &mutexUnlockFn, .{ .variadic = 1 });
-
-    // Condition variable
-    try primitives.reg(vm, "condition-variable?", &condvarPredFn, .{ .exact = 1 });
-    try primitives.reg(vm, "make-condition-variable", &makeCondvarFn, .{ .variadic = 0 });
-    try primitives.reg(vm, "condition-variable-name", &condvarNameFn, .{ .exact = 1 });
-    try primitives.reg(vm, "condition-variable-specific", &condvarSpecificFn, .{ .exact = 1 });
-    try primitives.reg(vm, "condition-variable-specific-set!", &condvarSpecificSetFn, .{ .exact = 2 });
-    try primitives.reg(vm, "condition-variable-signal!", &condvarSignalFn, .{ .exact = 1 });
-    try primitives.reg(vm, "condition-variable-broadcast!", &condvarBroadcastFn, .{ .exact = 1 });
-
-    // Time
-    try primitives.reg(vm, "current-time", &currentTimeFn, .{ .exact = 0 });
-    try primitives.reg(vm, "time?", &timePredFn, .{ .exact = 1 });
-    try primitives.reg(vm, "time->seconds", &timeToSecondsFn, .{ .exact = 1 });
-    try primitives.reg(vm, "seconds->time", &secondsToTimeFn, .{ .exact = 1 });
-
-    // Exception predicates
-    try primitives.reg(vm, "join-timeout-exception?", &joinTimeoutPredFn, .{ .exact = 1 });
-    try primitives.reg(vm, "abandoned-mutex-exception?", &abandonedMutexPredFn, .{ .exact = 1 });
-    try primitives.reg(vm, "terminated-thread-exception?", &terminatedThreadPredFn, .{ .exact = 1 });
-    try primitives.reg(vm, "uncaught-exception?", &uncaughtExceptionPredFn, .{ .exact = 1 });
-    try primitives.reg(vm, "uncaught-exception-reason", &uncaughtExceptionReasonFn, .{ .exact = 1 });
-}
 
 fn ensureScheduler() PrimitiveError!struct { vm: *vm_mod.VM, sched: *fiber_mod.FiberScheduler } {
     const vm = vm_mod.vm_instance orelse return PrimitiveError.OutOfMemory;

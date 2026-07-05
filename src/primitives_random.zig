@@ -6,6 +6,7 @@ const memory = @import("memory.zig");
 const Value = types.Value;
 const NativeFn = types.NativeFn;
 const PrimitiveError = primitives.PrimitiveError;
+const LS = primitives.LibSet;
 
 fn freshSeed() u64 {
     if (@import("builtin").os.tag == .linux) {
@@ -23,20 +24,22 @@ fn freshSeed() u64 {
     return @as(u64, @bitCast(ts.sec)) ^ @as(u64, @bitCast(ts.nsec));
 }
 
-pub fn registerRandom(vm: *vm_mod.VM) !void {
-    vm.default_random_source = vm.gc.allocRandomSource(freshSeed()) catch return error.OutOfMemory;
+pub const specs = [_]primitives.PrimSpec{
+    .{ .name = "random-integer", .func = &randomIntegerFn, .arity = .{ .exact = 1 }, .libs = LS.initOne(.scheme_base) },
+    .{ .name = "random-real", .func = &randomRealFn, .arity = .{ .exact = 0 }, .libs = LS.initOne(.scheme_base) },
+    .{ .name = "default-random-source", .func = &defaultRandomSourceFn, .arity = .{ .exact = 0 }, .libs = LS.initOne(.scheme_base) },
+    .{ .name = "random-source?", .func = &randomSourcePFn, .arity = .{ .exact = 1 }, .libs = LS.initOne(.scheme_base) },
+    .{ .name = "make-random-source", .func = &makeRandomSourceFn, .arity = .{ .exact = 0 }, .libs = LS.initOne(.scheme_base) },
+    .{ .name = "random-source-randomize!", .func = &randomSourceRandomizeFn, .arity = .{ .exact = 1 }, .libs = LS.initOne(.scheme_base) },
+    .{ .name = "random-source-pseudo-randomize!", .func = &randomSourcePseudoRandomizeFn, .arity = .{ .exact = 3 }, .libs = LS.initOne(.scheme_base) },
+    .{ .name = "random-source-state-ref", .func = &randomSourceStateRefFn, .arity = .{ .exact = 1 }, .libs = LS.initOne(.scheme_base) },
+    .{ .name = "random-source-state-set!", .func = &randomSourceStateSetFn, .arity = .{ .exact = 2 }, .libs = LS.initOne(.scheme_base) },
+    .{ .name = "%rs-next-int", .func = &rsNextIntFn, .arity = .{ .exact = 2 }, .libs = LS.initOne(.scheme_base) },
+    .{ .name = "%rs-next-real", .func = &rsNextRealFn, .arity = .{ .exact = 1 }, .libs = LS.initOne(.scheme_base) },
+};
 
-    try primitives.reg(vm, "random-integer", &randomIntegerFn, .{ .exact = 1 });
-    try primitives.reg(vm, "random-real", &randomRealFn, .{ .exact = 0 });
-    try primitives.reg(vm, "default-random-source", &defaultRandomSourceFn, .{ .exact = 0 });
-    try primitives.reg(vm, "random-source?", &randomSourcePFn, .{ .exact = 1 });
-    try primitives.reg(vm, "make-random-source", &makeRandomSourceFn, .{ .exact = 0 });
-    try primitives.reg(vm, "random-source-randomize!", &randomSourceRandomizeFn, .{ .exact = 1 });
-    try primitives.reg(vm, "random-source-pseudo-randomize!", &randomSourcePseudoRandomizeFn, .{ .exact = 3 });
-    try primitives.reg(vm, "random-source-state-ref", &randomSourceStateRefFn, .{ .exact = 1 });
-    try primitives.reg(vm, "random-source-state-set!", &randomSourceStateSetFn, .{ .exact = 2 });
-    try primitives.reg(vm, "%rs-next-int", &rsNextIntFn, .{ .exact = 2 });
-    try primitives.reg(vm, "%rs-next-real", &rsNextRealFn, .{ .exact = 1 });
+pub fn initDefaultRS(vm: *vm_mod.VM) void {
+    vm.default_random_source = vm.gc.allocRandomSource(freshSeed()) catch return;
 }
 
 pub fn ensureDefaultRS() void {

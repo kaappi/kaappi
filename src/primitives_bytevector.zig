@@ -7,32 +7,31 @@ const primitives_io = @import("primitives_io.zig");
 const Value = types.Value;
 const NativeFn = types.NativeFn;
 const PrimitiveError = primitives.PrimitiveError;
+const LS = primitives.LibSet;
 
-pub fn registerBytevector(vm: *vm_mod.VM) !void {
-    try primitives.reg(vm, "bytevector?", &bytevectorP, .{ .exact = 1 });
-    try primitives.reg(vm, "make-bytevector", &makeBytevector, .{ .variadic = 1 });
-    try primitives.reg(vm, "bytevector", &bytevectorFn, .{ .variadic = 0 });
-    try primitives.reg(vm, "bytevector-length", &bytevectorLength, .{ .exact = 1 });
-    try primitives.reg(vm, "bytevector-u8-ref", &bytevectorU8Ref, .{ .exact = 2 });
-    try primitives.reg(vm, "bytevector-u8-set!", &bytevectorU8Set, .{ .exact = 3 });
-    try primitives.reg(vm, "bytevector-copy", &bytevectorCopy, .{ .variadic = 1 });
-    try primitives.reg(vm, "bytevector-copy!", &bytevectorCopyBang, .{ .variadic = 3 });
-    try primitives.reg(vm, "bytevector-append", &bytevectorAppend, .{ .variadic = 0 });
-    try primitives.reg(vm, "utf8->string", &utf8ToString, .{ .variadic = 1 });
-    try primitives.reg(vm, "string->utf8", &stringToUtf8, .{ .variadic = 1 });
-    // Binary I/O
-    try primitives.reg(vm, "read-u8", &readU8Fn, .{ .variadic = 0 });
-    try primitives.reg(vm, "peek-u8", &peekU8Fn, .{ .variadic = 0 });
-    try primitives.reg(vm, "write-u8", &writeU8Fn, .{ .variadic = 1 });
-    try primitives.reg(vm, "u8-ready?", &u8ReadyP, .{ .variadic = 0 });
-    try primitives.reg(vm, "read-bytevector", &readBytevectorFn, .{ .variadic = 1 });
-    try primitives.reg(vm, "write-bytevector", &writeBytevectorFn, .{ .variadic = 1 });
-    // Bytevector ports (R7RS 6.13)
-    try primitives.reg(vm, "open-input-bytevector", &openInputBytevector, .{ .exact = 1 });
-    try primitives.reg(vm, "open-output-bytevector", &openOutputBytevector, .{ .exact = 0 });
-    try primitives.reg(vm, "get-output-bytevector", &getOutputBytevector, .{ .exact = 1 });
-    try primitives.reg(vm, "read-bytevector!", &readBytevectorMut, .{ .variadic = 1 });
-}
+pub const specs = [_]primitives.PrimSpec{
+    .{ .name = "bytevector?", .func = &bytevectorP, .arity = .{ .exact = 1 }, .libs = LS.initOne(.scheme_base) },
+    .{ .name = "make-bytevector", .func = &makeBytevector, .arity = .{ .variadic = 1 }, .libs = LS.initOne(.scheme_base) },
+    .{ .name = "bytevector", .func = &bytevectorFn, .arity = .{ .variadic = 0 }, .libs = LS.initOne(.scheme_base) },
+    .{ .name = "bytevector-length", .func = &bytevectorLength, .arity = .{ .exact = 1 }, .libs = LS.initOne(.scheme_base) },
+    .{ .name = "bytevector-u8-ref", .func = &bytevectorU8Ref, .arity = .{ .exact = 2 }, .libs = LS.initOne(.scheme_base) },
+    .{ .name = "bytevector-u8-set!", .func = &bytevectorU8Set, .arity = .{ .exact = 3 }, .libs = LS.initOne(.scheme_base) },
+    .{ .name = "bytevector-copy", .func = &bytevectorCopy, .arity = .{ .variadic = 1 }, .libs = LS.initOne(.scheme_base) },
+    .{ .name = "bytevector-copy!", .func = &bytevectorCopyBang, .arity = .{ .variadic = 3 }, .libs = LS.initOne(.scheme_base) },
+    .{ .name = "bytevector-append", .func = &bytevectorAppend, .arity = .{ .variadic = 0 }, .libs = LS.initOne(.scheme_base) },
+    .{ .name = "utf8->string", .func = &utf8ToString, .arity = .{ .variadic = 1 }, .libs = LS.initOne(.scheme_base) },
+    .{ .name = "string->utf8", .func = &stringToUtf8, .arity = .{ .variadic = 1 }, .libs = LS.initOne(.scheme_base) },
+    .{ .name = "read-u8", .func = &readU8Fn, .arity = .{ .variadic = 0 }, .libs = LS.initOne(.scheme_base) },
+    .{ .name = "peek-u8", .func = &peekU8Fn, .arity = .{ .variadic = 0 }, .libs = LS.initOne(.scheme_base) },
+    .{ .name = "write-u8", .func = &writeU8Fn, .arity = .{ .variadic = 1 }, .libs = LS.initOne(.scheme_base) },
+    .{ .name = "u8-ready?", .func = &u8ReadyP, .arity = .{ .variadic = 0 }, .libs = LS.initOne(.scheme_base) },
+    .{ .name = "read-bytevector", .func = &readBytevectorFn, .arity = .{ .variadic = 1 }, .libs = LS.initOne(.scheme_base) },
+    .{ .name = "write-bytevector", .func = &writeBytevectorFn, .arity = .{ .variadic = 1 }, .libs = LS.initOne(.scheme_base) },
+    .{ .name = "open-input-bytevector", .func = &openInputBytevector, .arity = .{ .exact = 1 }, .libs = LS.initOne(.scheme_base) },
+    .{ .name = "open-output-bytevector", .func = &openOutputBytevector, .arity = .{ .exact = 0 }, .libs = LS.initOne(.scheme_base) },
+    .{ .name = "get-output-bytevector", .func = &getOutputBytevector, .arity = .{ .exact = 1 }, .libs = LS.initOne(.scheme_base) },
+    .{ .name = "read-bytevector!", .func = &readBytevectorMut, .arity = .{ .variadic = 1 }, .libs = LS.initOne(.scheme_base) },
+};
 
 // ---------------------------------------------------------------------------
 // Bytevector procedures (R7RS 6.9)

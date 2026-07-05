@@ -9,44 +9,45 @@ const unicode = @import("unicode_tables.zig");
 const Value = types.Value;
 const NativeFn = types.NativeFn;
 const PrimitiveError = primitives.PrimitiveError;
+const LS = primitives.LibSet;
 const getStringSlice = pstr.getStringSlice;
 const utf8CodepointCount = pstr.utf8CodepointCount;
 const utf8DecodeAt = pstr.utf8DecodeAt;
 const utf8ByteLenAt = pstr.utf8ByteLenAt;
 
-pub fn registerStringExt(vm: *vm_mod.VM) !void {
-    try primitives.reg(vm, "string-contains", &stringContainsFn, .{ .variadic = 2 });
-    try primitives.reg(vm, "string-prefix?", &stringPrefixPFn, .{ .variadic = 2 });
-    try primitives.reg(vm, "string-suffix?", &stringSuffixPFn, .{ .variadic = 2 });
-    try primitives.reg(vm, "string-trim", &stringTrimFn, .{ .variadic = 1 });
-    try primitives.reg(vm, "string-trim-right", &stringTrimRightFn, .{ .variadic = 1 });
-    try primitives.reg(vm, "string-trim-both", &stringTrimBothFn, .{ .variadic = 1 });
-    try primitives.reg(vm, "string-index", &stringIndexFn, .{ .variadic = 2 });
-    try primitives.reg(vm, "string-count", &stringCountFn, .{ .variadic = 2 });
-    try primitives.reg(vm, "string-split", &stringSplitFn, .{ .exact = 2 });
-    try primitives.reg(vm, "string-join", &stringJoinFn, .{ .variadic = 1 });
-    try primitives.reg(vm, "string-concatenate", &stringConcatenateFn, .{ .exact = 1 });
-    // SRFI 13 additions
-    try primitives.reg(vm, "string-take", &stringTakeFn, .{ .exact = 2 });
-    try primitives.reg(vm, "string-drop", &stringDropFn, .{ .exact = 2 });
-    try primitives.reg(vm, "string-take-right", &stringTakeRightFn, .{ .exact = 2 });
-    try primitives.reg(vm, "string-drop-right", &stringDropRightFn, .{ .exact = 2 });
-    try primitives.reg(vm, "string-pad", &stringPadFn, .{ .variadic = 2 });
-    try primitives.reg(vm, "string-pad-right", &stringPadRightFn, .{ .variadic = 2 });
-    try primitives.reg(vm, "string-reverse", &stringReverseFn, .{ .variadic = 1 });
-    try primitives.reg(vm, "string-filter", &stringFilterFn, .{ .variadic = 2 });
-    try primitives.reg(vm, "string-delete", &stringDeleteFn, .{ .variadic = 2 });
-    try primitives.reg(vm, "string-replace", &stringReplaceFn, .{ .exact = 4 });
-    try primitives.reg(vm, "string-titlecase", &stringTitlecaseFn, .{ .variadic = 1 });
-    try primitives.reg(vm, "string-every", &stringEveryFn, .{ .variadic = 2 });
-    try primitives.reg(vm, "string-any", &stringAnyFn, .{ .variadic = 2 });
-    try primitives.reg(vm, "string-tabulate", &stringTabulateFn, .{ .exact = 2 });
-    try primitives.reg(vm, "string-unfold", &stringUnfoldFn, .{ .variadic = 4 });
-    try primitives.reg(vm, "string-unfold-right", &stringUnfoldRightFn, .{ .variadic = 4 });
-    try primitives.reg(vm, "string-index-right", &stringIndexRightFn, .{ .variadic = 2 });
-    try primitives.reg(vm, "string-skip", &stringSkipFn, .{ .variadic = 2 });
-    try primitives.reg(vm, "string-skip-right", &stringSkipRightFn, .{ .variadic = 2 });
-}
+pub const specs = [_]primitives.PrimSpec{
+    .{ .name = "string-contains", .func = &stringContainsFn, .arity = .{ .variadic = 2 }, .libs = LS.initOne(.srfi_13) },
+    .{ .name = "string-prefix?", .func = &stringPrefixPFn, .arity = .{ .variadic = 2 }, .libs = LS.initOne(.srfi_13) },
+    .{ .name = "string-suffix?", .func = &stringSuffixPFn, .arity = .{ .variadic = 2 }, .libs = LS.initOne(.srfi_13) },
+    .{ .name = "string-trim", .func = &stringTrimFn, .arity = .{ .variadic = 1 }, .libs = LS.initOne(.srfi_13) },
+    .{ .name = "string-trim-right", .func = &stringTrimRightFn, .arity = .{ .variadic = 1 }, .libs = LS.initOne(.srfi_13) },
+    .{ .name = "string-trim-both", .func = &stringTrimBothFn, .arity = .{ .variadic = 1 }, .libs = LS.initOne(.srfi_13) },
+    .{ .name = "string-index", .func = &stringIndexFn, .arity = .{ .variadic = 2 }, .libs = LS.initOne(.srfi_13) },
+    .{ .name = "string-count", .func = &stringCountFn, .arity = .{ .variadic = 2 }, .libs = LS.initOne(.srfi_13) },
+    .{ .name = "string-split", .func = &stringSplitFn, .arity = .{ .exact = 2 }, .libs = LS.initOne(.srfi_13) },
+    .{ .name = "string-join", .func = &stringJoinFn, .arity = .{ .variadic = 1 }, .libs = LS.initOne(.srfi_13) },
+    .{ .name = "string-concatenate", .func = &stringConcatenateFn, .arity = .{ .exact = 1 }, .libs = LS.initOne(.srfi_13) },
+    .{ .name = "string-take", .func = &stringTakeFn, .arity = .{ .exact = 2 }, .libs = LS.initOne(.srfi_13) },
+    .{ .name = "string-drop", .func = &stringDropFn, .arity = .{ .exact = 2 }, .libs = LS.initOne(.srfi_13) },
+    .{ .name = "string-take-right", .func = &stringTakeRightFn, .arity = .{ .exact = 2 }, .libs = LS.initOne(.srfi_13) },
+    .{ .name = "string-drop-right", .func = &stringDropRightFn, .arity = .{ .exact = 2 }, .libs = LS.initOne(.srfi_13) },
+    .{ .name = "string-pad", .func = &stringPadFn, .arity = .{ .variadic = 2 }, .libs = LS.initOne(.srfi_13) },
+    .{ .name = "string-pad-right", .func = &stringPadRightFn, .arity = .{ .variadic = 2 }, .libs = LS.initOne(.srfi_13) },
+    .{ .name = "string-reverse", .func = &stringReverseFn, .arity = .{ .variadic = 1 }, .libs = LS.initOne(.srfi_13) },
+    .{ .name = "string-filter", .func = &stringFilterFn, .arity = .{ .variadic = 2 }, .libs = LS.initOne(.srfi_13) },
+    .{ .name = "string-delete", .func = &stringDeleteFn, .arity = .{ .variadic = 2 }, .libs = LS.initOne(.srfi_13) },
+    .{ .name = "string-replace", .func = &stringReplaceFn, .arity = .{ .exact = 4 }, .libs = LS.initOne(.srfi_13) },
+    .{ .name = "string-titlecase", .func = &stringTitlecaseFn, .arity = .{ .variadic = 1 }, .libs = LS.initOne(.srfi_13) },
+    .{ .name = "string-every", .func = &stringEveryFn, .arity = .{ .variadic = 2 }, .libs = LS.initOne(.srfi_13) },
+    .{ .name = "string-any", .func = &stringAnyFn, .arity = .{ .variadic = 2 }, .libs = LS.initOne(.srfi_13) },
+    .{ .name = "string-tabulate", .func = &stringTabulateFn, .arity = .{ .exact = 2 }, .libs = LS.initOne(.srfi_13) },
+    .{ .name = "string-unfold", .func = &stringUnfoldFn, .arity = .{ .variadic = 4 }, .libs = LS.initOne(.srfi_13) },
+    .{ .name = "string-unfold-right", .func = &stringUnfoldRightFn, .arity = .{ .variadic = 4 }, .libs = LS.initOne(.srfi_13) },
+    .{ .name = "string-index-right", .func = &stringIndexRightFn, .arity = .{ .variadic = 2 }, .libs = LS.initOne(.srfi_13) },
+    .{ .name = "string-skip", .func = &stringSkipFn, .arity = .{ .variadic = 2 }, .libs = LS.initOne(.srfi_13) },
+    .{ .name = "string-skip-right", .func = &stringSkipRightFn, .arity = .{ .variadic = 2 }, .libs = LS.initOne(.srfi_13) },
+};
+
 // ---------------------------------------------------------------------------
 // SRFI-13 String Library
 // ---------------------------------------------------------------------------

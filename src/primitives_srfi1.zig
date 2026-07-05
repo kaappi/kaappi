@@ -6,111 +6,81 @@ const memory = @import("memory.zig");
 const Value = types.Value;
 const NativeFn = types.NativeFn;
 const PrimitiveError = primitives.PrimitiveError;
+const LS = primitives.LibSet;
 
-pub fn registerSrfi1(vm: *vm_mod.VM) !void {
-    // Folds
-    try primitives.reg(vm, "fold", &foldFn, .{ .variadic = 3 });
-    try primitives.reg(vm, "fold-right", &foldRightFn, .{ .variadic = 3 });
-    try primitives.reg(vm, "reduce", &reduceFn, .{ .exact = 3 });
-    try primitives.reg(vm, "reduce-right", &reduceRightFn, .{ .exact = 3 });
-
-    // Filtering
-    try primitives.reg(vm, "filter", &filterFn, .{ .exact = 2 });
-    try primitives.reg(vm, "remove", &removeFn, .{ .exact = 2 });
-    try primitives.reg(vm, "partition", &partitionFn, .{ .exact = 2 });
-
-    // Searching
-    try primitives.reg(vm, "find", &findFn, .{ .exact = 2 });
-    try primitives.reg(vm, "find-tail", &findTailFn, .{ .exact = 2 });
-    try primitives.reg(vm, "any", &anyFn, .{ .variadic = 2 });
-    try primitives.reg(vm, "every", &everyFn, .{ .variadic = 2 });
-    try primitives.reg(vm, "count", &countFn, .{ .variadic = 2 });
-
-    // Construction
-    try primitives.reg(vm, "iota", &iotaFn, .{ .variadic = 1 });
-    try primitives.reg(vm, "zip", &zipFn, .{ .variadic = 1 });
-    try primitives.reg(vm, "concatenate", &concatenateFn, .{ .exact = 1 });
-
-    // Extraction
-    try primitives.reg(vm, "take", &takeFn, .{ .exact = 2 });
-    try primitives.reg(vm, "drop", &dropFn, .{ .exact = 2 });
-    try primitives.reg(vm, "take-while", &takeWhileFn, .{ .exact = 2 });
-    try primitives.reg(vm, "drop-while", &dropWhileFn, .{ .exact = 2 });
-
-    // Mapping
-    try primitives.reg(vm, "filter-map", &filterMapFn, .{ .variadic = 2 });
-    try primitives.reg(vm, "append-map", &appendMapFn, .{ .variadic = 2 });
-
-    // Misc
-    try primitives.reg(vm, "last", &lastFn, .{ .exact = 1 });
-    try primitives.reg(vm, "last-pair", &lastPairFn, .{ .exact = 1 });
-    try primitives.reg(vm, "proper-list?", &properListPFn, .{ .exact = 1 });
-    try primitives.reg(vm, "dotted-list?", &dottedListPFn, .{ .exact = 1 });
-    try primitives.reg(vm, "circular-list?", &circularListPFn, .{ .exact = 1 });
-
-    // Set operations
-    try primitives.reg(vm, "lset-intersection", &lsetIntersectionFn, .{ .variadic = 2 });
-    try primitives.reg(vm, "lset-difference", &lsetDifferenceFn, .{ .variadic = 2 });
-    try primitives.reg(vm, "lset=", &lsetEqualFn, .{ .variadic = 1 });
-    try primitives.reg(vm, "lset-adjoin", &lsetAdjoinFn, .{ .variadic = 2 });
-    try primitives.reg(vm, "lset-union", &lsetUnionFn, .{ .variadic = 1 });
-    try primitives.reg(vm, "lset-xor", &lsetXorFn, .{ .variadic = 1 });
-
-    // Additional constructors
-    try primitives.reg(vm, "xcons", &xconsFn, .{ .exact = 2 });
-    try primitives.reg(vm, "cons*", &consStarFn, .{ .variadic = 1 });
-    try primitives.reg(vm, "list-tabulate", &listTabulateFn, .{ .exact = 2 });
-    try primitives.reg(vm, "circular-list", &circularListFn, .{ .variadic = 0 });
-
-    // Additional predicates
-    try primitives.reg(vm, "not-pair?", &notPairPFn, .{ .exact = 1 });
-    try primitives.reg(vm, "null-list?", &nullListPFn, .{ .exact = 1 });
-    try primitives.reg(vm, "list=", &listEqualFn, .{ .variadic = 1 });
-
-    // Additional selectors
-    try primitives.reg(vm, "first", &firstFn, .{ .exact = 1 });
-    try primitives.reg(vm, "second", &secondFn, .{ .exact = 1 });
-    try primitives.reg(vm, "third", &thirdFn, .{ .exact = 1 });
-    try primitives.reg(vm, "fourth", &fourthFn, .{ .exact = 1 });
-    try primitives.reg(vm, "fifth", &fifthFn, .{ .exact = 1 });
-    try primitives.reg(vm, "sixth", &sixthFn, .{ .exact = 1 });
-    try primitives.reg(vm, "seventh", &seventhFn, .{ .exact = 1 });
-    try primitives.reg(vm, "eighth", &eighthFn, .{ .exact = 1 });
-    try primitives.reg(vm, "ninth", &ninthFn, .{ .exact = 1 });
-    try primitives.reg(vm, "tenth", &tenthFn, .{ .exact = 1 });
-    try primitives.reg(vm, "car+cdr", &carCdrFn, .{ .exact = 1 });
-    try primitives.reg(vm, "take-right", &takeRightFn, .{ .exact = 2 });
-    try primitives.reg(vm, "drop-right", &dropRightFn, .{ .exact = 2 });
-    try primitives.reg(vm, "split-at", &splitAtFn, .{ .exact = 2 });
-
-    // Additional searching
-    try primitives.reg(vm, "list-index", &listIndexFn, .{ .variadic = 2 });
-    try primitives.reg(vm, "span", &spanFn, .{ .exact = 2 });
-    try primitives.reg(vm, "break", &breakFn, .{ .exact = 2 });
-
-    // Deletion
-    try primitives.reg(vm, "delete", &deleteFn, .{ .variadic = 2 });
-    try primitives.reg(vm, "delete-duplicates", &deleteDuplicatesFn, .{ .variadic = 1 });
-
-    // Association lists
-    try primitives.reg(vm, "alist-cons", &alistConsFn, .{ .exact = 3 });
-    try primitives.reg(vm, "alist-copy", &alistCopyFn, .{ .exact = 1 });
-    try primitives.reg(vm, "alist-delete", &alistDeleteFn, .{ .variadic = 2 });
-
-    // Unfold
-    try primitives.reg(vm, "unfold", &unfoldFn, .{ .variadic = 4 });
-    try primitives.reg(vm, "unfold-right", &unfoldRightFn, .{ .variadic = 4 });
-
-    // Additional misc
-    try primitives.reg(vm, "append-reverse", &appendReverseFn, .{ .exact = 2 });
-    try primitives.reg(vm, "length+", &lengthPlusFn, .{ .exact = 1 });
-    try primitives.reg(vm, "unzip1", &unzip1Fn, .{ .exact = 1 });
-    try primitives.reg(vm, "unzip2", &unzip2Fn, .{ .exact = 1 });
-    try primitives.reg(vm, "pair-for-each", &pairForEachFn, .{ .variadic = 2 });
-    try primitives.reg(vm, "pair-fold", &pairFoldFn, .{ .variadic = 3 });
-    try primitives.reg(vm, "pair-fold-right", &pairFoldRightFn, .{ .variadic = 3 });
-    try primitives.reg(vm, "map-in-order", &mapInOrderFn, .{ .variadic = 2 });
-}
+pub const specs = [_]primitives.PrimSpec{
+    .{ .name = "fold", .func = &foldFn, .arity = .{ .variadic = 3 }, .libs = LS.initOne(.srfi_1) },
+    .{ .name = "fold-right", .func = &foldRightFn, .arity = .{ .variadic = 3 }, .libs = LS.initOne(.srfi_1) },
+    .{ .name = "reduce", .func = &reduceFn, .arity = .{ .exact = 3 }, .libs = LS.initOne(.srfi_1) },
+    .{ .name = "reduce-right", .func = &reduceRightFn, .arity = .{ .exact = 3 }, .libs = LS.initOne(.srfi_1) },
+    .{ .name = "filter", .func = &filterFn, .arity = .{ .exact = 2 }, .libs = LS.initOne(.srfi_1) },
+    .{ .name = "remove", .func = &removeFn, .arity = .{ .exact = 2 }, .libs = LS.initOne(.srfi_1) },
+    .{ .name = "partition", .func = &partitionFn, .arity = .{ .exact = 2 }, .libs = LS.initOne(.srfi_1) },
+    .{ .name = "find", .func = &findFn, .arity = .{ .exact = 2 }, .libs = LS.initOne(.srfi_1) },
+    .{ .name = "find-tail", .func = &findTailFn, .arity = .{ .exact = 2 }, .libs = LS.initOne(.srfi_1) },
+    .{ .name = "any", .func = &anyFn, .arity = .{ .variadic = 2 }, .libs = LS.initOne(.srfi_1) },
+    .{ .name = "every", .func = &everyFn, .arity = .{ .variadic = 2 }, .libs = LS.initOne(.srfi_1) },
+    .{ .name = "count", .func = &countFn, .arity = .{ .variadic = 2 }, .libs = LS.initOne(.srfi_1) },
+    .{ .name = "iota", .func = &iotaFn, .arity = .{ .variadic = 1 }, .libs = LS.initOne(.srfi_1) },
+    .{ .name = "zip", .func = &zipFn, .arity = .{ .variadic = 1 }, .libs = LS.initOne(.srfi_1) },
+    .{ .name = "concatenate", .func = &concatenateFn, .arity = .{ .exact = 1 }, .libs = LS.initOne(.srfi_1) },
+    .{ .name = "take", .func = &takeFn, .arity = .{ .exact = 2 }, .libs = LS.initOne(.srfi_1) },
+    .{ .name = "drop", .func = &dropFn, .arity = .{ .exact = 2 }, .libs = LS.initOne(.srfi_1) },
+    .{ .name = "take-while", .func = &takeWhileFn, .arity = .{ .exact = 2 }, .libs = LS.initOne(.srfi_1) },
+    .{ .name = "drop-while", .func = &dropWhileFn, .arity = .{ .exact = 2 }, .libs = LS.initOne(.srfi_1) },
+    .{ .name = "filter-map", .func = &filterMapFn, .arity = .{ .variadic = 2 }, .libs = LS.initOne(.srfi_1) },
+    .{ .name = "append-map", .func = &appendMapFn, .arity = .{ .variadic = 2 }, .libs = LS.initOne(.srfi_1) },
+    .{ .name = "last", .func = &lastFn, .arity = .{ .exact = 1 }, .libs = LS.initOne(.srfi_1) },
+    .{ .name = "last-pair", .func = &lastPairFn, .arity = .{ .exact = 1 }, .libs = LS.initOne(.srfi_1) },
+    .{ .name = "proper-list?", .func = &properListPFn, .arity = .{ .exact = 1 }, .libs = LS.initOne(.srfi_1) },
+    .{ .name = "dotted-list?", .func = &dottedListPFn, .arity = .{ .exact = 1 }, .libs = LS.initOne(.srfi_1) },
+    .{ .name = "circular-list?", .func = &circularListPFn, .arity = .{ .exact = 1 }, .libs = LS.initOne(.srfi_1) },
+    .{ .name = "lset-intersection", .func = &lsetIntersectionFn, .arity = .{ .variadic = 2 }, .libs = LS.initOne(.srfi_1) },
+    .{ .name = "lset-difference", .func = &lsetDifferenceFn, .arity = .{ .variadic = 2 }, .libs = LS.initOne(.srfi_1) },
+    .{ .name = "lset=", .func = &lsetEqualFn, .arity = .{ .variadic = 1 }, .libs = LS.initOne(.srfi_1) },
+    .{ .name = "lset-adjoin", .func = &lsetAdjoinFn, .arity = .{ .variadic = 2 }, .libs = LS.initOne(.srfi_1) },
+    .{ .name = "lset-union", .func = &lsetUnionFn, .arity = .{ .variadic = 1 }, .libs = LS.initOne(.srfi_1) },
+    .{ .name = "lset-xor", .func = &lsetXorFn, .arity = .{ .variadic = 1 }, .libs = LS.initOne(.srfi_1) },
+    .{ .name = "xcons", .func = &xconsFn, .arity = .{ .exact = 2 }, .libs = LS.initOne(.srfi_1) },
+    .{ .name = "cons*", .func = &consStarFn, .arity = .{ .variadic = 1 }, .libs = LS.initOne(.srfi_1) },
+    .{ .name = "list-tabulate", .func = &listTabulateFn, .arity = .{ .exact = 2 }, .libs = LS.initOne(.srfi_1) },
+    .{ .name = "circular-list", .func = &circularListFn, .arity = .{ .variadic = 0 }, .libs = LS.initOne(.srfi_1) },
+    .{ .name = "not-pair?", .func = &notPairPFn, .arity = .{ .exact = 1 }, .libs = LS.initOne(.srfi_1) },
+    .{ .name = "null-list?", .func = &nullListPFn, .arity = .{ .exact = 1 }, .libs = LS.initOne(.srfi_1) },
+    .{ .name = "list=", .func = &listEqualFn, .arity = .{ .variadic = 1 }, .libs = LS.initOne(.srfi_1) },
+    .{ .name = "first", .func = &firstFn, .arity = .{ .exact = 1 }, .libs = LS.initOne(.srfi_1) },
+    .{ .name = "second", .func = &secondFn, .arity = .{ .exact = 1 }, .libs = LS.initOne(.srfi_1) },
+    .{ .name = "third", .func = &thirdFn, .arity = .{ .exact = 1 }, .libs = LS.initOne(.srfi_1) },
+    .{ .name = "fourth", .func = &fourthFn, .arity = .{ .exact = 1 }, .libs = LS.initOne(.srfi_1) },
+    .{ .name = "fifth", .func = &fifthFn, .arity = .{ .exact = 1 }, .libs = LS.initOne(.srfi_1) },
+    .{ .name = "sixth", .func = &sixthFn, .arity = .{ .exact = 1 }, .libs = LS.initOne(.srfi_1) },
+    .{ .name = "seventh", .func = &seventhFn, .arity = .{ .exact = 1 }, .libs = LS.initOne(.srfi_1) },
+    .{ .name = "eighth", .func = &eighthFn, .arity = .{ .exact = 1 }, .libs = LS.initOne(.srfi_1) },
+    .{ .name = "ninth", .func = &ninthFn, .arity = .{ .exact = 1 }, .libs = LS.initOne(.srfi_1) },
+    .{ .name = "tenth", .func = &tenthFn, .arity = .{ .exact = 1 }, .libs = LS.initOne(.srfi_1) },
+    .{ .name = "car+cdr", .func = &carCdrFn, .arity = .{ .exact = 1 }, .libs = LS.initOne(.srfi_1) },
+    .{ .name = "take-right", .func = &takeRightFn, .arity = .{ .exact = 2 }, .libs = LS.initOne(.srfi_1) },
+    .{ .name = "drop-right", .func = &dropRightFn, .arity = .{ .exact = 2 }, .libs = LS.initOne(.srfi_1) },
+    .{ .name = "split-at", .func = &splitAtFn, .arity = .{ .exact = 2 }, .libs = LS.initOne(.srfi_1) },
+    .{ .name = "list-index", .func = &listIndexFn, .arity = .{ .variadic = 2 }, .libs = LS.initOne(.srfi_1) },
+    .{ .name = "span", .func = &spanFn, .arity = .{ .exact = 2 }, .libs = LS.initOne(.srfi_1) },
+    .{ .name = "break", .func = &breakFn, .arity = .{ .exact = 2 }, .libs = LS.initOne(.srfi_1) },
+    .{ .name = "delete", .func = &deleteFn, .arity = .{ .variadic = 2 }, .libs = LS.initOne(.srfi_1) },
+    .{ .name = "delete-duplicates", .func = &deleteDuplicatesFn, .arity = .{ .variadic = 1 }, .libs = LS.initOne(.srfi_1) },
+    .{ .name = "alist-cons", .func = &alistConsFn, .arity = .{ .exact = 3 }, .libs = LS.initOne(.srfi_1) },
+    .{ .name = "alist-copy", .func = &alistCopyFn, .arity = .{ .exact = 1 }, .libs = LS.initOne(.srfi_1) },
+    .{ .name = "alist-delete", .func = &alistDeleteFn, .arity = .{ .variadic = 2 }, .libs = LS.initOne(.srfi_1) },
+    .{ .name = "unfold", .func = &unfoldFn, .arity = .{ .variadic = 4 }, .libs = LS.initOne(.srfi_1) },
+    .{ .name = "unfold-right", .func = &unfoldRightFn, .arity = .{ .variadic = 4 }, .libs = LS.initOne(.srfi_1) },
+    .{ .name = "append-reverse", .func = &appendReverseFn, .arity = .{ .exact = 2 }, .libs = LS.initOne(.srfi_1) },
+    .{ .name = "length+", .func = &lengthPlusFn, .arity = .{ .exact = 1 }, .libs = LS.initOne(.srfi_1) },
+    .{ .name = "unzip1", .func = &unzip1Fn, .arity = .{ .exact = 1 }, .libs = LS.initOne(.srfi_1) },
+    .{ .name = "unzip2", .func = &unzip2Fn, .arity = .{ .exact = 1 }, .libs = LS.initOne(.srfi_1) },
+    .{ .name = "pair-for-each", .func = &pairForEachFn, .arity = .{ .variadic = 2 }, .libs = LS.initOne(.srfi_1) },
+    .{ .name = "pair-fold", .func = &pairFoldFn, .arity = .{ .variadic = 3 }, .libs = LS.initOne(.srfi_1) },
+    .{ .name = "pair-fold-right", .func = &pairFoldRightFn, .arity = .{ .variadic = 3 }, .libs = LS.initOne(.srfi_1) },
+    .{ .name = "map-in-order", .func = &mapInOrderFn, .arity = .{ .variadic = 2 }, .libs = LS.initOne(.srfi_1) },
+};
 
 // ---------------------------------------------------------------------------
 // VM call helper

@@ -8,28 +8,26 @@ const primitives_io = @import("primitives_io.zig");
 const Value = types.Value;
 const NativeFn = types.NativeFn;
 const PrimitiveError = primitives.PrimitiveError;
+const LS = primitives.LibSet;
 
-pub fn registerControl(vm: *vm_mod.VM) !void {
-    // Exception system (R7RS 6.11)
-    try primitives.reg(vm, "raise", &raiseFn, .{ .exact = 1 });
-    try primitives.reg(vm, "raise-continuable", &raiseContinuableFn, .{ .exact = 1 });
-    try primitives.reg(vm, "with-exception-handler", &withExceptionHandlerFn, .{ .exact = 2 });
-    try primitives.reg(vm, "error", &errorFn, .{ .variadic = 1 });
-    try primitives.reg(vm, "error-object?", &errorObjectP, .{ .exact = 1 });
-    try primitives.reg(vm, "error-object-message", &errorObjectMessage, .{ .exact = 1 });
-    try primitives.reg(vm, "error-object-irritants", &errorObjectIrritants, .{ .exact = 1 });
-    try primitives.reg(vm, "file-error?", &fileErrorP, .{ .exact = 1 });
-    try primitives.reg(vm, "read-error?", &readErrorP, .{ .exact = 1 });
-
-    // Continuations (R7RS 6.10)
-    try primitives.reg(vm, "call-with-current-continuation", &callWithCurrentContinuation, .{ .exact = 1 });
-    try primitives.reg(vm, "call/cc", &callWithCurrentContinuation, .{ .exact = 1 });
-    try primitives.reg(vm, "call-with-escape-continuation", &callWithEscapeContinuation, .{ .exact = 1 });
-    try primitives.reg(vm, "call/ec", &callWithEscapeContinuation, .{ .exact = 1 });
-    try primitives.reg(vm, "dynamic-wind", &dynamicWindFn, .{ .exact = 3 });
-    try primitives.reg(vm, "values", &valuesFn, .{ .variadic = 0 });
-    try primitives.reg(vm, "call-with-values", &callWithValuesFn, .{ .exact = 2 });
-}
+pub const specs = [_]primitives.PrimSpec{
+    .{ .name = "raise", .func = &raiseFn, .arity = .{ .exact = 1 }, .libs = LS.initMany(&.{ .scheme_base, .srfi_18 }) },
+    .{ .name = "raise-continuable", .func = &raiseContinuableFn, .arity = .{ .exact = 1 }, .libs = LS.initOne(.scheme_base) },
+    .{ .name = "with-exception-handler", .func = &withExceptionHandlerFn, .arity = .{ .exact = 2 }, .libs = LS.initMany(&.{ .scheme_base, .srfi_18 }) },
+    .{ .name = "error", .func = &errorFn, .arity = .{ .variadic = 1 }, .libs = LS.initOne(.scheme_base) },
+    .{ .name = "error-object?", .func = &errorObjectP, .arity = .{ .exact = 1 }, .libs = LS.initOne(.scheme_base) },
+    .{ .name = "error-object-message", .func = &errorObjectMessage, .arity = .{ .exact = 1 }, .libs = LS.initOne(.scheme_base) },
+    .{ .name = "error-object-irritants", .func = &errorObjectIrritants, .arity = .{ .exact = 1 }, .libs = LS.initOne(.scheme_base) },
+    .{ .name = "file-error?", .func = &fileErrorP, .arity = .{ .exact = 1 }, .libs = LS.initOne(.scheme_base) },
+    .{ .name = "read-error?", .func = &readErrorP, .arity = .{ .exact = 1 }, .libs = LS.initOne(.scheme_base) },
+    .{ .name = "call-with-current-continuation", .func = &callWithCurrentContinuation, .arity = .{ .exact = 1 }, .libs = LS.initMany(&.{ .scheme_base, .scheme_r5rs }) },
+    .{ .name = "call/cc", .func = &callWithCurrentContinuation, .arity = .{ .exact = 1 }, .libs = LS.initOne(.scheme_base) },
+    .{ .name = "call-with-escape-continuation", .func = &callWithEscapeContinuation, .arity = .{ .exact = 1 }, .libs = LS.initOne(.scheme_base) },
+    .{ .name = "call/ec", .func = &callWithEscapeContinuation, .arity = .{ .exact = 1 }, .libs = LS.initOne(.scheme_base) },
+    .{ .name = "dynamic-wind", .func = &dynamicWindFn, .arity = .{ .exact = 3 }, .libs = LS.initMany(&.{ .scheme_base, .scheme_r5rs }) },
+    .{ .name = "values", .func = &valuesFn, .arity = .{ .variadic = 0 }, .libs = LS.initMany(&.{ .scheme_base, .scheme_r5rs }) },
+    .{ .name = "call-with-values", .func = &callWithValuesFn, .arity = .{ .exact = 2 }, .libs = LS.initMany(&.{ .scheme_base, .scheme_r5rs }) },
+};
 
 // ---------------------------------------------------------------------------
 // Exception system (R7RS 6.11)
