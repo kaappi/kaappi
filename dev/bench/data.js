@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783218654834,
+  "lastUpdate": 1783218945679,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "55932339e7dde6a25360f51432599880e2950d60",
-          "message": "Deep-copy native_fn/native_closure instead of aliasing across heaps (#975)\n\ndeepCopyValue returned the source-heap pointer for native_fn and\nnative_closure objects. For SRFI-18 OS threads the child->parent copy at\nthread-join! is followed immediately by freeing the child heap, so a\nthread result containing one of these left the parent holding a dangling\npointer into freed memory (follow-up to the issue #958 marking fixes --\nthis was the remaining aliasing hole in deepCopy itself).\n\nBoth types are safely copyable: the fn pointer and name are static (string\nliterals from primitives.reg, or code/rodata of a native binary), so a\nfresh object is allocated in the target GC and NativeClosure upvalues are\ndeep-copied. The new closure is registered in the visited map before its\nupvalues are copied so shared and cyclic references resolve, and upvalues\nstart as VOID placeholders so an aborted copy never leaves cross-heap\npointers in the target object.\n\nffi_library/ffi_function stay aliased deliberately: they wrap\nprocess-global dlopen handles that cannot be duplicated per-heap. The\nknown limitation (a child-created FFI handle returned through\nthread-join! still dangles) is now documented at the site.\n\nRegression tests: four unit tests in tests_deepcopy.zig -- without the\nfix three fail on aliasing assertions and the \"survive freeing the source\nheap\" test, which replays the join scenario by deiniting the source GC\nbefore reading the copy, dies with SIGABRT -- plus an end-to-end\nthread-join! test in tests_srfi18.zig that returns primitives from a\nthread and calls the copies.\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-03T13:53:50Z",
-          "tree_id": "c38fc14bf7ab25aa8a193d007d46a2f43b72d288",
-          "url": "https://github.com/kaappi/kaappi/commit/55932339e7dde6a25360f51432599880e2950d60"
-        },
-        "date": 1783087792702,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.422084,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.855447,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.849815,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.306754,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006564,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.032732,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.47076,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.070585,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 4.004428,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.826769,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.165426,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.436577,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.785916,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.73204,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.043413,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044855,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "cd1e307f7d7917078a4bd2dc05b5b6930cbf9d13",
+          "message": "Unify VMError/PrimitiveError and collapse 8 inline error switches (#1046) (#1128)\n\nDefine one KaappiError in dependency-free src/errors.zig; alias VMError and\nPrimitiveError to it. Delete mapVMError (now identity) and its 39 call sites.\nReplace 8 drifted inline anyerror→VMError switches with one mapNativeError()\nthat owns detail-defaulting for TypeError, IndexOutOfBounds, InvalidArgument.\n\nFixes three drift bugs: CALL_NATIVE_VARIADIC path gains detail-defaulting,\ncallHandler/callThunk/callWithArgs handle all 16 error variants (were silently\nmapping 7-9 to InvalidBytecode), and InvalidArgument detail respects the\nlast_error_detail_len guard.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-05T07:41:06+05:30",
+          "tree_id": "5546a28daee93f56b3003a61288e81f41391a77a",
+          "url": "https://github.com/kaappi/kaappi/commit/cd1e307f7d7917078a4bd2dc05b5b6930cbf9d13"
+        },
+        "date": 1783218944478,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.229931,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.858833,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.928423,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.155491,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.01261,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.211745,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.466643,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.070293,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 12.568875,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.815083,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 9.988437,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.953934,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 8.304834,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.715072,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.042529,
             "unit": "seconds"
           }
         ]
