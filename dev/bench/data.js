@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783266567519,
+  "lastUpdate": 1783268713817,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "3ff20e1e46addb009663788cb96319a32be1a8ee",
-          "message": "Handle bignums in types.toF64 so FFI double/float args marshal correctly (#792) (#998)\n\ntypes.toF64 had no bignum case — any bignum fell through to `return 0.0`,\ncausing bignum-backed rationals passed as FFI double/float arguments to\nsilently marshal as 0.0 (bignum numerator) or +inf.0 (bignum denominator).\n\nAdd bignumToF64 helper (mirrors the existing bignum.toF64 logic) to avoid\na circular import between types.zig and bignum.zig.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-03T20:31:26Z",
-          "tree_id": "7416c97ff68e520ef7f623f405777b37307934a3",
-          "url": "https://github.com/kaappi/kaappi/commit/3ff20e1e46addb009663788cb96319a32be1a8ee"
-        },
-        "date": 1783111897496,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.387002,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.514506,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.912794,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.410128,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006405,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.03419,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.512475,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.072877,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 4.141629,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.939791,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.315864,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.428534,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.806646,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.690291,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.043071,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.043361,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ffb4ae293afb0ed3d39fa4720b2e41bdb1b9571c",
+          "message": "Add conformance tests for 28 portable SRFIs (audit Phases 3a-3e) (#1227)\n\nConformance test files for the portable-SRFI units 3a-3e of the audit\ncampaign (tracking: see #1137):\n\n- 3a: SRFI 0, 6, 17, 23, 26\n- 3b: SRFI 37, 38, 43, 116, 117, 134\n- 3c: SRFI 41, 42, 45, 143, 144\n- 3d: SRFI 60, 61, 78, 87, 197, 210, 227\n- 3e: SRFI 4, 127, 130, 233, 235\n\n549 passing assertions total; ~63 assertions disabled with FAIL markers\nreferencing the 22 issues filed during this phase (see #1205 through\n#1226) plus the earlier reader issue (see #1164). Highlights: bitwise\nops use magnitude semantics for negative operands (see #1214, affects\nSRFI 60/143/151), SRFI-4 integer vector kinds are bare bytevector\naliases (see #1225), SRFI-210 value/set!-values are broken (see #1218,\nsee #1224), SRFI-233 parser calls unbound char-whitespace? (see #1223).\n\nTracker updated: 3a-3e checked in docs/audit-strategy.md.\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-05T16:06:00Z",
+          "tree_id": "90c5b0ba79c3481a0189495086575dc700506d3a",
+          "url": "https://github.com/kaappi/kaappi/commit/ffb4ae293afb0ed3d39fa4720b2e41bdb1b9571c"
+        },
+        "date": 1783268713243,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.314296,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.627799,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.929017,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.064612,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.012453,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.211451,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.469748,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.069635,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 12.364279,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.822387,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 9.938557,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.956734,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 8.295738,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.694856,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.042493,
             "unit": "seconds"
           }
         ]
