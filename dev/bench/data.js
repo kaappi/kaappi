@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783271104198,
+  "lastUpdate": 1783271736425,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "6b27b2d7dde014b4899ce081bdd17c8cab625ec6",
-          "message": "Fix string-titlecase word boundaries and Unicode case mapping (#824) (#1002)\n\nWord boundaries now trigger on any non-cased character (not just ASCII\nwhitespace), matching SRFI-13 semantics. Case mapping uses the full\nUnicode tables instead of byte-level ASCII ±32.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-03T21:29:19Z",
-          "tree_id": "6fcb1ff39c6b3e04b35a4218011935f5a8093217",
-          "url": "https://github.com/kaappi/kaappi/commit/6b27b2d7dde014b4899ce081bdd17c8cab625ec6"
-        },
-        "date": 1783115301624,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.865635,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.518167,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.813215,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.962323,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006733,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.032269,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.434908,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.066895,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 4.131933,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.632835,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.162007,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.403443,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.657597,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 0.964341,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.040046,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044326,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "distinct": true,
+          "id": "c1526aa3ded71a3c1938f296e8bc32ee89381f82",
+          "message": "Release v0.13.0",
+          "timestamp": "2026-07-05T22:20:05+05:30",
+          "tree_id": "dc10578603da2fde24317cbac963fa85336ef918",
+          "url": "https://github.com/kaappi/kaappi/commit/c1526aa3ded71a3c1938f296e8bc32ee89381f82"
+        },
+        "date": 1783271735819,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.373419,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.542624,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.920285,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.17693,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.012404,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.211466,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.471926,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.07046,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 12.340675,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.812137,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 9.980701,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.955982,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 8.33986,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.787822,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044137,
             "unit": "seconds"
           }
         ]
