@@ -134,10 +134,10 @@ and issue numbers, e.g. `[x] ... (2026-07-06, #1101–#1105)`.
 - [ ] 2.12: `primitives_fiber.zig`
 - [ ] 2.13: `primitives_ffi.zig`
 - [ ] 2.14: `primitives_r7rs.zig`
-- [ ] 2.15: `primitives_random.zig` (SRFI-27)
-- [ ] 2.16: `primitives_lazy.zig`
-- [ ] 2.17: `primitives_cxr.zig`
-- [ ] 2.18: `primitives.zig` (core)
+- [x] 2.15: `primitives_random.zig` (SRFI-27) (2026-07-05, #1192–#1196; 49 audit tests + 5 disabled — default-random-source is a procedure not a variable, fixnum-only n/i/j, make-reals ignores unit, random-real [0,1) code-inspection, chibi-test shim swallows errored assertions)
+- [x] 2.16: `primitives_lazy.zig` (2026-07-05, #1191; 35 audit tests + 1 disabled — direct re-entrant force panics via GC root stack overflow (general VM nested-native-re-entrancy crash); delay-force chains, memoization, SRFI-45 cycle detection all conform)
+- [x] 2.17: `primitives_cxr.zig` (2026-07-05, no bugs — 41 audit tests; all 24 accessors correct via self-labeling trees, catchable errors on every bad input)
+- [x] 2.18: `primitives.zig` (core) (2026-07-05, #1198–#1199; 196 audit tests + 4 disabled — reverse/append/apply(non-tail) hang on circular lists while length/list?/tail_apply detect or bound them; record accessors/mutators skip the type check, cross-type reads/writes silently succeed; eqv?/equal?/predicates/apply otherwise fully conform incl. circular equal? and width-changing string mutations)
 
 **Phase 3 — SRFI conformance**
 - [ ] 3.0: Run all 35 existing SRFI test files, capture failures
