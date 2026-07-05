@@ -52,7 +52,11 @@
 (define c-tolower (ffi-fn proc-lib "tolower" '(int) 'int))
 (test 97 (c-tolower 65))
 (test 'caught (guard (e (#t 'caught)) (c-tolower 65.5)))  ; lossy flonum→int rejected
-(define c-sqrt (ffi-fn proc-lib "sqrt" '(double) 'double))
+;; sqrt lives in libm, which is not in the process handle's link closure on
+;; Linux Release builds (LLVM inlines sqrt, so the binary never references
+;; libm) — open it explicitly like tests/scheme/ffi/basic.scm does.
+(define math-lib (ffi-open "libm"))
+(define c-sqrt (ffi-fn math-lib "sqrt" '(double) 'double))
 (test 2.0 (c-sqrt 4.0))
 (test 2.0 (c-sqrt 4))                    ; fixnum → double coercion
 (test 0.5 (c-sqrt 1/4))                  ; rational → double coercion
