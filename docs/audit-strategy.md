@@ -120,7 +120,7 @@ and issue numbers, e.g. `[x] ... (2026-07-06, #1101–#1105)`.
 - [ ] 1D: Control, exceptions, eval, I/O, system (6.10–6.14)
 
 **Phase 2 — Primitives audit** (independent; run in parallel; order = risk)
-- [ ] 2.1: `primitives_srfi18.zig` (threads)
+- [x] 2.1: `primitives_srfi18.zig` (threads) (2026-07-05, #1153–#1156; 73 audit tests + 4 disabled — mutex timeout lock-steal, #f-thread owner, native thunks rejected, gc-stress SIGSEGV)
 - [ ] 2.2: `primitives_string_ext.zig` (SRFI-13)
 - [ ] 2.3: `primitives_char.zig` (Unicode)
 - [ ] 2.4: `primitives_io.zig` (ports)
