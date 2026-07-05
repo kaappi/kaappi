@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783191661416,
+  "lastUpdate": 1783214034847,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "4e71f21ba735004f1a5e512aed3c63970e2805f4",
-          "message": "Fix thottam version-pinned install: use --end-of-options not -- (#780) (#960)\n\nArguments after `--` in `git checkout` are pathspecs, not refnames, so the\n#736 option-injection guard (`checkout --quiet -- <ref>`) made git try to\nrestore a file named after the tag/SHA and fail with \"pathspec did not match\nany file(s)\". This broke every version-pinned install: `pkg@v1.0.0`, semver\nconstraints, and `--locked`.\n\nUse `--end-of-options` (git 2.24+) instead: it stops flag parsing — keeping\nthe injection guard — while still resolving the argument as a revision. The\ncheckout is extracted into a documented `checkoutVersion` helper so the exact\nargument list is exercised by a regression test against a local tagged repo.\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
-          "timestamp": "2026-07-03T11:02:49Z",
-          "tree_id": "2a12886def82dfa758d9b5cc67a17ca20186ceb5",
-          "url": "https://github.com/kaappi/kaappi/commit/4e71f21ba735004f1a5e512aed3c63970e2805f4"
-        },
-        "date": 1783077475618,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.029599,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.145173,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.845182,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.129368,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.007476,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.032724,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.464316,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.068223,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 4.006586,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.784998,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.143977,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.472596,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 2.354798,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.815227,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044889,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.042412,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "1a63d356851bd40bf38e9e74a9d3b56aeca2cc7d",
+          "message": "Add compileDesugared() helper to centralize sexpr rooting discipline (#1044) (#1121)\n\nSeven form compilers repeated the same pushRoot/compileExpr/popRoot\npattern after building desugared S-expressions. Extract a single\ncompileDesugared() method on Compiler that owns the rooting, replacing\n6 call sites. This closes the surface where the next #1010-class GC\nbug could appear in new desugaring forms.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-05T06:18:39+05:30",
+          "tree_id": "4d4d23e6b6fde193e114d8f42b856ada36b5c0d5",
+          "url": "https://github.com/kaappi/kaappi/commit/1a63d356851bd40bf38e9e74a9d3b56aeca2cc7d"
+        },
+        "date": 1783214034266,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.952224,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.821491,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.979703,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.183009,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.014522,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.234905,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.46439,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.067982,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 13.772014,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.805236,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 11.141411,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 1.072611,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 9.129728,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.686406,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044339,
             "unit": "seconds"
           }
         ]
