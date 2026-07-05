@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783230283579,
+  "lastUpdate": 1783235517369,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "57959cd2407c6ee7b61a33e86ddfa3cdaf1e7fa2",
-          "message": "Handle cond-expand and nested include-library-declarations in ILD (#874) (#982)\n\nincludeLibraryDeclarations only handled export, import, begin, include,\nand include-ci — cond-expand and nested include-library-declarations were\nsilently dropped. Extract per-declaration processing into\nprocessLibDeclaration with all six R7RS library declaration types so\nspliced declarations are handled the same as directly-written ones.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-03T15:28:20Z",
-          "tree_id": "838d712ae1f7bbf3e6e7bc044e8997eb5420257b",
-          "url": "https://github.com/kaappi/kaappi/commit/57959cd2407c6ee7b61a33e86ddfa3cdaf1e7fa2"
-        },
-        "date": 1783093406798,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.152242,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.022722,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.676428,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.850081,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.005233,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.026332,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.377736,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.056153,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.380471,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.437086,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 0.933053,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.369985,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.310105,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.321913,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.035058,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.042685,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "803b62a8c816fc0c58d9ab4118debbfdfa3fb8a2",
+          "message": "Route sub-expression compilation through the IR pipeline (#1038) (#1136)\n\nAdd compileExprViaIR bridge so sub-expressions compiled by legacy form\ncompilers (let, do, cond, etc.) re-enter the IR pipeline and receive\noptimization passes (constant folding, dead branch elimination, boolean\nsimplification). Converts 48 compileExpr call sites across 7 compiler\nfiles; keeps compileExpr for the passthrough→macro expansion path.\n\nAlso fixes three bugs exposed by the routing change:\n- IR macro lookup used stripped hygienic prefix, missing macros defined\n  under renamed identifiers in nested let-syntax\n- compileSetFromIR lacked is_global_alias write-through handling,\n  causing macro template set! to silently lose global updates\n- Five IR optimizer passes used fixed 256-element buffers, panicking\n  on begin/and/or forms with >256 children\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-05T12:18:06+05:30",
+          "tree_id": "86ddf4b3e83b9c767c1a404c6acbe28c295e83d1",
+          "url": "https://github.com/kaappi/kaappi/commit/803b62a8c816fc0c58d9ab4118debbfdfa3fb8a2"
+        },
+        "date": 1783235516126,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.328156,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.025239,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.926949,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.058737,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.012464,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.211231,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.470195,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.06964,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 12.372899,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.823011,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 9.964273,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.957214,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 8.369952,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.720767,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.042842,
             "unit": "seconds"
           }
         ]
