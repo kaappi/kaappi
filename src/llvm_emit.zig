@@ -180,14 +180,10 @@ pub const LLVMEmitter = struct {
             .lambda => try self.emitLambda(node.data.lambda),
             .let_form => try self.emitLet(node.data.let_form.args, false, node.ann.is_tail),
             .let_star => try self.emitLet(node.data.let_star.args, true, node.ann.is_tail),
+            .letrec => try self.emitLetEvalFallback(node.data.letrec.args, "letrec"),
+            .letrec_star => try self.emitLetEvalFallback(node.data.letrec_star.args, "letrec*"),
             .passthrough => try self.emitPassthrough(node.data.passthrough),
-            inline else => |tag| {
-                comptime {
-                    if (ir.llvmCapability(tag) != .eval_fallback)
-                        @compileError("unhandled native tag in emitNode: " ++ @tagName(tag));
-                }
-                return try self.emitSexprEval(node);
-            },
+            .sexpr_form => try self.emitSexprEval(node),
         };
     }
 
@@ -828,26 +824,16 @@ pub const LLVMEmitter = struct {
     }
 
     fn emitSexprEval(self: *LLVMEmitter, node: *const ir.Node) EmitError![]const u8 {
-        const args: Value = switch (node.tag) {
-            .constant,
-            .global_ref,
-            .call,
-            .@"if",
-            .begin,
-            .and_form,
-            .or_form,
-            .when_form,
-            .unless_form,
-            .define,
-            .set_form,
-            .lambda,
-            .passthrough,
-            => return error.UnsupportedNodeType,
-            inline else => |tag| @field(@field(node.data, @tagName(tag)), "args"),
-        };
-        const form_name: []const u8 = ir.llvmFormName(node.tag) orelse
-            return error.UnsupportedNodeType;
+        if (node.tag != .sexpr_form) return error.UnsupportedNodeType;
+        const sf = node.data.sexpr_form;
+        return self.emitFormEval(sf.args, sf.form.keyword());
+    }
 
+    fn emitLetEvalFallback(self: *LLVMEmitter, args: Value, form_name: []const u8) EmitError![]const u8 {
+        return self.emitFormEval(args, form_name);
+    }
+
+    fn emitFormEval(self: *LLVMEmitter, args: Value, form_name: []const u8) EmitError![]const u8 {
         try lambda.bindParamsAsGlobals(self);
 
         var source_buf: std.ArrayList(u8) = .empty;

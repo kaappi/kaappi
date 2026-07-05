@@ -642,14 +642,8 @@ fn nodeHasFreeVars(node: *const ir.Node, params: []const []const u8) bool {
         // global. Disqualify and fall back to the interpreter.
         .define => return true,
         .constant => return false,
-        .lambda, .passthrough, .let_form, .let_star => return false,
-        inline else => |tag| {
-            comptime {
-                if (ir.llvmCapability(tag) != .eval_fallback)
-                    @compileError("unhandled native tag in nodeHasFreeVars: " ++ @tagName(tag));
-            }
-            return false;
-        },
+        .lambda, .passthrough, .let_form, .let_star, .sexpr_form => return false,
+        .letrec, .letrec_star => return false,
     }
 }
 
@@ -711,12 +705,7 @@ fn collectNodeFreeVars(node: *const ir.Node, params: []const []const u8, buf: *[
             collectNodeFreeVars(node.data.unless_form.test_expr, params, buf, count);
             collectFreeVars(node.data.unless_form.body, params, buf, count);
         },
-        .constant, .define, .set_form, .lambda, .passthrough, .let_form, .let_star => {},
-        inline else => |tag| {
-            comptime {
-                if (ir.llvmCapability(tag) != .eval_fallback)
-                    @compileError("unhandled native tag in collectNodeFreeVars: " ++ @tagName(tag));
-            }
-        },
+        .constant, .define, .set_form, .lambda, .passthrough, .let_form, .let_star, .sexpr_form => {},
+        .letrec, .letrec_star => {},
     }
 }
