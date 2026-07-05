@@ -279,7 +279,7 @@ pub fn compileLetSyntax(self: *Compiler, args: Value, dst: u16, is_tail: bool) C
         const expr = types.car(current);
         current = types.cdr(current);
         const tail = is_tail and current == types.NIL;
-        try self.compileExpr(expr, dst, tail);
+        try self.compileExprViaIR(expr, dst, tail);
     }
     try self.endBodyMacroScope(macro_mark);
     self.in_body_scope = saved_body_scope;

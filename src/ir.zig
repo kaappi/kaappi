@@ -532,9 +532,9 @@ fn lowerFormWithMacros(ir: *IR, expr: Value, macros: ?*std.StringHashMap(Value))
             if (isSpecialForm(effective_name)) return ir.makePassthrough(expr);
 
             if (ir.compiler) |c| {
-                if (c.lookupMacro(effective_name) != null) return ir.makePassthrough(expr);
+                if (c.lookupMacro(name) != null) return ir.makePassthrough(expr);
             } else if (macros) |m| {
-                if (m.get(effective_name) != null) return ir.makePassthrough(expr);
+                if (m.get(name) != null) return ir.makePassthrough(expr);
             }
         }
 
@@ -928,7 +928,10 @@ pub fn foldConstants(ir: *IR, node: *Node) *Node {
         },
         .begin => {
             var changed = false;
-            var buf: [256]*Node = undefined;
+            var stack_buf: [256]*Node = undefined;
+            const heap_buf = if (node.data.begin.len > 256) (ir.allocator.alloc(*Node, node.data.begin.len) catch return node) else null;
+            defer if (heap_buf) |h| ir.allocator.free(h);
+            const buf: []*Node = heap_buf orelse &stack_buf;
             for (node.data.begin, 0..) |expr, i| {
                 buf[i] = foldConstants(ir, expr);
                 if (buf[i] != expr) changed = true;
@@ -967,7 +970,10 @@ pub fn eliminateDeadBranches(ir: *IR, node: *Node) *Node {
         },
         .begin => {
             var changed = false;
-            var buf: [256]*Node = undefined;
+            var stack_buf: [256]*Node = undefined;
+            const heap_buf = if (node.data.begin.len > 256) (ir.allocator.alloc(*Node, node.data.begin.len) catch return node) else null;
+            defer if (heap_buf) |h| ir.allocator.free(h);
+            const buf: []*Node = heap_buf orelse &stack_buf;
             for (node.data.begin, 0..) |expr, i| {
                 buf[i] = eliminateDeadBranches(ir, expr);
                 if (buf[i] != expr) changed = true;
@@ -1011,7 +1017,10 @@ pub fn simplifyBooleans(ir: *IR, node: *Node) *Node {
         },
         .begin => {
             var changed = false;
-            var buf: [256]*Node = undefined;
+            var stack_buf: [256]*Node = undefined;
+            const heap_buf = if (node.data.begin.len > 256) (ir.allocator.alloc(*Node, node.data.begin.len) catch return node) else null;
+            defer if (heap_buf) |h| ir.allocator.free(h);
+            const buf: []*Node = heap_buf orelse &stack_buf;
             for (node.data.begin, 0..) |expr, i| {
                 buf[i] = simplifyBooleans(ir, expr);
                 if (buf[i] != expr) changed = true;
@@ -1086,7 +1095,10 @@ pub fn eliminateIdentity(ir: *IR, node: *Node) *Node {
         },
         .begin => {
             var changed = false;
-            var buf: [256]*Node = undefined;
+            var stack_buf: [256]*Node = undefined;
+            const heap_buf = if (node.data.begin.len > 256) (ir.allocator.alloc(*Node, node.data.begin.len) catch return node) else null;
+            defer if (heap_buf) |h| ir.allocator.free(h);
+            const buf: []*Node = heap_buf orelse &stack_buf;
             for (node.data.begin, 0..) |expr, i| {
                 buf[i] = eliminateIdentity(ir, expr);
                 if (buf[i] != expr) changed = true;
@@ -1107,7 +1119,10 @@ pub fn simplifyBegin(ir: *IR, node: *Node) *Node {
         .begin => {
             if (node.data.begin.len == 1) return simplifyBegin(ir, @constCast(node.data.begin[0]));
             var changed = false;
-            var buf: [256]*Node = undefined;
+            var stack_buf: [256]*Node = undefined;
+            const heap_buf = if (node.data.begin.len > 256) (ir.allocator.alloc(*Node, node.data.begin.len) catch return node) else null;
+            defer if (heap_buf) |h| ir.allocator.free(h);
+            const buf: []*Node = heap_buf orelse &stack_buf;
             for (node.data.begin, 0..) |expr, i| {
                 buf[i] = simplifyBegin(ir, @constCast(expr));
                 if (buf[i] != expr) changed = true;
