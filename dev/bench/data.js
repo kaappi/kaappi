@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783238817506,
+  "lastUpdate": 1783240247713,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "abe7cc4936957644944a0cf9bef86c8050269948",
-          "message": "Reject filesystem paths with embedded NUL bytes (#805) (#985)\n\nEvery path-taking SRFI-170 primitive converted filenames to C strings\nvia dupeZ, which silently truncated at the first embedded NUL byte.\nThis caused operations to act on the wrong path with no error — a\ncorrectness and safety problem, especially for destructive operations\nlike delete-directory and rename-file.\n\nAdd validatePathNoNul() that raises a file error when a path contains\nan embedded NUL byte, and call it at all 24 extractPath sites plus the\ncreate-temp-file prefix argument. Mirrors the resolution of #630 for\nffi.zig::toCString.\n\nCloses #805\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-03T22:56:12+05:30",
-          "tree_id": "24abdcb95257acca2eb7fac8eb00ce2bd3a4aca2",
-          "url": "https://github.com/kaappi/kaappi/commit/abe7cc4936957644944a0cf9bef86c8050269948"
-        },
-        "date": 1783100542369,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.061652,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.149847,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.900094,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.384732,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.00684,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.033557,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.484795,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.069468,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.956497,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.848061,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.190933,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.470376,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.689668,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.838636,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044233,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.043465,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "7e2153a83437f9dfcf958a06523e8af1c5e742a3",
+          "message": "Add R7RS 6.1-6.5 conformance gap tests (audit Phase 1B) (#1150)\n\n40 assertions covering spec corners the R7RS suite misses: eqv? on\nmixed exactness, negative zero, bignums, and records; equal?\ntermination on circular lists, circular vectors, and mixed\npair/vector cycles; number->string/string->number radix round-trips\nand prefix combinations; #true/#false long literals; append identity\nand structure sharing; list-ref on circular lists; and write/read\nsymbol round-trips through pipe notation.\n\nAll pass - no bugs found in these sections. Part of the #1137 audit\ncampaign.\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-05T13:41:20+05:30",
+          "tree_id": "6763ba1e59605076097283443b23ed724f3d2ccb",
+          "url": "https://github.com/kaappi/kaappi/commit/7e2153a83437f9dfcf958a06523e8af1c5e742a3"
+        },
+        "date": 1783240247160,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.336214,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.210039,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.954386,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.081163,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.013146,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.211795,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.470888,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.069627,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 12.469611,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.824134,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 9.953027,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.961651,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 8.349424,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.5977,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044175,
             "unit": "seconds"
           }
         ]
