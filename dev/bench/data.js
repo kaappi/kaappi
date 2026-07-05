@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783218945679,
+  "lastUpdate": 1783219842375,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "3fd0eaa77f4d70ed1d1c907ccc862c19366618a2",
-          "message": "Show message and irritants for uncaught user-raised errors (#976)\n\nAn uncaught (error \"msg\" irritants...) printed only the raw Zig error\nname (\"runtime error: error.ExceptionRaised\") because execute()'s error\npath calls resetExecutionState(), which discards current_exception\nbefore the top-level printers in main.zig/repl.zig can read it — so\ngetErrorDetail() was empty and they fell back to the error name.\n\nPopulate the error detail from the pending exception in execute()'s\nerror path, before the reset. Error objects format as\n\"message irritant1 irritant2 ...\" (message displayed, irritants\nwritten); other raised values as \"uncaught exception: <value>\". Native\ndiagnostics are never overridden: the dispatch loop zeroes the detail\nbuffer before each native call, so a non-empty buffer at raise time is\nalways a specific native error. Exceptions caught by guard or\nwith-exception-handler are consumed inside run() and never reach this\npath, and SRFI-18 threads use callWithArgs, so thread-join! exception\npropagation is unaffected.\n\nSince every top-level form runs through execute() — script files, the\n.sbc cache path, bundled binaries, the interactive REPL, piped stdin,\nand library bodies executed during import — one hook fixes all modes.\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-03T13:55:31Z",
-          "tree_id": "5ab5942aaa7fbb10d41a592c77d74db701f9f4c7",
-          "url": "https://github.com/kaappi/kaappi/commit/3fd0eaa77f4d70ed1d1c907ccc862c19366618a2"
-        },
-        "date": 1783087890401,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.355309,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.204224,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.853905,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.249334,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006729,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.034282,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.472,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.071484,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 4.036805,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.826168,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.201482,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.433041,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.8026,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.700222,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.041938,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.042529,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "9c84a769cd88395642f00c9a2643ecf666bf6e1e",
+          "message": "Extract macro-expansion machinery into compiler_macro.zig (#1043) (#1129)\n\nMove macro expansion, definition forms (define-syntax, let-syntax,\nletrec-syntax), syntax-rules parsing, and hygiene free-ref collection\nfrom compiler.zig and compiler_passthrough.zig into a new\ncompiler_macro.zig module. Consolidate duplicated tables:\n\n- stripHygienicPrefix (5 copies → 1 in types.zig)\n- isContinuationBarrier (3 copies → 1 in types.zig)\n\ncompiler.zig drops from 1254 to 889 lines; compileForm() shrinks from\n269 to ~95 lines. compiler_passthrough.zig drops from 562 to 341 lines\nand now contains only passthrough compilation (quote/if/call).\n\nPure refactoring — no behavioral changes.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-05T07:55:39+05:30",
+          "tree_id": "9ca9d7aedb8fa7dab9c4da039ea0b14ae567eb2a",
+          "url": "https://github.com/kaappi/kaappi/commit/9c84a769cd88395642f00c9a2643ecf666bf6e1e"
+        },
+        "date": 1783219841800,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.913856,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 10.154161,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.96621,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.168928,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.013907,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.234737,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.466386,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.067823,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 13.713192,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.817973,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 11.130926,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 1.092171,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 9.23761,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.912339,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.045637,
             "unit": "seconds"
           }
         ]
