@@ -15,16 +15,6 @@ const vm_debug = @import("vm_debug.zig");
 const vm_library = @import("vm_library.zig");
 const vm_records = @import("vm_records.zig");
 
-fn stripHygienicPrefix(name: []const u8) []const u8 {
-    var n = name;
-    while (std.mem.startsWith(u8, n, "__hyg_")) {
-        if (std.mem.indexOfScalar(u8, n[6..], '_')) |sep| {
-            n = n[6 + sep + 1 ..];
-        } else break;
-    }
-    return n;
-}
-
 /// True when a just-restored (or escape-unwound) frame stack should resume in
 /// THIS dispatch loop: the new stack must still contain the loop's scope-root
 /// frame, identified by birth id — frame depth alone can't distinguish "these
@@ -228,7 +218,7 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                     if (func.env != null) {
                         if (self.globals.get(name)) |gval| break :blk gval;
                     }
-                    const base = stripHygienicPrefix(name);
+                    const base = types.stripHygienicPrefix(name);
                     if (base.len != name.len) {
                         if (env.get(base)) |bval| break :blk bval;
                         if (env != self.globals) {
@@ -275,7 +265,7 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                 // sufficient.
                 self.lockGlobalsShared();
                 const ptr: ?*Value = env.getPtr(name) orelse blk: {
-                    const base = stripHygienicPrefix(name);
+                    const base = types.stripHygienicPrefix(name);
                     if (base.len != name.len) {
                         if (env.getPtr(base)) |bptr| break :blk bptr;
                         if (env != self.globals) {
@@ -1182,7 +1172,7 @@ noinline fn raiseUndefinedVariable(self: *VM, name: []const u8) VMError {
 inline fn lookupGlobalLocked(self: *VM, env: *std.StringHashMap(Value), name: []const u8) ?Value {
     self.lockGlobalsShared();
     const found: ?Value = env.get(name) orelse blk: {
-        const b = stripHygienicPrefix(name);
+        const b = types.stripHygienicPrefix(name);
         if (b.len != name.len) {
             if (env.get(b)) |bval| break :blk bval;
         }

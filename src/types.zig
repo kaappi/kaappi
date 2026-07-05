@@ -1056,6 +1056,26 @@ pub fn symbolName(v: Value) []const u8 {
     return toObject(v).as(Symbol).name;
 }
 
+pub fn stripHygienicPrefix(name: []const u8) []const u8 {
+    var n = name;
+    while (std.mem.startsWith(u8, n, "__hyg_")) {
+        if (std.mem.indexOfScalar(u8, n[6..], '_')) |sep| {
+            n = n[6 + sep + 1 ..];
+        } else break;
+    }
+    return n;
+}
+
+pub fn isContinuationBarrier(name: []const u8) bool {
+    return std.mem.eql(u8, name, "call-with-current-continuation") or
+        std.mem.eql(u8, name, "call/cc") or
+        std.mem.eql(u8, name, "call/ec") or
+        std.mem.eql(u8, name, "call-with-escape-continuation") or
+        std.mem.eql(u8, name, "call-with-values") or
+        std.mem.eql(u8, name, "dynamic-wind") or
+        std.mem.eql(u8, name, "with-exception-handler");
+}
+
 // ---------------------------------------------------------------------------
 // Box helpers (upvalue box = pair whose cdr is VOID)
 // ---------------------------------------------------------------------------

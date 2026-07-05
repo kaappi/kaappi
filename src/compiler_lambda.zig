@@ -3,7 +3,7 @@ const types = @import("types.zig");
 const memory = @import("memory.zig");
 const compiler_mod = @import("compiler.zig");
 const globals_mod = @import("globals.zig");
-const passthrough = @import("compiler_passthrough.zig");
+const macro = @import("compiler_macro.zig");
 const Compiler = compiler_mod.Compiler;
 const CompileError = compiler_mod.CompileError;
 const Value = types.Value;
@@ -225,7 +225,7 @@ pub fn compileBodyForms(self: *Compiler, body: Value, opts: BodyOpts) CompileErr
             if (ds_rest == types.NIL or !types.isPair(ds_rest)) break;
             const transformer_spec = types.car(ds_rest);
 
-            const transformer = passthrough.parseSyntaxRules(self, transformer_spec) catch break;
+            const transformer = macro.parseSyntaxRules(self, transformer_spec) catch break;
             const name = types.symbolName(keyword);
 
             try self.recordBodyMacro(name);

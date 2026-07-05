@@ -41,6 +41,7 @@ Forms are split by semantic domain. Add new forms to the right file:
 | `compiler_conditionals.zig` | and, or, when, unless, cond, cond-expand |
 | `compiler_bindings.zig` | let, let*, letrec, letrec*, named let, do |
 | `compiler_advanced.zig` | case, case-lambda, guard, quasiquote |
+| `compiler_macro.zig` | define-syntax, let-syntax, letrec-syntax, macro expansion, syntax-rules parsing, hygiene free-ref collection |
 
 Then add the re-export in `compiler_forms.zig` (thin hub — don't add logic there).
 

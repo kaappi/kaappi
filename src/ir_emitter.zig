@@ -100,13 +100,7 @@ pub const Emitter = struct {
             const sym = call.operator.data.global_ref;
             if (types.isSymbol(sym)) {
                 const op_name = types.symbolName(sym);
-                const is_cont = std.mem.eql(u8, op_name, "call-with-current-continuation") or
-                    std.mem.eql(u8, op_name, "call/cc") or
-                    std.mem.eql(u8, op_name, "call/ec") or
-                    std.mem.eql(u8, op_name, "call-with-escape-continuation") or
-                    std.mem.eql(u8, op_name, "call-with-values") or
-                    std.mem.eql(u8, op_name, "dynamic-wind") or
-                    std.mem.eql(u8, op_name, "with-exception-handler");
+                const is_cont = types.isContinuationBarrier(op_name);
 
                 if (!is_cont) {
                     return self.emitCallGlobal(sym, call.args, dst, nargs, is_tail);

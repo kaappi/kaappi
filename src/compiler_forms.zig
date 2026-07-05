@@ -2,6 +2,7 @@ pub const conditionals = @import("compiler_conditionals.zig");
 pub const bindings = @import("compiler_bindings.zig");
 pub const advanced = @import("compiler_advanced.zig");
 pub const lambda = @import("compiler_lambda.zig");
+pub const macro_forms = @import("compiler_macro.zig");
 
 // Re-export all public functions so existing callers don't break
 
@@ -36,3 +37,8 @@ pub const compileCase = advanced.compileCase;
 pub const compileCaseLambda = advanced.compileCaseLambda;
 pub const compileQuasiquote = advanced.compileQuasiquote;
 pub const compileParameterize = advanced.compileParameterize;
+
+// Macro forms
+pub const compileDefineSyntax = macro_forms.compileDefineSyntax;
+pub const compileLetSyntax = macro_forms.compileLetSyntax;
+pub const compileLetrecSyntax = macro_forms.compileLetrecSyntax;
