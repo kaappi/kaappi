@@ -7,6 +7,53 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-07-05
+
+### Added
+- **REPL parenthesis highlighting:** matching parentheses are highlighted as you type (#1228)
+- **`KAAPPI_HOME` environment variable:** override the default `~/.kaappi/` directory for libraries, packages, and REPL history (#1031, #1084)
+- **Native backend shadow-stack GC rooting:** native-compiled binaries now use a shadow stack for precise GC root tracking (#1034, #1082)
+- **Native backend `letrec*` support:** `letrec*` forms now compile natively instead of falling through to the interpreter (#1026, #1078)
+- **IR-path self-tail-call optimization:** self-tail-calls are optimized to loops in the IR pipeline, with line-table recording (#1035, #1083)
+- **Native backend unit tests and `.sbc` equivalence tests** (#1072, #1117)
+- **Comprehensive R7RS conformance audit** (Phases 0–3.4): gap tests for R7RS sections 4.1–6.14, primitives audit tests for all 21 files, SRFI conformance tests for 40+ SRFIs (#1137)
+
+### Changed
+- **All compilation routed through the IR pipeline** — the legacy `compileExpr` direct-emit path is retired; every form now lowers to IR before bytecode emission (#1038, #1136)
+- **Comptime spec tables replace runtime registration** — primitive procedure metadata is now a single comptime array with compile-time duplicate and orphan detection (#1053, #1133)
+- **Unified error type:** `VMError` and `PrimitiveError` collapsed into a single error set, eliminating 8 inline error-mapping switches (#1046, #1128)
+- **Typed accessors:** `expect*` helpers replace bare `TypeError` returns throughout primitives (#1057, #1135)
+- **GC safety by construction:** `arg_roots` auto-root allocator Value arguments; `pushRoot` is infallible (panics on overflow); `-Dgc-stress=true` forces collection on every allocation (#1045, #1125)
+- **`RootedSlot`/`RootedScope` helpers** replace 36 manual `extra_roots` sites (#1054, #1132)
+- **17 `SexprArgs` `NodeTag` variants collapsed** into `.sexpr_form` with `FormKind` enum (#1040, #1134)
+- **Version string single-sourced** from `build.zig.zon` via `build_options` — no more manual sync of `main.zig`/`thottam.zig` (#1060, #1100)
+- **Macro expansion extracted** into `compiler_macro.zig` (#1043, #1129)
+- **Compiler IR handlers extracted** into `compiler_ir.zig` (#1023)
+- **CLI parsing extracted** into `src/cli.zig` with table-driven flag parser (#1062, #1123)
+- **`thottam.zig` split** along natural seams into focused modules (#1063, #1089)
+- **LLVM native/eval boundary centralized** in one comptime table (#1068, #1126)
+- **Consolidated I/O:** `writeToFd`/`writeStdout`/`writeStderr` unified into `reporting.zig` (#1067, #1131)
+- **Dead code removed:** `ir_emitter.zig` (duplicate emitter), dead IR analysis passes, dead forwarding wrappers, unused functions (#1039, #1041, #1075, #1103, #1127, #1130, #1110)
+- **Replaced hand-rolled JSON** in LSP with `std.json` (#1066, #1091)
+
+### Fixed
+- Fix `current-input-port` corruption under extreme GC pressure (#1013, #1015)
+- Root SRFI-1 `filter-map`/`append-map`/`unfold` callback results across allocations (#1027, #1085)
+- Root `callWithArgs` return values in `map`, `fold`, and `unfold` primitives (#1098)
+- Fix cross-thread `fiber.status` atomics and encapsulate `child_resources` (#1028, #1087)
+- Preserve line tables in `.sbc` bytecode cache (#1096, #1097)
+- Fix top-level macros invisible inside bare-lambda bodies (#1025, #1077)
+- Panic instead of silently dropping reachable objects on GC mark OOM (#1014)
+- Panic on `writeBarrier` remembered-set OOM instead of silently dropping (#1036, #1079)
+- Propagate `InvalidSyntax` from `let*-values` and `guard` instead of swallowing as OOM (#1032, #1081)
+- Propagate `OutOfMemory` from compiler hash map and list insertions (#1017)
+- Fix `VMError`-to-`PrimitiveError` catch-all that collapsed all errors into `TypeError` (#1016)
+- Unify `typeName` into `types.zig`, fix LSP hover for records/rationals/bignums (#1033, #1080)
+- Fix duplicate primitive registration (add comptime collision guard) (#1030, #1092)
+- Resurrect 11 orphaned regression tests, harden `run-all.sh` (#1029, #1086)
+- Reduce `gcd-gc-843` iterations to fix flaky macOS CI OOM (#1094, #1095)
+- Fix `indexError` detail helper for informative out-of-bounds messages (#1020)
+
 ## [0.12.0] - 2026-07-04
 
 ### Added

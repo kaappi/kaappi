@@ -23,7 +23,7 @@ LLVM replaces the machine-code backend, not the Scheme runtime.
 - Closure representation (Function + upvalues)
 - NaN-boxed value scheme (tagged u64)
 - Continuation support (stack-copying, VM fallback)
-- 576 built-in procedures (primitives)
+- 578 built-in procedures (primitives)
 - String, vector, port, record, and other heap types
 
 In other words, the LLVM-generated native code calls into the same Zig
