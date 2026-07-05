@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783223520994,
+  "lastUpdate": 1783224241010,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "6c4e79d34cf9ba6ea7b0012d92f56624750493e2",
-          "message": "Fix fiber scheduler returning void for multi-stage channel pipelines (#978)\n\nA blocked channel-receive drives other fibers from inside its own native\nframe, so a nested scheduler could never resume an outer blocked fiber\n(only LIFO unwinding worked). With two or more pipeline stages the inner\nstage exhausted schedule() and runSchedulerUntil silently returned VOID,\nso downstream stages computed on garbage and consumer loops spun forever.\nFibers permanently blocked at program end likewise never terminated.\n\nPark-and-retry: a fiber that cannot progress parks (.waiting on the\nchannel) and the dispatch loop rewinds ip to the call instruction before\nunwinding with Yielded, so channel-receive re-executes when the fiber is\nrescheduled. channel-send wakes all fibers parked on that channel. A\nblocked main program, or a receive/fiber-join that can never be satisfied,\nnow raises a catchable deadlock error instead of returning void. Parking\nis gated by dispatched_from_scheduler so a fiber blocked inside a native\ncallback (map/for-each/eval) errors rather than corrupting Zig frames.\napply and callWithArgs now propagate the park signal instead of mangling\nit into a type/bytecode error. Fibers still parked when the main program\nends are discarded (Go-style); documented in README and CHANGELOG.\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-03T14:29:47Z",
-          "tree_id": "c018cfd0689404ee2d6dbb9be494790cd1e67ac7",
-          "url": "https://github.com/kaappi/kaappi/commit/6c4e79d34cf9ba6ea7b0012d92f56624750493e2"
-        },
-        "date": 1783089930826,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.117935,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 10.344523,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.897675,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.44524,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.007436,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.033987,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.49212,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.06927,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.993184,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.879716,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.193595,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.484571,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.729093,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.906995,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044843,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044712,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "4a9ccba03fa888b2e00f2b5b54c4e5011526280f",
+          "message": "Add RootedSlot/RootedScope helpers, migrate 36 manual extra_roots sites (#1054) (#1132)\n\nReplace fragile manual gc.extra_roots index-poke patterns with two small\nhelpers on GC: rootedSlot(val) returns a RootedSlot with get/set/release,\nand rootedScope() returns a RootedScope that shrinks back on release.\n\nMigrated all 31 index-poke sites in primitives_arithmetic.zig and\nprimitives_numeric.zig from raw items[len-N] to named slot handles,\neliminating a class of off-by-one rooting bugs. Migrated 9 manual\nsnapshot/shrinkRetainingCapacity sites in primitives_vector.zig and\nprimitives_srfi1.zig to rootedScope().\n\nVerified: 1702/1702 Scheme tests, arithmetic+numeric audit, unit tests,\nand GC stress mode all pass.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-05T08:59:37+05:30",
+          "tree_id": "c41a58ad11edeaefff1d1d11bbe5274501d05207",
+          "url": "https://github.com/kaappi/kaappi/commit/4a9ccba03fa888b2e00f2b5b54c4e5011526280f"
+        },
+        "date": 1783224240385,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.956287,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.458297,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.945198,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.168642,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.013616,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.234917,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.467529,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.06894,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 13.464958,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.816386,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 11.119498,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 1.06145,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 9.103443,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.797722,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.046331,
             "unit": "seconds"
           }
         ]
