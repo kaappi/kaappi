@@ -117,7 +117,7 @@ and issue numbers, e.g. `[x] ... (2026-07-06, #1101–#1105)`.
 - [x] 1A: Expressions & syntax (4.1–4.3) + Libraries (5.6–5.7) (2026-07-05, #1139–#1142; 34 new gap tests, 3 disabled pending fixes; libraries 5.6 fully green)
 - [x] 1B: Equivalence, numbers, booleans, lists, symbols (6.1–6.5) (2026-07-05, no bugs found — 40 gap tests all pass, incl. circular equal? termination and numeric I/O round-trips)
 - [x] 1C: Characters, strings, vectors, bytevectors (6.6–6.9) (2026-07-05, #1145; 43 gap tests, 4 disabled — char classification derives from case mappings; full string casing, UTF-8 slicing, overlap copies all conform)
-- [ ] 1D: Control, exceptions, eval, I/O, system (6.10–6.14)
+- [x] 1D: Control, exceptions, eval, I/O, system (6.10–6.14) (2026-07-05, #1147; 30 gap tests, 2 disabled — immutable environments don't signal on define/set!; cyclic write, CRLF read-line, raise-continuable all conform)
 
 **Phase 2 — Primitives audit** (independent; run in parallel; order = risk)
 - [ ] 2.1: `primitives_srfi18.zig` (threads)
