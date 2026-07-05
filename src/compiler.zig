@@ -393,19 +393,7 @@ pub const Compiler = struct {
         ir.compiler = self;
         ir.set_targets = self.set_targets;
         defer ir.deinit();
-        var root = try ir_mod.lowerWithMacros(&ir, expr_root, &self.macros);
-
-        // Analysis passes
-        ir_mod.markTailPositions(root, false);
-        ir_mod.identifyPrimitives(root);
-        ir_mod.markConstants(root);
-
-        // Optimization passes
-        root = ir_mod.foldConstants(&ir, root);
-        root = ir_mod.eliminateDeadBranches(&ir, root);
-        root = ir_mod.simplifyBooleans(&ir, root);
-        root = ir_mod.eliminateIdentity(&ir, root);
-        root = ir_mod.simplifyBegin(&ir, root);
+        const root = try ir_mod.lowerAndOptimize(&ir, expr_root, &self.macros, false);
 
         const dst = try self.allocReg();
         try compiler_ir.compileFromNode(self, root, dst, false);
@@ -439,15 +427,7 @@ pub const Compiler = struct {
             ir.compiler = self;
             ir.set_targets = self.set_targets;
             defer ir.deinit();
-            var root = try ir_mod.lowerWithMacros(&ir, expr, &self.macros);
-            ir_mod.markTailPositions(root, false);
-            ir_mod.identifyPrimitives(root);
-            ir_mod.markConstants(root);
-            root = ir_mod.foldConstants(&ir, root);
-            root = ir_mod.eliminateDeadBranches(&ir, root);
-            root = ir_mod.simplifyBooleans(&ir, root);
-            root = ir_mod.eliminateIdentity(&ir, root);
-            root = ir_mod.simplifyBegin(&ir, root);
+            const root = try ir_mod.lowerAndOptimize(&ir, expr, &self.macros, false);
 
             dst = try self.allocReg();
             try compiler_ir.compileFromNode(self, root, dst, false);
