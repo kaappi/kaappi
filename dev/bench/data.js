@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783244380866,
+  "lastUpdate": 1783246685684,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "distinct": true,
-          "id": "d9afdf919c2ab5824a917c110ad746a091af6392",
-          "message": "Add parallel issue triage skill and fix-issue launcher script\n\nThe skill groups open GitHub issues into conflict-free parallel sets\nfor concurrent Claude Code sessions. The script creates a worktree\nper issue and launches Claude to fix it.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-04T00:59:37+05:30",
-          "tree_id": "99a88d60719b4721535fca8b27d9b4932494e1fe",
-          "url": "https://github.com/kaappi/kaappi/commit/d9afdf919c2ab5824a917c110ad746a091af6392"
-        },
-        "date": 1783107910749,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.374998,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.637648,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.875355,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.380367,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006436,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.034181,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.491615,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.071496,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 4.068769,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.886812,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.177629,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.436043,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.798451,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.718413,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.043174,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.042249,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f271b4b0d8363e04dfe521cd7a25eeb78d69b574",
+          "message": "Add primitives_srfi1.zig audit tests (audit Phase 2.6) (#1167)\n\n105 assertions covering the SRFI-1 surface beyond srfi1*.scm: fold\nfamily argument order and multi-list forms, reduce ridentity\nsemantics, pair-fold tail walking, unfold/unfold-right with optional\ntails, iota variants, dotted-list handling in take/drop, two-value\nreturns from span/break/partition/split-at/car+cdr/unzip2,\ndelete-duplicates first-kept ordering with custom equality, lset\noperation result shapes, length+ on circular lists, structure\npredicates, alist pair copying, mapping variants, callback error\npropagation, and type-error catchability. gc-stress clean.\n\nTwo assertions disabled with FAIL markers: #1166 take-right and\ndrop-right reject dotted lists (spec requires proper-or-dotted;\ntake/drop already conform - the -right variants' length-counting\nloop demands proper lists). Part of the #1137 audit campaign.\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-05T09:58:37Z",
+          "tree_id": "fd4d7af5f9f5091089de20a42c6e14cab1107779",
+          "url": "https://github.com/kaappi/kaappi/commit/f271b4b0d8363e04dfe521cd7a25eeb78d69b574"
+        },
+        "date": 1783246685129,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.410331,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.429005,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.920849,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.124588,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.01244,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.211261,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.471596,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.069725,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 12.332033,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.8237,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 9.940004,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.952386,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 8.294906,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.661447,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.04234,
             "unit": "seconds"
           }
         ]
