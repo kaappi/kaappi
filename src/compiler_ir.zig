@@ -5,6 +5,7 @@ const compiler_mod = @import("compiler.zig");
 const forms = @import("compiler_forms.zig");
 const advanced = @import("compiler_advanced.zig");
 const compiler_lambda = @import("compiler_lambda.zig");
+const macro = @import("compiler_macro.zig");
 const globals_mod = @import("globals.zig");
 const ir_mod = @import("ir.zig");
 const Value = types.Value;
@@ -51,10 +52,10 @@ pub fn compileFromNode(self: *Compiler, node: *ir_mod.Node, dst: u16, is_tail: b
         .define_values => try compiler_lambda.compileDefineValues(self, node.data.define_values.args, dst),
         .let_values => try forms.compileLetValues(self, node.data.let_values.args, dst, tail),
         .let_star_values => try forms.compileLetStarValues(self, node.data.let_star_values.args, dst, tail),
-        .define_syntax => try self.compileDefineSyntax(node.data.define_syntax.args, dst),
+        .define_syntax => try macro.compileDefineSyntax(self, node.data.define_syntax.args, dst),
         .named_let => try forms.compileNamedLet(self, node.data.named_let.args, dst, tail),
-        .let_syntax => try self.compileLetSyntax(node.data.let_syntax.args, dst, tail),
-        .letrec_syntax => try self.compileLetrecSyntax(node.data.letrec_syntax.args, dst, tail),
+        .let_syntax => try macro.compileLetSyntax(self, node.data.let_syntax.args, dst, tail),
+        .letrec_syntax => try macro.compileLetrecSyntax(self, node.data.letrec_syntax.args, dst, tail),
         .cond_expand => try forms.compileCondExpand(self, node.data.cond_expand.args, dst, is_tail),
         .passthrough => try self.compileExpr(node.data.passthrough, dst, is_tail),
     }
@@ -123,13 +124,7 @@ fn compileCallFromIR(self: *Compiler, call: ir_mod.CallData, dst: u16, is_tail: 
             if (self.resolveLocal(types.symbolName(sym)) == null) {
                 if ((try self.resolveUpvalue(types.symbolName(sym))) == null) {
                     const op_name = types.symbolName(sym);
-                    const is_cont = std.mem.eql(u8, op_name, "call-with-current-continuation") or
-                        std.mem.eql(u8, op_name, "call/cc") or
-                        std.mem.eql(u8, op_name, "call/ec") or
-                        std.mem.eql(u8, op_name, "call-with-escape-continuation") or
-                        std.mem.eql(u8, op_name, "call-with-values") or
-                        std.mem.eql(u8, op_name, "dynamic-wind") or
-                        std.mem.eql(u8, op_name, "with-exception-handler");
+                    const is_cont = types.isContinuationBarrier(op_name);
                     if (!is_cont) {
                         return compileCallGlobalFromIR(self, sym, call.args, dst, nargs, is_tail);
                     }

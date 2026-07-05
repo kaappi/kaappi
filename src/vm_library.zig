@@ -6,7 +6,7 @@ const library_mod = @import("library.zig");
 const file_utils = @import("file_utils.zig");
 const Value = types.Value;
 
-const passthrough = @import("compiler_passthrough.zig");
+const macro = @import("compiler_macro.zig");
 const vm_mod = @import("vm.zig");
 const VM = vm_mod.VM;
 const VMError = vm_mod.VMError;
@@ -62,14 +62,14 @@ fn copyTransformerFreeRefs(
     var pv_names: [64][]const u8 = undefined;
     var pv_count: usize = 0;
     for (tx.patterns[0..tx.num_rules]) |pat| {
-        if (!passthrough.collectSymbols(pat, &pv_names, &pv_count)) break;
+        if (!macro.collectSymbols(pat, &pv_names, &pv_count)) break;
     }
     for (tx.templates[0..tx.num_rules]) |tmpl| {
         // Per-template array: bounds each template at 64 free refs instead
         // of 64 across all rules of the transformer.
         var free_names: [64][]const u8 = undefined;
         var free_count: usize = 0;
-        _ = passthrough.collectFreeRefs(tmpl, pv_names[0..pv_count], tx.literals, &free_names, &free_count);
+        _ = macro.collectFreeRefs(tmpl, pv_names[0..pv_count], tx.literals, &free_names, &free_count);
         for (free_names[0..free_count]) |fname| {
             if (env.get(fname)) |fval| {
                 if (target == vm.globals) {

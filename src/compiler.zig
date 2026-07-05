@@ -5,6 +5,7 @@ const expander = @import("expander.zig");
 const forms = @import("compiler_forms.zig");
 const advanced = @import("compiler_advanced.zig");
 const passthrough = @import("compiler_passthrough.zig");
+const macro = @import("compiler_macro.zig");
 const ir_mod = @import("ir.zig");
 const compiler_ir = @import("compiler_ir.zig");
 const globals_mod = @import("globals.zig");
@@ -46,8 +47,6 @@ const BodyMacro = struct {
 
 const build_options = @import("build_options");
 const MAX_COMPILER_REGISTERS: u16 = std.math.maxInt(u16);
-const MAX_MACRO_EXPANSION_DEPTH: u16 = 256;
-const MAX_MACRO_EXPANSION_STEPS: u32 = 10_000;
 
 pub const Compiler = struct {
     gc: *memory.GC,
@@ -593,15 +592,7 @@ pub const Compiler = struct {
         if (types.isSymbol(head)) {
             const name = types.symbolName(head);
 
-            // Check if this identifier came from a macro template (hygienic rename).
-            // Hygienic names like __hyg_N_let or __hyg_N___hyg_M_let should
-            // be treated as their base form. Strip all __hyg_N_ prefixes.
-            var effective_name = name;
-            while (std.mem.startsWith(u8, effective_name, "__hyg_")) {
-                if (std.mem.indexOfScalar(u8, effective_name[6..], '_')) |sep| {
-                    effective_name = effective_name[6 + sep + 1 ..];
-                } else break;
-            }
+            const effective_name = types.stripHygienicPrefix(name);
 
             // If the effective name is a variable binding in scope but NOT a
             // hygienic rename, it's a function call, not a special form. The
@@ -655,9 +646,9 @@ pub const Compiler = struct {
                 if (std.mem.eql(u8, effective_name, "syntax-error")) return CompileError.InvalidSyntax;
 
                 // Macro forms (kept in compiler.zig)
-                if (std.mem.eql(u8, effective_name, "define-syntax")) return self.compileDefineSyntax(args, dst);
-                if (std.mem.eql(u8, effective_name, "let-syntax")) return self.compileLetSyntax(args, dst, is_tail);
-                if (std.mem.eql(u8, effective_name, "letrec-syntax")) return self.compileLetrecSyntax(args, dst, is_tail);
+                if (std.mem.eql(u8, effective_name, "define-syntax")) return macro.compileDefineSyntax(self, args, dst);
+                if (std.mem.eql(u8, effective_name, "let-syntax")) return macro.compileLetSyntax(self, args, dst, is_tail);
+                if (std.mem.eql(u8, effective_name, "letrec-syntax")) return macro.compileLetrecSyntax(self, args, dst, is_tail);
                 if (std.mem.eql(u8, effective_name, "syntax-rules")) return CompileError.InvalidSyntax;
             } // end if (!is_local)
 
@@ -670,178 +661,7 @@ pub const Compiler = struct {
             else
                 null;
             if (macro_hit) |transformer| {
-                if (self.macro_expansion_depth >= MAX_MACRO_EXPANSION_DEPTH or
-                    self.macro_expansion_steps >= MAX_MACRO_EXPANSION_STEPS)
-                {
-                    return CompileError.MacroExpansionLimit;
-                }
-                self.macro_expansion_depth += 1;
-                self.macro_expansion_steps += 1;
-                defer self.macro_expansion_depth -= 1;
-                // Build merged macro view including parent scopes
-                var merged_macros = std.StringHashMap(Value).init(self.gc.allocator);
-                defer merged_macros.deinit();
-                var p: ?*Compiler = self.parent;
-                while (p) |par| : (p = par.parent) {
-                    var it = par.macros.iterator();
-                    while (it.next()) |entry| {
-                        try merged_macros.put(entry.key_ptr.*, entry.value_ptr.*);
-                    }
-                }
-                var it = self.macros.iterator();
-                while (it.next()) |entry| {
-                    try merged_macros.put(entry.key_ptr.*, entry.value_ptr.*);
-                }
-                const tx = types.toObject(transformer).as(types.Transformer);
-                // Temporarily add/modify globals so the expander doesn't
-                // rename template free references.
-                const TempGlobal = struct { name: []const u8, old_val: ?Value, was_present: bool };
-                var temp_globals: [128]TempGlobal = undefined;
-                var temp_global_count: usize = 0;
-                // Track non-procedure global free vars that need local injection
-                // to prevent shadowing by use-site locals (R7RS 4.3.1).
-                var global_free_names: [64][]const u8 = undefined;
-                var global_free_count: usize = 0;
-                if (self.globals) |g| {
-                    // The sentinel puts below structurally mutate the globals
-                    // map when g is the VM's shared one — exclude SRFI-18
-                    // child-thread readers for the whole dance (#958). glk is
-                    // non-null exactly when g is the current thread's shared
-                    // globals map.
-                    const glk = globals_mod.acquireGlobalsWrite(g);
-                    defer globals_mod.releaseGlobalsWrite(glk);
-                    for (tx.captured_locals) |cap| {
-                        if (!g.contains(cap.name) and temp_global_count < 128) {
-                            temp_globals[temp_global_count] = .{ .name = cap.name, .old_val = null, .was_present = false };
-                            temp_global_count += 1;
-                            try g.put(cap.name, types.VOID);
-                        }
-                    }
-                    if (tx.def_env) |env| {
-                        var env_it = env.iterator();
-                        while (env_it.next()) |entry| {
-                            if (!g.contains(entry.key_ptr.*) and temp_global_count < 128) {
-                                temp_globals[temp_global_count] = .{ .name = entry.key_ptr.*, .old_val = null, .was_present = false };
-                                temp_global_count += 1;
-                                try g.put(entry.key_ptr.*, entry.value_ptr.*);
-                            }
-                        }
-                    }
-                    // Temporarily mark non-procedure free globals as VOID so
-                    // renameForHygiene preserves them.
-                    if (globals_mod.globals_ctx) |gctx| {
-                        var cand_names: [64][]const u8 = undefined;
-                        var cand_count: usize = 0;
-                        var pv_names: [64][]const u8 = undefined;
-                        var pv_count: usize = 0;
-                        for (tx.patterns[0..tx.num_rules]) |pat| {
-                            if (!passthrough.collectSymbols(pat, &pv_names, &pv_count)) return CompileError.InternalLimit;
-                        }
-                        for (tx.templates[0..tx.num_rules]) |tmpl| {
-                            if (!passthrough.collectFreeRefs(tmpl, pv_names[0..pv_count], tx.literals, &cand_names, &cand_count)) {
-                                return CompileError.InternalLimit;
-                            }
-                        }
-                        for (cand_names[0..cand_count]) |cname| {
-                            const in_g = g.get(cname);
-                            // glk != null means g IS the shared globals map
-                            // and we already hold its exclusive lock; else
-                            // this read needs its own child-thread lock.
-                            const in_vm = if (glk != null)
-                                (if (gctx.globals.count() > 0) gctx.globals.get(cname) else null)
-                            else in_vm_blk: {
-                                gctx.lockShared();
-                                defer gctx.unlockShared();
-                                break :in_vm_blk if (gctx.globals.count() > 0) gctx.globals.get(cname) else null;
-                            };
-                            const existing = in_g orelse in_vm;
-                            if (existing) |val| {
-                                if (!types.isProcedure(val) and !types.isTransformer(val) and val != types.VOID) {
-                                    if (temp_global_count < 128) {
-                                        temp_globals[temp_global_count] = .{ .name = cname, .old_val = in_g, .was_present = in_g != null };
-                                        temp_global_count += 1;
-                                        try g.put(cname, types.VOID);
-                                    }
-                                    // Track for local injection after expansion
-                                    if (global_free_count < 64) {
-                                        global_free_names[global_free_count] = cname;
-                                        global_free_count += 1;
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-                defer if (self.globals) |g| {
-                    const glk = globals_mod.acquireGlobalsWrite(g);
-                    for (temp_globals[0..temp_global_count]) |tg| {
-                        if (tg.was_present) {
-                            g.put(tg.name, tg.old_val.?) catch {};
-                        } else {
-                            _ = g.remove(tg.name);
-                        }
-                    }
-                    globals_mod.releaseGlobalsWrite(glk);
-                };
-                // Suppress GC during expansion: the expanded form isn't
-                // rooted until pushRoot below, so a collection triggered
-                // by allocPair inside expandMacro could free AST nodes
-                // that the partially-built result references.
-                self.gc.no_collect += 1;
-                const expanded = expander.expandMacro(self.gc, expr, transformer, self.globals, &merged_macros) catch |err| {
-                    self.gc.no_collect -= 1;
-                    return switch (err) {
-                        error.OutOfMemory => CompileError.OutOfMemory,
-                        error.ScopeTableFull, error.PatternTooComplex => CompileError.InternalLimit,
-                        error.NoMatchingPattern, error.EllipsisCountMismatch, error.EllipsisDepthMismatch => CompileError.InvalidSyntax,
-                    };
-                };
-                var expanded_root = expanded;
-                self.gc.pushRoot(&expanded_root);
-                defer self.gc.popRoot();
-                self.gc.no_collect -= 1;
-                const saved_locals_len = self.locals.items.len;
-                for (tx.captured_locals) |cap| {
-                    try self.locals.append(self.gc.allocator, .{
-                        .name = cap.name,
-                        .depth = self.scope_depth,
-                        .slot = cap.slot,
-                    });
-                }
-                try injectHygienicCapturedLocals(self, expanded_root, tx.captured_locals);
-                // Inject non-procedure global free vars as locals so
-                // use-site locals don't shadow the definition-site
-                // global binding (R7RS 4.3.1 referential transparency).
-                for (global_free_names[0..global_free_count]) |gname| {
-                    // Skip if already covered by captured_locals
-                    var already_captured = false;
-                    for (tx.captured_locals) |cap| {
-                        if (std.mem.eql(u8, cap.name, gname)) {
-                            already_captured = true;
-                            break;
-                        }
-                    }
-                    if (already_captured) continue;
-                    // Load the global value into a fresh register
-                    const gslot = self.allocReg() catch continue;
-                    const gsym = self.gc.allocSymbol(gname) catch continue;
-                    const gsym_idx = self.addConstant(gsym) catch continue;
-                    self.emitOp(.get_global) catch continue;
-                    self.emitU16(gslot) catch continue;
-                    self.emitU16(gsym_idx) catch continue;
-                    try self.locals.append(self.gc.allocator, .{
-                        .name = gname,
-                        .depth = self.scope_depth,
-                        .slot = gslot,
-                        .is_global_alias = true,
-                    });
-                }
-                const result_err = self.compileExpr(expanded_root, dst, is_tail);
-                // Remove injected locals
-                while (self.locals.items.len > saved_locals_len) {
-                    _ = self.locals.pop();
-                }
-                return result_err;
+                return macro.expandAndCompileMacroUse(self, expr, name, transformer, dst, is_tail);
             }
         }
 
@@ -890,179 +710,6 @@ pub const Compiler = struct {
         return compiler_lambda.compileDelayForce(self, args, dst);
     }
 
-    // -- Macro forms --
-
-    pub fn compileDefineSyntax(self: *Compiler, args: Value, dst: u16) CompileError!void {
-        if (args == types.NIL) return CompileError.InvalidSyntax;
-        const keyword = types.car(args);
-        if (!types.isSymbol(keyword)) return CompileError.InvalidSyntax;
-        const rest = types.cdr(args);
-        if (rest == types.NIL) return CompileError.InvalidSyntax;
-        const transformer_spec = types.car(rest);
-
-        // Parse the syntax-rules form and get a transformer value
-        const transformer = passthrough.parseSyntaxRules(self, transformer_spec) catch return CompileError.InvalidSyntax;
-
-        const tx = types.toObject(transformer).as(types.Transformer);
-        if (self.lib_env) |env| {
-            tx.def_env = env;
-            tx.def_env_val = self.lib_env_val;
-        }
-
-        // Store in macro table; inside a body, track the registration so
-        // the enclosing body scope removes it on exit (R7RS 5.3).
-        const name = types.symbolName(keyword);
-        try self.recordBodyMacro(name);
-        self.macros.put(name, transformer) catch return CompileError.OutOfMemory;
-
-        // A define-syntax at a library's top level (not nested in a lambda/let
-        // body scope) is also stored in the library environment. lib_env is
-        // per-library and GC-rooted, so the macro persists across the library's
-        // body forms and is found by lib_env export resolution — without
-        // leaking into the process-global macro table (issue #877). At the REPL
-        // top level lib_env is null, so ordinary define-syntax is unaffected.
-        if (self.body_macro_depth == 0) {
-            if (self.lib_env) |env| {
-                env.put(name, transformer) catch return CompileError.OutOfMemory;
-            }
-        }
-
-        // define-syntax returns void
-        try self.emitOp(.load_void);
-        try self.emitU16(dst);
-    }
-
-    fn stripHygPrefix(name: []const u8) []const u8 {
-        var n = name;
-        while (std.mem.startsWith(u8, n, "__hyg_")) {
-            if (std.mem.indexOfScalar(u8, n[6..], '_')) |sep| {
-                n = n[6 + sep + 1 ..];
-            } else break;
-        }
-        return n;
-    }
-
-    fn injectHygienicCapturedLocals(self: *Compiler, expr: Value, captured: []const types.CapturedLocal) CompileError!void {
-        if (captured.len == 0) return;
-        try injectHygCapturedWalk(self, expr, captured);
-    }
-
-    fn injectHygCapturedWalk(self: *Compiler, expr: Value, captured: []const types.CapturedLocal) CompileError!void {
-        if (types.isSymbol(expr)) {
-            const name = types.symbolName(expr);
-            if (!std.mem.startsWith(u8, name, "__hyg_")) return;
-            const base = stripHygPrefix(name);
-            if (base.len == name.len) return;
-            for (captured) |cap| {
-                if (std.mem.eql(u8, cap.name, base)) {
-                    var already = false;
-                    for (self.locals.items) |loc| {
-                        if (std.mem.eql(u8, loc.name, name)) {
-                            already = true;
-                            break;
-                        }
-                    }
-                    if (!already) {
-                        try self.locals.append(self.gc.allocator, .{
-                            .name = name,
-                            .depth = self.scope_depth,
-                            .slot = cap.slot,
-                        });
-                    }
-                    return;
-                }
-            }
-            return;
-        }
-        if (types.isPair(expr)) {
-            try injectHygCapturedWalk(self, types.car(expr), captured);
-            try injectHygCapturedWalk(self, types.cdr(expr), captured);
-        }
-    }
-
-    pub fn compileLetSyntax(self: *Compiler, args: Value, dst: u16, is_tail: bool) CompileError!void {
-        if (args == types.NIL) return CompileError.InvalidSyntax;
-        const bindings = types.car(args);
-        const body = types.cdr(args);
-        if (body == types.NIL) return CompileError.InvalidSyntax;
-
-        // Save current macro table entries so we can restore
-        var saved_names: std.ArrayList([]const u8) = .empty;
-        defer saved_names.deinit(self.gc.allocator);
-        var saved_values: std.ArrayList(?Value) = .empty;
-        defer saved_values.deinit(self.gc.allocator);
-
-        // Process syntax bindings
-        var binding_list = bindings;
-        while (binding_list != types.NIL) {
-            if (!types.isPair(binding_list)) return CompileError.InvalidSyntax;
-            const binding = types.car(binding_list);
-            if (!types.isPair(binding)) return CompileError.InvalidSyntax;
-
-            const keyword = types.car(binding);
-            if (!types.isSymbol(keyword)) return CompileError.InvalidSyntax;
-            const binding_rest = types.cdr(binding);
-            if (!types.isPair(binding_rest)) return CompileError.InvalidSyntax;
-            const transformer_spec = types.car(binding_rest);
-            const transformer = passthrough.parseSyntaxRules(self, transformer_spec) catch return CompileError.InvalidSyntax;
-
-            const name = types.symbolName(keyword);
-
-            // Save any existing macro with this name
-            saved_names.append(self.gc.allocator, name) catch return CompileError.OutOfMemory;
-            saved_values.append(self.gc.allocator, self.macros.get(name)) catch return CompileError.OutOfMemory;
-
-            // Capture current locals for referential transparency
-            if (self.locals.items.len > 0) {
-                const tx = types.toObject(transformer).as(types.Transformer);
-                const caps = self.gc.allocator.alloc(types.CapturedLocal, self.locals.items.len) catch return CompileError.OutOfMemory;
-                if (caps.len > 0) {
-                    for (self.locals.items, 0..) |local, ci| {
-                        caps[ci] = .{ .name = local.name, .slot = local.slot };
-                    }
-                    tx.captured_locals = caps;
-                }
-            }
-            self.macros.put(name, transformer) catch return CompileError.OutOfMemory;
-
-            binding_list = types.cdr(binding_list);
-        }
-
-        // Compile body in a new scope
-        self.beginScope();
-        const saved_body_scope = self.in_body_scope;
-        self.in_body_scope = true;
-        const macro_mark = self.beginBodyMacroScope();
-        errdefer self.endBodyMacroScope(macro_mark) catch {};
-        var current = body;
-        while (current != types.NIL) {
-            if (!types.isPair(current)) return CompileError.InvalidSyntax;
-            const expr = types.car(current);
-            current = types.cdr(current);
-            const tail = is_tail and current == types.NIL;
-            try self.compileExpr(expr, dst, tail);
-        }
-        try self.endBodyMacroScope(macro_mark);
-        self.in_body_scope = saved_body_scope;
-        self.endScope();
-
-        // Restore macro table
-        for (saved_names.items, saved_values.items) |name, saved_val| {
-            if (saved_val) |old_val| {
-                try self.macros.put(name, old_val);
-            } else {
-                _ = self.macros.remove(name);
-            }
-        }
-    }
-
-    pub fn compileLetrecSyntax(self: *Compiler, args: Value, dst: u16, is_tail: bool) CompileError!void {
-        // letrec-syntax is the same as let-syntax for our purposes since we
-        // process all bindings before compiling the body, and the transformer
-        // specs can reference each other through the macro table.
-        return self.compileLetSyntax(args, dst, is_tail);
-    }
-
     pub fn emitLoadValue(self: *Compiler, dst: u16, val: Value) CompileError!void {
         if (val == types.NIL) {
             try self.emitOp(.load_nil);
@@ -1082,18 +729,6 @@ pub const Compiler = struct {
     }
 };
 
-/// Strip hygiene-rename prefixes (`__hyg_<n>_`) so macro-introduced `set!`
-/// forms are recognized. Mirrors the stripping in ir.lowerFormWithMacros.
-fn effectiveSymbolName(name: []const u8) []const u8 {
-    var n = name;
-    while (std.mem.startsWith(u8, n, "__hyg_")) {
-        if (std.mem.indexOfScalar(u8, n[6..], '_')) |sep| {
-            n = n[6 + sep + 1 ..];
-        } else break;
-    }
-    return n;
-}
-
 /// Recursively collect the symbol names that appear as the target of a
 /// `(set! <name> ...)` anywhere in `expr` into `out`. Used to suppress
 /// constant folding of those names within the enclosing form (see
@@ -1105,7 +740,7 @@ fn collectSetTargets(expr: Value, out: *std.StringHashMap(void)) CompileError!vo
     while (types.isPair(cur)) {
         const head = types.car(cur);
         if (types.isSymbol(head)) {
-            const hname = effectiveSymbolName(types.symbolName(head));
+            const hname = types.stripHygienicPrefix(types.symbolName(head));
             if (std.mem.eql(u8, hname, "quote")) return; // literal data, not code
             if (std.mem.eql(u8, hname, "set!")) {
                 const rest = types.cdr(cur);

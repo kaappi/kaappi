@@ -151,7 +151,7 @@ Exceptions: auto-generated data files (`unicode_tables.zig`) are exempt.
 | `expander.zig` | ~320 | Macro expansion engine (syntax-rules) |
 | `printer.zig` | ~300 | Value → string (write mode and display mode) |
 
-### Compiler & IR (8 files)
+### Compiler & IR (9 files)
 | File | Responsibility |
 |------|---------------|
 | `ir.zig` | IR node types (33), AST→IR lowering, 3 analysis passes, 5 optimization passes |
@@ -162,6 +162,7 @@ Exceptions: auto-generated data files (`unicode_tables.zig`) are exempt.
 | `compiler_conditionals.zig` | and, or, when, unless, cond, cond-expand |
 | `compiler_bindings.zig` | let, let*, letrec, letrec*, named let, do, let-values, let*-values |
 | `compiler_advanced.zig` | case, case-lambda, guard, quasiquote |
+| `compiler_macro.zig` | define-syntax, let-syntax, letrec-syntax, macro expansion, syntax-rules parsing, hygiene free-ref collection |
 | `compiler_forms.zig` | Re-export hub (thin file, don't edit directly) |
 
 ### VM (split into 8 files)

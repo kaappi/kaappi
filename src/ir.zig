@@ -415,12 +415,7 @@ fn lowerFormWithMacros(ir: *IR, expr: Value, macros: ?*std.StringHashMap(Value))
     if (types.isSymbol(head)) {
         const name = types.symbolName(head);
 
-        var effective_name = name;
-        while (std.mem.startsWith(u8, effective_name, "__hyg_")) {
-            if (std.mem.indexOfScalar(u8, effective_name[6..], '_')) |sep| {
-                effective_name = effective_name[6 + sep + 1 ..];
-            } else break;
-        }
+        const effective_name = types.stripHygienicPrefix(name);
 
         // R7RS has no reserved words: a lexical binding of a keyword shadows
         // the syntax. If the (non-hygienic) head names a local or captured
