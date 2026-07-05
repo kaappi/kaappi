@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783240912695,
+  "lastUpdate": 1783241745836,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "ec52ce609de58764897322d61d09e0f8e926ad8e",
-          "message": "Preserve string/bytevector eq? identity in thread deep copy (#807) (#988)\n\ndeepCopyValue was missing visited.put for .string and .bytevector,\nso shared references to the same mutable object became independent\ncopies across thread boundaries, breaking eq? identity and shared\nmutation semantics.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-03T18:57:47Z",
-          "tree_id": "077cd3714f78461559fdb43d20ba437fb12a2616",
-          "url": "https://github.com/kaappi/kaappi/commit/ec52ce609de58764897322d61d09e0f8e926ad8e"
-        },
-        "date": 1783105962298,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.377379,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.549459,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.844822,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.286881,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006374,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.033512,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.471267,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.070966,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 4.062632,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.836409,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.207119,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.429883,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.786084,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.667394,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.043313,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.042677,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "3422197e9d72a1dc970932bca35f705035446bf7",
+          "message": "Add R7RS 6.10-6.14 conformance gap tests (audit Phase 1D) (#1152)\n\n30 assertions covering spec corners the R7RS suite misses:\nshortest-list termination for map/vector-map/string-map, apply with\nspread arguments, call-with-values spec examples, raise-continuable\nhandler-value semantics, error-object accessors, file-error?/\nread-error? predicates, eval environment isolation and import-set\nrestriction, cyclic write with datum labels, read-line CR/CRLF/LF\nhandling, peek-char/peek-u8 non-advancement, port lifecycle\npredicates, parameterized current-output-port, bytevector ports,\nranged write-string, and system interface types.\n\nTwo assertions disabled with FAIL: #1147 markers - define/set! into\nan immutable (environment ...) silently succeeds instead of\nsignaling an error (isolation itself is correct). Deep continuation\ninteractions are deferred to Phase 4B. Part of the #1137 audit\ncampaign.\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-05T08:34:45Z",
+          "tree_id": "907997e57d5d2c9db31bc82b0f62c7e22c6a21bc",
+          "url": "https://github.com/kaappi/kaappi/commit/3422197e9d72a1dc970932bca35f705035446bf7"
+        },
+        "date": 1783241745295,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.278111,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.700162,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.920778,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.083317,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.012552,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.211234,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.472143,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.069835,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 12.336581,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.839048,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 9.998511,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.952429,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 8.290279,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.677878,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.043055,
             "unit": "seconds"
           }
         ]
