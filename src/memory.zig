@@ -103,9 +103,13 @@ pub const GC = struct {
     /// For a child gc: the parent gc's id, stamped on symbols the child
     /// interns into the shared table (the parent owns and frees those).
     shared_owner_id: u32 = 0,
-    roots: std.ArrayList(*Value),
+    root_buffer: [1024]*Value = undefined,
+    root_count: u16 = 0,
     extra_roots: std.ArrayList(Value),
+    arg_roots: [4]Value = .{ 0, 0, 0, 0 },
+    arg_root_count: u3 = 0,
     remembered_set: std.ArrayList(*Object),
+    stress: bool = build_options.gc_stress,
     enabled: bool = true,
     no_collect: u32 = 0,
     bytes_allocated: usize = 0,
@@ -120,7 +124,6 @@ pub const GC = struct {
         return .{
             .allocator = allocator,
             .symbols = std.StringHashMap(Value).init(allocator),
-            .roots = .empty,
             .extra_roots = .empty,
             .remembered_set = .empty,
             .source_lines = std.AutoHashMap(Value, u32).init(allocator),
@@ -134,7 +137,6 @@ pub const GC = struct {
             .symbols = std.StringHashMap(Value).init(allocator),
             .shared_symbols = &parent.symbols,
             .shared_foreign_symbols = &parent.foreign_symbols,
-            .roots = .empty,
             .extra_roots = .empty,
             .remembered_set = .empty,
             .source_lines = std.AutoHashMap(Value, u32).init(allocator),
@@ -163,7 +165,6 @@ pub const GC = struct {
         for (self.foreign_symbols.items) |o| gc_collect.freeObject(self, o);
         self.foreign_symbols.deinit(self.allocator);
         self.symbols.deinit();
-        self.roots.deinit(self.allocator);
         self.extra_roots.deinit(self.allocator);
         self.remembered_set.deinit(self.allocator);
         self.source_lines.deinit();
@@ -197,6 +198,21 @@ pub const GC = struct {
             self.stats.peak_bytes_allocated = self.bytes_allocated;
     }
 
+    inline fn rootArgs1(self: *GC, a: Value) void {
+        self.arg_roots[0] = a;
+        self.arg_root_count = 1;
+    }
+
+    inline fn rootArgs2(self: *GC, a: Value, b: Value) void {
+        self.arg_roots[0] = a;
+        self.arg_roots[1] = b;
+        self.arg_root_count = 2;
+    }
+
+    inline fn clearArgRoots(self: *GC) void {
+        self.arg_root_count = 0;
+    }
+
     pub inline fn finishAlloc(self: *GC, obj: *Object, size: usize) void {
         self.bytes_allocated += size;
         self.profileAlloc(size);
@@ -204,7 +220,9 @@ pub const GC = struct {
     }
 
     pub fn allocPair(self: *GC, car_val: Value, cdr_val: Value) !Value {
+        self.rootArgs2(car_val, cdr_val);
         try self.maybeCollect();
+        self.clearArgRoots();
         const pair = try self.allocator.create(Pair);
         pair.* = .{
             .header = .{ .tag = .pair },
@@ -296,7 +314,9 @@ pub const GC = struct {
     }
 
     pub fn allocClosure(self: *GC, func: *Function) !Value {
+        self.rootArgs1(types.makePointer(@ptrCast(func)));
         try self.maybeCollect();
+        self.clearArgRoots();
         const upvalue_count = func.upvalue_count;
         const upvalues = try self.allocator.alloc(Value, upvalue_count);
         errdefer self.allocator.free(upvalues);
@@ -361,7 +381,9 @@ pub const GC = struct {
     }
 
     pub fn allocVectorFill(self: *GC, size: usize, fill: Value) !Value {
+        self.rootArgs1(fill);
         try self.maybeCollect();
+        self.clearArgRoots();
         const data = try self.allocator.alloc(Value, size);
         errdefer self.allocator.free(data);
         @memset(data, fill);
@@ -375,7 +397,9 @@ pub const GC = struct {
     }
 
     pub fn allocErrorObject(self: *GC, message: Value, irritants: Value) !Value {
+        self.rootArgs2(message, irritants);
         try self.maybeCollect();
+        self.clearArgRoots();
         const err = try self.allocator.create(types.ErrorObject);
         err.* = .{
             .header = .{ .tag = .error_object },
@@ -539,7 +563,9 @@ pub const GC = struct {
     }
 
     pub fn allocPromise(self: *GC, forced: bool, value: Value) !Value {
+        self.rootArgs1(value);
         try self.maybeCollect();
+        self.clearArgRoots();
         const p = try self.allocator.create(Promise);
         p.* = .{
             .header = .{ .tag = .promise },
@@ -678,7 +704,9 @@ pub const GC = struct {
     }
 
     pub fn allocParameter(self: *GC, init_value: Value, converter: Value) !Value {
+        self.rootArgs2(init_value, converter);
         try self.maybeCollect();
+        self.clearArgRoots();
         const p = try self.allocator.create(types.ParameterObject);
         p.* = .{
             .header = .{ .tag = .parameter },
@@ -704,7 +732,9 @@ pub const GC = struct {
     }
 
     pub fn allocFfiFunction(self: *GC, symbol: *anyopaque, library: Value, name: []const u8, param_types: []const FfiType, return_type: FfiType) !Value {
+        self.rootArgs1(library);
         try self.maybeCollect();
+        self.clearArgRoots();
         const owned_name = try self.allocator.dupe(u8, name);
         errdefer self.allocator.free(owned_name);
         const owned_params = try self.allocator.dupe(FfiType, param_types);
@@ -724,7 +754,9 @@ pub const GC = struct {
     }
 
     pub fn allocFfiCallback(self: *GC, closure: Value, slot_index: u8, fn_ptr: *anyopaque) !Value {
+        self.rootArgs1(closure);
         try self.maybeCollect();
+        self.clearArgRoots();
         const cb = try self.allocator.create(FfiCallback);
         cb.* = .{
             .header = .{ .tag = .ffi_callback },
@@ -749,7 +781,9 @@ pub const GC = struct {
     }
 
     pub fn allocFiber(self: *GC, thunk: Value, id: u32) !*@import("fiber.zig").Fiber {
+        self.rootArgs1(thunk);
         try self.maybeCollect();
+        self.clearArgRoots();
         const fiber_mod = @import("fiber.zig");
         const registers = try self.allocator.alloc(Value, types.INITIAL_REGISTER_CAPACITY);
         errdefer self.allocator.free(registers);
@@ -800,7 +834,9 @@ pub const GC = struct {
     }
 
     pub fn allocMutex(self: *GC, name: Value) !Value {
+        self.rootArgs1(name);
         try self.maybeCollect();
+        self.clearArgRoots();
         const m = try self.allocator.create(types.Mutex);
         m.* = .{
             .header = .{ .tag = .mutex },
@@ -815,7 +851,9 @@ pub const GC = struct {
     }
 
     pub fn allocConditionVariable(self: *GC, name: Value) !Value {
+        self.rootArgs1(name);
         try self.maybeCollect();
+        self.clearArgRoots();
         const cv = try self.allocator.create(types.ConditionVariable);
         cv.* = .{
             .header = .{ .tag = .condition_variable },
@@ -894,7 +932,9 @@ pub const GC = struct {
     }
 
     pub fn allocRational(self: *GC, num: Value, den: Value) !Value {
+        self.rootArgs2(num, den);
         try self.maybeCollect();
+        self.clearArgRoots();
         const rat = try self.allocator.create(Rational);
         rat.* = .{
             .header = .{ .tag = .rational },
@@ -1021,7 +1061,7 @@ pub const GC = struct {
     // -- Convenience: build a proper list from a slice
     pub fn makeList(self: *GC, items: []const Value) !Value {
         var result: Value = types.NIL;
-        try self.pushRoot(&result);
+        self.pushRoot(&result);
         defer self.popRoot();
         var i = items.len;
         while (i > 0) {
@@ -1044,6 +1084,13 @@ pub const GC = struct {
     const gc_collect = @import("gc_collect.zig");
 
     fn maybeCollect(self: *GC) !void {
+        if (self.stress and self.enabled) {
+            if (self.no_collect == 0) self.collect();
+            if (self.memory_limit) |limit| {
+                if (self.bytes_allocated > limit) return error.OutOfMemory;
+            }
+            return;
+        }
         if (self.enabled and self.object_count >= self.gc_threshold) {
             if (self.no_collect > 0) {
                 self.stats.no_collect_deferred += 1;
@@ -1071,12 +1118,15 @@ pub const GC = struct {
         gc_collect.markValue(self, v);
     }
 
-    pub fn pushRoot(self: *GC, root: *Value) !void {
-        try self.roots.append(self.allocator, root);
+    pub fn pushRoot(self: *GC, root: *Value) void {
+        if (self.root_count >= self.root_buffer.len)
+            @panic("GC root stack overflow (1024)");
+        self.root_buffer[self.root_count] = root;
+        self.root_count += 1;
     }
 
     pub fn popRoot(self: *GC) void {
-        _ = self.roots.pop();
+        self.root_count -= 1;
     }
 };
 
@@ -1143,7 +1193,7 @@ test "gc preserves rooted objects" {
 
     var rooted = try gc.allocPair(types.makeFixnum(42), types.NIL);
     _ = try gc.allocPair(types.makeFixnum(99), types.NIL);
-    try gc.pushRoot(&rooted);
+    gc.pushRoot(&rooted);
 
     gc.collect();
     try std.testing.expectEqual(@as(usize, 1), gc.object_count);

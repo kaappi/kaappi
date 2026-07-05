@@ -351,11 +351,11 @@ test "root stack symmetry after compile errors" {
     var vm = try th.makeTestVM(&gc);
     defer vm.deinit();
 
-    const roots_before = gc.roots.items.len;
+    const roots_before = gc.root_count;
     for (0..25) |_| {
         const result = vm.eval("(if 1)");
         try std.testing.expectError(th.VMError.CompileError, result);
-        try std.testing.expectEqual(roots_before, gc.roots.items.len);
+        try std.testing.expectEqual(roots_before, gc.root_count);
     }
 }
 
@@ -365,11 +365,11 @@ test "root stack symmetry after raised exceptions" {
     var vm = try th.makeTestVM(&gc);
     defer vm.deinit();
 
-    const roots_before = gc.roots.items.len;
+    const roots_before = gc.root_count;
     for (0..25) |_| {
         const result = vm.eval("(raise 42)");
         try std.testing.expectError(th.VMError.ExceptionRaised, result);
-        try std.testing.expectEqual(roots_before, gc.roots.items.len);
+        try std.testing.expectEqual(roots_before, gc.root_count);
     }
 }
 
@@ -483,7 +483,7 @@ test "macro expansion limit returns compile error deterministically" {
     var vm = try th.makeTestVM(&gc);
     defer vm.deinit();
 
-    const roots_before = gc.roots.items.len;
+    const roots_before = gc.root_count;
     const result = vm.eval(
         \\(define-syntax loop
         \\  (syntax-rules ()
@@ -491,5 +491,5 @@ test "macro expansion limit returns compile error deterministically" {
         \\(loop)
     );
     try std.testing.expectError(th.VMError.CompileError, result);
-    try std.testing.expectEqual(roots_before, gc.roots.items.len);
+    try std.testing.expectEqual(roots_before, gc.root_count);
 }

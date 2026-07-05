@@ -185,7 +185,7 @@ pub fn raiseDivByZero() PrimitiveError!Value {
     const vm = vm_mod.vm_instance orelse return PrimitiveError.DivisionByZero;
     const gc = memory.gc_instance orelse return PrimitiveError.DivisionByZero;
     var msg = gc.allocString("division by zero") catch return PrimitiveError.DivisionByZero;
-    gc.pushRoot(&msg) catch return PrimitiveError.DivisionByZero;
+    gc.pushRoot(&msg);
     defer gc.popRoot();
     const err_obj = gc.allocErrorObject(msg, types.NIL) catch return PrimitiveError.DivisionByZero;
     vm.current_exception = err_obj;
@@ -760,7 +760,7 @@ fn compareExactReals(a: Value, b: Value) PrimitiveError!i8 {
     const nb = exactNumerator(b);
     const db = exactDenominator(b);
     var p1 = bignum_mod.mul(gc, na, db) catch return PrimitiveError.OutOfMemory;
-    gc.pushRoot(&p1) catch return PrimitiveError.OutOfMemory;
+    gc.pushRoot(&p1);
     defer gc.popRoot();
     const p2 = bignum_mod.mul(gc, nb, da) catch return PrimitiveError.OutOfMemory;
     return bignum_mod.compare(p1, p2);
@@ -777,7 +777,7 @@ fn compareExactVsFlonum(a: Value, f: f64) PrimitiveError!i8 {
     }
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     var f_exact = try numeric.exactFn(&[1]Value{types.makeFlonum(f)});
-    gc.pushRoot(&f_exact) catch return PrimitiveError.OutOfMemory;
+    gc.pushRoot(&f_exact);
     defer gc.popRoot();
     return try compareExactReals(a, f_exact);
 }

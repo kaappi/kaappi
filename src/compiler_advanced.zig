@@ -288,7 +288,7 @@ fn compileQQ(self: *Compiler, tmpl: Value, dst: u16, depth: u8) CompileError!voi
             }
             break :blk l;
         };
-        try gc.pushRoot(&list);
+        gc.pushRoot(&list);
         defer gc.popRoot();
         // Compile the list at the current quasiquote depth
         const fn_reg = try self.allocReg();
@@ -617,7 +617,7 @@ fn compileQQSplicing(self: *Compiler, tmpl: Value, dst: u16, depth: u8) CompileE
         var seg0 = segments_buf[0];
         gc.no_collect -= 1;
         nc_held = false;
-        try gc.pushRoot(&seg0);
+        gc.pushRoot(&seg0);
         defer gc.popRoot();
         return self.compileExpr(seg0, dst, false);
     }
@@ -632,7 +632,7 @@ fn compileQQSplicing(self: *Compiler, tmpl: Value, dst: u16, depth: u8) CompileE
     var append_call = gc.allocPair(append_sym, args_list) catch return CompileError.OutOfMemory;
     gc.no_collect -= 1;
     nc_held = false;
-    try gc.pushRoot(&append_call);
+    gc.pushRoot(&append_call);
     defer gc.popRoot();
     return self.compileExpr(append_call, dst, false);
 }

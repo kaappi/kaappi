@@ -374,7 +374,7 @@ pub const Compiler = struct {
         // this, not-yet-compiled tails of the form (e.g. string literals) can
         // be swept mid-compilation and end up as dangling constant-pool entries.
         var expr_root = expr;
-        try self.gc.pushRoot(&expr_root);
+        self.gc.pushRoot(&expr_root);
         defer self.gc.popRoot();
 
         // Scan the whole top-level form for `set!` targets so the constant
@@ -443,7 +443,7 @@ pub const Compiler = struct {
 
     pub fn compileDesugared(self: *Compiler, form: Value, dst: u16, is_tail: bool) CompileError!void {
         var rooted = form;
-        try self.gc.pushRoot(&rooted);
+        self.gc.pushRoot(&rooted);
         defer self.gc.popRoot();
         return self.compileExpr(rooted, dst, is_tail);
     }
@@ -797,10 +797,7 @@ pub const Compiler = struct {
                     };
                 };
                 var expanded_root = expanded;
-                self.gc.pushRoot(&expanded_root) catch {
-                    self.gc.no_collect -= 1;
-                    return CompileError.OutOfMemory;
-                };
+                self.gc.pushRoot(&expanded_root);
                 defer self.gc.popRoot();
                 self.gc.no_collect -= 1;
                 const saved_locals_len = self.locals.items.len;

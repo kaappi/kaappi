@@ -53,7 +53,7 @@ fn tokenToValue(self: *Reader, tok: Token) ReadError!Value {
             // Pre-allocate a placeholder pair for circular references.
             // Root it so GC doesn't free it during the nested readDatum.
             var placeholder = self.gc.allocPair(types.VOID, types.NIL) catch return ReadError.OutOfMemory;
-            self.gc.pushRoot(&placeholder) catch return ReadError.OutOfMemory;
+            self.gc.pushRoot(&placeholder);
             self.labels[n] = placeholder;
             const datum = readDatum(self) catch |err| {
                 self.gc.popRoot();
@@ -92,7 +92,7 @@ fn readList(self: *Reader) ReadError!Value {
     const list_line = self.getLineCol().line;
     const first = try readDatum(self);
     var first_root = first;
-    try self.gc.pushRoot(&first_root);
+    self.gc.pushRoot(&first_root);
     defer self.gc.popRoot();
 
     try self.skipWhitespaceAndCommentsChecked();
@@ -101,7 +101,7 @@ fn readList(self: *Reader) ReadError!Value {
             self.pos += 1;
             const rest = try readDatum(self);
             var rest_root = rest;
-            try self.gc.pushRoot(&rest_root);
+            self.gc.pushRoot(&rest_root);
             defer self.gc.popRoot();
             try self.skipWhitespaceAndCommentsChecked();
             if (self.pos >= self.source.len or self.source[self.pos] != ')') {
@@ -116,7 +116,7 @@ fn readList(self: *Reader) ReadError!Value {
 
     const rest = try readListTail(self);
     var rest_root = rest;
-    try self.gc.pushRoot(&rest_root);
+    self.gc.pushRoot(&rest_root);
     defer self.gc.popRoot();
     const pair = self.gc.allocPair(first_root, rest_root) catch return ReadError.OutOfMemory;
     self.gc.source_lines.put(pair, list_line) catch {};
@@ -125,10 +125,10 @@ fn readList(self: *Reader) ReadError!Value {
 
 fn readListTail(self: *Reader) ReadError!Value {
     var result: Value = types.NIL;
-    try self.gc.pushRoot(&result);
+    self.gc.pushRoot(&result);
     defer self.gc.popRoot();
     var elem: Value = types.NIL;
-    try self.gc.pushRoot(&elem);
+    self.gc.pushRoot(&elem);
     defer self.gc.popRoot();
 
     var tail: Value = types.NIL;
@@ -177,17 +177,17 @@ fn readListTail(self: *Reader) ReadError!Value {
 fn readAbbreviation(self: *Reader, keyword: []const u8) ReadError!Value {
     const datum = try readDatum(self);
     var datum_root = datum;
-    try self.gc.pushRoot(&datum_root);
+    self.gc.pushRoot(&datum_root);
     defer self.gc.popRoot();
 
     const sym = self.gc.allocSymbol(keyword) catch return ReadError.OutOfMemory;
     var sym_root = sym;
-    try self.gc.pushRoot(&sym_root);
+    self.gc.pushRoot(&sym_root);
     defer self.gc.popRoot();
 
     const rest = self.gc.allocPair(datum_root, types.NIL) catch return ReadError.OutOfMemory;
     var rest_root = rest;
-    try self.gc.pushRoot(&rest_root);
+    self.gc.pushRoot(&rest_root);
     defer self.gc.popRoot();
     return self.gc.allocPair(sym_root, rest_root) catch return ReadError.OutOfMemory;
 }

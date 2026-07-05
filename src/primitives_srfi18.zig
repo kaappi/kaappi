@@ -143,7 +143,7 @@ fn makeErrorWithType(error_type: types.ErrorObject.ErrorType, msg: []const u8, r
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const message = gc.allocString(msg) catch return PrimitiveError.OutOfMemory;
     var msg_root = message;
-    gc.pushRoot(&msg_root) catch return PrimitiveError.OutOfMemory;
+    gc.pushRoot(&msg_root);
     const err_val = gc.allocErrorObject(msg_root, types.NIL) catch {
         gc.popRoot();
         return PrimitiveError.OutOfMemory;

@@ -207,7 +207,7 @@ pub fn compileBodyForms(self: *Compiler, body: Value, opts: BodyOpts) CompileErr
                 const lambda_sym = self.gc.allocSymbol("lambda") catch return CompileError.OutOfMemory;
                 {
                     var lambda_args = self.gc.allocPair(param_formals, def_rest) catch return CompileError.OutOfMemory;
-                    self.gc.pushRoot(&lambda_args) catch return CompileError.OutOfMemory;
+                    self.gc.pushRoot(&lambda_args);
                     defer self.gc.popRoot();
                     def_inits[def_count] = self.gc.allocPair(lambda_sym, lambda_args) catch return CompileError.OutOfMemory;
                 }
@@ -369,7 +369,7 @@ pub fn compileDefine(self: *Compiler, args: Value, dst: u16) CompileError!void {
         const param_formals = types.cdr(target);
 
         var lambda_args = self.gc.allocPair(param_formals, rest) catch return CompileError.OutOfMemory;
-        self.gc.pushRoot(&lambda_args) catch return CompileError.OutOfMemory;
+        self.gc.pushRoot(&lambda_args);
         defer self.gc.popRoot();
         try compileLambda(self, lambda_args, dst, types.symbolName(name));
 
@@ -447,13 +447,13 @@ pub fn compileDefineValues(self: *Compiler, args: Value, dst: u16) CompileError!
     // Step 1: emit (define name (if #f #f)) for each name
     for (names_buf[0..name_count]) |name| {
         var def_args = try buildVoidDefineArgs(self, name);
-        self.gc.pushRoot(&def_args) catch return CompileError.OutOfMemory;
+        self.gc.pushRoot(&def_args);
         defer self.gc.popRoot();
         try compileDefine(self, def_args, dst);
     }
     if (rest_name) |rn| {
         var def_args = try buildVoidDefineArgs(self, rn);
-        self.gc.pushRoot(&def_args) catch return CompileError.OutOfMemory;
+        self.gc.pushRoot(&def_args);
         defer self.gc.popRoot();
         try compileDefine(self, def_args, dst);
     }
@@ -550,7 +550,7 @@ pub fn compileDefineValues(self: *Compiler, args: Value, dst: u16) CompileError!
         }
     }
 
-    self.gc.pushRoot(&final_form) catch return CompileError.OutOfMemory;
+    self.gc.pushRoot(&final_form);
     defer self.gc.popRoot();
     if (is_single) {
         try compileSet(self, final_form, dst);

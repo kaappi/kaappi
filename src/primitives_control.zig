@@ -93,18 +93,18 @@ fn withExceptionHandlerFn(args: []const Value) PrimitiveError!Value {
             vm.popHandler();
             var handler_root = handler;
             const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
-            gc.pushRoot(&handler_root) catch return PrimitiveError.OutOfMemory;
+            gc.pushRoot(&handler_root);
             defer gc.popRoot();
             var exc = vm.current_exception orelse types.FALSE;
             vm.current_exception = null;
-            gc.pushRoot(&exc) catch return PrimitiveError.OutOfMemory;
+            gc.pushRoot(&exc);
             defer gc.popRoot();
             _ = vm.callHandler(handler_root, exc, 0) catch |herr| {
                 return primitives.mapVMError(herr);
             };
             // Handler returned from non-continuable raise — re-raise per R7RS
             var reraise_msg = gc.allocString("handler returned") catch return PrimitiveError.OutOfMemory;
-            gc.pushRoot(&reraise_msg) catch return PrimitiveError.OutOfMemory;
+            gc.pushRoot(&reraise_msg);
             defer gc.popRoot();
             const reraise_err = gc.allocErrorObject(reraise_msg, types.NIL) catch return PrimitiveError.OutOfMemory;
             vm.current_exception = reraise_err;
@@ -118,14 +118,14 @@ fn withExceptionHandlerFn(args: []const Value) PrimitiveError!Value {
             gc.allocString(detail) catch return PrimitiveError.OutOfMemory
         else
             gc.allocString("error") catch return PrimitiveError.OutOfMemory;
-        gc.pushRoot(&msg_str) catch return PrimitiveError.OutOfMemory;
+        gc.pushRoot(&msg_str);
         defer gc.popRoot();
         const err_obj = gc.allocErrorObject(msg_str, types.NIL) catch return PrimitiveError.OutOfMemory;
         var handler_root = handler;
-        gc.pushRoot(&handler_root) catch return PrimitiveError.OutOfMemory;
+        gc.pushRoot(&handler_root);
         defer gc.popRoot();
         var err_root = err_obj;
-        gc.pushRoot(&err_root) catch return PrimitiveError.OutOfMemory;
+        gc.pushRoot(&err_root);
         defer gc.popRoot();
         const handler_result = vm.callHandler(handler_root, err_root, 0) catch |herr| {
             return primitives.mapVMError(herr);
@@ -174,7 +174,7 @@ fn errorFn(args: []const Value) PrimitiveError!Value {
 
     // Build irritants list from remaining args
     var irritants: Value = types.NIL;
-    gc.pushRoot(&irritants) catch return PrimitiveError.OutOfMemory;
+    gc.pushRoot(&irritants);
     defer gc.popRoot();
     if (args.len > 1) {
         var i = args.len;
@@ -214,7 +214,7 @@ fn callWithCurrentContinuation(args: []const Value) PrimitiveError!Value {
 
     // Root the continuation so it survives GC during the proc call
     var cont_val = cont;
-    vm.gc.pushRoot(&cont_val) catch return PrimitiveError.OutOfMemory;
+    vm.gc.pushRoot(&cont_val);
     defer vm.gc.popRoot();
 
     // Call proc(continuation)
@@ -248,7 +248,7 @@ fn callWithEscapeContinuation(args: []const Value) PrimitiveError!Value {
 
     // Root the continuation so it survives GC during the proc call.
     var cont_val = cont;
-    vm.gc.pushRoot(&cont_val) catch return PrimitiveError.OutOfMemory;
+    vm.gc.pushRoot(&cont_val);
     defer vm.gc.popRoot();
     const cont_obj = types.toObject(cont_val).as(types.Continuation);
 
@@ -331,7 +331,7 @@ fn callWithValuesFn(args: []const Value) PrimitiveError!Value {
     // Call consumer with the produced values
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     var produced_root = produced;
-    gc.pushRoot(&produced_root) catch return PrimitiveError.OutOfMemory;
+    gc.pushRoot(&produced_root);
     defer gc.popRoot();
     if (types.isMultipleValues(produced_root)) {
         const mv = types.toObject(produced_root).as(types.MultipleValues);
