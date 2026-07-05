@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783229395908,
+  "lastUpdate": 1783230283579,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "382365ae58f01d378c3314ebaf452a46e228d8a5",
-          "message": "Invalidate stale native call sites after set!/define rebinding (#822) (#981)\n\nThe LLVM backend bound call sites to procedure definitions at compile\ntime and never invalidated those bindings when a name was reassigned.\nThree mechanisms were affected: native_fns direct calls kept invoking\nthe original function after set!/define, inline primitives like + kept\nusing the original op after (define + -), and IR constant folding\nevaluated (+ 10 3) → 13 before the emitter could see the rebinding.\n\nFix all three: track globally-rebound names in the emitter so later\ncall sites fall through to kaappi_global_lookup, and feed define/set!\ntargets across top-level forms to the IR's set_targets so constant\nfolding is suppressed for rebound primitives.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-03T15:09:13Z",
-          "tree_id": "9c851920a080e3ebf2fbe33d5d99b84d3f8653ae",
-          "url": "https://github.com/kaappi/kaappi/commit/382365ae58f01d378c3314ebaf452a46e228d8a5"
-        },
-        "date": 1783092338199,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.37514,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.001072,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.888529,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.669552,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.00651,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.034038,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.492732,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.07147,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 4.083903,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.828333,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.220809,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.435882,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.814781,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.699998,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.04296,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.042814,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "521cf6e1c4b13f37f69abc63db2f628a3f772f89",
+          "message": "Add expect* typed accessors and eliminate bare TypeErrors (#1057) (#1135)\n\nEvery bare PrimitiveError.TypeError now carries a \"type error in\n'proc': expected X, got Y\" message, matching the quality already\nprovided by caddr/car/vector-ref.  Six new typed accessors\n(expectPair, expectVector, expectFixnum, expectChar, expectString,\nexpectPort) combine the type check and cast into one call.\n\n- primitives.zig: add 6 expect* accessors, fix 28 bare TypeErrors\n- primitives_arithmetic.zig: fix 19 bare TypeErrors, 2 dead arity→assert\n- primitives_string.zig: parameterize getStringSlice with proc name,\n  fix 2 dead arity→assert\n- primitives_string_ext.zig: update ~35 getStringSlice callsites with\n  proc names, fix 4 bare TypeErrors\n- primitives_char.zig: replace private getStringSlice with expectString\n- primitives_ffi.zig: fix 15 bare TypeErrors\n- primitives_io.zig: fix 5 bare TypeErrors\n- primitives_numeric.zig: fix 3 bare TypeErrors\n- primitives_r7rs.zig: fix 3 bare TypeErrors\n- primitives_lazy.zig: fix 1 bare TypeError\n- primitives_list.zig: 2 dead arity→assert\n- primitives_srfi1.zig: 13 dead arity→assert\n- vm_calls.zig: add FFI error detail at 2 call sites\n- error-format.sh: 12 new assertions for consistent error messages\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-05T05:20:54Z",
+          "tree_id": "7dcefba500c31fdb814113e8a91e57cb63df7ffe",
+          "url": "https://github.com/kaappi/kaappi/commit/521cf6e1c4b13f37f69abc63db2f628a3f772f89"
+        },
+        "date": 1783230282371,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.330075,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.869357,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.951425,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.930424,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.012574,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.211683,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.472877,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.070514,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 12.365805,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.825743,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 9.975447,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.970532,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 8.296831,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.741761,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.042685,
             "unit": "seconds"
           }
         ]
