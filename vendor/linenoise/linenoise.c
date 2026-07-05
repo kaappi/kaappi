@@ -1286,7 +1286,7 @@ static void refreshSingleLine(struct linenoiseState *l, int flags) {
             }
         } else if (highlightCallback) {
             size_t hl_len = 0;
-            char *hl = highlightCallback(buf, len, &hl_len);
+            char *hl = highlightCallback(buf, len, pos, &hl_len);
             if (hl) {
                 abAppend(&ab, hl, hl_len);
                 free(hl);
@@ -1383,7 +1383,7 @@ static void refreshMultiLine(struct linenoiseState *l, int flags) {
             }
         } else if (highlightCallback) {
             size_t hl_len = 0;
-            char *hl = highlightCallback(render, render_len, &hl_len);
+            char *hl = highlightCallback(render, render_len, render_pos, &hl_len);
             if (hl) {
                 abAppend(&ab, hl, hl_len);
                 free(hl);
