@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783214034847,
+  "lastUpdate": 1783214062635,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "1388eeb4a6d6782e95b039143c811d180bc9ebb6",
-          "message": "Expand (scheme r5rs) to the full R5RS identifier set (#813) (#965)\n\nThe built-in (scheme r5rs) library exported only 4 identifiers\n(null-environment, scheme-report-environment, eval,\ninteraction-environment). Per R7RS Appendix A it must provide the full\nR5RS set (~180 procedures plus syntax). A prefix import exposed the gap:\n`(r5:car '(1 2))` raised \"undefined variable 'r5:car'\".\n\nA complete-ish implementation existed at lib/scheme/r5rs.sld, but it was\npermanently shadowed — processImportSet consults the built-in registry\nbefore falling back to .sld loading, so the 4-name stub always won. That\n.sld was also itself incomplete (missing null-environment,\nscheme-report-environment, char-ready?, assoc/assq/assv, call/cc, etc.).\n\nRather than depend on an external file for a standard library (unlike\nevery other (scheme X), which are self-contained Zig registrations), the\nstub is expanded to the full Appendix A table, re-exporting from globals.\nexact->inexact / inexact->exact / interaction-environment are already\nregistered as globals under their R5RS names, so no renaming is needed.\nSyntactic keywords are recognized by the compiler, so the globals.get\nguard skips them — same as (scheme base).\n\nThe now-redundant, shadowed lib/scheme/r5rs.sld is removed, and the\nrelease bundle no longer references the emptied lib/scheme/ directory.\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
-          "timestamp": "2026-07-03T11:31:31Z",
-          "tree_id": "91a5c53d83227a1a35e01fc61d6958da78e3ec21",
-          "url": "https://github.com/kaappi/kaappi/commit/1388eeb4a6d6782e95b039143c811d180bc9ebb6"
-        },
-        "date": 1783079233184,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.038879,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.639554,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.865608,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.136825,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.007318,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.032572,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.463583,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.068424,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.985642,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.77584,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.15755,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.48186,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 2.389712,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.898213,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.04434,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044339,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "5a522f2ff0f04a0ec84adcade19f42b63c2263b9",
+          "message": "Generate native backend declares from shared table, add comptime drift test (#1069) (#1120)\n\nReplace 21 hand-mirrored LLVM IR declare lines in emitPreamble and the\nif-else chains in tryEmitInlineBinary/tryEmitInlineUnary with a single\nshared table in native_decls.zig. A comptime block validates every table\nentry against the actual Zig signatures in runtime_exports.zig using\n@typeInfo reflection — a signature mismatch now fails the build instead\nof silently producing UB at link time.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-05T06:18:24+05:30",
+          "tree_id": "fa22e143e768050ecb2a315828ec5a5f1c9b5338",
+          "url": "https://github.com/kaappi/kaappi/commit/5a522f2ff0f04a0ec84adcade19f42b63c2263b9"
+        },
+        "date": 1783214061474,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.354243,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.788757,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.939169,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 5.210013,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.012553,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.212236,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.474763,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.070687,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 12.453853,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.838024,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 9.982312,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.957889,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 8.362391,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.698379,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.042525,
             "unit": "seconds"
           }
         ]
