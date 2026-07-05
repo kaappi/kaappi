@@ -6,52 +6,16 @@ const reader_mod = @import("reader.zig");
 const ir_mod = @import("ir.zig");
 const th = @import("testing_helpers.zig");
 
-fn compileViaDirectCompiler(gc: *memory.GC, source: []const u8) !*types.Function {
-    var reader = reader_mod.Reader.init(gc, source);
-    defer reader.deinit();
-    const expr = try reader.readDatum();
-    return compiler_mod.compileExpression(gc, expr);
+test "IR behavioral: integer literal" {
+    try th.expectEval("42", 42);
 }
 
-fn compileViaIR(gc: *memory.GC, source: []const u8) !*types.Function {
-    var reader = reader_mod.Reader.init(gc, source);
-    defer reader.deinit();
-    const expr = try reader.readDatum();
-
-    var ir = ir_mod.IR.init(gc.allocator);
-    defer ir.deinit();
-    const root = try ir_mod.lower(&ir, expr);
-
-    var emitter = try ir_mod.Emitter.init(gc);
-    try emitter.compile(root);
-    return emitter.func;
+test "IR behavioral: boolean true" {
+    try th.expectEvalBool("#t", true);
 }
 
-fn expectBytecodeParity(source: []const u8) !void {
-    var gc1 = memory.GC.init(std.testing.allocator);
-    defer gc1.deinit();
-    const direct = try compileViaDirectCompiler(&gc1, source);
-
-    var gc2 = memory.GC.init(std.testing.allocator);
-    defer gc2.deinit();
-    const ir_func = try compileViaIR(&gc2, source);
-
-    try std.testing.expectEqual(direct.code.items.len, ir_func.code.items.len);
-    try std.testing.expectEqualSlices(u8, direct.code.items, ir_func.code.items);
-    try std.testing.expectEqual(direct.constants.items.len, ir_func.constants.items.len);
-}
-
-// Bytecode-parity tests: delete each when its legacy compileExpr form is retired (#1038).
-test "IR parity: integer literal" { // legacy: compileExpr literal
-    try expectBytecodeParity("42");
-}
-
-test "IR parity: boolean true" { // legacy: compileExpr literal
-    try expectBytecodeParity("#t");
-}
-
-test "IR parity: boolean false" { // legacy: compileExpr literal
-    try expectBytecodeParity("#f");
+test "IR behavioral: boolean false" {
+    try th.expectEvalBool("#f", false);
 }
 
 test "IR behavioral: if with boolean test and constant branches" {
@@ -66,28 +30,28 @@ test "IR behavioral: if without else" {
     try th.expectEval("(if #t 42)", 42);
 }
 
-test "IR parity: constant-folded arithmetic" { // legacy: compileExpr call
-    try expectBytecodeParity("(+ 3 4)");
+test "IR behavioral: constant-folded arithmetic" {
+    try th.expectEval("(+ 3 4)", 7);
 }
 
-test "IR parity: constant-folded comparison" { // legacy: compileExpr call
-    try expectBytecodeParity("(< 1 2)");
+test "IR behavioral: constant-folded comparison" {
+    try th.expectEvalTrue("(< 1 2)");
 }
 
 test "IR behavioral: nested if with constant folding" {
     try th.expectEval("(if (< 1 2) (+ 3 4) 5)", 7);
 }
 
-test "IR parity: quoted datum" { // legacy: compileExpr quote
-    try expectBytecodeParity("(quote 42)");
+test "IR behavioral: quoted datum" {
+    try th.expectEval("(quote 42)", 42);
 }
 
-test "IR parity: quoted list" { // legacy: compileExpr quote
-    try expectBytecodeParity("(quote (1 2 3))");
+test "IR behavioral: quoted list" {
+    try th.expectEvalTrue("(equal? (quote (1 2 3)) '(1 2 3))");
 }
 
-test "IR parity: global variable reference" { // legacy: compileExpr global_ref
-    try expectBytecodeParity("x");
+test "IR behavioral: global variable reference" {
+    try th.expectEval("(define x 99) x", 99);
 }
 
 test "IR behavioral: nested calls" {
@@ -106,16 +70,16 @@ test "IR behavioral: if with calls in all positions" {
     try th.expectEval("(define x 5) (if (< x 10) (+ x 1) (- x 1))", 6);
 }
 
-test "IR parity: unary constant fold (not)" { // legacy: compileExpr call
-    try expectBytecodeParity("(not #f)");
+test "IR behavioral: unary constant fold (not)" {
+    try th.expectEvalBool("(not #f)", true);
 }
 
-test "IR parity: unary constant fold (zero?)" { // legacy: compileExpr call
-    try expectBytecodeParity("(zero? 0)");
+test "IR behavioral: unary constant fold (zero?)" {
+    try th.expectEvalTrue("(zero? 0)");
 }
 
-test "IR parity: constant fold multiplication" { // legacy: compileExpr call
-    try expectBytecodeParity("(* 6 7)");
+test "IR behavioral: constant fold multiplication" {
+    try th.expectEval("(* 6 7)", 42);
 }
 
 test "IR behavioral: and with true" {

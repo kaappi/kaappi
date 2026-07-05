@@ -242,8 +242,8 @@ pub const IR = struct {
     // scope so lowering can honor R7RS shadowing: a local or captured binding
     // of a keyword (if, begin, +, ...) shadows the syntax/primitive, so the
     // form must lower to an ordinary call rather than a special form or a fold
-    // (issues #788, #790). Null for standalone lowering (Stage 1 parity tests,
-    // ir_emitter), where only the globals check applies.
+    // (issues #788, #790). Null for standalone lowering, where only the
+    // globals check applies.
     compiler: ?*const compiler_mod.Compiler = null,
     // Extra lexically-bound names that shadow primitives, for lowering paths
     // that have no Compiler (the LLVM native backend passes a lambda's own
@@ -1183,5 +1183,3 @@ pub fn simplifyBegin(ir: *IR, node: *Node) *Node {
         else => return node,
     }
 }
-
-pub const Emitter = @import("ir_emitter.zig").Emitter;

@@ -21,7 +21,6 @@ pub const CompileError = error{
     InternalLimit,
     MacroExpansionLimit,
     JumpOutOfRange,
-    NotImplemented,
 };
 
 const Local = struct {
