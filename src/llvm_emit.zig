@@ -180,11 +180,14 @@ pub const LLVMEmitter = struct {
             .lambda => try self.emitLambda(node.data.lambda),
             .let_form => try self.emitLet(node.data.let_form.args, false, node.ann.is_tail),
             .let_star => try self.emitLet(node.data.let_star.args, true, node.ann.is_tail),
-            .letrec, .letrec_star, .named_let => try self.emitSexprEval(node),
-            .do_form, .delay, .delay_force, .cond, .case_form, .case_lambda, .guard => try self.emitSexprEval(node),
-            .quasiquote, .parameterize, .define_values, .let_values, .let_star_values => try self.emitSexprEval(node),
-            .define_syntax, .let_syntax, .letrec_syntax, .cond_expand => try self.emitSexprEval(node),
             .passthrough => try self.emitPassthrough(node.data.passthrough),
+            inline else => |tag| {
+                comptime {
+                    if (ir.llvmCapability(tag) != .eval_fallback)
+                        @compileError("unhandled native tag in emitNode: " ++ @tagName(tag));
+                }
+                return try self.emitSexprEval(node);
+            },
         };
     }
 
@@ -825,54 +828,25 @@ pub const LLVMEmitter = struct {
     }
 
     fn emitSexprEval(self: *LLVMEmitter, node: *const ir.Node) EmitError![]const u8 {
-        const args = switch (node.tag) {
-            .let_form => node.data.let_form.args,
-            .let_star => node.data.let_star.args,
-            .letrec => node.data.letrec.args,
-            .letrec_star => node.data.letrec_star.args,
-            .named_let => node.data.named_let.args,
-            .do_form => node.data.do_form.args,
-            .delay => node.data.delay.args,
-            .delay_force => node.data.delay_force.args,
-            .cond => node.data.cond.args,
-            .case_form => node.data.case_form.args,
-            .case_lambda => node.data.case_lambda.args,
-            .guard => node.data.guard.args,
-            .quasiquote => node.data.quasiquote.args,
-            .parameterize => node.data.parameterize.args,
-            .define_values => node.data.define_values.args,
-            .let_values => node.data.let_values.args,
-            .let_star_values => node.data.let_star_values.args,
-            .define_syntax => node.data.define_syntax.args,
-            .let_syntax => node.data.let_syntax.args,
-            .letrec_syntax => node.data.letrec_syntax.args,
-            .cond_expand => node.data.cond_expand.args,
-            else => return error.UnsupportedNodeType,
+        const args: Value = switch (node.tag) {
+            .constant,
+            .global_ref,
+            .call,
+            .@"if",
+            .begin,
+            .and_form,
+            .or_form,
+            .when_form,
+            .unless_form,
+            .define,
+            .set_form,
+            .lambda,
+            .passthrough,
+            => return error.UnsupportedNodeType,
+            inline else => |tag| @field(@field(node.data, @tagName(tag)), "args"),
         };
-        const form_name = switch (node.tag) {
-            .let_form => "let",
-            .let_star => "let*",
-            .letrec => "letrec",
-            .letrec_star => "letrec*",
-            .named_let => "let",
-            .do_form => "do",
-            .delay => "delay",
-            .delay_force => "delay-force",
-            .cond => "cond",
-            .case_form => "case",
-            .case_lambda => "case-lambda",
-            .guard => "guard",
-            .quasiquote => "quasiquote",
-            .parameterize => "parameterize",
-            .define_values => "define-values",
-            .let_values => "let-values",
-            .let_star_values => "let*-values",
-            .define_syntax => "define-syntax",
-            .let_syntax => "let-syntax",
-            .letrec_syntax => "letrec-syntax",
-            .cond_expand => "cond-expand",
-            else => return error.UnsupportedNodeType,
-        };
+        const form_name: []const u8 = ir.llvmFormName(node.tag) orelse
+            return error.UnsupportedNodeType;
 
         try lambda.bindParamsAsGlobals(self);
 
