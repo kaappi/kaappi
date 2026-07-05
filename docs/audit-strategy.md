@@ -155,7 +155,7 @@ and issue numbers, e.g. `[x] ... (2026-07-06, #1101–#1105)`.
 - [x] 4C: Macro hygiene + define-library import sets (2026-07-05, #1243; 23 tests + 1 disabled — doubled-ellipsis template (x ... ...) produces garbage with a literal ... instead of flattening; be-like-begin/(... ...) escape, custom ellipsis, vector patterns, tail patterns after ellipsis, =>-shadowing (p.24 example!), macro exports through prefix/only/rename/except and only-of-rename, cond-expand library declarations all conform; circular imports cleanly detected with nonzero exit)
 
 **Phase 5 — Synthesis**
-- [ ] 5: Deduplicate, group by root cause, prioritize, update tracking issue
+- [x] 5: Deduplicate, group by root cause, prioritize, update tracking issue (2026-07-05 — 87 findings filed over the campaign, 81 still open, 6 already fixed (#1176 #1178 #1180 #1184 #1185 #1188 — their FAIL markers still need re-enabling); no duplicates found (dedup enforced at filing time); grouped into 9 root-cause clusters with 2 epics filed (native re-entrancy, portable-SRFI quality); priority order + 197-marker inventory posted on #1137; run-all.sh hardened to parse chibi-test/SRFI-64 fail counts so exit-0 failures no longer pass silently)
 
 ---
 
