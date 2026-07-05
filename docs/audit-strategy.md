@@ -121,9 +121,9 @@ and issue numbers, e.g. `[x] ... (2026-07-06, #1101–#1105)`.
 
 **Phase 2 — Primitives audit** (independent; run in parallel; order = risk)
 - [x] 2.1: `primitives_srfi18.zig` (threads) (2026-07-05, #1153–#1156; 73 audit tests + 4 disabled — mutex timeout lock-steal, #f-thread owner, native thunks rejected, gc-stress SIGSEGV)
-- [ ] 2.2: `primitives_string_ext.zig` (SRFI-13)
-- [ ] 2.3: `primitives_char.zig` (Unicode)
-- [ ] 2.4: `primitives_io.zig` (ports)
+- [x] 2.2: `primitives_string_ext.zig` (SRFI-13) (2026-07-05, #825/#826 reopened + #1158–#1159; 84 audit tests + 6 disabled — join grammar, Unicode trim, s2 ranges, ignored optional args)
+- [x] 2.3: `primitives_char.zig` (Unicode) (2026-07-05, no new bugs — 59 audit tests; final-sigma, ligatures, Cherokee all conform; classification pending #1145)
+- [x] 2.4: `primitives_io.zig` (ports) (2026-07-05, no bugs — 49 audit tests; closed-port errors, write label semantics, binary ports all conform)
 - [ ] 2.5: `primitives_filesystem.zig` (SRFI-170)
 - [ ] 2.6: `primitives_srfi1.zig` (SRFI-1)
 - [ ] 2.7: `primitives_control.zig` (call/cc, guard)
