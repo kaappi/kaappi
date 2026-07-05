@@ -398,7 +398,7 @@ fn exptFn(args: []const Value) PrimitiveError!Value {
             zr = c.real;
             zi = c.imag;
         } else {
-            zr = toF64Ext(args[0]) catch return PrimitiveError.TypeError;
+            zr = toF64Ext(args[0]) catch return primitives.typeError("expt", "number", args[0]);
             zi = 0.0;
         }
         if (types.isComplex(args[1])) {
@@ -406,7 +406,7 @@ fn exptFn(args: []const Value) PrimitiveError!Value {
             wr = c.real;
             wi = c.imag;
         } else {
-            wr = toF64Ext(args[1]) catch return PrimitiveError.TypeError;
+            wr = toF64Ext(args[1]) catch return primitives.typeError("expt", "number", args[1]);
             wi = 0.0;
         }
         // Special case: integer exponent with complex base — use repeated multiplication
@@ -908,7 +908,7 @@ pub fn toComplexParts(v: Value) PrimitiveError!struct { real: f64, imag: f64 } {
     if (types.isFlonum(v)) return .{ .real = types.toFlonum(v), .imag = 0.0 };
     if (types.isBignum(v)) return .{ .real = bignum_mod.toF64(v), .imag = 0.0 };
     if (types.isRationalObj(v)) return .{ .real = try toF64Ext(v), .imag = 0.0 };
-    return PrimitiveError.TypeError;
+    return primitives.typeError("arithmetic", "number", v);
 }
 
 pub fn makeComplexOrReal(real: f64, imag: f64) PrimitiveError!Value {

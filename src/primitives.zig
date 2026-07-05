@@ -280,6 +280,37 @@ pub fn typeError(proc: []const u8, expected: []const u8, got: Value) PrimitiveEr
     return PrimitiveError.TypeError;
 }
 
+pub fn expectPair(proc: []const u8, v: Value) PrimitiveError!*types.Pair {
+    if (!types.isPair(v)) return typeError(proc, "pair", v);
+    return types.toPair(v);
+}
+
+pub fn expectVector(proc: []const u8, v: Value) PrimitiveError!*types.Vector {
+    if (!types.isVector(v)) return typeError(proc, "vector", v);
+    return types.toVector(v);
+}
+
+pub fn expectFixnum(proc: []const u8, v: Value) PrimitiveError!i64 {
+    if (!types.isFixnum(v)) return typeError(proc, "exact integer", v);
+    return types.toFixnum(v);
+}
+
+pub fn expectChar(proc: []const u8, v: Value) PrimitiveError!u21 {
+    if (!types.isChar(v)) return typeError(proc, "char", v);
+    return types.toChar(v);
+}
+
+pub fn expectString(proc: []const u8, v: Value) PrimitiveError![]const u8 {
+    if (!types.isString(v)) return typeError(proc, "string", v);
+    const str = types.toObject(v).as(types.SchemeString);
+    return str.data[0..str.len];
+}
+
+pub fn expectPort(proc: []const u8, v: Value) PrimitiveError!*types.Port {
+    if (!types.isPort(v)) return typeError(proc, "port", v);
+    return types.toObject(v).as(types.Port);
+}
+
 pub fn indexError(proc: []const u8, index: i64, len: usize) PrimitiveError {
     const vm = vm_mod.vm_instance orelse return PrimitiveError.IndexOutOfBounds;
     vm.setErrorDetail("{s}: index {d} out of range for length {d}", .{ proc, index, len });
@@ -383,15 +414,15 @@ fn length(args: []const Value) PrimitiveError!Value {
     var slow = args[0];
     var fast = args[0];
     while (fast != types.NIL) {
-        if (!types.isPair(fast)) return PrimitiveError.TypeError;
+        if (!types.isPair(fast)) return typeError("length", "proper list", fast);
         fast = types.cdr(fast);
         count += 1;
         if (fast == types.NIL) break;
-        if (!types.isPair(fast)) return PrimitiveError.TypeError;
+        if (!types.isPair(fast)) return typeError("length", "proper list", fast);
         fast = types.cdr(fast);
         count += 1;
         slow = types.cdr(slow);
-        if (slow == fast) return PrimitiveError.TypeError;
+        if (slow == fast) return typeError("length", "proper list", fast);
     }
     return types.makeFixnum(count);
 }
@@ -411,7 +442,7 @@ fn append(args: []const Value) PrimitiveError!Value {
         var elems: std.ArrayList(Value) = .empty;
         defer elems.deinit(gc.allocator);
         while (lst != types.NIL) {
-            if (!types.isPair(lst)) return PrimitiveError.TypeError;
+            if (!types.isPair(lst)) return typeError("append", "proper list", lst);
             elems.append(gc.allocator, types.car(lst)) catch return PrimitiveError.OutOfMemory;
             lst = types.cdr(lst);
         }
@@ -431,7 +462,7 @@ fn reverse(args: []const Value) PrimitiveError!Value {
     defer gc.popRoot();
     var current = args[0];
     while (current != types.NIL) {
-        if (!types.isPair(current)) return PrimitiveError.TypeError;
+        if (!types.isPair(current)) return typeError("reverse", "proper list", current);
         result = gc.allocPair(types.car(current), result) catch return PrimitiveError.OutOfMemory;
         current = types.cdr(current);
     }
@@ -668,9 +699,7 @@ fn notFn(args: []const Value) PrimitiveError!Value {
 // ---------------------------------------------------------------------------
 
 fn stringLength(args: []const Value) PrimitiveError!Value {
-    if (!types.isString(args[0])) return PrimitiveError.TypeError;
-    const str = types.toObject(args[0]).as(types.SchemeString);
-    const data = str.data[0..str.len];
+    const data = try expectString("string-length", args[0]);
     // Count UTF-8 codepoints, not bytes
     var count: usize = 0;
     var i: usize = 0;
@@ -686,7 +715,7 @@ fn stringAppend(args: []const Value) PrimitiveError!Value {
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     var total_len: usize = 0;
     for (args) |a| {
-        if (!types.isString(a)) return PrimitiveError.TypeError;
+        if (!types.isString(a)) return typeError("string-append", "string", a);
         total_len += types.toObject(a).as(types.SchemeString).len;
     }
     var result = gc.allocator.alloc(u8, total_len) catch return PrimitiveError.OutOfMemory;
@@ -701,7 +730,7 @@ fn stringAppend(args: []const Value) PrimitiveError!Value {
 }
 
 fn symbolToString(args: []const Value) PrimitiveError!Value {
-    if (!types.isSymbol(args[0])) return PrimitiveError.TypeError;
+    if (!types.isSymbol(args[0])) return typeError("symbol->string", "symbol", args[0]);
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const val = gc.allocString(types.symbolName(args[0])) catch return PrimitiveError.OutOfMemory;
     // R7RS: strings returned by symbol->string are immutable
@@ -717,7 +746,7 @@ fn applyFn(args: []const Value) PrimitiveError!Value {
     const vm = @import("vm.zig").vm_instance orelse return PrimitiveError.TypeError; // bare-ok: no VM
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const proc = args[0];
-    if (!types.isProcedure(proc) and !types.isNativeFn(proc)) return PrimitiveError.TypeError;
+    if (!types.isProcedure(proc) and !types.isNativeFn(proc)) return typeError("apply", "procedure", proc);
 
     // Collect all arguments: args[1..n-1] are individual, args[n-1] is a list
     var call_args: std.ArrayList(Value) = .empty;
@@ -731,7 +760,7 @@ fn applyFn(args: []const Value) PrimitiveError!Value {
     // Flatten the last arg (must be a proper list)
     var rest = args[args.len - 1];
     while (rest != types.NIL) {
-        if (!types.isPair(rest)) return PrimitiveError.TypeError;
+        if (!types.isPair(rest)) return typeError("apply", "proper list", rest);
         call_args.append(gc.allocator, types.car(rest)) catch return PrimitiveError.OutOfMemory;
         rest = types.cdr(rest);
     }
@@ -748,26 +777,24 @@ fn applyFn(args: []const Value) PrimitiveError!Value {
 fn makeRecordTypeFn(args: []const Value) PrimitiveError!Value {
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     // args[0] = name (string), args[1] = num_fields (fixnum)
-    if (!types.isString(args[0])) return PrimitiveError.TypeError;
-    if (!types.isFixnum(args[1])) return PrimitiveError.TypeError;
-    const str = types.toObject(args[0]).as(types.SchemeString);
-    const nf = types.toFixnum(args[1]);
+    const name_data = try expectString("%make-record-type", args[0]);
+    const nf = try expectFixnum("%make-record-type", args[1]);
     if (nf < 0 or nf > 255) return PrimitiveError.TypeError; // bare-ok: internal record primitive
     const num_fields: u8 = @intCast(nf);
-    return gc.allocRecordType(str.data[0..str.len], num_fields) catch return PrimitiveError.OutOfMemory;
+    return gc.allocRecordType(name_data, num_fields) catch return PrimitiveError.OutOfMemory;
 }
 
 fn makeRecordFn(args: []const Value) PrimitiveError!Value {
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     // args[0] = record_type, args[1..] = field values
-    if (!types.isRecordType(args[0])) return PrimitiveError.TypeError;
+    if (!types.isRecordType(args[0])) return typeError("%make-record", "record-type", args[0]);
     const rt = types.toObject(args[0]).as(types.RecordType);
     return gc.allocRecordInstance(rt, args[1..]) catch return PrimitiveError.OutOfMemory;
 }
 
 fn recordCheckFn(args: []const Value) PrimitiveError!Value {
     // args[0] = value to check, args[1] = record_type
-    if (!types.isRecordType(args[1])) return PrimitiveError.TypeError;
+    if (!types.isRecordType(args[1])) return typeError("record?", "record-type", args[1]);
     const rt = types.toObject(args[1]).as(types.RecordType);
     if (!types.isRecordInstance(args[0])) return types.FALSE;
     const ri = types.toObject(args[0]).as(types.RecordInstance);
@@ -776,25 +803,25 @@ fn recordCheckFn(args: []const Value) PrimitiveError!Value {
 
 fn recordRefFn(args: []const Value) PrimitiveError!Value {
     // args[0] = record instance, args[1] = field index (fixnum)
-    if (!types.isRecordInstance(args[0])) return PrimitiveError.TypeError;
-    if (!types.isFixnum(args[1])) return PrimitiveError.TypeError;
+    if (!types.isRecordInstance(args[0])) return typeError("record-ref", "record", args[0]);
+    if (!types.isFixnum(args[1])) return typeError("record-ref", "exact integer", args[1]);
     const ri = types.toObject(args[0]).as(types.RecordInstance);
     const raw_idx = types.toFixnum(args[1]);
     if (raw_idx < 0) return PrimitiveError.TypeError; // bare-ok: internal record primitive
     const idx: usize = @intCast(raw_idx);
-    if (idx >= ri.fields.len) return PrimitiveError.TypeError;
+    if (idx >= ri.fields.len) return indexError("record-ref", raw_idx, ri.fields.len);
     return ri.fields[idx];
 }
 
 fn recordSetFn(args: []const Value) PrimitiveError!Value {
     // args[0] = record instance, args[1] = field index (fixnum), args[2] = new value
-    if (!types.isRecordInstance(args[0])) return PrimitiveError.TypeError;
-    if (!types.isFixnum(args[1])) return PrimitiveError.TypeError;
+    if (!types.isRecordInstance(args[0])) return typeError("record-set!", "record", args[0]);
+    if (!types.isFixnum(args[1])) return typeError("record-set!", "exact integer", args[1]);
     const ri = types.toObject(args[0]).as(types.RecordInstance);
     const raw_idx = types.toFixnum(args[1]);
     if (raw_idx < 0) return PrimitiveError.TypeError; // bare-ok: internal record primitive
     const idx: usize = @intCast(raw_idx);
-    if (idx >= ri.fields.len) return PrimitiveError.TypeError;
+    if (idx >= ri.fields.len) return indexError("record-set!", raw_idx, ri.fields.len);
     if (memory.gc_instance) |gc| gc.writeBarrier(types.toObject(args[0]), args[2]);
     ri.fields[idx] = args[2];
     return types.VOID;
@@ -805,30 +832,30 @@ fn recordSetFn(args: []const Value) PrimitiveError!Value {
 // ---------------------------------------------------------------------------
 
 fn caarFn(args: []const Value) PrimitiveError!Value {
-    if (!types.isPair(args[0])) return PrimitiveError.TypeError;
+    if (!types.isPair(args[0])) return typeError("caar", "pair", args[0]);
     const a = types.car(args[0]);
-    if (!types.isPair(a)) return PrimitiveError.TypeError;
+    if (!types.isPair(a)) return typeError("caar", "pair", a);
     return types.car(a);
 }
 
 fn cadrFn(args: []const Value) PrimitiveError!Value {
-    if (!types.isPair(args[0])) return PrimitiveError.TypeError;
+    if (!types.isPair(args[0])) return typeError("cadr", "pair", args[0]);
     const d = types.cdr(args[0]);
-    if (!types.isPair(d)) return PrimitiveError.TypeError;
+    if (!types.isPair(d)) return typeError("cadr", "pair", d);
     return types.car(d);
 }
 
 fn cdarFn(args: []const Value) PrimitiveError!Value {
-    if (!types.isPair(args[0])) return PrimitiveError.TypeError;
+    if (!types.isPair(args[0])) return typeError("cdar", "pair", args[0]);
     const a = types.car(args[0]);
-    if (!types.isPair(a)) return PrimitiveError.TypeError;
+    if (!types.isPair(a)) return typeError("cdar", "pair", a);
     return types.cdr(a);
 }
 
 fn cddrFn(args: []const Value) PrimitiveError!Value {
-    if (!types.isPair(args[0])) return PrimitiveError.TypeError;
+    if (!types.isPair(args[0])) return typeError("cddr", "pair", args[0]);
     const d = types.cdr(args[0]);
-    if (!types.isPair(d)) return PrimitiveError.TypeError;
+    if (!types.isPair(d)) return typeError("cddr", "pair", d);
     return types.cdr(d);
 }
 

@@ -38,12 +38,6 @@ pub const specs = [_]primitives.PrimSpec{
 // Helpers
 // ---------------------------------------------------------------------------
 
-fn getStringSlice(proc: []const u8, v: Value) PrimitiveError![]const u8 {
-    if (!types.isString(v)) return primitives.typeError(proc, "string", v);
-    const str = types.toObject(v).as(types.SchemeString);
-    return str.data[0..str.len];
-}
-
 // ---------------------------------------------------------------------------
 // Unicode classification helpers
 // ---------------------------------------------------------------------------
@@ -379,8 +373,8 @@ fn foldCompareStrings(a: []const u8, b: []const u8) std.math.Order {
 
 fn compareCiStrings(proc: []const u8, args: []const Value, comptime cmp: enum { lt, le, eq, ge, gt }) PrimitiveError!Value {
     for (0..args.len - 1) |i| {
-        const a = try getStringSlice(proc, args[i]);
-        const b = try getStringSlice(proc, args[i + 1]);
+        const a = try primitives.expectString(proc, args[i]);
+        const b = try primitives.expectString(proc, args[i + 1]);
         const order = foldCompareStrings(a, b);
         const pass = switch (cmp) {
             .lt => order == .lt,
@@ -452,17 +446,17 @@ fn stringCaseMap(data: []const u8, comptime case_fn: fn (u21) u21) PrimitiveErro
 }
 
 fn stringUpcaseFn(args: []const Value) PrimitiveError!Value {
-    const data = try getStringSlice("string-upcase", args[0]);
+    const data = try primitives.expectString("string-upcase", args[0]);
     return stringCaseMapExpanding(data, .upcase);
 }
 
 fn stringDowncaseFn(args: []const Value) PrimitiveError!Value {
-    const data = try getStringSlice("string-downcase", args[0]);
+    const data = try primitives.expectString("string-downcase", args[0]);
     return stringCaseMapExpanding(data, .downcase);
 }
 
 fn stringFoldcaseFn(args: []const Value) PrimitiveError!Value {
-    const data = try getStringSlice("string-foldcase", args[0]);
+    const data = try primitives.expectString("string-foldcase", args[0]);
     return stringCaseMapExpanding(data, .foldcase);
 }
 

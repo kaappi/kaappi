@@ -224,6 +224,46 @@ assert_file_output_contains "uncaught (error ...) in script shows message" \
 
 rm -rf "$TMPDIR"
 
+# --- Issue #1057: error-message consistency sweep ---
+echo
+echo "-- Consistent error messages (issue #1057) --"
+
+assert_output_contains "caar type error names procedure" \
+    '(caar 42)' "caar"
+
+assert_output_contains "caar type error names expected type" \
+    '(caar 42)' "pair"
+
+assert_output_contains "cadr type error names procedure" \
+    '(cadr 42)' "cadr"
+
+assert_output_contains "string-length type error names expected type" \
+    '(string-length 42)' "string"
+
+assert_output_contains "string-append type error includes proc" \
+    '(string-append "a" 42)' "string-append"
+
+assert_output_contains "symbol->string type error names expected type" \
+    '(symbol->string 42)' "symbol"
+
+assert_output_contains "gcd type error names expected type" \
+    '(gcd "x" 3)' "integer"
+
+assert_output_contains "even? type error names procedure" \
+    '(even? "x")' "even?"
+
+assert_output_contains "abs type error names expected type" \
+    '(abs "x")' "number"
+
+assert_output_contains "length type error on dotted list" \
+    '(length (cons 1 2))' "proper list"
+
+assert_output_contains "reverse type error names procedure" \
+    '(reverse (cons 1 2))' "reverse"
+
+assert_output_contains "apply type error for non-procedure" \
+    '(apply 42 (list 1))' "procedure"
+
 echo
 echo "=== Results ==="
 echo "Passed: $PASS"

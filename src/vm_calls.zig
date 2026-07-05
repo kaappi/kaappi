@@ -306,7 +306,11 @@ pub fn callValue(vm: *VM, callee: Value, base: u32, nargs: u8) VMError!void {
         const ffi_fn = types.toObject(callee).as(types.FfiFunction);
         if (nargs != ffi_fn.param_count) return VMError.ArityMismatch;
         const ffi_mod = @import("ffi.zig");
-        const result = ffi_mod.callFfi(ffi_fn, vm.registers[base + 1 .. base + 1 + nargs], vm.gc) catch return VMError.TypeError;
+        const result = ffi_mod.callFfi(ffi_fn, vm.registers[base + 1 .. base + 1 + nargs], vm.gc) catch {
+            if (vm.last_error_detail_len == 0)
+                vm.setErrorDetail("unsupported FFI signature for '{s}'", .{ffi_fn.name});
+            return VMError.TypeError;
+        };
         vm.registers[base] = result;
         return;
     }
@@ -612,7 +616,11 @@ pub fn callWithArgs(vm: *VM, proc: Value, args: []const Value) VMError!Value {
         const ffi_fn = types.toObject(proc).as(types.FfiFunction);
         if (args.len != ffi_fn.param_count) return VMError.ArityMismatch;
         const ffi_mod = @import("ffi.zig");
-        return ffi_mod.callFfi(ffi_fn, args, vm.gc) catch return VMError.TypeError;
+        return ffi_mod.callFfi(ffi_fn, args, vm.gc) catch {
+            if (vm.last_error_detail_len == 0)
+                vm.setErrorDetail("unsupported FFI signature for '{s}'", .{ffi_fn.name});
+            return VMError.TypeError;
+        };
     }
     if (types.isParameter(proc)) {
         const param = types.toObject(proc).as(types.ParameterObject);

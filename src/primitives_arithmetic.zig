@@ -74,7 +74,7 @@ fn ratPartsVal(v: Value) PrimitiveError!RatPartsVal {
         const r = types.toRational(v);
         return .{ .num = r.numerator, .den = r.denominator };
     }
-    return PrimitiveError.TypeError;
+    return primitives.typeError("arithmetic", "rational number", v);
 }
 
 fn allocRationalRooted(gc: *@import("memory.zig").GC, n: i64, d: i64) PrimitiveError!Value {
@@ -260,7 +260,7 @@ fn bignumAddAll(args: []const Value) PrimitiveError!Value {
     var slot = gc.rootedSlot(result) catch return PrimitiveError.OutOfMemory;
     defer slot.release();
     for (args) |a| {
-        if (!types.isFixnum(a) and !types.isBignum(a)) return PrimitiveError.TypeError;
+        if (!types.isFixnum(a) and !types.isBignum(a)) return primitives.typeError("+", "exact integer", a);
         result = bignum_mod.add(gc, result, a) catch return PrimitiveError.OutOfMemory;
         slot.set(result);
     }
@@ -270,15 +270,15 @@ fn bignumAddAll(args: []const Value) PrimitiveError!Value {
 fn bignumSubAll(args: []const Value) PrimitiveError!Value {
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     if (args.len == 1) {
-        if (!types.isFixnum(args[0]) and !types.isBignum(args[0])) return PrimitiveError.TypeError;
+        if (!types.isFixnum(args[0]) and !types.isBignum(args[0])) return primitives.typeError("-", "exact integer", args[0]);
         return bignum_mod.negate(gc, args[0]) catch return PrimitiveError.OutOfMemory;
     }
     var result = args[0];
-    if (!types.isFixnum(result) and !types.isBignum(result)) return PrimitiveError.TypeError;
+    if (!types.isFixnum(result) and !types.isBignum(result)) return primitives.typeError("-", "exact integer", result);
     var slot = gc.rootedSlot(result) catch return PrimitiveError.OutOfMemory;
     defer slot.release();
     for (args[1..]) |a| {
-        if (!types.isFixnum(a) and !types.isBignum(a)) return PrimitiveError.TypeError;
+        if (!types.isFixnum(a) and !types.isBignum(a)) return primitives.typeError("-", "exact integer", a);
         result = bignum_mod.sub(gc, result, a) catch return PrimitiveError.OutOfMemory;
         slot.set(result);
     }
@@ -291,7 +291,7 @@ fn bignumMulAll(args: []const Value) PrimitiveError!Value {
     var slot = gc.rootedSlot(result) catch return PrimitiveError.OutOfMemory;
     defer slot.release();
     for (args) |a| {
-        if (!types.isFixnum(a) and !types.isBignum(a)) return PrimitiveError.TypeError;
+        if (!types.isFixnum(a) and !types.isBignum(a)) return primitives.typeError("*", "exact integer", a);
         result = bignum_mod.mul(gc, result, a) catch return PrimitiveError.OutOfMemory;
         slot.set(result);
     }
@@ -352,7 +352,7 @@ fn add(args: []const Value) PrimitiveError!Value {
 }
 
 fn sub(args: []const Value) PrimitiveError!Value {
-    if (args.len == 0) return PrimitiveError.ArityMismatch;
+    std.debug.assert(args.len > 0);
     if (isAnyComplex(args)) {
         const first = try toComplexParts(args[0]);
         if (args.len == 1) return makeComplexOrReal(-first.real, -first.imag);
@@ -475,7 +475,7 @@ fn mul(args: []const Value) PrimitiveError!Value {
 }
 
 fn divFn(args: []const Value) PrimitiveError!Value {
-    if (args.len == 0) return PrimitiveError.ArityMismatch;
+    std.debug.assert(args.len > 0);
     if (isAnyComplex(args)) {
         const first = try toComplexParts(args[0]);
         if (args.len == 1) {
@@ -546,7 +546,7 @@ fn divFn(args: []const Value) PrimitiveError!Value {
         var n = types.toFixnum(args[0]);
         var d: i64 = 1;
         for (args[1..]) |a| {
-            if (!types.isFixnum(a)) return PrimitiveError.TypeError;
+            if (!types.isFixnum(a)) return primitives.typeError("/", "number", a);
             const b = types.toFixnum(a);
             if (b == 0) return raiseDivByZero();
             // n/d / b = n / (d*b)
@@ -626,7 +626,8 @@ fn quotient(args: []const Value) PrimitiveError!Value {
         if (b == 0) return raiseDivByZero();
         return makeFlonumVal(@trunc(a / b));
     }
-    if (!types.isFixnum(args[0]) or !types.isFixnum(args[1])) return PrimitiveError.TypeError;
+    if (!types.isFixnum(args[0])) return primitives.typeError("quotient", "integer", args[0]);
+    if (!types.isFixnum(args[1])) return primitives.typeError("quotient", "integer", args[1]);
     const b = types.toFixnum(args[1]);
     if (b == 0) return raiseDivByZero();
     return makeFixnumChecked(@divTrunc(types.toFixnum(args[0]), b));
@@ -648,7 +649,8 @@ fn remainder(args: []const Value) PrimitiveError!Value {
         if (b == 0) return raiseDivByZero();
         return makeFlonumVal(@rem(a, b));
     }
-    if (!types.isFixnum(args[0]) or !types.isFixnum(args[1])) return PrimitiveError.TypeError;
+    if (!types.isFixnum(args[0])) return primitives.typeError("remainder", "integer", args[0]);
+    if (!types.isFixnum(args[1])) return primitives.typeError("remainder", "integer", args[1]);
     const b = types.toFixnum(args[1]);
     if (b == 0) return raiseDivByZero();
     return types.makeFixnum(@rem(types.toFixnum(args[0]), b));
@@ -677,7 +679,8 @@ fn modulo(args: []const Value) PrimitiveError!Value {
         if (r != 0 and (r < 0) != (b < 0)) r += b;
         return makeFlonumVal(r);
     }
-    if (!types.isFixnum(args[0]) or !types.isFixnum(args[1])) return PrimitiveError.TypeError;
+    if (!types.isFixnum(args[0])) return primitives.typeError("modulo", "integer", args[0]);
+    if (!types.isFixnum(args[1])) return primitives.typeError("modulo", "integer", args[1]);
     const b = types.toFixnum(args[1]);
     if (b == 0) return raiseDivByZero();
     return types.makeFixnum(@mod(types.toFixnum(args[0]), b));
@@ -989,7 +992,7 @@ fn absVal(args: []const Value) PrimitiveError!Value {
     if (types.isFlonum(args[0])) {
         return makeFlonumVal(@abs(types.toFlonum(args[0])));
     }
-    return PrimitiveError.TypeError;
+    return numberTypeError(args[0]);
 }
 
 fn minVal(args: []const Value) PrimitiveError!Value {
@@ -1015,10 +1018,10 @@ fn minVal(args: []const Value) PrimitiveError!Value {
         }
         return result;
     }
-    if (!types.isFixnum(args[0])) return PrimitiveError.TypeError;
+    if (!types.isFixnum(args[0])) return numberTypeError(args[0]);
     var result = types.toFixnum(args[0]);
     for (args[1..]) |a| {
-        if (!types.isFixnum(a)) return PrimitiveError.TypeError;
+        if (!types.isFixnum(a)) return numberTypeError(a);
         const n = types.toFixnum(a);
         if (n < result) result = n;
     }
@@ -1048,10 +1051,10 @@ fn maxVal(args: []const Value) PrimitiveError!Value {
         }
         return result;
     }
-    if (!types.isFixnum(args[0])) return PrimitiveError.TypeError;
+    if (!types.isFixnum(args[0])) return numberTypeError(args[0]);
     var result = types.toFixnum(args[0]);
     for (args[1..]) |a| {
-        if (!types.isFixnum(a)) return PrimitiveError.TypeError;
+        if (!types.isFixnum(a)) return numberTypeError(a);
         const n = types.toFixnum(a);
         if (n > result) result = n;
     }
@@ -1071,7 +1074,7 @@ fn evenP(args: []const Value) PrimitiveError!Value {
             return primitives.typeError("even?", "integer", args[0]);
         return if (@rem(f, 2.0) == 0.0) types.TRUE else types.FALSE;
     }
-    return PrimitiveError.TypeError;
+    return primitives.typeError("even?", "integer", args[0]);
 }
 
 fn oddP(args: []const Value) PrimitiveError!Value {
@@ -1087,7 +1090,7 @@ fn oddP(args: []const Value) PrimitiveError!Value {
             return primitives.typeError("odd?", "integer", args[0]);
         return if (@rem(f, 2.0) != 0.0) types.TRUE else types.FALSE;
     }
-    return PrimitiveError.TypeError;
+    return primitives.typeError("odd?", "integer", args[0]);
 }
 
 fn gcdF64(a_in: f64, b_in: f64) f64 {
@@ -1144,11 +1147,11 @@ fn gcdFn(args: []const Value) PrimitiveError!Value {
         }
         return result;
     }
-    if (!types.isFixnum(args[0])) return PrimitiveError.TypeError;
+    if (!types.isFixnum(args[0])) return primitives.typeError("gcd", "integer", args[0]);
     var result = types.toFixnum(args[0]);
     if (result < 0) result = -result;
     for (args[1..]) |a| {
-        if (!types.isFixnum(a)) return PrimitiveError.TypeError;
+        if (!types.isFixnum(a)) return primitives.typeError("gcd", "integer", a);
         result = gcdTwo(result, types.toFixnum(a));
     }
     return try makeFixnumChecked(result);
@@ -1192,12 +1195,12 @@ fn lcmFn(args: []const Value) PrimitiveError!Value {
         }
         return result;
     }
-    if (!types.isFixnum(args[0])) return PrimitiveError.TypeError;
+    if (!types.isFixnum(args[0])) return primitives.typeError("lcm", "integer", args[0]);
     var result = types.toFixnum(args[0]);
     if (result < 0) result = -result;
     var idx: usize = 1;
     while (idx < args.len) : (idx += 1) {
-        if (!types.isFixnum(args[idx])) return PrimitiveError.TypeError;
+        if (!types.isFixnum(args[idx])) return primitives.typeError("lcm", "integer", args[idx]);
         const b = types.toFixnum(args[idx]);
         const g = gcdTwo(result, b);
         if (g == 0) {

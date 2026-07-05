@@ -75,7 +75,7 @@ fn getOutputPort(args: []const Value, arg_idx: usize, proc: []const u8) Primitiv
     }
     const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError; // bare-ok: no VM
     const port_val = currentOutputPortValue(vm);
-    if (!types.isPort(port_val)) return PrimitiveError.TypeError;
+    if (!types.isPort(port_val)) return primitives.typeError(proc, "port", port_val);
     return types.toObject(port_val).as(types.Port);
 }
 
@@ -90,7 +90,7 @@ fn getInputPort(args: []const Value, arg_idx: usize, proc: []const u8) Primitive
     }
     const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError; // bare-ok: no VM
     const port_val = currentInputPortValue(vm);
-    if (!types.isPort(port_val)) return PrimitiveError.TypeError;
+    if (!types.isPort(port_val)) return primitives.typeError(proc, "port", port_val);
     return types.toObject(port_val).as(types.Port);
 }
 
@@ -246,7 +246,7 @@ fn raiseFileError(gc: *@import("memory.zig").GC, msg_text: []const u8, irritant:
 }
 
 fn openInputFile(args: []const Value) PrimitiveError!Value {
-    if (comptime is_wasm) return PrimitiveError.TypeError;
+    if (comptime is_wasm) return primitives.typeError("open-input-file", "non-WASM platform", args[0]);
     if (!types.isString(args[0])) return primitives.typeError("open-input-file", "string", args[0]);
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const str = types.toObject(args[0]).as(types.SchemeString);
@@ -268,7 +268,7 @@ fn openInputFile(args: []const Value) PrimitiveError!Value {
 }
 
 fn openOutputFile(args: []const Value) PrimitiveError!Value {
-    if (comptime is_wasm) return PrimitiveError.TypeError;
+    if (comptime is_wasm) return primitives.typeError("open-output-file", "non-WASM platform", args[0]);
     if (!types.isString(args[0])) return primitives.typeError("open-output-file", "string", args[0]);
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const str = types.toObject(args[0]).as(types.SchemeString);
@@ -794,7 +794,7 @@ fn flushOutputPort(args: []const Value) PrimitiveError!Value {
 }
 
 fn deleteFile(args: []const Value) PrimitiveError!Value {
-    if (comptime is_wasm) return PrimitiveError.TypeError;
+    if (comptime is_wasm) return primitives.typeError("delete-file", "non-WASM platform", args[0]);
     if (!types.isString(args[0])) return primitives.typeError("delete-file", "string", args[0]);
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const str = types.toObject(args[0]).as(types.SchemeString);
