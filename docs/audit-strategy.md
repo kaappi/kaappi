@@ -141,7 +141,7 @@ and issue numbers, e.g. `[x] ... (2026-07-06, #1101–#1105)`.
 
 **Phase 3 — SRFI conformance**
 - [x] 3.0: Run all 35 existing SRFI test files, capture failures (2026-07-05, no failures — all 35 files pass individually under timeout 30 at 96ce73b: chibi-test files all print 0 fail, SRFI-64 files report 0 unexpected failures (srfi64.scm's 1 "expected failure" is an intentional test-expect-fail), exit-code files all print their OK markers; no hangs, no escaped errors)
-- [ ] 3.1: Built-in SRFIs without adequate tests (9, 39, 170)
+- [x] 3.1: Built-in SRFIs without adequate tests (9, 39, 170) (2026-07-05, #1202–#1203 + #560 reopened; 68 tests + 6 disabled — parameterize installs bindings sequentially (SRFI-39 "1010" example fails), record redefinition retargets old ctors/predicates via call-time __record_type_ lookup, define-record-type still broken in lambda/let bodies (begin was fixed); constructors map fields by name, converters, disjointness, escape-restore all conform; 170 covered by 2.5)
 - [ ] 3a: SRFIs 0, 6, 17, 23, 26 (syntax extensions)
 - [ ] 3b: SRFIs 37, 38, 43, 116, 117, 134 (records, arrays, immutable data)
 - [ ] 3c: SRFIs 41, 42, 45, 143, 144 (lazy evaluation, math)
