@@ -25,7 +25,7 @@ pub fn compileFromNode(self: *Compiler, node: *ir_mod.Node, dst: u16, is_tail: b
     switch (node.tag) {
         .constant => try self.emitLoadValue(dst, node.data.constant),
         .global_ref => try self.compileVariable(node.data.global_ref, dst),
-        .call => try compileCallFromIR(self, node.data.call, dst, tail, node.ann.is_primitive_call),
+        .call => try compileCallFromIR(self, node.data.call, dst, tail),
         .@"if" => try compileIfFromIR(self, node.data.@"if", dst, tail),
         .begin => try compileBeginFromIR(self, node.data.begin, dst, tail),
         .and_form => try compileAndFromIR(self, node.data.and_form, dst, tail),
@@ -97,8 +97,7 @@ fn compileBeginFromIR(self: *Compiler, exprs: []const *ir_mod.Node, dst: u16, is
     }
 }
 
-fn compileCallFromIR(self: *Compiler, call: ir_mod.CallData, dst: u16, is_tail: bool, is_primitive: bool) CompileError!void {
-    _ = is_primitive;
+fn compileCallFromIR(self: *Compiler, call: ir_mod.CallData, dst: u16, is_tail: bool) CompileError!void {
     if (call.args.len > 255) return CompileError.InternalLimit;
     const nargs: u8 = @intCast(call.args.len);
 

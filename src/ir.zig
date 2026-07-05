@@ -47,9 +47,6 @@ pub const NodeTag = enum {
 
 pub const Annotations = struct {
     is_tail: bool = false,
-    is_primitive_call: bool = false,
-    primitive_name: ?[]const u8 = null,
-    is_constant: bool = false,
     source_line: u32 = 0,
 };
 
@@ -493,8 +490,6 @@ pub fn lowerAndOptimize(
 ) CompileError!*Node {
     var node = try lowerWithMacros(ir_instance, expr, macros);
     markTailPositions(node, is_tail);
-    identifyPrimitives(node);
-    markConstants(node);
     node = foldConstants(ir_instance, node);
     node = eliminateDeadBranches(ir_instance, node);
     node = simplifyBooleans(ir_instance, node);
@@ -799,148 +794,6 @@ const primitives = [_][]const u8{
     "raise",          "raise-continuable", "error",        "for-each",                      "string-for-each",  "vector-for-each", "vector-map",
     "string-map",     "assoc",             "assq",         "assv",                          "member",           "memq",            "memv",
 };
-
-pub fn identifyPrimitives(node: *Node) void {
-    switch (node.tag) {
-        .call => {
-            if (node.data.call.operator.tag == .global_ref) {
-                const sym = node.data.call.operator.data.global_ref;
-                if (types.isSymbol(sym)) {
-                    const name = types.symbolName(sym);
-                    for (primitives) |p| {
-                        if (std.mem.eql(u8, name, p)) {
-                            node.ann.is_primitive_call = true;
-                            node.ann.primitive_name = name;
-                            break;
-                        }
-                    }
-                }
-            }
-            identifyPrimitives(node.data.call.operator);
-            for (node.data.call.args) |arg| identifyPrimitives(arg);
-        },
-        .@"if" => {
-            identifyPrimitives(node.data.@"if".test_expr);
-            identifyPrimitives(node.data.@"if".consequent);
-            if (node.data.@"if".alternate) |alt| identifyPrimitives(alt);
-        },
-        .begin => {
-            for (node.data.begin) |expr| identifyPrimitives(expr);
-        },
-        .and_form => {
-            for (node.data.and_form) |expr| identifyPrimitives(expr);
-        },
-        .or_form => {
-            for (node.data.or_form) |expr| identifyPrimitives(expr);
-        },
-        .when_form => {
-            identifyPrimitives(node.data.when_form.test_expr);
-            for (node.data.when_form.body) |expr| identifyPrimitives(expr);
-        },
-        .unless_form => {
-            identifyPrimitives(node.data.unless_form.test_expr);
-            for (node.data.unless_form.body) |expr| identifyPrimitives(expr);
-        },
-        .constant, .global_ref, .passthrough => {},
-        .define,
-        .set_form,
-        .lambda,
-        .let_form,
-        .let_star,
-        .letrec,
-        .letrec_star,
-        .do_form,
-        .delay,
-        .delay_force,
-        .cond,
-        .case_form,
-        .case_lambda,
-        .guard,
-        .quasiquote,
-        .parameterize,
-        .define_values,
-        .let_values,
-        .let_star_values,
-        .define_syntax,
-        .named_let,
-        .let_syntax,
-        .letrec_syntax,
-        .cond_expand,
-        => {},
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Semantic analysis: constant expression detection
-// ---------------------------------------------------------------------------
-
-pub fn markConstants(node: *Node) void {
-    switch (node.tag) {
-        .constant => node.ann.is_constant = true,
-        .@"if" => {
-            markConstants(node.data.@"if".test_expr);
-            markConstants(node.data.@"if".consequent);
-            if (node.data.@"if".alternate) |alt| markConstants(alt);
-        },
-        .begin => {
-            for (node.data.begin) |expr| markConstants(expr);
-            if (node.data.begin.len > 0) {
-                node.ann.is_constant = node.data.begin[node.data.begin.len - 1].ann.is_constant;
-            }
-        },
-        .call => {
-            markConstants(node.data.call.operator);
-            var all_const = node.data.call.operator.tag == .global_ref;
-            for (node.data.call.args) |arg| {
-                markConstants(arg);
-                if (!arg.ann.is_constant) all_const = false;
-            }
-            if (all_const and node.ann.is_primitive_call) {
-                node.ann.is_constant = true;
-            }
-        },
-        .and_form => {
-            for (node.data.and_form) |expr| markConstants(expr);
-        },
-        .or_form => {
-            for (node.data.or_form) |expr| markConstants(expr);
-        },
-        .when_form => {
-            markConstants(node.data.when_form.test_expr);
-            for (node.data.when_form.body) |expr| markConstants(expr);
-        },
-        .unless_form => {
-            markConstants(node.data.unless_form.test_expr);
-            for (node.data.unless_form.body) |expr| markConstants(expr);
-        },
-        .global_ref, .passthrough => {},
-        .define,
-        .set_form,
-        .lambda,
-        .let_form,
-        .let_star,
-        .letrec,
-        .letrec_star,
-        .do_form,
-        .delay,
-        .delay_force,
-        .cond,
-        .case_form,
-        .case_lambda,
-        .guard,
-        .quasiquote,
-        .parameterize,
-        .define_values,
-        .let_values,
-        .let_star_values,
-        .define_syntax,
-        .named_let,
-        .let_syntax,
-        .letrec_syntax,
-        .cond_expand,
-        => {},
-    }
-}
 
 // ---------------------------------------------------------------------------
 // Optimization: constant folding on the IR

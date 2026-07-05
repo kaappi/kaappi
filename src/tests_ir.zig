@@ -275,39 +275,6 @@ test "IR analysis: tail position in and/or" {
     try std.testing.expect(root.data.and_form[2].ann.is_tail);
 }
 
-test "IR analysis: primitive identification on Call node" {
-    var gc = memory.GC.init(std.testing.allocator);
-    defer gc.deinit();
-    var ir = ir_mod.IR.init(std.testing.allocator);
-    defer ir.deinit();
-
-    const plus_sym = try gc.allocSymbol("+");
-    const op = try ir.makeGlobalRef(plus_sym);
-    const arg1 = try ir.makeConst(types.makeFixnum(1));
-    const arg2 = try ir.makeConst(types.makeFixnum(2));
-    const call = try ir.makeCall(op, &.{ arg1, arg2 });
-
-    ir_mod.identifyPrimitives(call);
-    try std.testing.expect(call.ann.is_primitive_call);
-    try std.testing.expect(std.mem.eql(u8, call.ann.primitive_name.?, "+"));
-}
-
-test "IR analysis: non-primitive not marked" {
-    var gc = memory.GC.init(std.testing.allocator);
-    defer gc.deinit();
-    var ir = ir_mod.IR.init(std.testing.allocator);
-    defer ir.deinit();
-
-    const my_fn = try gc.allocSymbol("my-function");
-    const op = try ir.makeGlobalRef(my_fn);
-    const arg = try ir.makeConst(types.makeFixnum(1));
-    const call = try ir.makeCall(op, &.{arg});
-
-    ir_mod.identifyPrimitives(call);
-    try std.testing.expect(!call.ann.is_primitive_call);
-    try std.testing.expect(call.ann.primitive_name == null);
-}
-
 test "IR optimization: constant folding on Call" {
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
@@ -461,42 +428,6 @@ test "IR optimization: dead branch elimination — non-constant test unchanged" 
 
     const result = ir_mod.eliminateDeadBranches(&ir, if_node);
     try std.testing.expect(result.tag == .@"if");
-}
-
-test "IR analysis: constant detection — literal is constant" {
-    var gc = memory.GC.init(std.testing.allocator);
-    defer gc.deinit();
-    var ir = ir_mod.IR.init(std.testing.allocator);
-    defer ir.deinit();
-    const node = try ir.makeConst(types.makeFixnum(42));
-    ir_mod.markConstants(node);
-    try std.testing.expect(node.ann.is_constant);
-}
-
-test "IR analysis: constant detection — primitive call with const args" {
-    var gc = memory.GC.init(std.testing.allocator);
-    defer gc.deinit();
-    var ir = ir_mod.IR.init(std.testing.allocator);
-    defer ir.deinit();
-    const plus_sym = try gc.allocSymbol("+");
-    const op = try ir.makeGlobalRef(plus_sym);
-    const a = try ir.makeConst(types.makeFixnum(1));
-    const b = try ir.makeConst(types.makeFixnum(2));
-    const call = try ir.makeCall(op, &.{ a, b });
-    ir_mod.identifyPrimitives(call);
-    ir_mod.markConstants(call);
-    try std.testing.expect(call.ann.is_constant);
-}
-
-test "IR analysis: constant detection — variable ref is not constant" {
-    var gc = memory.GC.init(std.testing.allocator);
-    defer gc.deinit();
-    var ir = ir_mod.IR.init(std.testing.allocator);
-    defer ir.deinit();
-    const x_sym = try gc.allocSymbol("x");
-    const node = try ir.makeGlobalRef(x_sym);
-    ir_mod.markConstants(node);
-    try std.testing.expect(!node.ann.is_constant);
 }
 
 test "IR optimization: boolean simplification — not not preserved for correctness" {
