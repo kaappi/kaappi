@@ -212,7 +212,7 @@ Exceptions: auto-generated data files (`unicode_tables.zig`) are exempt.
 | `native_compiler.zig` | LLVM IR emission, native binary compilation, C compiler discovery, linker invocation |
 | `thottam.zig` | Package manager binary (thottam): install, remove, list, update, verify |
 | `llvm_emit.zig` | LLVM IR text emitter (walks IR nodes, produces `.ll` files) |
-| `runtime_exports.zig` | C-ABI bridge for LLVM native backend (8 exported functions) |
+| `runtime_exports.zig` | C-ABI bridge for LLVM native backend (21 exported functions) |
 | `testing_helpers.zig` | Shared `makeTestVM` helper for unit tests |
 | `tests_ir.zig` | IR tests: bytecode parity, behavioral correctness, analysis, optimizations |
 | `tests_*.zig` | Unit tests by feature (core_eval, tail_calls, macros, io, etc.) |

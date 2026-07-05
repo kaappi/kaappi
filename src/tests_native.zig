@@ -4,6 +4,7 @@ const memory = @import("memory.zig");
 const ir_mod = @import("ir.zig");
 const llvm_emit = @import("llvm_emit.zig");
 const reader_mod = @import("reader.zig");
+const native_decls = @import("native_decls.zig");
 
 // The LLVMEmitter stores lambda function defs via toOwnedSlice that aren't
 // individually freed on deinit (by design — production uses an arena).
@@ -322,4 +323,22 @@ test "LLVM emit: inline equal" {
     var res = try emitSourceResult("(= a b)");
     defer res.deinit();
     try expectContains(res.toSlice(), "@kaappi_fixnum_eq");
+}
+
+// -- Declare table drift test --
+// The comptime block in native_decls.zig validates that the table matches
+// the actual Zig signatures in runtime_exports.zig. This test verifies
+// the emitted preamble contains every declare from the table.
+
+test "native declare table covers all runtime exports in preamble" {
+    var res = try emitSourceResult("42");
+    defer res.deinit();
+    const ll = res.toSlice();
+    for (native_decls.decls) |d| {
+        if (std.mem.indexOf(u8, ll, d.export_name) == null) {
+            std.debug.print("\nmissing declare for {s}\n", .{d.export_name});
+            return error.TestExpectedEqual;
+        }
+    }
+    try std.testing.expectEqual(@as(usize, 21), native_decls.decls.len);
 }
