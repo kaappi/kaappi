@@ -165,6 +165,8 @@ const core_specs = [_]PrimSpec{
     .{ .name = "apply", .func = &applyFn, .arity = .{ .variadic = 2 }, .libs = BR },
 };
 
+const no_specs = [0]PrimSpec{};
+
 pub const all_specs = core_specs ++
     @import("primitives_list.zig").specs ++
     primitives_arithmetic.specs ++
@@ -179,13 +181,13 @@ pub const all_specs = core_specs ++
     primitives_bytevector.specs ++
     primitives_lazy.specs ++
     primitives_r7rs.specs ++
-    primitives_ffi.specs ++
+    (if (is_wasm) no_specs else primitives_ffi.specs) ++
     primitives_srfi1.specs ++
     primitives_hashtable.specs ++
     primitives_random.specs ++
-    primitives_filesystem.specs ++
+    (if (is_wasm) no_specs else primitives_filesystem.specs) ++
     @import("primitives_fiber.zig").specs ++
-    @import("primitives_srfi18.zig").specs;
+    (if (is_wasm) no_specs else @import("primitives_srfi18.zig").specs);
 
 comptime {
     @setEvalBranchQuota(all_specs.len * all_specs.len * 30);
