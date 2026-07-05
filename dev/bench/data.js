@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783224241010,
+  "lastUpdate": 1783225246536,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "f8278f87d7b615b6fa93643f30165ce5110746f2",
-          "message": "Make current-input/output/error-port parameter objects (#811) (#979)\n\nR7RS 6.13.1 requires these to be parameter objects so parameterize\ncan redirect I/O. They were plain native procedures, causing an\narity error on (parameterize ((current-output-port sp)) ...).\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-03T15:07:09Z",
-          "tree_id": "43ece44619c44a48df9ed79146937e645901006e",
-          "url": "https://github.com/kaappi/kaappi/commit/f8278f87d7b615b6fa93643f30165ce5110746f2"
-        },
-        "date": 1783092135368,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.367426,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.306662,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.836833,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.655807,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006435,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.032834,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.474559,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.070498,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 4.032065,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.82363,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.183313,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.431704,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.805781,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.727365,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.043759,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.046331,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c8cd856c3b22d099f94fb6eaefd285bdd4ab0c6e",
+          "message": "Replace registration/export bookkeeping with comptime spec tables (#1053) (#1133)\n\n* Replace registration/export bookkeeping with comptime spec tables (#1053)\n\nEach primitive is now declared once as a PrimSpec with name, function\npointer, arity, library membership (LibSet), and sandbox/WASM flags.\nBoth registerAll and registerStandardLibraries consume the same\nall_specs array, eliminating the 3-way bookkeeping between reg() calls,\nname arrays, and sandbox variant functions.\n\n- Add Lib enum (24 libraries), LibSet, PrimSpec types to primitives.zig\n- Convert all 21 primitives files to pub const specs arrays\n- Derive registerAll/registerSandboxed from all_specs iteration\n- Derive registerStandardLibraries/registerSandboxedLibraries from specs\n- Delete 25 hand-maintained name arrays from library.zig (~400 lines)\n- Delete registerIOSandboxed, registerR7RSSandboxed variants\n- Add comptime collision and orphan-spec checks\n- Update drift test to iterate all_specs\n\nNet: -787 lines. All 1702 tests pass (307 Scheme + 1395 R7RS).\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Gate WASM-unavailable module specs behind is_wasm\n\nThe WASM build (single-threaded, no dlopen) fails when the compiler\nresolves function pointers in srfi18/filesystem/ffi specs. Gate these\nmodules with `if (is_wasm) no_specs` so the compiler never sees their\nfunction bodies on wasm32-wasi.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-05T09:27:03+05:30",
+          "tree_id": "3ade7ec34c0076aaffa0482c06d7d3dde434909e",
+          "url": "https://github.com/kaappi/kaappi/commit/c8cd856c3b22d099f94fb6eaefd285bdd4ab0c6e"
+        },
+        "date": 1783225245793,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.295489,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.795561,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.909097,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.918995,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.012592,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.21144,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.474011,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.069803,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 12.369555,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.844032,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 9.957627,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.978337,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 8.290325,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.701322,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.043618,
             "unit": "seconds"
           }
         ]
