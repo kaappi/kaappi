@@ -61,11 +61,51 @@
 
 ;; "eval must evaluate its first argument as if it were in tail position
 ;; within the eval procedure."
-(import (scheme eval) (scheme repl))
 (define (loop-eval n)
   (if (= n 0) 'done
       (eval (list 'loop-eval (- n 1)) (interaction-environment))))
 (test-equal "eval tail evaluation" 'done (loop-eval N))
+
+;; --- call/cc continuation value in rebase context ---
+(define k-rebase #f)
+(define log-rebase '())
+(define (cc-rebase)
+  (let ((pad 'stale))
+    (call/cc (lambda (c) (set! k-rebase c) 'first))))
+(set! log-rebase (cons (cc-rebase) log-rebase))
+(if (< (length log-rebase) 3) (k-rebase 'again))
+(test-equal "call/cc rebase continuation value" '(first again) (reverse log-rebase))
+
+;; --- call/cc without enclosing let (no rebase) ---
+(define k-norb #f)
+(define log-norb '())
+(define (cc-norb)
+  (call/cc (lambda (c) (set! k-norb c) 'first)))
+(set! log-norb (cons (cc-norb) log-norb))
+(if (< (length log-norb) 3) (k-norb 'again))
+(test-equal "call/cc no-rebase continuation value" '(first again) (reverse log-norb))
+
+;; --- hygiene: shadowed list/apply must not break let*-values or cwv ---
+(define (shadow-list list)
+  (let*-values (((a b) (values 1 2))) (+ a b)))
+(test-equal "let*-values with shadowed list" 3 (shadow-list 99))
+
+(define (shadow-apply apply)
+  (let*-values (((a) (values 5))) a))
+(test-equal "let*-values with shadowed apply" 5 (shadow-apply 99))
+
+(define (shadow-cwv list)
+  (call-with-values (lambda () (values 1 2)) +))
+(test-equal "tail cwv with shadowed list" 3 (shadow-cwv 99))
+
+;; --- promise.forcing cleared on SRFI-45 chain collapse ---
+(define (chain-test n)
+  (let loop ((i 0) (p (delay 'done)))
+    (if (= i n) p
+        (loop (+ i 1) (delay-force p)))))
+(test-equal "delay-force chain forcing flag" 'done (force (chain-test 100)))
+
+;; Remove duplicate import (already imported at line 12)
 
 (let ((runner (test-runner-current)))
   (test-end "r7rs-tail-procedures-gaps")

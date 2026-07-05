@@ -1126,7 +1126,7 @@ pub const OpCode = enum(u8) {
     get_box_local, // dst:u8, reg:u8 — read car of boxed register
     set_box_local, // reg:u8, src:u8 — set car of boxed register
     self_tail_call, // base:u8, nargs:u8
-    tail_call_cc, // base:u8 (receiver at base+0; captures continuation, tail-calls receiver with it)
+    tail_call_cc, // base:u16, dst:u16 (receiver at base+0; captures continuation at dst, tail-calls receiver)
     tail_eval, // base:u8, nargs:u8 (expr at base+0, optional env at base+1; compiles and tail-calls)
 };
 

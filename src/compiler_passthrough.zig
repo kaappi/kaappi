@@ -295,9 +295,10 @@ pub fn compileApplyTail(self: *Compiler, expr: Value, dst: u16) CompileError!voi
 }
 
 pub fn compileCallWithValuesTail(self: *Compiler, expr: Value, dst: u16) CompileError!void {
-    // (call-with-values producer consumer) in tail position
-    // → (apply consumer (call-with-values producer list))
-    // The apply compiles to tail_apply, making the consumer a proper tail call.
+    // (call-with-values producer consumer) in tail position.
+    // Emits bytecode directly: call_global("call-with-values", producer, list) → values,
+    // then tail_apply(consumer, values). Uses get_global/call_global to avoid
+    // resolving `list`/`call-with-values` in the user's lexical scope.
     const args = types.cdr(expr);
     if (args == types.NIL or !types.isPair(args)) return CompileError.InvalidSyntax;
     const producer = types.car(args);
@@ -307,23 +308,42 @@ pub fn compileCallWithValuesTail(self: *Compiler, expr: Value, dst: u16) Compile
     if (types.cdr(rest) != types.NIL) return CompileError.InvalidSyntax;
 
     const gc = self.gc;
-    var apply_expr: Value = blk: {
-        gc.no_collect += 1;
-        defer gc.no_collect -= 1;
-        const cwv_sym = gc.allocSymbol("call-with-values") catch return CompileError.OutOfMemory;
-        const list_sym = gc.allocSymbol("list") catch return CompileError.OutOfMemory;
-        const apply_sym = gc.allocSymbol("apply") catch return CompileError.OutOfMemory;
-        const cwv_call = gc.allocPair(cwv_sym, gc.allocPair(producer, gc.allocPair(list_sym, types.NIL) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory;
-        break :blk gc.allocPair(apply_sym, gc.allocPair(consumer, gc.allocPair(cwv_call, types.NIL) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory;
-    };
-    gc.pushRoot(&apply_expr);
-    defer gc.popRoot();
-    return compileApplyTail(self, apply_expr, dst);
+    const needs_rebase = (dst + 1 != self.next_register);
+    const base = if (needs_rebase) try self.allocReg() else dst;
+
+    try self.compileExprViaIR(consumer, base, false);
+
+    const cwv_base = try self.allocReg();
+    const producer_reg = try self.allocReg();
+    const list_reg = try self.allocReg();
+
+    try self.compileExprViaIR(producer, producer_reg, false);
+
+    const list_sym = gc.allocSymbol("list") catch return CompileError.OutOfMemory;
+    const list_idx = try self.addConstant(list_sym);
+    try self.emitOp(.get_global);
+    try self.emitU16(list_reg);
+    try self.emitU16(list_idx);
+
+    const cwv_sym = gc.allocSymbol("call-with-values") catch return CompileError.OutOfMemory;
+    const cwv_idx = try self.addConstant(cwv_sym);
+    try self.emitOp(.call_global);
+    try self.emitU16(cwv_base);
+    try self.emitU16(cwv_idx);
+    try self.emit(2);
+
+    self.freeReg(); // list_reg
+    self.freeReg(); // producer_reg
+
+    try self.emitOp(.tail_apply);
+    try self.emitU16(base);
+    try self.emit(1);
+
+    self.freeReg(); // cwv_base
+    if (needs_rebase) self.freeReg();
 }
 
 pub fn compileCallCCTail(self: *Compiler, expr: Value, dst: u16) CompileError!void {
-    // (call/cc receiver) or (call-with-current-continuation receiver) in tail position
-    // Emits tail_call_cc opcode: captures continuation + tail-calls receiver.
     const args = types.cdr(expr);
     if (args == types.NIL or !types.isPair(args)) return CompileError.InvalidSyntax;
     const receiver = types.car(args);
@@ -335,6 +355,7 @@ pub fn compileCallCCTail(self: *Compiler, expr: Value, dst: u16) CompileError!vo
 
     try self.emitOp(.tail_call_cc);
     try self.emitU16(base);
+    try self.emitU16(dst);
 
     if (needs_rebase) {
         self.freeReg();

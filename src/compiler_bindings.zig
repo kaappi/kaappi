@@ -652,25 +652,23 @@ pub fn compileLetStarValues(self: *Compiler, args: Value, dst: u16, is_tail: boo
     return self.compileDesugared(desugared, dst, is_tail);
 }
 
-/// Build nested apply-over-call-with-values for sequential let*-values.
+/// Build nested call-with-values for sequential let*-values.
 /// (let*-values (((a b) e1) ((c) e2)) body)
 /// =>
-/// (apply (lambda (a b)
-///          (apply (lambda (c) (begin body))
-///                 (call-with-values (lambda () e2) list)))
-///        (call-with-values (lambda () e1) list))
+/// (call-with-values (lambda () e1)
+///   (lambda (a b)
+///     (call-with-values (lambda () e2) (lambda (c) (begin body)))))
 ///
-/// The call-with-values calls are in argument (non-tail) position, and the
-/// apply calls form the tail chain — compiling to tail_apply opcodes that
-/// reuse frames in-place, satisfying R7RS §3.5 tail-context requirements.
+/// Each call-with-values is the body of its enclosing consumer lambda, so
+/// it is always in tail position. The compiler's compileCallWithValuesTail
+/// handles the tail case by emitting call_global + tail_apply bytecode
+/// directly, avoiding native re-entrancy and hygiene issues.
 pub fn buildLetValues(self: *Compiler, bindings: Value, body: Value) !Value {
     const gc = self.gc;
     gc.no_collect += 1;
     defer gc.no_collect -= 1;
     const lambda_sym = try gc.allocSymbol("lambda");
     const cwv_sym = try gc.allocSymbol("call-with-values");
-    const apply_sym = try gc.allocSymbol("apply");
-    const list_sym = try gc.allocSymbol("list");
 
     if (bindings == types.NIL) {
         const begin_sym = try gc.allocSymbol("begin");
@@ -689,17 +687,14 @@ pub fn buildLetValues(self: *Compiler, bindings: Value, body: Value) !Value {
 
     const inner = try buildLetValues(self, rest_bindings, body);
 
-    // (lambda () expr) — the producer
+    // (lambda () expr)
     const producer_body = try gc.allocPair(expr, types.NIL);
     const producer_lambda = try gc.allocPair(lambda_sym, try gc.allocPair(types.NIL, producer_body));
 
-    // (lambda (formals) inner) — the consumer
+    // (lambda (formals) inner)
     const consumer_body = try gc.allocPair(inner, types.NIL);
     const consumer_lambda = try gc.allocPair(lambda_sym, try gc.allocPair(formals, consumer_body));
 
-    // (call-with-values producer list) — collect results as a list
-    const cwv_call = try gc.allocPair(cwv_sym, try gc.allocPair(producer_lambda, try gc.allocPair(list_sym, types.NIL)));
-
-    // (apply consumer cwv-call) — tail-callable via tail_apply opcode
-    return try gc.allocPair(apply_sym, try gc.allocPair(consumer_lambda, try gc.allocPair(cwv_call, types.NIL)));
+    // (call-with-values producer consumer)
+    return try gc.allocPair(cwv_sym, try gc.allocPair(producer_lambda, try gc.allocPair(consumer_lambda, types.NIL)));
 }

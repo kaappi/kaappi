@@ -523,8 +523,8 @@ fn validateFunctionBytecode(func: *Function) BytecodeError!void {
                 ip += 3;
             },
             .tail_call_cc => {
-                if (ip + 2 > code.len) return BytecodeError.CorruptedFile;
-                ip += 2;
+                if (ip + 4 > code.len) return BytecodeError.CorruptedFile;
+                ip += 4;
             },
             .get_global => {
                 if (ip + 4 > code.len) return BytecodeError.CorruptedFile;

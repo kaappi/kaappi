@@ -136,7 +136,7 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
             .box_local => 2,
             .get_box_local, .set_box_local => 4,
             .self_tail_call => 3,
-            .tail_call_cc => 2,
+            .tail_call_cc => 4,
             .tail_eval => 3,
         };
         try ensureOperands(self, frame, fixed_operand_bytes);
@@ -1105,12 +1105,13 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
             },
             .tail_call_cc => {
                 const base_reg = readU16(self, frame);
+                const dst_reg = readU16(self, frame);
                 const abs_base_wide = @as(usize, frame.base) + @as(usize, base_reg);
                 try ensureCallWindow(self, abs_base_wide, 1);
                 const abs_base: u32 = try toBase(abs_base_wide);
                 const receiver = self.registers[abs_base];
 
-                var cont_val = try vm_continuations.captureContinuation(self, @intCast(base_reg), frame.base);
+                var cont_val = try vm_continuations.captureContinuation(self, dst_reg, frame.base);
                 self.gc.pushRoot(&cont_val);
                 defer self.gc.popRoot();
 

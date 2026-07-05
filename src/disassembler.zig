@@ -89,7 +89,7 @@ fn disassembleInstruction(func: *types.Function, code: []const u8, offset: usize
         .box_local => 2,
         .get_box_local, .set_box_local => 4,
         .self_tail_call => 3,
-        .tail_call_cc => 2,
+        .tail_call_cc => 4,
         .tail_eval => 3,
     };
     if (ip + fixed_operand_bytes > code.len) {
@@ -318,7 +318,8 @@ fn disassembleInstruction(func: *types.Function, code: []const u8, offset: usize
         },
         .tail_call_cc => {
             const base = readU16(code, &ip);
-            const s = std.fmt.bufPrint(&buf, "tail_call_cc    r{d}\n", .{base}) catch "tail_call_cc\n";
+            const result_dst = readU16(code, &ip);
+            const s = std.fmt.bufPrint(&buf, "tail_call_cc    r{d}, r{d}\n", .{ base, result_dst }) catch "tail_call_cc\n";
             writeStderr(s);
         },
         .tail_eval => {
