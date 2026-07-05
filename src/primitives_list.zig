@@ -108,7 +108,7 @@ fn listCopyFn(args: []const Value) PrimitiveError!Value {
     }
     // Build the copy from the end
     var result: Value = current; // NIL for proper, last cdr for improper
-    gc.pushRoot(&result) catch return PrimitiveError.OutOfMemory;
+    gc.pushRoot(&result);
     defer gc.popRoot();
     var i = elems.items.len;
     while (i > 0) {
@@ -125,7 +125,7 @@ fn makeListFn(args: []const Value) PrimitiveError!Value {
     if (k < 0) return primitives.typeError("make-list", "non-negative integer", args[0]);
     const fill: Value = if (args.len > 1) args[1] else types.UNDEFINED;
     var result: Value = types.NIL;
-    gc.pushRoot(&result) catch return PrimitiveError.OutOfMemory;
+    gc.pushRoot(&result);
     defer gc.popRoot();
     var i: i64 = 0;
     while (i < k) : (i += 1) {
@@ -356,10 +356,10 @@ fn mapFn(args: []const Value) PrimitiveError!Value {
 
     // Build result list incrementally (rooted head + tail)
     var result_head: Value = types.NIL;
-    gc.pushRoot(&result_head) catch return PrimitiveError.OutOfMemory;
+    gc.pushRoot(&result_head);
     defer gc.popRoot();
     var result_tail: Value = types.NIL;
-    gc.pushRoot(&result_tail) catch return PrimitiveError.OutOfMemory;
+    gc.pushRoot(&result_tail);
     defer gc.popRoot();
 
     // Current pointers for each list
@@ -394,7 +394,7 @@ fn mapFn(args: []const Value) PrimitiveError!Value {
 
         // Root result: callWithArgs pops its frame, so the return value has
         // no GC root until it is consed into the result list.
-        gc.pushRoot(&result) catch return PrimitiveError.OutOfMemory;
+        gc.pushRoot(&result);
         const new_pair = gc.allocPair(result, types.NIL) catch {
             gc.popRoot();
             return PrimitiveError.OutOfMemory;

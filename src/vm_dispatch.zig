@@ -62,7 +62,7 @@ fn maybeRewindRetry(self: *VM, instr_len: usize) void {
 noinline fn raiseDeadNativeReturn(self: *VM) VMError {
     var msg = self.gc.allocString("continuation cannot resume across a returned native call") catch
         return VMError.OutOfMemory;
-    self.gc.pushRoot(&msg) catch return VMError.OutOfMemory;
+    self.gc.pushRoot(&msg);
     const err_obj = self.gc.allocErrorObject(msg, types.NIL) catch {
         self.gc.popRoot();
         return VMError.OutOfMemory;
@@ -771,7 +771,7 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                 const src = readU16(self, frame);
                 const src_idx = try registerIndex(self, frame.base, src);
                 var result = self.registers[src_idx];
-                self.gc.pushRoot(&result) catch return VMError.OutOfMemory;
+                self.gc.pushRoot(&result);
                 defer self.gc.popRoot();
                 const return_dst = frame.dst;
                 const from_native_call = frame.returns_to_native;
@@ -817,7 +817,7 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                 const func = types.toObject(func_val).as(types.Function);
 
                 var cls_val = self.gc.allocClosure(func) catch return VMError.OutOfMemory;
-                self.gc.pushRoot(&cls_val) catch return VMError.OutOfMemory;
+                self.gc.pushRoot(&cls_val);
                 var cls = types.toObject(cls_val).as(types.Closure);
 
                 for (cls.upvalues, 0..) |_, i| {
@@ -1272,7 +1272,7 @@ inline fn lookupGlobalLocked(self: *VM, env: *std.StringHashMap(Value), name: []
 
 pub fn buildRestList(gc: *memory.GC, args: []const Value) VMError!Value {
     var rest_list: Value = types.NIL;
-    gc.pushRoot(&rest_list) catch return VMError.OutOfMemory;
+    gc.pushRoot(&rest_list);
     var i: usize = args.len;
     while (i > 0) {
         i -= 1;

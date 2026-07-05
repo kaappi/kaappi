@@ -129,7 +129,7 @@ fn isTruthyResult(v: Value) bool {
 
 fn buildList(gc: *memory.GC, items: []const Value, tail: Value) PrimitiveError!Value {
     var result = tail;
-    gc.pushRoot(&result) catch return PrimitiveError.OutOfMemory;
+    gc.pushRoot(&result);
     defer gc.popRoot();
     var i = items.len;
     while (i > 0) {
@@ -183,7 +183,7 @@ fn foldFn(args: []const Value) PrimitiveError!Value {
     var acc = args[1];
     if (args.len < 3) return PrimitiveError.ArityMismatch;
 
-    gc.pushRoot(&acc) catch return PrimitiveError.OutOfMemory;
+    gc.pushRoot(&acc);
     defer gc.popRoot();
 
     var iter = MultiListIter.init(args[2..], false);
@@ -231,7 +231,7 @@ fn foldRightFn(args: []const Value) PrimitiveError!Value {
 
     // Fold from right to left
     var acc = init;
-    gc.pushRoot(&acc) catch return PrimitiveError.OutOfMemory;
+    gc.pushRoot(&acc);
     defer gc.popRoot();
     var call_args_buf: [257]Value = undefined;
     var idx = min_len;
@@ -257,7 +257,7 @@ fn reduceFn(args: []const Value) PrimitiveError!Value {
     if (!types.isPair(lst)) return primitives.typeError("reduce", "pair", lst);
 
     var acc = types.car(lst);
-    gc.pushRoot(&acc) catch return PrimitiveError.OutOfMemory;
+    gc.pushRoot(&acc);
     defer gc.popRoot();
     lst = types.cdr(lst);
 
@@ -292,7 +292,7 @@ fn reduceRightFn(args: []const Value) PrimitiveError!Value {
     if (elems.items.len == 0) return ridentity;
 
     var acc = elems.items[elems.items.len - 1];
-    gc.pushRoot(&acc) catch return PrimitiveError.OutOfMemory;
+    gc.pushRoot(&acc);
     defer gc.popRoot();
     var idx = elems.items.len - 1;
     while (idx > 0) {
@@ -378,7 +378,7 @@ fn partitionFn(args: []const Value) PrimitiveError!Value {
     }
 
     var yes_list = try buildList(gc, yes.items, types.NIL);
-    gc.pushRoot(&yes_list) catch return PrimitiveError.OutOfMemory;
+    gc.pushRoot(&yes_list);
     defer gc.popRoot();
     const no_list = try buildList(gc, no.items, types.NIL);
     const vals = [2]Value{ yes_list, no_list };
@@ -490,14 +490,14 @@ fn iotaFn(args: []const Value) PrimitiveError!Value {
         if (args.len > 2) step = primitives.toF64(args[2]) catch return primitives.typeError("iota", "number", args[2]);
 
         var result: Value = types.NIL;
-        gc.pushRoot(&result) catch return PrimitiveError.OutOfMemory;
+        gc.pushRoot(&result);
         defer gc.popRoot();
         var i = cnt;
         while (i > 0) {
             i -= 1;
             const v = start + @as(f64, @floatFromInt(i)) * step;
             var fval = types.makeFlonum(v);
-            gc.pushRoot(&fval) catch return PrimitiveError.OutOfMemory;
+            gc.pushRoot(&fval);
             result = gc.allocPair(fval, result) catch {
                 gc.popRoot();
                 return PrimitiveError.OutOfMemory;
@@ -518,7 +518,7 @@ fn iotaFn(args: []const Value) PrimitiveError!Value {
         }
 
         var result: Value = types.NIL;
-        gc.pushRoot(&result) catch return PrimitiveError.OutOfMemory;
+        gc.pushRoot(&result);
         defer gc.popRoot();
         var i = cnt;
         while (i > 0) {
@@ -570,7 +570,7 @@ fn concatenateFn(args: []const Value) PrimitiveError!Value {
     if (sublists.items.len == 0) return types.NIL;
 
     var result = sublists.items[sublists.items.len - 1];
-    gc.pushRoot(&result) catch return PrimitiveError.OutOfMemory;
+    gc.pushRoot(&result);
     defer gc.popRoot();
     var idx = sublists.items.len - 1;
     while (idx > 0) {
@@ -962,7 +962,7 @@ fn consStarFn(args: []const Value) PrimitiveError!Value {
     if (args.len == 0) return PrimitiveError.ArityMismatch;
     if (args.len == 1) return args[0];
     var result = args[args.len - 1];
-    gc.pushRoot(&result) catch return PrimitiveError.OutOfMemory;
+    gc.pushRoot(&result);
     defer gc.popRoot();
     var i = args.len - 1;
     while (i > 0) {
@@ -1000,7 +1000,7 @@ fn circularListFn(args: []const Value) PrimitiveError!Value {
     var first: Value = undefined;
     var last_pair: Value = undefined;
     first = gc.allocPair(args[0], types.NIL) catch return PrimitiveError.OutOfMemory;
-    gc.pushRoot(&first) catch return PrimitiveError.OutOfMemory;
+    gc.pushRoot(&first);
     defer gc.popRoot();
     last_pair = first;
     for (args[1..]) |a| {
@@ -1212,7 +1212,7 @@ fn splitAtFn(args: []const Value) PrimitiveError!Value {
     }
 
     var prefix = try buildList(gc, elems.items, types.NIL);
-    gc.pushRoot(&prefix) catch return PrimitiveError.OutOfMemory;
+    gc.pushRoot(&prefix);
     defer gc.popRoot();
     const vals = [2]Value{ prefix, current };
     return gc.allocMultipleValues(&vals) catch return PrimitiveError.OutOfMemory;
@@ -1258,7 +1258,7 @@ fn spanFn(args: []const Value) PrimitiveError!Value {
     }
 
     var prefix = try buildList(gc, elems.items, types.NIL);
-    gc.pushRoot(&prefix) catch return PrimitiveError.OutOfMemory;
+    gc.pushRoot(&prefix);
     defer gc.popRoot();
     const vals = [2]Value{ prefix, current };
     return gc.allocMultipleValues(&vals) catch return PrimitiveError.OutOfMemory;
@@ -1284,7 +1284,7 @@ fn breakFn(args: []const Value) PrimitiveError!Value {
     }
 
     var prefix = try buildList(gc, elems.items, types.NIL);
-    gc.pushRoot(&prefix) catch return PrimitiveError.OutOfMemory;
+    gc.pushRoot(&prefix);
     defer gc.popRoot();
     const vals = [2]Value{ prefix, current };
     return gc.allocMultipleValues(&vals) catch return PrimitiveError.OutOfMemory;
@@ -1436,7 +1436,7 @@ fn lsetAdjoinFn(args: []const Value) PrimitiveError!Value {
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const pred = args[0];
     var result = args[1];
-    gc.pushRoot(&result) catch return PrimitiveError.OutOfMemory;
+    gc.pushRoot(&result);
     defer gc.popRoot();
 
     for (args[2..]) |elt| {
@@ -1455,7 +1455,7 @@ fn lsetUnionFn(args: []const Value) PrimitiveError!Value {
     if (list_count == 0) return types.NIL;
 
     var result = args[1];
-    gc.pushRoot(&result) catch return PrimitiveError.OutOfMemory;
+    gc.pushRoot(&result);
     defer gc.popRoot();
 
     for (args[2..]) |lst| {
@@ -1481,7 +1481,7 @@ fn lsetXorFn(args: []const Value) PrimitiveError!Value {
     if (list_count == 1) return args[1];
 
     var result = args[1];
-    gc.pushRoot(&result) catch return PrimitiveError.OutOfMemory;
+    gc.pushRoot(&result);
     defer gc.popRoot();
 
     for (args[2..]) |lst| {
@@ -1534,7 +1534,7 @@ fn unfoldFn(args: []const Value) PrimitiveError!Value {
     defer elems.deinit(gc.allocator);
     const roots_base = gc.extra_roots.items.len;
     defer gc.extra_roots.shrinkRetainingCapacity(roots_base);
-    gc.pushRoot(&seed) catch return PrimitiveError.OutOfMemory;
+    gc.pushRoot(&seed);
     defer gc.popRoot();
 
     while (true) {
@@ -1567,9 +1567,9 @@ fn unfoldRightFn(args: []const Value) PrimitiveError!Value {
     const g = args[2];
     var seed = args[3];
     var result: Value = if (args.len > 4) args[4] else types.NIL;
-    gc.pushRoot(&result) catch return PrimitiveError.OutOfMemory;
+    gc.pushRoot(&result);
     defer gc.popRoot();
-    gc.pushRoot(&seed) catch return PrimitiveError.OutOfMemory;
+    gc.pushRoot(&seed);
     defer gc.popRoot();
 
     while (true) {
@@ -1579,7 +1579,7 @@ fn unfoldRightFn(args: []const Value) PrimitiveError!Value {
 
         const map_args = [1]Value{seed};
         var val = try callVM(f, &map_args);
-        gc.pushRoot(&val) catch return PrimitiveError.OutOfMemory;
+        gc.pushRoot(&val);
         result = gc.allocPair(val, result) catch {
             gc.popRoot();
             return PrimitiveError.OutOfMemory;
@@ -1601,7 +1601,7 @@ fn appendReverseFn(args: []const Value) PrimitiveError!Value {
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     var current = args[0];
     var result = args[1];
-    gc.pushRoot(&result) catch return PrimitiveError.OutOfMemory;
+    gc.pushRoot(&result);
     defer gc.popRoot();
     while (current != types.NIL) {
         if (!types.isPair(current)) return primitives.typeError("append-reverse", "pair", current);
@@ -1677,7 +1677,7 @@ fn unzip2Fn(args: []const Value) PrimitiveError!Value {
     }
 
     var list1 = try buildList(gc, firsts.items, types.NIL);
-    gc.pushRoot(&list1) catch return PrimitiveError.OutOfMemory;
+    gc.pushRoot(&list1);
     defer gc.popRoot();
     const list2 = try buildList(gc, seconds.items, types.NIL);
     const vals = [2]Value{ list1, list2 };
@@ -1704,7 +1704,7 @@ fn pairFoldFn(args: []const Value) PrimitiveError!Value {
     var acc = args[1];
     if (args.len < 3) return PrimitiveError.ArityMismatch;
 
-    gc.pushRoot(&acc) catch return PrimitiveError.OutOfMemory;
+    gc.pushRoot(&acc);
     defer gc.popRoot();
 
     var iter = MultiListIter.init(args[2..], true);
@@ -1742,7 +1742,7 @@ fn pairFoldRightFn(args: []const Value) PrimitiveError!Value {
     }
 
     var acc = init;
-    gc.pushRoot(&acc) catch return PrimitiveError.OutOfMemory;
+    gc.pushRoot(&acc);
     defer gc.popRoot();
     var call_args_buf: [257]Value = undefined;
     var idx = min_len;

@@ -291,11 +291,11 @@ fn outputPortOpenP(args: []const Value) PrimitiveError!Value {
 fn raiseFileError(gc: *@import("memory.zig").GC, msg_text: []const u8, irritant: Value) PrimitiveError!Value {
     const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError; // bare-ok: no VM
     var msg = gc.allocString(msg_text) catch return PrimitiveError.OutOfMemory;
-    gc.pushRoot(&msg) catch return PrimitiveError.OutOfMemory;
+    gc.pushRoot(&msg);
     defer gc.popRoot();
     const irritants = gc.allocPair(irritant, types.NIL) catch return PrimitiveError.OutOfMemory;
     var irritants_root = irritants;
-    gc.pushRoot(&irritants_root) catch return PrimitiveError.OutOfMemory;
+    gc.pushRoot(&irritants_root);
     defer gc.popRoot();
     const err_obj = gc.allocErrorObject(msg, irritants_root) catch return PrimitiveError.OutOfMemory;
     types.toObject(err_obj).as(types.ErrorObject).error_type = .file;
@@ -606,7 +606,7 @@ fn parseDatumForRead(reader: *reader_mod.Reader) reader_mod.ReadError!?Value {
 
 fn raiseReadError(gc: *@import("memory.zig").GC) PrimitiveError!Value {
     var msg = gc.allocString("read error") catch return PrimitiveError.OutOfMemory;
-    gc.pushRoot(&msg) catch return PrimitiveError.OutOfMemory;
+    gc.pushRoot(&msg);
     defer gc.popRoot();
     const err_obj = gc.allocErrorObject(msg, types.NIL) catch return PrimitiveError.OutOfMemory;
     const errObj = types.toObject(err_obj).as(types.ErrorObject);
@@ -864,13 +864,13 @@ fn deleteFile(args: []const Value) PrimitiveError!Value {
     const result = std.posix.system.unlink(path_z);
     if (result < 0) {
         var msg = gc.allocString("cannot delete file") catch return PrimitiveError.OutOfMemory;
-        gc.pushRoot(&msg) catch return PrimitiveError.OutOfMemory;
+        gc.pushRoot(&msg);
         defer gc.popRoot();
         var irritant = gc.allocString(path) catch return PrimitiveError.OutOfMemory;
-        gc.pushRoot(&irritant) catch return PrimitiveError.OutOfMemory;
+        gc.pushRoot(&irritant);
         defer gc.popRoot();
         var irr_list = gc.allocPair(irritant, types.NIL) catch return PrimitiveError.OutOfMemory;
-        gc.pushRoot(&irr_list) catch return PrimitiveError.OutOfMemory;
+        gc.pushRoot(&irr_list);
         defer gc.popRoot();
         const err_obj = gc.allocErrorObject(msg, irr_list) catch return PrimitiveError.OutOfMemory;
         types.toObject(err_obj).as(types.ErrorObject).error_type = .file;

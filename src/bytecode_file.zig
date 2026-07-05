@@ -416,7 +416,7 @@ fn readConstant(r: *Reader, gc: *GC, all_funcs: []*Function, depth: u32) !Value 
             const car_val = try readConstant(r, gc, all_funcs, depth + 1);
             // Root car to protect from GC during cdr read
             var car_root = car_val;
-            try gc.pushRoot(&car_root);
+            gc.pushRoot(&car_root);
             defer gc.popRoot();
             const cdr_val = try readConstant(r, gc, all_funcs, depth + 1);
             return gc.allocPair(car_root, cdr_val) catch return BytecodeError.OutOfMemory;
@@ -425,7 +425,7 @@ fn readConstant(r: *Reader, gc: *GC, all_funcs: []*Function, depth: u32) !Value 
             const len = try r.readU32();
             if (len > MAX_VECTOR_LEN) return BytecodeError.CorruptedFile;
             var vec_val = gc.allocVectorFill(len, types.NIL) catch return BytecodeError.OutOfMemory;
-            try gc.pushRoot(&vec_val);
+            gc.pushRoot(&vec_val);
             defer gc.popRoot();
             for (0..len) |i| {
                 const elem = try readConstant(r, gc, all_funcs, depth + 1);
@@ -458,7 +458,7 @@ fn readConstant(r: *Reader, gc: *GC, all_funcs: []*Function, depth: u32) !Value 
             const num = try readConstant(r, gc, all_funcs, depth + 1);
             if (!types.isFixnum(num) and !types.isBignum(num)) return BytecodeError.CorruptedFile;
             var num_root = num;
-            try gc.pushRoot(&num_root);
+            gc.pushRoot(&num_root);
             defer gc.popRoot();
             const den = try readConstant(r, gc, all_funcs, depth + 1);
             if (!types.isFixnum(den) and !types.isBignum(den)) return BytecodeError.CorruptedFile;

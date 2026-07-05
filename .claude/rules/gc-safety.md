@@ -14,7 +14,14 @@ string-set!, record field mutation):
 
 - **Root before allocating**: if you hold a pointer to a heap object and then
   allocate (which may trigger GC), root the value first with
-  `gc.pushRoot(&val)` / `gc.popRoot()`.
+  `gc.pushRoot(&val)` / `gc.popRoot()`. `pushRoot` is infallible (panics on
+  overflow at 1024 slots) — no `try` or `catch` needed.
+
+- **Allocator Value arguments are auto-rooted**: `allocPair(car, cdr)` and
+  other `allocXxx` functions that take Value arguments root them internally
+  via `arg_roots` before `maybeCollect()`. Callers do NOT need to root Values
+  that are passed directly as allocator arguments. However, Values held in
+  local variables across multiple allocation calls still need manual rooting.
 
 - **Root Function* before vm.execute()**: `execute()` allocates a closure
   wrapper internally.
@@ -32,6 +39,7 @@ const b = try gc.allocPair(a, z);
 gc.popRoot();
 ```
 
-Stress-test with `-Dgc-threshold=1` to force collection on every allocation.
+Stress-test with `-Dgc-stress=true` to force collection on every allocation.
+In Debug builds, freed objects are poisoned with `0xAA` to catch use-after-free.
 
 Rationale and full patterns: `docs/dev/gc-safety-and-error-handling.md`.

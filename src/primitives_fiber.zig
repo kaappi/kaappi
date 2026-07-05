@@ -237,7 +237,7 @@ fn raiseDeadlockError(msg: []const u8) PrimitiveError {
     const vm = vm_mod.vm_instance orelse return PrimitiveError.OutOfMemory;
     const message = gc.allocString(msg) catch return PrimitiveError.OutOfMemory;
     var msg_root = message;
-    gc.pushRoot(&msg_root) catch return PrimitiveError.OutOfMemory;
+    gc.pushRoot(&msg_root);
     const err_val = gc.allocErrorObject(msg_root, types.NIL) catch {
         gc.popRoot();
         return PrimitiveError.OutOfMemory;

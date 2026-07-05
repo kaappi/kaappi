@@ -615,11 +615,7 @@ pub fn repl(vm: *vm_mod.VM) !void {
             defer ir.deinit();
             var import_list = types.NIL;
             var import_root = import_list;
-            vm.gc.pushRoot(&import_root) catch {
-                writeStderr("out of memory\n");
-                input_buf.clearRetainingCapacity();
-                continue;
-            };
+            vm.gc.pushRoot(&import_root);
             var read_ok = true;
             while (ir.hasMore() catch false) {
                 var datum = ir.readDatum() catch {
@@ -627,11 +623,7 @@ pub fn repl(vm: *vm_mod.VM) !void {
                     read_ok = false;
                     break;
                 };
-                vm.gc.pushRoot(&datum) catch {
-                    writeStderr("out of memory\n");
-                    read_ok = false;
-                    break;
-                };
+                vm.gc.pushRoot(&datum);
                 var pair = vm.gc.allocPair(datum, types.NIL) catch {
                     vm.gc.popRoot();
                     writeStderr("out of memory\n");
@@ -949,10 +941,7 @@ fn evalInputInner(vm: *vm_mod.VM, allocator: std.mem.Allocator, input: []const u
             break;
         };
 
-        vm.gc.pushRoot(&expr) catch {
-            writeStderr("error: out of memory while rooting expression\n");
-            break;
-        };
+        vm.gc.pushRoot(&expr);
         defer vm.gc.popRoot();
 
         if (vm.handleTopLevelForm(expr)) |top_result| {
@@ -998,10 +987,7 @@ fn evalInputInner(vm: *vm_mod.VM, allocator: std.mem.Allocator, input: []const u
         };
 
         var func_val = types.makePointer(@ptrCast(func));
-        vm.gc.pushRoot(&func_val) catch {
-            writeStderr("error: out of memory while rooting function\n");
-            break;
-        };
+        vm.gc.pushRoot(&func_val);
 
         const result = vm.execute(func) catch |err| {
             vm.gc.popRoot();

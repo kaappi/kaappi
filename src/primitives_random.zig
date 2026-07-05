@@ -112,7 +112,7 @@ fn randomSourceStateRefFn(args: []const Value) PrimitiveError!Value {
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const rs = try getRS("random-source-state-ref", args[0]);
     var result: Value = types.NIL;
-    gc.pushRoot(&result) catch return PrimitiveError.OutOfMemory;
+    gc.pushRoot(&result);
     defer gc.popRoot();
     var i: usize = 4;
     while (i > 0) {

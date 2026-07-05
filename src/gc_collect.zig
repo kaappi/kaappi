@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const types = @import("types.zig");
 const memory_mod = @import("memory.zig");
 const GC = memory_mod.GC;
@@ -51,7 +52,8 @@ pub fn collect(gc: *GC) void {
     }
     const mark_end = clockNs();
     gc.stats.total_mark_ns +%= mark_end -% mark_start;
-    gc.gc_threshold = @max(GC_THRESHOLD, gc.object_count * 4);
+    if (!gc.stress)
+        gc.gc_threshold = @max(GC_THRESHOLD, gc.object_count * 4);
 }
 
 fn minorCollect(gc: *GC) void {
@@ -466,7 +468,10 @@ fn markObjectContents(gc: *GC, obj: *Object) void {
 }
 
 fn markRoots(gc: *GC) void {
-    for (gc.roots.items) |root| {
+    for (gc.arg_roots[0..gc.arg_root_count]) |v| {
+        markValue(gc, v);
+    }
+    for (gc.root_buffer[0..gc.root_count]) |root| {
         markValue(gc, root.*);
     }
     for (gc.extra_roots.items) |v| {
@@ -799,26 +804,33 @@ fn objectSize(obj: *Object) usize {
     };
 }
 
+inline fn poisonAndDestroy(gc: *GC, comptime T: type, ptr: *T) void {
+    if (builtin.mode == .Debug) {
+        @memset(@as([*]u8, @ptrCast(ptr))[0..@sizeOf(T)], 0xAA);
+    }
+    gc.allocator.destroy(ptr);
+}
+
 pub fn freeObject(gc: *GC, obj: *Object) void {
     switch (obj.tag) {
         .pair => {
             const pair = obj.as(Pair);
-            gc.allocator.destroy(pair);
+            poisonAndDestroy(gc, Pair, pair);
         },
         .symbol => {
             const sym = obj.as(Symbol);
             gc.allocator.free(sym.name);
-            gc.allocator.destroy(sym);
+            poisonAndDestroy(gc, Symbol, sym);
         },
         .string => {
             const str = obj.as(SchemeString);
             gc.allocator.free(str.data);
-            gc.allocator.destroy(str);
+            poisonAndDestroy(gc, SchemeString, str);
         },
         .closure => {
             const cls = obj.as(Closure);
             gc.allocator.free(cls.upvalues);
-            gc.allocator.destroy(cls);
+            poisonAndDestroy(gc, Closure, cls);
         },
         .function => {
             const func = obj.as(Function);
@@ -834,25 +846,25 @@ pub fn freeObject(gc: *GC, obj: *Object) void {
             if (func.owns_name) {
                 if (func.name) |n| gc.allocator.free(n);
             }
-            gc.allocator.destroy(func);
+            poisonAndDestroy(gc, Function, func);
         },
         .native_fn => {
             const nf = obj.as(NativeFn);
-            gc.allocator.destroy(nf);
+            poisonAndDestroy(gc, NativeFn, nf);
         },
         .native_closure => {
             const nc = obj.as(types.NativeClosure);
             gc.allocator.free(nc.upvalues);
-            gc.allocator.destroy(nc);
+            poisonAndDestroy(gc, types.NativeClosure, nc);
         },
         .flonum => {
             const flo = obj.as(Flonum);
-            gc.allocator.destroy(flo);
+            poisonAndDestroy(gc, Flonum, flo);
         },
         .vector => {
             const vec = obj.as(Vector);
             gc.allocator.free(vec.data);
-            gc.allocator.destroy(vec);
+            poisonAndDestroy(gc, Vector, vec);
         },
         .transformer => {
             const tx = obj.as(Transformer);
@@ -860,30 +872,30 @@ pub fn freeObject(gc: *GC, obj: *Object) void {
             gc.allocator.free(tx.patterns);
             gc.allocator.free(tx.templates);
             if (tx.captured_locals.len > 0) gc.allocator.free(tx.captured_locals);
-            gc.allocator.destroy(tx);
+            poisonAndDestroy(gc, Transformer, tx);
         },
         .error_object => {
             const err = obj.as(types.ErrorObject);
-            gc.allocator.destroy(err);
+            poisonAndDestroy(gc, types.ErrorObject, err);
         },
         .record_type => {
             const rt = obj.as(RecordType);
             gc.allocator.free(rt.name);
-            gc.allocator.destroy(rt);
+            poisonAndDestroy(gc, RecordType, rt);
         },
         .record_instance => {
             const ri = obj.as(RecordInstance);
             gc.allocator.free(ri.fields);
-            gc.allocator.destroy(ri);
+            poisonAndDestroy(gc, RecordInstance, ri);
         },
         .bytevector => {
             const bv = obj.as(Bytevector);
             gc.allocator.free(bv.data);
-            gc.allocator.destroy(bv);
+            poisonAndDestroy(gc, Bytevector, bv);
         },
         .promise => {
             const p = obj.as(Promise);
-            gc.allocator.destroy(p);
+            poisonAndDestroy(gc, Promise, p);
         },
         .port => {
             const port = obj.as(Port);
@@ -904,7 +916,7 @@ pub fn freeObject(gc: *GC, obj: *Object) void {
             if (port.string_out_buf) |sb| {
                 gc.allocator.free(sb);
             }
-            gc.allocator.destroy(port);
+            poisonAndDestroy(gc, Port, port);
         },
         .continuation => {
             const cont = obj.as(Continuation);
@@ -912,37 +924,37 @@ pub fn freeObject(gc: *GC, obj: *Object) void {
             // the single backing allocation; free it once. Escape
             // continuations have no backing (empty slice).
             if (cont.backing.len > 0) gc.allocator.free(cont.backing);
-            gc.allocator.destroy(cont);
+            poisonAndDestroy(gc, Continuation, cont);
         },
         .multiple_values => {
             const mv = obj.as(MultipleValues);
             gc.allocator.free(mv.values);
-            gc.allocator.destroy(mv);
+            poisonAndDestroy(gc, MultipleValues, mv);
         },
         .complex => {
             const c = obj.as(types.Complex);
-            gc.allocator.destroy(c);
+            poisonAndDestroy(gc, types.Complex, c);
         },
         .parameter => {
             const p = obj.as(types.ParameterObject);
-            gc.allocator.destroy(p);
+            poisonAndDestroy(gc, types.ParameterObject, p);
         },
         .hash_table => {
             const ht = obj.as(HashTable);
             gc.allocator.free(ht.entries);
-            gc.allocator.destroy(ht);
+            poisonAndDestroy(gc, HashTable, ht);
         },
         .ffi_library => {
             const lib = obj.as(FfiLibrary);
             // Do NOT dlclose here -- let ffi-close handle that explicitly
             gc.allocator.free(lib.name);
-            gc.allocator.destroy(lib);
+            poisonAndDestroy(gc, FfiLibrary, lib);
         },
         .ffi_function => {
             const ffi_fn = obj.as(FfiFunction);
             gc.allocator.free(ffi_fn.name);
             gc.allocator.free(ffi_fn.param_types);
-            gc.allocator.destroy(ffi_fn);
+            poisonAndDestroy(gc, FfiFunction, ffi_fn);
         },
         .ffi_callback => {
             const cb = obj.as(FfiCallback);
@@ -950,20 +962,20 @@ pub fn freeObject(gc: *GC, obj: *Object) void {
                 const ffi_cb = @import("ffi_callback.zig");
                 ffi_cb.releaseSlot(cb.slot_index);
             }
-            gc.allocator.destroy(cb);
+            poisonAndDestroy(gc, FfiCallback, cb);
         },
         .bignum => {
             const bn = obj.as(Bignum);
             gc.allocator.free(bn.limbs);
-            gc.allocator.destroy(bn);
+            poisonAndDestroy(gc, Bignum, bn);
         },
         .rational => {
             const rat = obj.as(Rational);
-            gc.allocator.destroy(rat);
+            poisonAndDestroy(gc, Rational, rat);
         },
         .file_info => {
             const fi = obj.as(types.FileInfo);
-            gc.allocator.destroy(fi);
+            poisonAndDestroy(gc, types.FileInfo, fi);
         },
         .user_info => {
             const ui = obj.as(types.UserInfo);
@@ -971,12 +983,12 @@ pub fn freeObject(gc: *GC, obj: *Object) void {
             gc.allocator.free(ui.home_dir);
             gc.allocator.free(ui.shell);
             gc.allocator.free(ui.full_name);
-            gc.allocator.destroy(ui);
+            poisonAndDestroy(gc, types.UserInfo, ui);
         },
         .group_info => {
             const gi = obj.as(types.GroupInfo);
             gc.allocator.free(gi.name);
-            gc.allocator.destroy(gi);
+            poisonAndDestroy(gc, types.GroupInfo, gi);
         },
         .directory_object => {
             const d = obj.as(types.DirectoryObject);
@@ -984,29 +996,29 @@ pub fn freeObject(gc: *GC, obj: *Object) void {
                 _ = std.c.closedir(@ptrCast(@alignCast(dir)));
                 d.dir = null;
             }
-            gc.allocator.destroy(d);
+            poisonAndDestroy(gc, types.DirectoryObject, d);
         },
         .random_source => {
-            gc.allocator.destroy(obj.as(RandomSource));
+            poisonAndDestroy(gc, RandomSource, obj.as(RandomSource));
         },
         .fiber => {
             const fiber = obj.as(@import("fiber.zig").Fiber);
             fiber.param_overrides.deinit();
             gc.allocator.free(fiber.frames);
             gc.allocator.free(fiber.registers);
-            gc.allocator.destroy(fiber);
+            poisonAndDestroy(gc, @import("fiber.zig").Fiber, fiber);
         },
         .channel => {
-            gc.allocator.destroy(obj.as(types.Channel));
+            poisonAndDestroy(gc, types.Channel, obj.as(types.Channel));
         },
         .mutex => {
-            gc.allocator.destroy(obj.as(types.Mutex));
+            poisonAndDestroy(gc, types.Mutex, obj.as(types.Mutex));
         },
         .condition_variable => {
-            gc.allocator.destroy(obj.as(types.ConditionVariable));
+            poisonAndDestroy(gc, types.ConditionVariable, obj.as(types.ConditionVariable));
         },
         .srfi18_time => {
-            gc.allocator.destroy(obj.as(types.Srfi18Time));
+            poisonAndDestroy(gc, types.Srfi18Time, obj.as(types.Srfi18Time));
         },
         .scheme_environment => {
             const se = obj.as(types.SchemeEnvironment);
@@ -1014,7 +1026,7 @@ pub fn freeObject(gc: *GC, obj: *Object) void {
                 se.env.deinit();
                 gc.allocator.destroy(se.env);
             }
-            gc.allocator.destroy(se);
+            poisonAndDestroy(gc, types.SchemeEnvironment, se);
         },
     }
 }

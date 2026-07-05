@@ -531,7 +531,7 @@ fn instantiateTemplate(gc: *GC, template: Value, bindings: []Binding, intro_scop
         if (is_let_form) {
             const new_car = try instantiateTemplate(gc, elem, bindings, intro_scope, literals, macro_keyword, globals, macros);
             var car_root = new_car;
-            try gc.pushRoot(&car_root);
+            gc.pushRoot(&car_root);
             defer gc.popRoot();
             const let_rest = types.cdr(template);
             if (let_rest != types.NIL and types.isPair(let_rest)) {
@@ -539,11 +539,11 @@ fn instantiateTemplate(gc: *GC, template: Value, bindings: []Binding, intro_scop
                 const body = types.cdr(let_rest);
                 const new_bindings = try instantiateLetBindings(gc, binding_list, bindings, intro_scope | BINDING_FLAG, literals, macro_keyword, globals, macros);
                 var bindings_root = new_bindings;
-                try gc.pushRoot(&bindings_root);
+                gc.pushRoot(&bindings_root);
                 defer gc.popRoot();
                 const new_body = try instantiateTemplate(gc, body, bindings, intro_scope & ~BINDING_FLAG, literals, macro_keyword, globals, macros);
                 var body_root = new_body;
-                try gc.pushRoot(&body_root);
+                gc.pushRoot(&body_root);
                 defer gc.popRoot();
                 const inner = try gc.allocPair(bindings_root, body_root);
                 return gc.allocPair(car_root, inner);
@@ -554,7 +554,7 @@ fn instantiateTemplate(gc: *GC, template: Value, bindings: []Binding, intro_scop
     // Regular pair: recurse
     const new_car = try instantiateTemplate(gc, types.car(template), bindings, intro_scope & ~BINDING_FLAG, literals, macro_keyword, globals, macros);
     var car_root = new_car;
-    try gc.pushRoot(&car_root);
+    gc.pushRoot(&car_root);
     defer gc.popRoot();
     const new_cdr = try instantiateTemplate(gc, types.cdr(template), bindings, intro_scope & ~BINDING_FLAG, literals, macro_keyword, globals, macros);
     return gc.allocPair(car_root, new_cdr);
@@ -567,7 +567,7 @@ fn instantiateLetBindings(gc: *GC, binding_list: Value, bindings: []Binding, sco
     if (!types.isPair(pair)) {
         const new_pair = try instantiateTemplate(gc, pair, bindings, scope, literals, macro_keyword, globals, macros);
         var pair_root = new_pair;
-        try gc.pushRoot(&pair_root);
+        gc.pushRoot(&pair_root);
         defer gc.popRoot();
         const new_rest = try instantiateLetBindings(gc, types.cdr(binding_list), bindings, scope, literals, macro_keyword, globals, macros);
         return gc.allocPair(pair_root, new_rest);
@@ -576,15 +576,15 @@ fn instantiateLetBindings(gc: *GC, binding_list: Value, bindings: []Binding, sco
     const init_and_rest = types.cdr(pair);
     const new_var = try instantiateTemplate(gc, var_name, bindings, scope, literals, macro_keyword, globals, macros);
     var var_root = new_var;
-    try gc.pushRoot(&var_root);
+    gc.pushRoot(&var_root);
     defer gc.popRoot();
     const new_init = try instantiateTemplate(gc, init_and_rest, bindings, scope & ~@as(u32, 0x20000000), literals, macro_keyword, globals, macros);
     var init_root = new_init;
-    try gc.pushRoot(&init_root);
+    gc.pushRoot(&init_root);
     defer gc.popRoot();
     const new_pair = try gc.allocPair(var_root, init_root);
     var np_root = new_pair;
-    try gc.pushRoot(&np_root);
+    gc.pushRoot(&np_root);
     defer gc.popRoot();
     const new_rest = try instantiateLetBindings(gc, types.cdr(binding_list), bindings, scope, literals, macro_keyword, globals, macros);
     return gc.allocPair(np_root, new_rest);
@@ -627,7 +627,7 @@ fn instantiateNestedSyntaxRules(gc: *GC, template: Value, bindings: []Binding, i
     // Recurse with filtered bindings
     const new_car = try instantiateTemplate(gc, types.car(template), filtered[0..filt_count], intro_scope, literals, macro_keyword, globals, macros);
     var car_root = new_car;
-    try gc.pushRoot(&car_root);
+    gc.pushRoot(&car_root);
     defer gc.popRoot();
     const new_cdr = try instantiateTemplate(gc, types.cdr(template), filtered[0..filt_count], intro_scope, literals, macro_keyword, globals, macros);
     return gc.allocPair(car_root, new_cdr);
@@ -666,7 +666,7 @@ fn instantiateEllipsis(gc: *GC, elem_template: Value, rest_template: Value, bind
     // First instantiate the rest (after the ellipsis)
     const result = try instantiateTemplate(gc, rest_template, bindings, intro_scope, literals, macro_keyword, globals, macros);
     var result_root = result;
-    try gc.pushRoot(&result_root);
+    gc.pushRoot(&result_root);
     defer gc.popRoot();
 
     // Generate copies in reverse so we build the list from right to left
@@ -709,7 +709,7 @@ fn instantiateEllipsis(gc: *GC, elem_template: Value, rest_template: Value, bind
         }
         const expanded = try instantiateTemplate(gc, elem_template, sub_bindings[0..sub_count], intro_scope, literals, macro_keyword, globals, macros);
         var expanded_root = expanded;
-        try gc.pushRoot(&expanded_root);
+        gc.pushRoot(&expanded_root);
         result_root = try gc.allocPair(expanded_root, result_root);
         gc.popRoot();
     }
@@ -736,7 +736,7 @@ fn substitutePatternVarsOnly(gc: *GC, template: Value, bindings: []Binding) !Val
     if (!types.isPair(template)) return template;
     const new_car = try substitutePatternVarsOnly(gc, types.car(template), bindings);
     var car_root = new_car;
-    try gc.pushRoot(&car_root);
+    gc.pushRoot(&car_root);
     const new_cdr = try substitutePatternVarsOnly(gc, types.cdr(template), bindings);
     gc.popRoot();
     return gc.allocPair(car_root, new_cdr);

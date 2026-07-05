@@ -26,11 +26,13 @@ pub fn build(b: *std.Build) void {
     const max_registers = b.option(u32, "max-registers", "Initial register count (default: 2048, grows to 65536)") orelse 2048;
 
     const gc_threshold = b.option(u32, "gc-threshold", "Initial GC object threshold (default: 8192)") orelse 8192;
+    const gc_stress = b.option(bool, "gc-stress", "Force GC on every allocation (stress testing)") orelse false;
 
     const options = b.addOptions();
     options.addOption(u32, "max_frames", max_frames);
     options.addOption(u32, "max_registers", max_registers);
     options.addOption(u32, "gc_initial_threshold", gc_threshold);
+    options.addOption(bool, "gc_stress", gc_stress);
     options.addOption([]const u8, "version", zon.version);
     const options_mod = options.createModule();
 

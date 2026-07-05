@@ -374,7 +374,7 @@ pub fn compileLambdaWithIR(self: *Compiler, args: Value, dst: u16, name: ?[]cons
             const lambda_sym = child.gc.allocSymbol("lambda") catch return CompileError.OutOfMemory;
             {
                 var lambda_args = child.gc.allocPair(param_formals, def_rest) catch return CompileError.OutOfMemory;
-                child.gc.pushRoot(&lambda_args) catch return CompileError.OutOfMemory;
+                child.gc.pushRoot(&lambda_args);
                 defer child.gc.popRoot();
                 def_inits[def_count] = child.gc.allocPair(lambda_sym, lambda_args) catch return CompileError.OutOfMemory;
             }

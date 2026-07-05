@@ -283,7 +283,7 @@ fn mainImpl(init: std.process.Init.Minimal) !void {
                 defer pr.deinit();
                 while (pr.hasMore() catch break) {
                     var expr = pr.readDatum() catch break;
-                    gc.pushRoot(&expr) catch break;
+                    gc.pushRoot(&expr);
                     defer gc.popRoot();
                     if (vm.handleTopLevelForm(expr)) |top_result| {
                         _ = top_result catch |err| {
@@ -308,7 +308,7 @@ fn mainImpl(init: std.process.Init.Minimal) !void {
         const top_count = @min(loaded.top_level_count, @as(u32, @intCast(loaded.funcs.len)));
         for (loaded.funcs[0..top_count]) |func| {
             var func_val = types.makePointer(@ptrCast(func));
-            vm.gc.pushRoot(&func_val) catch return error.OutOfMemory;
+            vm.gc.pushRoot(&func_val);
             const result = vm.execute(func) catch |err| {
                 vm.gc.popRoot();
                 script_had_error = true;
@@ -501,7 +501,7 @@ fn runFile(vm: *vm_mod.VM, path: []const u8) !void {
                     defer pr.deinit();
                     while (pr.hasMore() catch break) {
                         var expr = pr.readDatum() catch break;
-                        vm.gc.pushRoot(&expr) catch break;
+                        vm.gc.pushRoot(&expr);
                         defer vm.gc.popRoot();
                         if (vm.handleTopLevelForm(expr)) |top_result| {
                             _ = top_result catch {};
@@ -520,7 +520,7 @@ fn runFile(vm: *vm_mod.VM, path: []const u8) !void {
             const top_count = @min(loaded.top_level_count, @as(u32, @intCast(loaded.funcs.len)));
             for (loaded.funcs[0..top_count]) |func| {
                 var func_val = types.makePointer(@ptrCast(func));
-                vm.gc.pushRoot(&func_val) catch return error.OutOfMemory;
+                vm.gc.pushRoot(&func_val);
                 const result = vm.execute(func) catch |err| {
                     vm.gc.popRoot();
                     script_had_error = true;
@@ -560,11 +560,7 @@ fn runFile(vm: *vm_mod.VM, path: []const u8) !void {
             return;
         };
 
-        vm.gc.pushRoot(&expr) catch {
-            writeStderr("error: out of memory while rooting expression\n");
-            script_had_error = true;
-            return;
-        };
+        vm.gc.pushRoot(&expr);
         defer vm.gc.popRoot();
 
         if (vm.handleTopLevelForm(expr)) |top_result| {
@@ -588,7 +584,7 @@ fn runFile(vm: *vm_mod.VM, path: []const u8) !void {
         vm.gc.extra_roots.append(allocator, types.makePointer(@ptrCast(func))) catch return error.OutOfMemory;
 
         var func_val = types.makePointer(@ptrCast(func));
-        vm.gc.pushRoot(&func_val) catch return error.OutOfMemory;
+        vm.gc.pushRoot(&func_val);
 
         const result = vm.execute(func) catch |err| {
             vm.gc.popRoot();
@@ -638,11 +634,7 @@ fn runStdin(vm: *vm_mod.VM) !void {
             return;
         };
 
-        vm.gc.pushRoot(&expr) catch {
-            writeStderr("error: out of memory while rooting expression\n");
-            script_had_error = true;
-            return;
-        };
+        vm.gc.pushRoot(&expr);
         defer vm.gc.popRoot();
 
         if (vm.handleTopLevelForm(expr)) |top_result| {
@@ -663,11 +655,7 @@ fn runStdin(vm: *vm_mod.VM) !void {
         };
 
         var func_val = types.makePointer(@ptrCast(func));
-        vm.gc.pushRoot(&func_val) catch {
-            writeStderr("error: out of memory while rooting function\n");
-            script_had_error = true;
-            return;
-        };
+        vm.gc.pushRoot(&func_val);
 
         const result = vm.execute(func) catch |err| {
             vm.gc.popRoot();
@@ -710,11 +698,7 @@ fn disassembleFile(vm: *vm_mod.VM, path: []const u8) !void {
             return;
         };
 
-        vm.gc.pushRoot(&expr) catch {
-            writeStderr("error: out of memory while rooting expression\n");
-            script_had_error = true;
-            return;
-        };
+        vm.gc.pushRoot(&expr);
         defer vm.gc.popRoot();
 
         if (vm.handleTopLevelForm(expr)) |top_result| {
@@ -791,7 +775,7 @@ fn compileFile(vm: *vm_mod.VM, path: []const u8, output_path: ?[]const u8) !void
             return;
         };
 
-        vm.gc.pushRoot(&expr) catch continue;
+        vm.gc.pushRoot(&expr);
         defer vm.gc.popRoot();
 
         if (vm.handleTopLevelForm(expr)) |top_result| {

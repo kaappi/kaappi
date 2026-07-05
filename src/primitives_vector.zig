@@ -128,7 +128,7 @@ fn vectorToListFn(args: []const Value) PrimitiveError!Value {
     const end = range.end;
 
     var result: Value = types.NIL;
-    gc.pushRoot(&result) catch return PrimitiveError.OutOfMemory;
+    gc.pushRoot(&result);
     defer gc.popRoot();
     var i = end;
     while (i > start) {
@@ -869,7 +869,7 @@ fn vectorPartitionFn(args: []const Value) PrimitiveError!Value {
     @memcpy(combined[0..yes.items.len], yes.items);
     @memcpy(combined[yes.items.len..], no.items);
     var result_vec = gc.allocVector(combined) catch return PrimitiveError.OutOfMemory;
-    gc.pushRoot(&result_vec) catch return PrimitiveError.OutOfMemory;
+    gc.pushRoot(&result_vec);
     defer gc.popRoot();
     const count_val = types.makeFixnum(@intCast(yes.items.len));
 

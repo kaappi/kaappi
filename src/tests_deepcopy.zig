@@ -72,7 +72,7 @@ test "deepCopy long flat list does not overflow the stack (issue #801)" {
     // cdr-spine recursion in deepCopyValue crashed the process here.
     const n: i64 = 200_000;
     var lst = types.NIL;
-    try gc1.pushRoot(&lst); // keep the partial list alive across collections
+    gc1.pushRoot(&lst); // keep the partial list alive across collections
     defer gc1.popRoot();
     var i: i64 = n - 1;
     while (i >= 0) : (i -= 1) {
@@ -106,7 +106,7 @@ test "deepCopy long improper list preserves the tail (issue #801)" {
     // "immediate cdr" break path at depth.
     const n: i64 = 100_000;
     var lst = types.makeFixnum(-1);
-    try gc1.pushRoot(&lst);
+    gc1.pushRoot(&lst);
     defer gc1.popRoot();
     var i: i64 = n - 1;
     while (i >= 0) : (i -= 1) {

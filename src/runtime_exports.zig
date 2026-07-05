@@ -220,14 +220,8 @@ pub export fn kaappi_cons(a: u64, b: u64) callconv(.c) u64 {
     };
     var val_a = a;
     var val_b = b;
-    gc.pushRoot(&val_a) catch {
-        _ = std.posix.system.write(2, "OOM: cons push root failed\n", 27);
-        std.process.exit(1);
-    };
-    gc.pushRoot(&val_b) catch {
-        _ = std.posix.system.write(2, "OOM: cons push root failed\n", 27);
-        std.process.exit(1);
-    };
+    gc.pushRoot(&val_a);
+    gc.pushRoot(&val_b);
     const result = gc.allocPair(val_a, val_b) catch {
         _ = std.posix.system.write(2, "OOM: failed to allocate pair\n", 29);
         std.process.exit(1);
@@ -261,10 +255,7 @@ pub export fn kaappi_call_scheme(vm: ?*vm_mod.VM, callee: u64, args_ptr: ?[*]con
 
 pub export fn kaappi_gc_push_root(slot: *Value) callconv(.c) void {
     const gc = memory.gc_instance orelse return;
-    gc.pushRoot(slot) catch {
-        _ = std.posix.system.write(2, "OOM: GC push root failed\n", 25);
-        std.process.exit(1);
-    };
+    gc.pushRoot(slot);
 }
 
 pub export fn kaappi_gc_pop_roots(n: u64) callconv(.c) void {

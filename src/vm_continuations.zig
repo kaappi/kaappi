@@ -91,7 +91,7 @@ pub fn invokeEscape(vm: *VM, cont: *types.Continuation, value: Value) VMError!vo
         // Invoked after its call/ec call already returned — no live target.
         var msg = vm.gc.allocString("escape continuation invoked outside its dynamic extent") catch
             return VMError.OutOfMemory;
-        try vm.gc.pushRoot(&msg);
+        vm.gc.pushRoot(&msg);
         const err = vm.gc.allocErrorObject(msg, types.NIL) catch {
             vm.gc.popRoot();
             return VMError.OutOfMemory;

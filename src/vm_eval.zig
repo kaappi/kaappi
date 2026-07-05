@@ -18,7 +18,7 @@ pub fn eval(vm: *VM, source: []const u8) VMError!Value {
         var expr = reader.readDatum() catch return VMError.CompileError;
         // Root the form: evaluating it (e.g. an import that loads a library)
         // can trigger GC, which would otherwise reclaim the AST mid-walk.
-        vm.gc.pushRoot(&expr) catch return VMError.OutOfMemory;
+        vm.gc.pushRoot(&expr);
         defer vm.gc.popRoot();
         if (handleTopLevelForm(vm, expr)) |result| {
             last_result = result catch |err| return err;
@@ -27,7 +27,7 @@ pub fn eval(vm: *VM, source: []const u8) VMError!Value {
         const func = compiler_mod.compileExpressionWithMacros(vm.gc, expr, &vm.macros, vm.globals) catch return VMError.CompileError;
         {
             var func_val = types.makePointer(@ptrCast(func));
-            vm.gc.pushRoot(&func_val) catch return VMError.OutOfMemory;
+            vm.gc.pushRoot(&func_val);
             defer vm.gc.popRoot();
             compiler_mod.Compiler.unrootFunction(vm.gc, func);
             last_result = vm.execute(func) catch |err| return err;
@@ -47,7 +47,7 @@ pub fn handleTopLevelForm(vm: *VM, expr: Value) ?VMError!Value {
     // this datum, and most callers pass a freshly read, unrooted expr. Without
     // this, the import form itself can be swept mid-walk (issue #1010).
     var expr_root = expr;
-    vm.gc.pushRoot(&expr_root) catch return VMError.OutOfMemory;
+    vm.gc.pushRoot(&expr_root);
     defer vm.gc.popRoot();
 
     if (std.mem.eql(u8, name, "import")) return vm_library.handleImport(vm, types.cdr(expr));
@@ -73,7 +73,7 @@ fn handleTopLevelBegin(vm: *VM, body: Value) VMError!Value {
         } else {
             const func = compiler_mod.compileExpressionWithMacros(vm.gc, form, &vm.macros, vm.globals) catch return VMError.CompileError;
             var func_val = types.makePointer(@ptrCast(func));
-            vm.gc.pushRoot(&func_val) catch return VMError.OutOfMemory;
+            vm.gc.pushRoot(&func_val);
             defer vm.gc.popRoot();
             compiler_mod.Compiler.unrootFunction(vm.gc, func);
             last = vm.execute(func) catch |err| return err;
@@ -86,7 +86,7 @@ fn handleTopLevelBegin(vm: *VM, body: Value) VMError!Value {
 fn handleDefineValues(vm: *VM, args: Value) VMError!Value {
     if (!types.isPair(args)) return VMError.CompileError;
     var formals = types.car(args);
-    vm.gc.pushRoot(&formals) catch return VMError.OutOfMemory;
+    vm.gc.pushRoot(&formals);
     defer vm.gc.popRoot();
     const rest = types.cdr(args);
     if (!types.isPair(rest)) return VMError.CompileError;
@@ -94,7 +94,7 @@ fn handleDefineValues(vm: *VM, args: Value) VMError!Value {
 
     const func = compiler_mod.compileExpressionWithMacros(vm.gc, expr, &vm.macros, vm.globals) catch return VMError.CompileError;
     var func_val = types.makePointer(@ptrCast(func));
-    vm.gc.pushRoot(&func_val) catch return VMError.OutOfMemory;
+    vm.gc.pushRoot(&func_val);
     defer vm.gc.popRoot();
     compiler_mod.Compiler.unrootFunction(vm.gc, func);
     const result = vm.execute(func) catch |err| return err;
@@ -104,10 +104,10 @@ fn handleDefineValues(vm: *VM, args: Value) VMError!Value {
         if (types.isSymbol(formals)) {
             // (define-values x (values 1 2 3)) → x = (1 2 3)
             var result_root = result;
-            vm.gc.pushRoot(&result_root) catch return VMError.OutOfMemory;
+            vm.gc.pushRoot(&result_root);
             defer vm.gc.popRoot();
             var list: Value = types.NIL;
-            vm.gc.pushRoot(&list) catch return VMError.OutOfMemory;
+            vm.gc.pushRoot(&list);
             defer vm.gc.popRoot();
             const mv2 = types.toObject(result_root).as(types.MultipleValues);
             var j: usize = mv2.values.len;
@@ -125,10 +125,10 @@ fn handleDefineValues(vm: *VM, args: Value) VMError!Value {
                     // Rest parameter: (define-values (a b . rest) ...)
                     has_rest = true;
                     var result_root = result;
-                    vm.gc.pushRoot(&result_root) catch return VMError.OutOfMemory;
+                    vm.gc.pushRoot(&result_root);
                     defer vm.gc.popRoot();
                     var rest_list: Value = types.NIL;
-                    vm.gc.pushRoot(&rest_list) catch return VMError.OutOfMemory;
+                    vm.gc.pushRoot(&rest_list);
                     defer vm.gc.popRoot();
                     const mv2 = types.toObject(result_root).as(types.MultipleValues);
                     var j: usize = mv2.values.len;
@@ -157,7 +157,7 @@ fn handleDefineValues(vm: *VM, args: Value) VMError!Value {
         if (types.isSymbol(formals)) {
             // (define-values x expr) → x = (result)
             var result_root = result;
-            vm.gc.pushRoot(&result_root) catch return VMError.OutOfMemory;
+            vm.gc.pushRoot(&result_root);
             defer vm.gc.popRoot();
             const list = vm.gc.allocPair(result_root, types.NIL) catch return VMError.OutOfMemory;
             vm.defineGlobal(types.symbolName(formals), list) catch return VMError.OutOfMemory;
