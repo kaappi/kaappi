@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783235719946,
+  "lastUpdate": 1783238817506,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "47b8e74808341e77cf24572485ab2bbcbf1b3ca8",
-          "message": "Parse fd-backed (read) incrementally instead of draining to EOF (#847) (#984)\n\nreadDatumFn accumulated all bytes until read() returned 0 before\nattempting to parse a datum. On interactive terminals read() never\nreturns 0, so (read) blocked forever. Parse after each chunk instead;\nincomplete datums (UnexpectedEof) loop back for more input.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-03T22:55:45+05:30",
-          "tree_id": "759427182b00c6c7942581dccc152f906884c674",
-          "url": "https://github.com/kaappi/kaappi/commit/47b8e74808341e77cf24572485ab2bbcbf1b3ca8"
-        },
-        "date": 1783100535916,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.387643,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.658667,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.846285,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.498826,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006435,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.033383,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.475821,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.071142,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 4.210739,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.822085,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.198947,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.427575,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.807127,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.709627,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044811,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.042785,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "4ecde30b4f047f38b1d3ce0d8ed8eb169ed35dce",
+          "message": "Add audit-baseline.sh and record Phase 0 baseline results (#1138)\n\nPhase 0 of the audit campaign (docs/audit-strategy.md): the committed\nbaseline script reruns unit tests, the R7RS suite, run-all.sh, and each\nSRFI file individually. The script uses a portable timeout helper\nbecause stock macOS lacks GNU timeout — this footgun is now documented\nin the strategy doc.\n\nBaseline at b2317e8 is fully green (unit tests pass, R7RS suite 0 fail\nin every section, run-all.sh 1702 pass / 0 fail, all 35 SRFI files\npass), so no issues were filed. Tracking issue: #1137.\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-05T13:15:55+05:30",
+          "tree_id": "0a05a7a277eae0368bcd8796f892bc2d554122b7",
+          "url": "https://github.com/kaappi/kaappi/commit/4ecde30b4f047f38b1d3ce0d8ed8eb169ed35dce"
+        },
+        "date": 1783238816950,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.328045,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.847616,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.921948,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.067876,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.012357,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.211616,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.477825,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.069877,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 12.349987,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.820543,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 9.950489,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.957699,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 8.340882,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.768056,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.043465,
             "unit": "seconds"
           }
         ]
