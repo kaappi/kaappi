@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783262836277,
+  "lastUpdate": 1783264225101,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "7f426c63e8a56c7765d5fdec77d60bfcdc2af99c",
-          "message": "Skip .sbc bytecode cache in sandbox mode (#785) (#995)\n\n--sandbox promises no filesystem side effects, but runFile\nunconditionally wrote (and read) .sbc cache files. Gate the cache\npath on vm.sandbox_mode so sandboxed runs neither load nor create\nbytecode cache files on disk.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-03T20:08:39Z",
-          "tree_id": "d50a9a69d2ce43949c84e404f42e3cd23029df1a",
-          "url": "https://github.com/kaappi/kaappi/commit/7f426c63e8a56c7765d5fdec77d60bfcdc2af99c"
-        },
-        "date": 1783110250113,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.424794,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.252022,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.885283,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.340292,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006598,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.033991,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.495121,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.07198,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 4.128189,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.904936,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.187441,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.441043,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.799112,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.770158,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044513,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.042241,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "9914ac450947acdc8b1dc91a1ebc236991cca621",
+          "message": "Add primitives audit tests for 7 files (audit Phases 2.8–2.14) (#1175)\n\n* Add primitives_vector.zig audit tests (audit Phase 2.8)\n\n175 chibi-test assertions covering all 34 procedures in\nprimitives_vector.zig: R7RS 6.8 spec examples, boundary and type\nerrors, overlapping vector-copy!, UTF-8 vector->string, callback\nerror propagation, escape continuations, and every SRFI-133 spec\nexample. Clean under -Dgc-stress=true.\n\nFour findings filed instead of fixed (campaign separates discovery\nfrom fixing): #1171 vector-skip/-right reject the multi-vector form,\n#1172 nine SRFI-133 procedures missing, #1173 vector literals are\nmutable while strings enforce immutability, #1174 only/except/rename\nimport sets don't validate identifiers. Failing assertions are\ndisabled with ;; FAIL: #NNN markers so run-all.sh stays green.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n* Add primitives_list.zig audit tests (audit Phase 2.9)\n\n114 chibi-test assertions covering the 17 procedures in\nprimitives_list.zig: all R7RS 6.4 spec examples, circular-list\nhandling (list-ref on circular spines works per spec; memq/member/\nassq/list-copy raise catchable errors instead of hanging), memv/assv\neqv? consistency across flonums/bignums/rationals, comparator\nargument order, callback error propagation, and escape continuations.\nClean under -Dgc-stress=true.\n\nFindings filed instead of fixed: #1176 map/for-each with >256 lists\npanic uncatchably (fixed [256]Value buffers without bounds checks),\n#1177 (features) disagrees with both cond-expand evaluators on\nexact-closed/exact-complex, and #1173 widened to pair/list literals.\nAlso verified the unbarriered setCdr in mapFn is safe (minor GC marks\ntransitively from roots through old-gen objects).\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n* Add primitives_bytevector.zig audit tests (audit Phase 2.10)\n\n116 chibi-test assertions covering the 21 procedures in\nprimitives_bytevector.zig: all R7RS 6.9 spec examples, overlapping\nbytevector-copy! in both directions, byte-value boundaries,\nutf8->string/string->utf8 byte-vs-codepoint range indexing with\nastral chars, and full binary-port coverage (peek/read sequencing,\nEOF objects, partial reads, read-bytevector! ranges, output-\nbytevector round trips, closed-port and wrong-direction errors,\ndefault-port path via parameterize). Clean under -Dgc-stress=true.\n\nFindings filed instead of fixed: #1178 utf8->string skips UTF-8\nvalidation and manufactures corrupt strings that break string-ref\nfar from the cause, #1179 u8-ready? returns #f at EOF where R7RS\nrequires #t (the #280 fix inverted the spec — its quote was wrong),\nand #1173 widened to bytevector literals.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n* Add primitives_hashtable.zig audit tests (audit Phase 2.11)\n\n71 chibi-test assertions covering the 23 SRFI-69 procedures: key-type\ncoverage (immediates, strings, shallow structures), growth to 100\nentries, tombstone reuse, first-occurrence-wins alist->hash-table,\nmerge/copy/self-merge, snapshot semantics under mutation, hash\nfunction bounds, and case-insensitive string-ci-hash incl. Greek.\nClean under -Dgc-stress=true.\n\nFindings filed instead of fixed: #1180 bignum/rational/deep keys are\nsilently unfindable (valueHash pointer-hashes what deepEqual compares\nby value; aligned-ptr x odd-const = 0 mod 8 masks it at capacity 8),\n#1181 walk/fold snapshot is invisible to the GC — use-after-free when\nthe callback deletes entries and allocates (29/30 entries corrupted\nunder gc-stress), #1182 hash-table-update! missing from (srfi 69),\n#1183 custom equivalence/hash functions silently ignored.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n* Add primitives_fiber.zig audit tests (audit Phase 2.12)\n\n31 chibi-test assertions covering the 8 fiber/channel procedures:\nFIFO channels with reference-preserving sends, deadlock detection\n(empty receive without fibers, joining permanently-blocked fibers,\ncyclic joins — all catchable errors, no hangs), memoized joins,\nexception re-raise on every join of an errored fiber, nested spawns,\npipelines, and the MAX_FIBERS=64 limit error. Clean under\n-Dgc-stress=true. Test order documented: deadlock tests leak parked\nfibers by design, so the slot-filling limit test runs last.\n\nFindings filed instead of fixed: #1184 top-level yield raises a\ncontentless \"error\" when all 64 slots hold parked fibers (yield is\nadvisory; the main fiber can still run), and #1155 widened — spawn\nrejects native procedures the same way SRFI-18 make-thread does.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n* Add primitives_ffi.zig audit tests (audit Phase 2.13)\n\n47 chibi-test assertions covering the 7 FFI procedures and the\ncall-time marshaling behind them: open/close lifecycle (double\nclose, use-after-close), dlopen/dlsym error detail, type-list\nvalidation, numeric coercions (fixnum/rational→double accepted,\nlossy flonum→int rejected), NULL string returns → #f, NUL-in-string\nrejection, pointer round trips via memset into a bytevector,\ncallback slot exhaustion at 32 with release/reuse, and a working\nqsort comparator. Clean under -Dgc-stress=true.\n\nFindings filed instead of fixed: #1185 errors raised in FFI\ncallbacks are silently swallowed (vm.last_callback_error is\nwrite-only), #1186 the char FFI type rejects character values and\nreturns fixnums (a uint8 alias in disguise), #1187 call-time\nmarshaling errors carry no detail (bare \"error\").\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n* Add primitives_r7rs.zig audit tests (audit Phase 2.14)\n\n41 chibi-test assertions covering the 17 procedures in\nprimitives_r7rs.zig: (scheme time) invariants, command-line and\nenvironment variables, eval/environment/interaction-environment/\nnull-environment/scheme-report-environment behaviors, load round\ntrips with file-error? and catchable reader errors, parameter\nconverters at creation and parameterize time, and disassemble type\nerrors. Plus tests/scheme/errors/exit-wind.sh (8 shell assertions):\nexit runs dynamic-wind afters inside-out, emergency-exit skips them,\nand the exit-code mapping (#f->1, #t/absent->0, fixnum->low byte) —\nprocess-terminating semantics that cannot live in a .scm test.\nClean under -Dgc-stress=true.\n\nFindings filed instead of fixed: #1188 eval silently ignores a\nnon-environment specifier (evaluates in the interaction environment),\n#1189 environment rejects only/except/prefix/rename import sets\n(Phase 1D's guard-wrapped test masked this), #1190 load rejects the\noptional environment-specifier with an arity error.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n* Make exit-wind.sh executable\n\nrun-all.sh requires the executable bit on shell tests; the previous\ncommit added it as 644 and the errors suite reported \"not executable\".\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-05T20:19:21+05:30",
+          "tree_id": "58a86ba52f53f7d4a0725f2756f3ccb7cc8582a9",
+          "url": "https://github.com/kaappi/kaappi/commit/9914ac450947acdc8b1dc91a1ebc236991cca621"
+        },
+        "date": 1783264223852,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.310987,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.549362,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.921414,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.04795,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.012544,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.211186,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.471622,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.06959,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 12.344552,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.822887,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 9.945793,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.949681,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 8.344952,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.664112,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.042371,
             "unit": "seconds"
           }
         ]
