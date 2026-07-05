@@ -39,7 +39,6 @@ pub const reporting = @import("reporting.zig");
 pub const vm_library = @import("vm_library.zig");
 pub const repl_mod = @import("repl.zig");
 pub const ir_mod = @import("ir.zig");
-pub const ir_emitter = @import("ir_emitter.zig");
 pub const llvm_emit = @import("llvm_emit.zig");
 pub const native_compiler = @import("native_compiler.zig");
 pub const toplevel_driver = @import("toplevel_driver.zig");
@@ -876,7 +875,6 @@ test {
     _ = fiber_mod;
     _ = primitives_fiber;
     _ = ir_mod;
-    _ = ir_emitter;
     _ = llvm_emit;
     _ = native_compiler;
     _ = toplevel_driver;
