@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783251512509,
+  "lastUpdate": 1783262836277,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "34952ddb5c2c2a0edeb4ea4f2fc4017ddc9fd3a2",
-          "message": "Call sched_yield in thread-yield! when no cooperative scheduler exists (#948) (#994)\n\nthread-yield! was a silent no-op in schedulerless VMs (child OS threads),\ncausing busy-spin at 100% CPU. Now calls std.Thread.yield() (sched_yield)\nto hand the CPU to the OS scheduler per SRFI-18 semantics.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-03T20:03:28Z",
-          "tree_id": "66b4509618b1996f8501cc2ac1f7840967663102",
-          "url": "https://github.com/kaappi/kaappi/commit/34952ddb5c2c2a0edeb4ea4f2fc4017ddc9fd3a2"
-        },
-        "date": 1783110156293,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.033722,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.591154,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.863297,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 6.242664,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006809,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.033708,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.487477,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.068808,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 3.976129,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.855388,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.188983,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.475699,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.690942,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.791406,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044527,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044815,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "76f67a31f1d48aac6c3543a02cc53baf7cafecf6",
+          "message": "Add random, lazy, and cxr audit tests (audit Phases 2.15-2.17) (#1197)\n\nBatched audit of the three smallest primitives files per the strategy\ndoc: primitives_random.zig (SRFI-27), primitives_lazy.zig, and\nprimitives_cxr.zig. 125 assertions pass; 6 are disabled with FAIL\nmarkers pending fixes:\n\n- #1191 direct re-entrant force panics (GC root stack overflow; also\n  reproducible with nested map at depth 2000 - general VM issue)\n- #1192 default-random-source is a procedure, spec requires a variable\n- #1193 random-integer / %rs-next-int / pseudo-randomize! reject bignums\n- #1194 random-source-make-reals ignores the unit argument\n- #1195 random-real uses a [0,1) generator (code inspection, no test)\n- #1196 chibi-test shim lets errors escape test, undercounting failures\n\nprimitives_cxr.zig is fully conforming (self-labeling complete trees\nverify all 24 accessors); primitives_lazy.zig conforms apart from the\nshared crash class (delay-force chains force in bounded space, SRFI-45\ncycle detection works).\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-05T19:51:19+05:30",
+          "tree_id": "093f1b92b96f7b1c0d470e03b780642d2af19e9b",
+          "url": "https://github.com/kaappi/kaappi/commit/76f67a31f1d48aac6c3543a02cc53baf7cafecf6"
+        },
+        "date": 1783262835064,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.332062,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.399123,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.950164,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.080215,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.012374,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.211442,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.469381,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.069691,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 12.391296,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.831984,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 10.001812,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.960228,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 8.316581,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.691317,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.042241,
             "unit": "seconds"
           }
         ]
