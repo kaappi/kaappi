@@ -261,13 +261,13 @@ pub fn compileBodyForms(self: *Compiler, body: Value, opts: BodyOpts) CompileErr
         for (0..def_count) |i| {
             if (allocates_regs) {
                 last_dst = try self.allocReg();
-                try self.compileExpr(def_inits[i], last_dst, false);
+                try self.compileExprViaIR(def_inits[i], last_dst, false);
                 try self.emitOp(.set_box_local);
                 try self.emitU16(def_slots[i]);
                 try self.emitU16(last_dst);
                 self.freeReg();
             } else {
-                try self.compileExpr(def_inits[i], last_dst, false);
+                try self.compileExprViaIR(def_inits[i], last_dst, false);
                 try self.emitOp(.set_box_local);
                 try self.emitU16(def_slots[i]);
                 try self.emitU16(last_dst);
@@ -302,17 +302,17 @@ fn compileExprSequence(self: *Compiler, current: *Value, last_dst: *u16, allocat
         if (allocates_regs) {
             last_dst.* = try self.allocReg();
             if (is_last) {
-                try self.compileExpr(expr, last_dst.*, true);
+                try self.compileExprViaIR(expr, last_dst.*, true);
             } else {
                 const saved_next = self.next_register;
-                try self.compileExpr(expr, last_dst.*, false);
+                try self.compileExprViaIR(expr, last_dst.*, false);
                 if (self.next_register == saved_next) {
                     self.freeReg();
                 }
             }
         } else {
             const tail = (caller_tail orelse false) and is_last;
-            try self.compileExpr(expr, last_dst.*, tail);
+            try self.compileExprViaIR(expr, last_dst.*, tail);
         }
     }
 }
@@ -326,7 +326,7 @@ pub fn compileDefine(self: *Compiler, args: Value, dst: u16) CompileError!void {
         // (define x expr)
         if (rest == types.NIL) return CompileError.InvalidSyntax;
         const value_expr = types.car(rest);
-        try self.compileExpr(value_expr, dst, false);
+        try self.compileExprViaIR(value_expr, dst, false);
 
         // If the expression compiled to a lambda, set its name for debugging
         if (self.func.constants.items.len > 0) {
@@ -414,7 +414,7 @@ pub fn compileDefineValues(self: *Compiler, args: Value, dst: u16) CompileError!
 
     if (formals == types.NIL) {
         // (define-values () expr) — no bindings, just evaluate for side effects
-        try self.compileExpr(expr, dst, false);
+        try self.compileExprViaIR(expr, dst, false);
         try self.emitOp(.load_void);
         try self.emitU16(dst);
         return;
@@ -558,7 +558,7 @@ pub fn compileDefineValues(self: *Compiler, args: Value, dst: u16) CompileError!
     }
 
     // Compile the call-with-values expression
-    try self.compileExpr(final_form, dst, false);
+    try self.compileExprViaIR(final_form, dst, false);
     try self.emitOp(.load_void);
     try self.emitU16(dst);
 }
@@ -585,7 +585,7 @@ pub fn compileSet(self: *Compiler, args: Value, dst: u16) CompileError!void {
     if (!types.isSymbol(target)) return CompileError.InvalidSyntax;
 
     const value_expr = types.car(rest);
-    try self.compileExpr(value_expr, dst, false);
+    try self.compileExprViaIR(value_expr, dst, false);
 
     const name = types.symbolName(target);
     if (self.resolveLocal(name)) |slot| {
@@ -636,7 +636,7 @@ pub fn compileDelay(self: *Compiler, args: Value, dst: u16) CompileError!void {
     child.func.is_variadic = false;
     child.scope_depth = 1;
     const body_dst = child.allocReg() catch return CompileError.TooManyLocals;
-    try child.compileExpr(expr, body_dst, true);
+    try child.compileExprViaIR(expr, body_dst, true);
     try child.emitOp(.@"return");
     try child.emitU16(body_dst);
 
@@ -686,7 +686,7 @@ pub fn compileBegin(self: *Compiler, args: Value, dst: u16, is_tail: bool) Compi
         const expr = types.car(current);
         current = types.cdr(current);
         const tail = is_tail and current == types.NIL;
-        try self.compileExpr(expr, dst, tail);
+        try self.compileExprViaIR(expr, dst, tail);
     }
 }
 

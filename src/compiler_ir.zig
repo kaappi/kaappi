@@ -557,7 +557,15 @@ fn compileSetFromIR(self: *Compiler, data: ir_mod.SetData, dst: u16) CompileErro
     try compileFromNode(self, val_root, dst, false);
 
     if (self.resolveLocal(name)) |slot| {
-        if (self.isLocalBoxed(name)) {
+        if (self.isLocalGlobalAlias(name)) {
+            const sym_idx = try self.addConstant(data.name);
+            try self.emitOp(.set_global);
+            try self.emitU16(sym_idx);
+            try self.emitU16(dst);
+            try self.emitOp(.move);
+            try self.emitU16(slot);
+            try self.emitU16(dst);
+        } else if (self.isLocalBoxed(name)) {
             try self.emitOp(.set_box_local);
             try self.emitU16(slot);
             try self.emitU16(dst);

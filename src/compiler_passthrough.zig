@@ -23,14 +23,14 @@ pub fn compileIf(self: *Compiler, args: Value, dst: u16, is_tail: bool) CompileE
     const consequent = types.car(rest);
     const rest2 = types.cdr(rest);
 
-    try self.compileExpr(test_expr, dst, false);
+    try self.compileExprViaIR(test_expr, dst, false);
 
     try self.emitOp(.jump_false);
     try self.emitU16(dst);
     const else_jump = self.currentOffset();
     try self.emitI16(0);
 
-    try self.compileExpr(consequent, dst, is_tail);
+    try self.compileExprViaIR(consequent, dst, is_tail);
 
     if (rest2 != types.NIL) {
         try self.emitOp(.jump);
@@ -40,7 +40,7 @@ pub fn compileIf(self: *Compiler, args: Value, dst: u16, is_tail: bool) CompileE
         try self.patchJump(else_jump);
 
         const alternate = types.car(rest2);
-        try self.compileExpr(alternate, dst, is_tail);
+        try self.compileExprViaIR(alternate, dst, is_tail);
 
         try self.patchJump(end_jump);
     } else {
@@ -109,13 +109,13 @@ pub fn compileCall(self: *Compiler, expr: Value, dst: u16, is_tail: bool) Compil
     const needs_rebase = (dst + 1 != self.next_register);
     const base = if (needs_rebase) try self.allocReg() else dst;
 
-    try self.compileExpr(operator, base, false);
+    try self.compileExprViaIR(operator, base, false);
 
     arg_list = types.cdr(expr);
     while (arg_list != types.NIL) {
         const arg = types.car(arg_list);
         const arg_reg = try self.allocReg();
-        try self.compileExpr(arg, arg_reg, false);
+        try self.compileExprViaIR(arg, arg_reg, false);
         arg_list = types.cdr(arg_list);
     }
 
@@ -240,7 +240,7 @@ fn compileSelfTailCall(self: *Compiler, expr: Value, dst: u16, nargs: u8) Compil
     while (arg_list != types.NIL) {
         const arg = types.car(arg_list);
         const arg_reg = try self.allocReg();
-        try self.compileExpr(arg, arg_reg, false);
+        try self.compileExprViaIR(arg, arg_reg, false);
         arg_list = types.cdr(arg_list);
     }
 
@@ -265,14 +265,14 @@ pub fn compileApplyTail(self: *Compiler, expr: Value, dst: u16) CompileError!voi
     const needs_rebase = (dst + 1 != self.next_register);
     const base = if (needs_rebase) try self.allocReg() else dst;
 
-    try self.compileExpr(types.car(arg_list), base, false);
+    try self.compileExprViaIR(types.car(arg_list), base, false);
     arg_list = types.cdr(arg_list);
 
     var nargs_count: usize = 0;
     while (arg_list != types.NIL) {
         if (!types.isPair(arg_list)) return CompileError.InvalidSyntax;
         const arg_reg = try self.allocReg();
-        try self.compileExpr(types.car(arg_list), arg_reg, false);
+        try self.compileExprViaIR(types.car(arg_list), arg_reg, false);
         nargs_count += 1;
         arg_list = types.cdr(arg_list);
     }
@@ -311,7 +311,7 @@ fn compileCallGlobal(self: *Compiler, expr: Value, operator: Value, dst: u16, is
         if (!types.isPair(arg_list)) return CompileError.InvalidSyntax;
         const arg = types.car(arg_list);
         const arg_reg = try self.allocReg();
-        try self.compileExpr(arg, arg_reg, false);
+        try self.compileExprViaIR(arg, arg_reg, false);
         nargs_count += 1;
         arg_list = types.cdr(arg_list);
     }

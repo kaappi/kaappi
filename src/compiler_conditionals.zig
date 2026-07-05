@@ -11,7 +11,7 @@ pub fn emitArrowCall(self: *Compiler, source_reg: u16, proc_expr: Value, dst: u1
     try self.emitOp(.move);
     try self.emitU16(arg_reg);
     try self.emitU16(source_reg);
-    try self.compileExpr(proc_expr, proc_reg, false);
+    try self.compileExprViaIR(proc_expr, proc_reg, false);
     if (is_tail) try self.emitOp(.tail_call) else try self.emitOp(.call);
     try self.emitU16(proc_reg);
     try self.emit(1);
@@ -51,9 +51,9 @@ fn compileShortCircuit(self: *Compiler, args: Value, dst: u16, is_tail: bool, em
         const rest = types.cdr(current);
 
         if (rest == types.NIL) {
-            try self.compileExpr(expr, dst, is_tail);
+            try self.compileExprViaIR(expr, dst, is_tail);
         } else {
-            try self.compileExpr(expr, dst, false);
+            try self.compileExprViaIR(expr, dst, false);
             try self.emitOp(jump_op);
             try self.emitU16(dst);
             end_jumps.append(self.gc.allocator, self.currentOffset()) catch return CompileError.TooManyLocals;
@@ -72,7 +72,7 @@ pub fn compileWhen(self: *Compiler, args: Value, dst: u16, is_tail: bool) Compil
     const test_expr = types.car(args);
     const body = types.cdr(args);
 
-    try self.compileExpr(test_expr, dst, false);
+    try self.compileExprViaIR(test_expr, dst, false);
     try self.emitOp(.jump_false);
     try self.emitU16(dst);
     const false_jump = self.currentOffset();
@@ -83,7 +83,7 @@ pub fn compileWhen(self: *Compiler, args: Value, dst: u16, is_tail: bool) Compil
         if (!types.isPair(current)) return CompileError.InvalidSyntax;
         const rest = types.cdr(current);
         const tail = is_tail and rest == types.NIL;
-        try self.compileExpr(types.car(current), dst, tail);
+        try self.compileExprViaIR(types.car(current), dst, tail);
         current = rest;
     }
 
@@ -103,7 +103,7 @@ pub fn compileUnless(self: *Compiler, args: Value, dst: u16, is_tail: bool) Comp
     const test_expr = types.car(args);
     const body = types.cdr(args);
 
-    try self.compileExpr(test_expr, dst, false);
+    try self.compileExprViaIR(test_expr, dst, false);
     try self.emitOp(.jump_true);
     try self.emitU16(dst);
     const true_jump = self.currentOffset();
@@ -114,7 +114,7 @@ pub fn compileUnless(self: *Compiler, args: Value, dst: u16, is_tail: bool) Comp
         if (!types.isPair(current)) return CompileError.InvalidSyntax;
         const rest = types.cdr(current);
         const tail = is_tail and rest == types.NIL;
-        try self.compileExpr(types.car(current), dst, tail);
+        try self.compileExprViaIR(types.car(current), dst, tail);
         current = rest;
     }
 
@@ -158,7 +158,7 @@ pub fn compileCond(self: *Compiler, args: Value, dst: u16, is_tail: bool) Compil
         }
 
         // Compile test
-        try self.compileExpr(test_expr, dst, false);
+        try self.compileExprViaIR(test_expr, dst, false);
 
         // Check for => form (only if => is not rebound as a local variable)
         if (clause_body != types.NIL and types.isPair(clause_body)) {
@@ -222,7 +222,7 @@ pub fn compileCondBody(self: *Compiler, body: Value, dst: u16, is_tail: bool) Co
         const expr = types.car(current);
         current = types.cdr(current);
         const tail = is_tail and current == types.NIL;
-        try self.compileExpr(expr, dst, tail);
+        try self.compileExprViaIR(expr, dst, tail);
     }
 }
 

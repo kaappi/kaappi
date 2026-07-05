@@ -443,7 +443,18 @@ pub const Compiler = struct {
         var rooted = form;
         self.gc.pushRoot(&rooted);
         defer self.gc.popRoot();
-        return self.compileExpr(rooted, dst, is_tail);
+        return self.compileExprViaIR(rooted, dst, is_tail);
+    }
+
+    pub fn compileExprViaIR(self: *Compiler, expr: Value, dst: u16, is_tail: bool) CompileError!void {
+        var ir = ir_mod.IR.init(self.gc.allocator);
+        ir.globals = self.globals;
+        ir.restricted_env = self.restricted_env;
+        ir.compiler = self;
+        ir.set_targets = self.set_targets;
+        defer ir.deinit();
+        const root = try ir_mod.lowerAndOptimize(&ir, expr, &self.macros, is_tail);
+        try compiler_ir.compileFromNode(self, root, dst, is_tail);
     }
 
     pub fn compileExpr(self: *Compiler, expr: Value, dst: u16, is_tail: bool) CompileError!void {

@@ -111,7 +111,7 @@ pub fn compileCase(self: *Compiler, args: Value, dst: u16, is_tail: bool) Compil
 
     // Compile key expression into a dedicated register
     const key_reg = try self.allocReg();
-    try self.compileExpr(key_expr, key_reg, false);
+    try self.compileExprViaIR(key_expr, key_reg, false);
 
     var end_jumps: std.ArrayList(usize) = .empty;
     defer end_jumps.deinit(self.gc.allocator);
@@ -328,7 +328,7 @@ fn compileQQ(self: *Compiler, tmpl: Value, dst: u16, depth: u8) CompileError!voi
             // Evaluate the expression
             const rest = types.cdr(tmpl);
             if (rest == types.NIL) return CompileError.InvalidSyntax;
-            try self.compileExpr(types.car(rest), dst, false);
+            try self.compileExprViaIR(types.car(rest), dst, false);
             return;
         } else {
             // Nested unquote: decrement depth, rebuild the form
@@ -619,7 +619,7 @@ fn compileQQSplicing(self: *Compiler, tmpl: Value, dst: u16, depth: u8) CompileE
         nc_held = false;
         gc.pushRoot(&seg0);
         defer gc.popRoot();
-        return self.compileExpr(seg0, dst, false);
+        return self.compileExprViaIR(seg0, dst, false);
     }
 
     // Build (append seg1 seg2 ... segN)
@@ -634,7 +634,7 @@ fn compileQQSplicing(self: *Compiler, tmpl: Value, dst: u16, depth: u8) CompileE
     nc_held = false;
     gc.pushRoot(&append_call);
     defer gc.popRoot();
-    return self.compileExpr(append_call, dst, false);
+    return self.compileExprViaIR(append_call, dst, false);
 }
 
 /// Build an S-expression (list expr1 expr2 ...) where each expr is either
@@ -706,7 +706,7 @@ pub fn compileParameterize(self: *Compiler, args: Value, dst: u16, is_tail: bool
 
     if (binding_count == 0) {
         // No bindings: just compile the body
-        return self.compileExpr(gc.allocPair(begin_sym, body) catch return CompileError.OutOfMemory, dst, is_tail);
+        return self.compileDesugared(gc.allocPair(begin_sym, body) catch return CompileError.OutOfMemory, dst, is_tail);
     }
 
     // Collect param/value exprs and generate old/new/param-value symbols

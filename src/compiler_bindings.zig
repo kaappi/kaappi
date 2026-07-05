@@ -89,7 +89,7 @@ pub fn compileLet(self: *Compiler, args: Value, dst: u16, is_tail: bool) Compile
                     std.mem.eql(u8, types.symbolName(body_expr), types.symbolName(var_name)))
                 {
                     const init_expr = types.car(types.cdr(binding));
-                    try self.compileExpr(init_expr, dst, true);
+                    try self.compileExprViaIR(init_expr, dst, true);
                     return;
                 }
             }
@@ -114,7 +114,7 @@ pub fn compileLet(self: *Compiler, args: Value, dst: u16, is_tail: bool) Compile
 
         if (count >= MAX_LET_BINDINGS) return CompileError.TooManyLocals;
         const slot = try self.allocReg();
-        try self.compileExpr(init_expr, slot, false);
+        try self.compileExprViaIR(init_expr, slot, false);
         slots[count] = slot;
         names[count] = types.symbolName(var_name);
         count += 1;
@@ -152,7 +152,7 @@ pub fn compileLetStar(self: *Compiler, args: Value, dst: u16, is_tail: bool) Com
         const init_expr = types.car(types.cdr(binding));
 
         const slot = try self.allocReg();
-        try self.compileExpr(init_expr, slot, false);
+        try self.compileExprViaIR(init_expr, slot, false);
         try self.addLocal(types.symbolName(var_name), slot);
 
         binding_list = types.cdr(binding_list);
@@ -208,7 +208,7 @@ fn compileLetrecImpl(self: *Compiler, args: Value, dst: u16, is_tail: bool) Comp
 
     // Phase 2: evaluate inits and assign to boxed locals
     for (0..count) |i| {
-        try self.compileExpr(inits[i], dst, false);
+        try self.compileExprViaIR(inits[i], dst, false);
         try self.emitOp(.set_box_local);
         try self.emitU16(slots[i]);
         try self.emitU16(dst);
@@ -402,7 +402,7 @@ pub fn compileDo(self: *Compiler, args: Value, dst: u16, is_tail: bool) CompileE
 
         if (var_count >= MAX_LET_BINDINGS) return CompileError.TooManyLocals;
         const slot = try self.allocReg();
-        try self.compileExpr(init_expr, slot, false);
+        try self.compileExprViaIR(init_expr, slot, false);
         var_slots[var_count] = slot;
         var_names[var_count] = types.symbolName(var_name);
 
@@ -462,7 +462,7 @@ pub fn compileDo(self: *Compiler, args: Value, dst: u16, is_tail: bool) CompileE
     const loop_start = self.currentOffset();
 
     // Test
-    try self.compileExpr(test_expr, dst, false);
+    try self.compileExprViaIR(test_expr, dst, false);
     try self.emitOp(.jump_true);
     try self.emitU16(dst);
     const exit_jump = self.currentOffset();
@@ -472,7 +472,7 @@ pub fn compileDo(self: *Compiler, args: Value, dst: u16, is_tail: bool) CompileE
     var cmd = commands;
     while (cmd != types.NIL) {
         if (!types.isPair(cmd)) return CompileError.InvalidSyntax;
-        try self.compileExpr(types.car(cmd), dst, false);
+        try self.compileExprViaIR(types.car(cmd), dst, false);
         cmd = types.cdr(cmd);
     }
 
@@ -482,7 +482,7 @@ pub fn compileDo(self: *Compiler, args: Value, dst: u16, is_tail: bool) CompileE
     for (0..var_count) |j| {
         if (has_step[j]) {
             const temp = try self.allocReg();
-            try self.compileExpr(step_exprs[j], temp, false);
+            try self.compileExprViaIR(step_exprs[j], temp, false);
             temp_slots[step_count] = temp;
             step_count += 1;
         }
@@ -527,7 +527,7 @@ pub fn compileDo(self: *Compiler, args: Value, dst: u16, is_tail: bool) CompileE
             const expr = types.car(result);
             result = types.cdr(result);
             const tail = is_tail and result == types.NIL;
-            try self.compileExpr(expr, dst, tail);
+            try self.compileExprViaIR(expr, dst, tail);
         }
     }
 
@@ -596,7 +596,7 @@ pub fn compileLetValues(self: *Compiler, args: Value, dst: u16, is_tail: bool) C
         defer gc.popRoot();
         const slot = try self.allocReg();
         temp_slots[i] = slot;
-        try self.compileExpr(cwv_expr, slot, false);
+        try self.compileExprViaIR(cwv_expr, slot, false);
     }
 
     // Now build nested (apply (lambda (formals) ...) temp) from inside out
