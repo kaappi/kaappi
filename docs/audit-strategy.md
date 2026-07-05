@@ -150,12 +150,12 @@ and issue numbers, e.g. `[x] ... (2026-07-06, #1101–#1105)`.
 - [x] 3.4: Upgrade smoke-only SRFIs to behavioral tests (98, 125, 128, 132, 141, 151, 152, 174, 175, 195, 219, 232) (2026-07-05, #1229–#1238; 402 tests + ~60 disabled — SRFI-219 dead on arrival (imported define macro can't shadow the built-in special form, #1237 is a core expander bug), SRFI-232 currying is strictly unary chains, balanced/ aliased to round/, default comparator not a total order (pairs/vectors/cross-type unordered) + eq/eqv comparators unhashable, hash-table-ref/find ignore success/proc-result (125), string-every drops last value (152), ascii-digit-value treats letters as digits (175), copy-bit rejects spec booleans + eqv/bits->list arity (151, beyond #1214), 14 of 22 SRFI-132 exports missing, timespec conversions missing (174); SRFI-98 and 195 fully conform)
 
 **Phase 4 — Compiler & VM edge cases**
-- [ ] 4A: Tail positions in derived forms + thin-coverage forms
-- [ ] 4B: Continuation interactions (dynamic-wind, guard, parameterize, values)
-- [ ] 4C: Macro hygiene + define-library import sets
+- [x] 4A: Tail positions in derived forms + thin-coverage forms (2026-07-05, #1240–#1242; 54 tests + 6 disabled — call-with-values consumer, call/cc receiver, and eval are NOT tail-called (§3.5 requires; native re-entry panics at ~1024 via #1191's mechanism), let*-values body is not a tail context (even 1 clause; let-values is fine), force caps promise chains at 100k iterations and mislabels longer legit delay-force chains as circular; apply/cond=>/case-lambda/do/let-syntax and all other §3.5 contexts verified at 1e5–1e6 depth; parameterize/define-values/letrec*/letrec-syntax thin coverage conforms except sequential-binding #1202)
+- [x] 4B: Continuation interactions (2026-07-05, no new issues; 22 tests + 1 disabled (#1169) — R7RS 6.10 connect/talk/disconnect re-entry example exact, multi-shot segments, parameterize captured+restored across re-entry, escape/afters inner-to-outer, guard =>/else/re-raise, raise-continuable resume, handler-return secondary exception, mv through dynamic-wind all conform; state kept global to dodge #1168)
+- [x] 4C: Macro hygiene + define-library import sets (2026-07-05, #1243; 23 tests + 1 disabled — doubled-ellipsis template (x ... ...) produces garbage with a literal ... instead of flattening; be-like-begin/(... ...) escape, custom ellipsis, vector patterns, tail patterns after ellipsis, =>-shadowing (p.24 example!), macro exports through prefix/only/rename/except and only-of-rename, cond-expand library declarations all conform; circular imports cleanly detected with nonzero exit)
 
 **Phase 5 — Synthesis**
-- [ ] 5: Deduplicate, group by root cause, prioritize, update tracking issue
+- [x] 5: Deduplicate, group by root cause, prioritize, update tracking issue (2026-07-05 — 87 findings filed over the campaign, 81 still open, 6 already fixed (#1176 #1178 #1180 #1184 #1185 #1188 — their FAIL markers still need re-enabling); no duplicates found (dedup enforced at filing time); grouped into 9 root-cause clusters with 2 epics filed (native re-entrancy, portable-SRFI quality); priority order + 197-marker inventory posted on #1137; run-all.sh hardened to parse chibi-test/SRFI-64 fail counts so exit-0 failures no longer pass silently)
 
 ---
 
