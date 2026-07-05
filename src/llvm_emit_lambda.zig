@@ -476,15 +476,7 @@ pub fn sexprNeedsEvalFallback(expr: Value) bool {
 }
 
 fn isEvalFallbackForm(name: []const u8) bool {
-    const forms = [_][]const u8{
-        "letrec",     "letrec*",       "do",
-        "delay",      "delay-force",   "cond",
-        "case",       "case-lambda",   "guard",
-        "quasiquote", "parameterize",  "define-values",
-        "let-values", "let*-values",   "define-syntax",
-        "let-syntax", "letrec-syntax", "cond-expand",
-    };
-    for (forms) |f| {
+    for (ir.eval_fallback_form_names) |f| {
         if (std.mem.eql(u8, name, f)) return true;
     }
     return false;
@@ -650,7 +642,14 @@ fn nodeHasFreeVars(node: *const ir.Node, params: []const []const u8) bool {
         // global. Disqualify and fall back to the interpreter.
         .define => return true,
         .constant => return false,
-        else => return false,
+        .lambda, .passthrough, .let_form, .let_star => return false,
+        inline else => |tag| {
+            comptime {
+                if (ir.llvmCapability(tag) != .eval_fallback)
+                    @compileError("unhandled native tag in nodeHasFreeVars: " ++ @tagName(tag));
+            }
+            return false;
+        },
     }
 }
 
@@ -712,6 +711,12 @@ fn collectNodeFreeVars(node: *const ir.Node, params: []const []const u8, buf: *[
             collectNodeFreeVars(node.data.unless_form.test_expr, params, buf, count);
             collectFreeVars(node.data.unless_form.body, params, buf, count);
         },
-        else => {},
+        .constant, .define, .set_form, .lambda, .passthrough, .let_form, .let_star => {},
+        inline else => |tag| {
+            comptime {
+                if (ir.llvmCapability(tag) != .eval_fallback)
+                    @compileError("unhandled native tag in collectNodeFreeVars: " ++ @tagName(tag));
+            }
+        },
     }
 }

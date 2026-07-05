@@ -45,6 +45,107 @@ pub const NodeTag = enum {
     passthrough,
 };
 
+pub const LLVMCapability = enum { native, eval_fallback };
+
+pub const LLVMNodeEntry = struct {
+    tag: NodeTag,
+    capability: LLVMCapability,
+    form_name: ?[]const u8 = null,
+    include_in_name_set: bool = true,
+};
+
+pub const llvm_node_table: [34]LLVMNodeEntry = .{
+    .{ .tag = .constant, .capability = .native },
+    .{ .tag = .global_ref, .capability = .native },
+    .{ .tag = .call, .capability = .native },
+    .{ .tag = .@"if", .capability = .native },
+    .{ .tag = .begin, .capability = .native },
+    .{ .tag = .and_form, .capability = .native },
+    .{ .tag = .or_form, .capability = .native },
+    .{ .tag = .when_form, .capability = .native },
+    .{ .tag = .unless_form, .capability = .native },
+    .{ .tag = .define, .capability = .native },
+    .{ .tag = .set_form, .capability = .native },
+    .{ .tag = .lambda, .capability = .native },
+    .{ .tag = .let_form, .capability = .native, .form_name = "let" },
+    .{ .tag = .let_star, .capability = .native, .form_name = "let*" },
+    .{ .tag = .letrec, .capability = .eval_fallback, .form_name = "letrec" },
+    .{ .tag = .letrec_star, .capability = .eval_fallback, .form_name = "letrec*" },
+    .{ .tag = .do_form, .capability = .eval_fallback, .form_name = "do" },
+    .{ .tag = .delay, .capability = .eval_fallback, .form_name = "delay" },
+    .{ .tag = .delay_force, .capability = .eval_fallback, .form_name = "delay-force" },
+    .{ .tag = .cond, .capability = .eval_fallback, .form_name = "cond" },
+    .{ .tag = .case_form, .capability = .eval_fallback, .form_name = "case" },
+    .{ .tag = .case_lambda, .capability = .eval_fallback, .form_name = "case-lambda" },
+    .{ .tag = .guard, .capability = .eval_fallback, .form_name = "guard" },
+    .{ .tag = .quasiquote, .capability = .eval_fallback, .form_name = "quasiquote" },
+    .{ .tag = .parameterize, .capability = .eval_fallback, .form_name = "parameterize" },
+    .{ .tag = .define_values, .capability = .eval_fallback, .form_name = "define-values" },
+    .{ .tag = .let_values, .capability = .eval_fallback, .form_name = "let-values" },
+    .{ .tag = .let_star_values, .capability = .eval_fallback, .form_name = "let*-values" },
+    .{ .tag = .define_syntax, .capability = .eval_fallback, .form_name = "define-syntax" },
+    .{ .tag = .named_let, .capability = .eval_fallback, .form_name = "let", .include_in_name_set = false },
+    .{ .tag = .let_syntax, .capability = .eval_fallback, .form_name = "let-syntax" },
+    .{ .tag = .letrec_syntax, .capability = .eval_fallback, .form_name = "letrec-syntax" },
+    .{ .tag = .cond_expand, .capability = .eval_fallback, .form_name = "cond-expand" },
+    .{ .tag = .passthrough, .capability = .native },
+};
+
+const eval_fallback_name_count = countEvalFallbackNames();
+
+fn countEvalFallbackNames() usize {
+    var count: usize = 0;
+    for (llvm_node_table) |entry| {
+        if (entry.capability == .eval_fallback and entry.include_in_name_set and entry.form_name != null)
+            count += 1;
+    }
+    return count;
+}
+
+pub const eval_fallback_form_names: [eval_fallback_name_count][]const u8 = blk: {
+    var names: [eval_fallback_name_count][]const u8 = undefined;
+    var i: usize = 0;
+    for (llvm_node_table) |entry| {
+        if (entry.capability == .eval_fallback and entry.include_in_name_set) {
+            if (entry.form_name) |name| {
+                names[i] = name;
+                i += 1;
+            }
+        }
+    }
+    break :blk names;
+};
+
+pub fn llvmCapability(tag: NodeTag) LLVMCapability {
+    for (llvm_node_table) |entry| {
+        if (entry.tag == tag) return entry.capability;
+    }
+    unreachable;
+}
+
+pub fn llvmFormName(tag: NodeTag) ?[]const u8 {
+    for (llvm_node_table) |entry| {
+        if (entry.tag == tag) return entry.form_name;
+    }
+    return null;
+}
+
+comptime {
+    const fields = @typeInfo(NodeTag).@"enum".fields;
+    if (llvm_node_table.len != fields.len)
+        @compileError("llvm_node_table must have exactly one entry per NodeTag");
+    var seen: [fields.len]bool = .{false} ** fields.len;
+    for (llvm_node_table) |entry| {
+        const idx = @intFromEnum(entry.tag);
+        if (seen[idx])
+            @compileError("duplicate tag in llvm_node_table");
+        seen[idx] = true;
+    }
+    for (seen) |s| {
+        if (!s) @compileError("missing tag in llvm_node_table");
+    }
+}
+
 pub const Annotations = struct {
     is_tail: bool = false,
     is_primitive_call: bool = false,
