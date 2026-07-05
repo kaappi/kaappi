@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783240247713,
+  "lastUpdate": 1783240278439,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "aa57b7e16396416567d0ee97afdeb5cc447b03f3",
-          "message": "Fix LLVM backend eval fallback losing lexical environment (#827) (#987)\n\nWhen the native backend compiled a let or lambda body natively but a\nsub-form (cond, do, letrec, etc.) required interpreter eval fallback,\nthe sub-form was serialized and evaluated via kaappi_eval in the global\nenvironment — losing let-bound locals and clobbering same-named globals\nvia bindParamsAsGlobals.\n\nThe fix prevents splitting a lexical scope across the native/interpreted\nboundary:\n\n- emitLet: detect eval-fallback forms and capturing lambdas upfront;\n  fall back to evaluating the entire let form via the interpreter.\n- tryCompileDefineFunction / tryCompileNativeClosure /\n  tryCompilePureLambdaAsNativeClosure: reject native compilation when\n  the body contains forms needing eval fallback.\n- emitLambdaViaEval: return an error inside a let scope so the\n  enclosing let can fall back instead of creating a broken closure.\n- emitLetFallback: fix S-expression serialization that added an extra\n  layer of parentheses around the form args.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-03T22:56:32+05:30",
-          "tree_id": "739d9c6403f6e49522d32fb0a27e217c6011c249",
-          "url": "https://github.com/kaappi/kaappi/commit/aa57b7e16396416567d0ee97afdeb5cc447b03f3"
-        },
-        "date": 1783100806957,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.030117,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.720003,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.904786,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.374021,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.00679,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.033655,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.489111,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.068917,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 4.034128,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.869529,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.188755,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.477124,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.701949,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.899584,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044324,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044175,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "5ae7e1b799878a91cc0bc927700860a1eb0be9ab",
+          "message": "Add R7RS 4.1-4.3 and 5.6 conformance gap tests (audit Phase 1A) (#1143)\n\n34 new assertions covering spec requirements the R7RS suite misses:\nunquoted self-evaluating vectors/bytevectors, include/include-ci, cond\ntest-only clauses, multiple values through and/or, let* duplicate\nbindings, let-values formals variants and init scoping, do with omitted\nstep, expression-level cond-expand, parameterize converter semantics,\nimproper quasiquote templates, constant patterns, literal hygiene, and\nlet-syntax vs letrec-syntax keyword scoping. Library-system tests (5.6)\ncover numeric name components, export rename, nested import sets,\nimport merging, and single instantiation - all passing.\n\nThree assertions are disabled with FAIL markers pending fixes:\n#1139 (literal matching ignores lexical bindings), #1140 (let-syntax\nsibling keyword scoping), #1141 (include-ci does not fold case).\nsyntax-error diagnostics filed as #1142 (needs an error-format.sh\ncase, no in-file test). Part of the #1137 audit campaign.\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-05T13:37:04+05:30",
+          "tree_id": "8103afefc280b19198968b0ed6a4ee5b4f3916de",
+          "url": "https://github.com/kaappi/kaappi/commit/5ae7e1b799878a91cc0bc927700860a1eb0be9ab"
+        },
+        "date": 1783240277273,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.575686,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.298351,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.777686,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 3.356718,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.012969,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.216157,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.386037,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.058533,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 12.636149,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.525649,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 10.312462,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 1.004396,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 8.507119,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 0.956265,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.037478,
             "unit": "seconds"
           }
         ]
