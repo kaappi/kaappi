@@ -141,12 +141,12 @@ and issue numbers, e.g. `[x] ... (2026-07-06, #1101–#1105)`.
 
 **Phase 3 — SRFI conformance**
 - [x] 3.0: Run all 35 existing SRFI test files, capture failures (2026-07-05, no failures — all 35 files pass individually under timeout 30 at 96ce73b: chibi-test files all print 0 fail, SRFI-64 files report 0 unexpected failures (srfi64.scm's 1 "expected failure" is an intentional test-expect-fail), exit-code files all print their OK markers; no hangs, no escaped errors)
-- [ ] 3.1: Built-in SRFIs without adequate tests (9, 39, 170)
-- [ ] 3a: SRFIs 0, 6, 17, 23, 26 (syntax extensions)
-- [ ] 3b: SRFIs 37, 38, 43, 116, 117, 134 (records, arrays, immutable data)
-- [ ] 3c: SRFIs 41, 42, 45, 143, 144 (lazy evaluation, math)
-- [ ] 3d: SRFIs 60, 61, 78, 87, 197, 210, 227 (bitwise, testing, pipelines)
-- [ ] 3e: SRFIs 4, 127, 130, 233, 235 (vectors, cursors, combinators)
+- [x] 3.1: Built-in SRFIs without adequate tests (9, 39, 170) (2026-07-05, #1202–#1203 + #560 reopened; 68 tests + 6 disabled — parameterize installs bindings sequentially (SRFI-39 "1010" example fails), record redefinition retargets old ctors/predicates via call-time __record_type_ lookup, define-record-type still broken in lambda/let bodies (begin was fixed); constructors map fields by name, converters, disjointness, escape-restore all conform; 170 covered by 2.5)
+- [x] 3a: SRFIs 0, 6, 17, 23, 26 (syntax extensions) (2026-07-05, #1205 + #1208; 54 tests + 9 disabled — SRFI-17 is a stub (no generalized set!, no predefined setters), cut/cute hardcoded patterns (cute re-evaluates per call, later slots swallowed, no operator slots, arity cap); cond-expand/string ports/error all conform)
+- [x] 3b: SRFIs 37, 38, 43, 116, 117, 134 (2026-07-05, #1209, #1211–#1213; 125 tests + 12 disabled — SRFI-43 is SRFI-133-in-disguise (no index callbacks, 8 exports missing), args-fold short options/seed threading broken, ideque-filter calls unbound filter, reader drops datum-label refs inside vectors (breaks SRFI-38 vector cycles); queues/ideques/ilists otherwise conform)
+- [x] 3c: SRFIs 41, 42, 45, 143, 144 (2026-07-05, #1207, #1210, #1214–#1217, #1226; 157 tests + 20 disabled — bitwise and/ior/xor wrong for ALL negative operands (SRFI-151 helpers, inherited by 60/143), stream-unfold inverted + append truncates + zip crashes, comprehensions single-qualifier only, lazy/eager missing, flmax/fxmax-class arity caps; core streams/fixnum/flonum surfaces conform)
+- [x] 3d: SRFIs 60, 61, 78, 87, 197, 210, 227 (2026-07-05, #1206, #1218–#1220, #1222, #1224; 91 tests + 14 disabled — SRFI-61 empty stub, chain ignores _ placeholder (nest missing), value returns wrong element + set!-values is a no-op, check-passed? wrong signature, opt*-lambda aliased to opt-lambda; case-=> and positive-operand SRFI-60 conform)
+- [x] 3e: SRFIs 4, 127, 130, 233, 235 (2026-07-05, #1221, #1223, #1225; 122 tests + 8 disabled — SRFI-4 integer kinds are indistinguishable bytevector aliases with unchecked signed ranges, ini-file->alist dead (char-whitespace? unbound), SRFI-235 missing 24/36 exports; lseqs and cursor strings fully conform)
 - [ ] 3.4: Upgrade smoke-only SRFIs to behavioral tests (98, 125, 128, 132, 141, 151, 152, 174, 175, 195, 219, 232)
 
 **Phase 4 — Compiler & VM edge cases**

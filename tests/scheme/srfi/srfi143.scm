@@ -1,0 +1,81 @@
+;; SRFI-143 (fixnums) conformance tests — audit Phase 3c
+;; Run directly: zig-out/bin/kaappi tests/scheme/srfi/srfi143.scm
+
+(import (scheme base) (srfi 143) (chibi test))
+
+(test-begin "srfi-143")
+
+;;; --- constants and fixnum? ---
+(test #t (>= fx-width 14))                       ; SRFI-143 minimum
+(test #t (= fx-greatest (- (expt 2 (- fx-width 1)) 1)))
+(test #t (= fx-least (- (expt 2 (- fx-width 1)))))
+(test #t (fixnum? 0))
+(test #t (fixnum? fx-greatest))
+(test #t (fixnum? fx-least))
+(test #f (fixnum? (+ fx-greatest 1)))
+(test #f (fixnum? 1.0))
+(test #f (fixnum? 1/2))
+(test #f (fixnum? 'a))
+
+;;; --- comparisons ---
+(test #t (fx=? 1 1))
+(test #t (fx<? 1 2))
+(test #f (fx<? 2 1))
+(test #t (fx>? 3 2))
+(test #t (fx<=? 1 1))
+(test #t (fx>=? 2 2))
+;; FAIL: #1226 (comparison predicates accept exactly 2 arguments)
+;; (test #t (fx<? 1 2 3))
+;; (test #t (fx>? 3 2 1))
+
+;;; --- predicates ---
+(test #t (fxzero? 0))
+(test #f (fxzero? 1))
+(test #t (fxpositive? 1))
+(test #f (fxpositive? 0))
+(test #t (fxnegative? -1))
+(test #t (fxodd? 3))
+(test #t (fxeven? 4))
+(test #f (fxeven? 3))
+
+;;; --- arithmetic ---
+(test 5 (fx+ 2 3))
+(test -1 (fx- 2 3))
+(test 6 (fx* 2 3))
+(test -2 (fxneg 2))
+(test 3 (fxquotient 7 2))
+(test -3 (fxquotient -7 2))
+(test 1 (fxremainder 7 2))
+(test -1 (fxremainder -7 2))
+(test 5 (fxabs -5))
+(test 9 (fxsquare 3))
+(test 3 (fxmax 1 3))
+(test 1 (fxmin 2 1))
+;; FAIL: #1226 (fxmax/fxmin accept exactly 2 arguments)
+;; (test 3 (fxmax 1 3 2))
+;; (test 1 (fxmin 2 1 3))
+
+;;; --- bitwise ---
+(test 10 (fxand 11 26))
+(test 11 (fxior 3 10))
+(test 6 (fxxor 3 5))
+(test -11 (fxnot 10))
+(test 8 (fxarithmetic-shift 1 3))
+(test 2 (fxarithmetic-shift 16 -3))
+(test 8 (fxarithmetic-shift-left 1 3))
+(test 2 (fxarithmetic-shift-right 16 3))
+(test 3 (fxbit-count 7))
+(test 1 (fxbit-count 8))
+(test 4 (fxlength 8))
+(test 0 (fxlength 0))
+;; FAIL: #1214 (fxand broken for negative operands; fxif inherits it)
+;; (test 9 (fxif 3 1 8))
+(test #t (fxbit-set? 0 1))
+(test #f (fxbit-set? 1 1))
+(test #t (fxbit-set? 2 4))
+(test 2 (fxfirst-set-bit 12))
+(test -1 (fxfirst-set-bit 0))
+(test 0 (fxfirst-set-bit 1))
+(test 2 (fxbit-field 13 1 3))
+
+(test-end "srfi-143")
