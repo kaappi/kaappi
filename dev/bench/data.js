@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783268713817,
+  "lastUpdate": 1783270360749,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "f7cac2503851faf7e2d5dc32b0864739c26801d2",
-          "message": "Handle bignums in types.toF64 to fix FFI double/float marshaling (#793) (#999)\n\ntypes.toF64 had no case for bignums — any bignum fell through to\nreturn 0.0, causing bignum-backed rationals to marshal as 0.0 or\n+inf.0 when passed to C functions expecting double/float arguments.\n\nAdd a bignum check that delegates to bignum.toF64, matching the\npattern already used by primitives.toF64.\n\nCloses #793\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-03T20:50:54Z",
-          "tree_id": "f0b5cb969b6fea6e0d7a004afddcdf78d1709e46",
-          "url": "https://github.com/kaappi/kaappi/commit/f7cac2503851faf7e2d5dc32b0864739c26801d2"
-        },
-        "date": 1783112857000,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.390096,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.979266,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.970473,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.448717,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006672,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.033766,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.480233,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.072198,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 4.09368,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.868217,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.21368,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.444214,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.843022,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.700044,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.043034,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.042493,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "451455defddfb4a057dde68ac86b28447e52f901",
+          "message": "Add matching parenthesis highlighting to REPL (#1228)\n\nWhen the cursor is right after a closing ) or ], both the closing\ndelimiter and its matching opening delimiter are highlighted in bold\nbright yellow. This provides visual feedback for balanced expressions\nwhile typing, similar to paren-matching in Emacs and other Lisp editors.\n\nThe matching is lexically aware — it correctly skips parens inside\nstrings, line comments, block comments, character literals (#\\(), and\npipe-quoted symbols (|...|). Multi-line input is supported: on\ncontinuation lines, the matcher considers accumulated previous lines\nto confirm balance even when the opening delimiter is on an earlier line.\n\nImplementation extends the vendored linenoise highlight callback to\nreceive cursor position, adds a forward-scanning paren matcher, and\nintegrates it into the existing syntax highlighting pipeline.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-05T16:27:16Z",
+          "tree_id": "8c4b4d00131691482ac71c1d66fd9dfc784390b3",
+          "url": "https://github.com/kaappi/kaappi/commit/451455defddfb4a057dde68ac86b28447e52f901"
+        },
+        "date": 1783270360199,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.354055,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.537352,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.919999,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.094855,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.012405,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.211717,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.471032,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.070311,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 12.34488,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.810715,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 10.024542,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.956644,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 8.325894,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.698782,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.043147,
             "unit": "seconds"
           }
         ]
