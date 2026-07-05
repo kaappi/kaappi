@@ -98,14 +98,22 @@
   (call-with-values (lambda () (values 1 2)) +))
 (test-equal "tail cwv with shadowed list" 3 (shadow-cwv 99))
 
-;; --- promise.forcing cleared on SRFI-45 chain collapse ---
+;; Defensive: promise.forcing cleared on SRFI-45 chain collapse.
+;; The flag reset is not directly observable from Scheme (all other exit
+;; paths already clear it), but guards against future code paths that
+;; might read forcing before the next thunk call sets it again.
 (define (chain-test n)
   (let loop ((i 0) (p (delay 'done)))
     (if (= i n) p
         (loop (+ i 1) (delay-force p)))))
-(test-equal "delay-force chain forcing flag" 'done (force (chain-test 100)))
+(test-equal "delay-force chain resolves" 'done (force (chain-test 100)))
 
-;; Remove duplicate import (already imported at line 12)
+;; --- deep native re-entrancy raises catchable error ---
+(define (deep-map n)
+  (if (= n 0) 0
+      (car (map (lambda (x) (deep-map (- x 1))) (list n)))))
+(test-equal "deep native map catchable" 'caught
+  (guard (e (#t 'caught)) (deep-map 2500)))
 
 (let ((runner (test-runner-current)))
   (test-end "r7rs-tail-procedures-gaps")

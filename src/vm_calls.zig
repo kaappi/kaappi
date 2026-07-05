@@ -512,7 +512,9 @@ fn computeReentrantBase(vm: *VM) u32 {
 
 fn callReentrant(vm: *VM, closure: *types.Closure, base: u32, dst: u8, returns_to_native: bool) VMError!Value {
     const max_native_depth: u16 = if (@import("builtin").mode == .Debug) 200 else 3000;
-    if (vm.native_reentry_depth >= max_native_depth) {
+    if (vm.native_reentry_depth >= max_native_depth or
+        vm.gc.root_count > vm.gc.root_buffer.len - 32)
+    {
         vm.setErrorDetail("native re-entrancy too deep", .{});
         return VMError.StackOverflow;
     }
