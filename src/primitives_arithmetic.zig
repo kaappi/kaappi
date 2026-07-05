@@ -77,20 +77,13 @@ fn ratPartsVal(v: Value) PrimitiveError!RatPartsVal {
 }
 
 fn allocRationalRooted(gc: *@import("memory.zig").GC, n: i64, d: i64) PrimitiveError!Value {
-    var num = try makeFixnumChecked(n);
-    gc.extra_roots.append(gc.allocator, num) catch return PrimitiveError.OutOfMemory;
-    var den = try makeFixnumChecked(d);
-    gc.extra_roots.append(gc.allocator, den) catch return PrimitiveError.OutOfMemory;
-    num = gc.extra_roots.items[gc.extra_roots.items.len - 2];
-    den = gc.extra_roots.items[gc.extra_roots.items.len - 1];
-    const result = gc.allocRational(num, den) catch {
-        _ = gc.extra_roots.pop();
-        _ = gc.extra_roots.pop();
-        return PrimitiveError.OutOfMemory;
-    };
-    _ = gc.extra_roots.pop();
-    _ = gc.extra_roots.pop();
-    return result;
+    const num = try makeFixnumChecked(n);
+    var slot_num = gc.rootedSlot(num) catch return PrimitiveError.OutOfMemory;
+    defer slot_num.release();
+    const den = try makeFixnumChecked(d);
+    var slot_den = gc.rootedSlot(den) catch return PrimitiveError.OutOfMemory;
+    defer slot_den.release();
+    return gc.allocRational(slot_num.get(), slot_den.get()) catch return PrimitiveError.OutOfMemory;
 }
 
 /// Construct a reduced rational (or integer if den divides num).
@@ -125,43 +118,42 @@ pub fn makeRationalReduced(gc: *@import("memory.zig").GC, num_val: Value, den_va
 
     var num = num_val;
     var den = den_val;
-    // Root num and den across all bignum allocations below.
-    gc.extra_roots.append(gc.allocator, num) catch return PrimitiveError.OutOfMemory;
-    gc.extra_roots.append(gc.allocator, den) catch return PrimitiveError.OutOfMemory;
-    defer {
-        if (gc.extra_roots.items.len > 0) _ = gc.extra_roots.pop();
-        if (gc.extra_roots.items.len > 0) _ = gc.extra_roots.pop();
-    }
+    var slot_num = gc.rootedSlot(num) catch return PrimitiveError.OutOfMemory;
+    defer slot_num.release();
+    var slot_den = gc.rootedSlot(den) catch return PrimitiveError.OutOfMemory;
+    defer slot_den.release();
 
     // Ensure positive denominator
     if (bignum_mod.isNegative(den)) {
         num = bignum_mod.negate(gc, num) catch return PrimitiveError.OutOfMemory;
-        gc.extra_roots.items[gc.extra_roots.items.len - 2] = num;
+        slot_num.set(num);
         den = bignum_mod.negate(gc, den) catch return PrimitiveError.OutOfMemory;
-        gc.extra_roots.items[gc.extra_roots.items.len - 1] = den;
+        slot_den.set(den);
     }
 
-    // Reduce by GCD — root abs_num and g across allocating calls
-    var abs_num = bignum_mod.absVal(gc, num) catch return PrimitiveError.OutOfMemory;
-    gc.extra_roots.append(gc.allocator, abs_num) catch return PrimitiveError.OutOfMemory;
-    var g = den;
-    gc.extra_roots.append(gc.allocator, g) catch return PrimitiveError.OutOfMemory;
-    while (!bignum_mod.isZero(abs_num)) {
-        const t = abs_num;
-        abs_num = bignum_mod.remainder(gc, g, abs_num) catch return PrimitiveError.OutOfMemory;
-        abs_num = bignum_mod.absVal(gc, abs_num) catch return PrimitiveError.OutOfMemory;
-        g = t;
-        gc.extra_roots.items[gc.extra_roots.items.len - 2] = abs_num;
-        gc.extra_roots.items[gc.extra_roots.items.len - 1] = g;
-    }
-    _ = gc.extra_roots.pop();
-    _ = gc.extra_roots.pop();
-    // g is now gcd(|num|, den)
-    if (!bignum_mod.isZero(g) and bignum_mod.compare(g, types.makeFixnum(1)) != 0) {
-        num = bignum_mod.quotient(gc, num, g) catch return PrimitiveError.OutOfMemory;
-        gc.extra_roots.items[gc.extra_roots.items.len - 2] = num;
-        den = bignum_mod.quotient(gc, den, g) catch return PrimitiveError.OutOfMemory;
-        gc.extra_roots.items[gc.extra_roots.items.len - 1] = den;
+    // Reduce by GCD
+    {
+        var abs_num = bignum_mod.absVal(gc, num) catch return PrimitiveError.OutOfMemory;
+        var slot_abs = gc.rootedSlot(abs_num) catch return PrimitiveError.OutOfMemory;
+        defer slot_abs.release();
+        var g = den;
+        var slot_g = gc.rootedSlot(g) catch return PrimitiveError.OutOfMemory;
+        defer slot_g.release();
+        while (!bignum_mod.isZero(abs_num)) {
+            const t = abs_num;
+            abs_num = bignum_mod.remainder(gc, g, abs_num) catch return PrimitiveError.OutOfMemory;
+            abs_num = bignum_mod.absVal(gc, abs_num) catch return PrimitiveError.OutOfMemory;
+            g = t;
+            slot_abs.set(abs_num);
+            slot_g.set(g);
+        }
+        // g is now gcd(|num|, den)
+        if (!bignum_mod.isZero(g) and bignum_mod.compare(g, types.makeFixnum(1)) != 0) {
+            num = bignum_mod.quotient(gc, num, g) catch return PrimitiveError.OutOfMemory;
+            slot_num.set(num);
+            den = bignum_mod.quotient(gc, den, g) catch return PrimitiveError.OutOfMemory;
+            slot_den.set(den);
+        }
     }
 
     // Demote to fixnum if possible
@@ -269,14 +261,12 @@ fn anyBignum(args: []const Value) bool {
 fn bignumAddAll(args: []const Value) PrimitiveError!Value {
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     var result: Value = types.makeFixnum(0);
-    gc.extra_roots.append(gc.allocator, result) catch return PrimitiveError.OutOfMemory;
-    defer {
-        if (gc.extra_roots.items.len > 0) _ = gc.extra_roots.pop();
-    }
+    var slot = gc.rootedSlot(result) catch return PrimitiveError.OutOfMemory;
+    defer slot.release();
     for (args) |a| {
         if (!types.isFixnum(a) and !types.isBignum(a)) return PrimitiveError.TypeError;
         result = bignum_mod.add(gc, result, a) catch return PrimitiveError.OutOfMemory;
-        gc.extra_roots.items[gc.extra_roots.items.len - 1] = result;
+        slot.set(result);
     }
     return result;
 }
@@ -289,14 +279,12 @@ fn bignumSubAll(args: []const Value) PrimitiveError!Value {
     }
     var result = args[0];
     if (!types.isFixnum(result) and !types.isBignum(result)) return PrimitiveError.TypeError;
-    gc.extra_roots.append(gc.allocator, result) catch return PrimitiveError.OutOfMemory;
-    defer {
-        if (gc.extra_roots.items.len > 0) _ = gc.extra_roots.pop();
-    }
+    var slot = gc.rootedSlot(result) catch return PrimitiveError.OutOfMemory;
+    defer slot.release();
     for (args[1..]) |a| {
         if (!types.isFixnum(a) and !types.isBignum(a)) return PrimitiveError.TypeError;
         result = bignum_mod.sub(gc, result, a) catch return PrimitiveError.OutOfMemory;
-        gc.extra_roots.items[gc.extra_roots.items.len - 1] = result;
+        slot.set(result);
     }
     return result;
 }
@@ -304,14 +292,12 @@ fn bignumSubAll(args: []const Value) PrimitiveError!Value {
 fn bignumMulAll(args: []const Value) PrimitiveError!Value {
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     var result: Value = types.makeFixnum(1);
-    gc.extra_roots.append(gc.allocator, result) catch return PrimitiveError.OutOfMemory;
-    defer {
-        if (gc.extra_roots.items.len > 0) _ = gc.extra_roots.pop();
-    }
+    var slot = gc.rootedSlot(result) catch return PrimitiveError.OutOfMemory;
+    defer slot.release();
     for (args) |a| {
         if (!types.isFixnum(a) and !types.isBignum(a)) return PrimitiveError.TypeError;
         result = bignum_mod.mul(gc, result, a) catch return PrimitiveError.OutOfMemory;
-        gc.extra_roots.items[gc.extra_roots.items.len - 1] = result;
+        slot.set(result);
     }
     return result;
 }
@@ -338,25 +324,22 @@ fn add(args: []const Value) PrimitiveError!Value {
         const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
         var acc_num: Value = types.makeFixnum(0);
         var acc_den: Value = types.makeFixnum(1);
-        gc.extra_roots.append(gc.allocator, acc_num) catch return PrimitiveError.OutOfMemory;
-        gc.extra_roots.append(gc.allocator, acc_den) catch return PrimitiveError.OutOfMemory;
-        defer {
-            if (gc.extra_roots.items.len > 0) _ = gc.extra_roots.pop();
-            if (gc.extra_roots.items.len > 0) _ = gc.extra_roots.pop();
-        }
+        var slot_num = gc.rootedSlot(acc_num) catch return PrimitiveError.OutOfMemory;
+        defer slot_num.release();
+        var slot_den = gc.rootedSlot(acc_den) catch return PrimitiveError.OutOfMemory;
+        defer slot_den.release();
         for (args) |a| {
             if (types.isFlonum(a)) {
                 const acc_f = try toF64Ext(acc_num) / try toF64Ext(acc_den);
                 return makeFlonumVal(acc_f + types.toFlonum(a));
             }
             const parts = try ratPartsVal(a);
-            // acc_num/acc_den + a_num/a_den = (acc_num*a_den + a_num*acc_den) / (acc_den*a_den)
             const t1 = bignum_mod.mul(gc, acc_num, parts.den) catch return PrimitiveError.OutOfMemory;
             const t2 = bignum_mod.mul(gc, parts.num, acc_den) catch return PrimitiveError.OutOfMemory;
             acc_num = bignum_mod.add(gc, t1, t2) catch return PrimitiveError.OutOfMemory;
             acc_den = bignum_mod.mul(gc, acc_den, parts.den) catch return PrimitiveError.OutOfMemory;
-            gc.extra_roots.items[gc.extra_roots.items.len - 2] = acc_num;
-            gc.extra_roots.items[gc.extra_roots.items.len - 1] = acc_den;
+            slot_num.set(acc_num);
+            slot_den.set(acc_den);
         }
         return makeRationalReduced(gc, acc_num, acc_den);
     }
@@ -403,12 +386,10 @@ fn sub(args: []const Value) PrimitiveError!Value {
             acc_num = bignum_mod.negate(gc, acc_num) catch return PrimitiveError.OutOfMemory;
             return makeRationalReduced(gc, acc_num, acc_den);
         }
-        gc.extra_roots.append(gc.allocator, acc_num) catch return PrimitiveError.OutOfMemory;
-        gc.extra_roots.append(gc.allocator, acc_den) catch return PrimitiveError.OutOfMemory;
-        defer {
-            if (gc.extra_roots.items.len > 0) _ = gc.extra_roots.pop();
-            if (gc.extra_roots.items.len > 0) _ = gc.extra_roots.pop();
-        }
+        var slot_num = gc.rootedSlot(acc_num) catch return PrimitiveError.OutOfMemory;
+        defer slot_num.release();
+        var slot_den = gc.rootedSlot(acc_den) catch return PrimitiveError.OutOfMemory;
+        defer slot_den.release();
         for (args[1..]) |a| {
             if (types.isFlonum(a)) {
                 const acc_f = try toF64Ext(acc_num) / try toF64Ext(acc_den);
@@ -419,8 +400,8 @@ fn sub(args: []const Value) PrimitiveError!Value {
             const t2 = bignum_mod.mul(gc, parts.num, acc_den) catch return PrimitiveError.OutOfMemory;
             acc_num = bignum_mod.sub(gc, t1, t2) catch return PrimitiveError.OutOfMemory;
             acc_den = bignum_mod.mul(gc, acc_den, parts.den) catch return PrimitiveError.OutOfMemory;
-            gc.extra_roots.items[gc.extra_roots.items.len - 2] = acc_num;
-            gc.extra_roots.items[gc.extra_roots.items.len - 1] = acc_den;
+            slot_num.set(acc_num);
+            slot_den.set(acc_den);
         }
         return makeRationalReduced(gc, acc_num, acc_den);
     }
@@ -469,12 +450,10 @@ fn mul(args: []const Value) PrimitiveError!Value {
         const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
         var acc_num: Value = types.makeFixnum(1);
         var acc_den: Value = types.makeFixnum(1);
-        gc.extra_roots.append(gc.allocator, acc_num) catch return PrimitiveError.OutOfMemory;
-        gc.extra_roots.append(gc.allocator, acc_den) catch return PrimitiveError.OutOfMemory;
-        defer {
-            if (gc.extra_roots.items.len > 0) _ = gc.extra_roots.pop();
-            if (gc.extra_roots.items.len > 0) _ = gc.extra_roots.pop();
-        }
+        var slot_num = gc.rootedSlot(acc_num) catch return PrimitiveError.OutOfMemory;
+        defer slot_num.release();
+        var slot_den = gc.rootedSlot(acc_den) catch return PrimitiveError.OutOfMemory;
+        defer slot_den.release();
         for (args) |a| {
             if (types.isFlonum(a)) {
                 const acc_f = try toF64Ext(acc_num) / try toF64Ext(acc_den);
@@ -483,8 +462,8 @@ fn mul(args: []const Value) PrimitiveError!Value {
             const parts = try ratPartsVal(a);
             acc_num = bignum_mod.mul(gc, acc_num, parts.num) catch return PrimitiveError.OutOfMemory;
             acc_den = bignum_mod.mul(gc, acc_den, parts.den) catch return PrimitiveError.OutOfMemory;
-            gc.extra_roots.items[gc.extra_roots.items.len - 2] = acc_num;
-            gc.extra_roots.items[gc.extra_roots.items.len - 1] = acc_den;
+            slot_num.set(acc_num);
+            slot_den.set(acc_den);
         }
         return makeRationalReduced(gc, acc_num, acc_den);
     }
@@ -551,20 +530,17 @@ fn divFn(args: []const Value) PrimitiveError!Value {
         const init = try ratPartsVal(args[0]);
         var acc_num: Value = init.num;
         var acc_den: Value = init.den;
-        gc.extra_roots.append(gc.allocator, acc_num) catch return PrimitiveError.OutOfMemory;
-        gc.extra_roots.append(gc.allocator, acc_den) catch return PrimitiveError.OutOfMemory;
-        defer {
-            if (gc.extra_roots.items.len > 0) _ = gc.extra_roots.pop();
-            if (gc.extra_roots.items.len > 0) _ = gc.extra_roots.pop();
-        }
+        var slot_num = gc.rootedSlot(acc_num) catch return PrimitiveError.OutOfMemory;
+        defer slot_num.release();
+        var slot_den = gc.rootedSlot(acc_den) catch return PrimitiveError.OutOfMemory;
+        defer slot_den.release();
         for (args[1..]) |a| {
             const parts = try ratPartsVal(a);
             if (bignum_mod.isZero(parts.num)) return raiseDivByZero();
-            // (acc_num/acc_den) / (a_num/a_den) = (acc_num*a_den) / (acc_den*a_num)
             acc_num = bignum_mod.mul(gc, acc_num, parts.den) catch return PrimitiveError.OutOfMemory;
             acc_den = bignum_mod.mul(gc, acc_den, parts.num) catch return PrimitiveError.OutOfMemory;
-            gc.extra_roots.items[gc.extra_roots.items.len - 2] = acc_num;
-            gc.extra_roots.items[gc.extra_roots.items.len - 1] = acc_den;
+            slot_num.set(acc_num);
+            slot_den.set(acc_den);
         }
         return makeRationalReduced(gc, acc_num, acc_den);
     }
@@ -609,24 +585,20 @@ fn divFn(args: []const Value) PrimitiveError!Value {
         const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
         var num_val = args[0];
         var den_val: Value = types.makeFixnum(1);
-        gc.extra_roots.append(gc.allocator, num_val) catch return PrimitiveError.OutOfMemory;
-        defer {
-            if (gc.extra_roots.items.len > 0) _ = gc.extra_roots.pop();
-        }
-        gc.extra_roots.append(gc.allocator, den_val) catch return PrimitiveError.OutOfMemory;
-        defer {
-            if (gc.extra_roots.items.len > 0) _ = gc.extra_roots.pop();
-        }
+        var slot_num = gc.rootedSlot(num_val) catch return PrimitiveError.OutOfMemory;
+        defer slot_num.release();
+        var slot_den = gc.rootedSlot(den_val) catch return PrimitiveError.OutOfMemory;
+        defer slot_den.release();
         for (args[1..]) |a| {
             if (bignum_mod.isZero(a)) return raiseDivByZero();
             const rem = bignum_mod.remainder(gc, num_val, a) catch return PrimitiveError.OutOfMemory;
             if (bignum_mod.isZero(rem)) {
                 num_val = bignum_mod.quotient(gc, num_val, a) catch return PrimitiveError.OutOfMemory;
                 num_val = bignum_mod.demote(num_val);
-                gc.extra_roots.items[gc.extra_roots.items.len - 2] = num_val;
+                slot_num.set(num_val);
             } else {
                 den_val = bignum_mod.mul(gc, den_val, a) catch return PrimitiveError.OutOfMemory;
-                gc.extra_roots.items[gc.extra_roots.items.len - 1] = den_val;
+                slot_den.set(den_val);
             }
         }
         if (types.isFixnum(den_val) and types.toFixnum(den_val) == 1) return num_val;
@@ -829,16 +801,14 @@ fn cmpPair(a: Value, b: Value) PrimitiveError!i8 {
             const mantissa: i64 = @intCast(mantissa_bits | 0x0010000000000000);
             if (exp >= 0) {
                 var exact = gc.allocBignumFromI64(mantissa) catch return PrimitiveError.OutOfMemory;
-                gc.extra_roots.append(gc.allocator, exact) catch return PrimitiveError.OutOfMemory;
-                defer {
-                    if (gc.extra_roots.items.len > 0) _ = gc.extra_roots.pop();
-                }
+                var slot = gc.rootedSlot(exact) catch return PrimitiveError.OutOfMemory;
+                defer slot.release();
                 const two = types.makeFixnum(2);
                 const shift = types.makeFixnum(exp);
                 const scale = bignum_mod.expt(gc, two, shift) catch return PrimitiveError.OutOfMemory;
-                exact = gc.extra_roots.items[gc.extra_roots.items.len - 1];
+                exact = slot.get();
                 exact = bignum_mod.mul(gc, exact, scale) catch return PrimitiveError.OutOfMemory;
-                gc.extra_roots.items[gc.extra_roots.items.len - 1] = exact;
+                slot.set(exact);
                 if (fb < 0) exact = bignum_mod.negate(gc, exact) catch return PrimitiveError.OutOfMemory;
                 return bignum_mod.compare(a, exact);
             }
@@ -1011,13 +981,10 @@ fn absVal(args: []const Value) PrimitiveError!Value {
         }
         if (types.isBignum(r.numerator)) {
             if (bignum_mod.isNegative(r.numerator)) {
-                var abs_num = bignum_mod.absVal(gc, r.numerator) catch return PrimitiveError.OutOfMemory;
-                gc.extra_roots.append(gc.allocator, abs_num) catch return PrimitiveError.OutOfMemory;
-                defer {
-                    if (gc.extra_roots.items.len > 0) _ = gc.extra_roots.pop();
-                }
-                abs_num = gc.extra_roots.items[gc.extra_roots.items.len - 1];
-                return gc.allocRational(abs_num, r.denominator) catch return PrimitiveError.OutOfMemory;
+                const abs_num = bignum_mod.absVal(gc, r.numerator) catch return PrimitiveError.OutOfMemory;
+                var slot = gc.rootedSlot(abs_num) catch return PrimitiveError.OutOfMemory;
+                defer slot.release();
+                return gc.allocRational(slot.get(), r.denominator) catch return PrimitiveError.OutOfMemory;
             }
             return args[0];
         }
@@ -1160,27 +1127,24 @@ fn gcdFn(args: []const Value) PrimitiveError!Value {
         return makeFlonumVal(result);
     }
     if (anyBignum(args)) {
-        // Bignum GCD: use Euclidean algorithm with bignum ops
         const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
         if (!types.isFixnum(args[0]) and !types.isBignum(args[0])) return numberTypeError(args[0]);
         var result = bignum_mod.absVal(gc, args[0]) catch return PrimitiveError.OutOfMemory;
-        gc.extra_roots.append(gc.allocator, result) catch return PrimitiveError.OutOfMemory;
-        defer {
-            if (gc.extra_roots.items.len > 0) _ = gc.extra_roots.pop();
-        }
+        var slot_result = gc.rootedSlot(result) catch return PrimitiveError.OutOfMemory;
+        defer slot_result.release();
         for (args[1..]) |a| {
             if (!types.isFixnum(a) and !types.isBignum(a)) return numberTypeError(a);
             var b_val = bignum_mod.absVal(gc, a) catch return PrimitiveError.OutOfMemory;
-            gc.extra_roots.append(gc.allocator, b_val) catch return PrimitiveError.OutOfMemory;
+            var slot_b = gc.rootedSlot(b_val) catch return PrimitiveError.OutOfMemory;
             while (!bignum_mod.isZero(b_val)) {
                 const t = b_val;
                 b_val = bignum_mod.remainder(gc, result, b_val) catch return PrimitiveError.OutOfMemory;
                 b_val = bignum_mod.absVal(gc, b_val) catch return PrimitiveError.OutOfMemory;
                 result = t;
-                gc.extra_roots.items[gc.extra_roots.items.len - 2] = result;
-                gc.extra_roots.items[gc.extra_roots.items.len - 1] = b_val;
+                slot_result.set(result);
+                slot_b.set(b_val);
             }
-            _ = gc.extra_roots.pop();
+            slot_b.release();
         }
         return result;
     }
@@ -1210,28 +1174,25 @@ fn lcmFn(args: []const Value) PrimitiveError!Value {
         return makeFlonumVal(result);
     }
     if (anyBignum(args)) {
-        // Bignum LCM: lcm(a,b) = |a*b| / gcd(a,b)
         const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
         var result = bignum_mod.absVal(gc, args[0]) catch return PrimitiveError.OutOfMemory;
-        gc.extra_roots.append(gc.allocator, result) catch return PrimitiveError.OutOfMemory;
-        defer {
-            if (gc.extra_roots.items.len > 0) _ = gc.extra_roots.pop();
-        }
+        var slot_result = gc.rootedSlot(result) catch return PrimitiveError.OutOfMemory;
+        defer slot_result.release();
         for (args[1..]) |a| {
             var b_abs = bignum_mod.absVal(gc, a) catch return PrimitiveError.OutOfMemory;
-            gc.extra_roots.append(gc.allocator, b_abs) catch return PrimitiveError.OutOfMemory;
+            var slot_b = gc.rootedSlot(b_abs) catch return PrimitiveError.OutOfMemory;
             const gcd_args = [_]Value{ result, b_abs };
             const g = try gcdFn(&gcd_args);
-            b_abs = gc.extra_roots.items[gc.extra_roots.items.len - 1];
+            b_abs = slot_b.get();
             if (bignum_mod.isZero(g)) {
                 result = types.makeFixnum(0);
             } else {
                 const q = bignum_mod.quotient(gc, result, g) catch return PrimitiveError.OutOfMemory;
-                b_abs = gc.extra_roots.items[gc.extra_roots.items.len - 1];
+                b_abs = slot_b.get();
                 result = bignum_mod.mul(gc, q, b_abs) catch return PrimitiveError.OutOfMemory;
             }
-            _ = gc.extra_roots.pop();
-            gc.extra_roots.items[gc.extra_roots.items.len - 1] = result;
+            slot_b.release();
+            slot_result.set(result);
         }
         return result;
     }
@@ -1252,10 +1213,8 @@ fn lcmFn(args: []const Value) PrimitiveError!Value {
             if (ov[1] != 0) {
                 const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
                 var big_result = bignum_mod.mul(gc, try makeFixnumChecked(partial), try makeFixnumChecked(abs_b)) catch return PrimitiveError.OutOfMemory;
-                gc.extra_roots.append(gc.allocator, big_result) catch return PrimitiveError.OutOfMemory;
-                defer {
-                    if (gc.extra_roots.items.len > 0) _ = gc.extra_roots.pop();
-                }
+                var slot = gc.rootedSlot(big_result) catch return PrimitiveError.OutOfMemory;
+                defer slot.release();
                 idx += 1;
                 while (idx < args.len) : (idx += 1) {
                     const b_abs = bignum_mod.absVal(gc, args[idx]) catch return PrimitiveError.OutOfMemory;
@@ -1267,7 +1226,7 @@ fn lcmFn(args: []const Value) PrimitiveError!Value {
                         const q = bignum_mod.quotient(gc, big_result, g2) catch return PrimitiveError.OutOfMemory;
                         big_result = bignum_mod.mul(gc, q, b_abs) catch return PrimitiveError.OutOfMemory;
                     }
-                    gc.extra_roots.items[gc.extra_roots.items.len - 1] = big_result;
+                    slot.set(big_result);
                 }
                 return big_result;
             }

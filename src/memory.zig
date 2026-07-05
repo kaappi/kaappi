@@ -1128,6 +1128,43 @@ pub const GC = struct {
     pub fn popRoot(self: *GC) void {
         self.root_count -= 1;
     }
+
+    pub const RootedSlot = struct {
+        gc: *GC,
+        idx: usize,
+
+        pub fn set(self: RootedSlot, val: Value) void {
+            self.gc.extra_roots.items[self.idx] = val;
+        }
+
+        pub fn get(self: RootedSlot) Value {
+            return self.gc.extra_roots.items[self.idx];
+        }
+
+        pub fn release(self: RootedSlot) void {
+            if (self.idx == self.gc.extra_roots.items.len - 1) {
+                _ = self.gc.extra_roots.pop();
+            }
+        }
+    };
+
+    pub fn rootedSlot(self: *GC, val: Value) error{OutOfMemory}!RootedSlot {
+        self.extra_roots.append(self.allocator, val) catch return error.OutOfMemory;
+        return .{ .gc = self, .idx = self.extra_roots.items.len - 1 };
+    }
+
+    pub const RootedScope = struct {
+        gc: *GC,
+        base: usize,
+
+        pub fn release(self: RootedScope) void {
+            self.gc.extra_roots.shrinkRetainingCapacity(self.base);
+        }
+    };
+
+    pub fn rootedScope(self: *GC) RootedScope {
+        return .{ .gc = self, .base = self.extra_roots.items.len };
+    }
 };
 
 // ---------------------------------------------------------------------------
@@ -1222,4 +1259,45 @@ test "allocNativeClosure triggers GC" {
     // Without maybeCollect, object_count would be 10.
     // With it, GC runs and collects unrooted closures.
     try std.testing.expect(gc.object_count < 10);
+}
+
+test "rootedSlot set/get/release" {
+    var gc = GC.init(std.testing.allocator);
+    defer gc.deinit();
+
+    const v1 = types.makeFixnum(10);
+    const v2 = types.makeFixnum(20);
+    const v3 = types.makeFixnum(30);
+
+    var slot_a = try gc.rootedSlot(v1);
+    try std.testing.expectEqual(v1, slot_a.get());
+    try std.testing.expectEqual(@as(usize, 1), gc.extra_roots.items.len);
+
+    var slot_b = try gc.rootedSlot(v2);
+    try std.testing.expectEqual(v2, slot_b.get());
+    try std.testing.expectEqual(@as(usize, 2), gc.extra_roots.items.len);
+
+    slot_b.set(v3);
+    try std.testing.expectEqual(v3, slot_b.get());
+    try std.testing.expectEqual(v1, slot_a.get());
+
+    slot_b.release();
+    try std.testing.expectEqual(@as(usize, 1), gc.extra_roots.items.len);
+    slot_a.release();
+    try std.testing.expectEqual(@as(usize, 0), gc.extra_roots.items.len);
+}
+
+test "rootedScope release" {
+    var gc = GC.init(std.testing.allocator);
+    defer gc.deinit();
+
+    gc.extra_roots.append(gc.allocator, types.makeFixnum(1)) catch unreachable;
+    const scope = gc.rootedScope();
+    gc.extra_roots.append(gc.allocator, types.makeFixnum(2)) catch unreachable;
+    gc.extra_roots.append(gc.allocator, types.makeFixnum(3)) catch unreachable;
+    try std.testing.expectEqual(@as(usize, 3), gc.extra_roots.items.len);
+
+    scope.release();
+    try std.testing.expectEqual(@as(usize, 1), gc.extra_roots.items.len);
+    try std.testing.expectEqual(types.makeFixnum(1), gc.extra_roots.items[0]);
 }
