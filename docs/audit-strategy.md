@@ -125,7 +125,7 @@ and issue numbers, e.g. `[x] ... (2026-07-06, #1101–#1105)`.
 - [x] 2.3: `primitives_char.zig` (Unicode) (2026-07-05, no new bugs — 59 audit tests; final-sigma, ligatures, Cherokee all conform; classification pending #1145)
 - [x] 2.4: `primitives_io.zig` (ports) (2026-07-05, no bugs — 49 audit tests; closed-port errors, write label semantics, binary ports all conform)
 - [x] 2.5: `primitives_filesystem.zig` (SRFI-170) (2026-07-05, #1161–#1164; 65 audit tests + 3 disabled — group-info-by-name gid=0 via upstream Zig getgrnam misdeclaration, bare-fixnum time objects, missing chown sentinels, SRFI-60 export gap found in passing; covers SRFI-170 for Phase 3.1)
-- [ ] 2.6: `primitives_srfi1.zig` (SRFI-1)
+- [x] 2.6: `primitives_srfi1.zig` (SRFI-1) (2026-07-05, #1166; 105 audit tests + 2 disabled — take-right/drop-right reject dotted lists; fold/unfold/lset/predicate semantics all conform; gc-stress clean)
 - [ ] 2.7: `primitives_control.zig` (call/cc, guard)
 - [ ] 2.8: `primitives_vector.zig`
 - [ ] 2.9: `primitives_list.zig`
