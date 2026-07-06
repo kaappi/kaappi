@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783316959197,
+  "lastUpdate": 1783321811244,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "934cf9817728f9a2de88c99772d618de253ffd40",
-          "message": "Add width-aware pretty-printing for REPL output (#921) (#1005)\n\nDetect terminal width via ioctl/TIOCGWINSZ and use it for all REPL\noutput paths.  Improve the pretty-printer with exact flat-length\nmeasurement, multi-line vector/bytevector support, and special-form-\naware indentation (body forms like define/lambda/let keep the first\narg on line 1; clause forms like cond/case indent each clause).\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-03T21:51:00Z",
-          "tree_id": "49fea02c485418334be3f5a9667fcf50c39614b5",
-          "url": "https://github.com/kaappi/kaappi/commit/934cf9817728f9a2de88c99772d618de253ffd40"
-        },
-        "date": 1783116409759,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.131681,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.26508,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.704326,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.319072,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.0053,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.026622,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.382693,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.054247,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 2.380989,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.454353,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 0.923924,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.367823,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.316106,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.364706,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.035452,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.043407,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c9dc81af0c007014e609fe460ce6b3b100d7b068",
+          "message": "Deliver multiple values when continuation invoked with != 1 arg (#1251)\n\n* Deliver multiple values when continuation invoked with != 1 arg (#1169)\n\nContinuation invocation (both call/cc and call/ec) was silently dropping\nall but the first argument. When nargs != 1, wrap the args in a\nMultipleValues object — mirroring `values` semantics — so\ncall-with-values consumers receive the correct argument count.\n\nFixed in all three dispatch sites: vm_dispatch.zig (regular call and\nflat-args paths) and vm_calls.zig (callValue fallback).\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Fix missed callWithArgs site, extract continuationArgValue helper\n\nAddress review feedback: the callWithArgs continuation branch still had\nthe old single-value logic, reachable via apply and first-class\ncall-with-values. Extract continuationArgValue() to a shared helper so\nall four dispatch sites use the same wrap, preventing future divergence.\n\nAdd three regression tests covering the callWithArgs path (non-tail\napply multi-arg, zero-arg apply, first-class call-with-values).\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-06T12:14:33+05:30",
+          "tree_id": "5bb200e2ba6b37c59c99ae2baf0f66374fb0dfe6",
+          "url": "https://github.com/kaappi/kaappi/commit/c9dc81af0c007014e609fe460ce6b3b100d7b068"
+        },
+        "date": 1783321810014,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.082698,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.02201,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.772698,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 3.095799,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.010714,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.182096,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.372693,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.054309,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 9.729624,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.42952,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 8.606802,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.826741,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 7.143777,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.470395,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.035241,
             "unit": "seconds"
           }
         ]
