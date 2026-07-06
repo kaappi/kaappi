@@ -100,6 +100,19 @@ echo '(import (rename (scheme base) (car my-car)))' > "$TMPDIR_TESTS/rename-vali
 echo '(display (my-car (list 1 2)))' >> "$TMPDIR_TESTS/rename-valid.scm"
 assert_exit_code "rename: valid rename succeeds" 0 "$KAAPPI" "$TMPDIR_TESTS/rename-valid.scm"
 
+# --- rename: swap (parallel semantics) ---
+cat > "$TMPDIR_TESTS/rename-swap.scm" << 'SCHEME'
+(import (rename (scheme base) (car cdr) (cdr car)))
+(import (scheme write))
+(display (cdr '(1 2 3)))
+SCHEME
+assert_exit_code "rename: swap succeeds" 0 "$KAAPPI" "$TMPDIR_TESTS/rename-swap.scm"
+
+# --- only: auxiliary syntax accepted ---
+echo '(import (only (scheme base) else =>))' > "$TMPDIR_TESTS/only-aux-syntax.scm"
+echo '(display "ok")' >> "$TMPDIR_TESTS/only-aux-syntax.scm"
+assert_exit_code "only: auxiliary syntax (else, =>) accepted" 0 "$KAAPPI" "$TMPDIR_TESTS/only-aux-syntax.scm"
+
 # --- only on SRFI library ---
 echo '(import (only (srfi 1) totally-bogus-name))' > "$TMPDIR_TESTS/only-srfi-bogus.scm"
 assert_exit_code "only on SRFI: unknown identifier errors" 1 "$KAAPPI" "$TMPDIR_TESTS/only-srfi-bogus.scm"

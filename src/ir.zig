@@ -466,6 +466,12 @@ const other_special_forms = std.StaticStringMap(void).initComptime(.{
     .{ "define-library", {} },
     .{ "include", {} },
     .{ "include-ci", {} },
+    .{ "else", {} },
+    .{ "=>", {} },
+    .{ "_", {} },
+    .{ "...", {} },
+    .{ "unquote", {} },
+    .{ "unquote-splicing", {} },
 });
 
 pub fn isSpecialForm(name: []const u8) bool {
