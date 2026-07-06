@@ -10,16 +10,19 @@ const Value = types.Value;
 const MAX_MACRO_EXPANSION_DEPTH: u16 = 256;
 const MAX_MACRO_EXPANSION_STEPS: u32 = 10_000;
 
-fn isLexicallyBoundSkipAliases(ctx: ?*const anyopaque, name: []const u8) bool {
+fn resolveLocalSkipAliases(ctx: ?*const anyopaque, name: []const u8) u16 {
     const self: *const Compiler = @ptrCast(@alignCast(ctx.?));
     var comp: ?*const Compiler = self;
     while (comp) |c| {
-        for (c.locals.items) |local| {
-            if (!local.is_global_alias and std.mem.eql(u8, local.name, name)) return true;
+        var i: usize = c.locals.items.len;
+        while (i > 0) {
+            i -= 1;
+            const local = c.locals.items[i];
+            if (!local.is_global_alias and std.mem.eql(u8, local.name, name)) return local.slot;
         }
         comp = c.parent;
     }
-    return false;
+    return expander.LITERAL_UNBOUND;
 }
 
 pub fn expandAndCompileMacroUse(self: *Compiler, expr: Value, name: []const u8, transformer: Value, dst: u16, is_tail: bool) CompileError!void {
@@ -144,7 +147,7 @@ pub fn expandAndCompileMacroUse(self: *Compiler, expr: Value, name: []const u8, 
     self.gc.no_collect += 1;
     const use_check = expander.UseSiteBindingCheck{
         .ctx = @ptrCast(self),
-        .check_fn = &isLexicallyBoundSkipAliases,
+        .resolve_fn = &resolveLocalSkipAliases,
     };
     const expanded = expander.expandMacro(self.gc, expr, transformer, self.globals, &merged_macros, use_check) catch |err| {
         self.gc.no_collect -= 1;
@@ -381,20 +384,22 @@ pub fn parseSyntaxRules(self: *Compiler, spec: Value, extra_bound: []const []con
     if (custom_ellipsis) |ce| {
         tx.custom_ellipsis = ce;
     }
-    // R7RS 4.3.2: record whether each literal was lexically bound at definition time
+    // R7RS 4.3.2: record each literal's def-site binding slot (0xFFFF = unbound).
+    // Binding identity — not just bound/unbound — is needed so that two
+    // different bindings with the same name don't falsely match.
     if (lit_count > 0) {
-        const bounds = self.gc.allocator.alloc(bool, lit_count) catch return CompileError.OutOfMemory;
+        const slots = self.gc.allocator.alloc(u16, lit_count) catch return CompileError.OutOfMemory;
         for (literals_buf[0..lit_count], 0..) |lv, li| {
-            bounds[li] = if (types.isSymbol(lv)) blk: {
+            slots[li] = if (types.isSymbol(lv)) blk: {
                 const lname = types.symbolName(lv);
-                if (self.isLexicallyBound(lname)) break :blk true;
+                if (self.resolveLocal(lname)) |s| break :blk s;
                 for (extra_bound) |eb| {
-                    if (std.mem.eql(u8, eb, lname)) break :blk true;
+                    if (std.mem.eql(u8, eb, lname)) break :blk expander.LITERAL_BOUND_PENDING;
                 }
-                break :blk false;
-            } else false;
+                break :blk expander.LITERAL_UNBOUND;
+            } else expander.LITERAL_UNBOUND;
         }
-        tx.literal_bound = bounds;
+        tx.literal_bound = slots;
     }
     return tx_val;
 }

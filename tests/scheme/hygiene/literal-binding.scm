@@ -82,6 +82,27 @@
 (define-syntax outer-g (syntax-rules () ((_) (has-lit-g lit-g))))
 (test-equal "global literal through nested expansion" 'is-literal (outer-g))
 
+;; --- Forward-referenced body define (letrec* region) ---
+(test-equal "forward-referenced body define makes literal def-site bound"
+  'is-literal
+  (let ()
+    (define-syntax m
+      (syntax-rules (lit)
+        ((_ lit) 'is-literal)
+        ((_ x)   'not-literal)))
+    (define lit 42)
+    (m lit)))
+
+;; --- Different bindings with same name must NOT match ---
+(test-equal "inner let rebinds literal — different binding identity"
+  'not-literal
+  (let ((lit 1))
+    (define-syntax m
+      (syntax-rules (lit)
+        ((_ lit) 'is-literal)
+        ((_ x)   'not-literal)))
+    (let ((lit 2)) (m lit))))
+
 (let ((runner (test-runner-current)))
   (test-end "literal-binding")
   (when (> (test-runner-fail-count runner) 0) (exit 1)))

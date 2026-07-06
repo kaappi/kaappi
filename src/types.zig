@@ -376,7 +376,7 @@ pub const Transformer = struct {
     def_env: ?*std.StringHashMap(Value) = null,
     def_env_val: Value = NIL,
     custom_ellipsis: ?[]const u8 = null,
-    literal_bound: []bool = &.{},
+    literal_bound: []u16 = &.{},
 };
 
 pub const ErrorObject = struct {

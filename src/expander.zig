@@ -125,13 +125,16 @@ const Binding = struct {
 // Public API
 // ---------------------------------------------------------------------------
 
+pub const LITERAL_UNBOUND: u16 = 0xFFFF;
+pub const LITERAL_BOUND_PENDING: u16 = 0xFFFE;
+
 pub const UseSiteBindingCheck = struct {
     ctx: ?*const anyopaque = null,
-    check_fn: ?*const fn (?*const anyopaque, []const u8) bool = null,
+    resolve_fn: ?*const fn (?*const anyopaque, []const u8) u16 = null,
 
-    pub fn isBound(self: UseSiteBindingCheck, name: []const u8) bool {
-        if (self.check_fn) |f| return f(self.ctx, name);
-        return false;
+    pub fn resolve(self: UseSiteBindingCheck, name: []const u8) u16 {
+        if (self.resolve_fn) |f| return f(self.ctx, name);
+        return LITERAL_UNBOUND;
     }
 };
 
@@ -208,7 +211,7 @@ pub const ExpandError = error{
 // Pattern matching
 // ---------------------------------------------------------------------------
 
-fn matchPattern(pattern: Value, input: Value, literals: []const Value, bindings: *[MAX_BINDINGS]Binding, count: *usize, gc: ?*GC, literal_bound: []const bool, use_check: UseSiteBindingCheck) bool {
+fn matchPattern(pattern: Value, input: Value, literals: []const Value, bindings: *[MAX_BINDINGS]Binding, count: *usize, gc: ?*GC, literal_bound: []const u16, use_check: UseSiteBindingCheck) bool {
     // Symbol patterns
     if (types.isSymbol(pattern)) {
         const name = types.symbolName(pattern);
@@ -219,10 +222,17 @@ fn matchPattern(pattern: Value, input: Value, literals: []const Value, bindings:
                 if (!types.isSymbol(input)) return false;
                 const input_name = types.symbolName(input);
                 if (!std.mem.eql(u8, input_name, name)) return false;
-                // R7RS 4.3.2: match only if both have same binding or both unbound
-                const def_bound = if (lit_idx < literal_bound.len) literal_bound[lit_idx] else false;
-                const use_bound = use_check.isBound(input_name);
-                return def_bound == use_bound;
+                // R7RS 4.3.2: match only if both refer to the same binding
+                // or both are unbound.  Compare binding slots, not just
+                // bound-vs-unbound, so two different bindings with the same
+                // name are correctly distinguished.
+                const def_slot = if (lit_idx < literal_bound.len) literal_bound[lit_idx] else LITERAL_UNBOUND;
+                const use_slot = use_check.resolve(input_name);
+                if (def_slot == LITERAL_UNBOUND and use_slot == LITERAL_UNBOUND) return true;
+                if (def_slot == LITERAL_UNBOUND or use_slot == LITERAL_UNBOUND) return false;
+                // BOUND_PENDING: body define not yet allocated — accept any bound use
+                if (def_slot == LITERAL_BOUND_PENDING) return true;
+                return def_slot == use_slot;
             }
         }
 
@@ -282,7 +292,7 @@ fn matchPattern(pattern: Value, input: Value, literals: []const Value, bindings:
     return false;
 }
 
-fn matchListPattern(pattern: Value, input: Value, literals: []const Value, bindings: *[MAX_BINDINGS]Binding, count: *usize, gc: ?*GC, literal_bound: []const bool, use_check: UseSiteBindingCheck) bool {
+fn matchListPattern(pattern: Value, input: Value, literals: []const Value, bindings: *[MAX_BINDINGS]Binding, count: *usize, gc: ?*GC, literal_bound: []const u16, use_check: UseSiteBindingCheck) bool {
     var pat = pattern;
     var inp = input;
 
@@ -339,7 +349,7 @@ fn countPairs(v: Value) ?usize {
     return n;
 }
 
-fn matchEllipsis(elem_pattern: Value, rest_pattern: Value, input: Value, literals: []const Value, bindings: *[MAX_BINDINGS]Binding, count: *usize, gc: ?*GC, literal_bound: []const bool, use_check: UseSiteBindingCheck) bool {
+fn matchEllipsis(elem_pattern: Value, rest_pattern: Value, input: Value, literals: []const Value, bindings: *[MAX_BINDINGS]Binding, count: *usize, gc: ?*GC, literal_bound: []const u16, use_check: UseSiteBindingCheck) bool {
     // Count how many elements the rest_pattern needs (handles improper lists)
     const rest_len = countPairs(rest_pattern) orelse return false;
     const input_len = countPairs(input) orelse return false;

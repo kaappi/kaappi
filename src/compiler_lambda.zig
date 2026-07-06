@@ -183,6 +183,43 @@ pub fn compileBodyForms(self: *Compiler, body: Value, opts: BodyOpts) CompileErr
     const macro_mark = if (opts.handle_define_syntax) self.beginBodyMacroScope() else 0;
     defer if (opts.handle_define_syntax) self.endBodyMacroScope(macro_mark) catch {};
 
+    // First pass: collect ALL leading define names so that define-syntax
+    // forms (which may appear before or after a define in the same letrec*
+    // region) see the complete set via extra_bound.
+    var all_def_names: [MAX_BODY_DEFS][]const u8 = undefined;
+    var all_def_count: usize = 0;
+    {
+        var scan = body;
+        while (scan != types.NIL and types.isPair(scan)) {
+            const expr = types.car(scan);
+            if (!types.isPair(expr)) break;
+            const head = types.car(expr);
+            if (!types.isSymbol(head)) break;
+            const hn = types.symbolName(head);
+            if (std.mem.eql(u8, hn, "define")) {
+                const da = types.cdr(expr);
+                if (da == types.NIL or !types.isPair(da)) break;
+                const tgt = types.car(da);
+                if (types.isSymbol(tgt)) {
+                    if (all_def_count < MAX_BODY_DEFS) {
+                        all_def_names[all_def_count] = types.symbolName(tgt);
+                        all_def_count += 1;
+                    }
+                } else if (types.isPair(tgt)) {
+                    const fn_name = types.car(tgt);
+                    if (types.isSymbol(fn_name) and all_def_count < MAX_BODY_DEFS) {
+                        all_def_names[all_def_count] = types.symbolName(fn_name);
+                        all_def_count += 1;
+                    }
+                } else break;
+            } else if (!(opts.handle_define_syntax and std.mem.eql(u8, hn, "define-syntax"))) {
+                break;
+            }
+            scan = types.cdr(scan);
+        }
+    }
+
+    // Second pass: collect define inits and process define-syntax forms.
     var current = body;
     while (current != types.NIL and types.isPair(current)) {
         const expr = types.car(current);
@@ -229,7 +266,7 @@ pub fn compileBodyForms(self: *Compiler, body: Value, opts: BodyOpts) CompileErr
             if (ds_rest == types.NIL or !types.isPair(ds_rest)) break;
             const transformer_spec = types.car(ds_rest);
 
-            const transformer = macro.parseSyntaxRules(self, transformer_spec, def_names_arr[0..def_count]) catch break;
+            const transformer = macro.parseSyntaxRules(self, transformer_spec, all_def_names[0..all_def_count]) catch break;
             const name = types.symbolName(keyword);
 
             try self.recordBodyMacro(name);
