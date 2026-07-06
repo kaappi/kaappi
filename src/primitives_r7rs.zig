@@ -27,7 +27,7 @@ pub const specs = [_]primitives.PrimSpec{
     .{ .name = "interaction-environment", .func = &interactionEnvironmentFn, .arity = .{ .exact = 0 }, .libs = LS.initMany(&.{ .scheme_eval, .scheme_r5rs, .scheme_repl }), .sandbox = false },
     .{ .name = "null-environment", .func = &nullEnvironmentFn, .arity = .{ .exact = 1 }, .libs = LS.initOne(.scheme_r5rs), .sandbox = false },
     .{ .name = "scheme-report-environment", .func = &schemeReportEnvironmentFn, .arity = .{ .exact = 1 }, .libs = LS.initOne(.scheme_r5rs), .sandbox = false },
-    .{ .name = "load", .func = &loadFn, .arity = .{ .exact = 1 }, .libs = LS.initMany(&.{ .scheme_load, .scheme_r5rs }), .sandbox = false },
+    .{ .name = "load", .func = &loadFn, .arity = .{ .variadic = 1 }, .libs = LS.initMany(&.{ .scheme_load, .scheme_r5rs }), .sandbox = false },
     .{ .name = "disassemble", .func = &disassembleFn, .arity = .{ .exact = 1 }, .libs = LS.initOne(.scheme_base), .sandbox = false },
 };
 
@@ -238,6 +238,16 @@ fn loadFn(args: []const Value) PrimitiveError!Value {
     const str = types.toObject(args[0]).as(types.SchemeString);
     const path = str.data[0..str.len];
 
+    // Optional environment-specifier (R7RS §6.14)
+    var env: ?*std.StringHashMap(Value) = null;
+    var env_val: Value = types.VOID;
+    if (args.len > 1) {
+        if (!types.isEnvironment(args[1])) return primitives.typeError("load", "environment", args[1]);
+        const se = types.toEnvironment(args[1]);
+        env = se.env;
+        env_val = args[1];
+    }
+
     const path_z = gc.allocator.dupeZ(u8, path) catch return PrimitiveError.OutOfMemory;
     defer gc.allocator.free(path_z);
 
@@ -278,13 +288,21 @@ fn loadFn(args: []const Value) PrimitiveError!Value {
     while (reader.hasMore() catch return PrimitiveError.TypeError) { // bare-ok: reader error in load
         const expr = reader.readDatum() catch return primitives.typeError("load", "valid datum", args[0]);
 
-        const func = compiler_mod.compileExpressionWithMacros(gc, expr, &vm.macros, vm.globals) catch return primitives.typeError("load", "valid expression", args[0]);
-        {
+        if (env) |e| {
+            const func = compiler_mod.compileExpressionInEnv(gc, expr, &vm.macros, e, env_val) catch return primitives.typeError("load", "valid expression", args[0]);
+            var closure_val = gc.allocClosure(func) catch return PrimitiveError.OutOfMemory;
+            compiler_mod.Compiler.unrootFunction(gc, func);
+            gc.pushRoot(&closure_val);
+            defer gc.popRoot();
+            last_result = vm.callWithArgs(closure_val, &[_]Value{}) catch |err| {
+                return err;
+            };
+        } else {
+            const func = compiler_mod.compileExpressionWithMacros(gc, expr, &vm.macros, vm.globals) catch return primitives.typeError("load", "valid expression", args[0]);
             var func_val = types.makePointer(@ptrCast(func));
             gc.pushRoot(&func_val);
             defer gc.popRoot();
             compiler_mod.Compiler.unrootFunction(gc, func);
-
             last_result = vm.execute(func) catch |err| {
                 return err;
             };
