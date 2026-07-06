@@ -160,6 +160,103 @@ test "values with zero values" {
     try std.testing.expectEqual(@as(i64, 99), types.toFixnum(result));
 }
 
+// Regression: #1169 — invoking a continuation with multiple arguments
+// must deliver all values, not just the first.
+test "call/cc multi-arg invocation in call-with-values" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    const result = try vm.eval(
+        \\(call-with-values
+        \\  (lambda () (call/cc (lambda (k) (k 1 2))))
+        \\  list)
+    );
+    try std.testing.expect(types.isPair(result));
+    try std.testing.expectEqual(@as(i64, 1), types.toFixnum(types.car(result)));
+    try std.testing.expectEqual(@as(i64, 2), types.toFixnum(types.car(types.cdr(result))));
+    try std.testing.expectEqual(types.NIL, types.cdr(types.cdr(result)));
+}
+
+test "call/cc zero-arg invocation in call-with-values" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    const result = try vm.eval(
+        \\(call-with-values
+        \\  (lambda () (call/cc (lambda (k) (k))))
+        \\  (lambda () 99))
+    );
+    try std.testing.expectEqual(@as(i64, 99), types.toFixnum(result));
+}
+
+test "call/ec multi-arg invocation in call-with-values" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    const result = try vm.eval(
+        \\(call-with-values
+        \\  (lambda () (call/ec (lambda (k) (k 10 20 30))))
+        \\  list)
+    );
+    try std.testing.expect(types.isPair(result));
+    try std.testing.expectEqual(@as(i64, 10), types.toFixnum(types.car(result)));
+    try std.testing.expectEqual(@as(i64, 20), types.toFixnum(types.car(types.cdr(result))));
+    try std.testing.expectEqual(@as(i64, 30), types.toFixnum(types.car(types.cdr(types.cdr(result)))));
+}
+
+test "apply continuation with multiple values (callWithArgs path)" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    const result = try vm.eval(
+        \\(call-with-values
+        \\  (lambda () (call/cc (lambda (k) (car (list (apply k (list 1 2)))))))
+        \\  list)
+    );
+    try std.testing.expect(types.isPair(result));
+    try std.testing.expectEqual(@as(i64, 1), types.toFixnum(types.car(result)));
+    try std.testing.expectEqual(@as(i64, 2), types.toFixnum(types.car(types.cdr(result))));
+}
+
+test "apply continuation with zero values (callWithArgs path)" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    const result = try vm.eval(
+        \\(call-with-values
+        \\  (lambda () (call/cc (lambda (k) (car (list (apply k '()))))))
+        \\  (lambda () 99))
+    );
+    try std.testing.expectEqual(@as(i64, 99), types.toFixnum(result));
+}
+
+test "first-class call-with-values continuation (callWithArgs path)" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    const result = try vm.eval(
+        \\(define cwv call-with-values)
+        \\(call-with-values
+        \\  (lambda () (call/cc (lambda (k0) (cwv (lambda () (values 1 2)) k0))))
+        \\  list)
+    );
+    try std.testing.expect(types.isPair(result));
+    try std.testing.expectEqual(@as(i64, 1), types.toFixnum(types.car(result)));
+    try std.testing.expectEqual(@as(i64, 2), types.toFixnum(types.car(types.cdr(result))));
+}
+
 test "dynamic-wind with escape continuation" {
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();

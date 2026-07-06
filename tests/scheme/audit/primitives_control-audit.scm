@@ -47,10 +47,9 @@
 (test 42 (call/cc (lambda (k) (+ 1 (k 42)))))
 (test 7 (call/cc (lambda (k) 7)))
 (test 42 (call-with-current-continuation (lambda (k) (k 42))))
-;; FAIL: #1169 (multi-argument continuation invocation drops values)
-;; (test '(1 2) (call-with-values
-;;                (lambda () (call/cc (lambda (k) (k 1 2))))
-;;                list))
+(test '(1 2) (call-with-values
+               (lambda () (call/cc (lambda (k) (k 1 2))))
+               list))
 (test 3 (let ((n 0) (k* #f))
           (call/cc (lambda (k) (set! k* k)))
           (set! n (+ n 1))
