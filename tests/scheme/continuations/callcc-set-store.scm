@@ -1,10 +1,10 @@
 ;; Regression test for #1168: set! of non-captured locals must persist
 ;; across continuation re-entry (R7RS §3.4 store semantics).
 ;;
-;; Known gap: macro-introduced set! bypasses collectSetTargets (pre-expansion
-;; scan), so boxing is not applied. See follow-up issue for these cases:
+;; Known gap (#1250): macro-introduced set! bypasses collectSetTargets
+;; (pre-expansion scan), so boxing is not applied.
 ;;
-;; FAIL: macro-introduced set! (inc! wrapper) — HANGS
+;; FAIL: #1250 macro-introduced set! (inc! wrapper) — HANGS
 ;; (define-syntax inc! (syntax-rules () ((_ v) (set! v (+ v 1)))))
 ;; (test-equal "macro-introduced set! persists" 3
 ;;   (let ((n 0) (k* #f))
@@ -13,7 +13,7 @@
 ;;     (if (< n 3) (k* #f))
 ;;     n))
 ;;
-;; FAIL: macro that expands to entire let+set! — HANGS
+;; FAIL: #1250 macro that expands to entire let+set! — HANGS
 ;; (define-syntax counter-loop
 ;;   (syntax-rules ()
 ;;     ((_ limit)
