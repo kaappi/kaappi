@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783363543594,
+  "lastUpdate": 1783363748388,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "c047a9d73c10ea80561233f5706423549b0a9564",
-          "message": "Add indexError detail helper for informative out-of-bounds messages (#1020)\n\nIndexOutOfBounds errors previously gave no diagnostic info. Add\nprimitives.indexError(proc, index, len) — mirroring the existing\ntypeError helper — and convert all 21 bare IndexOutOfBounds returns\nacross vectors, strings, bytevectors, and lists to use it. Errors\nnow read e.g. \"vector-ref: index 10 out of range for length 3\".\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-04T04:20:12Z",
-          "tree_id": "76df355d51aa35fe3c65b233ebaef65a9b732735",
-          "url": "https://github.com/kaappi/kaappi/commit/c047a9d73c10ea80561233f5706423549b0a9564"
-        },
-        "date": 1783139922030,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.292671,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.986417,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.906804,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.266229,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.012476,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.211194,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.486856,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.070519,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 12.460948,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.828124,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 9.920686,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.954199,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 8.254816,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.670363,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.043425,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044686,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b3a7e0303a957a158395feb28e1167cb9f80d531",
+          "message": "Handle consecutive ellipses in syntax-rules templates (#1243) (#1278)\n\n* Handle consecutive ellipses in syntax-rules template instantiation (#1243)\n\nR7RS 4.3.2 allows a depth-N pattern variable to appear in a template\nfollowed by N ellipses, flattening nested matches into a single list.\nThe expander only consumed the first ellipsis and passed the rest as\nliteral template text, producing garbage output with a literal `...`\nsymbol.\n\nTeach instantiateEllipsis to detect and strip extra leading `...`\ntokens from rest_template.  When extra ellipses are present, each\nouter iteration builds a synthetic template with the remaining\nellipses and recurses through instantiateTemplate, then splices the\nresulting list into the output.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Hoist synthetic template out of loop, simplify guard, add custom-ellipsis test\n\nAddress review feedback:\n- Build the synthetic (elem ... ...) template once before the loop\n  instead of on every iteration — it is invariant across iterations.\n  Root it with defer so popRoot runs on all exit paths.\n- Drop redundant `!= NIL` in the true_rest loop guard (NIL is never\n  a pair).\n- Add a custom-ellipsis test case (syntax-rules ::: ...) for the\n  synthetic template path.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-06T23:45:35+05:30",
+          "tree_id": "2fb36a5c1d1abfbd2fb1d46ab72f98c942c90c17",
+          "url": "https://github.com/kaappi/kaappi/commit/b3a7e0303a957a158395feb28e1167cb9f80d531"
+        },
+        "date": 1783363747753,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.330432,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.871209,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 1.023189,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.383738,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.012532,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.212674,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.490295,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.071511,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 12.450741,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.896845,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 10.165032,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.959,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 8.385138,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.711668,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.043304,
             "unit": "seconds"
           }
         ]
