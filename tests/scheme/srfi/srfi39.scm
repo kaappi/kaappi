@@ -104,11 +104,9 @@
 ;; SRFI-39 (normative example): value expressions are evaluated before any
 ;; of the new bindings take effect —
 ;;   (parameterize ((radix 8) (prompt (f 10))) (prompt))  ==>  "1010"
-;; Kaappi installs bindings sequentially, so (f 10) sees radix = 8:
-;; FAIL: #1202 (parameterize installs bindings sequentially)
-;; (test "1010" (parameterize ((radix 8) (prompt (f 10))) (prompt)))
-;; FAIL: #1202 (parameterize installs bindings sequentially)
-;; (let ((a (make-parameter 1)) (b (make-parameter 0)))
-;;   (test 1 (parameterize ((a 2) (b (a))) (b))))
+(test "1010" (parameterize ((radix 8) (prompt (f 10))) (prompt)))
+(let ((a (make-parameter 1)) (b (make-parameter 0)))
+  (test 1 (parameterize ((a 2) (b (a))) (b)))
+  (test 1 (parameterize ((b (a)) (a 2)) (b))))
 
 (test-end "srfi-39")

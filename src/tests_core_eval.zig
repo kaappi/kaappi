@@ -257,3 +257,17 @@ test "typeName covers all ObjectTags exhaustively" {
     );
     try std.testing.expectEqualStrings("record", types.typeName(rec));
 }
+
+// Regression for #1202: parameterize must evaluate all value expressions
+// before installing any bindings — (b (a)) must see the outer value of a.
+test "parameterize evaluates values before binding (#1202)" {
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
+    _ = try ctx.vm.eval("(define a (make-parameter 1))");
+    _ = try ctx.vm.eval("(define b (make-parameter 0))");
+    const r1 = try ctx.vm.eval("(parameterize ((a 2) (b (a))) (b))");
+    try std.testing.expectEqual(@as(i64, 1), types.toFixnum(r1));
+    const r2 = try ctx.vm.eval("(parameterize ((b (a)) (a 2)) (b))");
+    try std.testing.expectEqual(@as(i64, 1), types.toFixnum(r2));
+}
