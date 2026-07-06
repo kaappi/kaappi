@@ -138,6 +138,9 @@ fn referencesYoung(gc: *GC, obj: *Object) bool {
                 if (isYoungPointer(gc, tmpl)) return true;
             }
             if (isYoungPointer(gc, tx.def_env_val)) return true;
+            for (tx.let_syntax_peer_vals) |pv| {
+                if (isYoungPointer(gc, pv)) return true;
+            }
         },
         .error_object => {
             const err = obj.as(types.ErrorObject);
@@ -388,6 +391,7 @@ fn markObjectContents(gc: *GC, obj: *Object) void {
             for (tx.patterns) |pat| markValue(gc, pat);
             for (tx.templates) |tmpl| markValue(gc, tmpl);
             markValue(gc, tx.def_env_val);
+            for (tx.let_syntax_peer_vals) |pv| markValue(gc, pv);
         },
         .error_object => {
             const err = obj.as(types.ErrorObject);
@@ -586,6 +590,9 @@ fn markValueInner(gc: *GC, v: Value, worklist: *std.ArrayList(Value)) void {
                 worklist.append(gc.allocator, tmpl) catch @panic("GC mark: worklist OOM");
             }
             worklist.append(gc.allocator, tx.def_env_val) catch @panic("GC mark: worklist OOM");
+            for (tx.let_syntax_peer_vals) |pv| {
+                worklist.append(gc.allocator, pv) catch @panic("GC mark: worklist OOM");
+            }
         },
         .error_object => {
             const err = obj.as(types.ErrorObject);
@@ -754,7 +761,8 @@ fn objectSize(obj: *Object) usize {
         .transformer => blk: {
             const t = obj.as(Transformer);
             break :blk @sizeOf(Transformer) + t.literals.len * @sizeOf(Value) +
-                t.patterns.len * @sizeOf(Value) + t.templates.len * @sizeOf(Value);
+                t.patterns.len * @sizeOf(Value) + t.templates.len * @sizeOf(Value) +
+                t.let_syntax_peer_vals.len * @sizeOf(Value);
         },
         .error_object => @sizeOf(types.ErrorObject),
         .record_type => @sizeOf(RecordType) + obj.as(RecordType).name.len,
@@ -873,6 +881,8 @@ pub fn freeObject(gc: *GC, obj: *Object) void {
             gc.allocator.free(tx.templates);
             if (tx.captured_locals.len > 0) gc.allocator.free(tx.captured_locals);
             if (tx.literal_bound.len > 0) gc.allocator.free(tx.literal_bound);
+            if (tx.let_syntax_peer_names.len > 0) gc.allocator.free(tx.let_syntax_peer_names);
+            if (tx.let_syntax_peer_vals.len > 0) gc.allocator.free(tx.let_syntax_peer_vals);
             poisonAndDestroy(gc, Transformer, tx);
         },
         .error_object => {
