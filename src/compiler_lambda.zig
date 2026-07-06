@@ -240,6 +240,13 @@ pub fn compileBodyForms(self: *Compiler, body: Value, opts: BodyOpts) CompileErr
                 tx.def_env = env;
                 tx.def_env_val = self.lib_env_val;
             }
+            if (self.locals.items.len > 0) {
+                const caps = self.gc.allocator.alloc(types.CapturedLocal, self.locals.items.len) catch return CompileError.OutOfMemory;
+                for (self.locals.items, 0..) |local, ci| {
+                    caps[ci] = .{ .name = local.name, .slot = local.slot };
+                }
+                tx.captured_locals = caps;
+            }
             self.macros.put(name, transformer) catch return CompileError.OutOfMemory;
         } else {
             break;

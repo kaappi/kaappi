@@ -125,12 +125,19 @@ pub fn expandAndCompileMacroUse(self: *Compiler, expr: Value, name: []const u8, 
         }
         globals_mod.releaseGlobalsWrite(glk);
     };
+    // Build use-site local names for R7RS 4.3.2 literal binding check
+    var use_local_names: [256][]const u8 = undefined;
+    const use_local_count = @min(self.locals.items.len, 256);
+    for (self.locals.items[0..use_local_count], 0..) |local, li| {
+        use_local_names[li] = local.name;
+    }
+
     // Suppress GC during expansion: the expanded form isn't
     // rooted until pushRoot below, so a collection triggered
     // by allocPair inside expandMacro could free AST nodes
     // that the partially-built result references.
     self.gc.no_collect += 1;
-    const expanded = expander.expandMacro(self.gc, expr, transformer, self.globals, &merged_macros) catch |err| {
+    const expanded = expander.expandMacro(self.gc, expr, transformer, self.globals, &merged_macros, use_local_names[0..use_local_count]) catch |err| {
         self.gc.no_collect -= 1;
         return switch (err) {
             error.OutOfMemory => CompileError.OutOfMemory,
@@ -204,6 +211,13 @@ pub fn compileDefineSyntax(self: *Compiler, args: Value, dst: u16) CompileError!
     if (self.lib_env) |env| {
         tx.def_env = env;
         tx.def_env_val = self.lib_env_val;
+    }
+    if (self.locals.items.len > 0) {
+        const caps = self.gc.allocator.alloc(types.CapturedLocal, self.locals.items.len) catch return CompileError.OutOfMemory;
+        for (self.locals.items, 0..) |local, ci| {
+            caps[ci] = .{ .name = local.name, .slot = local.slot };
+        }
+        tx.captured_locals = caps;
     }
 
     // Store in macro table; inside a body, track the registration so
