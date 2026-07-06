@@ -1,5 +1,6 @@
 const std = @import("std");
 const vm_mod = @import("vm.zig");
+const compiler_mod = @import("compiler.zig");
 const reporting = @import("reporting.zig");
 
 const writeStderr = reporting.writeStderr;
@@ -16,9 +17,19 @@ pub fn reportReadError(source_name: []const u8, line: u32, col: u32, err: anyerr
 }
 
 pub fn reportCompileError(source_name: []const u8, line: u32, err: anyerror) void {
-    var buf: [256]u8 = undefined;
-    const s = std.fmt.bufPrint(&buf, "{s}:{d}: compile error: {}\n", .{ source_name, line, err }) catch "compile error\n";
-    writeStderr(s);
+    const detail = compiler_mod.getSyntaxErrorDetail();
+    if (detail.len > 0) {
+        var buf: [256]u8 = undefined;
+        const prefix = std.fmt.bufPrint(&buf, "{s}:{d}: syntax-error: ", .{ source_name, line }) catch "syntax-error: ";
+        writeStderr(prefix);
+        writeStderr(detail);
+        writeStderr("\n");
+        compiler_mod.syntax_error_detail_len = 0;
+    } else {
+        var buf: [256]u8 = undefined;
+        const s = std.fmt.bufPrint(&buf, "{s}:{d}: compile error: {}\n", .{ source_name, line, err }) catch "compile error\n";
+        writeStderr(s);
+    }
 }
 
 pub fn reportRuntimeError(vm: *vm_mod.VM, err: anyerror, location: ?Location) void {

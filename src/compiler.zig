@@ -9,8 +9,16 @@ const macro = @import("compiler_macro.zig");
 const ir_mod = @import("ir.zig");
 const compiler_ir = @import("compiler_ir.zig");
 const globals_mod = @import("globals.zig");
+const printer = @import("printer.zig");
 const Value = types.Value;
 const OpCode = types.OpCode;
+
+pub threadlocal var syntax_error_detail: [512]u8 = [_]u8{0} ** 512;
+pub threadlocal var syntax_error_detail_len: usize = 0;
+
+pub fn getSyntaxErrorDetail() []const u8 {
+    return syntax_error_detail[0..syntax_error_detail_len];
+}
 
 pub const CompileError = error{
     OutOfMemory,
@@ -666,7 +674,10 @@ pub const Compiler = struct {
                 if (std.mem.eql(u8, effective_name, "parameterize")) return advanced.compileParameterize(self, args, dst, is_tail);
 
                 // syntax-error
-                if (std.mem.eql(u8, effective_name, "syntax-error")) return CompileError.InvalidSyntax;
+                if (std.mem.eql(u8, effective_name, "syntax-error")) {
+                    formatSyntaxError(args);
+                    return CompileError.InvalidSyntax;
+                }
 
                 // Macro forms (kept in compiler.zig)
                 if (std.mem.eql(u8, effective_name, "define-syntax")) return macro.compileDefineSyntax(self, args, dst);
@@ -778,6 +789,24 @@ pub const Compiler = struct {
     }
 };
 
+fn formatSyntaxError(args: Value) void {
+    var w: std.Io.Writer = .fixed(&syntax_error_detail);
+    var rest = args;
+    // First argument is the message string.
+    if (types.isPair(rest)) {
+        const msg = types.car(rest);
+        printer.printValue(&w, msg, .display) catch {};
+        rest = types.cdr(rest);
+    }
+    // Remaining arguments are irritants.
+    while (types.isPair(rest)) {
+        w.print(" ", .{}) catch {};
+        printer.printValue(&w, types.car(rest), .write) catch {};
+        rest = types.cdr(rest);
+    }
+    syntax_error_detail_len = w.buffered().len;
+}
+
 /// Recursively collect the symbol names that appear as the target of a
 /// `(set! <name> ...)` anywhere in `expr` into `out`. Used to suppress
 /// constant folding of those names within the enclosing form (see
@@ -811,6 +840,7 @@ fn collectSetTargets(expr: Value, out: *std.StringHashMap(void)) CompileError!vo
 // ---------------------------------------------------------------------------
 
 pub fn compileExpression(gc: *memory.GC, expr: Value) CompileError!*types.Function {
+    syntax_error_detail_len = 0;
     var c = try Compiler.init(gc);
     const roots_base = gc.extra_roots.items.len;
     var ok = false;
@@ -829,6 +859,7 @@ pub fn compileExpressionWithMacros(gc: *memory.GC, expr: Value, vm_macros: *std.
 }
 
 pub fn compileExpressionWithMacrosAt(gc: *memory.GC, expr: Value, vm_macros: *std.StringHashMap(Value), vm_globals: ?*std.StringHashMap(Value), source_line: u32, source_name: ?[]const u8) CompileError!*types.Function {
+    syntax_error_detail_len = 0;
     var c = try Compiler.init(gc);
     const roots_base = gc.extra_roots.items.len;
     c.globals = vm_globals;
@@ -854,6 +885,7 @@ pub fn compileExpressionWithMacrosAt(gc: *memory.GC, expr: Value, vm_macros: *st
 }
 
 pub fn compileExpressionInEnv(gc: *memory.GC, expr: Value, vm_macros: *std.StringHashMap(Value), env: *std.StringHashMap(Value), env_val: Value) CompileError!*types.Function {
+    syntax_error_detail_len = 0;
     var c = try Compiler.init(gc);
     const roots_base = gc.extra_roots.items.len;
     c.globals = env;

@@ -58,6 +58,27 @@ assert_output_contains "compile error has location" \
 assert_output_contains "compile error has 'compile error'" \
     '(if)' 'compile error'
 
+# --- syntax-error includes message and irritants (#1142) ---
+echo
+echo "-- syntax-error diagnostics --"
+
+assert_output_contains "syntax-error includes message" \
+    '(syntax-error "custom msg")' 'syntax-error: custom msg'
+
+assert_output_contains "syntax-error includes irritants" \
+    '(syntax-error "custom msg" 42)' 'syntax-error: custom msg 42'
+
+assert_output_contains "syntax-error from macro includes message" \
+    '(define-syntax bad (syntax-rules () ((_ x) (syntax-error "bad usage" x)))) (bad 1)' \
+    'syntax-error: bad usage 1'
+
+assert_output_contains "syntax-error has location" \
+    '(syntax-error "msg")' '<stdin>:1:'
+
+assert_output_contains "caught syntax-error does not leak into next compile error" \
+    '(import (scheme base)) (guard (e (#t #t)) (eval (quote (syntax-error "STALE" 999)) (environment (quote (scheme base))))) (if)' \
+    'compile error'
+
 # --- Runtime errors include file:line ---
 echo
 echo "-- Runtime errors from files --"
