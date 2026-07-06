@@ -509,7 +509,8 @@ pub fn compileDefineRecordType(self: *Compiler, args: Value, dst: u16) CompileEr
                 const p = gc.allocSymbol("p") catch return CompileError.OutOfMemory;
                 const v = gc.allocSymbol("v") catch return CompileError.OutOfMemory;
                 const idx = types.makeFixnum(@intCast(fi));
-                const body = gc.makeList(&[_]Value{ rs, p, idx, v }) catch return CompileError.OutOfMemory;
+                const rt_ref = gc.allocSymbol(internal_name) catch return CompileError.OutOfMemory;
+                const body = gc.makeList(&[_]Value{ rs, p, idx, v, rt_ref }) catch return CompileError.OutOfMemory;
                 const np = gc.allocPair(gc.allocSymbol(mn) catch return CompileError.OutOfMemory, gc.makeList(&[_]Value{ p, v }) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory;
                 forms = gc.allocPair(gc.makeList(&[_]Value{ define_sym, np, body }) catch return CompileError.OutOfMemory, forms) catch return CompileError.OutOfMemory;
             }
@@ -524,7 +525,8 @@ pub fn compileDefineRecordType(self: *Compiler, args: Value, dst: u16) CompileEr
             const rr = gc.allocSymbol("%record-ref") catch return CompileError.OutOfMemory;
             const p = gc.allocSymbol("p") catch return CompileError.OutOfMemory;
             const idx = types.makeFixnum(@intCast(fi));
-            const body = gc.makeList(&[_]Value{ rr, p, idx }) catch return CompileError.OutOfMemory;
+            const rt_ref = gc.allocSymbol(internal_name) catch return CompileError.OutOfMemory;
+            const body = gc.makeList(&[_]Value{ rr, p, idx, rt_ref }) catch return CompileError.OutOfMemory;
             const np = gc.allocPair(gc.allocSymbol(spec.accessor_names[fi]) catch return CompileError.OutOfMemory, gc.makeList(&[_]Value{p}) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory;
             forms = gc.allocPair(gc.makeList(&[_]Value{ define_sym, np, body }) catch return CompileError.OutOfMemory, forms) catch return CompileError.OutOfMemory;
         }

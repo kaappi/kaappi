@@ -160,8 +160,8 @@ const core_specs = [_]PrimSpec{
     .{ .name = "%make-record-type", .func = &makeRecordTypeFn, .arity = .{ .exact = 2 }, .libs = LS.initOne(.scheme_base) },
     .{ .name = "%make-record", .func = &makeRecordFn, .arity = .{ .variadic = 1 }, .libs = LS.initOne(.scheme_base) },
     .{ .name = "%record?", .func = &recordCheckFn, .arity = .{ .exact = 2 }, .libs = LS.initOne(.scheme_base) },
-    .{ .name = "%record-ref", .func = &recordRefFn, .arity = .{ .exact = 2 }, .libs = LS.initOne(.scheme_base) },
-    .{ .name = "%record-set!", .func = &recordSetFn, .arity = .{ .exact = 3 }, .libs = LS.initOne(.scheme_base) },
+    .{ .name = "%record-ref", .func = &recordRefFn, .arity = .{ .exact = 3 }, .libs = LS.initOne(.scheme_base) },
+    .{ .name = "%record-set!", .func = &recordSetFn, .arity = .{ .exact = 4 }, .libs = LS.initOne(.scheme_base) },
     .{ .name = "apply", .func = &applyFn, .arity = .{ .variadic = 2 }, .libs = BR },
 };
 
@@ -823,26 +823,30 @@ fn recordCheckFn(args: []const Value) PrimitiveError!Value {
 }
 
 fn recordRefFn(args: []const Value) PrimitiveError!Value {
-    // args[0] = record instance, args[1] = field index (fixnum)
-    if (!types.isRecordInstance(args[0])) return typeError("record-ref", "record", args[0]);
-    if (!types.isFixnum(args[1])) return typeError("record-ref", "exact integer", args[1]);
+    // args[0] = record instance, args[1] = field index (fixnum), args[2] = expected record type
+    const rt = types.toObject(args[2]).as(types.RecordType);
+    if (!types.isRecordInstance(args[0])) return typeError("%record-ref", rt.name, args[0]);
     const ri = types.toObject(args[0]).as(types.RecordInstance);
+    if (ri.record_type != rt) return typeError("%record-ref", rt.name, args[0]);
+    if (!types.isFixnum(args[1])) return typeError("%record-ref", "exact integer", args[1]);
     const raw_idx = types.toFixnum(args[1]);
     if (raw_idx < 0) return PrimitiveError.TypeError; // bare-ok: internal record primitive
     const idx: usize = @intCast(raw_idx);
-    if (idx >= ri.fields.len) return indexError("record-ref", raw_idx, ri.fields.len);
+    if (idx >= ri.fields.len) return indexError("%record-ref", raw_idx, ri.fields.len);
     return ri.fields[idx];
 }
 
 fn recordSetFn(args: []const Value) PrimitiveError!Value {
-    // args[0] = record instance, args[1] = field index (fixnum), args[2] = new value
-    if (!types.isRecordInstance(args[0])) return typeError("record-set!", "record", args[0]);
-    if (!types.isFixnum(args[1])) return typeError("record-set!", "exact integer", args[1]);
+    // args[0] = record instance, args[1] = field index (fixnum), args[2] = new value, args[3] = expected record type
+    const rt = types.toObject(args[3]).as(types.RecordType);
+    if (!types.isRecordInstance(args[0])) return typeError("%record-set!", rt.name, args[0]);
     const ri = types.toObject(args[0]).as(types.RecordInstance);
+    if (ri.record_type != rt) return typeError("%record-set!", rt.name, args[0]);
+    if (!types.isFixnum(args[1])) return typeError("%record-set!", "exact integer", args[1]);
     const raw_idx = types.toFixnum(args[1]);
     if (raw_idx < 0) return PrimitiveError.TypeError; // bare-ok: internal record primitive
     const idx: usize = @intCast(raw_idx);
-    if (idx >= ri.fields.len) return indexError("record-set!", raw_idx, ri.fields.len);
+    if (idx >= ri.fields.len) return indexError("%record-set!", raw_idx, ri.fields.len);
     if (memory.gc_instance) |gc| gc.writeBarrier(types.toObject(args[0]), args[2]);
     ri.fields[idx] = args[2];
     return types.VOID;

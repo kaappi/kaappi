@@ -138,7 +138,7 @@ pub fn handleDefineRecordType(vm: *VM, args: Value) VMError!Value {
 
     // Generate accessors and mutators for each field
     for (0..all_field_count) |fi| {
-        // Accessor: (define (accessor p) (%record-ref p <index>))
+        // Accessor: (define (accessor p) (%record-ref p <index> __record_type_X))
         {
             vm.gc.no_collect += 1;
             errdefer vm.gc.no_collect -= 1;
@@ -147,8 +147,9 @@ pub fn handleDefineRecordType(vm: *VM, args: Value) VMError!Value {
             const acc_sym = vm.gc.allocSymbol(spec.accessor_names[fi]) catch return VMError.OutOfMemory;
             const record_ref_sym = vm.gc.allocSymbol("%record-ref") catch return VMError.OutOfMemory;
             const idx_val = types.makeFixnum(@intCast(fi));
+            const type_ref = vm.gc.allocSymbol(internal_name) catch return VMError.OutOfMemory;
 
-            const body = vm.gc.makeList(&[_]Value{ record_ref_sym, p_sym, idx_val }) catch return VMError.OutOfMemory;
+            const body = vm.gc.makeList(&[_]Value{ record_ref_sym, p_sym, idx_val, type_ref }) catch return VMError.OutOfMemory;
             const name_and_params = vm.gc.makeList(&[_]Value{ acc_sym, p_sym }) catch return VMError.OutOfMemory;
             var define_expr = vm.gc.makeList(&[_]Value{ define_sym, name_and_params, body }) catch return VMError.OutOfMemory;
             vm.gc.no_collect -= 1;
@@ -164,7 +165,7 @@ pub fn handleDefineRecordType(vm: *VM, args: Value) VMError!Value {
             _ = vm.execute(func) catch |err| return err;
         }
 
-        // Mutator (if specified): (define (mutator p v) (%record-set! p <index> v))
+        // Mutator (if specified): (define (mutator p v) (%record-set! p <index> v __record_type_X))
         if (spec.mutator_names[fi]) |mut_name| {
             vm.gc.no_collect += 1;
             errdefer vm.gc.no_collect -= 1;
@@ -174,8 +175,9 @@ pub fn handleDefineRecordType(vm: *VM, args: Value) VMError!Value {
             const mut_sym = vm.gc.allocSymbol(mut_name) catch return VMError.OutOfMemory;
             const record_set_sym = vm.gc.allocSymbol("%record-set!") catch return VMError.OutOfMemory;
             const idx_val = types.makeFixnum(@intCast(fi));
+            const type_ref = vm.gc.allocSymbol(internal_name) catch return VMError.OutOfMemory;
 
-            const body = vm.gc.makeList(&[_]Value{ record_set_sym, p_sym, idx_val, v_sym }) catch return VMError.OutOfMemory;
+            const body = vm.gc.makeList(&[_]Value{ record_set_sym, p_sym, idx_val, v_sym, type_ref }) catch return VMError.OutOfMemory;
             const name_and_params = vm.gc.makeList(&[_]Value{ mut_sym, p_sym, v_sym }) catch return VMError.OutOfMemory;
             var define_expr = vm.gc.makeList(&[_]Value{ define_sym, name_and_params, body }) catch return VMError.OutOfMemory;
             vm.gc.no_collect -= 1;
@@ -426,14 +428,15 @@ pub fn expandRecordTypeDefines(
         count.* += 1;
     }
 
-    // 4. Accessors: (define (acc p) (%record-ref p idx))
+    // 4. Accessors: (define (acc p) (%record-ref p idx __rt))
     for (0..spec.field_count) |fi| {
         const lambda_sym = gc.allocSymbol("lambda") catch return CompileError.OutOfMemory;
         const rr_sym = gc.allocSymbol("%record-ref") catch return CompileError.OutOfMemory;
         const p_sym = gc.allocSymbol("p") catch return CompileError.OutOfMemory;
         const idx = types.makeFixnum(@intCast(fi));
+        const rt_ref = gc.allocSymbol(internal_name) catch return CompileError.OutOfMemory;
 
-        const body = gc.makeList(&[_]Value{ rr_sym, p_sym, idx }) catch return CompileError.OutOfMemory;
+        const body = gc.makeList(&[_]Value{ rr_sym, p_sym, idx, rt_ref }) catch return CompileError.OutOfMemory;
         const params = gc.makeList(&[_]Value{p_sym}) catch return CompileError.OutOfMemory;
         def_inits[count.*] = gc.makeList(&[_]Value{ lambda_sym, params, body }) catch return CompileError.OutOfMemory;
         def_names[count.*] = spec.accessor_names[fi];
@@ -441,7 +444,7 @@ pub fn expandRecordTypeDefines(
         count.* += 1;
     }
 
-    // 5. Mutators: (define (mut! p v) (%record-set! p idx v))
+    // 5. Mutators: (define (mut! p v) (%record-set! p idx v __rt))
     for (0..spec.field_count) |fi| {
         if (spec.mutator_names[fi]) |mname| {
             const lambda_sym = gc.allocSymbol("lambda") catch return CompileError.OutOfMemory;
@@ -449,8 +452,9 @@ pub fn expandRecordTypeDefines(
             const p_sym = gc.allocSymbol("p") catch return CompileError.OutOfMemory;
             const v_sym = gc.allocSymbol("v") catch return CompileError.OutOfMemory;
             const idx = types.makeFixnum(@intCast(fi));
+            const rt_ref = gc.allocSymbol(internal_name) catch return CompileError.OutOfMemory;
 
-            const body = gc.makeList(&[_]Value{ rs_sym, p_sym, idx, v_sym }) catch return CompileError.OutOfMemory;
+            const body = gc.makeList(&[_]Value{ rs_sym, p_sym, idx, v_sym, rt_ref }) catch return CompileError.OutOfMemory;
             const params = gc.makeList(&[_]Value{ p_sym, v_sym }) catch return CompileError.OutOfMemory;
             def_inits[count.*] = gc.makeList(&[_]Value{ lambda_sym, params, body }) catch return CompileError.OutOfMemory;
             def_names[count.*] = mname;
