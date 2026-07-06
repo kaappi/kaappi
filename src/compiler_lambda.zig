@@ -81,6 +81,10 @@ pub fn compileLambda(self: *Compiler, args: Value, dst: u16, name: ?[]const u8) 
     child.func.name = name;
     child.scope_depth = 1;
 
+    for (child.locals.items) |local| {
+        try child.boxIfSetTarget(local.name, local.slot);
+    }
+
     // Compile body as implicit begin
     try compileBody(&child, body);
 

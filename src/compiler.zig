@@ -313,6 +313,19 @@ pub const Compiler = struct {
         }
     }
 
+    /// Box a local if its name is a set! target anywhere in the top-level form.
+    /// R7RS §3.4: set! modifies the store (a heap location), not the
+    /// continuation. Register-allocated mutated locals violate this when a
+    /// continuation is restored, because the register snapshot rolls back the
+    /// mutation. Boxing ensures the register holds a pointer to a heap cell
+    /// whose car survives restore. (#1168)
+    pub fn boxIfSetTarget(self: *Compiler, name: []const u8, slot: u16) CompileError!void {
+        const targets = self.set_targets orelse return;
+        if (targets.contains(name)) {
+            try self.markLocalBoxedBySlot(slot);
+        }
+    }
+
     pub fn resolveUpvalue(self: *Compiler, name: []const u8) CompileError!?u16 {
         if (self.parent) |parent| {
             if (parent.resolveLocal(name)) |local_slot| {

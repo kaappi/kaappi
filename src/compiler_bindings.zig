@@ -127,6 +127,9 @@ pub fn compileLet(self: *Compiler, args: Value, dst: u16, is_tail: bool) Compile
     for (0..count) |i| {
         try self.addLocal(names[i], slots[i]);
     }
+    for (0..count) |i| {
+        try self.boxIfSetTarget(names[i], slots[i]);
+    }
 
     try compileLetBody(self, body, dst, is_tail);
     self.endScope();
@@ -153,7 +156,9 @@ pub fn compileLetStar(self: *Compiler, args: Value, dst: u16, is_tail: bool) Com
 
         const slot = try self.allocReg();
         try self.compileExprViaIR(init_expr, slot, false);
-        try self.addLocal(types.symbolName(var_name), slot);
+        const vname = types.symbolName(var_name);
+        try self.addLocal(vname, slot);
+        try self.boxIfSetTarget(vname, slot);
 
         binding_list = types.cdr(binding_list);
     }
@@ -447,6 +452,9 @@ pub fn compileDo(self: *Compiler, args: Value, dst: u16, is_tail: bool) CompileE
                 try self.markLocalBoxedBySlot(slot);
             }
         }
+    }
+    for (0..var_count) |j| {
+        try self.boxIfSetTarget(var_names[j], var_slots[j]);
     }
 
     // Record which `do` variables ended up boxed (captured). Their step
