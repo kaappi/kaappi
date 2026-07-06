@@ -5,7 +5,7 @@
 ;; environment's binding map alive even after the environment object
 ;; becomes otherwise unreachable.
 
-(define f (eval '(begin (define secret 42) (lambda () secret))
+(define f (eval '(let ((secret 42)) (lambda () secret))
                 (environment '(scheme base))))
 
 ;; Environment object is now unreachable; churn to force collections

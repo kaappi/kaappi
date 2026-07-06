@@ -271,3 +271,50 @@ test "parameterize evaluates values before binding (#1202)" {
     const r2 = try ctx.vm.eval("(parameterize ((b (a)) (a 2)) (b))");
     try std.testing.expectEqual(@as(i64, 1), types.toFixnum(r2));
 }
+
+// Regression for #1147: define/set! into (environment ...) must signal error
+test "eval define into immutable environment signals error (#1147)" {
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
+    const result = try ctx.vm.eval(
+        \\(guard (e (#t 'error-signaled))
+        \\  (eval '(define foo 32) (environment '(scheme base))))
+    );
+    try std.testing.expect(types.isSymbol(result));
+    try std.testing.expectEqualStrings("error-signaled", types.symbolName(result));
+}
+
+test "eval set! into immutable environment signals error (#1147)" {
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
+    const result = try ctx.vm.eval(
+        \\(guard (e (#t 'error-signaled))
+        \\  (eval '(set! car 42) (environment '(scheme base))))
+    );
+    try std.testing.expect(types.isSymbol(result));
+    try std.testing.expectEqualStrings("error-signaled", types.symbolName(result));
+}
+
+test "eval define-syntax into immutable environment signals error (#1147)" {
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
+    const result = try ctx.vm.eval(
+        \\(guard (e (#t 'error-signaled))
+        \\  (eval '(define-syntax leaked (syntax-rules () ((_) 999)))
+        \\        (environment '(scheme base))))
+    );
+    try std.testing.expect(types.isSymbol(result));
+    try std.testing.expectEqualStrings("error-signaled", types.symbolName(result));
+}
+
+test "interaction-environment allows define (#1147)" {
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
+    _ = try ctx.vm.eval("(eval '(define ie-test-var 42) (interaction-environment))");
+    const result = try ctx.vm.eval("(eval 'ie-test-var (interaction-environment))");
+    try std.testing.expectEqual(@as(i64, 42), types.toFixnum(result));
+}

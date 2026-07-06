@@ -16,13 +16,11 @@
 (load tmp (interaction-environment))
 (test-equal "load with interaction-environment" 99 load-test-var-2)
 
-;; Two-argument form with a custom environment — defines go into that env
+;; Two-argument form with immutable (environment ...) — define must error (#1147)
 (define custom-env (environment '(scheme base) '(scheme eval)))
 (with-output-to-file tmp (lambda () (display "(define load-test-var-3 77)")))
-(load tmp custom-env)
-(test-equal "load defines into custom env" 77 (eval 'load-test-var-3 custom-env))
-(test-equal "load with custom env does not define globally" 'caught
-  (guard (e (#t 'caught)) load-test-var-3))
+(test-equal "load define into immutable env signals error" 'caught
+  (guard (e (#t 'caught)) (load tmp custom-env)))
 
 ;; Non-environment second arg raises an error
 (with-output-to-file tmp (lambda () (display "(+ 1 2)")))

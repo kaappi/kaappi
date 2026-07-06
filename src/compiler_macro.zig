@@ -210,6 +210,8 @@ pub fn expandAndCompileMacroUse(self: *Compiler, expr: Value, name: []const u8, 
 // ---------------------------------------------------------------------------
 
 pub fn compileDefineSyntax(self: *Compiler, args: Value, dst: u16) CompileError!void {
+    if (types.isEnvironment(self.lib_env_val) and types.toEnvironment(self.lib_env_val).immutable)
+        return CompileError.InvalidSyntax;
     if (args == types.NIL) return CompileError.InvalidSyntax;
     const keyword = types.car(args);
     if (!types.isSymbol(keyword)) return CompileError.InvalidSyntax;

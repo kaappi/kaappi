@@ -1022,13 +1022,14 @@ pub const GC = struct {
         return types.makePointer(@ptrCast(gi));
     }
 
-    pub fn allocEnvironment(self: *GC, env_map: *std.StringHashMap(Value), owned: bool) !Value {
+    pub fn allocEnvironment(self: *GC, env_map: *std.StringHashMap(Value), owned: bool, immutable: bool) !Value {
         try self.maybeCollect();
         const se = try self.allocator.create(types.SchemeEnvironment);
         se.* = .{
             .header = .{ .tag = .scheme_environment },
             .env = env_map,
             .owned = owned,
+            .immutable = immutable,
         };
         self.finishAlloc(&se.header, @sizeOf(types.SchemeEnvironment));
         return types.makePointer(@ptrCast(se));

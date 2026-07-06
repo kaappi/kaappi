@@ -744,6 +744,7 @@ pub const SchemeEnvironment = struct {
     header: Object,
     env: *std.StringHashMap(Value),
     owned: bool = true, // false for interaction-environment (don't free the map)
+    immutable: bool = false, // true for (environment ...) per R7RS 6.12
 };
 
 // ---------------------------------------------------------------------------

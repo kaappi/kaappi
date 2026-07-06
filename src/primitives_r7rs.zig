@@ -224,7 +224,7 @@ fn environmentFn(args: []const Value) PrimitiveError!Value {
         }
     }
 
-    return gc.allocEnvironment(env_map, true) catch return PrimitiveError.OutOfMemory;
+    return gc.allocEnvironment(env_map, true, true) catch return PrimitiveError.OutOfMemory;
 }
 
 // ---------------------------------------------------------------------------
@@ -353,7 +353,7 @@ fn interactionEnvironmentFn(args: []const Value) PrimitiveError!Value {
     _ = args;
     const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError; // bare-ok: no VM
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
-    return gc.allocEnvironment(vm.globals, false) catch return PrimitiveError.OutOfMemory;
+    return gc.allocEnvironment(vm.globals, false, false) catch return PrimitiveError.OutOfMemory;
 }
 
 fn nullEnvironmentFn(args: []const Value) PrimitiveError!Value {
@@ -364,7 +364,7 @@ fn nullEnvironmentFn(args: []const Value) PrimitiveError!Value {
 
     const env_map = gc.allocator.create(std.StringHashMap(Value)) catch return PrimitiveError.OutOfMemory;
     env_map.* = std.StringHashMap(Value).init(gc.allocator);
-    return gc.allocEnvironment(env_map, true) catch return PrimitiveError.OutOfMemory;
+    return gc.allocEnvironment(env_map, true, true) catch return PrimitiveError.OutOfMemory;
 }
 
 fn schemeReportEnvironmentFn(args: []const Value) PrimitiveError!Value {
@@ -384,5 +384,5 @@ fn schemeReportEnvironmentFn(args: []const Value) PrimitiveError!Value {
             env_map.put(entry.key_ptr.*, entry.value_ptr.*) catch return PrimitiveError.OutOfMemory;
         }
     }
-    return gc.allocEnvironment(env_map, true) catch return PrimitiveError.OutOfMemory;
+    return gc.allocEnvironment(env_map, true, true) catch return PrimitiveError.OutOfMemory;
 }
