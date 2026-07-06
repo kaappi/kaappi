@@ -19,9 +19,11 @@ pub fn reportReadError(source_name: []const u8, line: u32, col: u32, err: anyerr
 pub fn reportCompileError(source_name: []const u8, line: u32, err: anyerror) void {
     const detail = compiler_mod.getSyntaxErrorDetail();
     if (detail.len > 0) {
-        var buf: [768]u8 = undefined;
-        const s = std.fmt.bufPrint(&buf, "{s}:{d}: syntax-error: {s}\n", .{ source_name, line, detail }) catch "compile error\n";
-        writeStderr(s);
+        var buf: [256]u8 = undefined;
+        const prefix = std.fmt.bufPrint(&buf, "{s}:{d}: syntax-error: ", .{ source_name, line }) catch "syntax-error: ";
+        writeStderr(prefix);
+        writeStderr(detail);
+        writeStderr("\n");
         compiler_mod.syntax_error_detail_len = 0;
     } else {
         var buf: [256]u8 = undefined;

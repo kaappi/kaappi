@@ -840,6 +840,7 @@ fn collectSetTargets(expr: Value, out: *std.StringHashMap(void)) CompileError!vo
 // ---------------------------------------------------------------------------
 
 pub fn compileExpression(gc: *memory.GC, expr: Value) CompileError!*types.Function {
+    syntax_error_detail_len = 0;
     var c = try Compiler.init(gc);
     const roots_base = gc.extra_roots.items.len;
     var ok = false;
@@ -858,6 +859,7 @@ pub fn compileExpressionWithMacros(gc: *memory.GC, expr: Value, vm_macros: *std.
 }
 
 pub fn compileExpressionWithMacrosAt(gc: *memory.GC, expr: Value, vm_macros: *std.StringHashMap(Value), vm_globals: ?*std.StringHashMap(Value), source_line: u32, source_name: ?[]const u8) CompileError!*types.Function {
+    syntax_error_detail_len = 0;
     var c = try Compiler.init(gc);
     const roots_base = gc.extra_roots.items.len;
     c.globals = vm_globals;
@@ -883,6 +885,7 @@ pub fn compileExpressionWithMacrosAt(gc: *memory.GC, expr: Value, vm_macros: *st
 }
 
 pub fn compileExpressionInEnv(gc: *memory.GC, expr: Value, vm_macros: *std.StringHashMap(Value), env: *std.StringHashMap(Value), env_val: Value) CompileError!*types.Function {
+    syntax_error_detail_len = 0;
     var c = try Compiler.init(gc);
     const roots_base = gc.extra_roots.items.len;
     c.globals = env;

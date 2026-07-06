@@ -75,6 +75,10 @@ assert_output_contains "syntax-error from macro includes message" \
 assert_output_contains "syntax-error has location" \
     '(syntax-error "msg")' '<stdin>:1:'
 
+assert_output_contains "caught syntax-error does not leak into next compile error" \
+    '(import (scheme base)) (guard (e (#t #t)) (eval (quote (syntax-error "STALE" 999)) (environment (quote (scheme base))))) (if)' \
+    'compile error'
+
 # --- Runtime errors include file:line ---
 echo
 echo "-- Runtime errors from files --"
