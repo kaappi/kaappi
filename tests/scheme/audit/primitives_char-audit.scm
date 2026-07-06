@@ -86,12 +86,9 @@
 (test #t (guard (e (#t #t)) (string-upcase 42)))
 (test #t (guard (e (#t #t)) (char-alphabetic? "a")))
 
-;;; --- #1145: property-based classification (disabled pending fix) ---
-;; FAIL: #1145 (titlecase Dz-caron is neither upper nor lower case)
-;; (test '(#f #f) (list (char-upper-case? #\x01C5) (char-lower-case? #\x01C5)))
-;; FAIL: #1145 (sharp-s is Lowercase despite no simple upcase mapping)
-;; (test #t (char-lower-case? #\x00DF))
-;; FAIL: #1145 (ordinal indicators are Alphabetic + Other_Lowercase)
-;; (test '(#t #t) (list (char-alphabetic? #\x00AA) (char-lower-case? #\x00AA)))
+;;; --- #1145: property-based classification (fixed) ---
+(test '(#f #f) (list (char-upper-case? #\x01C5) (char-lower-case? #\x01C5)))
+(test #t (char-lower-case? #\x00DF))
+(test '(#t #t) (list (char-alphabetic? #\x00AA) (char-lower-case? #\x00AA)))
 
 (test-end "primitives_char audit")

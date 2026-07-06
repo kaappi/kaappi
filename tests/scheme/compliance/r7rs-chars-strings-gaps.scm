@@ -28,18 +28,14 @@
   (let ((c #\x05D0)) (list (char-alphabetic? c) (char-upper-case? c) (char-lower-case? c))))
 (test-equal "Other_Uppercase (Roman numeral) is uppercase" '(#t #t #f)
   (let ((c #\x2160)) (list (char-alphabetic? c) (char-upper-case? c) (char-lower-case? c))))
-;; FAIL: #1145 (classification derives from case mappings, not properties)
-;; (test-equal "titlecase Dz-caron is neither upper nor lower" '(#t #f #f)
-;;   (let ((c #\x01C5)) (list (char-alphabetic? c) (char-upper-case? c) (char-lower-case? c))))
-;; FAIL: #1145
-;; (test-equal "titlecase alpha-prosgegrammeni is not upper" #f
-;;   (char-upper-case? #\x1FBC))
-;; FAIL: #1145
-;; (test-equal "sharp-s is lowercase despite no simple upcase mapping" #t
-;;   (char-lower-case? #\x00DF))
-;; FAIL: #1145
-;; (test-equal "feminine ordinal is alphabetic and lowercase" '(#t #f #t)
-;;   (let ((c #\x00AA)) (list (char-alphabetic? c) (char-upper-case? c) (char-lower-case? c))))
+(test-equal "titlecase Dz-caron is neither upper nor lower" '(#t #f #f)
+  (let ((c #\x01C5)) (list (char-alphabetic? c) (char-upper-case? c) (char-lower-case? c))))
+(test-equal "titlecase alpha-prosgegrammeni is not upper" #f
+  (char-upper-case? #\x1FBC))
+(test-equal "sharp-s is lowercase despite no simple upcase mapping" #t
+  (char-lower-case? #\x00DF))
+(test-equal "feminine ordinal is alphabetic and lowercase" '(#t #f #t)
+  (let ((c #\x00AA)) (list (char-alphabetic? c) (char-upper-case? c) (char-lower-case? c))))
 
 ;; --- 6.6 case conversion (p. 45) ---
 ;; Titlecase characters still have simple up/down mappings:
