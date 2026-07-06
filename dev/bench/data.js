@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783348590314,
+  "lastUpdate": 1783353307265,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "9465456181f99829b242509148a257d33ffbee31",
-          "message": "Propagate OutOfMemory from compiler hash map and list insertions (#1017)\n\ncatch {} on macros.put, globals.put, locals.append, and similar calls\nsilently swallowed OutOfMemory, causing macros or globals to fail to\nregister. This led to confusing \"undefined variable\" errors downstream\ninstead of a clear OOM signal.\n\nChange 13 catch {} to try across compiler.zig, compiler_bindings.zig,\nand compiler_lambda.zig. Change 3 void helpers (endBodyMacroScope,\ninjectHygCapturedWalk, CaptureScan.walk) to return errors so their\ncallers can propagate. The 3 remaining catch {} are in defer/errdefer\nblocks where error propagation is impossible.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-04T02:41:45Z",
-          "tree_id": "da217c175d039bc6035baa73b53d3d03b135a44b",
-          "url": "https://github.com/kaappi/kaappi/commit/9465456181f99829b242509148a257d33ffbee31"
-        },
-        "date": 1783133997050,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.846374,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.836603,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.90554,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.033028,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.012222,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.198489,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.452584,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.067663,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 11.919421,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.734685,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 9.272154,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.892065,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 7.658737,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 0.943264,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.038891,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044103,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "1102effb0bf51ca423ecc48574509128775a7dfd",
+          "message": "Error on unknown identifiers in import only/except/rename (#1261)\n\n* Error on unknown identifiers in import only/except/rename (#1174)\n\nR7RS §5.2 says it is an error if identifiers listed in only, except, or\nrename are not found in the library's exports. Previously these were\nsilently ignored, which masked typos and missing exports (e.g. probing\nSRFI-133 for vector-fold appeared to succeed).\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Address review: syntax keywords, define-library propagation, atomic only\n\n- Accept syntax keywords (define, if, when, case-lambda, define-record-type,\n  etc.) in only/except/rename by checking ir.isSpecialForm; add VM-level\n  syntax forms (define-record-type, import, include) to the special form\n  table so they pass validation too\n- Propagate import errors from define-library instead of swallowing them\n  (fixes the main use site for import filters)\n- Make only validate all identifiers before importing any (atomic, consistent\n  with except/rename)\n- Use fetchRemove in except/rename for validate+exclude in one hash op,\n  eliminating the O(n*m) excluded_list scan\n- Fix message wording: \"import set\" instead of \"library exports\" (accurate\n  for composed sets like prefix)\n- Expand tests: 20 shell tests covering syntax keywords, define-library\n  propagation, composed sets, error messages; 4 unit tests in\n  tests_libraries.zig\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Fix rename corruption on colliding names (parallel semantics)\n\nInterleaved fetchRemove+put in the rename pass corrupted colliding\nrenames like (rename lib (a b) (b c)) — the put for \"b\" clobbered\nthe original \"b\" entry before its own fetchRemove ran. Split into\ntwo phases: remove all old entries first, then insert under new names.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Add auxiliary syntax to special forms, swap regression test\n\nAdd else, =>, _, ..., unquote, unquote-splicing to the special form\ntable so they pass import filter validation (R7RS Appendix A lists\nthem as (scheme base) exports). Add swap rename regression test.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-06T20:58:15+05:30",
+          "tree_id": "031ccc18f650eca4c2aa8ffed51fc3e916734c8e",
+          "url": "https://github.com/kaappi/kaappi/commit/1102effb0bf51ca423ecc48574509128775a7dfd"
+        },
+        "date": 1783353305976,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.337575,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.789321,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.956878,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.283788,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.01261,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.212519,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.480694,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.070978,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 12.442999,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.876474,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 9.972748,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.955576,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 8.335685,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.731007,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.043709,
             "unit": "seconds"
           }
         ]
