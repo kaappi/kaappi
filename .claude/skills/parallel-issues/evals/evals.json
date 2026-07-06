@@ -1,0 +1,40 @@
+{
+  "skill_name": "parallel-issues",
+  "evals": [
+    {
+      "id": 0,
+      "prompt": "I want to burn down the open issue backlog with parallel Claude Code sessions. Batch the open issues into parallel sets I can launch concurrently.",
+      "expected_output": "Numbered sets of issue numbers (Set 1: ..., Set 2: ...), each set conflict-free, excluding epic/tracking/meta issues, no set larger than ~8 issues, nothing but set lines in the final answer.",
+      "files": [],
+      "expectations": [
+        "Response contains at least two 'Set N:' lines with comma-separated issue numbers",
+        "No issue number appears in more than one set",
+        "Epic/tracking meta-issues (1137, 1245, 1246) are excluded from all sets",
+        "No set contains more than 8 issues",
+        "Every issue number in the sets is a real open issue",
+        "Deliverable consists of set lines only (no commands or prose mixed in)"
+      ]
+    },
+    {
+      "id": 1,
+      "prompt": "Plan parallel work for the open issues labeled macros — group them into sets I can run concurrent sessions on. (skill argument: macros)",
+      "expected_output": "Sets containing only macros-labeled open issues (currently 1139, 1140, 1142, 1237, 1243), all of them covered, correct set-line format.",
+      "files": [],
+      "expectations": [
+        "Only macros-labeled open issues (1139, 1140, 1142, 1237, 1243) appear in the sets",
+        "All five macros-labeled issues are covered exactly once",
+        "Response consists of set lines in the required format"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "Batch the open issues labeled documentation into parallel sets. (skill argument: documentation)",
+      "expected_output": "A statement that no open issues carry that label, and no sets — must not fall back to batching the whole tracker.",
+      "files": [],
+      "expectations": [
+        "Response states that no open issues carry the 'documentation' label",
+        "Response contains no set lines (no fallback to batching the whole tracker)"
+      ]
+    }
+  ]
+}
