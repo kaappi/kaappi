@@ -679,6 +679,9 @@ fn processImportOnly(vm: *VM, target: *std.StringHashMap(Value), args: Value) !v
         const id_name = types.symbolName(id);
         if (source.get(id_name)) |val| {
             importBinding(vm, target, id_name, val) catch return error.OutOfMemory;
+        } else {
+            vm.setErrorDetail("import only: identifier '{s}' not found in library exports", .{id_name});
+            return error.UndefinedVariable;
         }
         id_list = types.cdr(id_list);
     }
@@ -700,7 +703,12 @@ fn processImportExcept(vm: *VM, target: *std.StringHashMap(Value), args: Value) 
         if (!types.isPair(id_list)) return error.InvalidSyntax;
         const id = types.car(id_list);
         if (!types.isSymbol(id)) return error.InvalidSyntax;
-        excluded_list.append(vm.gc.allocator, types.symbolName(id)) catch return error.OutOfMemory;
+        const exc_name = types.symbolName(id);
+        if (!source.contains(exc_name)) {
+            vm.setErrorDetail("import except: identifier '{s}' not found in library exports", .{exc_name});
+            return error.UndefinedVariable;
+        }
+        excluded_list.append(vm.gc.allocator, exc_name) catch return error.OutOfMemory;
         id_list = types.cdr(id_list);
     }
 
@@ -765,7 +773,12 @@ fn processImportRename(vm: *VM, target: *std.StringHashMap(Value), args: Value) 
         if (!types.isPair(new_rest)) return error.InvalidSyntax;
         const new_sym = types.car(new_rest);
         if (!types.isSymbol(old_sym) or !types.isSymbol(new_sym)) return error.InvalidSyntax;
-        rename_old_list.append(vm.gc.allocator, types.symbolName(old_sym)) catch return error.OutOfMemory;
+        const old_name = types.symbolName(old_sym);
+        if (!source.contains(old_name)) {
+            vm.setErrorDetail("import rename: identifier '{s}' not found in library exports", .{old_name});
+            return error.UndefinedVariable;
+        }
+        rename_old_list.append(vm.gc.allocator, old_name) catch return error.OutOfMemory;
         rename_new_list.append(vm.gc.allocator, types.symbolName(new_sym)) catch return error.OutOfMemory;
         rename_list = types.cdr(rename_list);
     }
