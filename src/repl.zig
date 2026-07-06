@@ -1158,7 +1158,7 @@ fn evalInputInner(vm: *vm_mod.VM, allocator: std.mem.Allocator, input: []const u
             continue;
         }
 
-        const func = compiler.compileExpressionWithMacrosAt(vm.gc, expr, &vm.macros, vm.globals, 0, "<repl>") catch |err| {
+        const func = compiler.compileExpressionWithMacrosAt(vm.gc, expr, &vm.macros, vm.globals, 0, "<repl>", false) catch |err| {
             const lc = r.getLineCol();
             toplevel_driver.reportCompileError("<repl>", lc.line, err);
             break;

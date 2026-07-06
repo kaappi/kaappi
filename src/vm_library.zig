@@ -923,7 +923,7 @@ fn compileLibExpr(vm: *VM, lib_env: *std.StringHashMap(Value), expr: Value) VMEr
             lib_macros.put(entry.key_ptr.*, entry.value_ptr.*) catch return VMError.OutOfMemory;
         }
     }
-    const func = compiler_mod.compileExpressionInEnv(vm.gc, expr, &lib_macros, lib_env, types.NIL) catch |err| {
+    const func = compiler_mod.compileExpressionInEnv(vm.gc, expr, &lib_macros, lib_env, types.NIL, false) catch |err| {
         // Name the failing form so a broken library body surfaces as itself
         // instead of being masked as "library not found" upstream (#1010).
         if (vm.last_error_detail_len == 0) {

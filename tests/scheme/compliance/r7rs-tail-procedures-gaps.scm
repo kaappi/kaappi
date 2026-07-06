@@ -5,8 +5,8 @@
 ;; inside run-all.sh's 60s timeout on Debug CI builds — let-values costs
 ;; ~0.6ms/iteration there.
 ;;
-;; N = 25000 proves TCO: a non-tail implementation exhausts the register
-;; file between 16k and 20k active frames (probed empirically).
+;; N = 40000 proves TCO: it exceeds the 32768 frame cap, so any form that
+;; consumes one frame per iteration will hit StackOverflow.
 ;; Spec references cite docs/errata-corrected-r7rs.pdf section 3.5 (p. 12).
 
 (import (scheme base) (scheme eval) (scheme repl) (scheme write)
@@ -14,7 +14,7 @@
 
 (test-begin "r7rs-tail-procedures-gaps")
 
-(define N 25000)
+(define N 40000)
 
 ;; --- let-values / let*-values: tail body ---
 (define (loop-lv n)
