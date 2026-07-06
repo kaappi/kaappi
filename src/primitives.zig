@@ -392,6 +392,7 @@ fn cdr(args: []const Value) PrimitiveError!Value {
 
 fn setCar(args: []const Value) PrimitiveError!Value {
     if (!types.isPair(args[0])) return typeError("set-car!", "pair", args[0]);
+    if (types.toObject(args[0]).as(types.Pair).immutable) return typeError("set-car!", "mutable pair", args[0]);
     if (memory.gc_instance) |gc| gc.writeBarrier(types.toObject(args[0]), args[1]);
     types.setCar(args[0], args[1]);
     return types.VOID;
@@ -399,6 +400,7 @@ fn setCar(args: []const Value) PrimitiveError!Value {
 
 fn setCdr(args: []const Value) PrimitiveError!Value {
     if (!types.isPair(args[0])) return typeError("set-cdr!", "pair", args[0]);
+    if (types.toObject(args[0]).as(types.Pair).immutable) return typeError("set-cdr!", "mutable pair", args[0]);
     if (memory.gc_instance) |gc| gc.writeBarrier(types.toObject(args[0]), args[1]);
     types.setCdr(args[0], args[1]);
     return types.VOID;

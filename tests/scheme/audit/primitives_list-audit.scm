@@ -45,10 +45,7 @@
 (test 'caught (guard (e (#t 'caught)) (list-set! (list 1 2) -1 'x)))
 (test 'caught (guard (e (#t 'caught)) (list-set! '() 0 'x)))
 ;; R7RS 6.4: (list-set! '(0 1 2) 1 "oops") => error ("constant list").
-;; Same literal-mutability gap as vectors — see #1173 (pairs also lack the
-;; immutable flag that strings already have).
-;; FAIL: #1173 (pair/list literals are mutable; strings already raise)
-;; (test 'caught (guard (e (#t 'caught)) (list-set! '(0 1 2) 1 "oops")))
+(test 'caught (guard (e (#t 'caught)) (list-set! '(0 1 2) 1 "oops")))
 
 ;;; --- list-copy ---
 (test '(1 8 2 8) (list-copy '(1 8 2 8)))

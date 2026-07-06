@@ -265,6 +265,7 @@ pub const Pair = struct {
     header: Object,
     car: Value = NIL,
     cdr: Value = NIL,
+    immutable: bool = false,
 };
 
 pub const Symbol = struct {
@@ -414,11 +415,13 @@ pub const RecordInstance = struct {
 pub const Vector = struct {
     header: Object,
     data: []Value,
+    immutable: bool = false,
 };
 
 pub const Bytevector = struct {
     header: Object,
     data: []u8,
+    immutable: bool = false,
 };
 
 pub const Promise = struct {

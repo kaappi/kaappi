@@ -104,6 +104,7 @@ fn vectorRefFn(args: []const Value) PrimitiveError!Value {
 
 fn vectorSetFn(args: []const Value) PrimitiveError!Value {
     if (!types.isVector(args[0])) return primitives.typeError("vector-set!", "vector", args[0]);
+    if (types.toVector(args[0]).immutable) return primitives.typeError("vector-set!", "mutable vector", args[0]);
     if (!types.isFixnum(args[1])) return primitives.typeError("vector-set!", "exact integer", args[1]);
     const vec = types.toVector(args[0]);
     const k = types.toFixnum(args[1]);
@@ -171,6 +172,7 @@ fn listToVectorFn(args: []const Value) PrimitiveError!Value {
 
 fn vectorFillFn(args: []const Value) PrimitiveError!Value {
     if (!types.isVector(args[0])) return primitives.typeError("vector-fill!", "vector", args[0]);
+    if (types.toVector(args[0]).immutable) return primitives.typeError("vector-fill!", "mutable vector", args[0]);
     const vec = types.toVector(args[0]);
     const len = vec.data.len;
 
@@ -206,6 +208,7 @@ fn vectorCopyFn(args: []const Value) PrimitiveError!Value {
 
 fn vectorCopyBangFn(args: []const Value) PrimitiveError!Value {
     if (!types.isVector(args[0])) return primitives.typeError("vector-copy!", "vector", args[0]);
+    if (types.toVector(args[0]).immutable) return primitives.typeError("vector-copy!", "mutable vector", args[0]);
     if (!types.isFixnum(args[1])) return primitives.typeError("vector-copy!", "exact non-negative integer", args[1]);
     if (!types.isVector(args[2])) return primitives.typeError("vector-copy!", "vector", args[2]);
 
@@ -603,6 +606,7 @@ fn vectorSkipRightFn(args: []const Value) PrimitiveError!Value {
 // (vector-swap! vec i j)
 fn vectorSwapFn(args: []const Value) PrimitiveError!Value {
     if (!types.isVector(args[0])) return primitives.typeError("vector-swap!", "vector", args[0]);
+    if (types.toVector(args[0]).immutable) return primitives.typeError("vector-swap!", "mutable vector", args[0]);
     if (!types.isFixnum(args[1])) return primitives.typeError("vector-swap!", "exact non-negative integer", args[1]);
     if (!types.isFixnum(args[2])) return primitives.typeError("vector-swap!", "exact non-negative integer", args[2]);
     const vec = types.toVector(args[0]);
@@ -623,6 +627,7 @@ fn vectorSwapFn(args: []const Value) PrimitiveError!Value {
 // (vector-reverse! vec [start [end]])
 fn vectorReverseBangFn(args: []const Value) PrimitiveError!Value {
     if (!types.isVector(args[0])) return primitives.typeError("vector-reverse!", "vector", args[0]);
+    if (types.toVector(args[0]).immutable) return primitives.typeError("vector-reverse!", "mutable vector", args[0]);
     const vec = types.toVector(args[0]);
     const range = try primitives.parseOptionalRange(args, 1, vec.data.len, "vector-reverse!");
     var lo = range.start;
