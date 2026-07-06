@@ -306,7 +306,8 @@
 (test #t (guard (e (#t (error-object? e))) (set-point-x! (make-blob 9) 42) #f))
 
 ;; internal record primitives reject garbage directly
-(test #t (guard (e (#t (error-object? e))) (%record-ref 5 0) #f))
+(test #t (guard (e (#t (error-object? e))) (%record-ref 5 0 #t) #f))
+(test #t (guard (e (#t (error-object? e))) (%record-set! 5 0 99 #t) #f))
 (test #t (guard (e (#t (error-object? e))) (%make-record 5) #f))
 
 (test-end "primitives_core audit")

@@ -31,6 +31,12 @@
 (test-assert "mutator rejects non-record"
   (guard (e (#t (error-object? e))) (set-point-x! "not-a-record" 1) #f))
 
+;; Internal primitives reject bad type argument without panicking
+(test-assert "%record-ref rejects non-record-type type arg"
+  (guard (e (#t (error-object? e))) (%record-ref (make-point 1 2) 0 5) #f))
+(test-assert "%record-set! rejects non-record-type type arg"
+  (guard (e (#t (error-object? e))) (%record-set! (make-point 1 2) 0 99 5) #f))
+
 ;; Records defined in body context (let body)
 (test-assert "body-context record type checking"
   (let ()

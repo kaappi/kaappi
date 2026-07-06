@@ -824,6 +824,7 @@ fn recordCheckFn(args: []const Value) PrimitiveError!Value {
 
 fn recordRefFn(args: []const Value) PrimitiveError!Value {
     // args[0] = record instance, args[1] = field index (fixnum), args[2] = expected record type
+    if (!types.isRecordType(args[2])) return typeError("%record-ref", "record-type", args[2]);
     const rt = types.toObject(args[2]).as(types.RecordType);
     if (!types.isRecordInstance(args[0])) return typeError("%record-ref", rt.name, args[0]);
     const ri = types.toObject(args[0]).as(types.RecordInstance);
@@ -838,6 +839,7 @@ fn recordRefFn(args: []const Value) PrimitiveError!Value {
 
 fn recordSetFn(args: []const Value) PrimitiveError!Value {
     // args[0] = record instance, args[1] = field index (fixnum), args[2] = new value, args[3] = expected record type
+    if (!types.isRecordType(args[3])) return typeError("%record-set!", "record-type", args[3]);
     const rt = types.toObject(args[3]).as(types.RecordType);
     if (!types.isRecordInstance(args[0])) return typeError("%record-set!", rt.name, args[0]);
     const ri = types.toObject(args[0]).as(types.RecordInstance);
