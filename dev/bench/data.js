@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783321957157,
+  "lastUpdate": 1783337903040,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "53f8841269e8e8e88afaa7b1cf74a612f5bae3a0",
-          "message": "Stop --sandbox pre-scan at filename boundary (#783) (#1007)\n\nThe pre-scan that decides sandboxing before primitive registration was\nscanning all of argv, including script arguments after the filename.\nA script invoked as `kaappi script.scm --sandbox` would silently enter\nsandbox mode, breaking the script.\n\nMake the pre-scan respect the same positional contract as the main flag\nloop: skip argv[0], recognize all interpreter flags (consuming values\nfor flags that take one), and stop at the first unrecognized argument\n(the filename).\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-04T03:39:58+05:30",
-          "tree_id": "7a636eaf467646453e91096a3883f47b827a9540",
-          "url": "https://github.com/kaappi/kaappi/commit/53f8841269e8e8e88afaa7b1cf74a612f5bae3a0"
-        },
-        "date": 1783117527258,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.461033,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.559308,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.83719,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.928924,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006478,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.033561,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.4759,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.070046,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 4.142734,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.825221,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.198581,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.438663,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.806302,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.817726,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.043847,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.04466,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "66e4389d7b180140f8ffd0161e2b6f967125a529",
+          "message": "Improve parallel-issues skill: label filter, triage rules, body-based grouping (#1255)\n\nThe skill grouped issues by title alone, so it could not actually verify\nits core no-file-overlap rule, and it happily batched epic/tracking\nissues, assigned issues, and issues with fixes already in flight.\n\n- Accept an optional label argument ($ARGUMENTS) to scope the batch\n- Fetch issue bodies and assignees; bodies are where file paths live\n- Skip epics/tracking/meta, assigned, linked-PR, and not-actionable issues\n- Raise the list limit to 500 and rerun when the count hits the limit\n- Cap sets at ~8 issues so output matches launchable parallelism\n- Explain the why behind the strict set-line output format\n\nValidated with the skill-creator eval loop against the live tracker:\nnew skill 11/11 assertions vs old skill 9/11 — the baseline batched\nmeta-issues 1137/1245/1246 and produced sets of up to 18 issues.\nEval definitions live in evals/evals.json for future iterations.\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-06T11:15:03Z",
+          "tree_id": "726a50d16780fffdb3ea7073d86841e99f48f014",
+          "url": "https://github.com/kaappi/kaappi/commit/66e4389d7b180140f8ffd0161e2b6f967125a529"
+        },
+        "date": 1783337901754,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.339632,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.772768,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.937033,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.369152,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.012437,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.212749,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.489712,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.071526,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 12.398432,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.939092,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 9.967806,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.962243,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 8.302429,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.695209,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.042026,
             "unit": "seconds"
           }
         ]
