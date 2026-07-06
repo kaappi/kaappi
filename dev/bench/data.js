@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783364742503,
+  "lastUpdate": 1783366866467,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "bf6f479c57fbf17c5ff42dd0920d3243e5dde1a9",
-          "message": "Split compiler IR handlers into compiler_ir.zig (#1023)\n\ncompiler.zig was 1763 lines, exceeding the 1500-line policy. Extract 12\nIR-to-bytecode compilation handlers (compileFromNode, compileIfFromIR,\ncompileCallFromIR, compileLambdaWithIR, etc.) into a new compiler_ir.zig\nfile (490 lines), bringing compiler.zig down to 1279 lines.\n\nFollows the same pattern as the existing compiler_*.zig split files:\nfree functions taking *Compiler, importing types/memory/ir_mod as needed.\nMade compileVariable, compileDefineSyntax, compileLetSyntax, and\ncompileLetrecSyntax pub so compiler_ir.zig can call them via the\nCompiler pointer.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-04T05:39:33Z",
-          "tree_id": "adbdcdd8ac0cd36f5b88bb9458bcbd62571a3a43",
-          "url": "https://github.com/kaappi/kaappi/commit/bf6f479c57fbf17c5ff42dd0920d3243e5dde1a9"
-        },
-        "date": 1783144719287,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.145031,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.753721,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.736585,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.1561,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.010809,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.181488,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.365626,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.052801,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 9.753561,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.420774,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 8.537322,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.834448,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 7.263651,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.472326,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.034941,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.042397,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "93a3c2a971ac2bcf7749c538b23cb46f6ececc0c",
+          "message": "Separate let-syntax from letrec-syntax scoping (#1140) (#1277)\n\n* Separate let-syntax from letrec-syntax scoping (#1140)\n\nlet-syntax was giving letrec-syntax semantics: sibling macro bindings\ncould see each other's keywords. R7RS 4.3.1 specifies that let-syntax\ntransformer specs are evaluated in the outer syntactic environment.\n\nParse all transformer specs before registering any bindings, store each\nkeyword's outer macro value on the Transformer, and temporarily swap\nmacros during expansion result compilation so template free references\nresolve to the definition-site environment.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Address review feedback: remove 32-binding cap, extract helpers\n\n- Replace fixed stack arrays with ArrayLists so let-syntax accepts\n  arbitrarily many bindings (matching letrec-syntax behavior).\n- Extract captureLocalsOnTransformer, compileSyntaxBody, and\n  restoreMacros helpers to deduplicate let-syntax / letrec-syntax.\n- Use dynamically allocated saved_peer in expandAndCompileMacroUse\n  instead of a fixed [32]?Value array.\n- Fix gc_deep_copy.zig: propagate OOM from peer_names dupe instead\n  of silently substituting &.{}, add errdefer for peer_vals.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Fix GC-safety and OOM handling in let-syntax\n\n- Pre-allocate tx_vals to exact capacity before the parse loop so\n  pushRoot pointers into its backing buffer stay valid across appends.\n- Propagate OOM from captureLocalsOnTransformer instead of silently\n  dropping captured locals.\n- Propagate OOM from saved_peer allocation in expandAndCompileMacroUse\n  instead of silently skipping the peer swap.\n- Add debug assert for peer_names/peer_outer slice length equality.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-07T00:44:39+05:30",
+          "tree_id": "e7bc80eae3e2db4a5f03496fce73dda933625c09",
+          "url": "https://github.com/kaappi/kaappi/commit/93a3c2a971ac2bcf7749c538b23cb46f6ececc0c"
+        },
+        "date": 1783366865845,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.351732,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.726059,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 1.069504,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.498487,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.012375,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.212961,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.560104,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.073288,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 12.352747,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 2.01817,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 9.948937,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.948797,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 8.291323,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.667548,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.042554,
             "unit": "seconds"
           }
         ]
