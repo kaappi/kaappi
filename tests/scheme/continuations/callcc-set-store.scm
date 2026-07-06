@@ -1,5 +1,29 @@
 ;; Regression test for #1168: set! of non-captured locals must persist
 ;; across continuation re-entry (R7RS §3.4 store semantics).
+;;
+;; Known gap: macro-introduced set! bypasses collectSetTargets (pre-expansion
+;; scan), so boxing is not applied. See follow-up issue for these cases:
+;;
+;; FAIL: macro-introduced set! (inc! wrapper) — HANGS
+;; (define-syntax inc! (syntax-rules () ((_ v) (set! v (+ v 1)))))
+;; (test-equal "macro-introduced set! persists" 3
+;;   (let ((n 0) (k* #f))
+;;     (call/cc (lambda (k) (set! k* k)))
+;;     (inc! n)
+;;     (if (< n 3) (k* #f))
+;;     n))
+;;
+;; FAIL: macro that expands to entire let+set! — HANGS
+;; (define-syntax counter-loop
+;;   (syntax-rules ()
+;;     ((_ limit)
+;;      (let ((n 0) (k* #f))
+;;        (call/cc (lambda (k) (set! k* k)))
+;;        (set! n (+ n 1))
+;;        (if (< n limit) (k* #f))
+;;        n))))
+;; (test-equal "macro-expanded let+set! persists" 3
+;;   (counter-loop 3))
 (import (scheme base) (scheme process-context) (srfi 64))
 
 (test-begin "callcc-set-store")
