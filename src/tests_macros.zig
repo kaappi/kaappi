@@ -500,6 +500,15 @@ test "syntax-rules doubled ellipsis flattens depth-2 bindings (#1243)" {
     // No groups
     const r5 = try vm.eval("(equal? (flatten2 ()) '())");
     try std.testing.expectEqual(types.TRUE, r5);
+
+    // Custom ellipsis identifier
+    _ = try vm.eval(
+        \\(define-syntax flatten-custom
+        \\  (syntax-rules ::: ()
+        \\    ((_ ((x :::) :::)) '(x ::: :::))))
+    );
+    const r6 = try vm.eval("(equal? (flatten-custom ((1 2) (3 4))) '(1 2 3 4))");
+    try std.testing.expectEqual(types.TRUE, r6);
 }
 
 test "hygiene: template set! of a free global writes through to the global" {

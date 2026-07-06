@@ -697,7 +697,7 @@ fn instantiateEllipsis(gc: *GC, elem_template: Value, rest_template: Value, bind
     // non-ellipsis remainder.
     var extra_ellipsis: u32 = 0;
     var true_rest = rest_template;
-    while (true_rest != types.NIL and types.isPair(true_rest)) {
+    while (types.isPair(true_rest)) {
         const head = types.car(true_rest);
         if (types.isSymbol(head) and isEllipsis(types.symbolName(head))) {
             extra_ellipsis += 1;
@@ -712,6 +712,22 @@ fn instantiateEllipsis(gc: *GC, elem_template: Value, rest_template: Value, bind
     var result_root = result;
     gc.pushRoot(&result_root);
     defer gc.popRoot();
+
+    // When extra ellipses are present, build the synthetic template
+    // (elem_template ... ...) once outside the loop — it is invariant
+    // across iterations and instantiateTemplate only reads it.
+    var synth = types.NIL;
+    if (extra_ellipsis > 0) {
+        gc.pushRoot(&synth);
+        const ellipsis_name = active_custom_ellipsis orelse "...";
+        var ei: u32 = 0;
+        while (ei < extra_ellipsis) : (ei += 1) {
+            const dots = try gc.allocSymbol(ellipsis_name);
+            synth = try gc.allocPair(dots, synth);
+        }
+        synth = try gc.allocPair(elem_template, synth);
+    }
+    defer if (extra_ellipsis > 0) gc.popRoot();
 
     // Generate copies in reverse so we build the list from right to left
     var i = repeat_count;
@@ -759,24 +775,7 @@ fn instantiateEllipsis(gc: *GC, elem_template: Value, rest_template: Value, bind
             result_root = try gc.allocPair(expanded_root, result_root);
             gc.popRoot();
         } else {
-            // Build synthetic template (elem_template ... ...) with
-            // extra_ellipsis ellipsis symbols, then instantiate it.
-            // instantiateTemplate will re-detect the ellipsis pattern and
-            // recurse into instantiateEllipsis with one fewer level.
-            const ellipsis_name = active_custom_ellipsis orelse "...";
-            var synth = types.NIL;
-            gc.pushRoot(&synth);
-            {
-                var ei: u32 = 0;
-                while (ei < extra_ellipsis) : (ei += 1) {
-                    const dots = try gc.allocSymbol(ellipsis_name);
-                    synth = try gc.allocPair(dots, synth);
-                }
-            }
-            synth = try gc.allocPair(elem_template, synth);
-
             const expanded_list = try instantiateTemplate(gc, synth, sub_bindings[0..sub_count], intro_scope, literals, macro_keyword, globals, macros);
-            gc.popRoot(); // synth
 
             // Splice expanded_list (a proper list) into result_root.
             if (expanded_list != types.NIL and types.isPair(expanded_list)) {
