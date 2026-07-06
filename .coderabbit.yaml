@@ -1,0 +1,164 @@
+language: en-US
+tone_instructions: "Be direct and technical. This is a language implementation — correctness matters more than style."
+early_access: false
+
+reviews:
+  profile: assertive
+  high_level_summary: true
+  high_level_summary_in_walkthrough: true
+  poem: false
+  sequence_diagrams: false
+  collapse_walkthrough: false
+  changed_files_summary: true
+  review_status: true
+  commit_status: true
+  assess_linked_issues: true
+  related_issues: true
+  related_prs: true
+
+  auto_review:
+    enabled: true
+    auto_incremental_review: true
+    drafts: false
+    ignore_title_keywords:
+      - "WIP"
+      - "DO NOT MERGE"
+
+  path_filters:
+    - "!vendor/**"
+    - "!src/unicode_tables.zig"
+    - "!zig-out/**"
+    - "!zig-cache/**"
+    - "!coverage/**"
+
+  path_instructions:
+    - path: "src/primitives*.zig"
+      instructions: |
+        GC safety: every heap allocation (allocPair, allocString, allocVector, etc.)
+        can trigger GC. If a local variable holds a pointer to a heap object across
+        an allocation call, it MUST be rooted with gc.pushRoot/popRoot first.
+        Values passed directly as allocator arguments are auto-rooted.
+
+        Write barrier: after storing a Value into a heap object field (set-car!,
+        vector-set!, etc.), call gc.writeBarrier(container, new_val).
+
+        Root Function* before vm.execute() — it allocates a closure wrapper internally.
+
+        Check arity specs match R7RS: .exact for fixed, .variadic for minimum args.
+
+    - path: "src/memory.zig"
+      instructions: |
+        This is the garbage collector. Changes here affect every heap allocation.
+        Verify: mark phase traces all reachable objects, free phase releases
+        unreachable ones, write barrier maintains generational invariants.
+        Test with -Dgc-stress=true to force collection on every allocation.
+
+    - path: "src/vm*.zig"
+      instructions: |
+        VM execution engine. Key concerns:
+        - Continuation capture/restore must save and restore the full stack correctly.
+        - Dynamic-wind winding/unwinding must execute in/out thunks in order.
+        - Exception handler stack must be maintained across call boundaries.
+        - Root Function* before vm.execute() calls.
+
+    - path: "src/compiler*.zig"
+      instructions: |
+        Compiler: IR nodes to register-based bytecode. Key concerns:
+        - Tail position propagation: tail calls must be marked correctly for TCO.
+        - Register allocation: destinations must not conflict with source registers.
+        - Scope management: let/letrec bindings must create correct lexical scopes.
+        - New forms need: FormKind variant, sexpr_form_map entry, dispatch in
+          compileFromNode(), implementation, re-export in compiler_forms.zig,
+          and IR behavioral tests in tests_ir.zig.
+
+    - path: "src/ir.zig"
+      instructions: |
+        Intermediate representation: 33 node types, 3 analysis passes,
+        5 optimization passes. New node types need: NodeTag variant, Data union
+        field, freeNode arm, markTailPositions arm, and llvm_node_table entry.
+        Optimization passes use `else => return node` — only add arms if the
+        new form should participate in constant folding or simplification.
+
+    - path: "src/reader*.zig"
+      instructions: |
+        R7RS lexical syntax parser. Must handle: Unicode identifiers, all
+        numeric formats (decimal, hex, octal, binary, rationals, complex),
+        string escapes, datum labels (#N= / #N#), nested block comments,
+        and all character literal forms (#\space, #\x61, #\alarm, etc.).
+
+    - path: "src/llvm_emit.zig"
+      instructions: |
+        LLVM IR emitter for native backend. Generated .ll files must be valid
+        LLVM IR. Check: correct SSA form, proper type annotations, function
+        signatures match runtime_exports.zig C-ABI bridge.
+
+    - path: "lib/srfi/*.sld"
+      instructions: |
+        Portable SRFI implementations. Must be valid R7RS define-library forms.
+        Check: exports match the SRFI specification, cond-expand is used for
+        feature detection, include paths are relative to the .sld file.
+
+    - path: "tests/**"
+      instructions: |
+        Test files. Every bug fix must include a regression test. Scheme tests
+        use either (chibi test) or simple display+newline assertions.
+        Check that tests actually exercise the behavior being tested and
+        would fail without the corresponding fix.
+
+    - path: ".github/workflows/*.yml"
+      instructions: |
+        CI workflows. Check: correct Zig version (0.16), proper caching of
+        zig-cache, matrix entries cover all target platforms (macOS ARM,
+        Linux x86_64, Linux aarch64, Linux riscv64).
+
+  tools:
+    shellcheck:
+      enabled: true
+    actionlint:
+      enabled: true
+    yamllint:
+      enabled: true
+    gitleaks:
+      enabled: true
+    markdownlint:
+      enabled: true
+    # Disable tools not relevant to Zig/Scheme
+    eslint:
+      enabled: false
+    ruff:
+      enabled: false
+    biome:
+      enabled: false
+    hadolint:
+      enabled: false
+    phpstan:
+      enabled: false
+    golangci-lint:
+      enabled: false
+    detekt:
+      enabled: false
+    rubocop:
+      enabled: false
+    clippy:
+      enabled: false
+    pylint:
+      enabled: false
+    oxc:
+      enabled: false
+
+  finishing_touches:
+    docstrings:
+      enabled: false
+    unit_tests:
+      enabled: false
+
+chat:
+  auto_reply: true
+
+knowledge_base:
+  learnings:
+    scope: local
+  web_search:
+    enabled: true
+  code_guidelines:
+    enabled: true
