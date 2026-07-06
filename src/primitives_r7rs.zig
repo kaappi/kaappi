@@ -177,7 +177,7 @@ fn evalFn(args: []const Value) PrimitiveError!Value {
     // If an environment specifier is provided, compile in that environment
     if (args.len > 1 and types.isEnvironment(args[1])) {
         const se = types.toEnvironment(args[1]);
-        const func = compiler_mod.compileExpressionInEnv(gc, expr, &vm.macros, se.env, args[1]) catch return PrimitiveError.TypeError; // bare-ok: compile error
+        const func = compiler_mod.compileExpressionInEnv(gc, expr, &vm.macros, se.env, args[1], false) catch return PrimitiveError.TypeError; // bare-ok: compile error
         var closure_val = gc.allocClosure(func) catch return PrimitiveError.OutOfMemory;
         compiler_mod.Compiler.unrootFunction(gc, func);
         gc.pushRoot(&closure_val);
@@ -289,7 +289,7 @@ fn loadFn(args: []const Value) PrimitiveError!Value {
         const expr = reader.readDatum() catch return primitives.typeError("load", "valid datum", args[0]);
 
         if (env) |e| {
-            const func = compiler_mod.compileExpressionInEnv(gc, expr, &vm.macros, e, env_val) catch return primitives.typeError("load", "valid expression", args[0]);
+            const func = compiler_mod.compileExpressionInEnv(gc, expr, &vm.macros, e, env_val, false) catch return primitives.typeError("load", "valid expression", args[0]);
             var closure_val = gc.allocClosure(func) catch return PrimitiveError.OutOfMemory;
             compiler_mod.Compiler.unrootFunction(gc, func);
             gc.pushRoot(&closure_val);

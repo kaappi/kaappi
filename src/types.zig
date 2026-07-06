@@ -335,6 +335,7 @@ pub const Function = struct {
     cache_version: u32 = 0,
     env: ?*std.StringHashMap(Value) = null,
     env_val: Value = NIL,
+    restricted_globals: bool = false,
     profile_instrs: u64 = 0,
     profile_calls: u64 = 0,
     profile_time_ns: u64 = 0,

@@ -386,7 +386,7 @@ pub const Compiler = struct {
 
     // -- Public compilation API --
 
-    pub fn compile(self: *Compiler, expr: Value) CompileError!void {
+    pub fn compile(self: *Compiler, expr: Value, is_tail: bool) CompileError!void {
         // Root the source datum for the whole compile: the expander and the
         // derived-form compilers allocate (triggering GC), and the datum tree
         // is otherwise reachable only through this unrooted argument. Without
@@ -412,10 +412,10 @@ pub const Compiler = struct {
         ir.compiler = self;
         ir.set_targets = self.set_targets;
         defer ir.deinit();
-        const root = try ir_mod.lowerAndOptimize(&ir, expr_root, &self.macros, false);
+        const root = try ir_mod.lowerAndOptimize(&ir, expr_root, &self.macros, is_tail);
 
         const dst = try self.allocReg();
-        try compiler_ir.compileFromNode(self, root, dst, false);
+        try compiler_ir.compileFromNode(self, root, dst, is_tail);
         try self.emitOp(.@"return");
         try self.emitU16(dst);
 
@@ -854,16 +854,16 @@ pub fn compileExpression(gc: *memory.GC, expr: Value) CompileError!*types.Functi
         if (!ok) Compiler.unrootFunction(gc, c.func);
         c.deinit();
     }
-    try c.compile(expr);
+    try c.compile(expr, false);
     ok = true;
     return c.func;
 }
 
 pub fn compileExpressionWithMacros(gc: *memory.GC, expr: Value, vm_macros: *std.StringHashMap(Value), vm_globals: ?*std.StringHashMap(Value)) CompileError!*types.Function {
-    return compileExpressionWithMacrosAt(gc, expr, vm_macros, vm_globals, 0, null);
+    return compileExpressionWithMacrosAt(gc, expr, vm_macros, vm_globals, 0, null, false);
 }
 
-pub fn compileExpressionWithMacrosAt(gc: *memory.GC, expr: Value, vm_macros: *std.StringHashMap(Value), vm_globals: ?*std.StringHashMap(Value), source_line: u32, source_name: ?[]const u8) CompileError!*types.Function {
+pub fn compileExpressionWithMacrosAt(gc: *memory.GC, expr: Value, vm_macros: *std.StringHashMap(Value), vm_globals: ?*std.StringHashMap(Value), source_line: u32, source_name: ?[]const u8, is_tail: bool) CompileError!*types.Function {
     syntax_error_detail_len = 0;
     var c = try Compiler.init(gc);
     const roots_base = gc.extra_roots.items.len;
@@ -880,7 +880,7 @@ pub fn compileExpressionWithMacrosAt(gc: *memory.GC, expr: Value, vm_macros: *st
     while (it.next()) |entry| {
         c.macros.put(entry.key_ptr.*, entry.value_ptr.*) catch return CompileError.OutOfMemory;
     }
-    try c.compile(expr);
+    try c.compile(expr, is_tail);
     var out_it = c.macros.iterator();
     while (out_it.next()) |entry| {
         vm_macros.put(entry.key_ptr.*, entry.value_ptr.*) catch return CompileError.OutOfMemory;
@@ -889,7 +889,7 @@ pub fn compileExpressionWithMacrosAt(gc: *memory.GC, expr: Value, vm_macros: *st
     return c.func;
 }
 
-pub fn compileExpressionInEnv(gc: *memory.GC, expr: Value, vm_macros: *std.StringHashMap(Value), env: *std.StringHashMap(Value), env_val: Value) CompileError!*types.Function {
+pub fn compileExpressionInEnv(gc: *memory.GC, expr: Value, vm_macros: *std.StringHashMap(Value), env: *std.StringHashMap(Value), env_val: Value, is_tail: bool) CompileError!*types.Function {
     syntax_error_detail_len = 0;
     var c = try Compiler.init(gc);
     const roots_base = gc.extra_roots.items.len;
@@ -907,9 +907,10 @@ pub fn compileExpressionInEnv(gc: *memory.GC, expr: Value, vm_macros: *std.Strin
     while (it.next()) |entry| {
         c.macros.put(entry.key_ptr.*, entry.value_ptr.*) catch return CompileError.OutOfMemory;
     }
-    try c.compile(expr);
+    try c.compile(expr, is_tail);
     c.func.env = env;
     c.func.env_val = env_val;
+    c.func.restricted_globals = c.restricted_env;
     if (!types.isEnvironment(env_val) or !types.toEnvironment(env_val).immutable) {
         var out_it = c.macros.iterator();
         while (out_it.next()) |entry| {

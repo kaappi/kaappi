@@ -217,7 +217,7 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                 // path runs after release (findSimilarName locks internally).
                 self.lockGlobalsShared();
                 const found: ?Value = env.get(name) orelse blk: {
-                    if (func.env != null) {
+                    if (func.env != null and !func.restricted_globals) {
                         if (self.globals.get(name)) |gval| break :blk gval;
                     }
                     const base = types.stripHygienicPrefix(name);
@@ -1183,9 +1183,9 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                 const func_val = blk: {
                     if (nargs >= 2 and types.isEnvironment(self.registers[abs_base + 1])) {
                         const se = types.toEnvironment(self.registers[abs_base + 1]);
-                        break :blk compiler_mod.compileExpressionInEnv(self.gc, expr_val, &self.macros, se.env, self.registers[abs_base + 1]) catch return VMError.CompileError;
+                        break :blk compiler_mod.compileExpressionInEnv(self.gc, expr_val, &self.macros, se.env, self.registers[abs_base + 1], true) catch return VMError.CompileError;
                     }
-                    break :blk compiler_mod.compileExpressionWithMacros(self.gc, expr_val, &self.macros, self.globals) catch return VMError.CompileError;
+                    break :blk compiler_mod.compileExpressionWithMacrosAt(self.gc, expr_val, &self.macros, self.globals, 0, null, true) catch return VMError.CompileError;
                 };
                 var closure_val = self.gc.allocClosure(func_val) catch return VMError.OutOfMemory;
                 compiler_mod.Compiler.unrootFunction(self.gc, func_val);

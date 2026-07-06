@@ -555,7 +555,7 @@ fn runFile(vm: *vm_mod.VM, path: []const u8) !void {
             continue;
         }
 
-        const func = compiler.compileExpressionWithMacrosAt(vm.gc, expr, &vm.macros, vm.globals, datum_lc.line, path) catch |err| {
+        const func = compiler.compileExpressionWithMacrosAt(vm.gc, expr, &vm.macros, vm.globals, datum_lc.line, path, false) catch |err| {
             toplevel_driver.reportCompileError(path, datum_lc.line, err);
             script_had_error = true;
             continue;
@@ -628,7 +628,7 @@ fn runStdin(vm: *vm_mod.VM) !void {
             continue;
         }
 
-        const func = compiler.compileExpressionWithMacrosAt(vm.gc, expr, &vm.macros, vm.globals, 0, "<stdin>") catch |err| {
+        const func = compiler.compileExpressionWithMacrosAt(vm.gc, expr, &vm.macros, vm.globals, 0, "<stdin>", false) catch |err| {
             const lc = r.getLineCol();
             toplevel_driver.reportCompileError("<stdin>", lc.line, err);
             script_had_error = true;
@@ -690,7 +690,7 @@ fn disassembleFile(vm: *vm_mod.VM, path: []const u8) !void {
             continue;
         }
 
-        const func = compiler.compileExpressionWithMacrosAt(vm.gc, expr, &vm.macros, vm.globals, datum_lc.line, path) catch |err| {
+        const func = compiler.compileExpressionWithMacrosAt(vm.gc, expr, &vm.macros, vm.globals, datum_lc.line, path, false) catch |err| {
             toplevel_driver.reportCompileError(path, datum_lc.line, err);
             script_had_error = true;
             continue;
@@ -771,7 +771,7 @@ fn compileFile(vm: *vm_mod.VM, path: []const u8, output_path: ?[]const u8) !void
             continue;
         }
 
-        const func = compiler.compileExpressionWithMacrosAt(vm.gc, expr, &vm.macros, vm.globals, datum_lc.line, path) catch |err| {
+        const func = compiler.compileExpressionWithMacrosAt(vm.gc, expr, &vm.macros, vm.globals, datum_lc.line, path, false) catch |err| {
             toplevel_driver.reportCompileError(path, datum_lc.line, err);
             script_had_error = true;
             continue;

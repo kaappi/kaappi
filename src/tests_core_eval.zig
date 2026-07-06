@@ -318,3 +318,19 @@ test "interaction-environment allows define (#1147)" {
     const result = try ctx.vm.eval("(eval 'ie-test-var (interaction-environment))");
     try std.testing.expectEqual(@as(i64, 42), types.toFixnum(result));
 }
+
+// Regression for #1253: eval must be tail-called (R7RS 3.5)
+test "eval tail position runs in constant frame depth (#1253)" {
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
+    _ = try ctx.vm.eval(
+        \\(define (loop-eval n)
+        \\  (if (= n 0) 'done
+        \\      (eval (list 'loop-eval (- n 1))
+        \\            (interaction-environment))))
+    );
+    const result = try ctx.vm.eval("(loop-eval 40000)");
+    try std.testing.expect(types.isSymbol(result));
+    try std.testing.expectEqualStrings("done", types.symbolName(result));
+}

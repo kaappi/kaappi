@@ -647,7 +647,7 @@ fn runDiagnostics(allocator: std.mem.Allocator, vm: *vm_mod.VM, uri: []const u8,
         };
 
         // Compile phase
-        _ = compiler.compileExpressionWithMacrosAt(vm.gc, expr, &vm.macros, vm.globals, 0, uri) catch {
+        _ = compiler.compileExpressionWithMacrosAt(vm.gc, expr, &vm.macros, vm.globals, 0, uri, false) catch {
             const lc = r.getLineCol();
             if (has_diag) diag_buf.append(allocator, ',') catch {};
             has_diag = true;
