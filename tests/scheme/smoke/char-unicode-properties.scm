@@ -37,6 +37,14 @@
 (test-assert "digit not alphabetic" (not (char-alphabetic? #\0)))
 (test-assert "space not alphabetic" (not (char-alphabetic? #\space)))
 
+;; string-titlecase treats titlecase (Lt) chars as cased word members
+(test-equal "string-titlecase with Lt char" "\x01C4;ivota"
+  (string-titlecase "\x01C5;ivota"))
+
+;; string-downcase final-sigma skips case-ignorable combining marks
+(test-equal "final sigma before combining mark" "\x03B1;\x03C2;\x05B0;"
+  (string-downcase "\x0391;\x03A3;\x05B0;"))
+
 (let ((runner (test-runner-current)))
   (test-end "char-unicode-properties")
   (when (> (test-runner-fail-count runner) 0) (exit 1)))

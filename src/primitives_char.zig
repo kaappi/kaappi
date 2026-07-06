@@ -57,6 +57,11 @@ pub fn isUnicodeLowercase(cp: u21) bool {
     return unicode.inRanges(&unicode.lowercase_ranges, cp);
 }
 
+pub fn isUnicodeCased(cp: u21) bool {
+    if (cp <= 127) return std.ascii.isAlphabetic(@intCast(cp));
+    return unicode.inRanges(&unicode.cased_ranges, cp);
+}
+
 fn isUnicodeWhitespace(cp: u21) bool {
     if (cp <= 127) {
         return switch (cp) {
@@ -488,7 +493,7 @@ fn stringCaseMapExpanding(data: []const u8, mode: CaseMode) PrimitiveError!Value
                             if (ni + nsl > data.len) break :blk @as(?u21, null);
                             break :blk std.unicode.utf8Decode(data[ni .. ni + nsl]) catch null;
                         };
-                        const next_is_cased = if (next_cp) |nc| isUnicodeLetter(nc) else false;
+                        const next_is_cased = if (next_cp) |nc| isUnicodeCased(nc) else false;
                         if (prev_cased and !next_is_cased)
                             try appendCodepoint(&result, gc.allocator, 0x03C2) // ς
                         else
@@ -554,7 +559,7 @@ fn stringCaseMapExpanding(data: []const u8, mode: CaseMode) PrimitiveError!Value
                 }
             },
         }
-        prev_cased = isUnicodeLetter(cp);
+        prev_cased = isUnicodeCased(cp);
         i += seq_len;
     }
     return gc.allocString(result.items) catch return PrimitiveError.OutOfMemory;

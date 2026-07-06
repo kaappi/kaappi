@@ -63,7 +63,7 @@ def parse_case_folding(path):
 
 def parse_derived_core_properties(path):
     """Parse DerivedCoreProperties.txt for Uppercase, Lowercase, Alphabetic ranges."""
-    props = {"Uppercase": [], "Lowercase": [], "Alphabetic": []}
+    props = {"Uppercase": [], "Lowercase": [], "Alphabetic": [], "Cased": []}
     with open(path) as f:
         for line in f:
             line = line.strip()
@@ -199,6 +199,7 @@ def generate_zig(uppercase_letters, lowercase_letters, upcase_map, downcase_map,
     write_range_table(lines, "uppercase_ranges", derived_props["Uppercase"])
     write_range_table(lines, "lowercase_ranges", derived_props["Lowercase"])
     write_range_table(lines, "alphabetic_ranges", derived_props["Alphabetic"])
+    write_range_table(lines, "cased_ranges", derived_props["Cased"])
 
     # Binary search for range tables
     lines.append("pub fn inRanges(comptime table: []const Range, cp: u21) bool {")
@@ -243,7 +244,7 @@ def main():
 
     print("Parsing DerivedCoreProperties.txt...")
     derived_props = parse_derived_core_properties(dprops_path)
-    for prop in ("Uppercase", "Lowercase", "Alphabetic"):
+    for prop in ("Uppercase", "Lowercase", "Alphabetic", "Cased"):
         total = sum(hi - lo + 1 for lo, hi in derived_props[prop])
         print(f"  {prop}: {len(derived_props[prop])} ranges ({total} codepoints)")
 

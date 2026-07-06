@@ -635,7 +635,7 @@ fn stringTitlecaseFn(args: []const Value) PrimitiveError!Value {
             continue;
         };
 
-        const is_cased = pchar.isUnicodeUppercase(cp) or pchar.isUnicodeLowercase(cp);
+        const is_cased = pchar.isUnicodeCased(cp);
 
         if (!is_cased) {
             result.appendSlice(gc.allocator, data[i .. i + seq_len]) catch return PrimitiveError.OutOfMemory;
@@ -700,7 +700,7 @@ fn stringTitlecaseFn(args: []const Value) PrimitiveError!Value {
                         break :blk std.unicode.utf8Decode(data[ni .. ni + nsl]) catch null;
                     };
                     const next_is_cased = if (next_cp) |nc|
-                        pchar.isUnicodeUppercase(nc) or pchar.isUnicodeLowercase(nc)
+                        pchar.isUnicodeCased(nc)
                     else
                         false;
                     if (prev_cased and !next_is_cased)
