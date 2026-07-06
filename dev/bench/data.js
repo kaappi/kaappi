@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783346404702,
+  "lastUpdate": 1783346942178,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "6ac5687106a98518c1733f402566aa5c0ce4cab3",
-          "message": "Panic instead of silently dropping reachable objects on GC mark OOM (#1014)\n\nThe mark-phase worklist (added in #864 to avoid native stack overflow)\nused `catch {}` on all 41 append calls. If any append OOMed, reachable\nobjects would silently not be marked and then incorrectly freed — a\nlatent use-after-free.\n\nPre-allocate 1024 worklist slots before the mark loop to cover the\ncommon case without allocation in the hot path. Convert all `catch {}`\nto `catch @panic(...)` so that if the worklist ever does need to grow\nbeyond pre-allocated capacity and that allocation fails, we get a hard\ncrash instead of silent heap corruption.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-04T01:52:51Z",
-          "tree_id": "db872dca745843f490d06561d67bbdd6c46cde1c",
-          "url": "https://github.com/kaappi/kaappi/commit/6ac5687106a98518c1733f402566aa5c0ce4cab3"
-        },
-        "date": 1783131195987,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.43494,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.149859,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.935543,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.443036,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.012702,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.211227,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.479664,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.069985,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 12.529815,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.853543,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 9.999124,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.964053,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 8.372293,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.703049,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.042478,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.037697,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "18063843170e95d0054bc93abacbf25ab4086bd4",
+          "message": "Use Unicode derived properties for char classification (#1145) (#1263)\n\n* Use Unicode derived properties for char classification (#1145)\n\nchar-upper-case?, char-lower-case?, and char-alphabetic? were deriving\nclassification from case mappings instead of the Unicode Uppercase,\nLowercase, and Alphabetic derived properties. This caused titlecase\nletters (Lt) to report as both upper and lower, sharp-s (U+00DF) to\nmiss lowercase, and ordinal indicators (U+00AA/U+00BA) to miss\nalphabetic/lowercase.\n\nGenerate proper property range tables from DerivedCoreProperties.txt\nand use binary-searched range lookups instead of case-mapping inference\nand hardcoded script block ranges.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Fix string-titlecase and final-sigma regressions with Cased property\n\nstring-titlecase and string-downcase final-sigma detection used\nisUnicodeUppercase/isUnicodeLowercase as a proxy for the Unicode Cased\nproperty. Titlecase (Lt) characters are Cased but neither Uppercase nor\nLowercase, and combining marks are Alphabetic but not Cased.\n\nAdd a cased_ranges table from DerivedCoreProperties.txt and use it at\nall four word-boundary/final-sigma sites in primitives_char.zig and\nprimitives_string_ext.zig.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-06T13:37:12Z",
+          "tree_id": "83004391a110f23ee43d48445aedc98cf9e8178b",
+          "url": "https://github.com/kaappi/kaappi/commit/18063843170e95d0054bc93abacbf25ab4086bd4"
+        },
+        "date": 1783346940822,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.329733,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.846771,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.932537,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.12575,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.012513,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.212744,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.487792,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.07197,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 12.500333,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.878508,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 10.023654,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.962618,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 8.417692,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.689454,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044306,
             "unit": "seconds"
           }
         ]
