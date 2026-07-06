@@ -31,10 +31,19 @@ pub const CompileError = error{
     JumpOutOfRange,
 };
 
+var next_binding_id: u32 = 0;
+
+pub fn freshBindingId() u32 {
+    const id = next_binding_id;
+    next_binding_id += 1;
+    return id;
+}
+
 const Local = struct {
     name: []const u8,
     depth: u16,
     slot: u16,
+    binding_id: u32,
     is_boxed: bool = false,
     // Register alias for a global, injected during macro expansion so a
     // template's free reference pierces use-site shadowing. set! through
@@ -263,6 +272,17 @@ pub const Compiler = struct {
         return null;
     }
 
+    pub fn resolveBindingId(self: *Compiler, name: []const u8) ?u32 {
+        var i: usize = self.locals.items.len;
+        while (i > 0) {
+            i -= 1;
+            if (std.mem.eql(u8, self.locals.items[i].name, name)) {
+                return self.locals.items[i].binding_id;
+            }
+        }
+        return null;
+    }
+
     /// Pure predicate: is `name` bound as a lexical variable — a local in this
     /// compiler or any enclosing compiler? Unlike `resolveUpvalue`, this has no
     /// side effects (it does not register upvalues), so the IR optimizer can
@@ -381,6 +401,7 @@ pub const Compiler = struct {
             .name = name,
             .depth = self.scope_depth,
             .slot = slot,
+            .binding_id = freshBindingId(),
         }) catch return CompileError.OutOfMemory;
     }
 
