@@ -348,6 +348,44 @@ pub fn compileLambdaWithIR(self: *Compiler, args: Value, dst: u16, name: ?[]cons
     const roots_base = child.gc.extra_roots.items.len;
     defer child.gc.extra_roots.shrinkRetainingCapacity(roots_base);
 
+    // First pass: collect ALL leading define names so that define-syntax
+    // forms see the complete letrec* region via extra_bound.
+    var all_def_names: [MAX_BODY_DEFS][]const u8 = undefined;
+    var all_def_count: usize = 0;
+    {
+        var scan = body;
+        while (scan != types.NIL and types.isPair(scan)) {
+            const expr = types.car(scan);
+            if (!types.isPair(expr)) break;
+            const head = types.car(expr);
+            if (!types.isSymbol(head)) break;
+            const hn = types.symbolName(head);
+            if (std.mem.eql(u8, hn, "define")) {
+                const da = types.cdr(expr);
+                if (da == types.NIL or !types.isPair(da)) break;
+                const tgt = types.car(da);
+                if (types.isSymbol(tgt)) {
+                    if (all_def_count < MAX_BODY_DEFS) {
+                        all_def_names[all_def_count] = types.symbolName(tgt);
+                        all_def_count += 1;
+                    }
+                } else if (types.isPair(tgt)) {
+                    const fn_nm = types.car(tgt);
+                    if (types.isSymbol(fn_nm) and all_def_count < MAX_BODY_DEFS) {
+                        all_def_names[all_def_count] = types.symbolName(fn_nm);
+                        all_def_count += 1;
+                    }
+                } else break;
+            } else if (!std.mem.eql(u8, hn, "define-syntax")) {
+                break;
+            }
+            scan = types.cdr(scan);
+        }
+    }
+
+    const macro_mark = child.beginBodyMacroScope();
+    defer child.endBodyMacroScope(macro_mark) catch {};
+
     var current = body;
     while (current != types.NIL and types.isPair(current)) {
         const expr = types.car(current);
@@ -355,6 +393,26 @@ pub fn compileLambdaWithIR(self: *Compiler, args: Value, dst: u16, name: ?[]cons
         const head = types.car(expr);
         if (!types.isSymbol(head)) break;
         const head_name = types.symbolName(head);
+        if (std.mem.eql(u8, head_name, "define-syntax")) {
+            const ds_args = types.cdr(expr);
+            if (ds_args == types.NIL or !types.isPair(ds_args)) break;
+            const keyword = types.car(ds_args);
+            if (!types.isSymbol(keyword)) break;
+            const ds_rest = types.cdr(ds_args);
+            if (ds_rest == types.NIL or !types.isPair(ds_rest)) break;
+            const transformer_spec = types.car(ds_rest);
+            const tx_val = macro.parseSyntaxRules(&child, transformer_spec, all_def_names[0..all_def_count]) catch break;
+            const ds_name = types.symbolName(keyword);
+            try child.recordBodyMacro(ds_name);
+            const tx_obj = types.toObject(tx_val).as(types.Transformer);
+            if (child.lib_env) |env| {
+                tx_obj.def_env = env;
+                tx_obj.def_env_val = child.lib_env_val;
+            }
+            child.macros.put(ds_name, tx_val) catch return CompileError.OutOfMemory;
+            current = types.cdr(current);
+            continue;
+        }
         if (!std.mem.eql(u8, head_name, "define")) break;
 
         const def_args = types.cdr(expr);

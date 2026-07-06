@@ -95,7 +95,7 @@ pub fn compileLambda(self: *Compiler, args: Value, dst: u16, name: ?[]const u8) 
 pub fn compileBody(self: *Compiler, body: Value) CompileError!void {
     const saved_body_scope = self.in_body_scope;
     self.in_body_scope = true;
-    const last_dst = try compileBodyForms(self, body, .{});
+    const last_dst = try compileBodyForms(self, body, .{ .handle_define_syntax = true });
     self.in_body_scope = saved_body_scope;
     try self.emitOp(.@"return");
     try self.emitU16(last_dst);

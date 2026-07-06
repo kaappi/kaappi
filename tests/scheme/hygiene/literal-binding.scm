@@ -103,6 +103,17 @@
         ((_ x)   'not-literal)))
     (let ((lit 2)) (m lit))))
 
+;; --- Forward-reference in lambda body ---
+(test-equal "lambda body forward-referenced define makes literal def-site bound"
+  'is-literal
+  ((lambda ()
+     (define-syntax m
+       (syntax-rules (lit)
+         ((_ lit) 'is-literal)
+         ((_ x)   'not-literal)))
+     (define lit 42)
+     (m lit))))
+
 (let ((runner (test-runner-current)))
   (test-end "literal-binding")
   (when (> (test-runner-fail-count runner) 0) (exit 1)))
