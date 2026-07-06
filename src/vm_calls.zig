@@ -11,6 +11,13 @@ const memory = @import("memory.zig");
 const vm_continuations = @import("vm_continuations.zig");
 const fiber_mod = @import("fiber.zig");
 
+/// Package continuation arguments the same way `values` does:
+/// 1 arg → that arg directly, 0 or 2+ → MultipleValues.
+pub fn continuationArgValue(gc: *memory.GC, args: []const Value) VMError!Value {
+    if (args.len == 1) return args[0];
+    return gc.allocMultipleValues(args) catch return VMError.OutOfMemory;
+}
+
 pub fn clockNs() u64 {
     var ts: std.c.timespec = undefined;
     _ = std.c.clock_gettime(.MONOTONIC, &ts);
@@ -330,14 +337,7 @@ pub fn callValue(vm: *VM, callee: Value, base: u32, nargs: u8) VMError!void {
     }
     if (types.isContinuation(callee)) {
         const cont = types.toObject(callee).as(types.Continuation);
-        // Mirror `values` semantics: 1 arg → that arg directly,
-        // 0 or 2+ args → MultipleValues (so call-with-values consumers
-        // receive the correct argument count).
-        const value = if (nargs == 1)
-            vm.registers[base + 1]
-        else
-            vm.gc.allocMultipleValues(vm.registers[base + 1 .. base + 1 + @as(usize, nargs)]) catch
-                return VMError.OutOfMemory;
+        const value = try continuationArgValue(vm.gc, vm.registers[base + 1 .. base + 1 + @as(usize, nargs)]);
 
         if (cont.is_escape) {
             // Escape continuation: unwind the live stack, no snapshot restore.
@@ -653,7 +653,7 @@ pub fn callWithArgs(vm: *VM, proc: Value, args: []const Value) VMError!Value {
     }
     if (types.isContinuation(proc)) {
         const cont = types.toObject(proc).as(types.Continuation);
-        const value = if (args.len == 0) types.VOID else args[0];
+        const value = try continuationArgValue(vm.gc, args);
         if (cont.is_escape) {
             try vm_continuations.invokeEscape(vm, cont, value);
             return VMError.ContinuationInvoked;

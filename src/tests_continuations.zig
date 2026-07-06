@@ -210,6 +210,53 @@ test "call/ec multi-arg invocation in call-with-values" {
     try std.testing.expectEqual(@as(i64, 30), types.toFixnum(types.car(types.cdr(types.cdr(result)))));
 }
 
+test "apply continuation with multiple values (callWithArgs path)" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    const result = try vm.eval(
+        \\(call-with-values
+        \\  (lambda () (call/cc (lambda (k) (car (list (apply k (list 1 2)))))))
+        \\  list)
+    );
+    try std.testing.expect(types.isPair(result));
+    try std.testing.expectEqual(@as(i64, 1), types.toFixnum(types.car(result)));
+    try std.testing.expectEqual(@as(i64, 2), types.toFixnum(types.car(types.cdr(result))));
+}
+
+test "apply continuation with zero values (callWithArgs path)" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    const result = try vm.eval(
+        \\(call-with-values
+        \\  (lambda () (call/cc (lambda (k) (car (list (apply k '()))))))
+        \\  (lambda () 99))
+    );
+    try std.testing.expectEqual(@as(i64, 99), types.toFixnum(result));
+}
+
+test "first-class call-with-values continuation (callWithArgs path)" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    const result = try vm.eval(
+        \\(define cwv call-with-values)
+        \\(call-with-values
+        \\  (lambda () (call/cc (lambda (k0) (cwv (lambda () (values 1 2)) k0))))
+        \\  list)
+    );
+    try std.testing.expect(types.isPair(result));
+    try std.testing.expectEqual(@as(i64, 1), types.toFixnum(types.car(result)));
+    try std.testing.expectEqual(@as(i64, 2), types.toFixnum(types.car(types.cdr(result))));
+}
+
 test "dynamic-wind with escape continuation" {
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
