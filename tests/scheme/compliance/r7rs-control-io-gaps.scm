@@ -74,14 +74,13 @@
                              (environment '(scheme base))))
     (guard (e (#t 'not-visible)) (eval 'audit-leak-probe
                                        (environment '(scheme base))))))
-;; FAIL: #1147 (define into immutable environment must signal an error)
-;; (test-equal "eval define into immutable env signals" 'error-signaled
-;;   (guard (e (#t 'error-signaled))
-;;     (eval '(define foo 32) (environment '(scheme base)))))
-;; FAIL: #1147
-;; (test-equal "eval set! into immutable env signals" 'error-signaled
-;;   (guard (e (#t 'error-signaled))
-;;     (eval '(set! car 42) (environment '(scheme base)))))
+;; #1147: define/set! into immutable environment must signal an error
+(test-equal "eval define into immutable env signals" 'error-signaled
+  (guard (e (#t 'error-signaled))
+    (eval '(define foo 32) (environment '(scheme base)))))
+(test-equal "eval set! into immutable env signals" 'error-signaled
+  (guard (e (#t 'error-signaled))
+    (eval '(set! car 42) (environment '(scheme base)))))
 
 ;; --- 6.13 I/O (p. 56-59) ---
 ;; write must emit datum labels for cyclic structure and terminate (p. 58)

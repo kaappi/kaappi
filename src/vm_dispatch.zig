@@ -249,6 +249,12 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                 const src = readU16(self, frame);
                 const closure = frame.closure orelse return VMError.InvalidBytecode;
                 const func = closure.func;
+                if (types.isEnvironment(func.env_val) and types.toEnvironment(func.env_val).immutable) {
+                    const sym = try constantAt(self, func, sym_idx);
+                    const name = if (types.isSymbol(sym)) types.symbolName(sym) else "?";
+                    self.setErrorDetail("set!: cannot modify binding '{s}' in immutable environment", .{name});
+                    return VMError.InvalidArgument;
+                }
                 const src_idx = try registerIndex(self, frame.base, src);
                 const env: *std.StringHashMap(Value) = func.env orelse self.globals;
                 const sym = try constantAt(self, func, sym_idx);
@@ -302,6 +308,12 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                 const src = readU16(self, frame);
                 const closure = frame.closure orelse return VMError.InvalidBytecode;
                 const func = closure.func;
+                if (types.isEnvironment(func.env_val) and types.toEnvironment(func.env_val).immutable) {
+                    const sym = try constantAt(self, func, sym_idx);
+                    const name = if (types.isSymbol(sym)) types.symbolName(sym) else "?";
+                    self.setErrorDetail("define: cannot define '{s}' in immutable environment", .{name});
+                    return VMError.InvalidArgument;
+                }
                 const src_idx = try registerIndex(self, frame.base, src);
                 const env: *std.StringHashMap(Value) = func.env orelse self.globals;
                 const sym = try constantAt(self, func, sym_idx);
