@@ -44,7 +44,10 @@ fn forceFn(args: []const Value) PrimitiveError!Value {
         if (!types.isPromise(current)) return current;
         const promise = types.toPromise(current);
 
-        if (promise.forced) return promise.value;
+        if (promise.forced) {
+            current = promise.value;
+            continue;
+        }
 
         const thunk = promise.value;
         if (!types.isProcedure(thunk)) {
@@ -63,7 +66,8 @@ fn forceFn(args: []const Value) PrimitiveError!Value {
         // has already completed this promise (re-entrant force).
         if (promise.forced) {
             promise.forcing = false;
-            return promise.value;
+            current = promise.value;
+            continue;
         }
 
         if (types.isPromise(result)) {
@@ -80,7 +84,8 @@ fn forceFn(args: []const Value) PrimitiveError!Value {
                 promise.forced = true;
                 promise.value = inner.value;
                 gc.writeBarrier(&promise.header, inner.value);
-                return inner.value;
+                current = inner.value;
+                continue;
             }
             promise.value = inner.value;
             gc.writeBarrier(&promise.header, inner.value);

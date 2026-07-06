@@ -39,6 +39,21 @@
                   (if (> count x) count (force p)))))
   (test-eqv "recursive force with termination" 6 (force p)))
 
+;; Forcing intermediate promise of a completed delay-force chain (#1264)
+(test-group "delay-force chain intermediate"
+  (let ()
+    (define inner (delay 42))
+    (define outer (delay-force inner))
+    (test-eqv "force outer yields value" 42 (force outer))
+    (test-eqv "force inner after chain yields value" 42 (force inner)))
+  (let ()
+    (define a (delay 42))
+    (define b (delay-force a))
+    (define c (delay-force b))
+    (test-eqv "three-deep chain" 42 (force c))
+    (test-eqv "middle promise after chain" 42 (force b))
+    (test-eqv "innermost promise after chain" 42 (force a))))
+
 ;; Cyclic delay-force detected via forcing flag
 (let ()
   (define p (delay-force (delay p)))
