@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783355328285,
+  "lastUpdate": 1783363413310,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "dfd461546a326e5255abadcc09db4bf253c0d9d2",
-          "message": "Replace last inline VMError switches with shared mapVMError helper (#1019)\n\nThe string-for-each and string-map catch blocks were the last two sites\nusing inline 4-arm switch blocks instead of the shared mapVMError helper.\nThe else arm collapsed unexpected VM errors into TypeError, hiding the\nreal error variant.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-04T03:56:40Z",
-          "tree_id": "2c206568899b7b5239621cc96a75e27b825c0acd",
-          "url": "https://github.com/kaappi/kaappi/commit/dfd461546a326e5255abadcc09db4bf253c0d9d2"
-        },
-        "date": 1783138527582,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.521467,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.740465,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.931879,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.40639,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.012464,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.210722,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.467642,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.070825,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 12.388048,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.826125,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 9.916997,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.967263,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 8.266865,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.713545,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.042899,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.042537,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a6a20dcc44179fd9fe890f4fbaa7dd7697de6d30",
+          "message": "Honor fold-case flag in include-ci (R7RS 4.1.7) (#1274)\n\n* Honor fold-case flag in include-ci (R7RS 4.1.7) (#1141)\n\nThe ci parameter was discarded in both the top-level and library-context\ninclude paths, so include-ci read files case-sensitively. Set\nreader.fold_case from the ci flag in handleTopLevelInclude and\ncompileLibInclude.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Add test for #!no-fold-case inside include-ci'd file\n\nPins down the \"as if it began with #!fold-case\" semantics: an explicit\n#!no-fold-case directive inside an included file restores case sensitivity\nfor the remainder of that file.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-06T23:44:13+05:30",
+          "tree_id": "254d44a17acb57e901920014db81bf1626f662ea",
+          "url": "https://github.com/kaappi/kaappi/commit/a6a20dcc44179fd9fe890f4fbaa7dd7697de6d30"
+        },
+        "date": 1783363411848,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.340729,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.179798,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.987511,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.168097,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.013219,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.214984,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.479891,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.071299,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 12.69096,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.853029,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 10.021597,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.955432,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 8.299912,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.712118,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.043091,
             "unit": "seconds"
           }
         ]
