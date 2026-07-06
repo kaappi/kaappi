@@ -132,6 +132,40 @@ test "letrec-syntax basic" {
     try std.testing.expectEqual(@as(i64, 99), types.toFixnum(result));
 }
 
+test "let-syntax sibling keywords use outer scope (#1140)" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    _ = try vm.eval("(define-syntax m (syntax-rules () ((_) 'outer)))");
+    // call-m's template (m) must resolve to the OUTER m, not the sibling
+    const result = try vm.eval(
+        \\(let-syntax ((m      (syntax-rules () ((_) 'inner)))
+        \\             (call-m (syntax-rules () ((_) (m)))))
+        \\  (call-m))
+    );
+    try std.testing.expect(types.isSymbol(result));
+    try std.testing.expectEqualStrings("outer", types.symbolName(result));
+}
+
+test "letrec-syntax sibling keywords see inner scope" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    _ = try vm.eval("(define-syntax m (syntax-rules () ((_) 'outer)))");
+    // letrec-syntax: call-m's template (m) must resolve to the INNER m
+    const result = try vm.eval(
+        \\(letrec-syntax ((m      (syntax-rules () ((_) 'inner)))
+        \\                (call-m (syntax-rules () ((_) (m)))))
+        \\  (call-m))
+    );
+    try std.testing.expect(types.isSymbol(result));
+    try std.testing.expectEqualStrings("inner", types.symbolName(result));
+}
+
 test "define-syntax nested expansion" {
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();

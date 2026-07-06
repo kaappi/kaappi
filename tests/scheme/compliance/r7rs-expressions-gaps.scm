@@ -151,12 +151,11 @@
 ;; the transformer specs themselves are resolved in the OUTER environment,
 ;; so a transformer in the same let-syntax sees the outer m. (p. 22)
 (define-syntax m-outer (syntax-rules () ((_) 'outer)))
-;; FAIL: #1140 (let-syntax transformers see sibling keywords)
-;; (test-equal "let-syntax transformer sees outer keyword"
-;;   'outer
-;;   (let-syntax ((m-outer (syntax-rules () ((_) 'inner)))
-;;                (call-m (syntax-rules () ((_) (m-outer)))))
-;;     (call-m)))
+(test-equal "let-syntax transformer sees outer keyword"
+  'outer
+  (let-syntax ((m-outer (syntax-rules () ((_) 'inner)))
+               (call-m (syntax-rules () ((_) (m-outer)))))
+    (call-m)))
 ;; letrec-syntax: "Each binding of a <keyword> has the <transformer spec>s
 ;; as well as the <body> within its region" — sibling transformers see the
 ;; NEW binding. (p. 22)

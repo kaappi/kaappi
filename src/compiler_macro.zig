@@ -197,7 +197,32 @@ pub fn expandAndCompileMacroUse(self: *Compiler, expr: Value, name: []const u8, 
             .is_global_alias = true,
         });
     }
+    // R7RS 4.3.1: let-syntax transformers resolve free macro references
+    // from the definition-site environment, not the use-site environment.
+    // Temporarily swap sibling keywords to their outer values.
+    const peer_names = tx.let_syntax_peer_names;
+    const peer_outer = tx.let_syntax_peer_vals;
+    var saved_peer: [32]?Value = undefined;
+    if (peer_names.len > 0 and peer_names.len <= 32) {
+        for (peer_names, peer_outer, 0..) |pn, pv, i| {
+            saved_peer[i] = self.macros.get(pn);
+            if (pv != types.NIL) {
+                self.macros.put(pn, pv) catch {};
+            } else {
+                _ = self.macros.remove(pn);
+            }
+        }
+    }
     const result_err = self.compileExpr(expanded_root, dst, is_tail);
+    if (peer_names.len > 0 and peer_names.len <= 32) {
+        for (peer_names, 0..) |pn, i| {
+            if (saved_peer[i]) |old| {
+                self.macros.put(pn, old) catch {};
+            } else {
+                _ = self.macros.remove(pn);
+            }
+        }
+    }
     // Remove injected locals
     while (self.locals.items.len > saved_locals_len) {
         _ = self.locals.pop();
@@ -249,42 +274,64 @@ pub fn compileLetSyntax(self: *Compiler, args: Value, dst: u16, is_tail: bool) C
     const body = types.cdr(args);
     if (body == types.NIL) return CompileError.InvalidSyntax;
 
-    var saved_names: std.ArrayList([]const u8) = .empty;
-    defer saved_names.deinit(self.gc.allocator);
-    var saved_values: std.ArrayList(?Value) = .empty;
-    defer saved_values.deinit(self.gc.allocator);
+    // Phase 1: Parse ALL transformer specs before registering any.
+    // self.macros still has the outer values during this phase.
+    var kw_names: [32][]const u8 = undefined;
+    var tx_vals: [32]Value = undefined;
+    var bind_n: usize = 0;
+    var roots_pushed: usize = 0;
 
     var binding_list = bindings;
     while (binding_list != types.NIL) {
         if (!types.isPair(binding_list)) return CompileError.InvalidSyntax;
         const binding = types.car(binding_list);
         if (!types.isPair(binding)) return CompileError.InvalidSyntax;
-
         const keyword = types.car(binding);
         if (!types.isSymbol(keyword)) return CompileError.InvalidSyntax;
         const binding_rest = types.cdr(binding);
         if (!types.isPair(binding_rest)) return CompileError.InvalidSyntax;
         const transformer_spec = types.car(binding_rest);
-        const transformer = parseSyntaxRules(self, transformer_spec, &.{}) catch return CompileError.InvalidSyntax;
+        if (bind_n >= 32) return CompileError.InvalidSyntax;
+        tx_vals[bind_n] = parseSyntaxRules(self, transformer_spec, &.{}) catch return CompileError.InvalidSyntax;
+        self.gc.pushRoot(&tx_vals[bind_n]);
+        roots_pushed += 1;
+        kw_names[bind_n] = types.symbolName(keyword);
+        bind_n += 1;
+        binding_list = types.cdr(binding_list);
+    }
+    defer for (0..roots_pushed) |_| self.gc.popRoot();
 
-        const name = types.symbolName(keyword);
+    // Build peer snapshot: each keyword's outer macro value (NIL = unbound).
+    // Computed once before registration, duped per transformer so each
+    // owns its own copy (avoids double-free when GC cleans up).
+    var peer_snap_names: [32][]const u8 = undefined;
+    var peer_snap_vals: [32]Value = undefined;
+    for (kw_names[0..bind_n], 0..) |name, i| {
+        peer_snap_names[i] = name;
+        peer_snap_vals[i] = self.macros.get(name) orelse types.NIL;
+    }
 
+    // Phase 2: Save outer values and register all bindings.
+    var saved_names: std.ArrayList([]const u8) = .empty;
+    defer saved_names.deinit(self.gc.allocator);
+    var saved_values: std.ArrayList(?Value) = .empty;
+    defer saved_values.deinit(self.gc.allocator);
+
+    for (kw_names[0..bind_n], tx_vals[0..bind_n]) |name, transformer| {
         saved_names.append(self.gc.allocator, name) catch return CompileError.OutOfMemory;
         saved_values.append(self.gc.allocator, self.macros.get(name)) catch return CompileError.OutOfMemory;
 
+        const tx = types.toObject(transformer).as(types.Transformer);
         if (self.locals.items.len > 0) {
-            const tx = types.toObject(transformer).as(types.Transformer);
             const caps = self.gc.allocator.alloc(types.CapturedLocal, self.locals.items.len) catch return CompileError.OutOfMemory;
-            if (caps.len > 0) {
-                for (self.locals.items, 0..) |local, ci| {
-                    caps[ci] = .{ .name = local.name, .slot = local.slot };
-                }
-                tx.captured_locals = caps;
+            for (self.locals.items, 0..) |local, ci| {
+                caps[ci] = .{ .name = local.name, .slot = local.slot };
             }
+            tx.captured_locals = caps;
         }
+        tx.let_syntax_peer_names = self.gc.allocator.dupe([]const u8, peer_snap_names[0..bind_n]) catch return CompileError.OutOfMemory;
+        tx.let_syntax_peer_vals = self.gc.allocator.dupe(Value, peer_snap_vals[0..bind_n]) catch return CompileError.OutOfMemory;
         self.macros.put(name, transformer) catch return CompileError.OutOfMemory;
-
-        binding_list = types.cdr(binding_list);
     }
 
     self.beginScope();
@@ -314,7 +361,68 @@ pub fn compileLetSyntax(self: *Compiler, args: Value, dst: u16, is_tail: bool) C
 }
 
 pub fn compileLetrecSyntax(self: *Compiler, args: Value, dst: u16, is_tail: bool) CompileError!void {
-    return compileLetSyntax(self, args, dst, is_tail);
+    if (args == types.NIL) return CompileError.InvalidSyntax;
+    const bindings = types.car(args);
+    const body = types.cdr(args);
+    if (body == types.NIL) return CompileError.InvalidSyntax;
+
+    var saved_names: std.ArrayList([]const u8) = .empty;
+    defer saved_names.deinit(self.gc.allocator);
+    var saved_values: std.ArrayList(?Value) = .empty;
+    defer saved_values.deinit(self.gc.allocator);
+
+    var binding_list = bindings;
+    while (binding_list != types.NIL) {
+        if (!types.isPair(binding_list)) return CompileError.InvalidSyntax;
+        const binding = types.car(binding_list);
+        if (!types.isPair(binding)) return CompileError.InvalidSyntax;
+        const keyword = types.car(binding);
+        if (!types.isSymbol(keyword)) return CompileError.InvalidSyntax;
+        const binding_rest = types.cdr(binding);
+        if (!types.isPair(binding_rest)) return CompileError.InvalidSyntax;
+        const transformer_spec = types.car(binding_rest);
+        const transformer = parseSyntaxRules(self, transformer_spec, &.{}) catch return CompileError.InvalidSyntax;
+        const name = types.symbolName(keyword);
+
+        saved_names.append(self.gc.allocator, name) catch return CompileError.OutOfMemory;
+        saved_values.append(self.gc.allocator, self.macros.get(name)) catch return CompileError.OutOfMemory;
+
+        if (self.locals.items.len > 0) {
+            const tx = types.toObject(transformer).as(types.Transformer);
+            const caps = self.gc.allocator.alloc(types.CapturedLocal, self.locals.items.len) catch return CompileError.OutOfMemory;
+            for (self.locals.items, 0..) |local, ci| {
+                caps[ci] = .{ .name = local.name, .slot = local.slot };
+            }
+            tx.captured_locals = caps;
+        }
+        self.macros.put(name, transformer) catch return CompileError.OutOfMemory;
+        binding_list = types.cdr(binding_list);
+    }
+
+    self.beginScope();
+    const saved_body_scope = self.in_body_scope;
+    self.in_body_scope = true;
+    const macro_mark = self.beginBodyMacroScope();
+    errdefer self.endBodyMacroScope(macro_mark) catch {};
+    var current = body;
+    while (current != types.NIL) {
+        if (!types.isPair(current)) return CompileError.InvalidSyntax;
+        const expr = types.car(current);
+        current = types.cdr(current);
+        const tail = is_tail and current == types.NIL;
+        try self.compileExprViaIR(expr, dst, tail);
+    }
+    try self.endBodyMacroScope(macro_mark);
+    self.in_body_scope = saved_body_scope;
+    self.endScope();
+
+    for (saved_names.items, saved_values.items) |name, saved_val| {
+        if (saved_val) |old_val| {
+            try self.macros.put(name, old_val);
+        } else {
+            _ = self.macros.remove(name);
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
