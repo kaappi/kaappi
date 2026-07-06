@@ -201,7 +201,10 @@ fn makeThreadFn(args: []const Value) PrimitiveError!Value {
     @memset(fiber.registers, types.UNDEFINED);
     fiber.status = .created;
 
-    if (args.len > 1) fiber.name = args[1];
+    if (args.len > 1) {
+        fiber.name = args[1];
+        gc.writeBarrier(&fiber.header, args[1]);
+    }
 
     return types.makePointer(@ptrCast(fiber));
 }

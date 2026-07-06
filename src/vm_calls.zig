@@ -11,6 +11,16 @@ const memory = @import("memory.zig");
 const vm_continuations = @import("vm_continuations.zig");
 const fiber_mod = @import("fiber.zig");
 
+/// Clear local registers beyond `used` args up to `locals_count` to prevent
+/// the GC from scanning stale values left by previously popped frames.
+fn clearFrameLocals(vm: *VM, base: u32, used: usize, locals_count: u16) void {
+    const clear_start = @as(usize, base) + used;
+    const clear_end = @min(@as(usize, base) + @as(usize, locals_count), vm.registers.len);
+    if (clear_end > clear_start) {
+        @memset(vm.registers[clear_start..clear_end], types.UNDEFINED);
+    }
+}
+
 /// Package continuation arguments the same way `values` does:
 /// 1 arg → that arg directly, 0 or 2+ → MultipleValues.
 pub fn continuationArgValue(gc: *memory.GC, args: []const Value) VMError!Value {
@@ -124,15 +134,7 @@ pub fn execute(vm: *VM, func: *types.Function) VMError!Value {
         .seq = vm.nextFrameSeq(),
     };
     vm.frame_count = 1;
-
-    // Clear local registers to prevent the GC from scanning stale values
-    // left by the previous execute() call. Between calls frame_count is 0,
-    // so a GC triggered by allocClosure above can free objects that stale
-    // registers still point to.
-    const clear_end = @min(@as(usize, func.locals_count), vm.registers.len);
-    if (clear_end > 0) {
-        @memset(vm.registers[0..clear_end], types.UNDEFINED);
-    }
+    clearFrameLocals(vm, 0, 0, func.locals_count);
 
     if (vm.profile_mode) {
         vm.profile_time_depth = 1;
@@ -401,15 +403,7 @@ pub fn callClosure(vm: *VM, closure: *types.Closure, base: u32, nargs: u8) VMErr
     // The callee is in base, args are in base+1..base+nargs
     // New frame's registers start at base (callee reg becomes r0 for the function)
     const new_base = if (base < std.math.maxInt(u32)) base + 1 else return VMError.StackOverflow;
-
-    // Clear local registers beyond the args to prevent the GC from
-    // scanning stale values left by previous frames at this base.
-    const used: usize = if (func.is_variadic) @as(usize, func.arity) + 1 else @as(usize, nargs);
-    const clear_start = @as(usize, new_base) + used;
-    const clear_end = @min(@as(usize, new_base) + @as(usize, func.locals_count), vm.registers.len);
-    if (clear_end > clear_start) {
-        @memset(vm.registers[clear_start..clear_end], types.UNDEFINED);
-    }
+    clearFrameLocals(vm, new_base, if (func.is_variadic) @as(usize, func.arity) + 1 else @as(usize, nargs), func.locals_count);
 
     vm.frames[vm.frame_count] = .{
         .closure = closure,
@@ -544,6 +538,10 @@ fn callReentrant(vm: *VM, closure: *types.Closure, base: u32, dst: u8, returns_t
         return VMError.StackOverflow;
     }
     try vm.ensureFrameCapacity(vm.frame_count + 1);
+
+    const func = closure.func;
+    const used: usize = if (func.is_variadic) @as(usize, func.arity) + 1 else @as(usize, func.arity);
+    clearFrameLocals(vm, base, used, func.locals_count);
 
     vm.native_reentry_depth += 1;
     defer vm.native_reentry_depth -= 1;
