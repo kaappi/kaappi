@@ -102,6 +102,54 @@ test "import prefix" {
     try std.testing.expectEqual(@as(i64, 7), types.toFixnum(result));
 }
 
+test "import only rejects unknown identifier" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    _ = try vm.eval(
+        \\(define-library (test only-err)
+        \\  (import (scheme base))
+        \\  (export alpha)
+        \\  (begin (define (alpha) 1)))
+    );
+
+    const r = vm.eval("(import (only (test only-err) alpha bogus))");
+    try std.testing.expectError(th.VMError.CompileError, r);
+}
+
+test "import except rejects unknown identifier" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    const r = vm.eval("(import (except (scheme base) totally-bogus))");
+    try std.testing.expectError(th.VMError.CompileError, r);
+}
+
+test "import rename rejects unknown identifier" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    const r = vm.eval("(import (rename (scheme base) (totally-bogus tb)))");
+    try std.testing.expectError(th.VMError.CompileError, r);
+}
+
+test "import only accepts syntax keywords" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    _ = try vm.eval("(import (only (scheme base) define if car))");
+    const r = try vm.eval("(car (list 42))");
+    try std.testing.expectEqual(@as(i64, 42), types.toFixnum(r));
+}
+
 test "import scheme r5rs exports full R5RS identifier set" {
     // Regression for #813: the built-in (scheme r5rs) stub exported only 4
     // identifiers (null-environment, scheme-report-environment, eval,
