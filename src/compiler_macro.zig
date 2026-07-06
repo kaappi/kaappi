@@ -10,6 +10,21 @@ const Value = types.Value;
 const MAX_MACRO_EXPANSION_DEPTH: u16 = 256;
 const MAX_MACRO_EXPANSION_STEPS: u32 = 10_000;
 
+fn resolveLocalSkipAliases(ctx: ?*const anyopaque, name: []const u8) u16 {
+    const self: *const Compiler = @ptrCast(@alignCast(ctx.?));
+    var comp: ?*const Compiler = self;
+    while (comp) |c| {
+        var i: usize = c.locals.items.len;
+        while (i > 0) {
+            i -= 1;
+            const local = c.locals.items[i];
+            if (!local.is_global_alias and std.mem.eql(u8, local.name, name)) return local.slot;
+        }
+        comp = c.parent;
+    }
+    return expander.LITERAL_UNBOUND;
+}
+
 pub fn expandAndCompileMacroUse(self: *Compiler, expr: Value, name: []const u8, transformer: Value, dst: u16, is_tail: bool) CompileError!void {
     _ = name;
     if (self.macro_expansion_depth >= MAX_MACRO_EXPANSION_DEPTH or
@@ -130,7 +145,11 @@ pub fn expandAndCompileMacroUse(self: *Compiler, expr: Value, name: []const u8, 
     // by allocPair inside expandMacro could free AST nodes
     // that the partially-built result references.
     self.gc.no_collect += 1;
-    const expanded = expander.expandMacro(self.gc, expr, transformer, self.globals, &merged_macros) catch |err| {
+    const use_check = expander.UseSiteBindingCheck{
+        .ctx = @ptrCast(self),
+        .resolve_fn = &resolveLocalSkipAliases,
+    };
+    const expanded = expander.expandMacro(self.gc, expr, transformer, self.globals, &merged_macros, use_check) catch |err| {
         self.gc.no_collect -= 1;
         return switch (err) {
             error.OutOfMemory => CompileError.OutOfMemory,
@@ -198,7 +217,7 @@ pub fn compileDefineSyntax(self: *Compiler, args: Value, dst: u16) CompileError!
     if (rest == types.NIL) return CompileError.InvalidSyntax;
     const transformer_spec = types.car(rest);
 
-    const transformer = parseSyntaxRules(self, transformer_spec) catch return CompileError.InvalidSyntax;
+    const transformer = parseSyntaxRules(self, transformer_spec, &.{}) catch return CompileError.InvalidSyntax;
 
     const tx = types.toObject(transformer).as(types.Transformer);
     if (self.lib_env) |env| {
@@ -246,7 +265,7 @@ pub fn compileLetSyntax(self: *Compiler, args: Value, dst: u16, is_tail: bool) C
         const binding_rest = types.cdr(binding);
         if (!types.isPair(binding_rest)) return CompileError.InvalidSyntax;
         const transformer_spec = types.car(binding_rest);
-        const transformer = parseSyntaxRules(self, transformer_spec) catch return CompileError.InvalidSyntax;
+        const transformer = parseSyntaxRules(self, transformer_spec, &.{}) catch return CompileError.InvalidSyntax;
 
         const name = types.symbolName(keyword);
 
@@ -302,7 +321,7 @@ pub fn compileLetrecSyntax(self: *Compiler, args: Value, dst: u16, is_tail: bool
 // Syntax-rules parsing
 // ---------------------------------------------------------------------------
 
-pub fn parseSyntaxRules(self: *Compiler, spec: Value) CompileError!Value {
+pub fn parseSyntaxRules(self: *Compiler, spec: Value, extra_bound: []const []const u8) CompileError!Value {
     if (!types.isPair(spec)) return CompileError.InvalidSyntax;
     const head = types.car(spec);
     if (!types.isSymbol(head)) return CompileError.InvalidSyntax;
@@ -361,8 +380,26 @@ pub fn parseSyntaxRules(self: *Compiler, spec: Value) CompileError!Value {
         patterns_buf[0..rule_count],
         templates_buf[0..rule_count],
     ) catch return CompileError.OutOfMemory;
+    const tx = types.toObject(tx_val).as(types.Transformer);
     if (custom_ellipsis) |ce| {
-        types.toObject(tx_val).as(types.Transformer).custom_ellipsis = ce;
+        tx.custom_ellipsis = ce;
+    }
+    // R7RS 4.3.2: record each literal's def-site binding slot (0xFFFF = unbound).
+    // Binding identity — not just bound/unbound — is needed so that two
+    // different bindings with the same name don't falsely match.
+    if (lit_count > 0) {
+        const slots = self.gc.allocator.alloc(u16, lit_count) catch return CompileError.OutOfMemory;
+        for (literals_buf[0..lit_count], 0..) |lv, li| {
+            slots[li] = if (types.isSymbol(lv)) blk: {
+                const lname = types.symbolName(lv);
+                if (self.resolveLocal(lname)) |s| break :blk s;
+                for (extra_bound) |eb| {
+                    if (std.mem.eql(u8, eb, lname)) break :blk expander.LITERAL_BOUND_PENDING;
+                }
+                break :blk expander.LITERAL_UNBOUND;
+            } else expander.LITERAL_UNBOUND;
+        }
+        tx.literal_bound = slots;
     }
     return tx_val;
 }

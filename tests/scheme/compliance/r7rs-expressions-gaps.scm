@@ -142,9 +142,8 @@
     ((_ lit) 'is-literal)
     ((_ x) 'not-literal)))
 (test-equal "unbound literal matches unbound use" 'is-literal (has-lit lit))
-;; FAIL: #1139 (literal matching ignores lexical bindings)
-;; (test-equal "locally rebound literal must not match"
-;;   'not-literal (let ((lit 42)) (has-lit lit)))
+(test-equal "locally rebound literal must not match"
+  'not-literal (let ((lit 42)) (has-lit lit)))
 
 ;; --- 4.3.1 Binding constructs for syntactic keywords ---
 ;; let-syntax: "The <body> is expanded in the syntactic environment obtained

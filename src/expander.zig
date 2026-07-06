@@ -125,7 +125,20 @@ const Binding = struct {
 // Public API
 // ---------------------------------------------------------------------------
 
-pub fn expandMacro(gc: *GC, expr: Value, transformer_val: Value, globals: ?*std.StringHashMap(Value), macros: ?*const std.StringHashMap(Value)) !Value {
+pub const LITERAL_UNBOUND: u16 = 0xFFFF;
+pub const LITERAL_BOUND_PENDING: u16 = 0xFFFE;
+
+pub const UseSiteBindingCheck = struct {
+    ctx: ?*const anyopaque = null,
+    resolve_fn: ?*const fn (?*const anyopaque, []const u8) u16 = null,
+
+    pub fn resolve(self: UseSiteBindingCheck, name: []const u8) u16 {
+        if (self.resolve_fn) |f| return f(self.ctx, name);
+        return LITERAL_UNBOUND;
+    }
+};
+
+pub fn expandMacro(gc: *GC, expr: Value, transformer_val: Value, globals: ?*std.StringHashMap(Value), macros: ?*const std.StringHashMap(Value), use_check: UseSiteBindingCheck) !Value {
     const transformer = types.toObject(transformer_val).as(types.Transformer);
     const saved_ellipsis = active_custom_ellipsis;
     active_custom_ellipsis = transformer.custom_ellipsis;
@@ -167,6 +180,8 @@ pub fn expandMacro(gc: *GC, expr: Value, transformer_val: Value, globals: ?*std.
     const saved_scope_count = scope_table_count;
     defer scope_table_count = saved_scope_count;
 
+    const literal_bound = transformer.literal_bound;
+
     // Try each rule in order
     for (0..transformer.num_rules) |i| {
         var bindings: [MAX_BINDINGS]Binding = undefined;
@@ -175,7 +190,7 @@ pub fn expandMacro(gc: *GC, expr: Value, transformer_val: Value, globals: ?*std.
         // Skip the keyword in the pattern (first element of pattern)
         const pattern_body = types.cdr(transformer.patterns[i]);
 
-        if (matchPattern(pattern_body, input, transformer.literals[0..], &bindings, &bind_count, gc)) {
+        if (matchPattern(pattern_body, input, transformer.literals[0..], &bindings, &bind_count, gc, literal_bound, use_check)) {
             return instantiateTemplate(gc, transformer.templates[i], bindings[0..bind_count], intro_scope, transformer.literals, macro_keyword, globals, macros);
         }
     }
@@ -196,15 +211,28 @@ pub const ExpandError = error{
 // Pattern matching
 // ---------------------------------------------------------------------------
 
-fn matchPattern(pattern: Value, input: Value, literals: []const Value, bindings: *[MAX_BINDINGS]Binding, count: *usize, gc: ?*GC) bool {
+fn matchPattern(pattern: Value, input: Value, literals: []const Value, bindings: *[MAX_BINDINGS]Binding, count: *usize, gc: ?*GC, literal_bound: []const u16, use_check: UseSiteBindingCheck) bool {
     // Symbol patterns
     if (types.isSymbol(pattern)) {
         const name = types.symbolName(pattern);
 
         // Check if it's a literal (including _ when in literals list)
-        for (literals) |lit| {
+        for (literals, 0..) |lit, lit_idx| {
             if (types.isSymbol(lit) and std.mem.eql(u8, types.symbolName(lit), name)) {
-                return types.isSymbol(input) and std.mem.eql(u8, types.symbolName(input), name);
+                if (!types.isSymbol(input)) return false;
+                const input_name = types.symbolName(input);
+                if (!std.mem.eql(u8, input_name, name)) return false;
+                // R7RS 4.3.2: match only if both refer to the same binding
+                // or both are unbound.  Compare binding slots, not just
+                // bound-vs-unbound, so two different bindings with the same
+                // name are correctly distinguished.
+                const def_slot = if (lit_idx < literal_bound.len) literal_bound[lit_idx] else LITERAL_UNBOUND;
+                const use_slot = use_check.resolve(input_name);
+                if (def_slot == LITERAL_UNBOUND and use_slot == LITERAL_UNBOUND) return true;
+                if (def_slot == LITERAL_UNBOUND or use_slot == LITERAL_UNBOUND) return false;
+                // BOUND_PENDING: body define not yet allocated — accept any bound use
+                if (def_slot == LITERAL_BOUND_PENDING) return true;
+                return def_slot == use_slot;
             }
         }
 
@@ -253,25 +281,25 @@ fn matchPattern(pattern: Value, input: Value, literals: []const Value, bindings:
         const ivec = types.toObject(input).as(types.Vector);
         const plist = vectorToList(the_gc, pvec.data) catch return false;
         const ilist = vectorToList(the_gc, ivec.data) catch return false;
-        return matchListPattern(plist, ilist, literals, bindings, count, gc);
+        return matchListPattern(plist, ilist, literals, bindings, count, gc, literal_bound, use_check);
     }
 
     // List pattern
     if (types.isPair(pattern)) {
-        return matchListPattern(pattern, input, literals, bindings, count, gc);
+        return matchListPattern(pattern, input, literals, bindings, count, gc, literal_bound, use_check);
     }
 
     return false;
 }
 
-fn matchListPattern(pattern: Value, input: Value, literals: []const Value, bindings: *[MAX_BINDINGS]Binding, count: *usize, gc: ?*GC) bool {
+fn matchListPattern(pattern: Value, input: Value, literals: []const Value, bindings: *[MAX_BINDINGS]Binding, count: *usize, gc: ?*GC, literal_bound: []const u16, use_check: UseSiteBindingCheck) bool {
     var pat = pattern;
     var inp = input;
 
     while (pat != types.NIL) {
         if (!types.isPair(pat)) {
             // Dotted pattern tail
-            return matchPattern(pat, inp, literals, bindings, count, gc);
+            return matchPattern(pat, inp, literals, bindings, count, gc, literal_bound, use_check);
         }
 
         const pat_elem = types.car(pat);
@@ -283,13 +311,13 @@ fn matchListPattern(pattern: Value, input: Value, literals: []const Value, bindi
             if (types.isSymbol(maybe_ellipsis) and isEllipsis(types.symbolName(maybe_ellipsis))) {
                 // Ellipsis: pat_elem matches zero or more input elements
                 const after_ellipsis = types.cdr(pat_rest);
-                return matchEllipsis(pat_elem, after_ellipsis, inp, literals, bindings, count, gc);
+                return matchEllipsis(pat_elem, after_ellipsis, inp, literals, bindings, count, gc, literal_bound, use_check);
             }
         }
 
         // Regular element: input must be a pair
         if (!types.isPair(inp)) return false;
-        if (!matchPattern(pat_elem, types.car(inp), literals, bindings, count, gc)) return false;
+        if (!matchPattern(pat_elem, types.car(inp), literals, bindings, count, gc, literal_bound, use_check)) return false;
 
         pat = pat_rest;
         inp = types.cdr(inp);
@@ -321,7 +349,7 @@ fn countPairs(v: Value) ?usize {
     return n;
 }
 
-fn matchEllipsis(elem_pattern: Value, rest_pattern: Value, input: Value, literals: []const Value, bindings: *[MAX_BINDINGS]Binding, count: *usize, gc: ?*GC) bool {
+fn matchEllipsis(elem_pattern: Value, rest_pattern: Value, input: Value, literals: []const Value, bindings: *[MAX_BINDINGS]Binding, count: *usize, gc: ?*GC, literal_bound: []const u16, use_check: UseSiteBindingCheck) bool {
     // Count how many elements the rest_pattern needs (handles improper lists)
     const rest_len = countPairs(rest_pattern) orelse return false;
     const input_len = countPairs(input) orelse return false;
@@ -353,7 +381,7 @@ fn matchEllipsis(elem_pattern: Value, rest_pattern: Value, input: Value, literal
     for (0..repeat_count) |_| {
         var sub_bindings: [MAX_BINDINGS]Binding = undefined;
         var sub_count: usize = 0;
-        if (!matchPattern(elem_pattern, types.car(inp), literals, &sub_bindings, &sub_count, gc))
+        if (!matchPattern(elem_pattern, types.car(inp), literals, &sub_bindings, &sub_count, gc, literal_bound, use_check))
             return false;
 
         // Append each sub-binding value to the corresponding list binding
@@ -389,7 +417,7 @@ fn matchEllipsis(elem_pattern: Value, rest_pattern: Value, input: Value, literal
 
     // Match remaining input against rest_pattern
     if (rest_pattern == types.NIL) return inp == types.NIL;
-    return matchListPattern(rest_pattern, inp, literals, bindings, count, gc);
+    return matchListPattern(rest_pattern, inp, literals, bindings, count, gc, literal_bound, use_check);
 }
 
 fn collectPatternVars(pattern: Value, literals: []const Value, names: *[128][]const u8, count: *usize, overflowed: *bool) void {

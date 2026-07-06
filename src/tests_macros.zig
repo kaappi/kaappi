@@ -579,6 +579,37 @@ test "keyword shadowed by an enclosing-scope binding compiles as a call inside a
     try std.testing.expectEqualStrings("yes", types.symbolName(try vm.eval("(my-if #t 'yes 'no)")));
 }
 
+test "syntax-rules literal binding check: let-rebound literal must not match (#1139)" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    _ = try vm.eval(
+        \\(define-syntax has-lit
+        \\  (syntax-rules (lit)
+        \\    ((_ lit) 'is-literal)
+        \\    ((_ x)   'not-literal)))
+    );
+
+    // Both unbound: literal matches
+    try std.testing.expect(types.isSymbol(try vm.eval("(has-lit lit)")));
+    try std.testing.expectEqualStrings("is-literal", types.symbolName(try vm.eval("(has-lit lit)")));
+
+    // Use-site bound, def-site unbound: must NOT match
+    try std.testing.expectEqualStrings("not-literal", types.symbolName(try vm.eval("(let ((lit 42)) (has-lit lit))")));
+
+    // Same-scope define-syntax: literal IS def-site bound, use-site also bound → match
+    try std.testing.expectEqualStrings("is-literal", types.symbolName(try vm.eval(
+        \\(let ((lit 42))
+        \\  (define-syntax has-lit2
+        \\    (syntax-rules (lit)
+        \\      ((_ lit) 'is-literal)
+        \\      ((_ x)   'not-literal)))
+        \\  (has-lit2 lit))
+    )));
+}
+
 test "lambda parameter shadows a syntactic keyword in its body (#788)" {
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
