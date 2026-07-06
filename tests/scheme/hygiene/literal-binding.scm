@@ -48,6 +48,40 @@
 (test-equal "non-literal pattern var carries the input form"
   42 (let ((lit 42)) (get-val lit)))
 
+;; --- Body-defined macro must not corrupt sibling defines ---
+(test-equal "body macro reads body define local correctly"
+  10
+  (let ()
+    (define x 10)
+    (define-syntax getx (syntax-rules () ((_) x)))
+    (getx)))
+
+(test-equal "body macro with plain pattern var resolves use-site binding"
+  10
+  (let ()
+    (define-syntax m (syntax-rules () ((_ v) v)))
+    (let ((y 10)) (m y))))
+
+;; --- Literal bound by sibling body define ---
+(test-equal "sibling body define makes literal def-site bound"
+  'is-literal
+  (let ()
+    (define lit 1)
+    (define-syntax m
+      (syntax-rules (lit)
+        ((_ lit) 'is-literal)
+        ((_ x)   'not-literal)))
+    (m lit)))
+
+;; --- Global literal through nested macro expansion ---
+(define lit-g 5)
+(define-syntax has-lit-g
+  (syntax-rules (lit-g)
+    ((_ lit-g) 'is-literal)
+    ((_ x)     'not-literal)))
+(define-syntax outer-g (syntax-rules () ((_) (has-lit-g lit-g))))
+(test-equal "global literal through nested expansion" 'is-literal (outer-g))
+
 (let ((runner (test-runner-current)))
   (test-end "literal-binding")
   (when (> (test-runner-fail-count runner) 0) (exit 1)))

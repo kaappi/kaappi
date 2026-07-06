@@ -846,7 +846,7 @@ pub fn repl(vm: *vm_mod.VM) !void {
             if (types.isPair(expr) and types.isSymbol(types.car(expr))) {
                 const ename = types.symbolName(types.car(expr));
                 if (vm.macros.get(ename)) |transformer| {
-                    const expanded = expander.expandMacro(vm.gc, expr, transformer, vm.globals, &vm.macros, &.{}) catch {
+                    const expanded = expander.expandMacro(vm.gc, expr, transformer, vm.globals, &vm.macros, .{}) catch {
                         writeStderr("expansion error\n");
                         input_buf.clearRetainingCapacity();
                         continue;

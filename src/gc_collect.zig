@@ -872,6 +872,7 @@ pub fn freeObject(gc: *GC, obj: *Object) void {
             gc.allocator.free(tx.patterns);
             gc.allocator.free(tx.templates);
             if (tx.captured_locals.len > 0) gc.allocator.free(tx.captured_locals);
+            if (tx.literal_bound.len > 0) gc.allocator.free(tx.literal_bound);
             poisonAndDestroy(gc, Transformer, tx);
         },
         .error_object => {
