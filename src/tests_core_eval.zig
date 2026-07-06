@@ -297,6 +297,19 @@ test "eval set! into immutable environment signals error (#1147)" {
     try std.testing.expectEqualStrings("error-signaled", types.symbolName(result));
 }
 
+test "eval define-syntax into immutable environment signals error (#1147)" {
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
+    const result = try ctx.vm.eval(
+        \\(guard (e (#t 'error-signaled))
+        \\  (eval '(define-syntax leaked (syntax-rules () ((_) 999)))
+        \\        (environment '(scheme base))))
+    );
+    try std.testing.expect(types.isSymbol(result));
+    try std.testing.expectEqualStrings("error-signaled", types.symbolName(result));
+}
+
 test "interaction-environment allows define (#1147)" {
     var ctx: th.TestContext = undefined;
     try ctx.init();

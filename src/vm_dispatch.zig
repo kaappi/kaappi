@@ -249,17 +249,12 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                 const src = readU16(self, frame);
                 const closure = frame.closure orelse return VMError.InvalidBytecode;
                 const func = closure.func;
-                if (types.isEnvironment(func.env_val) and types.toEnvironment(func.env_val).immutable) {
-                    const sym = try constantAt(self, func, sym_idx);
-                    const name = if (types.isSymbol(sym)) types.symbolName(sym) else "?";
-                    self.setErrorDetail("set!: cannot modify binding '{s}' in immutable environment", .{name});
-                    return VMError.InvalidArgument;
-                }
                 const src_idx = try registerIndex(self, frame.base, src);
                 const env: *std.StringHashMap(Value) = func.env orelse self.globals;
                 const sym = try constantAt(self, func, sym_idx);
                 if (!types.isSymbol(sym)) return VMError.InvalidBytecode;
                 const name = types.symbolName(sym);
+                if (rejectImmutableEnv(self, func, name, "set!: cannot modify binding")) |e| return e;
                 const val = self.registers[src_idx];
                 // Mirror get_global's hygienic-prefix fallback: a template
                 // set! to a definition-site global compiles as set_global on
@@ -308,17 +303,12 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                 const src = readU16(self, frame);
                 const closure = frame.closure orelse return VMError.InvalidBytecode;
                 const func = closure.func;
-                if (types.isEnvironment(func.env_val) and types.toEnvironment(func.env_val).immutable) {
-                    const sym = try constantAt(self, func, sym_idx);
-                    const name = if (types.isSymbol(sym)) types.symbolName(sym) else "?";
-                    self.setErrorDetail("define: cannot define '{s}' in immutable environment", .{name});
-                    return VMError.InvalidArgument;
-                }
                 const src_idx = try registerIndex(self, frame.base, src);
                 const env: *std.StringHashMap(Value) = func.env orelse self.globals;
                 const sym = try constantAt(self, func, sym_idx);
                 if (!types.isSymbol(sym)) return VMError.InvalidBytecode;
                 const name = types.symbolName(sym);
+                if (rejectImmutableEnv(self, func, name, "define: cannot define")) |e| return e;
                 const val = self.registers[src_idx];
                 if (env == self.globals) {
                     // Structural mutation of the shared globals map: may
@@ -1266,6 +1256,14 @@ pub fn readU16(vm: *VM, frame: *CallFrame) u16 {
 
 pub fn readI16(vm: *VM, frame: *CallFrame) i16 {
     return @bitCast(readU16(vm, frame));
+}
+
+noinline fn rejectImmutableEnv(self: *VM, func: *types.Function, name: []const u8, comptime verb: []const u8) ?VMError {
+    if (types.isEnvironment(func.env_val) and types.toEnvironment(func.env_val).immutable) {
+        self.setErrorDetail(verb ++ " '{s}' in immutable environment", .{name});
+        return VMError.InvalidArgument;
+    }
+    return null;
 }
 
 noinline fn raiseUndefinedVariable(self: *VM, name: []const u8) VMError {
