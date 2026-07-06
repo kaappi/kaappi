@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783345638009,
+  "lastUpdate": 1783346404702,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "distinct": true,
-          "id": "3c8411eb6070fbc57fb03f2c20953a47c863d877",
-          "message": "Release v0.12.0",
-          "timestamp": "2026-07-04T06:33:44+05:30",
-          "tree_id": "cf9e93a738f93e142c255805726c4231c1fd1523",
-          "url": "https://github.com/kaappi/kaappi/commit/3c8411eb6070fbc57fb03f2c20953a47c863d877"
-        },
-        "date": 1783128022813,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.851396,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.607408,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.780101,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.812655,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006524,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.032342,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.42298,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.066072,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 4.218939,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.590562,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.18061,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.402892,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.629632,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.031845,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.03969,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.045186,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e88c757495cef053c91f0a7e5d39446a84c91223",
+          "message": "Patch datum-label references inside vectors (#1213) (#1257)\n\n* Patch datum-label references inside vectors (#1213)\n\nThe reader resolved #n# forward references in pair cells but never\nwalked vector slots, so `#0=#(1 #0#)` left the placeholder unpatched.\nAdd an iterative patchPlaceholder walk (pairs + vectors, cycle-safe via\nvisited set) for non-pair labeled datums.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Address review: write barriers, OOM propagation, hash-set visited\n\n1. Add gc.writeBarrier after every patch store (setCar, setCdr, vector\n   slot) — containers may be promoted to old gen during mid-read minor\n   GCs while datum is young. Also fixes the pre-existing gap in the\n   pair branch (L65-66).\n2. Change patchPlaceholder to return error{OutOfMemory} and propagate\n   it as ReadError.OutOfMemory at the call site — no more silent\n   partial patching.\n3. Replace O(n²) visited ArrayList with AutoHashMap for O(1) cycle\n   detection.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-06T19:01:18+05:30",
+          "tree_id": "b26abc1c03fe5e6ea39223c6a3c0b8f1ad6109f0",
+          "url": "https://github.com/kaappi/kaappi/commit/e88c757495cef053c91f0a7e5d39446a84c91223"
+        },
+        "date": 1783346403385,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.525935,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.343141,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.752682,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 3.32105,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.01334,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.216078,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.37433,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.057248,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 12.576404,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.419496,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 10.253394,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.977308,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 8.291572,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.046583,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.037697,
             "unit": "seconds"
           }
         ]
