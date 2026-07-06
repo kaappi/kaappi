@@ -643,6 +643,7 @@ pub const Compiler = struct {
                 if (std.mem.eql(u8, effective_name, "if")) return passthrough.compileIf(self, args, dst, is_tail);
                 if (std.mem.eql(u8, effective_name, "lambda")) return self.compileLambda(args, dst, null);
                 if (std.mem.eql(u8, effective_name, "define")) return self.compileDefine(args, dst);
+                if (std.mem.eql(u8, effective_name, "define-record-type")) return self.compileDefineRecordType(args, dst);
                 if (std.mem.eql(u8, effective_name, "define-values")) return self.compileDefineValues(args, dst);
                 if (std.mem.eql(u8, effective_name, "set!")) return self.compileSet(args, dst);
                 if (std.mem.eql(u8, effective_name, "begin")) return self.compileBegin(args, dst, is_tail);
@@ -748,6 +749,10 @@ pub const Compiler = struct {
 
     fn compileDefine(self: *Compiler, args: Value, dst: u16) CompileError!void {
         return compiler_lambda.compileDefine(self, args, dst);
+    }
+
+    fn compileDefineRecordType(self: *Compiler, args: Value, dst: u16) CompileError!void {
+        return compiler_lambda.compileDefineRecordType(self, args, dst);
     }
 
     fn compileDefineValues(self: *Compiler, args: Value, dst: u16) CompileError!void {

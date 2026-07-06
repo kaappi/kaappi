@@ -4,6 +4,7 @@ const memory = @import("memory.zig");
 const compiler_mod = @import("compiler.zig");
 const globals_mod = @import("globals.zig");
 const macro = @import("compiler_macro.zig");
+const vm_records = @import("vm_records.zig");
 const Compiler = compiler_mod.Compiler;
 const CompileError = compiler_mod.CompileError;
 const Value = types.Value;
@@ -146,6 +147,29 @@ pub fn compileBodyForms(self: *Compiler, body: Value, opts: BodyOpts) CompileErr
                                 }
                             }
                         }
+                    } else if (std.mem.eql(u8, form_name, "define-record-type")) {
+                        if (vm_records.parseRecordSpec(types.cdr(form))) |spec| {
+                            if (!globals.contains(spec.ctor_name)) {
+                                globals.put(spec.ctor_name, types.VOID) catch {};
+                                prescan_names.append(self.gc.allocator, spec.ctor_name) catch {};
+                            }
+                            if (!globals.contains(spec.pred_name)) {
+                                globals.put(spec.pred_name, types.VOID) catch {};
+                                prescan_names.append(self.gc.allocator, spec.pred_name) catch {};
+                            }
+                            for (0..spec.field_count) |fi| {
+                                if (!globals.contains(spec.accessor_names[fi])) {
+                                    globals.put(spec.accessor_names[fi], types.VOID) catch {};
+                                    prescan_names.append(self.gc.allocator, spec.accessor_names[fi]) catch {};
+                                }
+                                if (spec.mutator_names[fi]) |mn| {
+                                    if (!globals.contains(mn)) {
+                                        globals.put(mn, types.VOID) catch {};
+                                        prescan_names.append(self.gc.allocator, mn) catch {};
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -212,6 +236,11 @@ pub fn compileBodyForms(self: *Compiler, body: Value, opts: BodyOpts) CompileErr
                         all_def_count += 1;
                     }
                 } else break;
+            } else if (std.mem.eql(u8, hn, "define-record-type")) {
+                vm_records.collectRecordTypeDefNames(self.gc, types.cdr(expr), all_def_names[0..], &all_def_count) catch |err| switch (err) {
+                    CompileError.InvalidSyntax => break,
+                    else => return err,
+                };
             } else if (!(opts.handle_define_syntax and std.mem.eql(u8, hn, "define-syntax"))) {
                 break;
             }
@@ -257,6 +286,18 @@ pub fn compileBodyForms(self: *Compiler, body: Value, opts: BodyOpts) CompileErr
             } else {
                 break;
             }
+        } else if (std.mem.eql(u8, head_name, "define-record-type")) {
+            vm_records.expandRecordTypeDefines(
+                self.gc,
+                types.cdr(expr),
+                def_names_arr[0..],
+                def_inits[0..],
+                &def_count,
+                &self.gc.extra_roots,
+            ) catch |err| switch (err) {
+                CompileError.InvalidSyntax => break,
+                else => return err,
+            };
         } else if (opts.handle_define_syntax and std.mem.eql(u8, head_name, "define-syntax")) {
             const ds_args = types.cdr(expr);
             if (ds_args == types.NIL or !types.isPair(ds_args)) break;
@@ -438,6 +479,116 @@ pub fn compileDefine(self: *Compiler, args: Value, dst: u16) CompileError!void {
     }
 
     return CompileError.InvalidSyntax;
+}
+
+/// General-dispatch handler for define-record-type.
+/// Builds define S-expressions and compiles each one, so that compileDefine's
+/// in_body_scope path creates local variables when appropriate.
+/// Covers positions the leading-define body scanner doesn't reach
+/// (e.g. let-values bodies, begin-splicing inside lambdas).
+pub fn compileDefineRecordType(self: *Compiler, args: Value, dst: u16) CompileError!void {
+    const gc = self.gc;
+    const spec = vm_records.parseRecordSpec(args) orelse return CompileError.InvalidSyntax;
+    const internal_name = try vm_records.internRecordTypeName(gc, spec.type_name);
+
+    gc.no_collect += 1;
+    errdefer gc.no_collect -= 1;
+
+    const define_sym = gc.allocSymbol("define") catch return CompileError.OutOfMemory;
+
+    // Build all define forms as a list (consing in reverse)
+    var forms = types.NIL;
+
+    // Mutators (reverse order)
+    {
+        var fi = spec.field_count;
+        while (fi > 0) {
+            fi -= 1;
+            if (spec.mutator_names[fi]) |mn| {
+                const rs = gc.allocSymbol("%record-set!") catch return CompileError.OutOfMemory;
+                const p = gc.allocSymbol("p") catch return CompileError.OutOfMemory;
+                const v = gc.allocSymbol("v") catch return CompileError.OutOfMemory;
+                const idx = types.makeFixnum(@intCast(fi));
+                const body = gc.makeList(&[_]Value{ rs, p, idx, v }) catch return CompileError.OutOfMemory;
+                const np = gc.allocPair(gc.allocSymbol(mn) catch return CompileError.OutOfMemory, gc.makeList(&[_]Value{ p, v }) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory;
+                forms = gc.allocPair(gc.makeList(&[_]Value{ define_sym, np, body }) catch return CompileError.OutOfMemory, forms) catch return CompileError.OutOfMemory;
+            }
+        }
+    }
+
+    // Accessors (reverse order)
+    {
+        var fi = spec.field_count;
+        while (fi > 0) {
+            fi -= 1;
+            const rr = gc.allocSymbol("%record-ref") catch return CompileError.OutOfMemory;
+            const p = gc.allocSymbol("p") catch return CompileError.OutOfMemory;
+            const idx = types.makeFixnum(@intCast(fi));
+            const body = gc.makeList(&[_]Value{ rr, p, idx }) catch return CompileError.OutOfMemory;
+            const np = gc.allocPair(gc.allocSymbol(spec.accessor_names[fi]) catch return CompileError.OutOfMemory, gc.makeList(&[_]Value{p}) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory;
+            forms = gc.allocPair(gc.makeList(&[_]Value{ define_sym, np, body }) catch return CompileError.OutOfMemory, forms) catch return CompileError.OutOfMemory;
+        }
+    }
+
+    // Predicate
+    {
+        const rc = gc.allocSymbol("%record?") catch return CompileError.OutOfMemory;
+        const v = gc.allocSymbol("v") catch return CompileError.OutOfMemory;
+        const rt_ref = gc.allocSymbol(internal_name) catch return CompileError.OutOfMemory;
+        const body = gc.makeList(&[_]Value{ rc, v, rt_ref }) catch return CompileError.OutOfMemory;
+        const np = gc.allocPair(gc.allocSymbol(spec.pred_name) catch return CompileError.OutOfMemory, gc.makeList(&[_]Value{v}) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory;
+        forms = gc.allocPair(gc.makeList(&[_]Value{ define_sym, np, body }) catch return CompileError.OutOfMemory, forms) catch return CompileError.OutOfMemory;
+    }
+
+    // Constructor
+    {
+        const mr = gc.allocSymbol("%make-record") catch return CompileError.OutOfMemory;
+        const rt_ref = gc.allocSymbol(internal_name) catch return CompileError.OutOfMemory;
+        var body_elems: [258]Value = undefined;
+        body_elems[0] = mr;
+        body_elems[1] = rt_ref;
+        for (0..spec.field_count) |fi| {
+            var found = false;
+            for (0..spec.ctor_field_count) |ci| {
+                if (spec.ctor_field_indices[ci] == fi) {
+                    body_elems[2 + fi] = gc.allocSymbol(spec.ctor_fields[ci]) catch return CompileError.OutOfMemory;
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) {
+                const if_sym = gc.allocSymbol("if") catch return CompileError.OutOfMemory;
+                body_elems[2 + fi] = gc.makeList(&[_]Value{ if_sym, types.FALSE, types.FALSE }) catch return CompileError.OutOfMemory;
+            }
+        }
+        const body = gc.makeList(body_elems[0 .. 2 + spec.field_count]) catch return CompileError.OutOfMemory;
+        var param_syms: [256]Value = undefined;
+        for (0..spec.ctor_field_count) |ci| {
+            param_syms[ci] = gc.allocSymbol(spec.ctor_fields[ci]) catch return CompileError.OutOfMemory;
+        }
+        const np = gc.allocPair(gc.allocSymbol(spec.ctor_name) catch return CompileError.OutOfMemory, gc.makeList(param_syms[0..spec.ctor_field_count]) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory;
+        forms = gc.allocPair(gc.makeList(&[_]Value{ define_sym, np, body }) catch return CompileError.OutOfMemory, forms) catch return CompileError.OutOfMemory;
+    }
+
+    // Internal record type: (define __rt (%make-record-type "name" n))
+    {
+        const mrt = gc.allocSymbol("%make-record-type") catch return CompileError.OutOfMemory;
+        const ns = gc.allocString(spec.type_name) catch return CompileError.OutOfMemory;
+        const nf = types.makeFixnum(@intCast(spec.field_count));
+        const init = gc.makeList(&[_]Value{ mrt, ns, nf }) catch return CompileError.OutOfMemory;
+        const rt_sym = gc.allocSymbol(internal_name) catch return CompileError.OutOfMemory;
+        forms = gc.allocPair(gc.makeList(&[_]Value{ define_sym, rt_sym, init }) catch return CompileError.OutOfMemory, forms) catch return CompileError.OutOfMemory;
+    }
+
+    gc.no_collect -= 1;
+
+    gc.pushRoot(&forms);
+    defer gc.popRoot();
+    var current = forms;
+    while (current != types.NIL and types.isPair(current)) {
+        try self.compileExprViaIR(types.car(current), dst, false);
+        current = types.cdr(current);
+    }
 }
 
 pub fn compileDefineValues(self: *Compiler, args: Value, dst: u16) CompileError!void {
