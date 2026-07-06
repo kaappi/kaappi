@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783337903040,
+  "lastUpdate": 1783340575431,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "fadb0742d14d4062a4dfa1317cd66e76f1d364b0",
-          "message": "Fix SRFI-158 gtake crash, SRFI-189 nothing procedure, SRFI-115 unknown char class (#1008)\n\n* SRFI-158: drive generators with Scheme recursion, not native map\n\ngenerator-fold, generator-for-each, generator-map->list, gmap, and\ngcombine called their generators via (map (lambda (g) (g)) gs). map is\na native primitive, and a coroutine generator captures a continuation\ninside the callback; that continuation cannot resume once the native\nmap frame has returned, so the second invocation crashed with \"type\nerror in 'cdr': expected pair, got #<procedure>\" or silently corrupted\nstate. This broke gtake and (generator->list gen n), which are built\non make-coroutine-generator and generator-fold.\n\nReplace the native-map driving with a %call-generators helper that\nwalks the generator list in plain Scheme, keeping every frame the\ncaptured continuation needs inside the bytecode dispatch session.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n* SRFI-189: make nothing a procedure per spec\n\nnothing was defined as the Nothing record instance itself, so the\nspec-mandated call form (nothing) raised \"not a procedure\". Keep the\nunique instance in a private %the-nothing and export nothing as a\nzero-argument procedure returning it, as SRFI-189 requires.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n* SRFI-115: raise on unknown named char class instead of matching nothing\n\nA bare symbol in an SRE compiled to a class node without validation,\nand the match interpreter's fallback returned #f for names it did not\nrecognize. A typo like digit (for numeric) therefore made every search\nsilently return #f. Validate class names against the set the matcher\nunderstands at compile time, so (regexp-search '(+ digit) \"age: 25\")\nraises \"regexp: unknown character class\" and valid-sre? returns #f.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-04T03:42:35+05:30",
-          "tree_id": "de3a3b831920b3863065ce30b172980065f754b3",
-          "url": "https://github.com/kaappi/kaappi/commit/fadb0742d14d4062a4dfa1317cd66e76f1d364b0"
-        },
-        "date": 1783117683428,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.433649,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.719612,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.847611,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.542912,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.00676,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.033579,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.475832,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.069929,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 4.143613,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.828803,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.149814,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.434933,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.793539,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.744005,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.043457,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.042026,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "088472e4afdded322963cc08cd3407f854a2deb7",
+          "message": "Fix GC crash on stale VM registers after thread start/join cycles (#1254)\n\n* Fix GC crash on stale VM registers after thread start/join cycles (#1156)\n\nThe GC could SIGSEGV under -Dgc-stress=true when scanning VM registers\nthat held stale pointers to freed objects. Between execute() calls,\nframe_count drops to 0 and a GC cycle can free objects that stale\nregister values still reference. The next execute() re-covers those\nregisters, and the GC hits the dangling pointers.\n\nThree fixes:\n1. Clear local registers in execute() and callClosure() so the GC never\n   scans stale values from a previous frame at the same base.\n2. Remove dead frame setup from makeThreadFn — OS thread fibers create\n   their own VM and never use the parent fiber's frames[0].\n3. Add missing write barriers and defensive frame_count=0 in\n   reapOsThread after joining the OS thread.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Address review: clear stale registers in callReentrant, use SRFI-64 test\n\n- Factor register clearing into clearFrameLocals() helper and call from\n  all three frame-push sites: execute(), callClosure(), callReentrant()\n- Add missing write barrier for fiber.name in makeThreadFn\n- Convert regression test to SRFI-64 assertions\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-06T17:24:07+05:30",
+          "tree_id": "0b70e3e88d83c0dd91161e1b57c89d7f12003d33",
+          "url": "https://github.com/kaappi/kaappi/commit/088472e4afdded322963cc08cd3407f854a2deb7"
+        },
+        "date": 1783340574786,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.343,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.483513,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.942575,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.267671,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.012464,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.212182,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.485703,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.070962,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 12.521916,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.871418,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 9.962163,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.953857,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 8.372773,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.713448,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044359,
             "unit": "seconds"
           }
         ]
