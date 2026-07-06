@@ -220,6 +220,9 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                     if (func.env != null and !func.restricted_globals) {
                         if (self.globals.get(name)) |gval| break :blk gval;
                     }
+                    // Hygienic-prefix fallback is intentionally ungated by
+                    // restricted_globals: macro-introduced references must
+                    // still resolve through globals even in restricted envs.
                     const base = types.stripHygienicPrefix(name);
                     if (base.len != name.len) {
                         if (env.get(base)) |bval| break :blk bval;

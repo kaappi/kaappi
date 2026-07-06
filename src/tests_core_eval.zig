@@ -334,3 +334,19 @@ test "eval tail position runs in constant frame depth (#1253)" {
     try std.testing.expect(types.isSymbol(result));
     try std.testing.expectEqualStrings("done", types.symbolName(result));
 }
+
+// Regression for #1253: null-environment must not leak VM globals in tail position.
+// guard desugars its body into a lambda, putting eval in tail position and
+// routing through get_global (not call_global). Without restricted_globals,
+// get_global falls back to vm.globals, letting car resolve.
+test "null-environment eval in tail position respects restriction (#1253)" {
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
+    const result = try ctx.vm.eval(
+        \\(guard (e (#t 'caught))
+        \\  (eval '(car '(1)) (null-environment 5)))
+    );
+    try std.testing.expect(types.isSymbol(result));
+    try std.testing.expectEqualStrings("caught", types.symbolName(result));
+}
