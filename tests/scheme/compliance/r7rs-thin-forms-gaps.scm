@@ -16,10 +16,7 @@
   (if (= n 0) (delay 'end) (delay-force (df-chain (- n 1)))))
 (test-equal "delay-force chain forces in bounded space" 'end
   (force (df-chain 99999)))
-;; force's trampoline is capped at 100,000 iterations and mislabels longer
-;; legitimate chains as circular
-;; FAIL: #1242 (force reports long delay-force chains as circular)
-;; (test-equal "delay-force chain beyond 100k" 'end (force (df-chain 100000)))
+(test-equal "delay-force chain beyond 100k" 'end (force (df-chain 100001)))
 
 ;; force memoizes: the body runs once even when forced repeatedly
 (define force-count 0)

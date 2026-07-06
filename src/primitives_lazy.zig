@@ -40,8 +40,7 @@ fn forceFn(args: []const Value) PrimitiveError!Value {
 
     if (!types.isPromise(current)) return current;
 
-    var iterations: usize = 0;
-    while (iterations < 100000) : (iterations += 1) {
+    while (true) {
         if (!types.isPromise(current)) return current;
         const promise = types.toPromise(current);
 
@@ -99,6 +98,4 @@ fn forceFn(args: []const Value) PrimitiveError!Value {
         gc.writeBarrier(&promise.header, result);
         return result;
     }
-
-    return primitives.typeError("force", "non-circular promise chain", args[0]);
 }
