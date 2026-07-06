@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783346942178,
+  "lastUpdate": 1783348590314,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "d8a5659cafa51f64ce5142e0a292cc1e7ed5d9a7",
-          "message": "Fix current-input-port corruption under extreme GC pressure (#1013) (#1015)\n\nRoot each standard port in extra_roots immediately after allocation\ninstead of batching all three roots after all three allocations. With\ngc-threshold=1, allocPort for stdout triggered collection before stdin\nwas rooted, freeing it and corrupting the current-input-port parameter.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-04T02:22:46Z",
-          "tree_id": "f7e1e7c5a99359429c72d5234a544738f66ebff6",
-          "url": "https://github.com/kaappi/kaappi/commit/d8a5659cafa51f64ce5142e0a292cc1e7ed5d9a7"
-        },
-        "date": 1783132918118,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.293413,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.67037,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.908306,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.249288,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.012457,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.210856,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.472778,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.07078,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 12.43276,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.810106,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 9.958726,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.958975,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 8.242573,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.69519,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.042686,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044306,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "9e04a667cb1aeee5ac4bae29ef167ba6e8a36f81",
+          "message": "Support optional environment-specifier in load (R7RS §6.14) (#1262)\n\n* Support optional environment-specifier in load (R7RS §6.14) (#1190)\n\nR7RS specifies that load accepts an optional second argument specifying\nthe environment in which to evaluate the loaded expressions. Previously,\nload was registered with exact arity 1, rejecting the two-argument form\nwith an arity error.\n\nChange load's arity to variadic (minimum 1) and compile expressions via\ncompileExpressionInEnv when an environment is supplied, following the\nsame pattern as eval.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Address review: use SRFI-64, add positive custom-env assertion\n\n- Rewrite smoke test to use SRFI-64 (test-begin/test-equal/test-end)\n  instead of manual pass/fail counters per project conventions\n- Add positive assertion that load into a custom environment actually\n  defines the variable there (eval in that env returns it)\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-06T19:41:46+05:30",
+          "tree_id": "813319ada7476bf7e929b6649b3e19f93845b277",
+          "url": "https://github.com/kaappi/kaappi/commit/9e04a667cb1aeee5ac4bae29ef167ba6e8a36f81"
+        },
+        "date": 1783348589586,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.307061,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.700151,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.972396,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.317149,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.012812,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.212403,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.481844,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.071102,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 12.617104,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.867097,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 9.99791,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.95856,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 8.373615,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.763171,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044103,
             "unit": "seconds"
           }
         ]
