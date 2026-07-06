@@ -16,12 +16,11 @@
 
 ;; "They are replaced in the output by all of the elements they match in
 ;; the input" — doubled ellipsis flattens one level
-;; FAIL: #1243 (doubled ellipsis produces garbage with a literal ...)
-;; (define-syntax flatten2
-;;   (syntax-rules ()
-;;     ((_ ((x ...) ...)) '(x ... ...))))
-;; (test-equal "doubled ellipsis flattens" '(1 2 3 4 5)
-;;   (flatten2 ((1 2) (3 4) (5))))
+(define-syntax flatten2
+  (syntax-rules ()
+    ((_ ((x ...) ...)) '(x ... ...))))
+(test-equal "doubled ellipsis flattens" '(1 2 3 4 5)
+  (flatten2 ((1 2) (3 4) (5))))
 
 ;;; --- (... ...) escape + macro-generating macro (p. 24 example) ---
 (define-syntax be-like-begin

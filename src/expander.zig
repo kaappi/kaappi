@@ -691,8 +691,24 @@ fn instantiateEllipsis(gc: *GC, elem_template: Value, rest_template: Value, bind
         }
     }
 
-    // First instantiate the rest (after the ellipsis)
-    const result = try instantiateTemplate(gc, rest_template, bindings, intro_scope, literals, macro_keyword, globals, macros);
+    // Consecutive ellipses (R7RS 4.3.2): (x ... ...) flattens depth-2
+    // bindings into a single list.  Count and strip leading ellipsis
+    // tokens from rest_template so the tail instantiation sees only the
+    // non-ellipsis remainder.
+    var extra_ellipsis: u32 = 0;
+    var true_rest = rest_template;
+    while (true_rest != types.NIL and types.isPair(true_rest)) {
+        const head = types.car(true_rest);
+        if (types.isSymbol(head) and isEllipsis(types.symbolName(head))) {
+            extra_ellipsis += 1;
+            true_rest = types.cdr(true_rest);
+        } else {
+            break;
+        }
+    }
+
+    // First instantiate the rest (after all consumed ellipses)
+    const result = try instantiateTemplate(gc, true_rest, bindings, intro_scope, literals, macro_keyword, globals, macros);
     var result_root = result;
     gc.pushRoot(&result_root);
     defer gc.popRoot();
@@ -735,11 +751,44 @@ fn instantiateEllipsis(gc: *GC, elem_template: Value, rest_template: Value, bind
             }
             sub_count += 1;
         }
-        const expanded = try instantiateTemplate(gc, elem_template, sub_bindings[0..sub_count], intro_scope, literals, macro_keyword, globals, macros);
-        var expanded_root = expanded;
-        gc.pushRoot(&expanded_root);
-        result_root = try gc.allocPair(expanded_root, result_root);
-        gc.popRoot();
+
+        if (extra_ellipsis == 0) {
+            const expanded = try instantiateTemplate(gc, elem_template, sub_bindings[0..sub_count], intro_scope, literals, macro_keyword, globals, macros);
+            var expanded_root = expanded;
+            gc.pushRoot(&expanded_root);
+            result_root = try gc.allocPair(expanded_root, result_root);
+            gc.popRoot();
+        } else {
+            // Build synthetic template (elem_template ... ...) with
+            // extra_ellipsis ellipsis symbols, then instantiate it.
+            // instantiateTemplate will re-detect the ellipsis pattern and
+            // recurse into instantiateEllipsis with one fewer level.
+            const ellipsis_name = active_custom_ellipsis orelse "...";
+            var synth = types.NIL;
+            gc.pushRoot(&synth);
+            {
+                var ei: u32 = 0;
+                while (ei < extra_ellipsis) : (ei += 1) {
+                    const dots = try gc.allocSymbol(ellipsis_name);
+                    synth = try gc.allocPair(dots, synth);
+                }
+            }
+            synth = try gc.allocPair(elem_template, synth);
+
+            const expanded_list = try instantiateTemplate(gc, synth, sub_bindings[0..sub_count], intro_scope, literals, macro_keyword, globals, macros);
+            gc.popRoot(); // synth
+
+            // Splice expanded_list (a proper list) into result_root.
+            if (expanded_list != types.NIL and types.isPair(expanded_list)) {
+                var tail = expanded_list;
+                while (types.isPair(types.cdr(tail))) {
+                    tail = types.cdr(tail);
+                }
+                gc.writeBarrier(types.toObject(tail), result_root);
+                types.setCdr(tail, result_root);
+                result_root = expanded_list;
+            }
+        }
     }
 
     return result_root;
