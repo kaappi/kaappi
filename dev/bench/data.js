@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783367603403,
+  "lastUpdate": 1783374592024,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "2fda2fac2ab79f6a94def762e6b5a4f6cbc1ea65",
-          "message": "Break compiler→VM circular dependency via globals.zig (#1022)\n\nThe compiler, IR, and expander files all imported vm.zig for globals\nlocking helpers (acquireGlobalsRead/Write) and the vm_instance\nthreadlocal, while vm.zig imported compiler.zig — creating a\nbidirectional dependency that prevented either subsystem from being\nunderstood or tested in isolation.\n\nExtract GlobalsRwLock, the four acquire/release helpers, and a\nGlobalsContext threadlocal into a new src/globals.zig module. The\ncompiler side now imports globals.zig instead of vm.zig. The VM\nsets/clears the GlobalsContext alongside vm_instance, and registers\na library-existence callback so cond-expand can check library\navailability without importing vm.zig.\n\nAfter this change:\n- compiler*.zig, ir.zig, expander.zig → globals.zig (no vm.zig)\n- vm*.zig → compiler.zig (natural direction, unchanged)\n- vm.zig re-exports GlobalsRwLock and lock helpers for compatibility\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-04T06:03:54Z",
-          "tree_id": "76c63d45f43387d67a8015eb70924f97f2f5f34a",
-          "url": "https://github.com/kaappi/kaappi/commit/2fda2fac2ab79f6a94def762e6b5a4f6cbc1ea65"
-        },
-        "date": 1783146105365,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.158319,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.541602,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.757748,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.264343,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.010895,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.181574,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.370717,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.053879,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 9.762277,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.419222,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 8.53749,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.833595,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 7.024446,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.385655,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.035023,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044163,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "6f383b80cf337a7ef9be698c0eb32b2f010b31c5",
+          "message": "Follow redirect chain in force for delay-force intermediates (#1280)\n\n* Follow redirect chain in force for delay-force intermediates (#1264)\n\nAfter a delay-force chain completes, the SRFI-45 merge step redirects\nintermediate promises to point at the chain head. The force trampoline\nreturned these redirect pointers directly instead of following them to\nthe memoized value. Continue trampolining at all three return sites\n(memoization check, re-entrant check, inner-already-forced) so the\nchain is always resolved to its final value.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Add comment explaining redirect-follow invariant in force\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-07T02:52:42+05:30",
+          "tree_id": "bae8539fcba3b941bba87fb7d6e064b7f79ebd34",
+          "url": "https://github.com/kaappi/kaappi/commit/6f383b80cf337a7ef9be698c0eb32b2f010b31c5"
+        },
+        "date": 1783374591333,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.037863,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.607385,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.992398,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.04558,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.013836,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.23466,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.477102,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.068186,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 13.485789,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.824943,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 11.082968,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 1.08017,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 9.173954,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.87295,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.048062,
             "unit": "seconds"
           }
         ]
