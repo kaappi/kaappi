@@ -91,6 +91,25 @@ test "import rename" {
     try std.testing.expectEqual(@as(i64, 7), types.toFixnum(r2));
 }
 
+test "import rename with colliding names" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    _ = try vm.eval(
+        \\(define-library (test rename-coll)
+        \\  (import (scheme base))
+        \\  (export a b)
+        \\  (begin (define (a) 1) (define (b) 2)))
+    );
+    _ = try vm.eval("(import (rename (test rename-coll) (a b) (b c)))");
+    const r1 = try vm.eval("(b)");
+    try std.testing.expectEqual(@as(i64, 1), types.toFixnum(r1));
+    const r2 = try vm.eval("(c)");
+    try std.testing.expectEqual(@as(i64, 2), types.toFixnum(r2));
+}
+
 test "import prefix" {
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();

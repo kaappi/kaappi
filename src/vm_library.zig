@@ -780,18 +780,24 @@ fn processImportRename(vm: *VM, target: *std.StringHashMap(Value), args: Value) 
         rename_list = types.cdr(rename_list);
     }
 
-    // Second pass: apply renames by removing old entries and re-inserting under new names.
+    // Second pass: remove all old entries first, then insert under new names.
+    // Renames refer to the original set (parallel semantics), so interleaving
+    // remove/put corrupts colliding renames like (rename lib (a b) (b c)).
+    const PendingRename = struct { new_name: []const u8, value: Value };
+    var pending: std.ArrayList(PendingRename) = .empty;
+    defer pending.deinit(vm.gc.allocator);
     rename_list = renames;
     while (rename_list != types.NIL) {
         const pair = types.car(rename_list);
-        const old_sym = types.car(pair);
-        const new_sym = types.car(types.cdr(pair));
-        const old_name = types.symbolName(old_sym);
-        const new_name = types.symbolName(new_sym);
+        const old_name = types.symbolName(types.car(pair));
+        const new_name = types.symbolName(types.car(types.cdr(pair)));
         if (source.fetchRemove(old_name)) |kv| {
-            source.put(new_name, kv.value) catch return error.OutOfMemory;
+            pending.append(vm.gc.allocator, .{ .new_name = new_name, .value = kv.value }) catch return error.OutOfMemory;
         }
         rename_list = types.cdr(rename_list);
+    }
+    for (pending.items) |p| {
+        source.put(p.new_name, p.value) catch return error.OutOfMemory;
     }
 
     // Import everything (with renames applied).
