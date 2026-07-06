@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783344847469,
+  "lastUpdate": 1783345638009,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "63a93faa63aa147b43e931d3f3409b1cb2a5a931",
-          "message": "Fix GC corruption during library include-load (#1010) (#1012)\n\nImporting (srfi 158) after (srfi 115) failed with a CompileError masked\nas \"library not found\": a collection landing mid-compile corrupted the\ndesugared form of gdelete-neighbor-dups. Two holes conspired:\n\n- compileNamedLet built its formals list and renamed body from fresh\n  unrooted pairs across makeUniqueLoopName/renameInBody (which allocate\n  enough to collect on large bodies), and never rooted the desugared\n  lambda args across the nested compileLambda.\n- handleTopLevelForm never rooted the (import ...) datum itself, so a\n  collection during the library load could sweep the form while\n  handleImportInto was still walking it.\n\nHarden the same fresh-unrooted-desugar pattern elsewhere in the\ncompiler: compileBody/compileLetBody def_inits stack arrays (mirrored\ninto extra_roots), compileDefineValues, compileLetValues, and the\nquasiquote vector branch. Fix no_collect increments leaking on error\npaths in compileCaseLambda, compileGuard, compileParameterize, and\ncompileQQSplicing, which would have disabled collection for the rest of\nthe process after a malformed form.\n\nAlso stop masking load failures: when an .sld file is found and read\nbut fails to load, report the failing definition and file instead of\n\"library not found\".\n\nThis also fixes the nondeterministic CompileError when importing\n(srfi 64) and (srfi 158) together.\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-04T06:20:39+05:30",
-          "tree_id": "e0cf60026aa645dfb4af4855a9a23994500be977",
-          "url": "https://github.com/kaappi/kaappi/commit/63a93faa63aa147b43e931d3f3409b1cb2a5a931"
-        },
-        "date": 1783127151613,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.846035,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.667793,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.778081,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.800633,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006682,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.032193,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.422852,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.066136,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 4.278378,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.58624,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.181216,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.405607,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.632572,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.052684,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.039096,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.043574,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "01b971a3b4ca1f78eaa6f405177ca3d28f3b183e",
+          "message": "Fix u8-ready? returning #f at EOF (R7RS requires #t) (#1258)\n\n* Fix u8-ready? returning #f at EOF (R7RS requires #t) (#1179)\n\nR7RS §6.13.3: \"If the port is at end of file then u8-ready? returns #t.\"\nThe #280 fix incorrectly inverted this for string ports. Remove the\nstring-port branch so u8-ready? always returns #t, matching char-ready?.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Address review: remove dead peek_byte check, add comment, fix #280 test\n\n- Collapse u8ReadyP to discard the port and return TRUE directly, removing\n  the dead peek_byte branch (both CodeRabbit and reviewer nit).\n- Add \"For simplicity\" comment mirroring charReadyP in primitives_io.zig.\n- Remove the stale #280 section from bytevector-port-fixes.scm that still\n  documented the inverted EOF behavior this PR reverts.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-06T18:50:02+05:30",
+          "tree_id": "042fc57b2530cb16b4a91faea6f9caf1fd4ef938",
+          "url": "https://github.com/kaappi/kaappi/commit/01b971a3b4ca1f78eaa6f405177ca3d28f3b183e"
+        },
+        "date": 1783345636674,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.040391,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.219987,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.963687,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.048182,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.013594,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.235068,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.481331,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.068124,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 13.369553,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.842512,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 11.088204,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 1.063145,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 9.127692,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.868349,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.045186,
             "unit": "seconds"
           }
         ]
