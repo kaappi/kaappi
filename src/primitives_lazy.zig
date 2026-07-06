@@ -45,6 +45,7 @@ fn forceFn(args: []const Value) PrimitiveError!Value {
         const promise = types.toPromise(current);
 
         if (promise.forced) {
+            // Follow redirect: forced value is a promise only via SRFI-45 merge (inner → head), never a cycle.
             current = promise.value;
             continue;
         }
