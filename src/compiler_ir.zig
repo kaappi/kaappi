@@ -8,6 +8,7 @@ const compiler_lambda = @import("compiler_lambda.zig");
 const macro = @import("compiler_macro.zig");
 const globals_mod = @import("globals.zig");
 const ir_mod = @import("ir.zig");
+const vm_records = @import("vm_records.zig");
 const Value = types.Value;
 const OpCode = types.OpCode;
 const Compiler = compiler_mod.Compiler;
@@ -320,6 +321,29 @@ pub fn compileLambdaWithIR(self: *Compiler, args: Value, dst: u16, name: ?[]cons
                                 }
                             }
                         }
+                    } else if (std.mem.eql(u8, form_name, "define-record-type")) {
+                        if (vm_records.parseRecordSpec(types.cdr(form))) |spec| {
+                            if (!globals.contains(spec.ctor_name)) {
+                                globals.put(spec.ctor_name, types.VOID) catch {};
+                                prescan_names.append(child.gc.allocator, spec.ctor_name) catch {};
+                            }
+                            if (!globals.contains(spec.pred_name)) {
+                                globals.put(spec.pred_name, types.VOID) catch {};
+                                prescan_names.append(child.gc.allocator, spec.pred_name) catch {};
+                            }
+                            for (0..spec.field_count) |fi| {
+                                if (!globals.contains(spec.accessor_names[fi])) {
+                                    globals.put(spec.accessor_names[fi], types.VOID) catch {};
+                                    prescan_names.append(child.gc.allocator, spec.accessor_names[fi]) catch {};
+                                }
+                                if (spec.mutator_names[fi]) |mn| {
+                                    if (!globals.contains(mn)) {
+                                        globals.put(mn, types.VOID) catch {};
+                                        prescan_names.append(child.gc.allocator, mn) catch {};
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -376,6 +400,8 @@ pub fn compileLambdaWithIR(self: *Compiler, args: Value, dst: u16, name: ?[]cons
                         all_def_count += 1;
                     }
                 } else break;
+            } else if (std.mem.eql(u8, hn, "define-record-type")) {
+                vm_records.collectRecordTypeDefNames(child.gc, types.cdr(expr), all_def_names[0..], &all_def_count) catch break;
             } else if (!std.mem.eql(u8, hn, "define-syntax")) {
                 break;
             }
@@ -410,6 +436,18 @@ pub fn compileLambdaWithIR(self: *Compiler, args: Value, dst: u16, name: ?[]cons
                 tx_obj.def_env_val = child.lib_env_val;
             }
             child.macros.put(ds_name, tx_val) catch return CompileError.OutOfMemory;
+            current = types.cdr(current);
+            continue;
+        }
+        if (std.mem.eql(u8, head_name, "define-record-type")) {
+            vm_records.expandRecordTypeDefines(
+                child.gc,
+                types.cdr(expr),
+                def_names[0..],
+                def_inits[0..],
+                &def_count,
+                &child.gc.extra_roots,
+            ) catch break;
             current = types.cdr(current);
             continue;
         }

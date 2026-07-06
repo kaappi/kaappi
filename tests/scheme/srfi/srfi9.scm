@@ -107,10 +107,9 @@
   (define-record-type bt (mk-bt v) bt? (v bt-v))
   (test 7 (bt-v (mk-bt 7))))
 
-;; ...but inside a <body> it is compiled as an expression and fails:
-;; FAIL: #560 (define-record-type not desugared in lambda/let bodies)
-;; (test 8 (let ()
-;;           (define-record-type lt (mk-lt v) lt? (v lt-v))
-;;           (lt-v (mk-lt 8))))
+;;; --- define-record-type inside a <body> (R7RS 5.5: body context) ---
+(test 8 (let ()
+          (define-record-type lt (mk-lt v) lt? (v lt-v))
+          (lt-v (mk-lt 8))))
 
 (test-end "srfi-9")

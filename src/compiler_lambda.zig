@@ -4,6 +4,7 @@ const memory = @import("memory.zig");
 const compiler_mod = @import("compiler.zig");
 const globals_mod = @import("globals.zig");
 const macro = @import("compiler_macro.zig");
+const vm_records = @import("vm_records.zig");
 const Compiler = compiler_mod.Compiler;
 const CompileError = compiler_mod.CompileError;
 const Value = types.Value;
@@ -146,6 +147,29 @@ pub fn compileBodyForms(self: *Compiler, body: Value, opts: BodyOpts) CompileErr
                                 }
                             }
                         }
+                    } else if (std.mem.eql(u8, form_name, "define-record-type")) {
+                        if (vm_records.parseRecordSpec(types.cdr(form))) |spec| {
+                            if (!globals.contains(spec.ctor_name)) {
+                                globals.put(spec.ctor_name, types.VOID) catch {};
+                                prescan_names.append(self.gc.allocator, spec.ctor_name) catch {};
+                            }
+                            if (!globals.contains(spec.pred_name)) {
+                                globals.put(spec.pred_name, types.VOID) catch {};
+                                prescan_names.append(self.gc.allocator, spec.pred_name) catch {};
+                            }
+                            for (0..spec.field_count) |fi| {
+                                if (!globals.contains(spec.accessor_names[fi])) {
+                                    globals.put(spec.accessor_names[fi], types.VOID) catch {};
+                                    prescan_names.append(self.gc.allocator, spec.accessor_names[fi]) catch {};
+                                }
+                                if (spec.mutator_names[fi]) |mn| {
+                                    if (!globals.contains(mn)) {
+                                        globals.put(mn, types.VOID) catch {};
+                                        prescan_names.append(self.gc.allocator, mn) catch {};
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -212,6 +236,8 @@ pub fn compileBodyForms(self: *Compiler, body: Value, opts: BodyOpts) CompileErr
                         all_def_count += 1;
                     }
                 } else break;
+            } else if (std.mem.eql(u8, hn, "define-record-type")) {
+                vm_records.collectRecordTypeDefNames(self.gc, types.cdr(expr), all_def_names[0..], &all_def_count) catch break;
             } else if (!(opts.handle_define_syntax and std.mem.eql(u8, hn, "define-syntax"))) {
                 break;
             }
@@ -257,6 +283,15 @@ pub fn compileBodyForms(self: *Compiler, body: Value, opts: BodyOpts) CompileErr
             } else {
                 break;
             }
+        } else if (std.mem.eql(u8, head_name, "define-record-type")) {
+            vm_records.expandRecordTypeDefines(
+                self.gc,
+                types.cdr(expr),
+                def_names_arr[0..],
+                def_inits[0..],
+                &def_count,
+                &self.gc.extra_roots,
+            ) catch break;
         } else if (opts.handle_define_syntax and std.mem.eql(u8, head_name, "define-syntax")) {
             const ds_args = types.cdr(expr);
             if (ds_args == types.NIL or !types.isPair(ds_args)) break;
