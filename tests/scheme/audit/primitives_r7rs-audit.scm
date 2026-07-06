@@ -117,14 +117,13 @@
                   (delete-file load-probe-path)
                   r)))
 (test 'caught (guard (e (#t 'caught)) (load 42)))
-;; R7RS 6.14: (load filename environment-specifier) — the optional second
-;; argument is rejected with an arity error.
-;; FAIL: #1190 (load does not accept the optional environment-specifier)
-;; (test 3 (begin
-;;           (with-output-to-file load-probe-path (lambda () (write '(+ 1 2))))
-;;           (let ((v (load load-probe-path (interaction-environment))))
-;;             (delete-file load-probe-path)
-;;             v)))
+;; R7RS 6.14: (load filename environment-specifier)
+(begin
+  (with-output-to-file load-probe-path
+    (lambda () (display "(define _load-env-audit-var (+ 1 2))")))
+  (load load-probe-path (interaction-environment))
+  (delete-file load-probe-path)
+  (test 3 _load-env-audit-var))
 
 ;;; --- parameters (make-parameter, converter behavior) ---
 (test 10 (let ((p (make-parameter 10))) (p)))
