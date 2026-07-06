@@ -461,9 +461,20 @@ const other_special_forms = std.StaticStringMap(void).initComptime(.{
     .{ "call-with-current-continuation", {} },
     .{ "call/cc", {} },
     .{ "eval", {} },
+    .{ "define-record-type", {} },
+    .{ "import", {} },
+    .{ "define-library", {} },
+    .{ "include", {} },
+    .{ "include-ci", {} },
+    .{ "else", {} },
+    .{ "=>", {} },
+    .{ "_", {} },
+    .{ "...", {} },
+    .{ "unquote", {} },
+    .{ "unquote-splicing", {} },
 });
 
-fn isSpecialForm(name: []const u8) bool {
+pub fn isSpecialForm(name: []const u8) bool {
     return sexpr_form_map.get(name) != null or other_special_forms.get(name) != null;
 }
 

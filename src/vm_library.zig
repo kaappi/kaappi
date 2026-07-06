@@ -7,6 +7,7 @@ const file_utils = @import("file_utils.zig");
 const Value = types.Value;
 
 const macro = @import("compiler_macro.zig");
+const ir = @import("ir.zig");
 const vm_mod = @import("vm.zig");
 const VM = vm_mod.VM;
 const VMError = vm_mod.VMError;
@@ -671,11 +672,24 @@ fn processImportOnly(vm: *VM, target: *std.StringHashMap(Value), args: Value) !v
     var source = try resolveImportBindings(vm, inner_set);
     defer source.deinit();
 
+    // Validate all identifiers before importing any (atomic semantics).
     var id_list = ids;
     while (id_list != types.NIL) {
         if (!types.isPair(id_list)) return error.InvalidSyntax;
         const id = types.car(id_list);
         if (!types.isSymbol(id)) return error.InvalidSyntax;
+        const id_name = types.symbolName(id);
+        if (!source.contains(id_name) and !ir.isSpecialForm(id_name)) {
+            vm.setErrorDetail("import only: identifier '{s}' not found in import set", .{id_name});
+            return error.UndefinedVariable;
+        }
+        id_list = types.cdr(id_list);
+    }
+
+    // All names validated — now import.
+    id_list = ids;
+    while (id_list != types.NIL) {
+        const id = types.car(id_list);
         const id_name = types.symbolName(id);
         if (source.get(id_name)) |val| {
             importBinding(vm, target, id_name, val) catch return error.OutOfMemory;
@@ -693,29 +707,24 @@ fn processImportExcept(vm: *VM, target: *std.StringHashMap(Value), args: Value) 
     var source = try resolveImportBindings(vm, inner_set);
     defer source.deinit();
 
-    var excluded_list: std.ArrayList([]const u8) = .empty;
-    defer excluded_list.deinit(vm.gc.allocator);
+    // Validate and remove each excluded name in one pass.
     var id_list = ids;
     while (id_list != types.NIL) {
         if (!types.isPair(id_list)) return error.InvalidSyntax;
         const id = types.car(id_list);
         if (!types.isSymbol(id)) return error.InvalidSyntax;
-        excluded_list.append(vm.gc.allocator, types.symbolName(id)) catch return error.OutOfMemory;
+        const exc_name = types.symbolName(id);
+        if (!source.remove(exc_name) and !ir.isSpecialForm(exc_name)) {
+            vm.setErrorDetail("import except: identifier '{s}' not found in import set", .{exc_name});
+            return error.UndefinedVariable;
+        }
         id_list = types.cdr(id_list);
     }
 
+    // Import everything remaining.
     var it = source.iterator();
     while (it.next()) |entry| {
-        var is_excluded = false;
-        for (excluded_list.items) |exc| {
-            if (std.mem.eql(u8, entry.key_ptr.*, exc)) {
-                is_excluded = true;
-                break;
-            }
-        }
-        if (!is_excluded) {
-            importBinding(vm, target, entry.key_ptr.*, entry.value_ptr.*) catch return error.OutOfMemory;
-        }
+        importBinding(vm, target, entry.key_ptr.*, entry.value_ptr.*) catch return error.OutOfMemory;
     }
 }
 
@@ -751,10 +760,8 @@ fn processImportRename(vm: *VM, target: *std.StringHashMap(Value), args: Value) 
     var source = try resolveImportBindings(vm, inner_set);
     defer source.deinit();
 
-    var rename_old_list: std.ArrayList([]const u8) = .empty;
-    defer rename_old_list.deinit(vm.gc.allocator);
-    var rename_new_list: std.ArrayList([]const u8) = .empty;
-    defer rename_new_list.deinit(vm.gc.allocator);
+    // Validate all old names, then apply renames via fetchRemove.
+    // First pass: validate that all old names exist.
     var rename_list = renames;
     while (rename_list != types.NIL) {
         if (!types.isPair(rename_list)) return error.InvalidSyntax;
@@ -765,21 +772,38 @@ fn processImportRename(vm: *VM, target: *std.StringHashMap(Value), args: Value) 
         if (!types.isPair(new_rest)) return error.InvalidSyntax;
         const new_sym = types.car(new_rest);
         if (!types.isSymbol(old_sym) or !types.isSymbol(new_sym)) return error.InvalidSyntax;
-        rename_old_list.append(vm.gc.allocator, types.symbolName(old_sym)) catch return error.OutOfMemory;
-        rename_new_list.append(vm.gc.allocator, types.symbolName(new_sym)) catch return error.OutOfMemory;
+        const old_name = types.symbolName(old_sym);
+        if (!source.contains(old_name) and !ir.isSpecialForm(old_name)) {
+            vm.setErrorDetail("import rename: identifier '{s}' not found in import set", .{old_name});
+            return error.UndefinedVariable;
+        }
         rename_list = types.cdr(rename_list);
     }
 
+    // Second pass: remove all old entries first, then insert under new names.
+    // Renames refer to the original set (parallel semantics), so interleaving
+    // remove/put corrupts colliding renames like (rename lib (a b) (b c)).
+    const PendingRename = struct { new_name: []const u8, value: Value };
+    var pending: std.ArrayList(PendingRename) = .empty;
+    defer pending.deinit(vm.gc.allocator);
+    rename_list = renames;
+    while (rename_list != types.NIL) {
+        const pair = types.car(rename_list);
+        const old_name = types.symbolName(types.car(pair));
+        const new_name = types.symbolName(types.car(types.cdr(pair)));
+        if (source.fetchRemove(old_name)) |kv| {
+            pending.append(vm.gc.allocator, .{ .new_name = new_name, .value = kv.value }) catch return error.OutOfMemory;
+        }
+        rename_list = types.cdr(rename_list);
+    }
+    for (pending.items) |p| {
+        source.put(p.new_name, p.value) catch return error.OutOfMemory;
+    }
+
+    // Import everything (with renames applied).
     var it = source.iterator();
     while (it.next()) |entry| {
-        var imported_name = entry.key_ptr.*;
-        for (0..rename_old_list.items.len) |i| {
-            if (std.mem.eql(u8, entry.key_ptr.*, rename_old_list.items[i])) {
-                imported_name = rename_new_list.items[i];
-                break;
-            }
-        }
-        importBinding(vm, target, imported_name, entry.value_ptr.*) catch return error.OutOfMemory;
+        importBinding(vm, target, entry.key_ptr.*, entry.value_ptr.*) catch return error.OutOfMemory;
     }
 }
 
@@ -1002,15 +1026,7 @@ fn processLibDeclaration(
             id_list = types.cdr(id_list);
         }
     } else if (std.mem.eql(u8, decl_name, "import")) {
-        _ = handleImportInto(vm, lib_env, types.cdr(declaration)) catch |err| {
-            if (err != VMError.CompileError) return err;
-            const detail = vm.getErrorDetail();
-            if (detail.len > 0) {
-                vm_mod.writeStderr(detail);
-                vm_mod.writeStderr("\n");
-                vm.last_error_detail_len = 0;
-            }
-        };
+        _ = try handleImportInto(vm, lib_env, types.cdr(declaration));
     } else if (std.mem.eql(u8, decl_name, "begin")) {
         try compileLibBeginBlock(vm, lib_env, types.cdr(declaration));
     } else if (std.mem.eql(u8, decl_name, "include") or std.mem.eql(u8, decl_name, "include-ci")) {

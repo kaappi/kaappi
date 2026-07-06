@@ -91,6 +91,25 @@ test "import rename" {
     try std.testing.expectEqual(@as(i64, 7), types.toFixnum(r2));
 }
 
+test "import rename with colliding names" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    _ = try vm.eval(
+        \\(define-library (test rename-coll)
+        \\  (import (scheme base))
+        \\  (export a b)
+        \\  (begin (define (a) 1) (define (b) 2)))
+    );
+    _ = try vm.eval("(import (rename (test rename-coll) (a b) (b c)))");
+    const r1 = try vm.eval("(b)");
+    try std.testing.expectEqual(@as(i64, 1), types.toFixnum(r1));
+    const r2 = try vm.eval("(c)");
+    try std.testing.expectEqual(@as(i64, 2), types.toFixnum(r2));
+}
+
 test "import prefix" {
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
@@ -100,6 +119,54 @@ test "import prefix" {
     _ = try vm.eval("(import (prefix (scheme base) my:))");
     const result = try vm.eval("(my:+ 3 4)");
     try std.testing.expectEqual(@as(i64, 7), types.toFixnum(result));
+}
+
+test "import only rejects unknown identifier" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    _ = try vm.eval(
+        \\(define-library (test only-err)
+        \\  (import (scheme base))
+        \\  (export alpha)
+        \\  (begin (define (alpha) 1)))
+    );
+
+    const r = vm.eval("(import (only (test only-err) alpha bogus))");
+    try std.testing.expectError(th.VMError.CompileError, r);
+}
+
+test "import except rejects unknown identifier" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    const r = vm.eval("(import (except (scheme base) totally-bogus))");
+    try std.testing.expectError(th.VMError.CompileError, r);
+}
+
+test "import rename rejects unknown identifier" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    const r = vm.eval("(import (rename (scheme base) (totally-bogus tb)))");
+    try std.testing.expectError(th.VMError.CompileError, r);
+}
+
+test "import only accepts syntax keywords" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    _ = try vm.eval("(import (only (scheme base) define if car))");
+    const r = try vm.eval("(car (list 42))");
+    try std.testing.expectEqual(@as(i64, 42), types.toFixnum(r));
 }
 
 test "import scheme r5rs exports full R5RS identifier set" {
