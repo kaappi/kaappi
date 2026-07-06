@@ -89,6 +89,20 @@
     (define-record-type lr (mk-lr v) lr? (v lr-v))
     (lr-v (mk-lr (f 3)))))
 
+;;; let-values body (R7RS §5.3.2)
+(test-equal "record in let-values body"
+  3
+  (let-values (((a b) (values 1 2)))
+    (define-record-type lv (mk-lv v) lv? (v lv-v))
+    (lv-v (mk-lv (+ a b)))))
+
+;;; let*-values body
+(test-equal "record in let*-values body"
+  10
+  (let*-values (((x) (values 10)))
+    (define-record-type lsv (mk-lsv v) lsv? (v lsv-v))
+    (lsv-v (mk-lsv x))))
+
 (let ((runner (test-runner-current)))
   (test-end "560-record-body")
   (when (> (test-runner-fail-count runner) 0) (exit 1)))

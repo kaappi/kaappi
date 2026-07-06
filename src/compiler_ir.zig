@@ -401,7 +401,10 @@ pub fn compileLambdaWithIR(self: *Compiler, args: Value, dst: u16, name: ?[]cons
                     }
                 } else break;
             } else if (std.mem.eql(u8, hn, "define-record-type")) {
-                vm_records.collectRecordTypeDefNames(child.gc, types.cdr(expr), all_def_names[0..], &all_def_count) catch break;
+                vm_records.collectRecordTypeDefNames(child.gc, types.cdr(expr), all_def_names[0..], &all_def_count) catch |err| switch (err) {
+                    CompileError.InvalidSyntax => break,
+                    else => return err,
+                };
             } else if (!std.mem.eql(u8, hn, "define-syntax")) {
                 break;
             }
@@ -447,7 +450,10 @@ pub fn compileLambdaWithIR(self: *Compiler, args: Value, dst: u16, name: ?[]cons
                 def_inits[0..],
                 &def_count,
                 &child.gc.extra_roots,
-            ) catch break;
+            ) catch |err| switch (err) {
+                CompileError.InvalidSyntax => break,
+                else => return err,
+            };
             current = types.cdr(current);
             continue;
         }
