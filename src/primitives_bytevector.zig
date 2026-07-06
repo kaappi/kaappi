@@ -299,13 +299,9 @@ fn portWriteBytes(port: *types.Port, bytes: []const u8) void {
 }
 
 fn u8ReadyP(args: []const Value) PrimitiveError!Value {
-    const port = try getInputPort(args, 0, "u8-ready?");
-    if (port.peek_byte != null) return types.TRUE;
-    if (port.is_string_port) {
-        const data = port.string_data orelse return types.TRUE;
-        return if (port.string_pos < data.len) types.TRUE else types.FALSE;
-    }
-    return types.TRUE; // simplified
+    // For simplicity, always return #t (non-blocking check not worth the complexity)
+    _ = try getInputPort(args, 0, "u8-ready?");
+    return types.TRUE;
 }
 
 fn readBytevectorFn(args: []const Value) PrimitiveError!Value {

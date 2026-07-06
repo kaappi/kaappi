@@ -168,11 +168,8 @@
            (peek-u8 p)
            (u8-ready? p)))
 ;; R7RS 6.13.3: "If the port is at end of file then u8-ready? returns #t"
-;; (read-u8 at EOF returns the eof-object immediately — it cannot hang).
-;; The fix for #280 inverted this; char-ready? conforms, u8-ready? does not.
-;; FAIL: #1179 (u8-ready? returns #f at EOF; spec requires #t)
-;; (test #t (u8-ready? (open-input-bytevector #u8())))
-;; (test #t (let ((p (open-input-bytevector #u8(7)))) (read-u8 p) (u8-ready? p)))
+(test #t (u8-ready? (open-input-bytevector #u8())))
+(test #t (let ((p (open-input-bytevector #u8(7)))) (read-u8 p) (u8-ready? p)))
 
 ;;; --- write-u8 / open-output-bytevector / get-output-bytevector ---
 (test #u8(1 2 3)
