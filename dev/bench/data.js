@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783321811244,
+  "lastUpdate": 1783321957157,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "72bfacfe3dd05e522af5ad0b792df63745049b08",
-          "message": "Check peek_byte before returning EOF in string-port read (#799) (#1006)\n\nThe string-port branch of readDatumFn returned EOF when string_pos\nreached the end of string_data, without checking whether a pushed-back\nbyte was still pending in peek_byte. This caused (read) to miss the\nlast datum after read-line consumed a \\r or after peek-u8/peek-char.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-04T03:39:42+05:30",
-          "tree_id": "bf139ca15cd123f380c188886dd02b031d4985da",
-          "url": "https://github.com/kaappi/kaappi/commit/72bfacfe3dd05e522af5ad0b792df63745049b08"
-        },
-        "date": 1783117510606,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.392454,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.310006,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.835488,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.301209,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006355,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.035224,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.470844,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.070573,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 4.141828,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.819161,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.179973,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.429005,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.792622,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.517216,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.042836,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.035241,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f13e806f71e3b9682bfbc2889f8cbc6f6a6db8c7",
+          "message": "Add CodeRabbit AI code review configuration (#1252)\n\nConfigures CodeRabbit with project-specific review instructions:\n- GC safety rules for primitives, memory, and VM files\n- Compiler form checklist for compiler and IR files\n- R7RS compliance guidance for reader and SRFI files\n- Assertive profile for thorough correctness-focused reviews\n- Path filters to skip vendored/generated files\n- Relevant linters enabled (shellcheck, actionlint, yamllint, gitleaks)\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-06T12:15:19+05:30",
+          "tree_id": "3fc22cf91e9a154c25a82efb67fd7f0a3e4a3a7a",
+          "url": "https://github.com/kaappi/kaappi/commit/f13e806f71e3b9682bfbc2889f8cbc6f6a6db8c7"
+        },
+        "date": 1783321956215,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.051227,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.993742,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.983247,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.07457,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.013672,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.235628,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.483464,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.068231,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 13.394271,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.840235,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 11.106949,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 1.083699,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 9.118242,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.820902,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.04466,
             "unit": "seconds"
           }
         ]
