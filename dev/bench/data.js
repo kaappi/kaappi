@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783276423741,
+  "lastUpdate": 1783316959197,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "31bf5ab2964ad9081eb1462d5225bb537f3ee496",
-          "message": "Replace fixed 256-node buffers with growable lists in IR lowering (#791) (#1003)\n\nlowerBegin, lowerList, and lowerCondBody used [256]*Node stack buffers\nthat rejected begin/and/or/when/unless forms with more than 256\nsub-expressions. R7RS places no such limit, and macro-generated code\ncan realistically exceed it. Switch to std.ArrayList with the IR\nallocator (the make* constructors already copy the slice).\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-03T21:33:18Z",
-          "tree_id": "c52ebf916668b99453203b155637ba3e82287270",
-          "url": "https://github.com/kaappi/kaappi/commit/31bf5ab2964ad9081eb1462d5225bb537f3ee496"
-        },
-        "date": 1783116103420,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.573637,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.965948,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 1.013047,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.643287,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006919,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.038824,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.534937,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.075989,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 4.5105,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 2.296179,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.222155,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.42454,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 2.10293,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.691702,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.042884,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.042936,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "04e2ee1abb76ad62f346152a36724b0dd9e640e6",
+          "message": "Box set!-mutated locals for R7RS store semantics (#1168) (#1249)\n\n* Box set!-mutated locals for R7RS store semantics (#1168)\n\nR7RS §3.4 requires that set! modifies the store (a heap location), not\nthe continuation. The compiler previously boxed locals only when they\nwere closure-captured as upvalues, leaving set!-mutated-but-uncaptured\nlocals in plain registers. Since captureContinuation snapshots the\nregister file, restoring a continuation rolled back those mutations,\ncausing infinite loops in idiomatic generator/counter patterns.\n\nFix: introduce boxIfSetTarget — after defining a local (in let, let*,\nlambda parameters, or do), if its name appears in the top-level form's\nset_targets map, box it immediately. The register then holds a pointer\nto a heap-allocated pair whose car is the mutable value; set! writes to\nthe car via set_box_local, and continuation restore puts back the same\npointer without affecting the car.\n\nApplied to all four binding paths: compileLet, compileLetStar,\ncompileLambdaWithIR, compileLambda, and compileDo.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Add FAIL-marked tests for macro-introduced set! gap (#1250)\n\ncollectSetTargets scans pre-expansion, so set! introduced by macros\nbypasses boxing. Document the two reproduction cases from review and\nreference follow-up issue #1250.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Add #1250 to FAIL markers for grep discoverability\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-06T10:54:37+05:30",
+          "tree_id": "122f7db37958a06dbca5d54b44a1ddb3bc112037",
+          "url": "https://github.com/kaappi/kaappi/commit/04e2ee1abb76ad62f346152a36724b0dd9e640e6"
+        },
+        "date": 1783316957925,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.246994,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.868581,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.980394,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.150447,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.012422,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.212118,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.481353,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.071602,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 12.479547,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.86354,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 9.994366,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.975361,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 8.327273,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.580645,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.043407,
             "unit": "seconds"
           }
         ]
