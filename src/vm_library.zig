@@ -556,10 +556,6 @@ fn openIncludeFile(vm: *VM, file_path: []const u8) VMError!IncludeFile {
 /// with the next form, matching the per-form error isolation of the top-level
 /// file runner in `main.zig`.
 pub fn handleTopLevelInclude(vm: *VM, args: Value, ci: bool) VMError!Value {
-    // include-ci should fold case while reading; the reader currently only
-    // honors inline `#!fold-case` directives, so the two behave identically.
-    _ = ci;
-
     const reader_mod = @import("reader.zig");
 
     // Root the argument spine: evaluating included forms allocates and may
@@ -596,6 +592,7 @@ pub fn handleTopLevelInclude(vm: *VM, args: Value, ci: bool) VMError!Value {
         defer vm.current_lib_dir = saved_lib_dir;
 
         var file_reader = reader_mod.Reader.initWithName(vm.gc, inc.source, owned_path);
+        file_reader.fold_case = ci;
         defer file_reader.deinit();
 
         while (file_reader.hasMore() catch false) {
@@ -955,7 +952,7 @@ fn compileLibExpr(vm: *VM, lib_env: *std.StringHashMap(Value), expr: Value) VMEr
 }
 
 /// Compile and evaluate included files in a library context.
-fn compileLibInclude(vm: *VM, lib_env: *std.StringHashMap(Value), file_list_val: Value) VMError!void {
+fn compileLibInclude(vm: *VM, lib_env: *std.StringHashMap(Value), file_list_val: Value, ci: bool) VMError!void {
     var file_list = file_list_val;
     while (file_list != types.NIL) {
         if (!types.isPair(file_list)) return VMError.CompileError;
@@ -975,6 +972,7 @@ fn compileLibInclude(vm: *VM, lib_env: *std.StringHashMap(Value), file_list_val:
 
         const reader_mod = @import("reader.zig");
         var file_reader = reader_mod.Reader.init(vm.gc, inc.source);
+        file_reader.fold_case = ci;
         defer file_reader.deinit();
 
         while (file_reader.hasMore() catch return VMError.CompileError) {
@@ -1030,7 +1028,7 @@ fn processLibDeclaration(
     } else if (std.mem.eql(u8, decl_name, "begin")) {
         try compileLibBeginBlock(vm, lib_env, types.cdr(declaration));
     } else if (std.mem.eql(u8, decl_name, "include") or std.mem.eql(u8, decl_name, "include-ci")) {
-        try compileLibInclude(vm, lib_env, types.cdr(declaration));
+        try compileLibInclude(vm, lib_env, types.cdr(declaration), std.mem.eql(u8, decl_name, "include-ci"));
     } else if (std.mem.eql(u8, decl_name, "include-library-declarations")) {
         try includeLibraryDeclarations(vm, lib_env, types.cdr(declaration), export_names, export_renames);
     } else if (std.mem.eql(u8, decl_name, "cond-expand")) {

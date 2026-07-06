@@ -26,9 +26,8 @@
 
 ;; include-ci "reads each file as if it began with the #!fold-case
 ;; directive, while include does not." (p. 14)
-;; FAIL: #1141 (include-ci does not fold case — ci flag is discarded)
-;; (include-ci "fixtures/include-ci-upper.scm")
-;; (test-equal "include-ci folds case" 42 folded-value)
+(include-ci "fixtures/include-ci-upper.scm")
+(test-equal "include-ci folds case" 42 folded-value)
 
 ;; --- 4.2.1 Conditionals: cond ---
 ;; "If the selected <clause> contains only the <test> and no <expression>s,
