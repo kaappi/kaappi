@@ -256,9 +256,11 @@ fn deepCopyValue(gc: *GC, src: Value, visited: *std.AutoHashMap(usize, Value)) !
             new_tx.def_env_val = t.def_env_val;
             if (t.let_syntax_peer_vals.len > 0) {
                 const peer_vals = try gc.allocator.alloc(Value, t.let_syntax_peer_vals.len);
+                errdefer gc.allocator.free(peer_vals);
                 for (t.let_syntax_peer_vals, 0..) |v, i| peer_vals[i] = try deepCopyValue(gc, v, visited);
+                const peer_names = gc.allocator.dupe([]const u8, t.let_syntax_peer_names) catch return error.OutOfMemory;
                 new_tx.let_syntax_peer_vals = peer_vals;
-                new_tx.let_syntax_peer_names = gc.allocator.dupe([]const u8, t.let_syntax_peer_names) catch &.{};
+                new_tx.let_syntax_peer_names = peer_names;
             }
             return new_val;
         },
