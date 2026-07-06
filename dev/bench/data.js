@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783344438288,
+  "lastUpdate": 1783344847469,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "b5fe57a8a25014229e4d749cdae25850200d930b",
-          "message": "Fix alist->hash-table arity, root top-level forms, add book-bug regression tests (#1011)\n\n* Accept SRFI-69 optional equality/hash args in alist->hash-table\n\nSRFI-69 specifies (alist->hash-table alist [equal-proc [hash-proc\nargs...]]), but the primitive was registered with exact arity 1, so the\nspec-conforming call (alist->hash-table lst equal?) failed with an arity\nerror. Kaappi hash tables always compare with equal? internally and\nmake-hash-table already accepts-and-ignores the optional comparator\narguments; alist->hash-table now does the same.\n\nFound verifying the kaappi-book chapter 16 listings against the\ninterpreter.\n\nCo-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>\n\n* Root top-level forms during evaluation; add book-bug regression tests\n\nRooting: the file runner, stdin runner, bundle preamble, REPL input\nloop, and eval() all evaluated freshly read datums without a GC root.\nEvaluating a form can allocate heavily (an import that loads a whole\n.sld library), and a collection landing mid-walk could reclaim the\nform's own AST. Recent GC work on main fixed the reported mid-session\nimport failures, but these call sites still relied on collection\ntiming; root the datum for the duration of each form's evaluation,\nmatching the pattern the script runner and loadLibrarySource already\nuse.\n\nRegression tests for interpreter bugs found by verifying every REPL\nlisting in the kaappi-book (fixes already on main, previously\nuntested):\n\n- errors/error-format.sh: uncaught exceptions must print their message\n  and irritants (\"error: something went wrong 42\"), not the bare\n  \"runtime error: error.ExceptionRaised\" fallback; covers error\n  objects, non-error raises, and script mode.\n- continuations/coroutine-repl-echo.scm: continuations captured with\n  call/cc must survive the top-level value echo. On v0.11.0 the echo\n  path invalidated the saved continuation, so the second re-entry\n  failed with \"not a procedure\"; the forms are deliberately left bare\n  (not display-wrapped) because consuming the value hid the bug.\n  Covers top-level-global and closure-factory coroutine shapes.\n- smoke/fiber-pipeline.scm: add the book's generic variadic pipeline\n  builder, where every stage's fiber closes over one recursive loop's\n  locals; with two or more stages this used to make channel-receive\n  return garbage (#978 fixed the scheduler; the existing tests only\n  covered the add-stage helper shape).\n\nCo-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
-          "timestamp": "2026-07-03T23:10:46Z",
-          "tree_id": "c32c5b84b9fc0227db83883fcd5a8ad8a9d413c0",
-          "url": "https://github.com/kaappi/kaappi/commit/b5fe57a8a25014229e4d749cdae25850200d930b"
-        },
-        "date": 1783121288786,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.396271,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.471583,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.875118,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.436974,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006882,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.034787,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.481032,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.071849,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 4.204279,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.871778,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.273052,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.437858,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.838755,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.571176,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.042481,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.045481,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "1567d33d47ea953fe2d8b839a11873e1b47fcdd4",
+          "message": "Fix parameterize to evaluate all values before binding (#1202) (#1260)\n\nR7RS §4.2.6 and SRFI-39 require that all value expressions in a\nparameterize form are evaluated before any parameter cell is mutated.\nThe previous desugaring used a single let* which installed bindings\nsequentially, causing later value expressions to observe earlier\nsibling bindings.\n\nSplit the desugaring into an outer let (evaluates all param and value\nexpressions in the original dynamic environment) and an inner let*\n(saves old values and installs new converted values sequentially).\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-06T18:32:51+05:30",
+          "tree_id": "15600d0c5dadb8f96c11c6dae7829d1fdf4c49a5",
+          "url": "https://github.com/kaappi/kaappi/commit/1567d33d47ea953fe2d8b839a11873e1b47fcdd4"
+        },
+        "date": 1783344845714,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.389962,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.075563,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.957157,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.271643,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.012462,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.213275,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.489897,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.071319,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 12.461513,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.895896,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 10.045804,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.977412,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 8.349921,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.75348,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.043574,
             "unit": "seconds"
           }
         ]
