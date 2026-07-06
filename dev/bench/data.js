@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783364300675,
+  "lastUpdate": 1783364742503,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "distinct": true,
-          "id": "69a7e54676dbf7ea0b7789dcd89b671db07734b3",
-          "message": "Release skill: sync docs WASM via workflow, not local copy\n\nStep 11 copied the locally built zig-out/bin/kaappi.wasm into the docs site,\nso the playground ran a binary that wasn't the one attested in the release\nSHA256SUMS. Point it at the new kaappi.github.io update-wasm workflow, which\ndownloads the released wasm, verifies it against SHA256SUMS, bumps\nkaappi_version, and deploys. Also drop the manual mkdocs.yml version bump from\nStep 4 (a separate repo, now handled by that workflow post-release).\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-04T11:01:54+05:30",
-          "tree_id": "66d2700dc6d754eaa753720c67d9379219ccac57",
-          "url": "https://github.com/kaappi/kaappi/commit/69a7e54676dbf7ea0b7789dcd89b671db07734b3"
-        },
-        "date": 1783144156733,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.247405,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.754845,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.908286,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.285608,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.012434,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.210578,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.476831,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.070887,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 12.448181,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.827789,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 9.914827,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.956891,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 8.267025,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.712513,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.043184,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.042857,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2f18fe3a8dc9d50470e1c42e850d6e361100221c",
+          "message": "Desugar define-record-type in body contexts (R7RS §5.5) (#1276)\n\n* Desugar define-record-type in body contexts (R7RS §5.5) (#560)\n\ndefine-record-type was only handled at top-level via the VM interpreter.\nInside let/lambda/letrec bodies, the body scanners didn't recognise it\nas a definition form, causing \"undefined variable\" errors.\n\nExpand define-record-type into equivalent define forms (using existing\n%make-record-type, %make-record, %record?, %record-ref, %record-set!\nprimitives) during the body-scanning phase. The desugared defines enter\nthe existing letrec* machinery so scoping works correctly in all contexts.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Address review feedback: general dispatch, error propagation, shared parser\n\n- Add compileDefineRecordType general dispatch in compiler.zig so\n  define-record-type works in let-values, let*-values, and begin-\n  spliced body positions (not just leading-define regions)\n- Propagate OutOfMemory/TooManyLocals from body-scanner catch sites\n  instead of silently breaking on all errors\n- Refactor handleDefineRecordType to call parseRecordSpec (single\n  source of truth for record grammar parsing)\n- Add let-values and let*-values test cases\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-07T00:06:24+05:30",
+          "tree_id": "4985588b1d1790361a4c1b1731f0a23db6ccc4a7",
+          "url": "https://github.com/kaappi/kaappi/commit/2f18fe3a8dc9d50470e1c42e850d6e361100221c"
+        },
+        "date": 1783364741014,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.345059,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.150689,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.923391,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.166264,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.012452,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.211899,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.473719,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.070481,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 12.398523,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.865821,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 9.951384,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.948085,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 8.294196,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.672422,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.042397,
             "unit": "seconds"
           }
         ]
