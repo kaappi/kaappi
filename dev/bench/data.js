@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783340575431,
+  "lastUpdate": 1783344438288,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "69cb2d25e68ec532432e6e0329e88f36b699e161",
-          "message": "Raise on continuation resume across a returned native call (#1009)\n\nA continuation captured inside the closure that a native driver (map,\nfor-each, sort, apply, ...) runs via callWithArgs snapshots the frame\nthat callWithArgs pushed. That frame's result is delivered by its own\nrunUntil session's return value, so its dst register is a placeholder.\n\nWhen such a continuation is resumed after the native call has already\nreturned (e.g. a coroutine generator driven a second time by map), the\nrestored frame eventually returns while frame_count is still above the\ncurrent dispatch loop's target. The old code wrote the result into the\ncaller's dst register — but that register belongs to the now-dead native\nframe, and the native's iteration state is gone. The result landed in the\nwrong place and produced silent garbage (e.g. `#<builtin map>`).\n\nMark callWithArgs-pushed frames with returns_to_native (preserved across\ntail calls and continuation capture/restore, like seq). At every result-\ndelivery site in the dispatch loop, if a returns_to_native frame returns\ninto an outer loop, raise a clear, catchable error instead of corrupting\nregisters.\n\nRegression tests: a Zig unit test in tests_continuations.zig asserts the\nerror is raised; error-format.sh asserts the diagnostic message text.\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
-          "timestamp": "2026-07-03T22:39:43Z",
-          "tree_id": "feaa4c22625c7060e34418b628c82b9b67b5e8d8",
-          "url": "https://github.com/kaappi/kaappi/commit/69cb2d25e68ec532432e6e0329e88f36b699e161"
-        },
-        "date": 1783119403491,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.439886,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.365373,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.834429,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.348382,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.006371,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.033647,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.471236,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.071062,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 4.163956,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.820339,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 1.377714,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.425168,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 1.790594,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.661198,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.041873,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044359,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "16706095d64347dc148812bfcf5f16e69d44f9a1",
+          "message": "Remove iteration cap from force trampoline for unbounded delay-force chains (#1242) (#1259)\n\nThe forcing trampoline had a hardcoded 100,000 iteration limit as a\nheuristic cycle detector, but it cannot distinguish genuine cycles from\nlong legitimate chains (SRFI-41 streams, SRFI-45 iterative algorithms).\nR7RS 4.2.5 requires delay-force chains to force in bounded space with\nno limit on length. The existing `forcing` flag already detects\nre-entrant cycles.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-06T18:30:14+05:30",
+          "tree_id": "175b4bb981769c63bf57426311ca87b6f72b6179",
+          "url": "https://github.com/kaappi/kaappi/commit/16706095d64347dc148812bfcf5f16e69d44f9a1"
+        },
+        "date": 1783344437098,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.08132,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.618434,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.969854,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.023014,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.013863,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.235076,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.491535,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.068348,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 13.428781,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.855936,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 11.124398,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 1.070079,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 9.142134,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.852498,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.045481,
             "unit": "seconds"
           }
         ]
