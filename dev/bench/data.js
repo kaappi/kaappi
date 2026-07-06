@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783353307265,
+  "lastUpdate": 1783355328285,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "e19779a861c52b0f7f968db2aef351d83e619c33",
-          "message": "Fix VMError-to-PrimitiveError catch-all that collapsed errors into TypeError (#1016)\n\nThe `else => PrimitiveError.TypeError` catch-all in 36 sites across 10\nprimitives files was destroying diagnostic information — a StackOverflow\nor InvalidBytecode from user callbacks would be reported as a type error.\n\nAdd 7 missing PrimitiveError variants (StackOverflow, UndefinedVariable,\nNotAProcedure, InvalidBytecode, CompileError, ExecutionTimeout, Terminated)\nto make PrimitiveError a superset of VMError. Add an exhaustive mapVMError\nhelper for the VMError→PrimitiveError direction, and update the reverse\nPrimitiveError→VMError switches in vm_dispatch.zig and vm_calls.zig.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-04T02:41:26Z",
-          "tree_id": "4e05b855cc7d75e8ad36472369539bbfc44dc5a7",
-          "url": "https://github.com/kaappi/kaappi/commit/e19779a861c52b0f7f968db2aef351d83e619c33"
-        },
-        "date": 1783134037033,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.046063,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 10.183237,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.959347,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.346205,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.013738,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.233872,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.476738,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.067977,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 13.411586,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.832912,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 11.02944,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 1.068445,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 9.099362,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.86233,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044621,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.043709,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a10759f1a07bc188d025d24e549210abc601d5e9",
+          "message": "Check lexical bindings when matching syntax-rules literals (#1265)\n\n* Check lexical bindings when matching syntax-rules literals (#1139)\n\nR7RS 4.3.2 requires that a literal identifier in a syntax-rules pattern\nmatches an input identifier only when both have the same lexical binding,\nor both are unbound. Previously matchPattern compared names only, so\n(let ((lit 42)) (has-lit lit)) incorrectly matched lit as a literal.\n\nPass use-site local names from the compiler into expandMacro and check\nthem against the transformer's captured_locals (definition-site bindings).\nIf binding status differs — one bound, one not — the literal does not\nmatch and the next pattern clause is tried.\n\nAlso record captured_locals in compileDefineSyntax and the body-scan\ndefine-syntax path (previously only compileLetSyntax did this), so that\nmacros defined inside let/lambda bodies correctly know which literals\nwere lexically bound at their definition site.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Redesign literal binding check: per-literal flag + on-demand callback\n\nReplace the snapshot-based approach (captured_locals reuse + use_locals\narray) with two independent mechanisms:\n\n  1. Per-literal def-site flag: parseSyntaxRules records a literal_bound[]\n     array in the Transformer, checked via isLexicallyBound at definition\n     time.  Body-prescan define names are passed as extra_bound so sibling\n     body defines are visible.\n\n  2. On-demand use-site callback: expandMacro receives a UseSiteBindingCheck\n     whose check_fn walks the full Compiler parent chain (isLexicallyBound)\n     and skips is_global_alias entries injected by the hygiene machinery.\n\nThis avoids the regressions from v1 (populating captured_locals activated\nthe injection machinery and corrupted body-defined macro expansions),\neliminates the 256-local silent cap, and correctly handles closure\nbindings and nested expansions.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Compare binding identity (slot), not just bound/unbound\n\nAddress review findings 3 and 6:\n\nFinding 3 (forward-reference): The body prescan now does a first-pass\nname scan to collect ALL leading define names before processing any\ndefine-syntax.  This ensures forward-declared body defines are visible\nin the literal_bound array regardless of textual order (letrec* semantics).\n\nFinding 6 (binding identity): literal_bound stores per-literal slot\nnumbers (u16) instead of booleans.  The use-site callback also returns\nthe resolved slot.  Two bindings with the same name but different slots\n(e.g. outer let vs inner let) are correctly distinguished.\n\nAlso fixes resolveLocalSkipAliases to iterate locals from the end (most\nrecent first), matching resolveLocal's behavior — the forward iteration\nwas finding the outer binding instead of the innermost shadowing one.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Handle define-syntax in lambda body prescan (compileLambdaWithIR)\n\ncompileLambdaWithIR had its own body prescan that only handled define,\nbreaking on any other form including define-syntax.  This meant define-\nsyntax in a lambda body fell through to compileDefineSyntax which has no\nbody-define context, causing forward-referenced define literals to appear\nunbound — a regression vs main.\n\nAdd a first-pass name scan and define-syntax processing to the\ncompileLambdaWithIR prescan, mirroring the two-pass pattern already used\nin compileBodyForms.  Lambda bodies, procedure bodies, and let bodies\nnow all see the complete letrec* region when resolving literal bindings.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-06T21:28:01+05:30",
+          "tree_id": "6cec4b7d8ba66d87506205b2bf8e2b6ea618e108",
+          "url": "https://github.com/kaappi/kaappi/commit/a10759f1a07bc188d025d24e549210abc601d5e9"
+        },
+        "date": 1783355327237,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.298222,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.502861,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.929237,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.154408,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.012347,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.212778,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.476035,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.06993,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 12.447497,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.850973,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 10.010509,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.953443,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 8.397933,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.685087,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.042537,
             "unit": "seconds"
           }
         ]
