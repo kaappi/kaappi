@@ -198,20 +198,7 @@ fn makeThreadFn(args: []const Value) PrimitiveError!Value {
     const fiber = gc.allocFiber(thunk, ctx.sched.next_id) catch return PrimitiveError.OutOfMemory;
     ctx.sched.next_id += 1;
 
-    const closure = types.toObject(thunk).as(types.Closure);
     @memset(fiber.registers, types.UNDEFINED);
-    fiber.registers[0] = thunk;
-    const vm = vm_mod.vm_instance orelse return PrimitiveError.OutOfMemory;
-    fiber.frames[0] = .{
-        .closure = closure,
-        .code = closure.func.code.items,
-        .ip = 0,
-        .base = 0,
-        .dst = 0,
-        .saved_wind_count = 0,
-        .seq = vm.nextFrameSeq(),
-    };
-    fiber.frame_count = 1;
     fiber.status = .created;
 
     if (args.len > 1) fiber.name = args[1];
@@ -507,7 +494,10 @@ fn reapOsThread(target: *fiber_mod.Fiber, fiber_val: Value) PrimitiveError!Value
         target.os_thread = null;
     }
 
+    target.frame_count = 0;
+
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const fiber_obj = types.toObject(fiber_val);
 
     // Remove the thunk and fiber from extra_roots (added by thread-start!
     // to keep them alive while the child runs; the child is done now).
@@ -537,10 +527,13 @@ fn reapOsThread(target: *fiber_mod.Fiber, fiber_val: Value) PrimitiveError!Value
                 }
                 return PrimitiveError.OutOfMemory;
             };
+            gc.writeBarrier(fiber_obj, target.result);
         }
         if (target.status == .errored) {
             if (res.exception) |exc| {
                 target.current_exception = gc.deepCopy(exc) catch null;
+                if (target.current_exception) |cv|
+                    gc.writeBarrier(fiber_obj, cv);
             }
         }
     }

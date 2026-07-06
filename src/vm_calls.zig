@@ -125,6 +125,15 @@ pub fn execute(vm: *VM, func: *types.Function) VMError!Value {
     };
     vm.frame_count = 1;
 
+    // Clear local registers to prevent the GC from scanning stale values
+    // left by the previous execute() call. Between calls frame_count is 0,
+    // so a GC triggered by allocClosure above can free objects that stale
+    // registers still point to.
+    const clear_end = @min(@as(usize, func.locals_count), vm.registers.len);
+    if (clear_end > 0) {
+        @memset(vm.registers[0..clear_end], types.UNDEFINED);
+    }
+
     if (vm.profile_mode) {
         vm.profile_time_depth = 1;
         vm.profile_time_stack[0] = .{ .func = func, .entry_ns = clockNs() };
@@ -392,6 +401,16 @@ pub fn callClosure(vm: *VM, closure: *types.Closure, base: u32, nargs: u8) VMErr
     // The callee is in base, args are in base+1..base+nargs
     // New frame's registers start at base (callee reg becomes r0 for the function)
     const new_base = if (base < std.math.maxInt(u32)) base + 1 else return VMError.StackOverflow;
+
+    // Clear local registers beyond the args to prevent the GC from
+    // scanning stale values left by previous frames at this base.
+    const used: usize = if (func.is_variadic) @as(usize, func.arity) + 1 else @as(usize, nargs);
+    const clear_start = @as(usize, new_base) + used;
+    const clear_end = @min(@as(usize, new_base) + @as(usize, func.locals_count), vm.registers.len);
+    if (clear_end > clear_start) {
+        @memset(vm.registers[clear_start..clear_end], types.UNDEFINED);
+    }
+
     vm.frames[vm.frame_count] = .{
         .closure = closure,
         .code = func.code.items,
