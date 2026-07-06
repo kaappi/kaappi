@@ -212,9 +212,9 @@
 ;; true, and library-level cond-expand additionally treats exact-complex as
 ;; true — but (features) lists neither, violating the 6.14 sentence above.
 (test 'yes (cond-expand (exact-closed 'yes) (else 'no)))
-;; FAIL: #1177 ((features) and the two cond-expand evaluators disagree)
-;; (test #t (and (memq 'exact-closed (features)) #t))
-;; (test 'yes (cond-expand (exact-complex 'yes) (else 'no)))  ; expr-level says no, library-level says yes
+(test #t (and (memq 'exact-closed (features)) #t))
+(test 'yes (cond-expand (exact-complex 'yes) (else 'no)))
+(test #t (and (memq 'exact-complex (features)) #t))
 
 ;;; --- string->symbol ---
 (test 'mISSISSIppi (string->symbol "mISSISSIppi"))
