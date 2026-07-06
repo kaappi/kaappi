@@ -160,6 +160,56 @@ test "values with zero values" {
     try std.testing.expectEqual(@as(i64, 99), types.toFixnum(result));
 }
 
+// Regression: #1169 — invoking a continuation with multiple arguments
+// must deliver all values, not just the first.
+test "call/cc multi-arg invocation in call-with-values" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    const result = try vm.eval(
+        \\(call-with-values
+        \\  (lambda () (call/cc (lambda (k) (k 1 2))))
+        \\  list)
+    );
+    try std.testing.expect(types.isPair(result));
+    try std.testing.expectEqual(@as(i64, 1), types.toFixnum(types.car(result)));
+    try std.testing.expectEqual(@as(i64, 2), types.toFixnum(types.car(types.cdr(result))));
+    try std.testing.expectEqual(types.NIL, types.cdr(types.cdr(result)));
+}
+
+test "call/cc zero-arg invocation in call-with-values" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    const result = try vm.eval(
+        \\(call-with-values
+        \\  (lambda () (call/cc (lambda (k) (k))))
+        \\  (lambda () 99))
+    );
+    try std.testing.expectEqual(@as(i64, 99), types.toFixnum(result));
+}
+
+test "call/ec multi-arg invocation in call-with-values" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    const result = try vm.eval(
+        \\(call-with-values
+        \\  (lambda () (call/ec (lambda (k) (k 10 20 30))))
+        \\  list)
+    );
+    try std.testing.expect(types.isPair(result));
+    try std.testing.expectEqual(@as(i64, 10), types.toFixnum(types.car(result)));
+    try std.testing.expectEqual(@as(i64, 20), types.toFixnum(types.car(types.cdr(result))));
+    try std.testing.expectEqual(@as(i64, 30), types.toFixnum(types.car(types.cdr(types.cdr(result)))));
+}
+
 test "dynamic-wind with escape continuation" {
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();

@@ -330,8 +330,14 @@ pub fn callValue(vm: *VM, callee: Value, base: u32, nargs: u8) VMError!void {
     }
     if (types.isContinuation(callee)) {
         const cont = types.toObject(callee).as(types.Continuation);
-        // Get the value to pass (0 args => void, 1 arg => that arg)
-        const value = if (nargs == 0) types.VOID else vm.registers[base + 1];
+        // Mirror `values` semantics: 1 arg → that arg directly,
+        // 0 or 2+ args → MultipleValues (so call-with-values consumers
+        // receive the correct argument count).
+        const value = if (nargs == 1)
+            vm.registers[base + 1]
+        else
+            vm.gc.allocMultipleValues(vm.registers[base + 1 .. base + 1 + @as(usize, nargs)]) catch
+                return VMError.OutOfMemory;
 
         if (cont.is_escape) {
             // Escape continuation: unwind the live stack, no snapshot restore.

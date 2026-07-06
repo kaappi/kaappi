@@ -514,7 +514,11 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                     self.registers[ret_idx] = result;
                 } else if (types.isContinuation(callee)) {
                     const cont = types.toObject(callee).as(types.Continuation);
-                    const value = if (nargs == 0) types.VOID else self.registers[abs_base + 1];
+                    const value = if (nargs == 1)
+                        self.registers[abs_base + 1]
+                    else
+                        self.gc.allocMultipleValues(self.registers[abs_base + 1 .. abs_base + 1 + @as(usize, nargs)]) catch
+                            return VMError.OutOfMemory;
                     if (cont.is_escape) {
                         try self.invokeEscape(cont, value);
                     } else {
@@ -662,7 +666,11 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                     self.registers[ret_idx] = result;
                 } else if (types.isContinuation(proc)) {
                     const cont = types.toObject(proc).as(types.Continuation);
-                    const value = if (count == 0) types.VOID else flat_args[0];
+                    const value = if (count == 1)
+                        flat_args[0]
+                    else
+                        self.gc.allocMultipleValues(flat_args[0..count]) catch
+                            return VMError.OutOfMemory;
                     if (cont.is_escape) {
                         try self.invokeEscape(cont, value);
                     } else {
