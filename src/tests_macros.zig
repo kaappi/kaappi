@@ -471,6 +471,46 @@ test "syntax-rules nested ellipsis: depth-2 pattern variables" {
     try std.testing.expectEqual(@as(i64, 79), types.toFixnum(result));
 }
 
+test "syntax-rules doubled ellipsis flattens depth-2 bindings (#1243)" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    _ = try vm.eval(
+        \\(define-syntax flatten2
+        \\  (syntax-rules ()
+        \\    ((_ ((x ...) ...)) '(x ... ...))))
+    );
+    const result = try vm.eval("(equal? (flatten2 ((1 2) (3 4) (5))) '(1 2 3 4 5))");
+    try std.testing.expectEqual(types.TRUE, result);
+
+    // Single group
+    const r2 = try vm.eval("(equal? (flatten2 ((10 20 30))) '(10 20 30))");
+    try std.testing.expectEqual(types.TRUE, r2);
+
+    // Empty groups mixed in
+    const r3 = try vm.eval("(equal? (flatten2 ((1) () (2 3))) '(1 2 3))");
+    try std.testing.expectEqual(types.TRUE, r3);
+
+    // All empty
+    const r4 = try vm.eval("(equal? (flatten2 (() ())) '())");
+    try std.testing.expectEqual(types.TRUE, r4);
+
+    // No groups
+    const r5 = try vm.eval("(equal? (flatten2 ()) '())");
+    try std.testing.expectEqual(types.TRUE, r5);
+
+    // Custom ellipsis identifier
+    _ = try vm.eval(
+        \\(define-syntax flatten-custom
+        \\  (syntax-rules ::: ()
+        \\    ((_ ((x :::) :::)) '(x ::: :::))))
+    );
+    const r6 = try vm.eval("(equal? (flatten-custom ((1 2) (3 4))) '(1 2 3 4))");
+    try std.testing.expectEqual(types.TRUE, r6);
+}
+
 test "hygiene: template set! of a free global writes through to the global" {
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
