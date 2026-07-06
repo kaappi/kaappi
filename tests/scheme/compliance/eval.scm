@@ -25,7 +25,10 @@
   (test-assert "eval with boolean env raises error"
     (guard (e (#t #t))
       (eval '(+ 1 2) #t)
-      #f)))
+      #f))
+  (test-assert "eval with bad env in tail position raises error"
+    (guard (e (#t #t))
+      ((lambda () (eval '(+ 1 2) 42))))))
 
 ;; --- eval list construction ---
 (test-group "eval list"
