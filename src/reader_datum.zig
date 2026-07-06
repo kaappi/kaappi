@@ -63,10 +63,13 @@ fn tokenToValue(self: *Reader, tok: Token) ReadError!Value {
             self.labels[n] = placeholder;
             if (types.isPair(datum)) {
                 types.setCar(placeholder, types.car(datum));
+                self.gc.writeBarrier(types.toObject(placeholder), types.car(datum));
                 types.setCdr(placeholder, types.cdr(datum));
+                self.gc.writeBarrier(types.toObject(placeholder), types.cdr(datum));
                 return placeholder;
             } else {
                 self.labels[n] = datum;
+                patchPlaceholder(self.gc, datum, placeholder) catch return ReadError.OutOfMemory;
                 return datum;
             }
         },
@@ -216,6 +219,54 @@ fn readVector(self: *Reader) ReadError!Value {
     }
 
     return self.gc.allocVector(elems.items) catch return ReadError.OutOfMemory;
+}
+
+const memory = @import("memory.zig");
+
+/// Walk `datum` and replace every occurrence of `placeholder` with `datum`.
+/// Handles pairs (car/cdr) and vectors (slots). Uses an iterative traversal
+/// with a hash-set for O(1) cycle detection.
+fn patchPlaceholder(gc: *memory.GC, datum: Value, placeholder: Value) error{OutOfMemory}!void {
+    var stack: std.ArrayList(Value) = .empty;
+    defer stack.deinit(gc.allocator);
+    var visited = std.AutoHashMap(Value, void).init(gc.allocator);
+    defer visited.deinit();
+
+    try stack.append(gc.allocator, datum);
+
+    while (stack.items.len > 0) {
+        const val = stack.pop().?;
+        if (visited.contains(val)) continue;
+        try visited.put(val, {});
+
+        if (types.isPair(val)) {
+            if (types.car(val) == placeholder) {
+                types.setCar(val, datum);
+                gc.writeBarrier(types.toObject(val), datum);
+            } else {
+                const car = types.car(val);
+                if (types.isPair(car) or types.isVector(car))
+                    try stack.append(gc.allocator, car);
+            }
+            if (types.cdr(val) == placeholder) {
+                types.setCdr(val, datum);
+                gc.writeBarrier(types.toObject(val), datum);
+            } else {
+                const cdr = types.cdr(val);
+                if (types.isPair(cdr) or types.isVector(cdr))
+                    try stack.append(gc.allocator, cdr);
+            }
+        } else if (types.isVector(val)) {
+            for (types.toVector(val).data) |*slot| {
+                if (slot.* == placeholder) {
+                    slot.* = datum;
+                    gc.writeBarrier(types.toObject(val), datum);
+                } else if (types.isPair(slot.*) or types.isVector(slot.*)) {
+                    try stack.append(gc.allocator, slot.*);
+                }
+            }
+        }
+    }
 }
 
 fn readBytevector(self: *Reader) ReadError!Value {

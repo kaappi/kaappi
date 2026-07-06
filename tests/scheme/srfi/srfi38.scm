@@ -34,14 +34,11 @@
   (test #t (eq? (car s2) (cadr s2))))
 
 ;;; --- self-referential vector ---
-;; write side emits correct labels ("#0=#(1 #0#)") but the reader does not
-;; patch label references inside vectors:
-;; FAIL: #1213 (reader: datum-label references inside vectors unpatched)
-;; (let ((v (vector 1 2)))
-;;   (vector-set! v 1 v)
-;;   (let ((v2 (rt v)))
-;;     (test 1 (vector-ref v2 0))
-;;     (test #t (eq? v2 (vector-ref v2 1)))))
+(let ((v (vector 1 2)))
+  (vector-set! v 1 v)
+  (let ((v2 (rt v)))
+    (test 1 (vector-ref v2 0))
+    (test #t (eq? v2 (vector-ref v2 1)))))
 
 ;;; --- labels parse via plain read too (R7RS datum labels) ---
 (let ((c (read (open-input-string "#0=(1 2 . #0#)"))))
