@@ -52,12 +52,9 @@
 (test "" (string-join '()))
 (test "abcd" (string-concatenate '("ab" "cd")))
 (test "" (string-concatenate '()))
-;; FAIL: #825 (grammar argument ignored)
-;; (test "a:b:" (string-join '("a" "b") ":" 'suffix))
-;; FAIL: #825
-;; (test ":a:b" (string-join '("a" "b") ":" 'prefix))
-;; FAIL: #825 (strict-infix on empty list must raise)
-;; (test #t (guard (e (#t #t)) (string-join '() ":" 'strict-infix) #f))
+(test "a:b:" (string-join '("a" "b") ":" 'suffix))
+(test ":a:b" (string-join '("a" "b") ":" 'prefix))
+(test #t (guard (e (#t #t)) (string-join '() ":" 'strict-infix) #f))
 
 ;;; --- take / drop (+ right variants), bounds ---
 (test "ab" (string-take "abcd" 2))
