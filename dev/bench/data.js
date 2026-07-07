@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783405885500,
+  "lastUpdate": 1783405928919,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "0d96bfea581bd14b8e61a0a60be66f7b55789a0e",
-          "message": "Add shadow-stack GC rooting for native backend (#1034) (#1082)\n\nThe LLVM emitter stored intermediate Values in SSA temps invisible to\nthe GC. Nested allocating calls (e.g. (cons (f x) (g y))) could lose\nearlier results when a later call triggers collection.\n\nFix: emit pushRoot/popRoot calls around live intermediates in\nemitCallNode, tryEmitInlineBinary, emitDirectCall, emitSelfTailCall,\nand let/let* bindings. Two new C-ABI exports (kaappi_gc_push_root,\nkaappi_gc_pop_roots) wrap gc.pushRoot/popRoot for native code.\nKAAPPI_GC_THRESHOLD env var enables stress-testing native binaries.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-04T08:28:55Z",
-          "tree_id": "545f9f5661e96a49ea4b33ca2b19fa45334db99e",
-          "url": "https://github.com/kaappi/kaappi/commit/0d96bfea581bd14b8e61a0a60be66f7b55789a0e"
-        },
-        "date": 1783154837706,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.364731,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.739928,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.934928,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.270478,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.012558,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.210446,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.501335,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.070874,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 12.537795,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.850792,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 9.86434,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.957908,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 8.279341,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.558445,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.043631,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.042795,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "9b8fb278de10a0e1ce1f52170fe40d4b16959227",
+          "message": "Move parameterize converter application outside dynamic-wind extent (#1266) (#1286)\n\nThe inner let* was mutating parameter cells (via the set-then-read idiom)\nbefore dynamic-wind was entered. This caused converters to observe\nearlier bindings' new values, converter errors to permanently leak\nmutations, and duplicate params to restore wrong values.\n\nAdd %parameter-convert primitive that applies a parameter's converter\nwithout mutating the cell, and use it in the parameterize desugaring so\nall mutation happens inside dynamic-wind's before/after thunks.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-07T06:03:16Z",
+          "tree_id": "770042ed8aeee4bae07003401494adce3d78e4fb",
+          "url": "https://github.com/kaappi/kaappi/commit/9b8fb278de10a0e1ce1f52170fe40d4b16959227"
+        },
+        "date": 1783405927553,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.288536,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.499376,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.89305,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.073926,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.012664,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.21202,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.462713,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.069936,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 12.49279,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.81498,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 9.971696,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.96105,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 8.323578,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.708358,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.046314,
             "unit": "seconds"
           }
         ]
