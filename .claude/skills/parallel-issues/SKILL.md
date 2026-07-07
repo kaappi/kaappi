@@ -1,12 +1,12 @@
 ---
 name: parallel-issues
-description: Group open GitHub issues into parallel sets for concurrent Claude Code sessions. Use when the user asks to batch issues, plan parallel work, triage open issues for parallel fixing, or create issue sets. Accepts an optional label to restrict which issues are considered.
-argument-hint: "[label]"
+description: Group open GitHub issues into parallel sets for concurrent Claude Code sessions. Use when the user asks to batch issues, plan parallel work, triage open issues for parallel fixing, or create issue sets. Accepts an optional label (or multiple comma-separated labels) to restrict which issues are considered.
+argument-hint: "[label[,label,...]]"
 ---
 
 # Parallel Issue Sets
 
-An optional label may be passed as an argument: `$ARGUMENTS`
+Optional labels may be passed as a comma-separated argument: `$ARGUMENTS`
 
 Look up open GitHub issues with:
 
@@ -14,9 +14,11 @@ Look up open GitHub issues with:
 gh issue list --state open --limit 500 --json number,title,labels,assignees,body
 ```
 
-If a label argument was provided, add `--label "<label>"` (quoted — labels may
-contain spaces). If the filtered list comes back empty, say so and stop; don't
-fall back to all open issues.
+If labels were provided, split them on commas (trimming whitespace) and add a
+separate `--label "<label>"` flag for each one (quoted — labels may contain
+spaces). Multiple `--label` flags AND-filter: an issue must carry all of them.
+If the filtered list comes back empty, say so and stop; don't fall back to
+all open issues or fewer labels.
 
 If the returned count equals the limit, raise the limit and rerun — a silently
 truncated list would drop issues from the plan.
