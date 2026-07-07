@@ -866,6 +866,11 @@ fn collectSetTargets(self: *Compiler, expr: Value, out: *std.StringHashMap(void)
                     }
                 }
             } else if (self.lookupMacro(types.symbolName(head))) |transformer| {
+                // Best-effort expansion: uses an empty UseSiteBindingCheck
+                // (no locals exist at pre-scan time), so patterns with
+                // literals may diverge from the real expansion.  Part B
+                // (scanSetTargets in expandAndCompileMacroUse) corrects
+                // any misses at real-expansion time.
                 self.gc.no_collect += 1;
                 const expanded = expander.expandMacro(
                     self.gc,
@@ -876,15 +881,14 @@ fn collectSetTargets(self: *Compiler, expr: Value, out: *std.StringHashMap(void)
                     .{},
                 ) catch {
                     self.gc.no_collect -= 1;
-                    try collectSetTargets(self, head, out, depth);
                     cur = types.cdr(cur);
                     continue;
                 };
                 var expanded_root = expanded;
                 self.gc.pushRoot(&expanded_root);
+                defer self.gc.popRoot();
                 self.gc.no_collect -= 1;
                 try collectSetTargets(self, expanded_root, out, depth + 1);
-                self.gc.popRoot();
                 return;
             }
         }

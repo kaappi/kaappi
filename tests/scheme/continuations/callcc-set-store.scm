@@ -125,6 +125,17 @@
        n))
    0))
 
+;; 13. Nested macro: outer macro expands to inner macro that does set! — #1250
+(define-syntax apply-twice
+  (syntax-rules ()
+    ((_ op v) (begin (op v) (op v)))))
+(test-equal "nested macro-introduced set! persists" 4
+  (let ((n 0) (k* #f))
+    (call/cc (lambda (k) (set! k* k)))
+    (apply-twice inc! n)
+    (if (< n 4) (k* #f))
+    n))
+
 (let ((runner (test-runner-current)))
   (test-end "callcc-set-store")
   (when (> (test-runner-fail-count runner) 0) (exit 1)))
