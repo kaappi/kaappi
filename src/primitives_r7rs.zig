@@ -179,7 +179,22 @@ fn evalFn(args: []const Value) PrimitiveError!Value {
     if (args.len > 1) {
         if (!types.isEnvironment(args[1])) return primitives.typeError("eval", "environment", args[1]);
         const se = types.toEnvironment(args[1]);
-        const func = compiler_mod.compileExpressionInEnv(gc, expr, &vm.macros, se.env, args[1], false) catch return PrimitiveError.TypeError; // bare-ok: compile error
+
+        // Interaction environment: macros persist globally (#1269).
+        // Custom environments: isolated macro table, discarded after compilation.
+        var local_macros: std.StringHashMap(Value) = undefined;
+        const use_local = (se.env != vm.globals);
+        if (use_local) {
+            local_macros = std.StringHashMap(Value).init(gc.allocator);
+            var mit = vm.macros.iterator();
+            while (mit.next()) |entry| {
+                local_macros.put(entry.key_ptr.*, entry.value_ptr.*) catch return PrimitiveError.OutOfMemory;
+            }
+        }
+        defer if (use_local) local_macros.deinit();
+
+        const macro_target: *std.StringHashMap(Value) = if (use_local) &local_macros else &vm.macros;
+        const func = compiler_mod.compileExpressionInEnv(gc, expr, macro_target, se.env, args[1], false) catch return PrimitiveError.TypeError; // bare-ok: compile error
         var closure_val = gc.allocClosure(func) catch return PrimitiveError.OutOfMemory;
         compiler_mod.Compiler.unrootFunction(gc, func);
         gc.pushRoot(&closure_val);
@@ -277,12 +292,27 @@ fn loadFn(args: []const Value) PrimitiveError!Value {
     var reader = reader_mod.Reader.init(gc, contents.items);
     defer reader.deinit();
 
+    // Custom environments get an isolated macro table so define-syntax
+    // does not leak into the global scope (#1269). The local table lives
+    // outside the loop so macros from earlier expressions remain visible.
+    var local_macros: std.StringHashMap(Value) = undefined;
+    const use_local = if (env) |e| (e != vm.globals) else false;
+    if (use_local) {
+        local_macros = std.StringHashMap(Value).init(gc.allocator);
+        var mit = vm.macros.iterator();
+        while (mit.next()) |entry| {
+            local_macros.put(entry.key_ptr.*, entry.value_ptr.*) catch return PrimitiveError.OutOfMemory;
+        }
+    }
+    defer if (use_local) local_macros.deinit();
+    const macro_target: *std.StringHashMap(Value) = if (use_local) &local_macros else &vm.macros;
+
     var last_result: Value = types.VOID;
     while (reader.hasMore() catch return PrimitiveError.TypeError) { // bare-ok: reader error in load
         const expr = reader.readDatum() catch return primitives.typeError("load", "valid datum", args[0]);
 
         if (env) |e| {
-            const func = compiler_mod.compileExpressionInEnv(gc, expr, &vm.macros, e, env_val, false) catch return primitives.typeError("load", "valid expression", args[0]);
+            const func = compiler_mod.compileExpressionInEnv(gc, expr, macro_target, e, env_val, false) catch return primitives.typeError("load", "valid expression", args[0]);
             var closure_val = gc.allocClosure(func) catch return PrimitiveError.OutOfMemory;
             compiler_mod.Compiler.unrootFunction(gc, func);
             gc.pushRoot(&closure_val);

@@ -1187,6 +1187,12 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                 const expr_val = self.registers[abs_base];
 
                 const compiler_mod = @import("compiler.zig");
+
+                // Local macro table for custom environment isolation (#1269)
+                var local_macros: std.StringHashMap(Value) = undefined;
+                var use_local_macros = false;
+                defer if (use_local_macros) local_macros.deinit();
+
                 const func_val = blk: {
                     if (nargs >= 2) {
                         if (!types.isEnvironment(self.registers[abs_base + 1])) {
@@ -1197,7 +1203,16 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                             return VMError.TypeError;
                         }
                         const se = types.toEnvironment(self.registers[abs_base + 1]);
-                        break :blk compiler_mod.compileExpressionInEnv(self.gc, expr_val, &self.macros, se.env, self.registers[abs_base + 1], true) catch return VMError.CompileError;
+                        const macro_target: *std.StringHashMap(Value) = if (se.env == self.globals) &self.macros else mt: {
+                            local_macros = std.StringHashMap(Value).init(self.gc.allocator);
+                            var mit = self.macros.iterator();
+                            while (mit.next()) |entry| {
+                                local_macros.put(entry.key_ptr.*, entry.value_ptr.*) catch return VMError.OutOfMemory;
+                            }
+                            use_local_macros = true;
+                            break :mt &local_macros;
+                        };
+                        break :blk compiler_mod.compileExpressionInEnv(self.gc, expr_val, macro_target, se.env, self.registers[abs_base + 1], true) catch return VMError.CompileError;
                     }
                     break :blk compiler_mod.compileExpressionWithMacrosAt(self.gc, expr_val, &self.macros, self.globals, 0, null, true) catch return VMError.CompileError;
                 };
