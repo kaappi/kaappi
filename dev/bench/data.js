@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783449475017,
+  "lastUpdate": 1783453869247,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "5e875a091d01e1f42e3efb53ce5e6efadc7bd325",
-          "message": "Root callWithArgs return values in map, fold, and unfold primitives (#1098)\n\ncallWithArgs pops its temporary VM frame before returning, so the\nreturn value has no GC root — it exists only in a Zig stack local.\nIf the next allocation triggers a collection, the unrooted value is\nswept and its memory reused, corrupting any structure that referenced\nit.\n\nThis manifested as SRFI-115 regexp \"unknown tag 0.0\" errors: map is\nused by %csre to build compiled regexp structures, and the unrooted\nmap callback results became dangling pointers after GC.\n\nRoot the return value in each affected primitive:\n- map: root result before allocPair\n- fold, fold-right, reduce, reduce-right: root acc across iterations\n- pair-fold, pair-fold-right: root acc across iterations\n- unfold-right: root seed and val before allocPair\n- map-in-order: root accumulated results via extra_roots\n- hash-table-fold: root acc across iterations\n- string-unfold, string-unfold-right: root seed across callVM calls\n\nFixes #1093.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-04T14:20:10Z",
-          "tree_id": "2b2a58eb6d6b664d5afd3320cbed32e773635509",
-          "url": "https://github.com/kaappi/kaappi/commit/5e875a091d01e1f42e3efb53ce5e6efadc7bd325"
-        },
-        "date": 1783176004459,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.359977,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.547635,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.924402,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.357934,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.014465,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.212329,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.478006,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.071075,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 12.442167,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.878017,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 9.926016,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.951975,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 8.284043,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.67623,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.04201,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.04347,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "4fdb4eb12e9d633265781ec9537474bb9e607530",
+          "message": "Isolate macro tables for custom environments in eval/load (#1269) (#1304)\n\n* Isolate macro tables for custom environments in eval/load (#1269)\n\ndefine-syntax forms compiled through compileExpressionInEnv were leaking\ninto the global vm.macros table because all callers passed &vm.macros\ndirectly as the merge-back target. Move isolation to the callers: when\nthe environment is not the interaction environment (se.env != vm.globals),\ncreate a local copy of vm.macros and pass that instead. The local copy\nis discarded after compilation, preventing any macro leak.\n\nFor load, the local table lives outside the expression loop so macros\nfrom earlier expressions remain visible to later ones in the same file.\n\nRemove the immutability guard from compileExpressionInEnv (added in #1275)\n— it is now redundant since callers control which table receives the\nmerge-back.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Add mutable non-global env test as genuine regression guard (#1269)\n\nThe previous tests only exercised immutable environments (which already\nerror on define-syntax) and the interaction environment (which is\ncorrectly global). This test constructs a mutable non-global environment\nvia the internal Zig API — the exact case the caller-side isolation\ntargets — and verifies that define-syntax succeeds but does not leak\ninto vm.macros.\n\nConfirmed: fails without the fix (macro count increases by 1),\npasses with it.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-07T19:25:03Z",
+          "tree_id": "56d13c1064ecf8cc73fb71b9745af274a655d4af",
+          "url": "https://github.com/kaappi/kaappi/commit/4fdb4eb12e9d633265781ec9537474bb9e607530"
+        },
+        "date": 1783453868424,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.08881,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.905652,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 1.011462,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.405065,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.01371,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.222898,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.512141,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.070944,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 13.435567,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 2.013937,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 11.143989,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 1.060675,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 9.1577,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.844286,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.046209,
             "unit": "seconds"
           }
         ]
