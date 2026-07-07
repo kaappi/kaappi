@@ -526,6 +526,15 @@ fn lowerFormWithMacros(ir: *IR, expr: Value, macros: ?*std.StringHashMap(Value))
             if (ir.compiler) |c| c.isLexicallyBound(name) else false;
 
         if (!is_shadowed) {
+            // R7RS has no reserved words: an imported macro may shadow a
+            // special form keyword (e.g. SRFI-219 redefines `define`).
+            // Check macros BEFORE special forms so the macro wins.
+            if (ir.compiler) |c| {
+                if (c.lookupMacro(name) != null) return ir.makePassthrough(expr);
+            } else if (macros) |m| {
+                if (m.get(name) != null) return ir.makePassthrough(expr);
+            }
+
             if (std.mem.eql(u8, effective_name, "if")) return lowerIf(ir, types.cdr(expr), macros);
             if (std.mem.eql(u8, effective_name, "quote")) return lowerQuote(ir, types.cdr(expr));
             if (std.mem.eql(u8, effective_name, "begin")) return lowerBegin(ir, types.cdr(expr), macros);
@@ -545,12 +554,6 @@ fn lowerFormWithMacros(ir: *IR, expr: Value, macros: ?*std.StringHashMap(Value))
                 return ir.makeSexprNode(form, types.cdr(expr));
 
             if (isSpecialForm(effective_name)) return ir.makePassthrough(expr);
-
-            if (ir.compiler) |c| {
-                if (c.lookupMacro(name) != null) return ir.makePassthrough(expr);
-            } else if (macros) |m| {
-                if (m.get(name) != null) return ir.makePassthrough(expr);
-            }
         }
 
         if (tryFoldFromAST(ir, expr)) |folded| return folded;

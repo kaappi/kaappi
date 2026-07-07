@@ -3,12 +3,25 @@ const types = @import("types.zig");
 const compiler_mod = @import("compiler.zig");
 const expander = @import("expander.zig");
 const globals_mod = @import("globals.zig");
+const ir_mod = @import("ir.zig");
 const Compiler = compiler_mod.Compiler;
 const CompileError = compiler_mod.CompileError;
 const Value = types.Value;
 
 const MAX_MACRO_EXPANSION_DEPTH: u16 = 256;
 const MAX_MACRO_EXPANSION_STEPS: u32 = 10_000;
+
+/// 128 levels is safe because the expander shares pattern-variable subtrees
+/// (a == b short-circuits at the shared node), so only the short template
+/// spine is actually traversed.
+fn valuesStructurallyEqual(a: Value, b: Value, depth: u16) bool {
+    if (a == b) return true;
+    if (depth == 0) return false;
+    if (types.isPair(a) and types.isPair(b))
+        return valuesStructurallyEqual(types.car(a), types.car(b), depth - 1) and
+            valuesStructurallyEqual(types.cdr(a), types.cdr(b), depth - 1);
+    return false;
+}
 
 fn resolveLocalSkipAliases(ctx: ?*const anyopaque, name: []const u8) u32 {
     const self: *const Compiler = @ptrCast(@alignCast(ctx.?));
@@ -26,7 +39,6 @@ fn resolveLocalSkipAliases(ctx: ?*const anyopaque, name: []const u8) u32 {
 }
 
 pub fn expandAndCompileMacroUse(self: *Compiler, expr: Value, name: []const u8, transformer: Value, dst: u16, is_tail: bool) CompileError!void {
-    _ = name;
     if (self.macro_expansion_depth >= MAX_MACRO_EXPANSION_DEPTH or
         self.macro_expansion_steps >= MAX_MACRO_EXPANSION_STEPS)
     {
@@ -215,6 +227,17 @@ pub fn expandAndCompileMacroUse(self: *Compiler, expr: Value, name: []const u8, 
             }
         }
     }
+    // Fixed-point detection: if the expansion is structurally identical to
+    // the input (e.g. SRFI-219 rule 3: (define x e) → (define x e)) AND the
+    // keyword is a built-in special form, suppress macro re-expansion so the
+    // built-in handler takes over.  For non-special-form macros (e.g. a
+    // degenerate (loop) → (loop)), let the expansion-limit catch it instead.
+    const is_fixed_point = valuesStructurallyEqual(expanded_root, expr, 128) and
+        ir_mod.isSpecialForm(types.stripHygienicPrefix(name));
+    const saved_suppress = self.suppress_macro_name;
+    if (is_fixed_point) self.suppress_macro_name = name;
+    defer self.suppress_macro_name = saved_suppress;
+
     const result_err = self.compileExpr(expanded_root, dst, is_tail);
     if (saved_peer) |sp| {
         for (peer_names, 0..) |pn, i| {
