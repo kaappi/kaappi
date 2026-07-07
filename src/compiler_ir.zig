@@ -441,6 +441,7 @@ pub fn compileLambdaWithIR(self: *Compiler, args: Value, dst: u16, name: ?[]cons
                 tx_obj.def_env = env;
                 tx_obj.def_env_val = child.lib_env_val;
             }
+            try macro.captureLocalsOnTransformer(&child, tx_val);
             child.macros.put(ds_name, tx_val) catch return CompileError.OutOfMemory;
             current = types.cdr(current);
             continue;

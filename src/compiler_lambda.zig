@@ -321,6 +321,7 @@ pub fn compileBodyForms(self: *Compiler, body: Value, opts: BodyOpts) CompileErr
                 tx.def_env = env;
                 tx.def_env_val = self.lib_env_val;
             }
+            try macro.captureLocalsOnTransformer(self, transformer);
             self.macros.put(name, transformer) catch return CompileError.OutOfMemory;
         } else {
             break;
