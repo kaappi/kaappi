@@ -628,6 +628,7 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                         if (dst_idx >= self.registers.len) return VMError.InvalidBytecode;
                         self.registers[dst_idx] = flat_args[i];
                     }
+                    vm_calls.clearFrameLocals(self, frame.base, arg_count, func.locals_count);
 
                     frame.closure = closure;
                     frame.code = func.code.items;
@@ -1208,6 +1209,7 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                 const closure = types.toObject(closure_val).as(types.Closure);
                 const func = closure.func;
                 if (self.profile_mode) func.profile_calls += 1;
+                vm_calls.clearFrameLocals(self, frame.base, 0, func.locals_count);
                 frame.closure = closure;
                 frame.code = func.code.items;
                 frame.ip = 0;

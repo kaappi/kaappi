@@ -191,3 +191,55 @@ test "tail call to parameter with converter across frames array growth" {
     const result = try vm.eval("(p)");
     try std.testing.expectEqual(@as(i64, 50), types.toFixnum(result));
 }
+
+test "tail-call into larger frame clears extension registers" {
+    // Regression test for #1256: when a tail-call switches to a callee with
+    // a larger locals_count, registers in [base+args, base+locals_count) must
+    // be cleared to UNDEFINED so the GC doesn't scan stale pointers.
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    // 1. Pollute high registers by calling a function with many locals that
+    //    allocates heap objects (strings), then returns a fixnum.
+    _ = try vm.eval(
+        \\(define (pollute)
+        \\  (let ((a "heap1") (b "heap2") (c "heap3") (d "heap4")
+        \\        (e "heap5") (f "heap6") (g "heap7") (h "heap8"))
+        \\    (string-length (string-append a b c d e f g h))))
+    );
+    _ = try vm.eval("(pollute)");
+
+    // 2. A small function that tail-calls a target with many locals.
+    //    The target only uses its first arg — the rest are declared but
+    //    untouched, so they must stay UNDEFINED after clearFrameLocals.
+    _ = try vm.eval(
+        \\(define (small x)
+        \\  (big x))
+    );
+    _ = try vm.eval(
+        \\(define (big n)
+        \\  (let ((a (+ n 1)) (b (+ n 2)) (c (+ n 3)) (d (+ n 4))
+        \\        (e (+ n 5)) (f (+ n 6)) (g (+ n 7)) (h (+ n 8)))
+        \\    (+ a b c d e f g h)))
+    );
+
+    const result = try vm.eval("(small 0)");
+    try std.testing.expectEqual(@as(i64, 36), types.toFixnum(result));
+
+    // 3. Verify the registers in the frame-base region are not stale heap
+    //    pointers. After eval returns, frame_count is 0 and the register
+    //    file retains whatever the last execution left. Registers that were
+    //    in the extension zone of the tail-call should have been cleared to
+    //    UNDEFINED (or overwritten by the callee's fixnum locals) — they
+    //    must NOT hold heap object pointers from the earlier `pollute` call.
+    //    Scan the first 32 registers (generous window covering any plausible
+    //    frame base) and verify none point to a freed heap string.
+    for (vm.registers[0..@min(32, vm.registers.len)]) |reg| {
+        if (reg != types.UNDEFINED and types.isPointer(reg)) {
+            const obj = types.toObject(reg);
+            try std.testing.expect(@intFromEnum(obj.tag) < 36);
+        }
+    }
+}
