@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783432369231,
+  "lastUpdate": 1783437666542,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "a2858320cf6109c3e0029fa8c985b016f0afbde7",
-          "message": "Split thottam.zig along natural seams (#1063) (#1089)\n\nthottam.zig was the only file over the 1500-line policy. Extract three\nself-contained modules:\n\n- thottam_semver.zig: Semver, Constraint, constraint parsing (pure logic)\n- thottam_proc.zig: fork/exec plumbing (runCapture, runGit, checkoutVersion)\n- thottam_state.zig: PkgSpec/PkgManifest parsing, lockfile/installed ops\n\nTests move with their code. No logic changes — pure code motion.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-04T16:24:58+05:30",
-          "tree_id": "2b8b276d2bcbc7e9ce584e0b0a598b7ca8951034",
-          "url": "https://github.com/kaappi/kaappi/commit/a2858320cf6109c3e0029fa8c985b016f0afbde7"
-        },
-        "date": 1783163866569,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.352378,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.133867,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 1.056541,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.317855,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.012816,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.210575,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.467204,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.070357,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 12.520738,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.818593,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 9.841304,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.956828,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 8.270609,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.545472,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.043135,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.045327,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "6d33cb0701042533918f9a24710ccfc3a0b2aeaa",
+          "message": "Make GC root buffer growable to handle deep native re-entrancy (#1191) (#1298)\n\n* Make GC root buffer growable to handle deep native re-entrancy (#1191)\n\nThe fixed-size root buffer (4096 entries) panicked on deeply nested\nnative→Scheme→native re-entrancy (e.g. recursive map at depth 2000).\nThe panic was uncatchable, violating R7RS's expectation that resource\nexhaustion can be intercepted by guard.\n\nChange the root buffer from a fixed array to a heap-allocated slice\nthat starts at 1024 entries and doubles on demand up to 65536.  This\nlets legitimate deep recursion succeed while the existing\nnative_reentry_depth guard (3000) still catches infinite re-entrancy\nwith a catchable StackOverflow error.\n\nAlso fix the callReentrant root-count guard to compare against the\nabsolute MAX_ROOT_CAPACITY rather than the current buffer length, so\nit doesn't fire prematurely during buffer growth.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Address review: clamp root growth, fix tests for Debug mode\n\n- growRootBuffer now clamps to MAX_ROOT_CAPACITY before reallocating\n  instead of panicking on overshoot (CodeRabbit)\n- Deep-recursion tests accept either success or caught error, so they\n  pass in both Release (cap 3000) and Debug (cap 200) builds (baijum)\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-07T20:24:08+05:30",
+          "tree_id": "eb1bac26ba28bacf1c28c83c20d67ec073509524",
+          "url": "https://github.com/kaappi/kaappi/commit/6d33cb0701042533918f9a24710ccfc3a0b2aeaa"
+        },
+        "date": 1783437665548,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.102858,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.71033,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.945949,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.179818,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.013695,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.222695,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.478717,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.068273,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 13.471456,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.839392,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 11.167731,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 1.05962,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 9.15255,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.853577,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.046321,
             "unit": "seconds"
           }
         ]
