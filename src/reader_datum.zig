@@ -37,7 +37,7 @@ fn tokenToValue(self: *Reader, tok: Token) ReadError!Value {
         .character => |c| return types.makeChar(c),
         .string => |s| {
             const val = self.gc.allocString(s) catch return ReadError.OutOfMemory;
-            types.toObject(val).as(types.SchemeString).immutable = true;
+            if (self.mark_immutable) types.toObject(val).flags.immutable = true;
             return val;
         },
         .symbol => |name| return self.gc.allocSymbol(name) catch return ReadError.OutOfMemory,
@@ -66,6 +66,7 @@ fn tokenToValue(self: *Reader, tok: Token) ReadError!Value {
                 self.gc.writeBarrier(types.toObject(placeholder), types.car(datum));
                 types.setCdr(placeholder, types.cdr(datum));
                 self.gc.writeBarrier(types.toObject(placeholder), types.cdr(datum));
+                if (self.mark_immutable) types.toObject(placeholder).flags.immutable = true;
                 return placeholder;
             } else {
                 self.labels[n] = datum;
@@ -112,6 +113,7 @@ fn readList(self: *Reader) ReadError!Value {
             }
             self.pos += 1;
             const pair = self.gc.allocPair(first_root, rest_root) catch return ReadError.OutOfMemory;
+            if (self.mark_immutable) types.toObject(pair).flags.immutable = true;
             self.gc.source_lines.put(pair, list_line) catch {};
             return pair;
         }
@@ -122,6 +124,7 @@ fn readList(self: *Reader) ReadError!Value {
     self.gc.pushRoot(&rest_root);
     defer self.gc.popRoot();
     const pair = self.gc.allocPair(first_root, rest_root) catch return ReadError.OutOfMemory;
+    if (self.mark_immutable) types.toObject(pair).flags.immutable = true;
     self.gc.source_lines.put(pair, list_line) catch {};
     return pair;
 }
@@ -166,6 +169,7 @@ fn readListTail(self: *Reader) ReadError!Value {
         const elem_line = self.getLineCol().line;
         elem = try readDatum(self);
         const pair = self.gc.allocPair(elem, types.NIL) catch return ReadError.OutOfMemory;
+        if (self.mark_immutable) types.toObject(pair).flags.immutable = true;
         self.gc.source_lines.put(pair, elem_line) catch {};
 
         if (result == types.NIL) {
@@ -189,10 +193,13 @@ fn readAbbreviation(self: *Reader, keyword: []const u8) ReadError!Value {
     defer self.gc.popRoot();
 
     const rest = self.gc.allocPair(datum_root, types.NIL) catch return ReadError.OutOfMemory;
+    if (self.mark_immutable) types.toObject(rest).flags.immutable = true;
     var rest_root = rest;
     self.gc.pushRoot(&rest_root);
     defer self.gc.popRoot();
-    return self.gc.allocPair(sym_root, rest_root) catch return ReadError.OutOfMemory;
+    const result = self.gc.allocPair(sym_root, rest_root) catch return ReadError.OutOfMemory;
+    if (self.mark_immutable) types.toObject(result).flags.immutable = true;
+    return result;
 }
 
 fn readVector(self: *Reader) ReadError!Value {
@@ -218,7 +225,9 @@ fn readVector(self: *Reader) ReadError!Value {
         self.gc.extra_roots.append(self.gc.allocator, elem) catch return ReadError.OutOfMemory;
     }
 
-    return self.gc.allocVector(elems.items) catch return ReadError.OutOfMemory;
+    const vec = self.gc.allocVector(elems.items) catch return ReadError.OutOfMemory;
+    if (self.mark_immutable) types.toObject(vec).flags.immutable = true;
+    return vec;
 }
 
 const memory = @import("memory.zig");
@@ -290,5 +299,7 @@ fn readBytevector(self: *Reader) ReadError!Value {
         }
     }
 
-    return self.gc.allocBytevector(bytes.items) catch return ReadError.OutOfMemory;
+    const bv = self.gc.allocBytevector(bytes.items) catch return ReadError.OutOfMemory;
+    if (self.mark_immutable) types.toObject(bv).flags.immutable = true;
+    return bv;
 }

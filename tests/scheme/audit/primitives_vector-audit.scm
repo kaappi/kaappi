@@ -54,10 +54,7 @@
 (test 'caught (guard (e (#t 'caught)) (vector-set! (vector 1 2) 0.0 'x)))
 (test 'caught (guard (e (#t 'caught)) (vector-set! '(1 2) 0 'x)))
 ;; R7RS 6.8: (vector-set! '#(0 1 2) 1 "doe") => error ("constant vector").
-;; Strings already enforce literal immutability (SchemeString.immutable);
-;; vectors have no such flag, so the shared literal is silently mutated.
-;; FAIL: #1173 (vector literals are mutable; mutation persists across calls)
-;; (test 'caught (guard (e (#t 'caught)) (vector-set! '#(0 1 2) 1 "doe")))
+(test 'caught (guard (e (#t 'caught)) (vector-set! '#(0 1 2) 1 "doe")))
 
 ;;; --- vector->list ---
 (test '(dah dah didah) (vector->list #(dah dah didah)))

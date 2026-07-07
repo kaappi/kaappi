@@ -355,21 +355,21 @@ test "marking skips objects owned by another GC (#958)" {
 
     // Marking a foreign object directly is a no-op.
     child.markValue(parent_pair);
-    try std.testing.expect(!parent_obj.marked);
+    try std.testing.expect(!parent_obj.flags.marked);
 
     // Tracing a child object must stop at the foreign edge: the child pair
     // itself is marked, the parent pair it references is not.
     const child_pair = try child.allocPair(parent_pair, types.NIL);
     const child_obj = types.toObject(child_pair);
     child.markValue(child_pair);
-    try std.testing.expect(child_obj.marked);
-    try std.testing.expect(!parent_obj.marked);
-    child_obj.marked = false;
+    try std.testing.expect(child_obj.flags.marked);
+    try std.testing.expect(!parent_obj.flags.marked);
+    child_obj.flags.marked = false;
 
     // The owner still marks its own objects.
     parent.markValue(parent_pair);
-    try std.testing.expect(parent_obj.marked);
-    parent_obj.marked = false;
+    try std.testing.expect(parent_obj.flags.marked);
+    parent_obj.flags.marked = false;
 }
 
 // Regression for #958, end to end: a child OS thread that executes a
@@ -400,7 +400,7 @@ test "child thread collections leave no stale marks on parent heap (#958)" {
     for (&lists) |*head| {
         var obj = head.*;
         while (obj) |o| : (obj = o.next) {
-            try std.testing.expect(!o.marked);
+            try std.testing.expect(!o.flags.marked);
         }
     }
 }

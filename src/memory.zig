@@ -171,12 +171,12 @@ pub const GC = struct {
     }
 
     pub fn writeBarrier(self: *GC, container: *Object, new_val: Value) void {
-        if (container.generation == 1 and types.isPointer(new_val)) {
+        if (container.flags.generation == 1 and types.isPointer(new_val)) {
             const child = types.toObject(new_val);
             // A foreign new_val (another GC's object) is never traced by this
             // GC, so it needs no remembered-set entry — and reading its
             // generation bit would race the owner's collection cycle.
-            if (child.owner == self.id and child.generation == 0) {
+            if (child.owner == self.id and child.flags.generation == 0) {
                 self.remembered_set.append(self.allocator, container) catch @panic("GC writeBarrier: remembered set OOM");
             }
         }

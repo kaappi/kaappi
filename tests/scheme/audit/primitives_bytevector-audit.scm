@@ -66,10 +66,8 @@
 (test 'caught (guard (e (#t 'caught)) (bytevector-u8-set! (bytevector 1 2) 0 -1)))
 (test 'caught (guard (e (#t 'caught)) (bytevector-u8-set! (bytevector 1 2) 0 1.5)))
 (test 'caught (guard (e (#t 'caught)) (bytevector-u8-set! "ab" 0 65)))
-;; Literal bytevectors share the literal-mutability gap (see #1173): the R7RS
-;; string counterpart raises, but #u8 literals are silently mutated in place.
-;; FAIL: #1173 (bytevector literals are mutable; mutation persists across calls)
-;; (test 'caught (guard (e (#t 'caught)) (bytevector-u8-set! #u8(0 1 2) 1 99)))
+;; R7RS 6.9: literal bytevectors are immutable.
+(test 'caught (guard (e (#t 'caught)) (bytevector-u8-set! #u8(0 1 2) 1 99)))
 
 ;;; --- bytevector-copy ---
 ;; R7RS 6.9 example

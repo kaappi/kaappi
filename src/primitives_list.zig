@@ -73,6 +73,7 @@ fn listSetFn(args: []const Value) PrimitiveError!Value {
     var current = args[0];
     while (current != types.NIL) {
         if (!types.isPair(current)) return primitives.typeError("list-set!", "pair", current);
+        if (types.toObject(current).flags.immutable) return primitives.typeError("list-set!", "mutable pair", current);
         if (idx == k) {
             if (memory.gc_instance) |gc| gc.writeBarrier(types.toObject(current), args[2]);
             types.setCar(current, args[2]);

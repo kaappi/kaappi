@@ -167,7 +167,7 @@ fn stringSetFn(args: []const Value) PrimitiveError!Value {
     if (!types.isChar(args[2])) return primitives.typeError("string-set!", "character", args[2]);
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const str = types.toObject(args[0]).as(types.SchemeString);
-    if (str.immutable) return primitives.typeError("string-set!", "mutable string", args[0]);
+    if (str.header.flags.immutable) return primitives.typeError("string-set!", "mutable string", args[0]);
     const data = str.data[0..str.len];
     const k = types.toFixnum(args[1]);
     const str_len = utf8CodepointCount(data);
@@ -246,7 +246,7 @@ fn stringCopyBangFn(args: []const Value) PrimitiveError!Value {
     if (!types.isFixnum(args[1])) return primitives.typeError("string-copy!", "exact integer", args[1]);
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const to_str = types.toObject(args[0]).as(types.SchemeString);
-    if (to_str.immutable) return primitives.typeError("string-copy!", "mutable string", args[0]);
+    if (to_str.header.flags.immutable) return primitives.typeError("string-copy!", "mutable string", args[0]);
     const to_data = to_str.data[0..to_str.len];
     const to_cp_count = utf8CodepointCount(to_data);
     const at_val = types.toFixnum(args[1]);
@@ -303,7 +303,7 @@ fn stringFillFn(args: []const Value) PrimitiveError!Value {
     if (!types.isChar(args[1])) return primitives.typeError("string-fill!", "character", args[1]);
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const str = types.toObject(args[0]).as(types.SchemeString);
-    if (str.immutable) return primitives.typeError("string-fill!", "mutable string", args[0]);
+    if (str.header.flags.immutable) return primitives.typeError("string-fill!", "mutable string", args[0]);
     const data = str.data[0..str.len];
     const cp = types.toChar(args[1]);
     const char_count = utf8CodepointCount(data);
