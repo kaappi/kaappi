@@ -68,10 +68,12 @@ pub fn expandAndCompileMacroUse(self: *Compiler, expr: Value, name: []const u8, 
         const glk = globals_mod.acquireGlobalsWrite(g);
         defer globals_mod.releaseGlobalsWrite(glk);
         for (tx.captured_locals) |cap| {
-            if (!g.contains(cap.name) and temp_global_count < 128) {
-                temp_globals[temp_global_count] = .{ .name = cap.name, .old_val = null, .was_present = false };
-                temp_global_count += 1;
-                try g.put(cap.name, types.VOID);
+            if (temp_global_count < 128) {
+                if (g.get(cap.name)) |gval| {
+                    temp_globals[temp_global_count] = .{ .name = cap.name, .old_val = gval, .was_present = true };
+                    temp_global_count += 1;
+                    _ = g.remove(cap.name);
+                }
             }
         }
         if (tx.def_env) |env| {
@@ -163,14 +165,6 @@ pub fn expandAndCompileMacroUse(self: *Compiler, expr: Value, name: []const u8, 
     self.gc.no_collect -= 1;
     try self.scanSetTargets(expanded_root);
     const saved_locals_len = self.locals.items.len;
-    for (tx.captured_locals) |cap| {
-        try self.locals.append(self.gc.allocator, .{
-            .name = cap.name,
-            .depth = self.scope_depth,
-            .slot = cap.slot,
-            .binding_id = compiler_mod.freshBindingId(),
-        });
-    }
     try injectHygienicCapturedLocals(self, expanded_root, tx.captured_locals);
     // Inject non-procedure global free vars as locals so
     // use-site locals don't shadow the definition-site
@@ -533,25 +527,27 @@ fn injectHygCapturedWalk(self: *Compiler, expr: Value, captured: []const types.C
         if (!std.mem.startsWith(u8, name, "__hyg_")) return;
         const base = types.stripHygienicPrefix(name);
         if (base.len == name.len) return;
+        var best_cap: ?types.CapturedLocal = null;
         for (captured) |cap| {
-            if (std.mem.eql(u8, cap.name, base)) {
-                var already = false;
-                for (self.locals.items) |loc| {
-                    if (std.mem.eql(u8, loc.name, name)) {
-                        already = true;
-                        break;
-                    }
+            if (std.mem.eql(u8, cap.name, base)) best_cap = cap;
+        }
+        if (best_cap) |cap| {
+            var already = false;
+            for (self.locals.items) |loc| {
+                if (std.mem.eql(u8, loc.name, name)) {
+                    already = true;
+                    break;
                 }
-                if (!already) {
-                    try self.locals.append(self.gc.allocator, .{
-                        .name = name,
-                        .depth = self.scope_depth,
-                        .slot = cap.slot,
-                        .binding_id = compiler_mod.freshBindingId(),
-                    });
-                }
-                return;
             }
+            if (!already) {
+                try self.locals.append(self.gc.allocator, .{
+                    .name = name,
+                    .depth = self.scope_depth,
+                    .slot = cap.slot,
+                    .binding_id = compiler_mod.freshBindingId(),
+                });
+            }
+            return;
         }
         return;
     }
