@@ -301,14 +301,13 @@
 (test #t (guard (e (#t (error-object? e))) (point-x 42) #f))
 (test #t (guard (e (#t (error-object? e))) (set-point-x! "p" 1) #f))
 ;; R7RS 5.5: "It is an error to pass an accessor a value which is not a
-;; record of the appropriate type." — cross-type access is silently accepted:
-;; FAIL: #1199 (record accessors/mutators do not check the record type)
-;; (test #t (guard (e (#t (error-object? e))) (point-x (make-blob 9)) #f))
-;; FAIL: #1199 (record accessors/mutators do not check the record type)
-;; (test #t (guard (e (#t (error-object? e))) (set-point-x! (make-blob 9) 42) #f))
+;; record of the appropriate type."
+(test #t (guard (e (#t (error-object? e))) (point-x (make-blob 9)) #f))
+(test #t (guard (e (#t (error-object? e))) (set-point-x! (make-blob 9) 42) #f))
 
 ;; internal record primitives reject garbage directly
-(test #t (guard (e (#t (error-object? e))) (%record-ref 5 0) #f))
+(test #t (guard (e (#t (error-object? e))) (%record-ref 5 0 #t) #f))
+(test #t (guard (e (#t (error-object? e))) (%record-set! 5 0 99 #t) #f))
 (test #t (guard (e (#t (error-object? e))) (%make-record 5) #f))
 
 (test-end "primitives_core audit")
