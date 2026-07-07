@@ -93,6 +93,10 @@ pub const Compiler = struct {
     current_line: u32 = 0,
     macro_expansion_depth: u16 = 0,
     macro_expansion_steps: u32 = 0,
+    // Set by expandAndCompileMacroUse when a macro expansion is a fixed
+    // point (output equals input).  compileForm skips the macro check
+    // for this keyword so the built-in special form handles it instead.
+    suppress_macro_name: ?[]const u8 = null,
 
     pub fn init(gc: *memory.GC) CompileError!Compiler {
         const func = gc.allocFunction() catch return CompileError.OutOfMemory;
@@ -667,6 +671,25 @@ pub const Compiler = struct {
             const is_shadowed = std.mem.eql(u8, effective_name, name) and
                 (self.resolveLocal(name) != null or (try self.resolveUpvalue(name)) != null);
 
+            // R7RS has no reserved words: an imported macro may shadow a
+            // special form keyword (e.g. SRFI-219 redefines `define`).
+            // Check macros BEFORE special forms so the macro wins.
+            // suppress_macro_name is set when a macro expansion produced a
+            // fixed-point (identity) — skip re-expansion to let the built-in
+            // special form handle the base case.
+            if (!is_shadowed) {
+                const suppressed = if (self.suppress_macro_name) |smn| std.mem.eql(u8, name, smn) else false;
+                if (!suppressed) {
+                    const macro_hit: ?Value = if (self.lookupMacro(name)) |t|
+                        if (self.resolveLocal(name) != null or (try self.resolveUpvalue(name)) != null) null else t
+                    else
+                        null;
+                    if (macro_hit) |transformer| {
+                        return macro.expandAndCompileMacroUse(self, expr, name, transformer, dst, is_tail);
+                    }
+                }
+            }
+
             // Primitive forms — only if not shadowed by local binding
             if (!is_shadowed) {
                 if (std.mem.eql(u8, effective_name, "quote")) return passthrough.compileQuote(self, args, dst);
@@ -716,18 +739,6 @@ pub const Compiler = struct {
                 if (std.mem.eql(u8, effective_name, "letrec-syntax")) return macro.compileLetrecSyntax(self, args, dst, is_tail);
                 if (std.mem.eql(u8, effective_name, "syntax-rules")) return CompileError.InvalidSyntax;
             } // end if (!is_local)
-
-            // Check if head is a macro keyword. A variable binding in scope
-            // shadows the macro (R7RS 5.3: a body's definitions shadow outer
-            // syntactic bindings), so a local or captured binding with the
-            // same name makes this a procedure call instead.
-            const macro_hit: ?Value = if (self.lookupMacro(name)) |t|
-                if (self.resolveLocal(name) != null or (try self.resolveUpvalue(name)) != null) null else t
-            else
-                null;
-            if (macro_hit) |transformer| {
-                return macro.expandAndCompileMacroUse(self, expr, name, transformer, dst, is_tail);
-            }
         }
 
         if (is_tail and types.isSymbol(head)) {
