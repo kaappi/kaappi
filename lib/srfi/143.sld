@@ -40,26 +40,41 @@
     (define (fxsquare x) (* x x))
 
     (define (fxand a b)
-      (if (and (= a 0) (= b 0)) 0
-          (+ (* (fxand (arithmetic-shift a -1) (arithmetic-shift b -1)) 2)
-             (if (and (odd? a) (odd? b)) 1 0))))
+      (cond
+        ((= a 0) 0)
+        ((= b 0) 0)
+        ((= a -1) b)
+        ((= b -1) a)
+        (else
+         (+ (* (fxand (arithmetic-shift a -1) (arithmetic-shift b -1)) 2)
+            (if (and (odd? a) (odd? b)) 1 0)))))
 
     (define (fxior a b)
-      (if (and (= a 0) (= b 0)) 0
-          (+ (* (fxior (arithmetic-shift a -1) (arithmetic-shift b -1)) 2)
-             (if (or (odd? a) (odd? b)) 1 0))))
+      (cond
+        ((= a -1) -1)
+        ((= b -1) -1)
+        ((= a 0) b)
+        ((= b 0) a)
+        (else
+         (+ (* (fxior (arithmetic-shift a -1) (arithmetic-shift b -1)) 2)
+            (if (or (odd? a) (odd? b)) 1 0)))))
 
     (define (fxxor a b)
-      (if (and (= a 0) (= b 0)) 0
-          (+ (* (fxxor (arithmetic-shift a -1) (arithmetic-shift b -1)) 2)
-             (if (not (eq? (odd? a) (odd? b))) 1 0))))
+      (cond
+        ((= a 0) b)
+        ((= b 0) a)
+        ((= a -1) (fxnot b))
+        ((= b -1) (fxnot a))
+        (else
+         (+ (* (fxxor (arithmetic-shift a -1) (arithmetic-shift b -1)) 2)
+            (if (not (eq? (odd? a) (odd? b))) 1 0)))))
 
     (define (fxnot x) (- -1 x))
 
     (define (arithmetic-shift n count)
       (if (>= count 0)
           (* n (expt 2 count))
-          (quotient n (expt 2 (- count)))))
+          (floor-quotient n (expt 2 (- count)))))
 
     (define (fxarithmetic-shift x count) (arithmetic-shift x count))
     (define (fxarithmetic-shift-left x count) (arithmetic-shift x count))

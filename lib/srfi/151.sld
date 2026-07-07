@@ -14,19 +14,34 @@
     (define (bitwise-not n) (- -1 n))
 
     (define (%bitwise-and2 a b)
-      (if (or (= a 0) (= b 0)) 0
-          (+ (* (%bitwise-and2 (quotient a 2) (quotient b 2)) 2)
-             (if (and (odd? a) (odd? b)) 1 0))))
+      (cond
+        ((= a 0) 0)
+        ((= b 0) 0)
+        ((= a -1) b)
+        ((= b -1) a)
+        (else
+         (+ (* (%bitwise-and2 (floor-quotient a 2) (floor-quotient b 2)) 2)
+            (if (and (odd? a) (odd? b)) 1 0)))))
 
     (define (%bitwise-ior2 a b)
-      (if (and (= a 0) (= b 0)) 0
-          (+ (* (%bitwise-ior2 (quotient a 2) (quotient b 2)) 2)
-             (if (or (odd? a) (odd? b)) 1 0))))
+      (cond
+        ((= a -1) -1)
+        ((= b -1) -1)
+        ((= a 0) b)
+        ((= b 0) a)
+        (else
+         (+ (* (%bitwise-ior2 (floor-quotient a 2) (floor-quotient b 2)) 2)
+            (if (or (odd? a) (odd? b)) 1 0)))))
 
     (define (%bitwise-xor2 a b)
-      (if (and (= a 0) (= b 0)) 0
-          (+ (* (%bitwise-xor2 (quotient a 2) (quotient b 2)) 2)
-             (if (not (eq? (odd? a) (odd? b))) 1 0))))
+      (cond
+        ((= a 0) b)
+        ((= b 0) a)
+        ((= a -1) (bitwise-not b))
+        ((= b -1) (bitwise-not a))
+        (else
+         (+ (* (%bitwise-xor2 (floor-quotient a 2) (floor-quotient b 2)) 2)
+            (if (not (eq? (odd? a) (odd? b))) 1 0)))))
 
     (define (bitwise-and . args)
       (if (null? args) -1
@@ -57,7 +72,7 @@
     (define (arithmetic-shift n count)
       (if (>= count 0)
           (* n (expt 2 count))
-          (quotient n (expt 2 (- count)))))
+          (floor-quotient n (expt 2 (- count)))))
 
     (define (bit-count n)
       (if (< n 0) (bit-count (bitwise-not n))

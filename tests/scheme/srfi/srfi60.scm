@@ -1,6 +1,4 @@
 ;; SRFI-60 (integers as bits) conformance tests — audit Phase 3d
-;; Negative-operand results are broken by the shared SRFI-151 helpers
-;; (#1214); missing bitwise-* aliases are #1164.
 ;; Run directly: zig-out/bin/kaappi tests/scheme/srfi/srfi60.scm
 
 (import (scheme base) (srfi 60) (chibi test))
@@ -38,15 +36,13 @@
 (test 0 (bit-field 6 0 1))
 
 ;;; --- negative-operand semantics (two's complement, SRFI-60 example set) ---
-;; FAIL: #1214 (bitwise and/ior/xor ignore two's-complement sign)
-;; (test 8 (logand -4 8))
-;; (test 5 (logand -1 5))
-;; (test -8 (logand -4 -6))
-;; (test -2 (logior -4 2))
-;; (test -6 (logxor -1 5))
-;; (test 9 (bitwise-merge 3 1 8))
-;; FAIL: #1214 (arithmetic right shift truncates instead of flooring)
-;; (test -4 (ash -15 -2))
+(test 8 (logand -4 8))
+(test 5 (logand -1 5))
+(test -8 (logand -4 -6))
+(test -2 (logior -4 2))
+(test -6 (logxor -1 5))
+(test 9 (bitwise-merge 3 1 8))
+(test -4 (ash -15 -2))
 
 ;;; --- bitwise-* canonical names (SRFI-60 dual naming) ---
 ;; FAIL: #1164 (bitwise-and/-ior/-xor/-not aliases not exported from (srfi 60))
