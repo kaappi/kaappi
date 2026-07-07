@@ -293,6 +293,8 @@ fn hashTableWalkFn(args: []const Value) PrimitiveError!Value {
     const snapshot = snapshotLiveEntries(gc, ht) orelse return PrimitiveError.OutOfMemory;
     defer gc.allocator.free(snapshot);
 
+    // Root all entries up front: the first callback can delete+allocate and
+    // free a not-yet-visited entry's key/value that only the snapshot holds.
     const scope = gc.rootedScope();
     defer scope.release();
     for (snapshot) |entry| {
@@ -508,6 +510,8 @@ fn hashTableFoldFn(args: []const Value) PrimitiveError!Value {
     const snapshot = snapshotLiveEntries(gc, ht) orelse return PrimitiveError.OutOfMemory;
     defer gc.allocator.free(snapshot);
 
+    // Root all entries up front: the first callback can delete+allocate and
+    // free a not-yet-visited entry's key/value that only the snapshot holds.
     const scope = gc.rootedScope();
     defer scope.release();
     for (snapshot) |entry| {
