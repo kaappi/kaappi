@@ -40,7 +40,7 @@ jobs:
   test:
     needs: format
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 20
+    timeout-minutes: ${{ matrix.timeout || 20 }}
     strategy:
       fail-fast: false
       matrix:
@@ -49,6 +49,7 @@ jobs:
         include:
           - os: ubuntu-latest
             optimize: Debug
+            timeout: 30
           - os: ubuntu-latest
             optimize: ReleaseFast
 
