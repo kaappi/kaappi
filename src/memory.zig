@@ -103,8 +103,8 @@ pub const GC = struct {
     /// For a child gc: the parent gc's id, stamped on symbols the child
     /// interns into the shared table (the parent owns and frees those).
     shared_owner_id: u32 = 0,
-    root_buffer: [4096]*Value = undefined,
-    root_count: u16 = 0,
+    root_buffer: []*Value,
+    root_count: u32 = 0,
     extra_roots: std.ArrayList(Value),
     arg_roots: [4]Value = .{ 0, 0, 0, 0 },
     arg_root_count: u3 = 0,
@@ -120,10 +120,15 @@ pub const GC = struct {
     stats: GcStats = .{},
     minor_cycle_count: u32 = 0,
 
+    pub const INITIAL_ROOT_CAPACITY: usize = 1024;
+    pub const MAX_ROOT_CAPACITY: usize = 65536;
+
     pub fn init(allocator: std.mem.Allocator) GC {
         return .{
             .allocator = allocator,
             .symbols = std.StringHashMap(Value).init(allocator),
+            .root_buffer = allocator.alloc(*Value, INITIAL_ROOT_CAPACITY) catch
+                @panic("GC: cannot allocate root buffer"),
             .extra_roots = .empty,
             .remembered_set = .empty,
             .source_lines = std.AutoHashMap(Value, u32).init(allocator),
@@ -137,6 +142,8 @@ pub const GC = struct {
             .symbols = std.StringHashMap(Value).init(allocator),
             .shared_symbols = &parent.symbols,
             .shared_foreign_symbols = &parent.foreign_symbols,
+            .root_buffer = allocator.alloc(*Value, INITIAL_ROOT_CAPACITY) catch
+                @panic("GC: cannot allocate root buffer"),
             .extra_roots = .empty,
             .remembered_set = .empty,
             .source_lines = std.AutoHashMap(Value, u32).init(allocator),
@@ -165,6 +172,7 @@ pub const GC = struct {
         for (self.foreign_symbols.items) |o| gc_collect.freeObject(self, o);
         self.foreign_symbols.deinit(self.allocator);
         self.symbols.deinit();
+        self.allocator.free(self.root_buffer);
         self.extra_roots.deinit(self.allocator);
         self.remembered_set.deinit(self.allocator);
         self.source_lines.deinit();
@@ -1121,9 +1129,18 @@ pub const GC = struct {
 
     pub fn pushRoot(self: *GC, root: *Value) void {
         if (self.root_count >= self.root_buffer.len)
-            @panic("GC root stack overflow");
+            self.growRootBuffer();
         self.root_buffer[self.root_count] = root;
         self.root_count += 1;
+    }
+
+    fn growRootBuffer(self: *GC) void {
+        var new_len = self.root_buffer.len * 2;
+        if (new_len > MAX_ROOT_CAPACITY) new_len = MAX_ROOT_CAPACITY;
+        if (new_len <= self.root_buffer.len)
+            @panic("GC root stack overflow");
+        self.root_buffer = self.allocator.realloc(self.root_buffer, new_len) catch
+            @panic("GC root stack overflow (out of memory)");
     }
 
     pub fn popRoot(self: *GC) void {
