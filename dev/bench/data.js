@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783374592024,
+  "lastUpdate": 1783392161129,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "c0d4f10f8ca0cffe4c79e4bfde5814b9e899b136",
-          "message": "Deduplicate primitives reg() wrappers, consolidate numberTypeError, merge compileAnd/compileOr (#1024)\n\nThree mechanical refactors to reduce duplication:\n\n- Delete identical 3-line reg() wrapper from all 18 primitives_*.zig files,\n  replacing ~532 call sites with direct primitives.reg() calls\n- Replace custom numberTypeError in primitives_arithmetic.zig (which used\n  allocating printer.valueToString) with primitives.typeError(), matching\n  the canonical stack-buffer pattern used everywhere else\n- Merge near-identical compileAnd/compileOr in compiler_conditionals.zig\n  into a shared compileShortCircuit helper parameterized by empty-case\n  opcode and jump opcode\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-04T06:25:42Z",
-          "tree_id": "8f74161e63b7ead1048d5859ef2d26764492908b",
-          "url": "https://github.com/kaappi/kaappi/commit/c0d4f10f8ca0cffe4c79e4bfde5814b9e899b136"
-        },
-        "date": 1783147503621,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.4199,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.839131,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.910764,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.429424,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.012481,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.211286,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.485375,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.069761,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 12.414382,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.856054,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 9.908115,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.947174,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 8.312223,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.696394,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.04323,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.048062,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d0bd85603ef64adbfecc984c150f28a39f532ae0",
+          "message": "Use globally-unique binding IDs for syntax-rules literal identity (#1272) (#1284)\n\nReplace per-frame slot numbers (u16) with monotonic binding IDs (u32)\nwhen comparing literal identities in syntax-rules. Slot indices are\nscoped to their owning Compiler frame, so two different bindings in\nnested lambdas occupying the same register falsely compared as equal.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-07T07:46:17+05:30",
+          "tree_id": "212c97b9f62ebcb386205c76ae382434f51db09f",
+          "url": "https://github.com/kaappi/kaappi/commit/d0bd85603ef64adbfecc984c150f28a39f532ae0"
+        },
+        "date": 1783392160459,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.029627,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.276326,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.96394,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.053865,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.013844,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.235044,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.475433,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.069048,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 13.503269,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.835768,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 11.176586,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 1.066743,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 9.124309,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.82944,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044498,
             "unit": "seconds"
           }
         ]
