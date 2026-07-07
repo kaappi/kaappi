@@ -28,7 +28,8 @@
       #f))
   (test-assert "eval with bad env in tail position raises error"
     (guard (e (#t #t))
-      ((lambda () (eval '(+ 1 2) 42))))))
+      ((lambda () (eval '(+ 1 2) 42)))
+      #f)))
 
 ;; --- eval list construction ---
 (test-group "eval list"
