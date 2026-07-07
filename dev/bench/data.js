@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783422885938,
+  "lastUpdate": 1783424025249,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "aeabf23c44181196453db073e03171471232946e",
-          "message": "Root SRFI-1 filter-map/append-map/unfold callback results via extra_roots (#1027) (#1085)\n\nfilterMapFn, appendMapFn, and unfoldFn accumulated callVM results in\nplain ArrayList locals invisible to GC markRoots. Any subsequent callback\ncould trigger collection of previously-stored values. Apply the\nestablished extra_roots save/restore idiom (matching vector-map) and\nroot unfold's seed across callbacks. Add GC stress tests with\nallocating lambdas for all three.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-04T09:39:51Z",
-          "tree_id": "3f5c59af40bf3e8ba4596767cc9fc466127765da",
-          "url": "https://github.com/kaappi/kaappi/commit/aeabf23c44181196453db073e03171471232946e"
-        },
-        "date": 1783159331760,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.067868,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.80695,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.976139,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.386526,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.013754,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.234325,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.478369,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.068553,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 13.451827,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.851073,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 11.020472,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 1.067313,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 9.084111,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.883509,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044436,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.035245,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d397ceb087172e2263e0ae06c3b945428bb5f2e1",
+          "message": "Clear stale registers in tail-call window extension (#1256) (#1293)\n\n* Clear stale registers in tail-call window extension (#1256)\n\nThe three tail-call opcodes (tail_call, tail_call_global, tail_call_cc)\nmutate the frame in place but never cleared registers beyond the copied\nargs. When the new callee has a larger locals_count than the old one,\nthe GC scan window extends over registers that may hold stale pointers\nfrom previously-popped child frames, causing SIGSEGV under gc-stress.\n\nFix: call clearFrameLocals at each tail-call closure site, matching what\ncallClosure already does for regular calls.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Address review: fix tail_apply/tail_eval, add Zig unit test\n\n- Add clearFrameLocals to tail_apply and tail_eval closure paths\n  (same stale-register bug class, caught by CodeRabbit)\n- Add Zig unit test that directly asserts the mechanism: pollutes\n  high registers with heap objects, then tail-calls into a larger\n  frame and verifies extension registers are not stale pointers\n  (per reviewer feedback that the Scheme test passes on unfixed builds)\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Rewrite Zig test to fail without the fix\n\nThe previous test passed on unfixed builds because big's body wrote\nfixnums to the same extension slots clearFrameLocals targets. Use a\nbranching callee whose locals_count is large (from the false branch)\nbut whose taken branch doesn't touch the high registers — leaving\nthem in whatever state the tail-call handler left them.\n\nVerified: 659/660 tests pass on unfixed vm_dispatch.zig (this test\nfails), 660/660 pass with the fix.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-07T11:07:23Z",
+          "tree_id": "427befb6cbb00e4ae8289244dd5e10eb83484a92",
+          "url": "https://github.com/kaappi/kaappi/commit/d397ceb087172e2263e0ae06c3b945428bb5f2e1"
+        },
+        "date": 1783424023533,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.290162,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.886978,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.939347,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.250463,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.01245,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.20064,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.475528,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.070937,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 12.519804,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.837215,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 10.006695,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.953466,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 8.295263,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.637444,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.04236,
             "unit": "seconds"
           }
         ]
