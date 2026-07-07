@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783442266655,
+  "lastUpdate": 1783444588094,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "3e646ef1b5b093ff29918fa7ef422cead8f643c7",
-          "message": "Reduce gcd-gc-843 iterations to fix flaky macOS CI OOM (#1094) (#1095)\n\n500 iterations caused 234k bignum allocations that intermittently OOM\non macOS CI runners. 50 iterations still trigger 3 GC collections —\nenough to catch the original use-after-free bug from #843.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-04T17:30:57+05:30",
-          "tree_id": "3303588383fc1d7c4e9d0f638072ef4035e2fde3",
-          "url": "https://github.com/kaappi/kaappi/commit/3e646ef1b5b093ff29918fa7ef422cead8f643c7"
-        },
-        "date": 1783167717072,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.063845,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.685214,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.95642,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.495464,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.013805,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.234414,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.478951,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.068491,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 13.371349,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.822396,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 11.023266,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 1.064441,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 9.092247,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.816621,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.043218,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.039481,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "337fb517deeab958f113f92f209fdc2a702ce4fb",
+          "message": "Honor timeout deadlines when no fibers are runnable (#1153) (#1300)\n\n* Honor timeout deadlines when no fibers are runnable (#1153)\n\nWhen schedule() returned null (no runnable fibers), runSchedulerUntilMutex,\nrunSchedulerUntilCondVar, and runSchedulerUntilDone broke out of their loops\nwithout honoring the fiber's deadline. This caused mutex-lock! with a timeout\non a locked mutex to steal the lock (return #t immediately instead of #f),\nand mutex-unlock! with a condvar+timeout to falsely succeed.\n\nSleep until the deadline when the scheduler runs dry, then report timeout.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Clear stale deadline_ns after timed waits and restore comments\n\nAfter runSchedulerUntilMutex/CondVar, the fiber's deadline_ns was left\nset from the previous timed wait. A later untimed wait on the same fiber\nwould inherit the expired deadline and spuriously time out. Clear it in\nboth callers after the wait returns.\n\nAlso restore the yield_retry and fiber-0 explanatory comments that were\naccidentally removed in the previous commit.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Extract scheduleOrTimeout helper and fix stale-deadline test\n\nExtract the duplicated deadline-fallback logic from all three\nrunSchedulerUntil* functions into a shared scheduleOrTimeout helper.\n\nFix the stale-deadline regression test to actually exercise the blocking\npath: the previous version called mutex-unlock! before the untimed lock,\nso the fast path was taken and deadline_ns was never read. Now spawns a\nfiber to hold the mutex so the untimed lock must block through the\nscheduler.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-07T16:49:19Z",
+          "tree_id": "f700c7bbcc6ac7c45dfc71cafbccdfed6fdd4e69",
+          "url": "https://github.com/kaappi/kaappi/commit/337fb517deeab958f113f92f209fdc2a702ce4fb"
+        },
+        "date": 1783444586123,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.108259,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.664776,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.973014,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.225792,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.013803,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.221152,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.478721,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.068942,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 13.445404,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.832269,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 11.150682,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 1.065689,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 9.152058,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.909619,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.045646,
             "unit": "seconds"
           }
         ]
