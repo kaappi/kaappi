@@ -677,8 +677,8 @@ fn buildQQListExpr(gc: *@import("memory.zig").GC, quote_sym: Value, list_sym: Va
 ///
 /// Desugars to:
 ///   (let ((%pp0 p1) (%pp1 p2) ... (%pv0 v1) (%pv1 v2) ...)
-///     (let* ((old0 (%pp0)) (new0 (begin (%pp0 %pv0) (%pp0)))
-///            (old1 (%pp1)) (new1 (begin (%pp1 %pv1) (%pp1))) ...)
+///     (let* ((old0 (%pp0)) (new0 (%parameter-convert %pp0 %pv0))
+///            (old1 (%pp1)) (new1 (%parameter-convert %pp1 %pv1)) ...)
 ///       (dynamic-wind
 ///         (lambda () (%parameter-set! %pp0 new0) (%parameter-set! %pp1 new1) ...)
 ///         (lambda () body ...)
@@ -686,9 +686,9 @@ fn buildQQListExpr(gc: *@import("memory.zig").GC, quote_sym: Value, list_sym: Va
 ///
 /// The outer `let` evaluates all param and value expressions before any
 /// parameter cell is mutated (R7RS §4.2.6, SRFI-39). The inner `let*`
-/// sequentially saves old values and installs new ones through each
-/// parameter's converter. The before-thunk uses %parameter-set! to avoid
-/// re-applying the converter on continuation re-entry.
+/// saves old values and runs converters without mutating cells.
+/// All mutation happens inside `dynamic-wind`, so converter errors and
+/// continuation re-entries are safe.
 pub fn compileParameterize(self: *Compiler, args: Value, dst: u16, is_tail: bool) CompileError!void {
     if (args == types.NIL) return CompileError.InvalidSyntax;
     const bindings = types.car(args);
@@ -779,20 +779,18 @@ pub fn compileParameterize(self: *Compiler, args: Value, dst: u16, is_tail: bool
             outer_bindings = gc.allocPair(pp_pair, outer_bindings) catch return CompileError.OutOfMemory;
         }
 
-        // Inner let*: save old values and compute new (converted) values.
-        //   (let* ((old0 (%pp0)) (new0 (begin (%pp0 %pv0) (%pp0)))
-        //          (old1 (%pp1)) (new1 (begin (%pp1 %pv1) (%pp1))) ...)
+        // Inner let*: save old values and convert new values without mutation.
+        //   (let* ((old0 (%pp0)) (new0 (%parameter-convert %pp0 %pv0))
+        //          (old1 (%pp1)) (new1 (%parameter-convert %pp1 %pv1)) ...)
         //     (dynamic-wind ...))
+        const pconv_sym = gc.allocSymbol("%parameter-convert") catch return CompileError.OutOfMemory;
         var inner_bindings: Value = types.NIL;
         i = binding_count;
         while (i > 0) {
             i -= 1;
-            // (new_i (begin (%pp_i %pv_i) (%pp_i)))
-            const set_call = gc.allocPair(param_syms[i], gc.allocPair(val_syms[i], types.NIL) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory;
-            const get_call = gc.allocPair(param_syms[i], types.NIL) catch return CompileError.OutOfMemory;
-            const begin_body = gc.allocPair(set_call, gc.allocPair(get_call, types.NIL) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory;
-            const begin_expr = gc.allocPair(begin_sym, begin_body) catch return CompileError.OutOfMemory;
-            const new_pair = gc.allocPair(new_syms[i], gc.allocPair(begin_expr, types.NIL) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory;
+            // (new_i (%parameter-convert %pp_i %pv_i))
+            const conv_call = gc.allocPair(pconv_sym, gc.allocPair(param_syms[i], gc.allocPair(val_syms[i], types.NIL) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory;
+            const new_pair = gc.allocPair(new_syms[i], gc.allocPair(conv_call, types.NIL) catch return CompileError.OutOfMemory) catch return CompileError.OutOfMemory;
             inner_bindings = gc.allocPair(new_pair, inner_bindings) catch return CompileError.OutOfMemory;
 
             // (old_i (%pp_i))
