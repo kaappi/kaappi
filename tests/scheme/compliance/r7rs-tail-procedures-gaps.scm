@@ -108,12 +108,14 @@
         (loop (+ i 1) (delay-force p)))))
 (test-equal "delay-force chain resolves" 'done (force (chain-test 100)))
 
-;; --- deep native re-entrancy raises catchable error ---
+;; --- deep native re-entrancy: moderate depth succeeds (#1191) ---
 (define (deep-map n)
   (if (= n 0) 0
       (car (map (lambda (x) (deep-map (- x 1))) (list n)))))
-(test-equal "deep native map catchable" 'caught
-  (guard (e (#t 'caught)) (deep-map 2500)))
+(test-equal "deep native map succeeds at moderate depth" 0 (deep-map 2500))
+;; Exceeding the native re-entrancy limit is still catchable
+(test-equal "deep native map catchable past limit" 'caught
+  (guard (e (#t 'caught)) (deep-map 4000)))
 
 (let ((runner (test-runner-current)))
   (test-end "r7rs-tail-procedures-gaps")
