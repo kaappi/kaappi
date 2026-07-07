@@ -33,4 +33,10 @@
   next)
 (test 12 ((counter 10) 2))
 
+;;; --- curried define inside let/begin bodies ---
+(define let-result (let () (define ((f a) b) (+ a b)) ((f 1) 2)))
+(test 3 let-result)
+(define begin-result (begin (define ((g a) b) (* a b)) ((g 4) 5)))
+(test 20 begin-result)
+
 (test-end "srfi-219")

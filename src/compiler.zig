@@ -679,6 +679,7 @@ pub const Compiler = struct {
             // special form handle the base case.
             if (!is_shadowed) {
                 const suppressed = if (self.suppress_macro_name) |smn| std.mem.eql(u8, name, smn) else false;
+                if (suppressed) self.suppress_macro_name = null;
                 if (!suppressed) {
                     const macro_hit: ?Value = if (self.lookupMacro(name)) |t|
                         if (self.resolveLocal(name) != null or (try self.resolveUpvalue(name)) != null) null else t
