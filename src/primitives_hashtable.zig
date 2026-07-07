@@ -293,6 +293,13 @@ fn hashTableWalkFn(args: []const Value) PrimitiveError!Value {
     const snapshot = snapshotLiveEntries(gc, ht) orelse return PrimitiveError.OutOfMemory;
     defer gc.allocator.free(snapshot);
 
+    const scope = gc.rootedScope();
+    defer scope.release();
+    for (snapshot) |entry| {
+        gc.extra_roots.append(gc.allocator, entry.key) catch return PrimitiveError.OutOfMemory;
+        gc.extra_roots.append(gc.allocator, entry.value) catch return PrimitiveError.OutOfMemory;
+    }
+
     for (snapshot) |entry| {
         const call_args = [2]Value{ entry.key, entry.value };
         _ = vm.callWithArgs(proc, &call_args) catch |err| {
@@ -500,6 +507,13 @@ fn hashTableFoldFn(args: []const Value) PrimitiveError!Value {
 
     const snapshot = snapshotLiveEntries(gc, ht) orelse return PrimitiveError.OutOfMemory;
     defer gc.allocator.free(snapshot);
+
+    const scope = gc.rootedScope();
+    defer scope.release();
+    for (snapshot) |entry| {
+        gc.extra_roots.append(gc.allocator, entry.key) catch return PrimitiveError.OutOfMemory;
+        gc.extra_roots.append(gc.allocator, entry.value) catch return PrimitiveError.OutOfMemory;
+    }
 
     for (snapshot) |entry| {
         const call_args = [3]Value{ entry.key, entry.value, acc };

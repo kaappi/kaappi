@@ -181,26 +181,23 @@
                                 (hash-table-set! ht (list k) v)
                                 (set! seen (+ seen 1))))
           seen))
-;; The walk/fold snapshot is invisible to the GC: if the callback deletes
-;; entries and allocates, the snapshot's keys/values are freed and reused,
-;; and the callback receives corrupted pairs. Passes on a default build;
-;; fails under -Dgc-stress=true (verified: 29/30 entries corrupted).
-;; FAIL: #1181 (walk/fold snapshot unrooted — use-after-free under GC pressure)
-;; (test '(435 0)
-;;     (let ((ht (make-hash-table)) (sum 0) (bad 0))
-;;       (do ((i 0 (+ i 1))) ((= i 30))
-;;         (hash-table-set! ht (cons i 'key) (cons i 'val)))
-;;       (hash-table-walk ht
-;;         (lambda (k v)
-;;           (do ((j 0 (+ j 1))) ((= j 30))
-;;             (hash-table-delete! ht (cons j 'key)))
-;;           (do ((j 0 (+ j 1))) ((= j 100))
-;;             (cons j (make-vector 4 j)))
-;;           (if (and (pair? k) (pair? v) (eq? (cdr k) 'key) (eq? (cdr v) 'val)
-;;                    (= (car k) (car v)))
-;;               (set! sum (+ sum (car k)))
-;;               (set! bad (+ bad 1)))))
-;;       (list sum bad)))
+;; Regression test for #1181: walk/fold snapshot keys/values must be rooted
+;; so GC doesn't free them when the callback deletes entries and allocates.
+(test '(435 0)
+    (let ((ht (make-hash-table)) (sum 0) (bad 0))
+      (do ((i 0 (+ i 1))) ((= i 30))
+        (hash-table-set! ht (cons i 'key) (cons i 'val)))
+      (hash-table-walk ht
+        (lambda (k v)
+          (do ((j 0 (+ j 1))) ((= j 30))
+            (hash-table-delete! ht (cons j 'key)))
+          (do ((j 0 (+ j 1))) ((= j 100))
+            (cons j (make-vector 4 j)))
+          (if (and (pair? k) (pair? v) (eq? (cdr k) 'key) (eq? (cdr v) 'val)
+                   (= (car k) (car v)))
+              (set! sum (+ sum (car k)))
+              (set! bad (+ bad 1)))))
+      (list sum bad)))
 
 ;;; --- update!/default ---
 (test 11 (let ((ht (make-hash-table)))
