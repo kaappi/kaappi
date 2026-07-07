@@ -88,10 +88,9 @@
 (test #t (guard (e (#t #t)) (mutex-unlock! 9)))
 (test #t (guard (e (#t #t)) (mutex-specific 9)))
 (test #t (guard (e (#t #t)) (mutex-specific-set! 9 1)))
-;; FAIL: #1153 (mutex-lock! with timeout on a locked mutex steals the lock)
-;; (let ((m (make-mutex)))
-;;   (mutex-lock! m)
-;;   (test #f (mutex-lock! m 0.05)))
+(let ((m (make-mutex)))
+  (mutex-lock! m)
+  (test #f (mutex-lock! m 0.05)))
 ;; FAIL: #1154 (explicit #f thread argument must yield locked/not-owned)
 ;; (let ((m (make-mutex)))
 ;;   (mutex-lock! m #f #f)
@@ -110,11 +109,9 @@
 (test #t (guard (e (#t #t)) (condition-variable-broadcast! "cv")))
 (test #t (guard (e (#t #t)) (condition-variable-specific 1)))
 (test #t (guard (e (#t #t)) (condition-variable-specific-set! 1 2)))
-;; FAIL: #1153 (same scheduler-dry bug in runSchedulerUntilCondVar: timed
-;; condvar wait returns #t without waiting when no other fiber is runnable)
-;; (let ((m (make-mutex)) (cv (make-condition-variable)))
-;;   (mutex-lock! m)
-;;   (test #f (mutex-unlock! m cv 0.01)))
+(let ((m (make-mutex)) (cv (make-condition-variable)))
+  (mutex-lock! m)
+  (test #f (mutex-unlock! m cv 0.01)))
 
 ;;; --- time ---
 (let ((t (seconds->time 123.5)))
