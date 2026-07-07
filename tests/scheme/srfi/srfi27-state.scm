@@ -68,7 +68,7 @@
 (check-true "state-set! rejects all-zero state" zero-err)
 
 ;; Verify state words are integers (now bignums for full 64-bit)
-(define state-words (random-source-state-ref (default-random-source)))
+(define state-words (random-source-state-ref default-random-source))
 (check-true "state is a list of 4" (= 4 (length state-words)))
 (check-true "state words are integers"
   (and (integer? (car state-words))

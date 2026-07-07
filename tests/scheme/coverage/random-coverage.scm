@@ -29,7 +29,7 @@
   (check-true "random-real < 1" (< r 1.0)))
 
 ;;; ---- default-random-source ----
-(check-true "default-random-source" (random-source? (default-random-source)))
+(check-true "default-random-source" (random-source? default-random-source))
 
 ;;; ---- make-random-source ----
 (let ((rs (make-random-source)))

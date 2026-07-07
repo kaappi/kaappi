@@ -88,7 +88,7 @@
 (check "srfi 1 loaded" (iota 3) '(0 1 2))
 
 (import (srfi 27))
-(check-true "srfi 27 loaded" (random-source? (default-random-source)))
+(check-true "srfi 27 loaded" (random-source? default-random-source))
 
 ;;; ---- define-values ----
 (define-values (dv-x dv-y dv-z) (values 10 20 30))
