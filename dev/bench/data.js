@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783392161129,
+  "lastUpdate": 1783392210063,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "33ef8be83a4c8935b8de6cdc51448361fc32d1e4",
-          "message": "Fix top-level macros invisible inside bare-lambda bodies (#1025) (#1077)\n\ncompileLambdaWithIR lowered body forms with the child compiler's\n(empty) macro table. IR macro lookup now uses the compiler's\nlookupMacro(), which walks the parent chain, so macros defined\nin enclosing scopes are visible in lambda bodies compiled via IR.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-04T07:24:14Z",
-          "tree_id": "3ad8cf784f358fb081b62f32153ce816daa26079",
-          "url": "https://github.com/kaappi/kaappi/commit/33ef8be83a4c8935b8de6cdc51448361fc32d1e4"
-        },
-        "date": 1783151006742,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.289394,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.245355,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.915499,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.225461,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.01252,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.210741,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.467138,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.071188,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 12.40743,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.840497,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 9.847403,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.954312,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 8.29369,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.690237,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.042658,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044498,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c0fb97145a66e78db1e6f4f9328c558e029068a1",
+          "message": "Unify platform feature lists across (features) and cond-expand (#1177) (#1283)\n\nThree call sites hardcoded divergent feature lists: (features) lacked\nexact-closed and exact-complex, expression-level cond-expand lacked\nexact-complex, while library-level cond-expand had both. R7RS §6.14\nrequires (features) to return exactly the identifiers cond-expand\ntreats as true. Introduce a single types.platform_features constant\nconsulted by all three sites.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-07T07:45:00+05:30",
+          "tree_id": "5bcd5eb7912b52bc2b7a27e03f2e9aef3e29bbde",
+          "url": "https://github.com/kaappi/kaappi/commit/c0fb97145a66e78db1e6f4f9328c558e029068a1"
+        },
+        "date": 1783392209447,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.326123,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.175948,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 1.041455,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.655409,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.012499,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.21367,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.522317,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.072414,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 12.464631,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 2.024833,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 10.010231,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.955567,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 8.357876,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.777324,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044318,
             "unit": "seconds"
           }
         ]
