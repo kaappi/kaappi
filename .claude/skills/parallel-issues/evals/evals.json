@@ -35,6 +35,17 @@
         "Response states that no open issues carry the 'documentation' label",
         "Response contains no set lines (no fallback to batching the whole tracker)"
       ]
+    },
+    {
+      "id": 3,
+      "prompt": "Group the open issues that are labeled both bug and macros into parallel sets. (skill argument: bug,macros)",
+      "expected_output": "Sets containing only issues that carry BOTH the bug and macros labels, correct set-line format. If no issues match, a statement that none match with no fallback.",
+      "files": [],
+      "expectations": [
+        "gh issue list is called with both --label \"bug\" and --label \"macros\"",
+        "Only issues carrying both labels appear in the sets",
+        "Response does not fall back to a single label or all issues if the intersection is empty"
+      ]
     }
   ]
 }
