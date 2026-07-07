@@ -339,6 +339,39 @@ test "eval tail position runs in constant frame depth (#1253)" {
 // guard desugars its body into a lambda, putting eval in tail position and
 // routing through get_global (not call_global). Without restricted_globals,
 // get_global falls back to vm.globals, letting car resolve.
+test "environment accepts import-set modifiers (#1189)" {
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
+    // only
+    try std.testing.expectEqual(@as(i64, 3), types.toFixnum(try ctx.vm.eval(
+        "(eval '(+ 1 2) (environment '(only (scheme base) +)))",
+    )));
+    // except
+    try std.testing.expectEqual(@as(i64, 3), types.toFixnum(try ctx.vm.eval(
+        "(eval '(+ 1 2) (environment '(except (scheme base) car)))",
+    )));
+    // prefix
+    try std.testing.expectEqual(@as(i64, 7), types.toFixnum(try ctx.vm.eval(
+        "(eval '(b:+ 3 4) (environment '(prefix (scheme base) b:)))",
+    )));
+    // rename
+    try std.testing.expectEqual(@as(i64, 30), types.toFixnum(try ctx.vm.eval(
+        "(eval '(add 10 20) (environment '(rename (scheme base) (+ add))))",
+    )));
+    // nested: only on prefix
+    try std.testing.expectEqual(@as(i64, 11), types.toFixnum(try ctx.vm.eval(
+        "(eval '(s:+ 5 6) (environment '(only (prefix (scheme base) s:) s:+)))",
+    )));
+    // only restricts excluded bindings
+    const result = try ctx.vm.eval(
+        \\(guard (e (#t 'restricted))
+        \\  (eval '(- 5 3) (environment '(only (scheme base) +))))
+    );
+    try std.testing.expect(types.isSymbol(result));
+    try std.testing.expectEqualStrings("restricted", types.symbolName(result));
+}
+
 test "null-environment eval in tail position respects restriction (#1253)" {
     var ctx: th.TestContext = undefined;
     try ctx.init();

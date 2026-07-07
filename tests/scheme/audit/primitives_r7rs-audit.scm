@@ -69,10 +69,9 @@
 (test 'caught (guard (e (#t 'caught)) (environment 42)))
 (test 'caught (guard (e (#t 'caught)) (environment '(no such library))))
 ;; R7RS 6.12: the arguments are IMPORT SETS, so only/except/prefix/rename
-;; must be accepted; kaappi only accepts plain library names.
-;; FAIL: #1189 (environment rejects import-set modifiers)
-;; (test 3 (eval '(+ 1 2) (environment '(only (scheme base) +))))
-;; (test 3 (eval '(base:+ 1 2) (environment '(prefix (scheme base) base:))))
+;; must be accepted.
+(test 3 (eval '(+ 1 2) (environment '(only (scheme base) +))))
+(test 3 (eval '(base:+ 1 2) (environment '(prefix (scheme base) base:))))
 
 ;;; --- interaction-environment / null-environment / scheme-report-environment ---
 (test #t (and (interaction-environment) #t))
