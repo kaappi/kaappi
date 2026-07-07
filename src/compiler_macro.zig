@@ -10,7 +10,7 @@ const Value = types.Value;
 const MAX_MACRO_EXPANSION_DEPTH: u16 = 256;
 const MAX_MACRO_EXPANSION_STEPS: u32 = 10_000;
 
-fn resolveLocalSkipAliases(ctx: ?*const anyopaque, name: []const u8) u16 {
+fn resolveLocalSkipAliases(ctx: ?*const anyopaque, name: []const u8) u32 {
     const self: *const Compiler = @ptrCast(@alignCast(ctx.?));
     var comp: ?*const Compiler = self;
     while (comp) |c| {
@@ -18,7 +18,7 @@ fn resolveLocalSkipAliases(ctx: ?*const anyopaque, name: []const u8) u16 {
         while (i > 0) {
             i -= 1;
             const local = c.locals.items[i];
-            if (!local.is_global_alias and std.mem.eql(u8, local.name, name)) return local.slot;
+            if (!local.is_global_alias and std.mem.eql(u8, local.name, name)) return local.binding_id;
         }
         comp = c.parent;
     }
@@ -167,6 +167,7 @@ pub fn expandAndCompileMacroUse(self: *Compiler, expr: Value, name: []const u8, 
             .name = cap.name,
             .depth = self.scope_depth,
             .slot = cap.slot,
+            .binding_id = compiler_mod.freshBindingId(),
         });
     }
     try injectHygienicCapturedLocals(self, expanded_root, tx.captured_locals);
@@ -194,6 +195,7 @@ pub fn expandAndCompileMacroUse(self: *Compiler, expr: Value, name: []const u8, 
             .name = gname,
             .depth = self.scope_depth,
             .slot = gslot,
+            .binding_id = compiler_mod.freshBindingId(),
             .is_global_alias = true,
         });
     }
@@ -499,11 +501,11 @@ pub fn parseSyntaxRules(self: *Compiler, spec: Value, extra_bound: []const []con
     // Binding identity — not just bound/unbound — is needed so that two
     // different bindings with the same name don't falsely match.
     if (lit_count > 0) {
-        const slots = self.gc.allocator.alloc(u16, lit_count) catch return CompileError.OutOfMemory;
+        const slots = self.gc.allocator.alloc(u32, lit_count) catch return CompileError.OutOfMemory;
         for (literals_buf[0..lit_count], 0..) |lv, li| {
             slots[li] = if (types.isSymbol(lv)) blk: {
                 const lname = types.symbolName(lv);
-                if (self.resolveLocal(lname)) |s| break :blk s;
+                if (self.resolveBindingId(lname)) |bid| break :blk bid;
                 for (extra_bound) |eb| {
                     if (std.mem.eql(u8, eb, lname)) break :blk expander.LITERAL_BOUND_PENDING;
                 }
@@ -544,6 +546,7 @@ fn injectHygCapturedWalk(self: *Compiler, expr: Value, captured: []const types.C
                         .name = name,
                         .depth = self.scope_depth,
                         .slot = cap.slot,
+                        .binding_id = compiler_mod.freshBindingId(),
                     });
                 }
                 return;

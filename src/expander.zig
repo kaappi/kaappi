@@ -125,14 +125,14 @@ const Binding = struct {
 // Public API
 // ---------------------------------------------------------------------------
 
-pub const LITERAL_UNBOUND: u16 = 0xFFFF;
-pub const LITERAL_BOUND_PENDING: u16 = 0xFFFE;
+pub const LITERAL_UNBOUND: u32 = 0xFFFFFFFF;
+pub const LITERAL_BOUND_PENDING: u32 = 0xFFFFFFFE;
 
 pub const UseSiteBindingCheck = struct {
     ctx: ?*const anyopaque = null,
-    resolve_fn: ?*const fn (?*const anyopaque, []const u8) u16 = null,
+    resolve_fn: ?*const fn (?*const anyopaque, []const u8) u32 = null,
 
-    pub fn resolve(self: UseSiteBindingCheck, name: []const u8) u16 {
+    pub fn resolve(self: UseSiteBindingCheck, name: []const u8) u32 {
         if (self.resolve_fn) |f| return f(self.ctx, name);
         return LITERAL_UNBOUND;
     }
@@ -211,7 +211,7 @@ pub const ExpandError = error{
 // Pattern matching
 // ---------------------------------------------------------------------------
 
-fn matchPattern(pattern: Value, input: Value, literals: []const Value, bindings: *[MAX_BINDINGS]Binding, count: *usize, gc: ?*GC, literal_bound: []const u16, use_check: UseSiteBindingCheck) bool {
+fn matchPattern(pattern: Value, input: Value, literals: []const Value, bindings: *[MAX_BINDINGS]Binding, count: *usize, gc: ?*GC, literal_bound: []const u32, use_check: UseSiteBindingCheck) bool {
     // Symbol patterns
     if (types.isSymbol(pattern)) {
         const name = types.symbolName(pattern);
@@ -292,7 +292,7 @@ fn matchPattern(pattern: Value, input: Value, literals: []const Value, bindings:
     return false;
 }
 
-fn matchListPattern(pattern: Value, input: Value, literals: []const Value, bindings: *[MAX_BINDINGS]Binding, count: *usize, gc: ?*GC, literal_bound: []const u16, use_check: UseSiteBindingCheck) bool {
+fn matchListPattern(pattern: Value, input: Value, literals: []const Value, bindings: *[MAX_BINDINGS]Binding, count: *usize, gc: ?*GC, literal_bound: []const u32, use_check: UseSiteBindingCheck) bool {
     var pat = pattern;
     var inp = input;
 
@@ -349,7 +349,7 @@ fn countPairs(v: Value) ?usize {
     return n;
 }
 
-fn matchEllipsis(elem_pattern: Value, rest_pattern: Value, input: Value, literals: []const Value, bindings: *[MAX_BINDINGS]Binding, count: *usize, gc: ?*GC, literal_bound: []const u16, use_check: UseSiteBindingCheck) bool {
+fn matchEllipsis(elem_pattern: Value, rest_pattern: Value, input: Value, literals: []const Value, bindings: *[MAX_BINDINGS]Binding, count: *usize, gc: ?*GC, literal_bound: []const u32, use_check: UseSiteBindingCheck) bool {
     // Count how many elements the rest_pattern needs (handles improper lists)
     const rest_len = countPairs(rest_pattern) orelse return false;
     const input_len = countPairs(input) orelse return false;

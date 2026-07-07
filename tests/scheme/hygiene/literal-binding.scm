@@ -114,6 +114,26 @@
      (define lit 42)
      (m lit))))
 
+;; --- Cross-frame: nested lambda shadows same-name literal (#1272) ---
+(test-equal "cross-frame literal shadow — different binding identity"
+  'no
+  ((lambda (lit)
+     (define-syntax m
+       (syntax-rules (lit)
+         ((_ lit) 'yes)
+         ((_ x)   'no)))
+     ((lambda (lit) (m lit)) 99)) 1))
+
+;; Positive: same-frame literal still matches through nested lambda call
+(test-equal "cross-frame same literal — matches"
+  'yes
+  ((lambda (lit)
+     (define-syntax m
+       (syntax-rules (lit)
+         ((_ lit) 'yes)
+         ((_ x)   'no)))
+     (m lit)) 1))
+
 (let ((runner (test-runner-current)))
   (test-end "literal-binding")
   (when (> (test-runner-fail-count runner) 0) (exit 1)))

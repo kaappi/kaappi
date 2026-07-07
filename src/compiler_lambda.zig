@@ -48,6 +48,7 @@ pub fn compileLambda(self: *Compiler, args: Value, dst: u16, name: ?[]const u8) 
             .name = types.symbolName(formals),
             .depth = 1,
             .slot = slot,
+            .binding_id = compiler_mod.freshBindingId(),
         }) catch return CompileError.OutOfMemory;
     } else {
         while (param_list != types.NIL) {
@@ -59,6 +60,7 @@ pub fn compileLambda(self: *Compiler, args: Value, dst: u16, name: ?[]const u8) 
                     .name = types.symbolName(param_list),
                     .depth = 1,
                     .slot = slot,
+                    .binding_id = compiler_mod.freshBindingId(),
                 }) catch return CompileError.OutOfMemory;
                 break;
             }
@@ -71,6 +73,7 @@ pub fn compileLambda(self: *Compiler, args: Value, dst: u16, name: ?[]const u8) 
                 .name = types.symbolName(param),
                 .depth = 1,
                 .slot = slot,
+                .binding_id = compiler_mod.freshBindingId(),
             }) catch return CompileError.OutOfMemory;
             arity += 1;
             param_list = types.cdr(param_list);
@@ -430,6 +433,7 @@ pub fn compileDefine(self: *Compiler, args: Value, dst: u16) CompileError!void {
                 .name = types.symbolName(target),
                 .depth = self.scope_depth,
                 .slot = slot,
+                .binding_id = compiler_mod.freshBindingId(),
             }) catch return CompileError.OutOfMemory;
             try self.emitOp(.load_void);
             try self.emitU16(dst);
@@ -464,6 +468,7 @@ pub fn compileDefine(self: *Compiler, args: Value, dst: u16) CompileError!void {
                 .name = types.symbolName(name),
                 .depth = self.scope_depth,
                 .slot = slot,
+                .binding_id = compiler_mod.freshBindingId(),
             }) catch return CompileError.OutOfMemory;
             try self.emitOp(.load_void);
             try self.emitU16(dst);

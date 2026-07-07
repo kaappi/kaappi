@@ -377,7 +377,7 @@ pub const Transformer = struct {
     def_env: ?*std.StringHashMap(Value) = null,
     def_env_val: Value = NIL,
     custom_ellipsis: ?[]const u8 = null,
-    literal_bound: []u16 = &.{},
+    literal_bound: []u32 = &.{},
     let_syntax_peer_names: [][]const u8 = &.{},
     let_syntax_peer_vals: []Value = &.{},
 };

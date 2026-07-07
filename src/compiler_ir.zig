@@ -251,6 +251,7 @@ pub fn compileLambdaWithIR(self: *Compiler, args: Value, dst: u16, name: ?[]cons
             .name = types.symbolName(formals),
             .depth = 1,
             .slot = slot,
+            .binding_id = compiler_mod.freshBindingId(),
         }) catch return CompileError.OutOfMemory;
     } else {
         while (param_list != types.NIL) {
@@ -261,6 +262,7 @@ pub fn compileLambdaWithIR(self: *Compiler, args: Value, dst: u16, name: ?[]cons
                     .name = types.symbolName(param_list),
                     .depth = 1,
                     .slot = slot,
+                    .binding_id = compiler_mod.freshBindingId(),
                 }) catch return CompileError.OutOfMemory;
                 break;
             }
@@ -272,6 +274,7 @@ pub fn compileLambdaWithIR(self: *Compiler, args: Value, dst: u16, name: ?[]cons
                 .name = types.symbolName(param),
                 .depth = 1,
                 .slot = slot,
+                .binding_id = compiler_mod.freshBindingId(),
             }) catch return CompileError.OutOfMemory;
             arity += 1;
             param_list = types.cdr(param_list);
@@ -637,6 +640,7 @@ fn compileDefineFromIR(self: *Compiler, data: ir_mod.DefineData, dst: u16) Compi
             .name = types.symbolName(data.name),
             .depth = self.scope_depth,
             .slot = slot,
+            .binding_id = compiler_mod.freshBindingId(),
         }) catch return CompileError.OutOfMemory;
         try self.emitOp(.load_void);
         try self.emitU16(dst);
