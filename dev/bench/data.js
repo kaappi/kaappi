@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783392210063,
+  "lastUpdate": 1783400386763,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "ef31aaffecbf33225c0675f005bc6ae933982e12",
-          "message": "Add letrec* desugaring to bare-lambda IR path (#1026) (#1078)\n\nInternal defines in `(define f (lambda () ...))` bodies were compiled\nsequentially, so forward references to sibling defines failed at\nruntime (R7RS 5.3.2 requires letrec* semantics). The `compileLambdaWithIR`\npath now pre-scans leading defines, pre-declares all names as boxed\nlocals, then evaluates initializers with all names visible — matching\nwhat `compileBody` already does for the `(define (f) ...)` shorthand.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-04T07:43:22Z",
-          "tree_id": "4ea7fc39b6055089e51015f27a5e5d749cef2abc",
-          "url": "https://github.com/kaappi/kaappi/commit/ef31aaffecbf33225c0675f005bc6ae933982e12"
-        },
-        "date": 1783152190042,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.050418,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.567618,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.943143,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.368699,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.013813,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.234288,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.473546,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.068377,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 13.438335,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.828723,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 11.033571,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 1.072201,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 9.172195,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.846219,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044224,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044318,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "4ccbf0f45f2f9d438419f17557480a4c305eeae8",
+          "message": "Check record type in accessors and mutators (#1199) (#1281)\n\n* Check record type in accessors and mutators (#1199)\n\nRecord accessors and mutators desugared from define-record-type now\nverify that the argument is an instance of the correct record type,\nnot just any record. Previously, passing a record of a different type\nwith enough fields would silently read/write the wrong field — a data\ncorruption hazard.\n\nThe fix passes the expected record type as an additional argument to\nthe internal %record-ref and %record-set! primitives, which compare\nit against the instance's record_type pointer. All three desugaring\npaths (VM top-level, body-context expansion, and compiler dispatch)\nare updated.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Guard record-type argument before downcast in %record-ref/%record-set!\n\nAdd isRecordType checks before the toObject().as(RecordType) downcast\nso that passing a non-record-type value (e.g. a fixnum) raises a\nproper Scheme error instead of dereferencing a bogus pointer. Also\nupdate audit tests to exercise the 3-arg %record-ref and add a\n%record-set! bad-type-arg test.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-07T10:02:40+05:30",
+          "tree_id": "8b80d11ea45ad6625141f42827806f4a9e1af61c",
+          "url": "https://github.com/kaappi/kaappi/commit/4ccbf0f45f2f9d438419f17557480a4c305eeae8"
+        },
+        "date": 1783400386116,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.302654,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.528741,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.931223,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.11007,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.012482,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.211994,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.471203,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.069851,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 12.361487,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.820717,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 9.969643,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.943727,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 8.280719,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.71956,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.043239,
             "unit": "seconds"
           }
         ]
