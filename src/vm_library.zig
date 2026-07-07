@@ -467,8 +467,7 @@ fn tryLoadLibraryFromFile(vm: *VM, name_list: Value) !void {
 fn evalLibFeatureReq(vm: *VM, req: Value) bool {
     if (types.isSymbol(req)) {
         const name = types.symbolName(req);
-        const known = [_][]const u8{ "r7rs", "kaappi", "ieee-float", "posix", "exact-closed", "exact-complex" };
-        for (known) |f| {
+        for (types.platform_features) |f| {
             if (std.mem.eql(u8, name, f)) return true;
         }
         return false;

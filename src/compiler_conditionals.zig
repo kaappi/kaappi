@@ -262,15 +262,7 @@ pub fn compileCondExpand(self: *Compiler, args: Value, dst: u16, is_tail: bool) 
 pub fn evalFeatureReq(self: *Compiler, req: Value) bool {
     if (types.isSymbol(req)) {
         const name = types.symbolName(req);
-        // Hardcoded feature identifiers
-        const known_features = [_][]const u8{
-            "r7rs",
-            "kaappi",
-            "ieee-float",
-            "posix",
-            "exact-closed",
-        };
-        for (known_features) |f| {
+        for (types.platform_features) |f| {
             if (std.mem.eql(u8, name, f)) return true;
         }
         return false;

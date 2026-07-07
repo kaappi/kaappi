@@ -1195,6 +1195,8 @@ test "truthiness" {
     try std.testing.expect(!isTruthy(FALSE));
 }
 
+pub const platform_features = [_][]const u8{ "r7rs", "kaappi", "ieee-float", "posix", "exact-closed", "exact-complex" };
+
 test "nil is not a pointer" {
     try std.testing.expect(!isPointer(NIL));
     try std.testing.expect(isNil(NIL));

@@ -473,12 +473,10 @@ fn forEachFn(args: []const Value) PrimitiveError!Value {
 fn featuresFn(args: []const Value) PrimitiveError!Value {
     _ = args;
     const gc = getGC() orelse return PrimitiveError.OutOfMemory;
-    // Return a list of feature identifiers
-    const r7rs = gc.allocSymbol("r7rs") catch return PrimitiveError.OutOfMemory;
-    const kaappi = gc.allocSymbol("kaappi") catch return PrimitiveError.OutOfMemory;
-    const ieee_float = gc.allocSymbol("ieee-float") catch return PrimitiveError.OutOfMemory;
-    const posix_sym = gc.allocSymbol("posix") catch return PrimitiveError.OutOfMemory;
-    const items = [_]Value{ r7rs, kaappi, ieee_float, posix_sym };
+    var items: [types.platform_features.len]Value = undefined;
+    for (types.platform_features, 0..) |name, i| {
+        items[i] = gc.allocSymbol(name) catch return PrimitiveError.OutOfMemory;
+    }
     return gc.makeList(&items) catch return PrimitiveError.OutOfMemory;
 }
 
