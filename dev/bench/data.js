@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783400386763,
+  "lastUpdate": 1783401520964,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "f91ac87f6af941f5e021002fd9dad183e870af46",
-          "message": "Panic on writeBarrier remembered-set OOM instead of silently dropping (#1036) (#1079)\n\nA dropped remembered-set entry lets minor GC sweep a live young object.\nFollows the precedent set for mark-stack OOM in gc_collect.zig.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-04T08:05:05Z",
-          "tree_id": "84fd5fb95f682c49ae29071540758ba8d6901b2d",
-          "url": "https://github.com/kaappi/kaappi/commit/f91ac87f6af941f5e021002fd9dad183e870af46"
-        },
-        "date": 1783153493291,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.439125,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.91138,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.932947,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.342142,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.012655,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.210856,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.475432,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.071463,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 12.38779,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.858453,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 9.892058,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.956226,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 8.298193,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.53661,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.042337,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.043239,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "3d54b53a075e39c85b30ae12c40a4acb9b3d7a3f",
+          "message": "Reject non-environment second argument to eval (#1270) (#1282)\n\n* Reject non-environment second argument to eval (#1270)\n\nBoth code paths for eval (the evalFn native function and the tail_eval\nbytecode opcode) silently ignored a non-environment second argument,\nfalling through to the global-environment path. Now they raise a type\nerror, matching load's behavior per R7RS §6.12.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Address review: collapse redundant check, add tail-position test, match error message\n\n- evalFn: fold guard + isEnvironment into single branch (redundant re-check)\n- tail_eval: include offending value in error message for parity with native path\n- Add test where eval is in tail position to exercise the tail_eval opcode\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Add trailing #f to tail-position test so it fails without the fix\n\nWithout the #f, the guard body returns 3 (truthy) when the bug is\npresent, making the test-assert a tautology.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-07T04:52:13Z",
+          "tree_id": "080797ef6127f57cbccd2dd9a2d96233f010a145",
+          "url": "https://github.com/kaappi/kaappi/commit/3d54b53a075e39c85b30ae12c40a4acb9b3d7a3f"
+        },
+        "date": 1783401520094,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.044428,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.013211,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.956265,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.041892,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.013686,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.235028,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.477587,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.068319,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 13.36456,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.835907,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 11.093378,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 1.060432,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 9.145984,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.821689,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044496,
             "unit": "seconds"
           }
         ]
