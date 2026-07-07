@@ -48,6 +48,7 @@ pub const Reader = struct {
     gc: *memory.GC,
     token_buf: std.ArrayList(u8),
     fold_case: bool = false,
+    mark_immutable: bool = true,
     labels: [32]?Value = .{null} ** 32,
     source_name: []const u8 = "<input>",
     depth: u32 = 0,

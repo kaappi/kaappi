@@ -562,6 +562,7 @@ fn readFromPeekByteOnly(gc: *@import("memory.zig").GC, port: *types.Port) Primit
     port.peek_byte = null;
     const source: [1]u8 = .{b};
     var reader = reader_mod.Reader.init(gc, &source);
+    reader.mark_immutable = false;
     defer reader.deinit();
     const maybe_datum = parseDatumForRead(&reader) catch |err| {
         if (err == reader_mod.ReadError.OutOfMemory) return PrimitiveError.OutOfMemory;
@@ -596,6 +597,7 @@ fn readDatumFn(args: []const Value) PrimitiveError!Value {
         }
 
         var reader = reader_mod.Reader.init(gc, source);
+        reader.mark_immutable = false;
         defer reader.deinit();
         const maybe_datum = parseDatumForRead(&reader) catch |err| {
             if (err == reader_mod.ReadError.OutOfMemory) return PrimitiveError.OutOfMemory;
@@ -640,6 +642,7 @@ fn readDatumFn(args: []const Value) PrimitiveError!Value {
         // Try to parse a datum from what we already have.
         if (buf.items.len > 0) {
             var reader = reader_mod.Reader.init(gc, buf.items);
+            reader.mark_immutable = false;
             defer reader.deinit();
             const result = parseDatumForRead(&reader);
             if (result) |maybe_datum| {
@@ -677,6 +680,7 @@ fn readDatumFn(args: []const Value) PrimitiveError!Value {
     if (buf.items.len == 0) return types.EOF;
 
     var reader = reader_mod.Reader.init(gc, buf.items);
+    reader.mark_immutable = false;
     defer reader.deinit();
     const maybe_datum = parseDatumForRead(&reader) catch |err| {
         if (err == reader_mod.ReadError.OutOfMemory) return PrimitiveError.OutOfMemory;

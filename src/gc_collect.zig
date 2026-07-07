@@ -69,7 +69,7 @@ fn minorCollect(gc: *GC) void {
 fn clearOldMarks(gc: *GC) void {
     var obj = gc.old_objects;
     while (obj) |o| {
-        o.marked = false;
+        o.flags.marked = false;
         obj = o.next;
     }
 }
@@ -266,7 +266,7 @@ fn isYoungPointer(gc: *GC, val: Value) bool {
     // never needs a remembered-set entry — and reading its generation bit
     // would race the owning GC's collection cycle.
     if (obj.owner != gc.id) return false;
-    return obj.generation == 0;
+    return obj.flags.generation == 0;
 }
 
 fn fullCollect(gc: *GC) void {
@@ -281,18 +281,18 @@ fn sweepYoung(gc: *GC) void {
     var prev: ?*Object = null;
     var obj = gc.objects;
     while (obj) |o| {
-        if (o.marked) {
-            o.marked = false;
-            o.survive_count +|= 1;
-            if (o.survive_count >= 2) {
+        if (o.flags.marked) {
+            o.flags.marked = false;
+            o.flags.survive_count +|= 1;
+            if (o.flags.survive_count >= 2) {
                 const next = o.next;
                 if (prev) |p| {
                     p.next = next;
                 } else {
                     gc.objects = next;
                 }
-                o.generation = 1;
-                o.survive_count = 0;
+                o.flags.generation = 1;
+                o.flags.survive_count = 0;
                 o.next = gc.old_objects;
                 gc.old_objects = o;
                 obj = next;
@@ -323,8 +323,8 @@ fn sweepOld(gc: *GC) void {
     var prev: ?*Object = null;
     var obj = gc.old_objects;
     while (obj) |o| {
-        if (o.marked) {
-            o.marked = false;
+        if (o.flags.marked) {
+            o.flags.marked = false;
             prev = o;
             obj = o.next;
         } else {
@@ -532,8 +532,8 @@ fn markValueInner(gc: *GC, v: Value, worklist: *std.ArrayList(Value)) void {
         // "already marked" object, skip tracing its children, and sweep live
         // descendants (#958).
         if (obj.owner != gc.id) return;
-        if (obj.marked) return;
-        obj.marked = true;
+        if (obj.flags.marked) return;
+        obj.flags.marked = true;
 
         if (obj.tag == .pair) {
             const pair = obj.as(Pair);
@@ -716,8 +716,8 @@ fn sweep(gc: *GC) void {
     var prev: ?*Object = null;
     var obj = gc.objects;
     while (obj) |o| {
-        if (o.marked) {
-            o.marked = false;
+        if (o.flags.marked) {
+            o.flags.marked = false;
             prev = o;
             obj = o.next;
         } else {

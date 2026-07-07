@@ -86,7 +86,7 @@ fn bytevectorU8Ref(args: []const Value) PrimitiveError!Value {
 
 fn bytevectorU8Set(args: []const Value) PrimitiveError!Value {
     if (!types.isBytevector(args[0])) return primitives.typeError("bytevector-u8-set!", "bytevector", args[0]);
-    if (types.toBytevector(args[0]).immutable) return primitives.typeError("bytevector-u8-set!", "mutable bytevector", args[0]);
+    if (types.toObject(args[0]).flags.immutable) return primitives.typeError("bytevector-u8-set!", "mutable bytevector", args[0]);
     if (!types.isFixnum(args[1])) return primitives.typeError("bytevector-u8-set!", "exact integer", args[1]);
     if (!types.isFixnum(args[2])) return primitives.typeError("bytevector-u8-set!", "exact integer 0-255", args[2]);
     const bv = types.toBytevector(args[0]);
@@ -112,7 +112,7 @@ fn bytevectorCopy(args: []const Value) PrimitiveError!Value {
 fn bytevectorCopyBang(args: []const Value) PrimitiveError!Value {
     // (bytevector-copy! to at from [start [end]])
     if (!types.isBytevector(args[0])) return primitives.typeError("bytevector-copy!", "bytevector", args[0]);
-    if (types.toBytevector(args[0]).immutable) return primitives.typeError("bytevector-copy!", "mutable bytevector", args[0]);
+    if (types.toObject(args[0]).flags.immutable) return primitives.typeError("bytevector-copy!", "mutable bytevector", args[0]);
     if (!types.isFixnum(args[1])) return primitives.typeError("bytevector-copy!", "exact integer", args[1]);
     if (!types.isBytevector(args[2])) return primitives.typeError("bytevector-copy!", "bytevector", args[2]);
 
@@ -383,7 +383,7 @@ fn getOutputBytevector(args: []const Value) PrimitiveError!Value {
 fn readBytevectorMut(args: []const Value) PrimitiveError!Value {
     // (read-bytevector! bv port [start [end]])
     if (!types.isBytevector(args[0])) return primitives.typeError("read-bytevector!", "bytevector", args[0]);
-    if (types.toBytevector(args[0]).immutable) return primitives.typeError("read-bytevector!", "mutable bytevector", args[0]);
+    if (types.toObject(args[0]).flags.immutable) return primitives.typeError("read-bytevector!", "mutable bytevector", args[0]);
     const bv = types.toBytevector(args[0]);
     const port = try getInputPort(args, 1, "read-bytevector!");
     const len = bv.data.len;

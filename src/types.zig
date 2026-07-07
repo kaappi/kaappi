@@ -192,9 +192,7 @@ pub const ObjectTag = enum(u6) {
 
 pub const Object = struct {
     tag: ObjectTag,
-    marked: bool = false,
-    generation: u1 = 0,
-    survive_count: u2 = 0,
+    flags: Flags = .{},
     /// Id of the GC that tracks (and will free) this object. Marking skips
     /// objects owned by another GC: an SRFI-18 child thread's heap can
     /// reference parent-heap objects (shared globals, interned symbols,
@@ -207,6 +205,14 @@ pub const Object = struct {
     // check (v & 7 == 0). Without this, wasm32 allocators may return
     // 4-byte-aligned pointers for types that lack u64 fields (Symbol, etc.).
     _align: Align = .{},
+
+    const Flags = packed struct(u8) {
+        marked: bool = false,
+        generation: u1 = 0,
+        survive_count: u2 = 0,
+        immutable: bool = false,
+        _pad: u3 = 0,
+    };
     const Align = if (@alignOf(?*Object) < 8) struct { _: u64 align(8) = 0 } else struct {};
 
     fn expectedTag(comptime T: type) ?ObjectTag {
@@ -265,7 +271,6 @@ pub const Pair = struct {
     header: Object,
     car: Value = NIL,
     cdr: Value = NIL,
-    immutable: bool = false,
 };
 
 pub const Symbol = struct {
@@ -277,7 +282,6 @@ pub const SchemeString = struct {
     header: Object,
     data: []u8,
     len: usize,
-    immutable: bool = false,
 };
 
 pub const NativeFnType = *const fn (args: []const Value) anyerror!Value;
@@ -415,13 +419,11 @@ pub const RecordInstance = struct {
 pub const Vector = struct {
     header: Object,
     data: []Value,
-    immutable: bool = false,
 };
 
 pub const Bytevector = struct {
     header: Object,
     data: []u8,
-    immutable: bool = false,
 };
 
 pub const Promise = struct {
