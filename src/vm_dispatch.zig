@@ -1184,7 +1184,14 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
 
                 const compiler_mod = @import("compiler.zig");
                 const func_val = blk: {
-                    if (nargs >= 2 and types.isEnvironment(self.registers[abs_base + 1])) {
+                    if (nargs >= 2) {
+                        if (!types.isEnvironment(self.registers[abs_base + 1])) {
+                            const p = @import("printer.zig");
+                            const s = p.valueToString(self.gc.allocator, self.registers[abs_base + 1], .write) catch "";
+                            defer if (s.len > 0) self.gc.allocator.free(s);
+                            self.setErrorDetail("type error in 'eval': expected environment, got {s}", .{if (s.len > 0) s else "?"});
+                            return VMError.TypeError;
+                        }
                         const se = types.toEnvironment(self.registers[abs_base + 1]);
                         break :blk compiler_mod.compileExpressionInEnv(self.gc, expr_val, &self.macros, se.env, self.registers[abs_base + 1], true) catch return VMError.CompileError;
                     }

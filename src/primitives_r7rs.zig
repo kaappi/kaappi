@@ -175,7 +175,8 @@ fn evalFn(args: []const Value) PrimitiveError!Value {
     const expr = args[0];
 
     // If an environment specifier is provided, compile in that environment
-    if (args.len > 1 and types.isEnvironment(args[1])) {
+    if (args.len > 1) {
+        if (!types.isEnvironment(args[1])) return primitives.typeError("eval", "environment", args[1]);
         const se = types.toEnvironment(args[1]);
         const func = compiler_mod.compileExpressionInEnv(gc, expr, &vm.macros, se.env, args[1], false) catch return PrimitiveError.TypeError; // bare-ok: compile error
         var closure_val = gc.allocClosure(func) catch return PrimitiveError.OutOfMemory;
