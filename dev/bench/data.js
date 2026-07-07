@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783401520964,
+  "lastUpdate": 1783402789782,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "11449dab9cda4a3d11994d87b001667ebc709cbe",
-          "message": "Unify typeName into types.zig, fix LSP hover for records/rationals/bignums (#1033) (#1080)\n\nMove the Value-to-type-name switch from repl.zig and kaappi_lsp.zig into\na single canonical types.typeName(). The switch is exhaustive over all 37\nObjectTag variants (no else arm), so adding a new heap type will cause a\ncompile error rather than silently returning \"object\". Also adds\nnative_closure coverage (was missing from both copies).\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-04T08:12:11Z",
-          "tree_id": "1b138dc8fcc874bafa4d3899301a4110e9c8652c",
-          "url": "https://github.com/kaappi/kaappi/commit/11449dab9cda4a3d11994d87b001667ebc709cbe"
-        },
-        "date": 1783153946369,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.291704,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.046846,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.906538,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.219155,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.012443,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.210616,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.463826,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.070441,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 12.49,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.829384,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 9.878645,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.957933,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 8.26481,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.700918,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.042515,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044496,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f68f43faa08b28eab8d4b30c73ceb7c2b811769f",
+          "message": "Enforce immutability on literal vectors, pairs, and bytevectors (#1173) (#1285)\n\n* Enforce immutability on literal vectors, pairs, and bytevectors (#1173)\n\nR7RS §3.4 requires literal constants to be immutable. Strings already\nenforced this via SchemeString.immutable, but vectors, pairs, and\nbytevectors allowed silent mutation of shared literals — causing\nself-modifying code across calls.\n\nMirror the string pattern: add an `immutable` flag to Vector, Pair, and\nBytevector structs, mark reader-produced literals, and guard all 13\nmutating primitives (vector-set!, vector-fill!, vector-copy!,\nvector-swap!, vector-reverse!, set-car!, set-cdr!, list-set!,\nbytevector-u8-set!, bytevector-copy!, read-bytevector!).\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Address review feedback: pack immutable into Object header, read returns mutable data\n\n- Pack marked/generation/survive_count/immutable into a single\n  Object.Flags(u8) packed struct — keeps Object at 16 bytes and makes\n  the immutable bit free for all heap types (Pair, Vector, Bytevector\n  stay at 32 bytes; SchemeString drops from 48 to 40).\n\n- Add Reader.mark_immutable flag (default true). The 4 Reader sites in\n  primitives_io.zig (the `read` procedure) set it to false, so data\n  returned by `(read ...)` is mutable per R7RS §6.13.2 while source-code\n  literals remain immutable per §3.4.\n\n- Migrate SchemeString.immutable to the header flag for consistency.\n\n- Rewrite smoke test to SRFI-64; add 3 tests verifying read returns\n  mutable pairs, vectors, and strings.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-07T05:13:41Z",
+          "tree_id": "282e5dcca884c803d9f10d7265c96eedb0ed6eec",
+          "url": "https://github.com/kaappi/kaappi/commit/f68f43faa08b28eab8d4b30c73ceb7c2b811769f"
+        },
+        "date": 1783402789129,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.376321,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.610198,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.924007,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.14654,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.012495,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.212209,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.470933,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.070969,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 12.448054,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.845875,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 9.958997,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.949906,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 8.311644,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.522281,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.043056,
             "unit": "seconds"
           }
         ]
