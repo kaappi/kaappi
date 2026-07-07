@@ -259,8 +259,8 @@ pub fn compileDefineSyntax(self: *Compiler, args: Value, dst: u16) CompileError!
         tx.def_env_val = self.lib_env_val;
     }
 
-    // Store in macro table; inside a body, track the registration so
-    // the enclosing body scope removes it on exit (R7RS 5.3).
+    try captureLocalsOnTransformer(self, transformer);
+
     const name = types.symbolName(keyword);
     try self.recordBodyMacro(name);
     self.macros.put(name, transformer) catch return CompileError.OutOfMemory;
@@ -391,7 +391,7 @@ pub fn compileLetrecSyntax(self: *Compiler, args: Value, dst: u16, is_tail: bool
     restoreMacros(self, saved_names.items, saved_values.items);
 }
 
-fn captureLocalsOnTransformer(self: *Compiler, transformer: Value) CompileError!void {
+pub fn captureLocalsOnTransformer(self: *Compiler, transformer: Value) CompileError!void {
     if (self.locals.items.len == 0) return;
     const tx = types.toObject(transformer).as(types.Transformer);
     const caps = self.gc.allocator.alloc(types.CapturedLocal, self.locals.items.len) catch return CompileError.OutOfMemory;
