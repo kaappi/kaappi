@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783414020969,
+  "lastUpdate": 1783422885938,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "e8c77bb41dddd94a030209534a5a9ff0d14c2a84",
-          "message": "Resurrect 11 orphaned regression tests, harden run-all.sh (#1029) (#1086)\n\n6 shell scripts in smoke/, 3 in errors/, and 2 loose .scm files were\nnever executed by run-all.sh or CI. Add run_shell_suite() to discover\nand run *.sh per suite directory, move the loose .scm files into smoke/\nwith accurate \"native\" naming, replace hardcoded /tmp paths with mktemp,\nand fail (not skip) on non-executable .sh files.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-04T09:39:15Z",
-          "tree_id": "b6c28250351a93e0f6e933542e8e63bf8080869a",
-          "url": "https://github.com/kaappi/kaappi/commit/e8c77bb41dddd94a030209534a5a9ff0d14c2a84"
-        },
-        "date": 1783159264575,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.427874,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.62194,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.939334,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.254467,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.012675,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.211215,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.476852,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.07121,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 12.504677,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.876691,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 9.922672,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.961252,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 8.318337,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.713381,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.043517,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.04333,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "1679510915730eb84056d9b978ac7c761d8164a3",
+          "message": "Root hash-table-walk/fold snapshot entries to prevent use-after-free (#1181) (#1294)\n\n* Root hash-table-walk/fold snapshot entries to prevent use-after-free (#1181)\n\nsnapshotLiveEntries copies live entries into a raw allocator buffer that\nthe GC cannot see. When the callback deletes entries and allocates, the\ncollector frees the snapshot's keys/values; subsequent iterations pass\ncorrupted objects to the callback. Root all snapshot keys/values via\ngc.extra_roots within a rootedScope so they survive collection.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Add comment explaining why snapshot rooting is a separate pre-pass\n\n---------\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-07T10:47:36Z",
+          "tree_id": "af1f19a4a4eab25907bc079f56bed3f0c4df12be",
+          "url": "https://github.com/kaappi/kaappi/commit/1679510915730eb84056d9b978ac7c761d8164a3"
+        },
+        "date": 1783422884632,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.171736,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.608299,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.730849,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 3.135274,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.010725,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.183847,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.367289,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.05279,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 9.748294,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.419664,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 8.689023,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.834876,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 7.126707,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.365142,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.035245,
             "unit": "seconds"
           }
         ]
