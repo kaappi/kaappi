@@ -196,13 +196,20 @@ test "tail-call into larger frame clears extension registers" {
     // Regression test for #1256: when a tail-call switches to a callee with
     // a larger locals_count, registers in [base+args, base+locals_count) must
     // be cleared to UNDEFINED so the GC doesn't scan stale pointers.
+    //
+    // Strategy: pollute registers with heap pointers, then tail-call into a
+    // function whose locals_count is large (due to a branch with many locals)
+    // but whose taken branch is trivial and doesn't touch the high registers.
+    // After execution, the untouched extension slots should be UNDEFINED (if
+    // cleared) not stale heap pointers (if not cleared).
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
     var vm = try th.makeTestVM(&gc);
     defer vm.deinit();
 
-    // 1. Pollute high registers by calling a function with many locals that
-    //    allocates heap objects (strings), then returns a fixnum.
+    // 1. Pollute registers: call a function with many locals that allocates
+    //    heap objects (strings). After it returns, those register slots retain
+    //    stale string pointers.
     _ = try vm.eval(
         \\(define (pollute)
         \\  (let ((a "heap1") (b "heap2") (c "heap3") (d "heap4")
@@ -211,35 +218,36 @@ test "tail-call into larger frame clears extension registers" {
     );
     _ = try vm.eval("(pollute)");
 
-    // 2. A small function that tail-calls a target with many locals.
-    //    The target only uses its first arg — the rest are declared but
-    //    untouched, so they must stay UNDEFINED after clearFrameLocals.
+    // 2. small (locals=4) tail-calls big-branch (locals=21). big-branch takes
+    //    the #t path which only touches r0-r2, leaving r3-r20 untouched.
+    //    With the fix: clearFrameLocals zeros r3-r20 to UNDEFINED before
+    //    big-branch's body runs, so stale pointers from pollute are cleared.
+    //    Without the fix: r3-r20 retain stale heap pointers from pollute.
     _ = try vm.eval(
-        \\(define (small x)
-        \\  (big x))
+        \\(define (small x) (big-branch #t x))
     );
     _ = try vm.eval(
-        \\(define (big n)
-        \\  (let ((a (+ n 1)) (b (+ n 2)) (c (+ n 3)) (d (+ n 4))
-        \\        (e (+ n 5)) (f (+ n 6)) (g (+ n 7)) (h (+ n 8)))
-        \\    (+ a b c d e f g h)))
+        \\(define (big-branch flag x)
+        \\  (if flag
+        \\      x
+        \\      (let ((a 1) (b 2) (c 3) (d 4) (e 5) (f 6) (g 7) (h 8))
+        \\        (+ a b c d e f g h x))))
     );
 
-    const result = try vm.eval("(small 0)");
-    try std.testing.expectEqual(@as(i64, 36), types.toFixnum(result));
+    const result = try vm.eval("(small 42)");
+    try std.testing.expectEqual(@as(i64, 42), types.toFixnum(result));
 
-    // 3. Verify the registers in the frame-base region are not stale heap
-    //    pointers. After eval returns, frame_count is 0 and the register
-    //    file retains whatever the last execution left. Registers that were
-    //    in the extension zone of the tail-call should have been cleared to
-    //    UNDEFINED (or overwritten by the callee's fixnum locals) — they
-    //    must NOT hold heap object pointers from the earlier `pollute` call.
-    //    Scan the first 32 registers (generous window covering any plausible
-    //    frame base) and verify none point to a freed heap string.
-    for (vm.registers[0..@min(32, vm.registers.len)]) |reg| {
+    // 3. After eval returns, the register file retains whatever the last
+    //    execution left. Scan registers that were in big-branch's frame
+    //    window — the extension slots (beyond the 2 args) should be UNDEFINED,
+    //    not stale heap pointers from pollute. Frame base is 1 (execute
+    //    pushes base=1 for top-level calls), so big-branch's locals span
+    //    registers [1, 1+21). The args occupy [1, 3), the extension is [3, 22).
+    var stale_pointers: usize = 0;
+    for (vm.registers[3..@min(22, vm.registers.len)]) |reg| {
         if (reg != types.UNDEFINED and types.isPointer(reg)) {
-            const obj = types.toObject(reg);
-            try std.testing.expect(@intFromEnum(obj.tag) < 36);
+            stale_pointers += 1;
         }
     }
+    try std.testing.expectEqual(@as(usize, 0), stale_pointers);
 }
