@@ -1135,8 +1135,9 @@ pub const GC = struct {
     }
 
     fn growRootBuffer(self: *GC) void {
-        const new_len = self.root_buffer.len * 2;
-        if (new_len > MAX_ROOT_CAPACITY)
+        var new_len = self.root_buffer.len * 2;
+        if (new_len > MAX_ROOT_CAPACITY) new_len = MAX_ROOT_CAPACITY;
+        if (new_len <= self.root_buffer.len)
             @panic("GC root stack overflow");
         self.root_buffer = self.allocator.realloc(self.root_buffer, new_len) catch
             @panic("GC root stack overflow (out of memory)");
