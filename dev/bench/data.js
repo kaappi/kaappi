@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783444588094,
+  "lastUpdate": 1783449475017,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "5e4921e5865a1ca56f686f5ee6a1c659c421ae9f",
-          "message": "Preserve line tables in .sbc bytecode cache (#1096) (#1097)\n\nSource snippets and line numbers silently disappeared from error messages\nwhen a .sbc cache existed because the serialization format omitted\nFunction.source_line and Function.line_table. The cached error path in\nmain.zig also lacked printSourceSnippet and stack trace output.\n\n- Serialize source_line and line_table in .sbc format (bump v6 → v7)\n- Set source_name on deserialized functions from the file path\n- Mirror fresh-compile error diagnostics in the cached path\n- Fix non-portable mktemp in test-source-snippet.sh (macOS compat)\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-04T13:41:32Z",
-          "tree_id": "b97e5c201d1651394db6a159657c1610aae04c2b",
-          "url": "https://github.com/kaappi/kaappi/commit/5e4921e5865a1ca56f686f5ee6a1c659c421ae9f"
-        },
-        "date": 1783173755312,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.390766,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.208065,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.944153,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.323942,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.012582,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.211133,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.477933,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.071108,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 12.438294,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.858992,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 9.867719,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.960328,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 8.333574,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.736148,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.046777,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.045646,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c42805aabe756fcc0b28c66067d505cdf970745d",
+          "message": "Let imported macros shadow built-in special forms (#1237) (#1302)\n\n* Let imported macros shadow built-in special forms (#1237)\n\nThe compiler dispatched special form keywords (define, set!, etc.)\nbefore consulting the macro table, so a syntax-rules macro exported\nunder a special form name — like SRFI-219's curried `define` — was\ndead on arrival.\n\nMove the macro lookup ahead of the special form string comparisons in\nboth the IR lowering path (ir.zig) and the legacy compiler path\n(compiler.zig).  Add fixed-point detection in expandAndCompileMacroUse\nso that identity rules (e.g. SRFI-219 rule 3: (define x e) → (define\nx e)) terminate by falling through to the built-in handler instead of\nlooping.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Address review: consume suppress flag once, add let/begin tests\n\n- Clear suppress_macro_name the moment compileForm matches it, so the\n  flag only guards the single immediate re-dispatch and does not leak\n  into nested let/begin bodies compiled inline in the same Compiler.\n- Add regression tests for curried define inside let and begin bodies.\n- Add doc comment explaining why the depth-128 bound in\n  valuesStructurallyEqual is safe (structure sharing).\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-07T18:09:43Z",
+          "tree_id": "e109e9fcb97edd2559ce75dda25e59f7ccc03e06",
+          "url": "https://github.com/kaappi/kaappi/commit/c42805aabe756fcc0b28c66067d505cdf970745d"
+        },
+        "date": 1783449474338,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.333033,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.209177,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.952184,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.196329,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.012428,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.200932,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.47864,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.071937,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 12.511193,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.869152,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 9.992549,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.957284,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 8.351318,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.707549,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.04347,
             "unit": "seconds"
           }
         ]
