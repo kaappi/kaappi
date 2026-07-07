@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783402789782,
+  "lastUpdate": 1783405885500,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "d0c0a239936b3152c1e304f7127f1fb385b0e9e7",
-          "message": "Propagate InvalidSyntax from let*-values and guard instead of swallowing as OOM (#1032) (#1081)\n\nbuildLetValues and appendToList can return error.InvalidSyntax, but\ncompileLetStarValues and compileGuard caught all errors as OutOfMemory.\nSwitch to error-specific catch so malformed syntax gets the correct\ndiagnostic.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-04T08:14:40Z",
-          "tree_id": "1a2bf3f08db7f9f9cddbed3dc2d28b554bc5e936",
-          "url": "https://github.com/kaappi/kaappi/commit/d0c0a239936b3152c1e304f7127f1fb385b0e9e7"
-        },
-        "date": 1783154091176,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.335431,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.476078,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.935874,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.408959,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.012457,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.211299,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.478556,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.071308,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 12.514975,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.82835,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 9.874737,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.958875,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 8.266414,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.662024,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.042731,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.043056,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "138405792348afb54d9872a37a2297ebf20864e2",
+          "message": "Capture let/lambda locals in define-syntax transformers (#1271) (#1287)\n\ndefine-syntax did not call captureLocalsOnTransformer, so free\nreferences to let/let*/lambda-bound variables in syntax-rules\ntemplates were hygienically renamed but never aliased back,\nproducing \"undefined variable '__hyg_N_var'\" errors.\n\nAdd the same captureLocalsOnTransformer call that let-syntax\nalready uses to all three define-syntax code paths (top-level,\nbody scan in compileBodyForms, and IR body scan).\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-07T06:06:08Z",
+          "tree_id": "5fb21c496a5254c264823f17b903ae39b2127d5f",
+          "url": "https://github.com/kaappi/kaappi/commit/138405792348afb54d9872a37a2297ebf20864e2"
+        },
+        "date": 1783405883731,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.283668,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.750866,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.916016,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.13528,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.012521,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.212313,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.463503,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.070279,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 12.47823,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.816599,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 9.974129,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.954891,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 8.289591,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.707503,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.042795,
             "unit": "seconds"
           }
         ]
