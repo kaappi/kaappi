@@ -331,6 +331,47 @@ test "define-syntax in custom environment does not leak to global scope (#1269)"
     try std.testing.expectEqualStrings("not-leaked", types.symbolName(result));
 }
 
+// Genuine regression guard: constructs a mutable non-global environment
+// (unreachable from Scheme) where define-syntax succeeds but must not leak.
+test "define-syntax in mutable non-global env does not leak (#1269)" {
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
+
+    // Build a mutable env with the same bindings as globals but a distinct map
+    const env_map = try ctx.gc.allocator.create(std.StringHashMap(types.Value));
+    env_map.* = std.StringHashMap(types.Value).init(ctx.gc.allocator);
+    var git = ctx.vm.globals.iterator();
+    while (git.next()) |entry| {
+        try env_map.put(entry.key_ptr.*, entry.value_ptr.*);
+    }
+    var env_val = try ctx.gc.allocEnvironment(env_map, true, false);
+    ctx.gc.pushRoot(&env_val);
+    defer ctx.gc.popRoot();
+
+    // Expose the mutable env so eval can reach it
+    try ctx.vm.globals.put("__test-mut-env", env_val);
+
+    const before_count = ctx.vm.macros.count();
+
+    // define-syntax succeeds (env is mutable) but must not leak to vm.macros
+    _ = try ctx.vm.eval(
+        \\(eval '(define-syntax mut-leak-test
+        \\         (syntax-rules () ((_ x) (+ x 1))))
+        \\      __test-mut-env)
+    );
+
+    try std.testing.expectEqual(before_count, ctx.vm.macros.count());
+
+    // The macro must not be usable at global scope
+    const result = try ctx.vm.eval(
+        \\(guard (e (#t 'not-leaked))
+        \\  (eval '(mut-leak-test 5) (interaction-environment)))
+    );
+    try std.testing.expect(types.isSymbol(result));
+    try std.testing.expectEqualStrings("not-leaked", types.symbolName(result));
+}
+
 test "define-syntax in interaction-environment persists globally (#1269)" {
     var ctx: th.TestContext = undefined;
     try ctx.init();
