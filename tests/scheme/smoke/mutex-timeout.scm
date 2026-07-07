@@ -32,6 +32,13 @@
   (mutex-unlock! m)
   (test-equal "re-lock after unlock" #t (mutex-lock! m)))
 
+;; stale deadline: a timed-out wait must not poison later untimed waits
+(let ((m (make-mutex)))
+  (mutex-lock! m)
+  (mutex-lock! m 0.01)                    ; times out, was leaving stale deadline_ns
+  (mutex-unlock! m)
+  (test-equal "untimed lock after timed timeout" #t (mutex-lock! m)))
+
 (let ((runner (test-runner-current)))
   (test-end "mutex-timeout")
   (when (> (test-runner-fail-count runner) 0) (exit 1)))

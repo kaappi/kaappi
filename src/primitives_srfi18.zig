@@ -597,6 +597,8 @@ fn runSchedulerUntilDone(target: *fiber_mod.Fiber) PrimitiveError!void {
         fiber.status = .running;
         vm.current_fiber = fiber;
 
+        // A dangling yield_retry (a forwarding native converted a park's
+        // Yielded into another error) must not survive into this run.
         vm.yield_retry = false;
         vm.sched_dispatch_pending = true;
         const result = vm.runUntil(0, 0) catch |err| {
@@ -606,6 +608,8 @@ fn runSchedulerUntilDone(target: *fiber_mod.Fiber) PrimitiveError!void {
                 continue;
             }
             fiber.status = .errored;
+            // Fiber 0 is the main fiber: finishing or aborting one top-level
+            // form is not thread death, so its mutexes stay valid.
             if (next_idx != 0) {
                 if (memory.gc_instance) |gc| abandonFiberMutexes(gc, fiber, sched);
             }
@@ -727,6 +731,7 @@ fn mutexLockFn(args: []const Value) PrimitiveError!Value {
     if (deadline) |d| me.deadline_ns = d;
 
     try runSchedulerUntilMutex(m, me);
+    me.deadline_ns = null;
 
     if (me.timed_out) {
         me.timed_out = false;
@@ -774,6 +779,8 @@ fn runSchedulerUntilMutex(m: *types.Mutex, me: *fiber_mod.Fiber) PrimitiveError!
         fiber.status = .running;
         vm.current_fiber = fiber;
 
+        // A dangling yield_retry (a forwarding native converted a park's
+        // Yielded into another error) must not survive into this run.
         vm.yield_retry = false;
         vm.sched_dispatch_pending = true;
         const result = vm.runUntil(0, 0) catch |err| {
@@ -783,6 +790,8 @@ fn runSchedulerUntilMutex(m: *types.Mutex, me: *fiber_mod.Fiber) PrimitiveError!
                 continue;
             }
             fiber.status = .errored;
+            // Fiber 0 is the main fiber: finishing or aborting one top-level
+            // form is not thread death, so its mutexes stay valid.
             if (next_idx != 0) {
                 if (memory.gc_instance) |gc| abandonFiberMutexes(gc, fiber, sched);
             }
@@ -830,6 +839,7 @@ fn mutexUnlockFn(args: []const Value) PrimitiveError!Value {
         if (deadline) |d| me.deadline_ns = d;
 
         try runSchedulerUntilCondVar(me);
+        me.deadline_ns = null;
 
         if (me.timed_out) {
             me.timed_out = false;
@@ -869,6 +879,8 @@ fn runSchedulerUntilCondVar(me: *fiber_mod.Fiber) PrimitiveError!void {
         fiber.status = .running;
         vm.current_fiber = fiber;
 
+        // A dangling yield_retry (a forwarding native converted a park's
+        // Yielded into another error) must not survive into this run.
         vm.yield_retry = false;
         vm.sched_dispatch_pending = true;
         const result = vm.runUntil(0, 0) catch |err| {
@@ -878,6 +890,8 @@ fn runSchedulerUntilCondVar(me: *fiber_mod.Fiber) PrimitiveError!void {
                 continue;
             }
             fiber.status = .errored;
+            // Fiber 0 is the main fiber: finishing or aborting one top-level
+            // form is not thread death, so its mutexes stay valid.
             if (next_idx != 0) {
                 if (memory.gc_instance) |gc| abandonFiberMutexes(gc, fiber, sched);
             }
