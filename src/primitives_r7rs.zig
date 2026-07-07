@@ -22,6 +22,7 @@ pub const specs = [_]primitives.PrimSpec{
     .{ .name = "get-environment-variables", .func = &getEnvVars, .arity = .{ .exact = 0 }, .libs = LS.initOne(.scheme_process_context), .sandbox = false },
     .{ .name = "make-parameter", .func = &makeParameterFn, .arity = .{ .variadic = 1 }, .libs = LS.initMany(&.{ .scheme_base, .srfi_39 }) },
     .{ .name = "%parameter-set!", .func = &parameterSetDirectFn, .arity = .{ .exact = 2 }, .libs = LS.initOne(.scheme_base) },
+    .{ .name = "%parameter-convert", .func = &parameterConvertFn, .arity = .{ .exact = 2 }, .libs = LS.initOne(.scheme_base) },
     .{ .name = "eval", .func = &evalFn, .arity = .{ .variadic = 1 }, .libs = LS.initMany(&.{ .scheme_eval, .scheme_r5rs }), .sandbox = false },
     .{ .name = "environment", .func = &environmentFn, .arity = .{ .variadic = 0 }, .libs = LS.initOne(.scheme_eval), .sandbox = false },
     .{ .name = "interaction-environment", .func = &interactionEnvironmentFn, .arity = .{ .exact = 0 }, .libs = LS.initMany(&.{ .scheme_eval, .scheme_r5rs, .scheme_repl }), .sandbox = false },
@@ -344,6 +345,14 @@ fn parameterSetDirectFn(args: []const Value) PrimitiveError!Value {
         if (memory.gc_instance) |gc| gc.writeBarrier(types.toObject(args[0]), args[1]);
     }
     return types.VOID;
+}
+
+fn parameterConvertFn(args: []const Value) PrimitiveError!Value {
+    if (!types.isParameter(args[0])) return primitives.typeError("%parameter-convert", "parameter", args[0]);
+    const param = types.toObject(args[0]).as(types.ParameterObject);
+    if (param.converter == types.NIL) return args[1];
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError; // bare-ok: no VM
+    return vm.callWithArgs(param.converter, &[_]Value{args[1]}) catch |err| return err;
 }
 
 // ---------------------------------------------------------------------------
