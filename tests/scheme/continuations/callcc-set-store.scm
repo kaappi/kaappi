@@ -1,30 +1,20 @@
 ;; Regression test for #1168: set! of non-captured locals must persist
 ;; across continuation re-entry (R7RS §3.4 store semantics).
-;;
-;; Known gap (#1250): macro-introduced set! bypasses collectSetTargets
-;; (pre-expansion scan), so boxing is not applied.
-;;
-;; FAIL: #1250 macro-introduced set! (inc! wrapper) — HANGS
-;; (define-syntax inc! (syntax-rules () ((_ v) (set! v (+ v 1)))))
-;; (test-equal "macro-introduced set! persists" 3
-;;   (let ((n 0) (k* #f))
-;;     (call/cc (lambda (k) (set! k* k)))
-;;     (inc! n)
-;;     (if (< n 3) (k* #f))
-;;     n))
-;;
-;; FAIL: #1250 macro that expands to entire let+set! — HANGS
-;; (define-syntax counter-loop
-;;   (syntax-rules ()
-;;     ((_ limit)
-;;      (let ((n 0) (k* #f))
-;;        (call/cc (lambda (k) (set! k* k)))
-;;        (set! n (+ n 1))
-;;        (if (< n limit) (k* #f))
-;;        n))))
-;; (test-equal "macro-expanded let+set! persists" 3
-;;   (counter-loop 3))
+;; Tests 9-12: regression for #1250 (macro-introduced set!).
 (import (scheme base) (scheme process-context) (srfi 64))
+
+(define-syntax inc!
+  (syntax-rules ()
+    ((_ v) (set! v (+ v 1)))))
+
+(define-syntax counter-loop
+  (syntax-rules ()
+    ((_ limit)
+     (let ((n 0) (k* #f))
+       (call/cc (lambda (k) (set! k* k)))
+       (set! n (+ n 1))
+       (if (< n limit) (k* #f))
+       n))))
 
 (test-begin "callcc-set-store")
 
@@ -104,6 +94,36 @@
     (set! n (+ n 1))
     (if (< (read-n) 3) (k* #f))
     n))
+
+;; 9. Macro-introduced set! (inc! wrapper) — #1250
+(test-equal "macro-introduced set! persists" 3
+  (let ((n 0) (k* #f))
+    (call/cc (lambda (k) (set! k* k)))
+    (inc! n)
+    (if (< n 3) (k* #f))
+    n))
+
+;; 10. Macro that expands to entire let+set! — #1250
+(test-equal "macro-expanded let+set! persists" 3
+  (counter-loop 3))
+
+;; 11. let* with macro-introduced set! — #1250
+(test-equal "let*: macro-introduced set! persists" 3
+  (let* ((n 0) (k* #f))
+    (call/cc (lambda (k) (set! k* k)))
+    (inc! n)
+    (if (< n 3) (k* #f))
+    n))
+
+;; 12. Lambda param with macro-introduced set! — #1250
+(test-equal "lambda param: macro-introduced set! persists" 3
+  ((lambda (n)
+     (let ((k* #f))
+       (call/cc (lambda (k) (set! k* k)))
+       (inc! n)
+       (if (< n 3) (k* #f))
+       n))
+   0))
 
 (let ((runner (test-runner-current)))
   (test-end "callcc-set-store")

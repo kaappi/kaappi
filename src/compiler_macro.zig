@@ -161,6 +161,7 @@ pub fn expandAndCompileMacroUse(self: *Compiler, expr: Value, name: []const u8, 
     self.gc.pushRoot(&expanded_root);
     defer self.gc.popRoot();
     self.gc.no_collect -= 1;
+    try self.scanSetTargets(expanded_root);
     const saved_locals_len = self.locals.items.len;
     for (tx.captured_locals) |cap| {
         try self.locals.append(self.gc.allocator, .{

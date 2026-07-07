@@ -79,7 +79,7 @@ pub const Compiler = struct {
     // so nested lambda bodies see the same suppression set. Consulted by the
     // constant folders (IR and legacy) to avoid folding calls to a name that
     // may be reassigned before the call executes.
-    set_targets: ?*const std.StringHashMap(void) = null,
+    set_targets: ?*std.StringHashMap(void) = null,
     scope_depth: u16 = 0,
     next_register: u16 = 0,
     parent: ?*Compiler = null,
@@ -341,6 +341,15 @@ pub const Compiler = struct {
         }
     }
 
+    /// Scan `expr` for set! targets and add them to the current set_targets map.
+    /// Called from expandAndCompileMacroUse after expansion to discover targets
+    /// introduced by macro templates (#1250).
+    pub fn scanSetTargets(self: *Compiler, expr: Value) CompileError!void {
+        if (self.set_targets) |st| {
+            try collectSetTargets(self, expr, st, 0);
+        }
+    }
+
     /// Box a local if its name is a set! target anywhere in the top-level form.
     /// R7RS §3.4: set! modifies the store (a heap location), not the
     /// continuation. Register-allocated mutated locals violate this when a
@@ -422,7 +431,7 @@ pub const Compiler = struct {
         // (including in nested lambda bodies, which inherit this set).
         var set_targets = std.StringHashMap(void).init(self.gc.allocator);
         defer set_targets.deinit();
-        try collectSetTargets(expr_root, &set_targets);
+        try collectSetTargets(self, expr_root, &set_targets, 0);
         self.set_targets = &set_targets;
         defer self.set_targets = null;
 
@@ -836,10 +845,12 @@ fn formatSyntaxError(args: Value) void {
 /// Recursively collect the symbol names that appear as the target of a
 /// `(set! <name> ...)` anywhere in `expr` into `out`. Used to suppress
 /// constant folding of those names within the enclosing form (see
-/// Compiler.set_targets). Conservative: it scans every sub-form except the
-/// interior of `quote`d data. Iterates the cdr spine to stay bounded on long
-/// lists and only recurses into car sub-forms.
-fn collectSetTargets(expr: Value, out: *std.StringHashMap(void)) CompileError!void {
+/// Compiler.set_targets) and to box locals for correct continuation
+/// semantics (R7RS §3.4). Conservative: it scans every sub-form except
+/// the interior of `quote`d data. When a known macro is encountered,
+/// it is expanded and the expansion is scanned (#1250).
+fn collectSetTargets(self: *Compiler, expr: Value, out: *std.StringHashMap(void), depth: u16) CompileError!void {
+    if (depth > 256) return;
     var cur = expr;
     while (types.isPair(cur)) {
         const head = types.car(cur);
@@ -854,9 +865,30 @@ fn collectSetTargets(expr: Value, out: *std.StringHashMap(void)) CompileError!vo
                         out.put(types.symbolName(target), {}) catch return CompileError.OutOfMemory;
                     }
                 }
+            } else if (self.lookupMacro(types.symbolName(head))) |transformer| {
+                self.gc.no_collect += 1;
+                const expanded = expander.expandMacro(
+                    self.gc,
+                    cur,
+                    transformer,
+                    self.globals,
+                    &self.macros,
+                    .{},
+                ) catch {
+                    self.gc.no_collect -= 1;
+                    try collectSetTargets(self, head, out, depth);
+                    cur = types.cdr(cur);
+                    continue;
+                };
+                var expanded_root = expanded;
+                self.gc.pushRoot(&expanded_root);
+                self.gc.no_collect -= 1;
+                try collectSetTargets(self, expanded_root, out, depth + 1);
+                self.gc.popRoot();
+                return;
             }
         }
-        try collectSetTargets(head, out);
+        try collectSetTargets(self, head, out, depth);
         cur = types.cdr(cur);
     }
 }
