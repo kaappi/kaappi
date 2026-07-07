@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783437666542,
+  "lastUpdate": 1783440639488,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "959ee717fcadf54a15cfe44c60e1342d407eee6a",
-          "message": "Add debug-checked Object.as(), typed accessors, and box helpers (#1051) (#1090)\n\nObject.as(T) is used ~468 times with no tag verification. Add a comptime\nexpected-tag map so debug builds assert the tag matches before casting\n(zero cost in ReleaseSafe/Fast). Add toPair/toClosure/toNativeFn/\ntoContinuation accessors that the four hottest types were missing. Add\nisBox/boxGet/boxSet helpers for the upvalue box convention (pair whose\ncdr is VOID) and replace the 6 open-coded patterns in vm_dispatch.zig.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-04T16:25:13+05:30",
-          "tree_id": "cfdaba620dcb370bb2e71e8c1d37bc4521fb4076",
-          "url": "https://github.com/kaappi/kaappi/commit/959ee717fcadf54a15cfe44c60e1342d407eee6a"
-        },
-        "date": 1783164106154,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.087832,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.949804,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.964974,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.322898,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.013985,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.234257,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.480527,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.068598,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 13.450713,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.843726,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 11.019304,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 1.070929,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 9.152368,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.870561,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044301,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.046321,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "370d9d4b83710b08bc786cd2087e98f10eb9ea69",
+          "message": "Move entitlements plist from repo root to .github/ (#1299)\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-07T15:46:12Z",
+          "tree_id": "f8aaa9f1c7a51cea70b2aaa609b8ee7c0bcd508d",
+          "url": "https://github.com/kaappi/kaappi/commit/370d9d4b83710b08bc786cd2087e98f10eb9ea69"
+        },
+        "date": 1783440638654,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.097328,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 10.509981,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.963547,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.10943,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.014631,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.221883,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.4803,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.068399,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 13.449092,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.834661,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 11.146377,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 1.064411,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 9.130676,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.725798,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.046087,
             "unit": "seconds"
           }
         ]
