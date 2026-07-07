@@ -7,6 +7,7 @@ const FfiType = types.FfiType;
 fn toIntArgOpt(v: Value) ?i64 {
     if (v == types.TRUE) return 1;
     if (v == types.FALSE) return 0;
+    if (types.isChar(v)) return @intCast(types.toChar(v));
     if (types.isBignum(v)) {
         const bn = types.toBignum(v);
         if (bn.len == 0) return 0;
@@ -175,6 +176,7 @@ fn normalizeType(t: FfiType) FfiType {
 
 fn validateArg(v: Value, t: FfiType) bool {
     if (t == .bool_type and (v == types.TRUE or v == types.FALSE)) return true;
+    if (t == .char_type and types.isChar(v)) return true;
     const nt = normalizeType(t);
     return switch (nt) {
         .int, .long => types.isFixnum(v) or types.isBignum(v),
@@ -379,6 +381,13 @@ pub fn callFfi(ffi_fn: *types.FfiFunction, args: []const Value, gc: *memory.GC) 
     if (ffi_fn.return_type == .bool_type) {
         if (types.isFixnum(result))
             return if (types.toFixnum(result) != 0) types.TRUE else types.FALSE;
+    }
+    if (ffi_fn.return_type == .char_type) {
+        if (types.isFixnum(result)) {
+            const code = types.toFixnum(result);
+            if (code >= 0 and code <= 0x10FFFF)
+                return types.makeChar(@intCast(code));
+        }
     }
     return result;
 }
@@ -763,6 +772,30 @@ test "checkNarrowIntRange: char_type same as uint8" {
     try checkNarrowIntRange(types.makeFixnum(255), .char_type);
     try std.testing.expectError(error.TypeError, checkNarrowIntRange(types.makeFixnum(256), .char_type));
     try std.testing.expectError(error.TypeError, checkNarrowIntRange(types.makeFixnum(-1), .char_type));
+}
+
+test "toIntArgOpt: extracts codepoint from Scheme character" {
+    try std.testing.expectEqual(@as(?i64, 65), toIntArgOpt(types.makeChar('A')));
+    try std.testing.expectEqual(@as(?i64, 0), toIntArgOpt(types.makeChar(0)));
+    try std.testing.expectEqual(@as(?i64, 255), toIntArgOpt(types.makeChar(255)));
+    try std.testing.expectEqual(@as(?i64, 0x03BB), toIntArgOpt(types.makeChar(0x03BB)));
+}
+
+test "validateArg: accepts Scheme characters for char_type" {
+    try std.testing.expect(validateArg(types.makeChar('A'), .char_type));
+    try std.testing.expect(validateArg(types.makeChar(0), .char_type));
+    try std.testing.expect(validateArg(types.makeFixnum(65), .char_type));
+}
+
+test "checkNarrowIntRange: char_type accepts Scheme characters in 0-255" {
+    try checkNarrowIntRange(types.makeChar('A'), .char_type);
+    try checkNarrowIntRange(types.makeChar(0), .char_type);
+    try checkNarrowIntRange(types.makeChar(255), .char_type);
+}
+
+test "checkNarrowIntRange: char_type rejects codepoint > 255" {
+    try std.testing.expectError(error.TypeError, checkNarrowIntRange(types.makeChar(256), .char_type));
+    try std.testing.expectError(error.TypeError, checkNarrowIntRange(types.makeChar(0x03BB), .char_type));
 }
 
 test "checkNarrowIntRange: uint64 rejects negative" {
