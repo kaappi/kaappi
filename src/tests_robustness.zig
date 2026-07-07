@@ -89,7 +89,15 @@ test "reader: valid nested block comment" {
     try std.testing.expectEqual(@as(i64, 42), types.toFixnum(result));
 }
 
-test "reader: readListTail write barrier under GC stress (proper list)" {
+// GC-stress smoke tests for readListTail. These verify structural integrity
+// (spine length, car payloads, terminator) under gc.stress=true. They do NOT
+// fail without the write barriers because markRoots traces transitively
+// through old objects, so the rooted `result` keeps the entire spine alive
+// regardless of remembered-set state. The barriers are verified correct by
+// inspection against gc-safety.md; these tests guard against other reader
+// regressions under heavy GC pressure.
+
+test "reader: readListTail under GC stress (proper list)" {
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
     gc.stress = true;
@@ -98,18 +106,18 @@ test "reader: readListTail write barrier under GC stress (proper list)" {
     defer reader.deinit();
     const result = try reader.readDatum();
 
-    // Walk the spine — without barriers, promoted pairs lose young tails.
+    const expected = [_][]const u8{ "a", "b", "c", "d", "e", "f", "g", "h" };
     var cur = result;
-    var len: usize = 0;
-    while (types.isPair(cur)) {
+    var i: usize = 0;
+    while (types.isPair(cur)) : (i += 1) {
+        try std.testing.expectEqualStrings(expected[i], types.symbolName(types.car(cur)));
         cur = types.cdr(cur);
-        len += 1;
     }
-    try std.testing.expectEqual(@as(usize, 8), len);
+    try std.testing.expectEqual(@as(usize, 8), i);
     try std.testing.expectEqual(types.NIL, cur);
 }
 
-test "reader: readListTail write barrier under GC stress (dotted list)" {
+test "reader: readListTail under GC stress (dotted list)" {
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
     gc.stress = true;
@@ -118,15 +126,15 @@ test "reader: readListTail write barrier under GC stress (dotted list)" {
     defer reader.deinit();
     const result = try reader.readDatum();
 
+    const expected = [_][]const u8{ "a", "b", "c" };
     var cur = result;
-    var len: usize = 0;
-    while (types.isPair(cur)) {
+    var i: usize = 0;
+    while (types.isPair(cur)) : (i += 1) {
+        try std.testing.expectEqualStrings(expected[i], types.symbolName(types.car(cur)));
         cur = types.cdr(cur);
-        len += 1;
     }
-    try std.testing.expectEqual(@as(usize, 3), len);
-    // Tail should be symbol 'd', not NIL or garbage.
-    try std.testing.expect(types.isSymbol(cur));
+    try std.testing.expectEqual(@as(usize, 3), i);
+    try std.testing.expectEqualStrings("d", types.symbolName(cur));
 }
 
 test "reader: rational with zero denominator" {
