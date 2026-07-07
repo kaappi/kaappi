@@ -566,6 +566,16 @@ fn threadJoinResult(target: *fiber_mod.Fiber) PrimitiveError!Value {
     return target.result;
 }
 
+fn scheduleOrTimeout(sched: *fiber_mod.FiberScheduler, me: *fiber_mod.Fiber) ?usize {
+    if (sched.schedule()) |idx| return idx;
+    if (me.deadline_ns) |deadline| {
+        const now = fiber_mod.clockNs();
+        if (now < deadline) sleepNs(deadline - now);
+        me.timed_out = true;
+    }
+    return null;
+}
+
 fn runSchedulerUntilDone(target: *fiber_mod.Fiber) PrimitiveError!void {
     const vm = vm_mod.vm_instance orelse return PrimitiveError.OutOfMemory;
     const sched = vm.scheduler orelse return PrimitiveError.OutOfMemory;
@@ -576,19 +586,7 @@ fn runSchedulerUntilDone(target: *fiber_mod.Fiber) PrimitiveError!void {
         const me = sched.fibers[my_idx].?;
         if (me.timed_out) break;
 
-        const next_idx = sched.schedule() orelse {
-            if (me.deadline_ns) |deadline| {
-                const now = fiber_mod.clockNs();
-                if (now >= deadline) {
-                    me.timed_out = true;
-                    break;
-                }
-                sleepNs(deadline - now);
-                me.timed_out = true;
-                break;
-            }
-            break;
-        };
+        const next_idx = scheduleOrTimeout(sched, me) orelse break;
         if (next_idx == my_idx) break;
 
         sched.restoreFiber(next_idx);
@@ -758,19 +756,7 @@ fn runSchedulerUntilMutex(m: *types.Mutex, me: *fiber_mod.Fiber) PrimitiveError!
     sched.saveCurrentFiber();
 
     while (m.locked and !me.timed_out) {
-        const next_idx = sched.schedule() orelse {
-            if (me.deadline_ns) |deadline| {
-                const now = fiber_mod.clockNs();
-                if (now >= deadline) {
-                    me.timed_out = true;
-                    break;
-                }
-                sleepNs(deadline - now);
-                me.timed_out = true;
-                break;
-            }
-            break;
-        };
+        const next_idx = scheduleOrTimeout(sched, me) orelse break;
         if (next_idx == my_idx) break;
 
         sched.restoreFiber(next_idx);
@@ -858,19 +844,7 @@ fn runSchedulerUntilCondVar(me: *fiber_mod.Fiber) PrimitiveError!void {
     sched.saveCurrentFiber();
 
     while (me.status == .waiting and !me.timed_out) {
-        const next_idx = sched.schedule() orelse {
-            if (me.deadline_ns) |deadline| {
-                const now = fiber_mod.clockNs();
-                if (now >= deadline) {
-                    me.timed_out = true;
-                    break;
-                }
-                sleepNs(deadline - now);
-                me.timed_out = true;
-                break;
-            }
-            break;
-        };
+        const next_idx = scheduleOrTimeout(sched, me) orelse break;
         if (next_idx == my_idx) break;
 
         sched.restoreFiber(next_idx);

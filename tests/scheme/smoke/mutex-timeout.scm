@@ -2,6 +2,7 @@
 ;; on locked mutex / unsignaled condvar must return #f, not steal the lock.
 
 (import (scheme base) (scheme write) (scheme process-context) (srfi 18))
+(import (kaappi fibers))
 (import (srfi 64))
 
 (test-begin "mutex-timeout")
@@ -33,11 +34,15 @@
   (test-equal "re-lock after unlock" #t (mutex-lock! m)))
 
 ;; stale deadline: a timed-out wait must not poison later untimed waits
+;; The untimed lock must block on a mutex held by another fiber to exercise
+;; the scheduler path that reads deadline_ns.
 (let ((m (make-mutex)))
   (mutex-lock! m)
-  (mutex-lock! m 0.01)                    ; times out, was leaving stale deadline_ns
+  (mutex-lock! m 0.02)                    ; times out, was leaving stale deadline_ns
   (mutex-unlock! m)
-  (test-equal "untimed lock after timed timeout" #t (mutex-lock! m)))
+  (let ((f (spawn (lambda () (mutex-lock! m) (yield) (mutex-unlock! m)))))
+    (yield)                               ; let helper grab m
+    (test-equal "untimed lock blocks then succeeds" #t (mutex-lock! m))))
 
 (let ((runner (test-runner-current)))
   (test-end "mutex-timeout")
