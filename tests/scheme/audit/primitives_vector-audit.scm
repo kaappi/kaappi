@@ -306,17 +306,10 @@
 (test 'caught (guard (e (#t 'caught)) (vector-append-subvectors #(a b) 1 0)))     ; end < start
 (test 'caught (guard (e (#t 'caught)) (vector-append-subvectors #(a b) -1 1)))
 
-;;; --- SRFI-133 export completeness ---
-;; Nine spec procedures are not implemented / exported from (srfi 133):
-;; vector=, vector-fold, vector-fold-right, vector-map!, vector-reverse-copy!,
-;; vector-unfold!, vector-unfold-right!, reverse-vector->list, reverse-list->vector.
-;; Referencing any of them is an undefined-variable error (cannot be tested here
-;; without aborting the file). Note (import (only (srfi 133) vector-fold))
-;; "succeeds" because only/except/rename don't validate identifiers — see #1174.
-;; FAIL: #1172 ((srfi 133) missing 9 spec-required procedures)
-;; (test #t (vector= = (vector 1 2) (vector 1 2)))
-;; (test 6 (vector-fold + 0 (vector 1 2 3)))
-;; (test '(3 2 1) (reverse-vector->list (vector 1 2 3)))
-;; (test #(-1 -2) (let ((v (vector 1 2))) (vector-map! - v) v))
+;;; --- SRFI-133 export completeness (fixed in #1172) ---
+(test #t (vector= = (vector 1 2) (vector 1 2)))
+(test 6 (vector-fold + 0 (vector 1 2 3)))
+(test '(3 2 1) (reverse-vector->list (vector 1 2 3)))
+(test #(-1 -2) (let ((v (vector 1 2))) (vector-map! - v) v))
 
 (test-end "primitives_vector audit")
