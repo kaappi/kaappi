@@ -89,6 +89,46 @@ test "reader: valid nested block comment" {
     try std.testing.expectEqual(@as(i64, 42), types.toFixnum(result));
 }
 
+test "reader: readListTail write barrier under GC stress (proper list)" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    gc.stress = true;
+
+    var reader = reader_mod.Reader.init(&gc, "(a b c d e f g h)");
+    defer reader.deinit();
+    const result = try reader.readDatum();
+
+    // Walk the spine — without barriers, promoted pairs lose young tails.
+    var cur = result;
+    var len: usize = 0;
+    while (types.isPair(cur)) {
+        cur = types.cdr(cur);
+        len += 1;
+    }
+    try std.testing.expectEqual(@as(usize, 8), len);
+    try std.testing.expectEqual(types.NIL, cur);
+}
+
+test "reader: readListTail write barrier under GC stress (dotted list)" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    gc.stress = true;
+
+    var reader = reader_mod.Reader.init(&gc, "(a b c . d)");
+    defer reader.deinit();
+    const result = try reader.readDatum();
+
+    var cur = result;
+    var len: usize = 0;
+    while (types.isPair(cur)) {
+        cur = types.cdr(cur);
+        len += 1;
+    }
+    try std.testing.expectEqual(@as(usize, 3), len);
+    // Tail should be symbol 'd', not NIL or garbage.
+    try std.testing.expect(types.isSymbol(cur));
+}
+
 test "reader: rational with zero denominator" {
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
