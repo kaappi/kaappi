@@ -310,6 +310,39 @@ test "eval define-syntax into immutable environment signals error (#1147)" {
     try std.testing.expectEqualStrings("error-signaled", types.symbolName(result));
 }
 
+test "define-syntax in custom environment does not leak to global scope (#1269)" {
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
+    const before_count = ctx.vm.macros.count();
+    // define-syntax errors (immutable env) — verify no macro leaked despite the attempt
+    _ = try ctx.vm.eval(
+        \\(guard (e (#t 'ok))
+        \\  (eval '(define-syntax leaked-mac-1269 (syntax-rules () ((_) 999)))
+        \\        (environment '(scheme base))))
+    );
+    try std.testing.expectEqual(before_count, ctx.vm.macros.count());
+    // Verify the macro is not usable at global scope
+    const result = try ctx.vm.eval(
+        \\(guard (e (#t 'not-leaked))
+        \\  (eval '(leaked-mac-1269) (interaction-environment)))
+    );
+    try std.testing.expect(types.isSymbol(result));
+    try std.testing.expectEqualStrings("not-leaked", types.symbolName(result));
+}
+
+test "define-syntax in interaction-environment persists globally (#1269)" {
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
+    _ = try ctx.vm.eval(
+        \\(eval '(define-syntax ie-mac-1269 (syntax-rules () ((_) 42)))
+        \\      (interaction-environment))
+    );
+    const result = try ctx.vm.eval("(ie-mac-1269)");
+    try std.testing.expectEqual(@as(i64, 42), types.toFixnum(result));
+}
+
 test "interaction-environment allows define (#1147)" {
     var ctx: th.TestContext = undefined;
     try ctx.init();

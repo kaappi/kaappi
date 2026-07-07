@@ -980,11 +980,9 @@ pub fn compileExpressionInEnv(gc: *memory.GC, expr: Value, vm_macros: *std.Strin
     c.func.env = env;
     c.func.env_val = env_val;
     c.func.restricted_globals = c.restricted_env;
-    if (!types.isEnvironment(env_val) or !types.toEnvironment(env_val).immutable) {
-        var out_it = c.macros.iterator();
-        while (out_it.next()) |entry| {
-            vm_macros.put(entry.key_ptr.*, entry.value_ptr.*) catch return CompileError.OutOfMemory;
-        }
+    var out_it = c.macros.iterator();
+    while (out_it.next()) |entry| {
+        vm_macros.put(entry.key_ptr.*, entry.value_ptr.*) catch return CompileError.OutOfMemory;
     }
     ok = true;
     return c.func;
