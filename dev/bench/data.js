@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783440639488,
+  "lastUpdate": 1783442266655,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "f12961fe896ee47ead69fee6d6aa305bddfed16c",
-          "message": "Replace hand-rolled JSON parsing with std.json in LSP server (#1066) (#1091)\n\nThe LSP's request-parsing layer used naive substring search to extract\nJSON fields, which could false-match keys appearing inside string values\nor nested objects. Replace all 6 parsing functions (jsonGetStringRaw,\njsonUnescape, jsonGetString, jsonGetInt, jsonGetRawId, jsonGetObject)\nwith Zig 0.16's std.json.parseFromSlice — parse once per message, pass\ntyped ObjectMap to handlers. This also fixes handleDidOpenOrChange to\nproperly navigate contentChanges[0].text through the JSON array instead\nof whole-message substring search, and drops the manual jsonUnescape\nsince std.json decodes escapes during parsing.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-04T16:34:05+05:30",
-          "tree_id": "323217bcbeebc8e532de33d82db3a1d6ce21b2e6",
-          "url": "https://github.com/kaappi/kaappi/commit/f12961fe896ee47ead69fee6d6aa305bddfed16c"
-        },
-        "date": 1783164284664,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.431981,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.31165,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.913993,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.277255,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.012562,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.210685,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.469945,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.071506,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 12.433201,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.834925,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 9.851047,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.957637,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 8.275388,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.726562,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.043702,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.046087,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d435ee868c976f29c510b559d564df754c428e54",
+          "message": "Fix hygiene: use-site arg no longer captured by same-name def-site local (#1288) (#1301)\n\nTemplate free references are now hygienically renamed to __hyg_N_<name>\ninstead of being kept bare via VOID sentinels. This lets\ninjectHygienicCapturedLocals map them to the correct captured slot while\nuse-site argument symbols keep their original binding. Also fix\ninjectHygCapturedWalk to use last-match (innermost scope) when multiple\ncaptured locals share a name.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-07T16:08:47Z",
+          "tree_id": "92d2bbfdba74237f795ba650b3e7a897ccc6eae3",
+          "url": "https://github.com/kaappi/kaappi/commit/d435ee868c976f29c510b559d564df754c428e54"
+        },
+        "date": 1783442265758,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.401621,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.570831,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.774411,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 3.343406,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.013966,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.208609,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.382255,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.058766,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 13.023705,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.441838,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 10.535288,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 1.014078,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 8.486272,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.20803,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.039481,
             "unit": "seconds"
           }
         ]
