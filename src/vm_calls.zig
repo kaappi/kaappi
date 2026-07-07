@@ -13,7 +13,7 @@ const fiber_mod = @import("fiber.zig");
 
 /// Clear local registers beyond `used` args up to `locals_count` to prevent
 /// the GC from scanning stale values left by previously popped frames.
-fn clearFrameLocals(vm: *VM, base: u32, used: usize, locals_count: u16) void {
+pub fn clearFrameLocals(vm: *VM, base: u32, used: usize, locals_count: u16) void {
     const clear_start = @as(usize, base) + used;
     const clear_end = @min(@as(usize, base) + @as(usize, locals_count), vm.registers.len);
     if (clear_end > clear_start) {

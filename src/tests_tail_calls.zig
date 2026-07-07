@@ -191,3 +191,63 @@ test "tail call to parameter with converter across frames array growth" {
     const result = try vm.eval("(p)");
     try std.testing.expectEqual(@as(i64, 50), types.toFixnum(result));
 }
+
+test "tail-call into larger frame clears extension registers" {
+    // Regression test for #1256: when a tail-call switches to a callee with
+    // a larger locals_count, registers in [base+args, base+locals_count) must
+    // be cleared to UNDEFINED so the GC doesn't scan stale pointers.
+    //
+    // Strategy: pollute registers with heap pointers, then tail-call into a
+    // function whose locals_count is large (due to a branch with many locals)
+    // but whose taken branch is trivial and doesn't touch the high registers.
+    // After execution, the untouched extension slots should be UNDEFINED (if
+    // cleared) not stale heap pointers (if not cleared).
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    // 1. Pollute registers: call a function with many locals that allocates
+    //    heap objects (strings). After it returns, those register slots retain
+    //    stale string pointers.
+    _ = try vm.eval(
+        \\(define (pollute)
+        \\  (let ((a "heap1") (b "heap2") (c "heap3") (d "heap4")
+        \\        (e "heap5") (f "heap6") (g "heap7") (h "heap8"))
+        \\    (string-length (string-append a b c d e f g h))))
+    );
+    _ = try vm.eval("(pollute)");
+
+    // 2. small (locals=4) tail-calls big-branch (locals=21). big-branch takes
+    //    the #t path which only touches r0-r2, leaving r3-r20 untouched.
+    //    With the fix: clearFrameLocals zeros r3-r20 to UNDEFINED before
+    //    big-branch's body runs, so stale pointers from pollute are cleared.
+    //    Without the fix: r3-r20 retain stale heap pointers from pollute.
+    _ = try vm.eval(
+        \\(define (small x) (big-branch #t x))
+    );
+    _ = try vm.eval(
+        \\(define (big-branch flag x)
+        \\  (if flag
+        \\      x
+        \\      (let ((a 1) (b 2) (c 3) (d 4) (e 5) (f 6) (g 7) (h 8))
+        \\        (+ a b c d e f g h x))))
+    );
+
+    const result = try vm.eval("(small 42)");
+    try std.testing.expectEqual(@as(i64, 42), types.toFixnum(result));
+
+    // 3. After eval returns, the register file retains whatever the last
+    //    execution left. Scan registers that were in big-branch's frame
+    //    window — the extension slots (beyond the 2 args) should be UNDEFINED,
+    //    not stale heap pointers from pollute. Frame base is 1 (execute
+    //    pushes base=1 for top-level calls), so big-branch's locals span
+    //    registers [1, 1+21). The args occupy [1, 3), the extension is [3, 22).
+    var stale_pointers: usize = 0;
+    for (vm.registers[3..@min(22, vm.registers.len)]) |reg| {
+        if (reg != types.UNDEFINED and types.isPointer(reg)) {
+            stale_pointers += 1;
+        }
+    }
+    try std.testing.expectEqual(@as(usize, 0), stale_pointers);
+}

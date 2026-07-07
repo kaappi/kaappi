@@ -453,6 +453,7 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                         }
                         self.registers[dst_idx] = self.registers[src_idx];
                     }
+                    vm_calls.clearFrameLocals(self, frame.base, arg_count, func.locals_count);
 
                     if (self.profile_mode) {
                         func.profile_calls += 1;
@@ -627,6 +628,7 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                         if (dst_idx >= self.registers.len) return VMError.InvalidBytecode;
                         self.registers[dst_idx] = flat_args[i];
                     }
+                    vm_calls.clearFrameLocals(self, frame.base, arg_count, func.locals_count);
 
                     frame.closure = closure;
                     frame.code = func.code.items;
@@ -990,6 +992,7 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                         }
                         self.registers[dst_idx] = self.registers[src_idx];
                     }
+                    vm_calls.clearFrameLocals(self, frame.base, arg_count, tfunc.locals_count);
                     if (self.profile_mode) {
                         tfunc.profile_calls += 1;
                         vm_calls.profileTailCall(self, tfunc);
@@ -1138,6 +1141,7 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                         if (@as(usize, frame.base) + 1 >= self.registers.len) try self.ensureRegisterCapacity(@as(usize, frame.base) + 2);
                         self.registers[frame.base + 1] = types.NIL;
                     }
+                    vm_calls.clearFrameLocals(self, frame.base, if (func.is_variadic) @as(usize, func.arity) + 1 else 1, func.locals_count);
                     if (self.profile_mode) func.profile_calls += 1;
                     frame.closure = closure;
                     frame.code = func.code.items;
@@ -1205,6 +1209,7 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                 const closure = types.toObject(closure_val).as(types.Closure);
                 const func = closure.func;
                 if (self.profile_mode) func.profile_calls += 1;
+                vm_calls.clearFrameLocals(self, frame.base, 0, func.locals_count);
                 frame.closure = closure;
                 frame.code = func.code.items;
                 frame.ip = 0;
