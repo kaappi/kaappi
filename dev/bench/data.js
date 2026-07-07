@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783405928919,
+  "lastUpdate": 1783409709287,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "8a6238442a9db94e446f8a4c6ffd6a17717a6fca",
-          "message": "Port self-tail-call optimization and line-table recording to IR path (#1035) (#1083)\n\nThe IR compilation path missed two features the legacy path had:\n\n1. (define f (lambda (n) (f ...))) compiled recursive tail calls as\n   generic tail_call instead of self_tail_call (a loop). Fixed by\n   injecting the define's name into the lambda IR node before body\n   compilation and adding self-tail-call detection to compileCallFromIR.\n\n2. compileFromNode never recorded line-table entries, so IR-compiled\n   code lost per-line error attribution. Fixed by adding source_line\n   to IR Annotations (populated during lowering from gc.source_lines)\n   and emitting line-table entries at the top of compileFromNode.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-04T08:34:23Z",
-          "tree_id": "88f02beeef52366ff3a0f2091b677605bf06849d",
-          "url": "https://github.com/kaappi/kaappi/commit/8a6238442a9db94e446f8a4c6ffd6a17717a6fca"
-        },
-        "date": 1783155188471,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.410799,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.851593,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.944078,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.358614,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.01247,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.211121,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.484068,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.071328,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 12.440335,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.886773,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 9.907565,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.952135,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 8.296928,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.680686,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.042712,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.046314,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "8680c99bdd1fe57c4d5cc611e6b7269c9447aa4a",
+          "message": "Accept multiple comma-separated labels in /parallel-issues skill (#1290)\n\nPreviously the skill accepted a single label. Now labels can be\ncomma-separated (e.g. \"bug,macros\"), each becoming a --label flag\nso gh issue list AND-filters them. The no-fallback rule applies to\nthe full label set.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-07T12:39:23+05:30",
+          "tree_id": "42aaae2ca7f4af1a492c7111f9096be875074582",
+          "url": "https://github.com/kaappi/kaappi/commit/8680c99bdd1fe57c4d5cc611e6b7269c9447aa4a"
+        },
+        "date": 1783409708109,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.277771,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.730941,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.90506,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.129825,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.012607,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.212113,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.463144,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.070502,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 12.519609,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.828182,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 9.972544,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.960718,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 8.284503,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.69751,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.042692,
             "unit": "seconds"
           }
         ]
