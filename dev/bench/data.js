@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783425200081,
+  "lastUpdate": 1783432369231,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "9f5634c6576b3808f703daedd49186c592b44671",
-          "message": "Extract kaappiModule helper, fix cov_mod/thottam_mod inconsistencies (#1065) (#1088)\n\nbuild.zig created 10 near-identical modules with hand-repeated createModule +\naddImport(\"build_options\") + linenoise C-source + embedded_bytecode blocks,\nbreeding inconsistencies:\n\n- cov_mod lacked link_libc = true (its sibling cov_main_mod had it)\n- thottam_mod lacked build_options entirely (blocked #1060)\n- Stack-size comment said \"16 MB\" but the value is 64 MB\n\nExtract a kaappiModule(b, options_mod, .{...}) helper that consolidates the\npattern: createModule + build_options import + optional linenoise C source +\noptional embedded_bytecode anonymous import. All 10 modules (plus the\ncompiler_mod in the bundle-src path) now use it.\n\nFixes: cov_mod gets link_libc, thottam_mod gets build_options, comment\ncorrected. Net -42 lines.\n\nCloses #1065\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-04T16:24:44+05:30",
-          "tree_id": "4a3c7d16adde1ba47f965b78904440100d3b3d8a",
-          "url": "https://github.com/kaappi/kaappi/commit/9f5634c6576b3808f703daedd49186c592b44671"
-        },
-        "date": 1783163715070,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.300599,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.074202,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.959024,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.341702,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.013243,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.210818,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.475004,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.070779,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 12.615461,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.80365,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 9.872868,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.962235,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 8.411335,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.758513,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.045448,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.045718,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "0f4f2ffe6c3a224c94e433474393da30a09394f2",
+          "message": "Add GC write barriers to readListTail setCdr calls (#1267) (#1292)\n\n* Add GC write barriers to readListTail setCdr calls (#1267)\n\nThe two in-place pair mutations in readListTail (dotted-tail and\nproper-list append) lacked generational-GC write barriers, creating\nuntracked old→young edges that could cause use-after-free during\nminor collections when reading long lists.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Reframe reader tests as GC-stress smoke tests, add car-payload checks\n\nThe write barriers can't be regression-tested at the reader level because\nmarkRoots traces transitively through old objects, so the rooted result\nkeeps the entire spine alive regardless of remembered-set state. Reframe\nthe tests honestly as smoke tests and add car-value assertions per review.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-07T18:53:23+05:30",
+          "tree_id": "e7a0c9dfbb21b956978677084adfa9895d5ad678",
+          "url": "https://github.com/kaappi/kaappi/commit/0f4f2ffe6c3a224c94e433474393da30a09394f2"
+        },
+        "date": 1783432367960,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.013557,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.987853,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.938874,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.168075,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.013716,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.220872,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.47305,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.068054,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 13.436248,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.82848,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 11.132329,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 1.070307,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 9.109936,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.860202,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.045327,
             "unit": "seconds"
           }
         ]
