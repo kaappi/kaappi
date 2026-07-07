@@ -140,7 +140,7 @@ pub fn ensureLibraryLoaded(vm: *VM, import_set: Value, lib_name: []const u8) !vo
     tryLoadLibraryFromFile(vm, import_set) catch return error.CompileError;
 }
 
-fn processImportSet(vm: *VM, target: *std.StringHashMap(Value), import_set: Value) !void {
+pub fn processImportSet(vm: *VM, target: *std.StringHashMap(Value), import_set: Value) !void {
     if (!types.isPair(import_set)) return error.InvalidSyntax;
 
     const first = types.car(import_set);

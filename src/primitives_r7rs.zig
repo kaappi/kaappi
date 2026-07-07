@@ -208,22 +208,13 @@ fn environmentFn(args: []const Value) PrimitiveError!Value {
     // Create a new environment containing bindings from the given import sets.
     const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError; // bare-ok: no VM
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
-    const library_mod = @import("library.zig");
 
     const env_map = gc.allocator.create(std.StringHashMap(Value)) catch return PrimitiveError.OutOfMemory;
     env_map.* = std.StringHashMap(Value).init(gc.allocator);
 
+    const vm_library = @import("vm_library.zig");
     for (args) |import_set| {
-        const lib_name = library_mod.libraryNameToString(gc.allocator, import_set) catch return PrimitiveError.TypeError; // bare-ok: invalid import set
-        defer gc.allocator.free(lib_name);
-
-        const vm_library = @import("vm_library.zig");
-        vm_library.ensureLibraryLoaded(vm, import_set, lib_name) catch return PrimitiveError.TypeError; // bare-ok: library load failure
-        const lib = vm.libraries.get(lib_name) orelse return PrimitiveError.TypeError; // bare-ok: library not found
-        var it = lib.exports.iterator();
-        while (it.next()) |entry| {
-            env_map.put(entry.key_ptr.*, entry.value_ptr.*) catch return PrimitiveError.OutOfMemory;
-        }
+        vm_library.processImportSet(vm, env_map, import_set) catch return PrimitiveError.TypeError; // bare-ok: invalid import set
     }
 
     return gc.allocEnvironment(env_map, true, true) catch return PrimitiveError.OutOfMemory;
