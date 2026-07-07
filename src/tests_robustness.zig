@@ -89,6 +89,54 @@ test "reader: valid nested block comment" {
     try std.testing.expectEqual(@as(i64, 42), types.toFixnum(result));
 }
 
+// GC-stress smoke tests for readListTail. These verify structural integrity
+// (spine length, car payloads, terminator) under gc.stress=true. They do NOT
+// fail without the write barriers because markRoots traces transitively
+// through old objects, so the rooted `result` keeps the entire spine alive
+// regardless of remembered-set state. The barriers are verified correct by
+// inspection against gc-safety.md; these tests guard against other reader
+// regressions under heavy GC pressure.
+
+test "reader: readListTail under GC stress (proper list)" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    gc.stress = true;
+
+    var reader = reader_mod.Reader.init(&gc, "(a b c d e f g h)");
+    defer reader.deinit();
+    const result = try reader.readDatum();
+
+    const expected = [_][]const u8{ "a", "b", "c", "d", "e", "f", "g", "h" };
+    var cur = result;
+    var i: usize = 0;
+    while (types.isPair(cur)) : (i += 1) {
+        try std.testing.expectEqualStrings(expected[i], types.symbolName(types.car(cur)));
+        cur = types.cdr(cur);
+    }
+    try std.testing.expectEqual(@as(usize, 8), i);
+    try std.testing.expectEqual(types.NIL, cur);
+}
+
+test "reader: readListTail under GC stress (dotted list)" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    gc.stress = true;
+
+    var reader = reader_mod.Reader.init(&gc, "(a b c . d)");
+    defer reader.deinit();
+    const result = try reader.readDatum();
+
+    const expected = [_][]const u8{ "a", "b", "c" };
+    var cur = result;
+    var i: usize = 0;
+    while (types.isPair(cur)) : (i += 1) {
+        try std.testing.expectEqualStrings(expected[i], types.symbolName(types.car(cur)));
+        cur = types.cdr(cur);
+    }
+    try std.testing.expectEqual(@as(usize, 3), i);
+    try std.testing.expectEqualStrings("d", types.symbolName(cur));
+}
+
 test "reader: rational with zero denominator" {
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();

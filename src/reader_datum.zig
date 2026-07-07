@@ -157,6 +157,7 @@ fn readListTail(self: *Reader) ReadError!Value {
                 result = rest;
             } else {
                 types.setCdr(tail, rest);
+                self.gc.writeBarrier(types.toObject(tail), rest);
             }
             try self.skipWhitespaceAndCommentsChecked();
             if (self.pos >= self.source.len or self.source[self.pos] != ')') {
@@ -176,6 +177,7 @@ fn readListTail(self: *Reader) ReadError!Value {
             result = pair;
         } else {
             types.setCdr(tail, pair);
+            self.gc.writeBarrier(types.toObject(tail), pair);
         }
         tail = pair;
     }
