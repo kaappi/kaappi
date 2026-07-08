@@ -36,7 +36,7 @@ pub const specs = [_]primitives.PrimSpec{
     .{ .name = "string-reverse", .func = &stringReverseFn, .arity = .{ .variadic = 1 }, .libs = LS.initOne(.srfi_13) },
     .{ .name = "string-filter", .func = &stringFilterFn, .arity = .{ .variadic = 2 }, .libs = LS.initOne(.srfi_13) },
     .{ .name = "string-delete", .func = &stringDeleteFn, .arity = .{ .variadic = 2 }, .libs = LS.initOne(.srfi_13) },
-    .{ .name = "string-replace", .func = &stringReplaceFn, .arity = .{ .exact = 4 }, .libs = LS.initOne(.srfi_13) },
+    .{ .name = "string-replace", .func = &stringReplaceFn, .arity = .{ .variadic = 4 }, .libs = LS.initOne(.srfi_13) },
     .{ .name = "string-titlecase", .func = &stringTitlecaseFn, .arity = .{ .variadic = 1 }, .libs = LS.initOne(.srfi_13) },
     .{ .name = "string-every", .func = &stringEveryFn, .arity = .{ .variadic = 2 }, .libs = LS.initOne(.srfi_13) },
     .{ .name = "string-any", .func = &stringAnyFn, .arity = .{ .variadic = 2 }, .libs = LS.initOne(.srfi_13) },
@@ -52,12 +52,14 @@ pub const specs = [_]primitives.PrimSpec{
 // SRFI-13 String Library
 // ---------------------------------------------------------------------------
 
-// (string-contains s1 s2 [start1 end1])
+// (string-contains s1 s2 [start1 end1 start2 end2])
 fn stringContainsFn(args: []const Value) PrimitiveError!Value {
     const full_s1 = try getStringSlice("string-contains", args[0]);
-    const s2 = try getStringSlice("string-contains", args[1]);
+    const full_s2 = try getStringSlice("string-contains", args[1]);
     const range = try parseStartEnd(full_s1, args, 2);
+    const s2_range = try parseStartEnd(full_s2, args, 4);
     const s1 = range.data;
+    const s2 = s2_range.data;
     if (s2.len == 0) return types.makeFixnum(@intCast(range.cp_offset));
     if (s2.len > s1.len) return types.FALSE;
 
@@ -620,10 +622,11 @@ fn stringDeleteFn(args: []const Value) PrimitiveError!Value {
     return gc.allocString(result.items) catch return PrimitiveError.OutOfMemory;
 }
 
+// (string-replace s1 s2 start1 end1 [start2 end2])
 fn stringReplaceFn(args: []const Value) PrimitiveError!Value {
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const data1 = try getStringSlice("string-replace", args[0]);
-    const data2 = try getStringSlice("string-replace", args[1]);
+    const full_data2 = try getStringSlice("string-replace", args[1]);
     if (!types.isFixnum(args[2]) or !types.isFixnum(args[3])) return primitives.typeError("string-replace", "integer", if (!types.isFixnum(args[2])) args[2] else args[3]);
     const sv = types.toFixnum(args[2]);
     const ev = types.toFixnum(args[3]);
@@ -634,6 +637,8 @@ fn stringReplaceFn(args: []const Value) PrimitiveError!Value {
     if (start > end) return primitives.typeError("string-replace", "valid index range (start <= end)", args[2]);
     const byte_start = pstr.utf8IndexToByteOffset(data1, start) orelse return PrimitiveError.IndexOutOfBounds;
     const byte_end = pstr.utf8IndexToByteOffset(data1, end) orelse return PrimitiveError.IndexOutOfBounds;
+    const s2_range = try parseStartEnd(full_data2, args, 4);
+    const data2 = s2_range.data;
     const new_len = byte_start + data2.len + (data1.len - byte_end);
     const alloc_buf = gc.allocator.alloc(u8, new_len) catch return PrimitiveError.OutOfMemory;
     defer gc.allocator.free(alloc_buf);
