@@ -135,4 +135,11 @@
 (test #f (<? (make-default-comparator) (make-pt 2) (make-pt 1)))
 (test #t (=? (make-default-comparator) (make-pt 3) (make-pt 3)))
 
+;; registering an unordered comparator must not crash default ordering
+(define-record-type <uq> (make-uq v) uq? (v uq-v))
+(comparator-register-default!
+  (make-comparator uq? (lambda (a b) (= (uq-v a) (uq-v b))) #f #f))
+(test #t (=? (make-default-comparator) (make-uq 1) (make-uq 1)))
+(test #f (<? (make-default-comparator) (make-uq 1) (make-uq 2)))
+
 (test-end "srfi-128")

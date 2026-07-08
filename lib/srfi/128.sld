@@ -155,7 +155,7 @@
 
     (define (default-ordering a b)
       (let ((reg (find-registered-comparator a b)))
-        (if reg
+        (if (and reg (comparator-ordered? reg))
             ((comparator-ordering-predicate reg) a b)
             (let ((ta (type-index a))
                   (tb (type-index b)))
