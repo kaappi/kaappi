@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783505206418,
+  "lastUpdate": 1783505447268,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "8502aadb86ca1c244f818540a47e5228122a8014",
-          "message": "Extract MultiListIter and buildList helpers in SRFI-1 primitives (#1059) (#1107)\n\nTwo tangled repeats lived in primitives_srfi1.zig: multi-list iteration\nboilerplate (11 copies) and reverse-iterate-allocPair list building\n(~20 copies). Extract both as file-local helpers.\n\nMultiListIter encapsulates the currents array, all-pairs check,\ncar/pair gathering, and cdr advance. Supports car mode (default) and\npairs mode for pair-for-each/pair-fold.\n\nbuildList always roots the accumulator, fixing three GC bugs where\nsplitAtFn, spanFn, and breakFn were missing pushRoot — allocPair\nduring the build phase could trigger collection with the partially-built\nlist unreachable.\n\nNet: 140 insertions, 546 deletions (2185 → 1778 lines).\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-04T21:49:10+05:30",
-          "tree_id": "9dad5095305abe81ff88820adc5c1af727ee0a6d",
-          "url": "https://github.com/kaappi/kaappi/commit/8502aadb86ca1c244f818540a47e5228122a8014"
-        },
-        "date": 1783184558078,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.049798,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.623132,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.948485,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.37447,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.013599,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.234705,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.473691,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.068756,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 13.560236,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.849509,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 11.127742,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 1.068273,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 9.099886,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.847919,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.045304,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.047013,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "7362bb2dd83b9411f642c947724a11426e28720e",
+          "message": "Fix string-contains and string-replace start2/end2 handling (#1158) (#1317)\n\nstring-contains silently ignored the optional start2/end2 arguments,\nalways searching for the whole needle. string-replace rejected them\nwith an arity error (registered as exact=4 instead of variadic=4).\n\nBoth now apply parseStartEnd on s2 at arg index 4, matching the\npattern used by string-prefix? and string-suffix?.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-08T15:03:01+05:30",
+          "tree_id": "0f9201a25681a8c559c5f66a4128c19832e9ac92",
+          "url": "https://github.com/kaappi/kaappi/commit/7362bb2dd83b9411f642c947724a11426e28720e"
+        },
+        "date": 1783505446209,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.344311,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.51455,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.98221,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.966182,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.012667,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.202939,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.508256,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.072139,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 12.686489,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 2.010146,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 10.152713,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.978546,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 8.390219,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.763709,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.047332,
             "unit": "seconds"
           }
         ]
