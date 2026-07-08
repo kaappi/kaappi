@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783491814655,
+  "lastUpdate": 1783496992256,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "6d7a96322e1206619373ec7429258a2191fd63ae",
-          "message": "Deduplicate compiler body, closure, debug, and arrow helpers (#1042) (#1105)\n\nExtract shared helpers from near-clone code across the compiler:\n\n- compileBodyForms: unifies compileBody (~190 lines) and compileLetBody\n  (~180 lines) into a single parameterized function. Also fixes a latent\n  bug where compileLetBody silently dropped prescan names past 64.\n- populateDebugLocals: replaces 4 identical 8-line copies.\n- emitClosureEpilogue: replaces 3 copies of the 15-line box-upvalues +\n  emit-closure + emit-descriptors sequence.\n- emitArrowCall: replaces 3 copies of the => arrow-clause call emission.\n\nNet: -239 lines. All 1701 tests pass including GC stress and hygiene.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-04T21:39:45+05:30",
-          "tree_id": "f31a8fdbbd6ebea6ea50722a072ed8bb7bfdb722",
-          "url": "https://github.com/kaappi/kaappi/commit/6d7a96322e1206619373ec7429258a2191fd63ae"
-        },
-        "date": 1783184464483,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.084241,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 10.468223,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.9441,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.317363,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.013939,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.235406,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.47819,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.068257,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 13.665509,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.839732,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 11.110285,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 1.061126,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 9.093885,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.887808,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.045289,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.046001,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b2ff6238606093d29f92fdec1cc1ef817d2504d8",
+          "message": "Guard test expressions in (chibi test) against exceptions (#1196) (#1311)\n\n* Guard test expressions in (chibi test) against exceptions (#1196)\n\nWrap the test expression in a `guard` form so that a raised exception\nis reported as a failure and counted, instead of escaping the macro and\naborting sibling tests in the same enclosing form.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Fix load crashing inside guard; use procedure-level guard in test macro\n\nThe test macro fix (wrapping expressions in guard) exposed two\npre-existing bugs:\n\n1. load used vm.execute() which resets all VM state (frame count,\n   handler count), corrupting the call stack when called from inside\n   guard's callReentrant. Fix: use callWithArgs (like eval does) which\n   properly saves/restores execution state.\n\n2. guard's escape continuation limits apply to 255 args (u8 nargs).\n   Adjusted two audit tests to stay under this limit.\n\nAlso: use a helper procedure for the guard (test-run) so that\ntest-error's inner guard doesn't nest at the macro level, and fix\nthe shell regression test for macOS bash heredoc compatibility.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Fix let*-values body scoping; use inline guard in test macro\n\nlet*-values with zero bindings desugared to (begin body...), which\nspliced definitions into the enclosing scope instead of creating a\nproper body scope. Changed to desugar to (let () body...) so that\ninternal define forms are correctly scoped — matching R7RS semantics\nand the behavior of let-values with zero bindings.\n\nThis also allows the test macro to use inline guard (no lambda wrapper)\nwithout changing define scoping for the tested expression.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Address review feedback\n\n- Revert list-audit map boundary back to 256 (only apply with 256+\n  scalar args is affected by the escape continuation limit, not map\n  with 256 list args)\n- File yield-in-handler bug as #1314 and reference it in fiber-audit\n  skip comment\n- Fix shell test to not trip set -e before diagnostics can print\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-08T12:53:00+05:30",
+          "tree_id": "47de79b8f0ff6983ca23d4a4a71c62a1d4664bd6",
+          "url": "https://github.com/kaappi/kaappi/commit/b2ff6238606093d29f92fdec1cc1ef817d2504d8"
+        },
+        "date": 1783496990879,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 2.357902,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 6.842229,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.54484,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 2.357706,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.008534,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.138697,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.257738,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.035642,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 7.925191,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 0.987995,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 7.132107,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.706807,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 5.692508,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.192044,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.025734,
             "unit": "seconds"
           }
         ]
