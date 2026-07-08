@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783490667492,
+  "lastUpdate": 1783490782993,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "9d642b08338f4726c68e584d7d368d330550699a",
-          "message": "Dedup handleDefineLibrary declaration loop and extract openIncludeFile (#1048) (#1102)\n\nhandleDefineLibrary had an inline 6-branch declaration dispatch loop\nthat duplicated processLibDeclaration almost verbatim. Worse, its\ncond-expand branch destructively mutated the AST via setCdr — a\ncorrectness hazard for bundled sources and include-library-declarations\nre-entry. Replace the inline loop with a call to processLibDeclaration,\nwhich handles cond-expand cleanly via recursion.\n\nAlso extract the path-resolution + readFileOrBundled boilerplate\n(duplicated 3x across handleTopLevelInclude, compileLibInclude, and\nincludeLibraryDeclarations) into openIncludeFile.\n\nPreserve import error-detail printing by adding it to\nprocessLibDeclaration's import branch (was silently swallowed before).\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-04T21:35:28+05:30",
-          "tree_id": "e053b7e4a0d4853ba57389b5d71516ac610a52e8",
-          "url": "https://github.com/kaappi/kaappi/commit/9d642b08338f4726c68e584d7d368d330550699a"
-        },
-        "date": 1783184114022,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.323777,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.476439,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.990066,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.262837,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.013404,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.211827,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.474028,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.069681,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 12.601906,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.857496,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 9.952532,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.9609,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 8.314484,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.713408,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044502,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.046193,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "7e9928fb66e2dc2c4901c3e6eabc062d53e2fdf8",
+          "message": "Add nine missing SRFI-133 procedures (#1172) (#1308)\n\nvector=, vector-fold, vector-fold-right, vector-map!,\nvector-reverse-copy!, vector-unfold!, vector-unfold-right!,\nreverse-vector->list, and reverse-list->vector were spec-required\nbut unbound after (import (srfi 133)). All nine are now native\nZig primitives with multi-vector support, GC write barriers,\nand accumulator rooting where needed.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-08T10:55:29+05:30",
+          "tree_id": "ab3bfcf589981918be597ea14926dbbb145e72aa",
+          "url": "https://github.com/kaappi/kaappi/commit/7e9928fb66e2dc2c4901c3e6eabc062d53e2fdf8"
+        },
+        "date": 1783490781814,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.315744,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.980289,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.970254,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.393393,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.012518,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.202917,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.500663,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.072197,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 12.598452,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.957882,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 10.114518,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.977277,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 8.346635,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.639549,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.045397,
             "unit": "seconds"
           }
         ]
