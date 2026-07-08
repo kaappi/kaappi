@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783535574244,
+  "lastUpdate": 1783535616048,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "88720ac566abb3e404e7027fb7e3e4a4a9887b22",
-          "message": "Delete dead identifyPrimitives/markConstants IR passes (#1041) (#1127)\n\nThe is_primitive_call, primitive_name, and is_constant annotations were\nproduced by ~140 lines of analysis passes but consumed by no backend:\ncompiler_ir.zig explicitly discarded is_primitive_call, foldConstants\nre-derived everything from node tags, and is_constant had zero downstream\nreaders. Remove both passes, their annotation fields, the dead parameter\nin compileCallFromIR, and the test-only assertions. Keep the primitives\nlist and isKnownGlobal (used by the LLVM backend) and the live is_tail\nand source_line annotations.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-05T07:33:02+05:30",
-          "tree_id": "8296f4e4894a8ede8e08a1a0dbec62bb82001ba7",
-          "url": "https://github.com/kaappi/kaappi/commit/88720ac566abb3e404e7027fb7e3e4a4a9887b22"
-        },
-        "date": 1783218463703,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.907944,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.86476,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.948455,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.199248,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.013722,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.234867,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.47051,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.068089,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 13.445745,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.820031,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 11.107483,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 1.069214,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 9.124251,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.861821,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044143,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.047946,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "0c839a7b22d5058508cc1ea0d977846c3087cf4a",
+          "message": "Fix SRFI-125 hash-table-ref/update! success proc, hash-table-find result, and add 21 missing exports (#1229) (#1337)\n\nThree bug classes:\n\n1. hash-table-ref and hash-table-update! ignored the optional success\n   procedure — (hash-table-ref ht key failure success) now calls\n   (success value) when the key is present and success is provided.\n\n2. hash-table-find returned (cons key value) instead of the true value\n   produced by proc, per the SRFI-125 spec.\n\n3. 21 procedures required by SRFI-125 were missing from the export list:\n   - 10 re-exported from SRFI-69: hash-table-walk, hash-table-exists?,\n     hash-table-update!/default, alist->hash-table, hash, string-hash,\n     string-ci-hash, hash-by-identity, hash-table-equivalence-function,\n     hash-table-hash-function\n   - 11 new implementations: hash-table-unfold, hash-table=?,\n     hash-table-mutable?, hash-table-pop!, hash-table-clear!,\n     hash-table-map, hash-table-map!, hash-table-prune!,\n     hash-table-empty-copy, hash-table-merge!, hash-table-xor!\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-08T23:33:11+05:30",
+          "tree_id": "0e03fc4ba8cca9e637bbb996b0b664001944733c",
+          "url": "https://github.com/kaappi/kaappi/commit/0c839a7b22d5058508cc1ea0d977846c3087cf4a"
+        },
+        "date": 1783535615012,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.323565,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.78318,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.754312,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 3.275191,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.012935,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.201975,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.375485,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.054565,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 12.393796,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.441351,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 10.156351,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 1.008789,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 8.094314,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 0.876814,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.03549,
             "unit": "seconds"
           }
         ]
