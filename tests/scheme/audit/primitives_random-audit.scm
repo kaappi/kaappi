@@ -50,9 +50,8 @@
 
 ;; SRFI-27: "The argument n must be a positive integer, otherwise an error is
 ;; signalled." (expt 2 64) is a positive integer, so it must be accepted.
-;; FAIL: #1193 (random-integer rejects exact integers wider than fixnums)
-;; (test #t (let ((r (random-integer (expt 2 64))))
-;;            (and (>= r 0) (< r (expt 2 64)))))
+(test #t (let ((r (random-integer (expt 2 64))))
+           (and (>= r 0) (< r (expt 2 64)))))
 
 ;; invalid arguments raise catchable errors
 (test #t (guard (e (#t (error-object? e))) (random-integer 0) #f))
@@ -99,8 +98,7 @@
   (test #t (guard (e (#t (error-object? e))) (rand -1) #f))
   (test #t (guard (e (#t (error-object? e))) (rand 1.5) #f))
   ;; bignum range must be accepted (same requirement as random-integer)
-  ;; FAIL: #1193 (%rs-next-int rejects exact integers wider than fixnums)
-  ;; (test #t (let ((r (rand (expt 2 64)))) (and (>= r 0) (< r (expt 2 64)))))
+  (test #t (let ((r (rand (expt 2 64)))) (and (>= r 0) (< r (expt 2 64)))))
   )
 
 ;; a generator made from a non-source raises when called
@@ -176,10 +174,9 @@
            (random-source-pseudo-randomize! (make-random-source) 0.5 0) #f))
 
 ;; i and j are unbounded non-negative integers
-;; FAIL: #1193 (pseudo-randomize! rejects exact integers wider than fixnums)
-;; (test #t (begin (random-source-pseudo-randomize!
-;;                  (make-random-source) (expt 2 64) 1)
-;;                 #t))
+(test #t (begin (random-source-pseudo-randomize!
+                 (make-random-source) (expt 2 64) 1)
+                #t))
 
 ;;; --- random-source-state-ref / random-source-state-set! ---
 ;; round-trip reproduces the stream
