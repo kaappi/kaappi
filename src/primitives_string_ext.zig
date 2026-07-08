@@ -330,15 +330,31 @@ fn stringSplitFn(args: []const Value) PrimitiveError!Value {
     return result;
 }
 
-// (string-join list-of-strings) or (string-join list-of-strings delimiter)
+const Grammar = enum { infix, strict_infix, prefix, suffix };
+
+fn parseGrammar(arg: Value) PrimitiveError!Grammar {
+    if (!types.isSymbol(arg)) return primitives.typeError("string-join", "symbol (infix, strict-infix, prefix, or suffix)", arg);
+    const name = types.symbolName(arg);
+    if (std.mem.eql(u8, name, "infix")) return .infix;
+    if (std.mem.eql(u8, name, "strict-infix")) return .strict_infix;
+    if (std.mem.eql(u8, name, "prefix")) return .prefix;
+    if (std.mem.eql(u8, name, "suffix")) return .suffix;
+    return primitives.typeError("string-join", "symbol (infix, strict-infix, prefix, or suffix)", arg);
+}
+
+// (string-join list [delimiter [grammar]])
 fn stringJoinFn(args: []const Value) PrimitiveError!Value {
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const delim: []const u8 = if (args.len > 1)
         (try getStringSlice("string-join", args[1]))
     else
         " ";
+    const grammar: Grammar = if (args.len > 2)
+        try parseGrammar(args[2])
+    else
+        .infix;
 
-    // Calculate total length
+    // Count elements and total string length
     var total: usize = 0;
     var count: usize = 0;
     var current = args[0];
@@ -349,8 +365,20 @@ fn stringJoinFn(args: []const Value) PrimitiveError!Value {
         count += 1;
         current = types.cdr(current);
     }
-    if (count == 0) return gc.allocString("") catch return PrimitiveError.OutOfMemory;
-    total += (count - 1) * delim.len;
+
+    if (count == 0) {
+        if (grammar == .strict_infix) {
+            const vm = vm_mod.vm_instance orelse return PrimitiveError.InvalidArgument;
+            vm.setErrorDetail("string-join: strict-infix grammar requires a non-empty list", .{});
+            return PrimitiveError.InvalidArgument;
+        }
+        return gc.allocString("") catch return PrimitiveError.OutOfMemory;
+    }
+
+    total += switch (grammar) {
+        .infix, .strict_infix => (count - 1) * delim.len,
+        .prefix, .suffix => count * delim.len,
+    };
 
     const buf = gc.allocator.alloc(u8, total) catch return PrimitiveError.OutOfMemory;
     defer gc.allocator.free(buf);
@@ -358,7 +386,10 @@ fn stringJoinFn(args: []const Value) PrimitiveError!Value {
     var first = true;
     current = args[0];
     while (current != types.NIL) {
-        if (!first and delim.len > 0) {
+        if (grammar == .prefix and delim.len > 0) {
+            @memcpy(buf[pos .. pos + delim.len], delim);
+            pos += delim.len;
+        } else if ((grammar == .infix or grammar == .strict_infix) and !first and delim.len > 0) {
             @memcpy(buf[pos .. pos + delim.len], delim);
             pos += delim.len;
         }
@@ -366,6 +397,10 @@ fn stringJoinFn(args: []const Value) PrimitiveError!Value {
         const s = try getStringSlice("string-join", types.car(current));
         @memcpy(buf[pos .. pos + s.len], s);
         pos += s.len;
+        if (grammar == .suffix and delim.len > 0) {
+            @memcpy(buf[pos .. pos + delim.len], delim);
+            pos += delim.len;
+        }
         current = types.cdr(current);
     }
     return gc.allocString(buf) catch return PrimitiveError.OutOfMemory;

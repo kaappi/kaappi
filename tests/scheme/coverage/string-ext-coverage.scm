@@ -78,7 +78,7 @@
 (check "string-join single" (string-join '("hello") " ") "hello")
 (check "string-join empty list" (string-join '() " ") "")
 (check "string-join empty sep" (string-join '("a" "b" "c") "") "abc")
-(check "string-join no sep" (string-join '("a" "b" "c")) "abc")
+(check "string-join no sep" (string-join '("a" "b" "c")) "a b c")
 
 ;;; ---- string-concatenate ----
 (check "string-concatenate" (string-concatenate '("a" "b" "c")) "abc")
