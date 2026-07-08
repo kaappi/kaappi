@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783524741167,
+  "lastUpdate": 1783524886025,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "4934610328d60c867dedc327cb94b68bbc66e5c3",
-          "message": "Break memory→vm circular dependency, add finishAlloc helper (#1050) (#1119)\n\nMove CallFrame, ExceptionHandler, and capacity constants from vm.zig\nto types.zig so that memory.zig and gc_collect.zig no longer import\nvm.zig — breaking the memory↔vm circular dependency through fiber.\n\nAdd GC.finishAlloc() to consolidate the bytes_allocated/profileAlloc/\ntrackObject bookkeeping repeated in every allocator (~70 lines saved).\nThis also fixes three profileAlloc size mismatches:\n- allocNativeClosure: was missing upvalues size\n- allocContinuation: was missing profileAlloc call entirely\n- allocHashTable: was using initial_capacity instead of rounded cap\n\nDelete unused primitives_hashtable.zig import from memory.zig.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-05T00:04:46+05:30",
-          "tree_id": "b713b820e9dbcb18dd88c4c2915fed1502ec1af2",
-          "url": "https://github.com/kaappi/kaappi/commit/4934610328d60c867dedc327cb94b68bbc66e5c3"
-        },
-        "date": 1783191660885,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.248561,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.787249,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.931415,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.182419,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.012378,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.211357,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.464016,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.070356,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 12.484502,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.815194,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 9.963211,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.958039,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 8.255029,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.668237,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.042412,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044569,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "bfe4776599f6a468c238fdf6b65e89411b843bea",
+          "message": "Fix SRFI-43 vector library to match spec (#1209) (#1326)\n\n* Fix SRFI-43 vector library to match spec (#1209)\n\nSRFI-43 iteration procedures pass the index as the first callback\nargument; SRFI-133 (which was being re-exported) does not.  Rewrite\nvector-map, vector-map!, vector-for-each, vector-count, vector-fold,\nand vector-fold-right with correct SRFI-43 calling convention and\nmulti-vector support.  Add 8 missing exports: vector-unfold,\nvector-unfold-right, vector=, vector-binary-search, vector-reverse!,\nvector-reverse-copy!, reverse-vector->list, reverse-list->vector.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Except vector-map/vector-for-each from (scheme base) import\n\nThese two live in (scheme base), not (srfi 133), so the previous\nexcept clause did not cover them.  Excepting from both imports\navoids the duplicate-binding condition where an imported name is\nalso defined in the library body.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-08T20:33:30+05:30",
+          "tree_id": "7c1984c75c52a66f7f87af81fe0c3387e5c004ab",
+          "url": "https://github.com/kaappi/kaappi/commit/bfe4776599f6a468c238fdf6b65e89411b843bea"
+        },
+        "date": 1783524885273,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.066154,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 10.167863,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 1.032641,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.450225,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.013954,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.225825,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.544429,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.071227,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 13.597078,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.976447,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 11.301899,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 1.126817,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 9.272009,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.850267,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.045409,
             "unit": "seconds"
           }
         ]
