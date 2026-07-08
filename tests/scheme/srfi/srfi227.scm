@@ -29,6 +29,12 @@
 (test '(1 2 10) (g3 1 2))
 (test '(1 2 3) (g3 1 2 3))
 
+;;; --- opt-lambda: defaults must not see earlier formals (parallel binding) ---
+(define outer-a 99)
+(test '(1 99)
+      ((let ((a outer-a))
+         (opt-lambda ((a 1) (b a)) (list a b)))))
+
 ;;; --- opt-lambda: plain formals fall back to lambda ---
 (define plain (opt-lambda (a b) (+ a b)))
 (test 3 (plain 1 2))
