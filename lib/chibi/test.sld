@@ -69,10 +69,11 @@
     (define-syntax test
       (syntax-rules ()
         ((test expected expr)
-         (let ((res expr))
-           (if (test-equal? expected res)
-               (test-pass)
-               (test-fail expected res))))
+         (guard (e (#t (test-fail expected (list 'error: e))))
+           (let ((res expr))
+             (if (test-equal? expected res)
+                 (test-pass)
+                 (test-fail expected res)))))
         ((test name expected expr)
          (test expected expr))))
 

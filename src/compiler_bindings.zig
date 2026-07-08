@@ -679,8 +679,8 @@ pub fn buildLetValues(self: *Compiler, bindings: Value, body: Value) !Value {
     const cwv_sym = try gc.allocSymbol("call-with-values");
 
     if (bindings == types.NIL) {
-        const begin_sym = try gc.allocSymbol("begin");
-        return try gc.allocPair(begin_sym, body);
+        const let_sym = try gc.allocSymbol("let");
+        return try gc.allocPair(let_sym, try gc.allocPair(types.NIL, body));
     }
 
     if (!types.isPair(bindings)) return error.InvalidSyntax;

@@ -322,11 +322,11 @@ fn loadFn(args: []const Value) PrimitiveError!Value {
             };
         } else {
             const func = compiler_mod.compileExpressionWithMacros(gc, expr, &vm.macros, vm.globals) catch return primitives.typeError("load", "valid expression", args[0]);
-            var func_val = types.makePointer(@ptrCast(func));
-            gc.pushRoot(&func_val);
-            defer gc.popRoot();
+            var closure_val = gc.allocClosure(func) catch return PrimitiveError.OutOfMemory;
             compiler_mod.Compiler.unrootFunction(gc, func);
-            last_result = vm.execute(func) catch |err| {
+            gc.pushRoot(&closure_val);
+            defer gc.popRoot();
+            last_result = vm.callWithArgs(closure_val, &[_]Value{}) catch |err| {
                 return err;
             };
         }
