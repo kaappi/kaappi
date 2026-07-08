@@ -50,11 +50,11 @@
 (test 3 (bind/box (box (values 1 2)) +))
 
 ;;; --- value: (value index obj0 ... objn-1) returns obj_index ---
-;; FAIL: #1218 (value returns its first argument instead of the index-th object)
-;; (test 'b (value 1 'a 'b))
-;; FAIL: #1218 (value returns its first argument instead of the index-th object)
-;; (test 'x (value 0 'x))
-;; FAIL: #1218 (box/mv is not exported)
-;; (test '(1 2 3) (unbox (box/mv 1 (values 2 3))))
+(test 'b (value 1 'a 'b))
+(test 'x (value 0 'x))
+(test 'c (value 2 'a 'b 'c))
+
+;;; --- box/mv ---
+(test '(1 2 3) (with-values (unbox (box/mv 1 (values 2 3))) list))
 
 (test-end "srfi-210")
