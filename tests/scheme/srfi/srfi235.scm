@@ -181,6 +181,12 @@
   (test-assert "eager-and-procedure: runs all" ran))
 (test-assert "eager-and-procedure: returns #f on false"
   (not (eager-and-procedure (lambda () #f) (lambda () 2))))
+(let ((order '()))
+  (eager-and-procedure
+    (lambda () (set! order (cons 1 order)) 1)
+    (lambda () (set! order (cons 2 order)) 2)
+    (lambda () (set! order (cons 3 order)) 3))
+  (test-equal "eager-and-procedure: left-to-right" '(1 2 3) (reverse order)))
 
 ;;; --- or-procedure ---
 (test-equal "or-procedure: first true" 1
@@ -198,6 +204,12 @@
   (test-assert "eager-or-procedure: runs all" ran))
 (test-assert "eager-or-procedure: all false"
   (not (eager-or-procedure (lambda () #f) (lambda () #f))))
+(let ((order '()))
+  (eager-or-procedure
+    (lambda () (set! order (cons 1 order)) #f)
+    (lambda () (set! order (cons 2 order)) #f)
+    (lambda () (set! order (cons 3 order)) #f))
+  (test-equal "eager-or-procedure: left-to-right" '(1 2 3) (reverse order)))
 
 ;;; --- funcall-procedure ---
 (test-equal "funcall-procedure" 42 (funcall-procedure (lambda () 42)))

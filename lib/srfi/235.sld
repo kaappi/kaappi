@@ -162,10 +162,10 @@
                   (if v (loop (cdr ts)) #f))))))
 
     (define (eager-and-procedure . thunks)
-      (let ((results (map (lambda (t) (t)) thunks)))
-        (let loop ((rs results) (last #t))
-          (if (null? rs) last
-              (if (car rs) (loop (cdr rs) (car rs)) #f)))))
+      (let loop ((ts thunks) (last #t))
+        (if (null? ts) last
+            (let ((v ((car ts))))
+              (loop (cdr ts) (if (and last v) v #f))))))
 
     (define (or-procedure . thunks)
       (let loop ((ts thunks))
@@ -174,10 +174,10 @@
               (if v v (loop (cdr ts)))))))
 
     (define (eager-or-procedure . thunks)
-      (let ((results (map (lambda (t) (t)) thunks)))
-        (let loop ((rs results))
-          (if (null? rs) #f
-              (if (car rs) (car rs) (loop (cdr rs)))))))
+      (let loop ((ts thunks) (first #f))
+        (if (null? ts) first
+            (let ((v ((car ts))))
+              (loop (cdr ts) (or first v))))))
 
     (define (funcall-procedure thunk)
       (thunk))
