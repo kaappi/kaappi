@@ -145,7 +145,10 @@ pub fn expandAndCompileMacroUse(self: *Compiler, expr: Value, name: []const u8, 
     }
     defer if (self.globals) |g| {
         const glk = globals_mod.acquireGlobalsWrite(g);
-        for (temp_globals[0..temp_global_count]) |tg| {
+        var tgi = temp_global_count;
+        while (tgi > 0) {
+            tgi -= 1;
+            const tg = temp_globals[tgi];
             if (tg.was_present) {
                 g.put(tg.name, tg.old_val.?) catch {};
             } else {

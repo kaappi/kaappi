@@ -31,15 +31,15 @@
 
     (define-syntax stream
       (syntax-rules ()
-        ((stream) stream-null)
+        ((stream) (delay '()))
         ((stream x rest ...)
          (stream-cons x (stream rest ...)))))
 
     (define (stream-unfold mapper pred gen seed)
       (define (unfold-loop s)
         (if (pred s)
-            stream-null
-            (stream-cons (mapper s) (unfold-loop (gen s)))))
+            (stream-cons (mapper s) (unfold-loop (gen s)))
+            stream-null))
       (unfold-loop seed))
 
     (define (stream-map proc strm)

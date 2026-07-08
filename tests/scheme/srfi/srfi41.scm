@@ -43,23 +43,20 @@
 ;;; --- finite stream operations ---
 (test 3 (stream-length (stream 1 2 3)))
 (test 6 (stream-fold + 0 (stream 1 2 3)))
-;; FAIL: #1215 (stream-append drops everything after the first stream)
-;; (test '(1 2 3 4) (stream->list (stream-append (stream 1 2) (stream 3 4))))
-;; FAIL: #1215 (stream-zip errors instead of stopping at the shortest stream)
-;; (test '((1 a) (2 b)) (stream->list (stream-zip (stream 1 2) (stream 'a 'b 'c))))
+(test '(1 2 3 4) (stream->list (stream-append (stream 1 2) (stream 3 4))))
+(test '((1 a) (2 b)) (stream->list (stream-zip (stream 1 2) (stream 'a 'b 'c))))
 (test '(a b c)
       (let ((acc '()))
         (stream-for-each (lambda (x) (set! acc (cons x acc))) (stream 'a 'b 'c))
         (reverse acc)))
 
 ;; stream-unfold: (stream-unfold map pred? gen base)
-;; FAIL: #1215 (stream-unfold predicate sense inverted)
-;; (test '(0 1 4 9)
-;;       (stream->list (stream-unfold
-;;                      (lambda (x) (* x x))
-;;                      (lambda (x) (< x 4))
-;;                      (lambda (x) (+ x 1))
-;;                      0)))
+(test '(0 1 4 9)
+      (stream->list (stream-unfold
+                     (lambda (x) (* x x))
+                     (lambda (x) (< x 4))
+                     (lambda (x) (+ x 1))
+                     0)))
 
 ;; stream-lambda
 (define double-all
@@ -76,5 +73,23 @@
 ;; (test '(0 1 2) (stream->list (stream-range 0 3)))
 ;; (test '(3 2 1) (stream->list (stream-reverse (stream 1 2 3))))
 ;; (test '(1 2 4) (stream->list (stream-take 3 (stream-iterate (lambda (x) (* 2 x)) 1))))
+
+;;; --- regression: #1215 stream-append with multiple streams ---
+(test '(1 2 3 4 5 6)
+      (stream->list (stream-append (stream 1 2) (stream 3 4) (stream 5 6))))
+(test '(1 2) (stream->list (stream-append (stream 1 2) (stream))))
+(test '(1 2) (stream->list (stream-append (stream) (stream 1 2))))
+
+;;; --- regression: #1215 stream-zip edge cases ---
+(test '() (stream->list (stream-zip (stream) (stream 1 2))))
+(test '((1 10)) (stream->list (stream-zip (stream 1) (stream 10 20))))
+
+;;; --- regression: #1215 stream-unfold edge cases ---
+(test '() (stream->list (stream-unfold values (lambda (x) #f) (lambda (x) (+ x 1)) 0)))
+(test '(0) (stream->list (stream-unfold values (lambda (x) (< x 1)) (lambda (x) (+ x 1)) 0)))
+
+;;; --- regression: #1215 stream macro as sibling arguments ---
+(test '(#t #t) (list (promise? (stream 1)) (promise? (stream 2))))
+(test '(#t #t #t) (list (promise? (stream 1)) (promise? (stream 2)) (promise? (stream 3))))
 
 (test-end "srfi-41")
