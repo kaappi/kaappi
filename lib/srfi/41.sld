@@ -118,8 +118,12 @@
                        (apply stream-append (cdr strms))))))
 
     (define (stream-zip . strms)
+      (define (any-null? ss)
+        (and (not (null? ss))
+             (or (stream-null? (car ss))
+                 (any-null? (cdr ss)))))
       (define (zip-loop ss)
-        (if (or (null? ss) (stream-null? (car ss)))
+        (if (or (null? ss) (any-null? ss))
             stream-null
             (stream-cons (map stream-car ss)
                          (zip-loop (map stream-cdr ss)))))

@@ -83,13 +83,17 @@
 ;;; --- regression: #1215 stream-zip edge cases ---
 (test '() (stream->list (stream-zip (stream) (stream 1 2))))
 (test '((1 10)) (stream->list (stream-zip (stream 1) (stream 10 20))))
+(test '((1 10)) (stream->list (stream-zip (stream 1 2) (stream 10))))
 
 ;;; --- regression: #1215 stream-unfold edge cases ---
 (test '() (stream->list (stream-unfold values (lambda (x) #f) (lambda (x) (+ x 1)) 0)))
 (test '(0) (stream->list (stream-unfold values (lambda (x) (< x 1)) (lambda (x) (+ x 1)) 0)))
 
-;;; --- regression: #1215 stream macro as sibling arguments ---
-(test '(#t #t) (list (promise? (stream 1)) (promise? (stream 2))))
-(test '(#t #t #t) (list (promise? (stream 1)) (promise? (stream 2)) (promise? (stream 3))))
+;;; --- regression: #1215 stream macro sibling arguments must produce correct content ---
+(define (two-streams) (list (stream->list (stream 1 2)) (stream->list (stream 3 4))))
+(test '((1 2) (3 4)) (two-streams))
+(define (three-streams)
+  (list (stream->list (stream 'a)) (stream->list (stream 'b)) (stream->list (stream 'c))))
+(test '((a) (b) (c)) (three-streams))
 
 (test-end "srfi-41")
