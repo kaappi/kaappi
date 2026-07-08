@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783535959371,
+  "lastUpdate": 1783537372132,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "cd1e307f7d7917078a4bd2dc05b5b6930cbf9d13",
-          "message": "Unify VMError/PrimitiveError and collapse 8 inline error switches (#1046) (#1128)\n\nDefine one KaappiError in dependency-free src/errors.zig; alias VMError and\nPrimitiveError to it. Delete mapVMError (now identity) and its 39 call sites.\nReplace 8 drifted inline anyerror→VMError switches with one mapNativeError()\nthat owns detail-defaulting for TypeError, IndexOutOfBounds, InvalidArgument.\n\nFixes three drift bugs: CALL_NATIVE_VARIADIC path gains detail-defaulting,\ncallHandler/callThunk/callWithArgs handle all 16 error variants (were silently\nmapping 7-9 to InvalidBytecode), and InvalidArgument detail respects the\nlast_error_detail_len guard.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-05T07:41:06+05:30",
-          "tree_id": "5546a28daee93f56b3003a61288e81f41391a77a",
-          "url": "https://github.com/kaappi/kaappi/commit/cd1e307f7d7917078a4bd2dc05b5b6930cbf9d13"
-        },
-        "date": 1783218944478,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.229931,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.858833,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.928423,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.155491,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.01261,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.211745,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.466643,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.070293,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 12.568875,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.815083,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 9.988437,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.953934,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 8.304834,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.715072,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.042529,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.045999,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c0f8ad32847dc8ae1c1d0261c2441f89af93e5db",
+          "message": "Complete SRFI-235 implementation: add 27 missing exports, fix return values (#1221) (#1338)\n\n* Complete SRFI-235 implementation: add 27 missing exports, fix return values (#1221)\n\nFix all-of and conjoin to return the last predicate result instead of #t.\nAdd all 27 missing SRFI-235 exports: on-left, on-right, left-section,\nright-section, apply-chain, arguments-drop/take/drop-right/take-right,\ngroup-by, begin/if/when/unless/value/case-procedure, and/eager-and/\nor/eager-or-procedure, funcall/loop/while/until-procedure, always,\nnever, boolean.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Use explicit left-to-right evaluation in eager-and/or-procedure\n\nR7RS does not guarantee map's evaluation order, but SRFI-235 requires\nthunks to be invoked left-to-right. Replace map with explicit loops\nand add order-sensitive tests.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-09T00:09:55+05:30",
+          "tree_id": "54d9bcf89edbcf2628c1efdfc3c3750e22d3a7eb",
+          "url": "https://github.com/kaappi/kaappi/commit/c0f8ad32847dc8ae1c1d0261c2441f89af93e5db"
+        },
+        "date": 1783537371116,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.334832,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.273422,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 1.00214,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.424667,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.012622,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.205758,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.499831,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.069154,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 12.740217,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.948245,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 10.248854,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 1.006291,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 8.563836,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.748274,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.043826,
             "unit": "seconds"
           }
         ]
