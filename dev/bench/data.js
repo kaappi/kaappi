@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783524886025,
+  "lastUpdate": 1783527472930,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "1a63d356851bd40bf38e9e74a9d3b56aeca2cc7d",
-          "message": "Add compileDesugared() helper to centralize sexpr rooting discipline (#1044) (#1121)\n\nSeven form compilers repeated the same pushRoot/compileExpr/popRoot\npattern after building desugared S-expressions. Extract a single\ncompileDesugared() method on Compiler that owns the rooting, replacing\n6 call sites. This closes the surface where the next #1010-class GC\nbug could appear in new desugaring forms.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-05T06:18:39+05:30",
-          "tree_id": "4d4d23e6b6fde193e114d8f42b856ada36b5c0d5",
-          "url": "https://github.com/kaappi/kaappi/commit/1a63d356851bd40bf38e9e74a9d3b56aeca2cc7d"
-        },
-        "date": 1783214034266,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.952224,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.821491,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.979703,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.183009,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.014522,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.234905,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.46439,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.067982,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 13.772014,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.805236,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 11.141411,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 1.072611,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 9.129728,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.686406,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044339,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.045409,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "23827c283622ee86e115b0d13e6c47b0384bc41e",
+          "message": "Fix SRFI-152 string-every, string-split, and add missing exports (#1331)\n\n* Fix SRFI-152 string-every, string-split, and add missing exports (#1234)\n\nstring-every returned #t instead of the final predicate value.\nstring-split lacked grammar/limit parameters and returned (\"\") for\nempty string instead of (). ~28 spec-required procedures were missing.\n\nRewrite 152.sld to import native SRFI-13 implementations where they\nexist (fixing string-every/string-any for free) and implement the 17\ntruly missing procedures in Scheme: string-null?, reverse-list->string,\nstring-prefix-length, string-suffix-length, string-contains-right,\nstring-take-while, string-take-while-right, string-drop-while,\nstring-drop-while-right, string-break, string-span,\nstring-concatenate-reverse, string-fold, string-fold-right,\nstring-replicate, string-segment, and a full string-split with\ngrammar (infix/strict-infix/prefix/suffix) and limit support.\n\nAll 73 SRFI-152 procedures are now exported. Removed string-reverse\n(not part of SRFI-152).\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Add (scheme cxr) import and optional start/end args to 7 procedures\n\nReview feedback: caddr/cdddr/cadddr are in (scheme cxr), not\n(scheme base), causing runtime errors when optional args were passed\nto string-prefix-length, string-suffix-length, or string-split.\n\nAlso added optional [start end] parameters to string-contains-right,\nstring-take-while, string-take-while-right, string-drop-while,\nstring-drop-while-right, string-break, and string-span to match the\nSRFI-152 spec signatures.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-08T21:21:27+05:30",
+          "tree_id": "d9080d330c90d2ddcd127c37002b2ff1aebdbf47",
+          "url": "https://github.com/kaappi/kaappi/commit/23827c283622ee86e115b0d13e6c47b0384bc41e"
+        },
+        "date": 1783527471626,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.324671,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.252001,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.98363,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.426056,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.012928,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.204328,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.500985,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.072093,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 12.711012,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.936191,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 10.158112,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 1.022453,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 8.428072,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.706845,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.043852,
             "unit": "seconds"
           }
         ]
