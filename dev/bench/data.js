@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783505742471,
+  "lastUpdate": 1783505913303,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "62d616a3dac3ecd55052fcc9247fcd1609e1695a",
-          "message": "Extract buildRestList, lookupGlobalLocked, and raiseUndefinedVariable helpers (#1047) (#1109)\n\nDeduplicate three patterns in the hot dispatch loop:\n\n- buildRestList: variadic rest-arg cons-list building (5 copies across\n  vm_dispatch.zig, vm.zig, vm_calls.zig → 1 pub fn + 5 callsites)\n- lookupGlobalLocked: global lookup with hygienic-prefix fallback and\n  shared lock (3 identical copies in call_global/tail_call_global → 1\n  inline fn)\n- raiseUndefinedVariable: \"undefined variable\" error with did-you-mean\n  suggestion (5 copies → 1 noinline fn)\n\nAlso marks raiseDeadNativeReturn as noinline to keep error-path code out\nof the instruction cache.\n\nThe finishFrameReturn helper (7 copies of the frame-return epilogue) was\nbenchmarked but dropped: extracting it changed the dispatch loop's code\nlayout enough to cause a 12% regression on fib(35) from instruction\ncache alignment effects, even though fib uses no tail calls. The other\nthree helpers pass the <3% benchmark gate.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-04T22:25:19+05:30",
-          "tree_id": "6983fbee4801444f18c7154355bbfa05fbfbbfd4",
-          "url": "https://github.com/kaappi/kaappi/commit/62d616a3dac3ecd55052fcc9247fcd1609e1695a"
-        },
-        "date": 1783185434449,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.418565,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.67086,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.905061,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.253515,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.012912,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.211742,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.476262,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.070575,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 12.559017,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.807379,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 9.994399,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.958083,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 8.295075,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.559001,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.043953,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.04592,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "be2e3ea2c95901ed6fb0bbac40087f3fcadf5b4c",
+          "message": "Migrate reader Unicode classification to generated tables (#1268) (#1321)\n\nReplace the hand-rolled isUnicodeLetter in reader.zig (27 hardcoded\nscript-block ranges + case-table fallback) with a single call to\nunicode.inRanges(&unicode.alphabetic_ranges, cp), matching the pattern\nalready used by char-alphabetic? in primitives_char.zig.\n\nThis eliminates the divergence where char-alphabetic? accepted\ncodepoints (e.g. U+02B0 modifier letters) that the reader rejected,\nand removes 1300 bytes of dead lookup tables (extra_uppercase,\nextra_lowercase, containsU21) that existed solely for the old reader\nfallback path.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-08T15:07:19+05:30",
+          "tree_id": "8766a3a4821a04383f862225dbd8354fca899065",
+          "url": "https://github.com/kaappi/kaappi/commit/be2e3ea2c95901ed6fb0bbac40087f3fcadf5b4c"
+        },
+        "date": 1783505912403,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.369666,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.563755,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 1.022091,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.41784,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.013911,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.225248,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.510333,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.070239,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 13.579752,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.97644,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 11.251718,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 1.101691,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 9.234991,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.857721,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.046276,
             "unit": "seconds"
           }
         ]
