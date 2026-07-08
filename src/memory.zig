@@ -903,6 +903,9 @@ pub const GC = struct {
             .entries = entries,
             .count = 0,
             .capacity = cap,
+            .compare_mode = .equal,
+            .equiv_fn = 0,
+            .hash_fn = 0,
         };
         self.finishAlloc(&ht.header, @sizeOf(HashTable) + cap * @sizeOf(HashEntry));
         return types.makePointer(@ptrCast(ht));

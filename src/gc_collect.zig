@@ -106,6 +106,7 @@ fn referencesYoung(gc: *GC, obj: *Object) bool {
         },
         .hash_table => {
             const ht = obj.as(HashTable);
+            if (isYoungPointer(gc, ht.equiv_fn) or isYoungPointer(gc, ht.hash_fn)) return true;
             for (ht.entries[0..ht.capacity]) |entry| {
                 if (entry.state == .occupied) {
                     if (isYoungPointer(gc, entry.key) or isYoungPointer(gc, entry.value)) return true;
@@ -364,6 +365,8 @@ fn markObjectContents(gc: *GC, obj: *Object) void {
         },
         .hash_table => {
             const ht = obj.as(HashTable);
+            markValue(gc, ht.equiv_fn);
+            markValue(gc, ht.hash_fn);
             for (ht.entries[0..ht.capacity]) |entry| {
                 if (entry.state == .occupied) {
                     markValue(gc, entry.key);
@@ -657,6 +660,8 @@ fn markValueInner(gc: *GC, v: Value, worklist: *std.ArrayList(Value)) void {
         },
         .hash_table => {
             const ht = obj.as(HashTable);
+            if (ht.equiv_fn != 0) worklist.append(gc.allocator, ht.equiv_fn) catch @panic("GC mark: worklist OOM");
+            if (ht.hash_fn != 0) worklist.append(gc.allocator, ht.hash_fn) catch @panic("GC mark: worklist OOM");
             for (ht.entries[0..ht.capacity]) |entry| {
                 if (entry.state == .occupied) {
                     worklist.append(gc.allocator, entry.key) catch @panic("GC mark: worklist OOM");

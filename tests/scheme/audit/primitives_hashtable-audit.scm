@@ -258,14 +258,11 @@
 (test #t (procedure? (hash-table-equivalence-function (make-hash-table))))
 (test #t (procedure? (hash-table-hash-function (make-hash-table))))
 (test 'caught (guard (e (#t 'caught)) (hash-table-equivalence-function 42)))
-;; make-hash-table and alist->hash-table accept but IGNORE custom
-;; equivalence/hash procedures — an eq? table coalesces distinct equal
-;; strings, and the accessor claims equal? regardless of what was passed.
-;; FAIL: #1183 (custom equivalence/hash functions ignored; accessors lie)
-;; (test 2 (let ((ht (make-hash-table eq?)))
-;;           (hash-table-set! ht (string #\a) 'first)
-;;           (hash-table-set! ht (string #\a) 'second)
-;;           (hash-table-size ht)))
-;; (test #t (eq? eq? (hash-table-equivalence-function (make-hash-table eq?))))
+;; #1183: custom equivalence/hash functions now honored
+(test 2 (let ((ht (make-hash-table eq?)))
+          (hash-table-set! ht (string #\a) 'first)
+          (hash-table-set! ht (string #\a) 'second)
+          (hash-table-size ht)))
+(test #t (eq? eq? (hash-table-equivalence-function (make-hash-table eq?))))
 
 (test-end "primitives_hashtable audit")

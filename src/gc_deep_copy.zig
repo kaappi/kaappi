@@ -161,16 +161,36 @@ fn deepCopyValue(gc: *GC, src: Value, visited: *std.AutoHashMap(usize, Value)) !
             const new_val = try gc.allocHashTable(ht.capacity);
             try visited.put(src_ptr, new_val);
             const new_ht = types.toObject(new_val).as(types.HashTable);
-            for (ht.entries[0..ht.capacity]) |entry| {
-                if (entry.state == .occupied) {
-                    const nk = try deepCopyValue(gc, entry.key, visited);
-                    const nv = try deepCopyValue(gc, entry.value, visited);
-                    var idx = hashtable.valueHash(nk) & (new_ht.capacity - 1);
-                    while (new_ht.entries[idx].state == .occupied) {
-                        idx = (idx + 1) & (new_ht.capacity - 1);
+            new_ht.compare_mode = ht.compare_mode;
+            new_ht.equiv_fn = try deepCopyValue(gc, ht.equiv_fn, visited);
+            new_ht.hash_fn = try deepCopyValue(gc, ht.hash_fn, visited);
+            if (ht.compare_mode == .custom) {
+                // Preserve slot positions for custom hash tables since we
+                // can't call the custom hash_fn during deep copy.
+                for (ht.entries[0..ht.capacity], 0..) |entry, i| {
+                    if (entry.state == .occupied) {
+                        new_ht.entries[i] = .{
+                            .key = try deepCopyValue(gc, entry.key, visited),
+                            .value = try deepCopyValue(gc, entry.value, visited),
+                            .state = .occupied,
+                        };
+                        new_ht.count += 1;
+                    } else {
+                        new_ht.entries[i].state = entry.state;
                     }
-                    new_ht.entries[idx] = .{ .key = nk, .value = nv, .state = .occupied };
-                    new_ht.count += 1;
+                }
+            } else {
+                for (ht.entries[0..ht.capacity]) |entry| {
+                    if (entry.state == .occupied) {
+                        const nk = try deepCopyValue(gc, entry.key, visited);
+                        const nv = try deepCopyValue(gc, entry.value, visited);
+                        var idx = hashtable.hashForMode(new_ht.compare_mode, nk) & (new_ht.capacity - 1);
+                        while (new_ht.entries[idx].state == .occupied) {
+                            idx = (idx + 1) & (new_ht.capacity - 1);
+                        }
+                        new_ht.entries[idx] = .{ .key = nk, .value = nv, .state = .occupied };
+                        new_ht.count += 1;
+                    }
                 }
             }
             return new_val;
