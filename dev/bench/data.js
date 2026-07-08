@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783512403392,
+  "lastUpdate": 1783520223931,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "f7ef22ccff4ed822ec808731e99876f4d8591d3b",
-          "message": "Extract ratPartsVal helper to deduplicate rational num/den extraction (#1055) (#1115)\n\nThe 6 identical ~15-line blocks that extract numerator/denominator as\nValues from fixnum/bignum/rational in add, sub, mul, and div are replaced\nby a single ratPartsVal() helper returning a RatPartsVal struct. Net -69\nlines with identical behavior.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-04T23:41:29+05:30",
-          "tree_id": "47b414f4ed947eba5494fdfbedf768305543f904",
-          "url": "https://github.com/kaappi/kaappi/commit/f7ef22ccff4ed822ec808731e99876f4d8591d3b"
-        },
-        "date": 1783190777909,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 2.282679,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 7.040033,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.502815,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 2.914021,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.009037,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.145163,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.250536,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.03498,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 7.888099,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 0.930511,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 7.011569,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.681764,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 5.590755,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.184773,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.025882,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044568,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b8859640552dc3bb6fd6c38ae93f1afe7bf0654b",
+          "message": "Fix SRFI-210 set!-values shadowing bug (#1224) (#1324)\n\nThe consumer lambda's parameters shadowed the outer variables, making\neach (set! var var) assign a parameter to itself. Use a rest-arg lambda\nwith a helper macro to bind fresh temporaries instead.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-08T19:22:46+05:30",
+          "tree_id": "795d57f5f0445151644509a8b31b520dd3a38df5",
+          "url": "https://github.com/kaappi/kaappi/commit/b8859640552dc3bb6fd6c38ae93f1afe7bf0654b"
+        },
+        "date": 1783520222387,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.532659,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.271794,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.78115,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 3.449965,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.013421,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.20671,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.393685,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.061435,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 12.792462,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.493369,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 10.517061,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 1.03705,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 8.558466,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 0.876609,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.0372,
             "unit": "seconds"
           }
         ]
