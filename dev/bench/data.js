@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783505687512,
+  "lastUpdate": 1783505742471,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "aaa28f3be8f91b7c50318fa792d461b5a8da5237",
-          "message": "Add arena allocator and helpers to LLVM emitter, remove 256-slot panic cliffs (#1071) (#1108)\n\nThe LLVM IR text emitter leaked every freshTemp/label/interned string\nallocation and used fixed [256][]const u8 stack arrays that panicked on\n>256-arg calls during compilation.\n\n- Add ArenaAllocator that frees all emitter-lifetime strings in bulk\n  at deinit, with backing_alloc for containers needing prompt cleanup\n- Add emitImm(), startBlock(), emitOrphanAfterTail(), freshLabel()\n  helpers to deduplicate 6 inline materialization patterns, 3 orphan-\n  label blocks, and ~10 manual current_block updates\n- Replace all [256] stack arrays in emitCallNode, emitSelfTailCall,\n  emitDirectCall, emitOr with arena-allocated slices sized to actual\n  argument count\n- Remove discarded freshTemp() call in emitAnd that wasted an\n  allocation and burned an SSA number per and-form\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-04T21:56:49+05:30",
-          "tree_id": "bf5e7b1d8b950fd6b575765c69f87806e71c9982",
-          "url": "https://github.com/kaappi/kaappi/commit/aaa28f3be8f91b7c50318fa792d461b5a8da5237"
-        },
-        "date": 1783185204936,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.374975,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.12806,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.916206,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.55456,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.012665,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.211767,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.478056,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.071249,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 12.47941,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.821126,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 10.00797,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.963047,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 8.282326,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.763993,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044705,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.043863,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "6dab75eedc661a507a29a758c891285936f4ae5b",
+          "message": "Add hash-table-update! procedure to SRFI-69 (#1182) (#1315)\n\nSRFI-69 requires hash-table-update! with signature (ht key function [thunk]).\nOnly hash-table-update!/default was registered. The new procedure calls the\noptional thunk when the key is absent (or errors if no thunk is provided).\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-08T15:04:53+05:30",
+          "tree_id": "f4b6ca19e1558a6b12e7a7d5f2a630311fcc135d",
+          "url": "https://github.com/kaappi/kaappi/commit/6dab75eedc661a507a29a758c891285936f4ae5b"
+        },
+        "date": 1783505741593,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.123741,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.529147,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 1.021709,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.39107,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.014007,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.225243,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.510361,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.070427,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 13.62879,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.98526,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 11.260608,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 1.098508,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 9.224322,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.88632,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.04592,
             "unit": "seconds"
           }
         ]
