@@ -18,7 +18,17 @@
       (syntax-rules ()
         ((set!-values (var ...) producer)
          (call-with-values (lambda () producer)
-           (lambda (var ...) (set! var var) ...)))))
+           (lambda args
+             (set!-values-aux (var ...) args))))))
+
+    (define-syntax set!-values-aux
+      (syntax-rules ()
+        ((set!-values-aux () args)
+         (if #f #f))
+        ((set!-values-aux (var . vars) args)
+         (begin
+           (set! var (car args))
+           (set!-values-aux vars (cdr args))))))
 
     (define-syntax case-receive
       (syntax-rules (else)
