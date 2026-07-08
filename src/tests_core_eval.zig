@@ -457,3 +457,35 @@ test "null-environment eval in tail position respects restriction (#1253)" {
     try std.testing.expect(types.isSymbol(result));
     try std.testing.expectEqualStrings("caught", types.symbolName(result));
 }
+
+test "Unicode identifier with modifier letter (#1268)" {
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
+    // U+02B0 (ʰ, Lm modifier letter) — previously rejected by hand-rolled ranges
+    try std.testing.expectEqual(@as(i64, 42), types.toFixnum(try ctx.vm.eval(
+        "(define xʰy 42) xʰy",
+    )));
+    // U+00AA (ª, Lo feminine ordinal) — Alphabetic but not in old ranges
+    try std.testing.expectEqual(@as(i64, 7), types.toFixnum(try ctx.vm.eval(
+        "(define ª 7) ª",
+    )));
+    // Verify existing Unicode identifiers still work
+    try std.testing.expectEqual(@as(i64, 99), types.toFixnum(try ctx.vm.eval(
+        "(define λ 99) λ",
+    )));
+}
+
+test "Unicode symbol write/read round-trip (#1268)" {
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
+    // write a symbol containing U+02B0, read it back, verify equality
+    const result = try ctx.vm.eval(
+        \\(let ((p (open-output-string)))
+        \\  (write 'xʰy p)
+        \\  (let ((s (get-output-string p)))
+        \\    (eq? 'xʰy (read (open-input-string s)))))
+    );
+    try std.testing.expectEqual(types.TRUE, result);
+}

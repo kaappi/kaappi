@@ -121,15 +121,6 @@ def write_search_fn(lines, fn_name, table_name):
     lines.append(f"}}")
     lines.append("")
 
-def write_u21_table(lines, name, values):
-    lines.append(f"pub const {name} = [_]u21{{")
-    for i in range(0, len(values), 12):
-        chunk = values[i:i+12]
-        lines.append("    " + ", ".join(fmt(cp) for cp in chunk) + ",")
-    lines.append("};")
-    lines.append(f"// {len(values)} entries")
-    lines.append("")
-
 def write_range_table(lines, name, ranges):
     lines.append(f"pub const {name} = [_]Range{{")
     for lo, hi in ranges:
@@ -171,29 +162,6 @@ def generate_zig(uppercase_letters, lowercase_letters, upcase_map, downcase_map,
     fold_sorted = sorted(fold_extra.items())
     write_table(lines, "fold_table", fold_sorted, "from", "to")
     write_search_fn(lines, "findFold", "fold_table")
-
-    # Extra uppercase/lowercase sets (codepoints with Lu/Ll category but no case pair)
-    upper_in_table = set(e[1] for e in upcase_sorted) | set(e[0] for e in downcase_sorted)
-    extra_upper = sorted(uppercase_letters - upper_in_table - set(range(128)))
-
-    lower_in_table = set(e[0] for e in upcase_sorted) | set(e[1] for e in downcase_sorted)
-    extra_lower = sorted(lowercase_letters - lower_in_table - set(range(128)))
-
-    write_u21_table(lines, "extra_uppercase", extra_upper)
-    write_u21_table(lines, "extra_lowercase", extra_lower)
-
-    # Binary search for u21 arrays
-    lines.append("pub fn containsU21(comptime table: []const u21, cp: u21) bool {")
-    lines.append("    var lo: usize = 0;")
-    lines.append("    var hi: usize = table.len;")
-    lines.append("    while (lo < hi) {")
-    lines.append("        const mid = lo + (hi - lo) / 2;")
-    lines.append("        if (table[mid] == cp) return true;")
-    lines.append("        if (table[mid] < cp) { lo = mid + 1; } else { hi = mid; }")
-    lines.append("    }")
-    lines.append("    return false;")
-    lines.append("}")
-    lines.append("")
 
     # Unicode derived property range tables (from DerivedCoreProperties.txt)
     write_range_table(lines, "uppercase_ranges", derived_props["Uppercase"])
