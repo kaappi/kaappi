@@ -192,41 +192,41 @@
 
     (define vector-delete-neighbor-dups
       (case-lambda
-        ((= vec)
-         (%vector-delete-neighbor-dups = vec 0 (vector-length vec)))
-        ((= vec start)
-         (%vector-delete-neighbor-dups = vec start (vector-length vec)))
-        ((= vec start end)
-         (%vector-delete-neighbor-dups = vec start end))))
+        ((elt= vec)
+         (%vector-delete-neighbor-dups elt= vec 0 (vector-length vec)))
+        ((elt= vec start)
+         (%vector-delete-neighbor-dups elt= vec start (vector-length vec)))
+        ((elt= vec start end)
+         (%vector-delete-neighbor-dups elt= vec start end))))
 
-    (define (%vector-delete-neighbor-dups = vec start end)
+    (define (%vector-delete-neighbor-dups elt= vec start end)
       (if (>= start end)
           #()
           (let loop ((i (+ start 1))
                      (acc (list (vector-ref vec start))))
             (cond
              ((= i end) (list->vector (reverse acc)))
-             ((= (car acc) (vector-ref vec i))
+             ((elt= (car acc) (vector-ref vec i))
               (loop (+ i 1) acc))
              (else
               (loop (+ i 1) (cons (vector-ref vec i) acc)))))))
 
     (define vector-delete-neighbor-dups!
       (case-lambda
-        ((= vec)
-         (%vector-delete-neighbor-dups! = vec 0 (vector-length vec)))
-        ((= vec start)
-         (%vector-delete-neighbor-dups! = vec start (vector-length vec)))
-        ((= vec start end)
-         (%vector-delete-neighbor-dups! = vec start end))))
+        ((elt= vec)
+         (%vector-delete-neighbor-dups! elt= vec 0 (vector-length vec)))
+        ((elt= vec start)
+         (%vector-delete-neighbor-dups! elt= vec start (vector-length vec)))
+        ((elt= vec start end)
+         (%vector-delete-neighbor-dups! elt= vec start end))))
 
-    (define (%vector-delete-neighbor-dups! = vec start end)
+    (define (%vector-delete-neighbor-dups! elt= vec start end)
       (if (>= start end)
           start
           (let loop ((i (+ start 1)) (j (+ start 1)))
             (cond
              ((= i end) j)
-             ((= (vector-ref vec (- j 1)) (vector-ref vec i))
+             ((elt= (vector-ref vec (- j 1)) (vector-ref vec i))
               (loop (+ i 1) j))
              (else
               (vector-set! vec j (vector-ref vec i))

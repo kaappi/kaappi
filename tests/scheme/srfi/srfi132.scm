@@ -139,6 +139,10 @@
 (test-equal "vector-delete-neighbor-dups: subrange"
   #(1 2 3) (vector-delete-neighbor-dups = #(0 1 1 2 2 3 3 9) 1 7))
 
+;; non-numeric predicate (regression: = parameter must not shadow numeric =)
+(test-equal "vector-delete-neighbor-dups: char=?"
+  #(#\a #\b #\c) (vector-delete-neighbor-dups char=? #(#\a #\a #\b #\b #\c)))
+
 ;;; --- vector-delete-neighbor-dups! (returns end index) ---
 (let ((v (vector 1 1 2 2 3 3)))
   (test-equal "vector-delete-neighbor-dups!: returns end index"
@@ -156,6 +160,11 @@
 
 (test-equal "vector-delete-neighbor-dups!: empty range"
   3 (vector-delete-neighbor-dups! = #(1 2 3) 3 3))
+
+;; non-numeric predicate (regression: elt= parameter must not shadow numeric =)
+(let ((v (vector #\a #\a #\b #\c #\c)))
+  (test-equal "vector-delete-neighbor-dups!: char=?"
+    3 (vector-delete-neighbor-dups! char=? v)))
 
 ;;; --- vector-find-median / vector-find-median! ---
 (test-equal "vector-find-median: odd count"
@@ -188,10 +197,11 @@
 ;;; --- vector-separate! ---
 (let ((v (vector 5 3 1 4 2)))
   (vector-separate! < v 2)
-  (test-equal "vector-separate!: smallest 2 in first positions"
-    1 (vector-ref v 0))
-  (test-equal "vector-separate!: smallest 2 in first positions (2)"
-    2 (vector-ref v 1)))
+  (let ((first-two (list (vector-ref v 0) (vector-ref v 1))))
+    (test-assert "vector-separate!: 1 in first 2 positions"
+      (member 1 first-two))
+    (test-assert "vector-separate!: 2 in first 2 positions"
+      (member 2 first-two))))
 
 (let ((runner (test-runner-current)))
   (test-end "srfi-132")
