@@ -247,12 +247,12 @@ fn charCiGtFn(args: []const Value) PrimitiveError!Value {
 // Case-insensitive string comparison
 // ---------------------------------------------------------------------------
 
-const FoldResult = struct {
+pub const FoldResult = struct {
     cps: [3]u21,
     len: u2,
 };
 
-fn foldCharExpanding(cp: u21) FoldResult {
+pub fn foldCharExpanding(cp: u21) FoldResult {
     return switch (cp) {
         0x00DF => .{ .cps = .{ 's', 's', 0 }, .len = 2 },
         0x0130 => .{ .cps = .{ 0x0069, 0x0307, 0 }, .len = 2 },

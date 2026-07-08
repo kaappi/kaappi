@@ -206,8 +206,10 @@ fn stringCiContentHash(data: []const u8) usize {
             pos += 1;
             continue;
         };
-        const folded = char_mod.charFoldcase(cp);
-        h = h *% 31 +% folded;
+        const folded = char_mod.foldCharExpanding(cp);
+        for (folded.cps[0..folded.len]) |fcp| {
+            h = h *% 31 +% fcp;
+        }
         pos += seq_len;
     }
     return h;
@@ -233,9 +235,10 @@ fn hashForTable(ht: *HashTable, key: Value) PrimitiveError!usize {
             };
             if (types.isFixnum(result)) {
                 const v = types.toFixnum(result);
-                break :blk @as(usize, @intCast(if (v < 0) -v else v));
+                const abs_v: u64 = if (v < 0) @intCast(-@as(i128, v)) else @intCast(v);
+                break :blk @as(usize, @truncate(abs_v));
             }
-            break :blk @truncate(@as(u64, result) *% 2654435761);
+            break :blk valueHash(result);
         },
     };
 }
@@ -297,6 +300,13 @@ fn valueHashDepth(key: Value, depth: usize) usize {
     }
     if (types.isBignum(key)) {
         const bn = types.toObject(key).as(types.Bignum);
+        if (bn.len <= 1) {
+            const mag: u64 = if (bn.len == 0) 0 else bn.limbs[0];
+            if (mag < (@as(u64, 1) << 48)) {
+                const signed_val: i64 = if (!bn.positive and mag > 0) -@as(i64, @intCast(mag)) else @as(i64, @intCast(mag));
+                return @truncate(@as(u64, @bitCast(signed_val)) *% 2654435761);
+            }
+        }
         var h: usize = if (bn.positive) @as(usize, 0) else @as(usize, 1);
         for (bn.limbs[0..bn.len]) |limb| h = h *% 31 +% @as(usize, @truncate(limb));
         return h;
@@ -382,17 +392,13 @@ fn rehash(ht: *HashTable) PrimitiveError!void {
     }
     const old_entries = ht.entries;
     const old_cap = ht.capacity;
-    const old_count = ht.count;
-    ht.entries = new_entries;
-    ht.capacity = new_cap;
-    ht.count = 0;
+    // Keep ht.entries pointing to old_entries during the loop so GC can
+    // trace keys that haven't been moved to new_entries yet.
     const mask = new_cap - 1;
+    var new_count: usize = 0;
     for (old_entries[0..old_cap]) |entry| {
         if (entry.state == .occupied) {
             const h = hashForTable(ht, entry.key) catch |err| {
-                ht.entries = old_entries;
-                ht.capacity = old_cap;
-                ht.count = old_count;
                 gc.allocator.free(new_entries);
                 return err;
             };
@@ -401,9 +407,12 @@ fn rehash(ht: *HashTable) PrimitiveError!void {
                 idx = (idx + 1) & mask;
             }
             new_entries[idx] = entry;
-            ht.count += 1;
+            new_count += 1;
         }
     }
+    ht.entries = new_entries;
+    ht.capacity = new_cap;
+    ht.count = new_count;
     gc.allocator.free(old_entries);
 }
 
@@ -589,7 +598,9 @@ fn alistToHashTableFn(args: []const Value) PrimitiveError!Value {
     }
 
     const initial_cap = @max(count, @as(usize, 8));
-    const ht_val = gc.allocHashTable(initial_cap) catch return PrimitiveError.OutOfMemory;
+    var ht_val = gc.allocHashTable(initial_cap) catch return PrimitiveError.OutOfMemory;
+    gc.pushRoot(&ht_val);
+    defer gc.popRoot();
     const ht = types.toHashTable(ht_val);
     configureHashTable(ht, ht_val, gc, vm, args[1..]);
 
