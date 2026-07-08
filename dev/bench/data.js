@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783489938921,
+  "lastUpdate": 1783489986933,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "4243cde4e572001ee41820495820b3f2a6e4a5fa",
-          "message": "Migrate last 3 hand-rolled range parsers to parseOptionalRange (#1056) (#1099)\n\nvector->string, vector-reverse!, and vector-reverse-copy were the last\nsites duplicating optional [start end] parsing instead of using the\nshared helper introduced in #1018. Unifies error message format across\nall range-validated vector procedures.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-04T21:33:12+05:30",
-          "tree_id": "aef9e2b1c06781b6ff45611061daa58fb345ad8b",
-          "url": "https://github.com/kaappi/kaappi/commit/4243cde4e572001ee41820495820b3f2a6e4a5fa"
-        },
-        "date": 1783183749381,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.260923,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.178902,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.916117,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.216796,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.012438,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.211007,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.467862,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.070733,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 12.484856,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.84039,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 9.913711,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.956847,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 8.265127,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.711146,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044039,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.04409,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "21e581abb45adb51304333aacbff5d9c18563607",
+          "message": "Make default-random-source a variable, not a procedure (#1192) (#1305)\n\nSRFI-27 specifies default-random-source as a variable bound to a random\nsource object. Kaappi was exporting it as a zero-argument native procedure,\nso portable code like (random-source-state-ref default-random-source) would\nfail with a type error.\n\nRename the primitive to %default-random-source (internal) and define the\npublic binding in lib/srfi/27.sld as a variable that calls it once at\nlibrary load time.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-08T10:45:36+05:30",
+          "tree_id": "151475e0f9e08f61ea836eb175b0e85f20097c75",
+          "url": "https://github.com/kaappi/kaappi/commit/21e581abb45adb51304333aacbff5d9c18563607"
+        },
+        "date": 1783489985893,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.349141,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.253153,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.996399,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.405182,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.012845,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.201375,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.501185,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.072105,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 12.498921,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.949765,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 10.014938,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.951448,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 8.309655,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.687586,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044144,
             "unit": "seconds"
           }
         ]
