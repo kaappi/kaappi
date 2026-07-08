@@ -60,40 +60,139 @@
     (define (string-ci-hash s) (string-hash (string-downcase s)))
     (define (symbol-hash s) (string-hash (symbol->string s)))
 
+    ;; Registered comparators for extending the default comparator
+    (define registered-comparators '())
+
+    (define (find-registered-comparator a b)
+      (let loop ((cmps registered-comparators))
+        (if (null? cmps)
+            #f
+            (if (and (comparator-test-type (car cmps) a)
+                     (comparator-test-type (car cmps) b))
+                (car cmps)
+                (loop (cdr cmps))))))
+
+    (define (find-registered-hash obj)
+      (let loop ((cmps registered-comparators))
+        (if (null? cmps)
+            #f
+            (if (and (comparator-test-type (car cmps) obj)
+                     (comparator-hashable? (car cmps)))
+                (car cmps)
+                (loop (cdr cmps))))))
+
     (define (default-hash obj)
+      (let ((reg (find-registered-hash obj)))
+        (if reg
+            (comparator-hash reg obj)
+            (cond
+              ((boolean? obj) (boolean-hash obj))
+              ((char? obj) (char-hash obj))
+              ((number? obj) (number-hash obj))
+              ((string? obj) (string-hash obj))
+              ((symbol? obj) (symbol-hash obj))
+              ((null? obj) 0)
+              ((pair? obj)
+               (modulo (+ (default-hash (car obj))
+                          (* 31 (default-hash (cdr obj))))
+                       (hash-bound)))
+              ((vector? obj)
+               (let loop ((i 0) (h 0))
+                 (if (= i (vector-length obj))
+                     (modulo h (hash-bound))
+                     (loop (+ i 1)
+                           (+ (* h 31) (default-hash (vector-ref obj i)))))))
+              ((bytevector? obj)
+               (let loop ((i 0) (h 0))
+                 (if (= i (bytevector-length obj))
+                     (modulo h (hash-bound))
+                     (loop (+ i 1)
+                           (+ (* h 31) (bytevector-u8-ref obj i))))))
+              (else 0)))))
+
+    ;; Type index for cross-type total ordering
+    (define (type-index obj)
       (cond
-        ((boolean? obj) (boolean-hash obj))
-        ((char? obj) (char-hash obj))
-        ((number? obj) (number-hash obj))
-        ((string? obj) (string-hash obj))
-        ((symbol? obj) (symbol-hash obj))
         ((null? obj) 0)
-        ((pair? obj) (+ (default-hash (car obj)) (* 31 (default-hash (cdr obj)))))
-        ((vector? obj) (if (= (vector-length obj) 0) 0
-                           (default-hash (vector-ref obj 0))))
-        (else 0)))
+        ((boolean? obj) 1)
+        ((char? obj) 2)
+        ((number? obj) 3)
+        ((string? obj) 4)
+        ((symbol? obj) 5)
+        ((bytevector? obj) 6)
+        ((pair? obj) 7)
+        ((vector? obj) 8)
+        (else 9)))
+
+    ;; Lexicographic ordering for compound types
+    (define (pair-ordering a b)
+      (cond
+        ((default-ordering (car a) (car b)) #t)
+        ((default-ordering (car b) (car a)) #f)
+        (else (default-ordering (cdr a) (cdr b)))))
+
+    (define (vector-ordering a b)
+      (let ((la (vector-length a))
+            (lb (vector-length b)))
+        (let loop ((i 0))
+          (cond
+            ((= i la) (< la lb))
+            ((= i lb) #f)
+            ((default-ordering (vector-ref a i) (vector-ref b i)) #t)
+            ((default-ordering (vector-ref b i) (vector-ref a i)) #f)
+            (else (loop (+ i 1)))))))
+
+    (define (bytevector-ordering a b)
+      (let ((la (bytevector-length a))
+            (lb (bytevector-length b)))
+        (let loop ((i 0))
+          (cond
+            ((= i la) (< la lb))
+            ((= i lb) #f)
+            ((< (bytevector-u8-ref a i) (bytevector-u8-ref b i)) #t)
+            ((> (bytevector-u8-ref a i) (bytevector-u8-ref b i)) #f)
+            (else (loop (+ i 1)))))))
 
     (define (default-ordering a b)
-      (cond
-        ((and (boolean? a) (boolean? b)) (if (and b (not a)) #t #f))
-        ((and (char? a) (char? b)) (char<? a b))
-        ((and (number? a) (number? b)) (< a b))
-        ((and (string? a) (string? b)) (string<? a b))
-        ((and (symbol? a) (symbol? b)) (string<? (symbol->string a) (symbol->string b)))
-        (else #f)))
+      (let ((reg (find-registered-comparator a b)))
+        (if reg
+            ((comparator-ordering-predicate reg) a b)
+            (let ((ta (type-index a))
+                  (tb (type-index b)))
+              (cond
+                ((< ta tb) #t)
+                ((> ta tb) #f)
+                ((null? a) #f)
+                ((boolean? a) (and (not a) b))
+                ((char? a) (char<? a b))
+                ((number? a) (< a b))
+                ((string? a) (string<? a b))
+                ((symbol? a) (string<? (symbol->string a) (symbol->string b)))
+                ((pair? a) (pair-ordering a b))
+                ((vector? a) (vector-ordering a b))
+                ((bytevector? a) (bytevector-ordering a b))
+                (else #f))))))
 
-    (define (make-eq-comparator) (make-comparator #t eq? #f #f))
-    (define (make-eqv-comparator) (make-comparator #t eqv? #f #f))
+    (define (default-equality a b)
+      (let ((reg (find-registered-comparator a b)))
+        (if reg
+            ((comparator-equality-predicate reg) a b)
+            (equal? a b))))
+
+    (define (make-eq-comparator) (make-comparator #t eq? #f default-hash))
+    (define (make-eqv-comparator) (make-comparator #t eqv? #f default-hash))
     (define (make-equal-comparator) (make-comparator #t equal? #f default-hash))
 
     (define (make-default-comparator)
-      (make-comparator #t equal? default-ordering default-hash))
+      (make-comparator #t default-equality default-ordering default-hash))
 
-    (define registered-comparators '())
-    (define (comparator-register-default! cmp) #t)
+    (define (comparator-register-default! cmp)
+      (set! registered-comparators (cons cmp registered-comparators)))
 
     (define-syntax comparator-if<=>
       (syntax-rules ()
+        ((comparator-if<=> a b less equal greater)
+         (comparator-if<=> (make-default-comparator) a b less equal greater))
         ((comparator-if<=> cmp a b less equal greater)
          (let ((ordering (comparator-ordering-predicate cmp)))
            (cond
