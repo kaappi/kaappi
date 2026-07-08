@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783534926608,
+  "lastUpdate": 1783535574244,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "c7dbbc1638a57a42449c2d85f36aae7dcd06cd01",
-          "message": "GC safety by construction: arg_roots, infallible pushRoot, stress mode (#1045) (#1125)\n\nEliminate the recurring \"unrooted fresh value\" bug class structurally:\n\n1. arg_roots — allocXxx functions that take Value arguments (allocPair,\n   allocErrorObject, allocRational, etc.) now root them in a fixed [4]Value\n   buffer before maybeCollect(). markRoots traces this buffer first.\n\n2. Infallible pushRoot — replace the growable ArrayList with a fixed\n   [1024]*Value buffer. pushRoot is now void (panics on overflow),\n   removing ~181 catch-return / try noise sites across 35 files.\n\n3. GC stress mode — -Dgc-stress=true forces collect() on every\n   maybeCollect() call regardless of threshold growth. In Debug builds,\n   freed objects are poisoned with 0xAA via poisonAndDestroy() to surface\n   use-after-free immediately.\n\nAll 602 unit tests and 1702 Scheme tests (including 1395 R7RS) pass.\nStress mode exposes pre-existing unrooted-value bugs as expected.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-05T06:46:36+05:30",
-          "tree_id": "d0d6fd442d58050da787727bad7c1c19e5987e44",
-          "url": "https://github.com/kaappi/kaappi/commit/c7dbbc1638a57a42449c2d85f36aae7dcd06cd01"
-        },
-        "date": 1783215615816,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.304436,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.887075,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.915126,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.14513,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.012522,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.211799,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.466692,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.070759,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 12.43773,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.835396,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 9.970582,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.951888,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 8.300162,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.705734,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.043015,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.046924,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "5d25909169c100c3bb24cd3bf423caf60a66d372",
+          "message": "Fix SRFI-4 integer vector kinds to be disjoint types with range validation (#1225) (#1336)\n\nEach non-u8 vector kind (s8, u16, s16, u32, s32, f32, f64) is now a\ndefine-record-type wrapping its underlying bytevector or vector, giving\neach type a distinct identity. u8vector stays as a bytevector alias per\nSRFI-4 spec. All setters now validate element ranges and raise errors\nfor out-of-range values instead of silently wrapping.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-08T23:32:25+05:30",
+          "tree_id": "ab5249749d7e0454a09c8263b07306181acfd34f",
+          "url": "https://github.com/kaappi/kaappi/commit/5d25909169c100c3bb24cd3bf423caf60a66d372"
+        },
+        "date": 1783535573264,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.051012,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 10.213919,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 1.044036,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.411891,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.014182,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.226867,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.512366,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.069371,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 13.677907,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.97975,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 11.328406,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 1.124039,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 9.418982,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.908771,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.047946,
             "unit": "seconds"
           }
         ]
