@@ -161,11 +161,14 @@ fn deepCopyValue(gc: *GC, src: Value, visited: *std.AutoHashMap(usize, Value)) !
             const new_val = try gc.allocHashTable(ht.capacity);
             try visited.put(src_ptr, new_val);
             const new_ht = types.toObject(new_val).as(types.HashTable);
+            new_ht.compare_mode = ht.compare_mode;
+            new_ht.equiv_fn = try deepCopyValue(gc, ht.equiv_fn, visited);
+            new_ht.hash_fn = try deepCopyValue(gc, ht.hash_fn, visited);
             for (ht.entries[0..ht.capacity]) |entry| {
                 if (entry.state == .occupied) {
                     const nk = try deepCopyValue(gc, entry.key, visited);
                     const nv = try deepCopyValue(gc, entry.value, visited);
-                    var idx = hashtable.valueHash(nk) & (new_ht.capacity - 1);
+                    var idx = hashtable.hashForMode(new_ht.compare_mode, nk) & (new_ht.capacity - 1);
                     while (new_ht.entries[idx].state == .occupied) {
                         idx = (idx + 1) & (new_ht.capacity - 1);
                     }

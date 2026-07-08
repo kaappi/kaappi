@@ -272,7 +272,7 @@ fn foldCharExpanding(cp: u21) FoldResult {
     };
 }
 
-fn foldCompareStrings(a: []const u8, b: []const u8) std.math.Order {
+pub fn foldCompareStrings(a: []const u8, b: []const u8) std.math.Order {
     var ai: usize = 0;
     var bi: usize = 0;
     var a_buf: FoldResult = .{ .cps = .{ 0, 0, 0 }, .len = 0 };
