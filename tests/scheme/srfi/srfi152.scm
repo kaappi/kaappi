@@ -69,9 +69,11 @@
 (test 0 (string-prefix-length "xyz" "abc"))
 (test 0 (string-prefix-length "" "abc"))
 (test 3 (string-prefix-length "abc" "abc"))
+(test 3 (string-prefix-length "xxabcdef" "abcxyz" 2 5 0 3))
 (test 2 (string-suffix-length "xyzbc" "abc"))
 (test 0 (string-suffix-length "xyz" "abc"))
 (test 0 (string-suffix-length "" "abc"))
+(test 3 (string-suffix-length "xxabc" "yyabc" 2 5 2 5))
 
 ;;; --- searching ---
 (test 2 (string-contains "hello" "ll"))
@@ -95,17 +97,20 @@
 (test 3 (string-contains-right "abcabc" "abc"))
 (test #f (string-contains-right "hello" "xyz"))
 (test 5 (string-contains-right "hello" ""))
+(test 5 (string-contains-right "xxabcabcyy" "abc" 2 8))
 
 ;;; --- take-while / drop-while ---
 (test "abc" (string-take-while "abc def" char-alphabetic?))
 (test "" (string-take-while " abc" char-alphabetic?))
 (test "abc" (string-take-while "abc" char-alphabetic?))
+(test "bc" (string-take-while "abc def" char-alphabetic? 1 5))
 (test "ef" (string-take-while-right "abc ef" char-alphabetic?))
 (test "" (string-take-while-right "abc " char-alphabetic?))
 
 (test "c def" (string-drop-while "abc def" (lambda (c) (char<=? c #\b))))
 (test " abc" (string-drop-while " abc" char-alphabetic?))
 (test "" (string-drop-while "abc" char-alphabetic?))
+(test " d" (string-drop-while "abc def" char-alphabetic? 2 5))
 (test "abc " (string-drop-while-right "abc ef" char-alphabetic?))
 
 ;;; --- break / span ---
@@ -122,6 +127,10 @@
   (string-span " abc" char-alphabetic?))
 (test-values (values "hello" "")
   (string-span "hello" char-alphabetic?))
+
+;; break/span with start/end
+(test-values (values "bc" " d")
+  (string-span "abc def" char-alphabetic? 1 5))
 
 ;;; --- concatenation ---
 (test "a,b,c" (string-join '("a" "b" "c") ","))
