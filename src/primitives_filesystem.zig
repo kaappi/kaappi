@@ -611,6 +611,22 @@ fn setFileOwnerFn(args: []const Value) PrimitiveError!Value {
 const TIME_NOW: i64 = -1;
 const TIME_UNCHANGED: i64 = -2;
 
+fn timeArgToTimespec(args: []const Value, idx: usize) std.c.timespec {
+    if (args.len <= idx) return std.c.UTIME.NOW;
+    const v = args[idx];
+    if (types.isSrfi18Time(v)) {
+        const t = types.toSrfi18Time(v);
+        return .{ .sec = @intCast(t.seconds), .nsec = @intCast(t.nanoseconds) };
+    }
+    if (types.isFixnum(v)) {
+        const val = types.toFixnum(v);
+        if (val == TIME_NOW) return std.c.UTIME.NOW;
+        if (val == TIME_UNCHANGED) return std.c.UTIME.OMIT;
+        return .{ .sec = @intCast(val), .nsec = 0 };
+    }
+    return std.c.UTIME.NOW;
+}
+
 fn setFileTimesFn(args: []const Value) PrimitiveError!Value {
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const path = extractPath(args[0]) orelse return primitives.typeError("set-file-times", "string", args[0]);
@@ -621,31 +637,8 @@ fn setFileTimesFn(args: []const Value) PrimitiveError!Value {
 
     var times: [2]std.c.timespec = undefined;
 
-    if (args.len > 1 and types.isFixnum(args[1])) {
-        const atime_val = types.toFixnum(args[1]);
-        if (atime_val == TIME_NOW) {
-            times[0] = std.c.UTIME.NOW;
-        } else if (atime_val == TIME_UNCHANGED) {
-            times[0] = std.c.UTIME.OMIT;
-        } else {
-            times[0] = .{ .sec = @intCast(atime_val), .nsec = 0 };
-        }
-    } else {
-        times[0] = std.c.UTIME.NOW;
-    }
-
-    if (args.len > 2 and types.isFixnum(args[2])) {
-        const mtime_val = types.toFixnum(args[2]);
-        if (mtime_val == TIME_NOW) {
-            times[1] = std.c.UTIME.NOW;
-        } else if (mtime_val == TIME_UNCHANGED) {
-            times[1] = std.c.UTIME.OMIT;
-        } else {
-            times[1] = .{ .sec = @intCast(mtime_val), .nsec = 0 };
-        }
-    } else {
-        times[1] = std.c.UTIME.NOW;
-    }
+    times[0] = timeArgToTimespec(args, 1);
+    times[1] = timeArgToTimespec(args, 2);
 
     if (std.c.utimensat(std.posix.AT.FDCWD, path_z, &times, 0) != 0) {
         return raiseFileError(gc, "cannot set file times", args[0]);
@@ -976,16 +969,18 @@ fn closeDirectoryFn(args: []const Value) PrimitiveError!Value {
 
 fn posixTimeFn(args: []const Value) PrimitiveError!Value {
     _ = args;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     var ts: std.c.timespec = undefined;
     _ = std.c.clock_gettime(.REALTIME, &ts);
-    return types.makeFixnum(@as(i64, @intCast(ts.sec)));
+    return gc.allocSrfi18Time(@intCast(ts.sec), @intCast(ts.nsec), .utc) catch return PrimitiveError.OutOfMemory;
 }
 
 fn monotonicTimeFn(args: []const Value) PrimitiveError!Value {
     _ = args;
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     var ts: std.c.timespec = undefined;
     _ = std.c.clock_gettime(.MONOTONIC, &ts);
-    return types.makeFixnum(@as(i64, @intCast(ts.sec)));
+    return gc.allocSrfi18Time(@intCast(ts.sec), @intCast(ts.nsec), .monotonic) catch return PrimitiveError.OutOfMemory;
 }
 
 // (file-info-type fi) — return type as symbol

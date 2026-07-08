@@ -652,9 +652,18 @@ pub const ConditionVariable = struct {
     specific: Value,
 };
 
+pub const TimeType = enum(u8) {
+    utc,
+    tai,
+    monotonic,
+    duration,
+};
+
 pub const Srfi18Time = struct {
     header: Object,
-    seconds: f64,
+    seconds: i64,
+    nanoseconds: i64,
+    time_type: TimeType,
 };
 
 // ---------------------------------------------------------------------------

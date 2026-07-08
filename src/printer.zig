@@ -691,7 +691,14 @@ fn printValueWithDepth(writer: anytype, value: Value, mode: PrintMode, depth: u3
             },
             .srfi18_time => {
                 const t = obj.as(types.Srfi18Time);
-                try writer.print("#<time {d:.6}>", .{t.seconds});
+                const type_name: []const u8 = switch (t.time_type) {
+                    .utc => "time-utc",
+                    .tai => "time-tai",
+                    .monotonic => "time-monotonic",
+                    .duration => "time-duration",
+                };
+                const ns: u64 = if (t.nanoseconds >= 0) @intCast(t.nanoseconds) else 0;
+                try writer.print("#<time {s} {d}.{d:0>9}>", .{ type_name, t.seconds, ns });
             },
             .bignum => {
                 const bignum_mod = @import("bignum.zig");

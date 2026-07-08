@@ -37,7 +37,6 @@ pub const specs = [_]primitives.PrimSpec{
     .{ .name = "condition-variable-signal!", .func = &condvarSignalFn, .arity = .{ .exact = 1 }, .libs = LS.initOne(.srfi_18), .sandbox = false, .wasm = false },
     .{ .name = "condition-variable-broadcast!", .func = &condvarBroadcastFn, .arity = .{ .exact = 1 }, .libs = LS.initOne(.srfi_18), .sandbox = false, .wasm = false },
     .{ .name = "current-time", .func = &currentTimeFn, .arity = .{ .exact = 0 }, .libs = LS.initOne(.srfi_18), .sandbox = false, .wasm = false },
-    .{ .name = "time?", .func = &timePredFn, .arity = .{ .exact = 1 }, .libs = LS.initOne(.srfi_18), .sandbox = false, .wasm = false },
     .{ .name = "time->seconds", .func = &timeToSecondsFn, .arity = .{ .exact = 1 }, .libs = LS.initOne(.srfi_18), .sandbox = false, .wasm = false },
     .{ .name = "seconds->time", .func = &secondsToTimeFn, .arity = .{ .exact = 1 }, .libs = LS.initOne(.srfi_18), .sandbox = false, .wasm = false },
     .{ .name = "join-timeout-exception?", .func = &joinTimeoutPredFn, .arity = .{ .exact = 1 }, .libs = LS.initOne(.srfi_18), .sandbox = false, .wasm = false },
@@ -116,7 +115,9 @@ fn timeoutToDeadlineNs(timeout: Value) PrimitiveError!?u64 {
     if (timeout == types.FALSE) return null;
     if (types.isSrfi18Time(timeout)) {
         const t = types.toSrfi18Time(timeout);
-        const sec_ns: u64 = @intFromFloat(@max(0.0, t.seconds) * 1_000_000_000.0);
+        if (t.seconds < 0) return 0;
+        const ns_clamped: u64 = if (t.nanoseconds > 0) @intCast(t.nanoseconds) else 0;
+        const sec_ns: u64 = @as(u64, @intCast(t.seconds)) * 1_000_000_000 + ns_clamped;
         var now_ts: std.c.timespec = undefined;
         _ = std.c.clock_gettime(.REALTIME, &now_ts);
         const now_ns = @as(u64, @intCast(now_ts.sec)) * 1_000_000_000 + @as(u64, @intCast(now_ts.nsec));
@@ -367,7 +368,8 @@ fn getSleepSeconds(v: Value) PrimitiveError!f64 {
         var ts: std.c.timespec = undefined;
         _ = std.c.clock_gettime(.REALTIME, &ts);
         const now: f64 = @as(f64, @floatFromInt(ts.sec)) + @as(f64, @floatFromInt(ts.nsec)) / 1e9;
-        return t.seconds - now;
+        const target: f64 = @as(f64, @floatFromInt(t.seconds)) + @as(f64, @floatFromInt(t.nanoseconds)) / 1e9;
+        return target - now;
     }
     return PrimitiveError.TypeError; // bare-ok: type guard
 }
@@ -953,25 +955,24 @@ fn currentTimeFn(_: []const Value) PrimitiveError!Value {
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     var ts: std.c.timespec = undefined;
     _ = std.c.clock_gettime(.REALTIME, &ts);
-    const seconds = @as(f64, @floatFromInt(ts.sec)) + @as(f64, @floatFromInt(ts.nsec)) / 1_000_000_000.0;
-    return gc.allocSrfi18Time(seconds) catch return PrimitiveError.OutOfMemory;
-}
-
-fn timePredFn(args: []const Value) PrimitiveError!Value {
-    return if (types.isSrfi18Time(args[0])) types.TRUE else types.FALSE;
+    return gc.allocSrfi18Time(@intCast(ts.sec), @intCast(ts.nsec), .utc) catch return PrimitiveError.OutOfMemory;
 }
 
 fn timeToSecondsFn(args: []const Value) PrimitiveError!Value {
     if (!types.isSrfi18Time(args[0]))
         return primitives.typeError("time->seconds", "time", args[0]);
-    return types.makeFlonum(types.toSrfi18Time(args[0]).seconds);
+    const t = types.toSrfi18Time(args[0]);
+    return types.makeFlonum(@as(f64, @floatFromInt(t.seconds)) + @as(f64, @floatFromInt(t.nanoseconds)) / 1_000_000_000.0);
 }
 
 fn secondsToTimeFn(args: []const Value) PrimitiveError!Value {
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const secs = primitives.toF64(args[0]) catch
         return primitives.typeError("seconds->time", "number", args[0]);
-    return gc.allocSrfi18Time(secs) catch return PrimitiveError.OutOfMemory;
+    const int_secs = @as(i64, @intFromFloat(@floor(secs)));
+    const frac = secs - @floor(secs);
+    const ns = @as(i64, @intFromFloat(@round(frac * 1_000_000_000.0)));
+    return gc.allocSrfi18Time(int_secs, ns, .utc) catch return PrimitiveError.OutOfMemory;
 }
 
 // ---------------------------------------------------------------------------

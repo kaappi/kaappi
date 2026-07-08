@@ -1,4 +1,4 @@
-(import (scheme base) (scheme write) (scheme file) (srfi 170))
+(import (scheme base) (scheme write) (scheme file) (scheme time) (srfi 170))
 
 (define pass 0)
 (define fail 0)
@@ -146,8 +146,10 @@
 (check-true "real-path absolute" (char=? #\/ (string-ref (real-path ".") 0)))
 
 ;;; ---- posix-time / monotonic-time ----
-(check-true "posix-time positive" (> (posix-time) 0))
-(check-true "monotonic-time non-negative" (>= (monotonic-time) 0))
+(check-true "posix-time is time object" (time? (posix-time)))
+(check-true "posix-time seconds positive" (> (time-second (posix-time)) 0))
+(check-true "monotonic-time is time object" (time? (monotonic-time)))
+(check-true "monotonic-time seconds non-negative" (>= (time-second (monotonic-time)) 0))
 
 ;;; ---- current-second / current-jiffy / jiffies-per-second ----
 (check-true "current-second" (> (current-second) 0))
