@@ -1,5 +1,5 @@
 (define-library (srfi 233)
-  (import (scheme base) (scheme write))
+  (import (scheme base) (scheme char) (scheme write))
   (export ini-file->alist alist->ini-file)
   (begin
     (define (ini-file->alist port)
