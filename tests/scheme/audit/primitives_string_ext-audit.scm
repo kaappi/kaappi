@@ -13,8 +13,7 @@
 (test 2 (string-contains "abc" "" 2))      ; empty needle => start1
 (test 0 (string-contains "" ""))
 (test 3 (string-contains "ab\x3BB;\x3BB;x" "\x3BB;x")) ; codepoint index, not byte
-;; FAIL: #1158 (start2/end2 silently ignored — whole needle searched)
-;; (test 1 (string-contains "abc" "xbcx" 0 3 1 3))
+(test 1 (string-contains "abc" "xbcx" 0 3 1 3))
 
 ;;; --- string-prefix? / string-suffix? (full 6-arg forms work) ---
 (test #t (string-prefix? "ab" "abcd"))
@@ -89,8 +88,7 @@
 (test "aXYd" (string-replace "abcd" "XY" 1 3))
 (test "abcd" (string-replace "abcd" "" 2 2))
 (test "Hello World" (string-titlecase "hello wORLD"))
-;; FAIL: #1158 (string-replace rejects optional start2/end2 — arity error)
-;; (test "aYd" (string-replace "abcd" "XYZ" 1 3 1 2))
+(test "aYd" (string-replace "abcd" "XYZ" 1 3 1 2))
 
 ;;; --- every / any (return values per SRFI-13) ---
 (test #t (string-every char-alphabetic? "abc"))
