@@ -42,6 +42,15 @@ pub const specs = [_]primitives.PrimSpec{
     .{ .name = "vector-cumulate", .func = &vectorCumulateFn, .arity = .{ .exact = 3 }, .libs = LS.initOne(.srfi_133) },
     .{ .name = "vector-partition", .func = &vectorPartitionFn, .arity = .{ .exact = 2 }, .libs = LS.initOne(.srfi_133) },
     .{ .name = "vector-append-subvectors", .func = &vectorAppendSubvectorsFn, .arity = .{ .variadic = 0 }, .libs = LS.initOne(.srfi_133) },
+    .{ .name = "vector=", .func = &vectorEqualFn, .arity = .{ .variadic = 1 }, .libs = LS.initOne(.srfi_133) },
+    .{ .name = "vector-fold", .func = &vectorFoldFn, .arity = .{ .variadic = 3 }, .libs = LS.initOne(.srfi_133) },
+    .{ .name = "vector-fold-right", .func = &vectorFoldRightFn, .arity = .{ .variadic = 3 }, .libs = LS.initOne(.srfi_133) },
+    .{ .name = "vector-map!", .func = &vectorMapBangFn, .arity = .{ .variadic = 2 }, .libs = LS.initOne(.srfi_133) },
+    .{ .name = "vector-reverse-copy!", .func = &vectorReverseCopyBangFn, .arity = .{ .variadic = 3 }, .libs = LS.initOne(.srfi_133) },
+    .{ .name = "vector-unfold!", .func = &vectorUnfoldBangFn, .arity = .{ .variadic = 4 }, .libs = LS.initOne(.srfi_133) },
+    .{ .name = "vector-unfold-right!", .func = &vectorUnfoldRightBangFn, .arity = .{ .variadic = 4 }, .libs = LS.initOne(.srfi_133) },
+    .{ .name = "reverse-vector->list", .func = &reverseVectorToListFn, .arity = .{ .variadic = 1 }, .libs = LS.initOne(.srfi_133) },
+    .{ .name = "reverse-list->vector", .func = &reverseListToVectorFn, .arity = .{ .exact = 1 }, .libs = LS.initOne(.srfi_133) },
 };
 
 // ---------------------------------------------------------------------------
@@ -880,6 +889,342 @@ fn vectorPartitionFn(args: []const Value) PrimitiveError!Value {
 
     const vals = [2]Value{ result_vec, count_val };
     return gc.allocMultipleValues(&vals) catch return PrimitiveError.OutOfMemory;
+}
+
+// (vector= elt= vec1 vec2 ...) — element-wise equality
+fn vectorEqualFn(args: []const Value) PrimitiveError!Value {
+    const elt_eq = args[0];
+    if (args.len <= 2) {
+        if (args.len == 2 and !types.isVector(args[1]))
+            return primitives.typeError("vector=", "vector", args[1]);
+        return types.TRUE;
+    }
+    for (args[1..]) |a| {
+        if (!types.isVector(a)) return primitives.typeError("vector=", "vector", a);
+    }
+    var i: usize = 1;
+    while (i < args.len - 1) : (i += 1) {
+        const v1 = types.toVector(args[i]);
+        const v2 = types.toVector(args[i + 1]);
+        if (v1.data.len != v2.data.len) return types.FALSE;
+        for (0..v1.data.len) |j| {
+            const result = try callVM(elt_eq, &[2]Value{ v1.data[j], v2.data[j] });
+            if (!types.isTruthy(result)) return types.FALSE;
+        }
+    }
+    return types.TRUE;
+}
+
+// (vector-fold kons knil vec1 vec2 ...)
+fn vectorFoldFn(args: []const Value) PrimitiveError!Value {
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const kons = args[0];
+    var acc = args[1];
+
+    const vec_count = args.len - 2;
+    var min_len: usize = std.math.maxInt(usize);
+    for (args[2..]) |a| {
+        if (!types.isVector(a)) return primitives.typeError("vector-fold", "vector", a);
+        const vlen = types.toVector(a).data.len;
+        if (vlen < min_len) min_len = vlen;
+    }
+
+    gc.pushRoot(&acc);
+    defer gc.popRoot();
+
+    const call_count = 1 + vec_count;
+    var stack_buf: [256]Value = undefined;
+    const call_args = if (call_count > 256)
+        gc.allocator.alloc(Value, call_count) catch return PrimitiveError.OutOfMemory
+    else
+        stack_buf[0..call_count];
+    defer if (call_count > 256) gc.allocator.free(call_args);
+
+    for (0..min_len) |i| {
+        call_args[0] = acc;
+        for (0..vec_count) |vi| {
+            call_args[1 + vi] = types.toVector(args[2 + vi]).data[i];
+        }
+        acc = try callVM(kons, call_args);
+    }
+    return acc;
+}
+
+// (vector-fold-right kons knil vec1 vec2 ...)
+fn vectorFoldRightFn(args: []const Value) PrimitiveError!Value {
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const kons = args[0];
+    var acc = args[1];
+
+    const vec_count = args.len - 2;
+    var min_len: usize = std.math.maxInt(usize);
+    for (args[2..]) |a| {
+        if (!types.isVector(a)) return primitives.typeError("vector-fold-right", "vector", a);
+        const vlen = types.toVector(a).data.len;
+        if (vlen < min_len) min_len = vlen;
+    }
+
+    gc.pushRoot(&acc);
+    defer gc.popRoot();
+
+    const call_count = 1 + vec_count;
+    var stack_buf: [256]Value = undefined;
+    const call_args = if (call_count > 256)
+        gc.allocator.alloc(Value, call_count) catch return PrimitiveError.OutOfMemory
+    else
+        stack_buf[0..call_count];
+    defer if (call_count > 256) gc.allocator.free(call_args);
+
+    var i = min_len;
+    while (i > 0) {
+        i -= 1;
+        call_args[0] = acc;
+        for (0..vec_count) |vi| {
+            call_args[1 + vi] = types.toVector(args[2 + vi]).data[i];
+        }
+        acc = try callVM(kons, call_args);
+    }
+    return acc;
+}
+
+// (vector-map! f vec1 vec2 ...)
+fn vectorMapBangFn(args: []const Value) PrimitiveError!Value {
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const f = args[0];
+    if (!types.isVector(args[1])) return primitives.typeError("vector-map!", "vector", args[1]);
+    if (types.toObject(args[1]).flags.immutable) return primitives.typeError("vector-map!", "mutable vector", args[1]);
+
+    const vec_count = args.len - 1;
+    var min_len: usize = types.toVector(args[1]).data.len;
+    for (args[2..]) |a| {
+        if (!types.isVector(a)) return primitives.typeError("vector-map!", "vector", a);
+        const vlen = types.toVector(a).data.len;
+        if (vlen < min_len) min_len = vlen;
+    }
+
+    var stack_buf: [256]Value = undefined;
+    const call_args = if (vec_count > 256)
+        gc.allocator.alloc(Value, vec_count) catch return PrimitiveError.OutOfMemory
+    else
+        stack_buf[0..vec_count];
+    defer if (vec_count > 256) gc.allocator.free(call_args);
+
+    const target = types.toVector(args[1]);
+    for (0..min_len) |i| {
+        for (0..vec_count) |vi| {
+            call_args[vi] = types.toVector(args[1 + vi]).data[i];
+        }
+        const result = try callVM(f, call_args);
+        gc.writeBarrier(types.toObject(args[1]), result);
+        target.data[i] = result;
+    }
+    return types.VOID;
+}
+
+// (vector-reverse-copy! to at from [start [end]])
+fn vectorReverseCopyBangFn(args: []const Value) PrimitiveError!Value {
+    if (!types.isVector(args[0])) return primitives.typeError("vector-reverse-copy!", "vector", args[0]);
+    if (types.toObject(args[0]).flags.immutable) return primitives.typeError("vector-reverse-copy!", "mutable vector", args[0]);
+    if (!types.isFixnum(args[1])) return primitives.typeError("vector-reverse-copy!", "exact non-negative integer", args[1]);
+    if (!types.isVector(args[2])) return primitives.typeError("vector-reverse-copy!", "vector", args[2]);
+
+    const to_vec = types.toVector(args[0]);
+    const at_val = types.toFixnum(args[1]);
+    if (at_val < 0) return primitives.typeError("vector-reverse-copy!", "exact non-negative integer", args[1]);
+    const at: usize = @intCast(at_val);
+    const from_vec = types.toVector(args[2]);
+    const from_len = from_vec.data.len;
+
+    const range = try primitives.parseOptionalRange(args, 3, from_len, "vector-reverse-copy!");
+    const start = range.start;
+    const end = range.end;
+
+    const count = end - start;
+    if (at + count > to_vec.data.len) return primitives.typeError("vector-reverse-copy!", "valid index range", args[1]);
+
+    if (memory.gc_instance) |gc| {
+        for (from_vec.data[start..end]) |val| {
+            gc.writeBarrier(types.toObject(args[0]), val);
+        }
+    }
+    for (0..count) |i| {
+        to_vec.data[at + i] = from_vec.data[end - 1 - i];
+    }
+    return types.VOID;
+}
+
+// (vector-unfold! f vec start end seed ...)
+fn vectorUnfoldBangFn(args: []const Value) PrimitiveError!Value {
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const f = args[0];
+    if (!types.isVector(args[1])) return primitives.typeError("vector-unfold!", "vector", args[1]);
+    if (types.toObject(args[1]).flags.immutable) return primitives.typeError("vector-unfold!", "mutable vector", args[1]);
+    if (!types.isFixnum(args[2])) return primitives.typeError("vector-unfold!", "exact non-negative integer", args[2]);
+    if (!types.isFixnum(args[3])) return primitives.typeError("vector-unfold!", "exact non-negative integer", args[3]);
+
+    const vec = types.toVector(args[1]);
+    const start_val = types.toFixnum(args[2]);
+    const end_val = types.toFixnum(args[3]);
+    if (start_val < 0) return primitives.typeError("vector-unfold!", "exact non-negative integer", args[2]);
+    if (end_val < 0) return primitives.typeError("vector-unfold!", "exact non-negative integer", args[3]);
+    const start: usize = @intCast(start_val);
+    const end: usize = @intCast(end_val);
+    if (start > vec.data.len) return primitives.indexError("vector-unfold!", start_val, vec.data.len);
+    if (end > vec.data.len) return primitives.indexError("vector-unfold!", end_val, vec.data.len);
+    if (end < start) return primitives.typeError("vector-unfold!", "valid range (end >= start)", args[3]);
+
+    var seeds: std.ArrayList(Value) = .empty;
+    defer seeds.deinit(gc.allocator);
+    for (args[4..]) |s| {
+        seeds.append(gc.allocator, s) catch return PrimitiveError.OutOfMemory;
+    }
+
+    const scope = gc.rootedScope();
+    defer scope.release();
+
+    const call_count = 1 + seeds.items.len;
+    var stack_buf: [257]Value = undefined;
+    const call_args = if (call_count > 257)
+        gc.allocator.alloc(Value, call_count) catch return PrimitiveError.OutOfMemory
+    else
+        stack_buf[0..call_count];
+    defer if (call_count > 257) gc.allocator.free(call_args);
+
+    for (start..end) |i| {
+        call_args[0] = types.makeFixnum(@intCast(i));
+        for (seeds.items, 0..) |s, j| {
+            call_args[1 + j] = s;
+        }
+        const result = try callVM(f, call_args);
+        if (types.isMultipleValues(result)) {
+            const mv = types.toObject(result).as(types.MultipleValues);
+            if (mv.values.len == 0) return primitives.typeError("vector-unfold!", "at least one return value from step procedure", result);
+            gc.writeBarrier(types.toObject(args[1]), mv.values[0]);
+            vec.data[i] = mv.values[0];
+            for (0..seeds.items.len) |j| {
+                if (j + 1 < mv.values.len) {
+                    seeds.items[j] = mv.values[j + 1];
+                }
+            }
+        } else {
+            gc.writeBarrier(types.toObject(args[1]), result);
+            vec.data[i] = result;
+        }
+        for (seeds.items) |s| {
+            gc.extra_roots.append(gc.allocator, s) catch return PrimitiveError.OutOfMemory;
+        }
+    }
+    return types.VOID;
+}
+
+// (vector-unfold-right! f vec start end seed ...)
+fn vectorUnfoldRightBangFn(args: []const Value) PrimitiveError!Value {
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const f = args[0];
+    if (!types.isVector(args[1])) return primitives.typeError("vector-unfold-right!", "vector", args[1]);
+    if (types.toObject(args[1]).flags.immutable) return primitives.typeError("vector-unfold-right!", "mutable vector", args[1]);
+    if (!types.isFixnum(args[2])) return primitives.typeError("vector-unfold-right!", "exact non-negative integer", args[2]);
+    if (!types.isFixnum(args[3])) return primitives.typeError("vector-unfold-right!", "exact non-negative integer", args[3]);
+
+    const vec = types.toVector(args[1]);
+    const start_val = types.toFixnum(args[2]);
+    const end_val = types.toFixnum(args[3]);
+    if (start_val < 0) return primitives.typeError("vector-unfold-right!", "exact non-negative integer", args[2]);
+    if (end_val < 0) return primitives.typeError("vector-unfold-right!", "exact non-negative integer", args[3]);
+    const start: usize = @intCast(start_val);
+    const end: usize = @intCast(end_val);
+    if (start > vec.data.len) return primitives.indexError("vector-unfold-right!", start_val, vec.data.len);
+    if (end > vec.data.len) return primitives.indexError("vector-unfold-right!", end_val, vec.data.len);
+    if (end < start) return primitives.typeError("vector-unfold-right!", "valid range (end >= start)", args[3]);
+
+    var seeds: std.ArrayList(Value) = .empty;
+    defer seeds.deinit(gc.allocator);
+    for (args[4..]) |s| {
+        seeds.append(gc.allocator, s) catch return PrimitiveError.OutOfMemory;
+    }
+
+    const scope = gc.rootedScope();
+    defer scope.release();
+
+    const call_count = 1 + seeds.items.len;
+    var stack_buf_r: [257]Value = undefined;
+    const call_args = if (call_count > 257)
+        gc.allocator.alloc(Value, call_count) catch return PrimitiveError.OutOfMemory
+    else
+        stack_buf_r[0..call_count];
+    defer if (call_count > 257) gc.allocator.free(call_args);
+
+    var i = end;
+    while (i > start) {
+        i -= 1;
+        call_args[0] = types.makeFixnum(@intCast(i));
+        for (seeds.items, 0..) |s, j| {
+            call_args[1 + j] = s;
+        }
+        const result = try callVM(f, call_args);
+        if (types.isMultipleValues(result)) {
+            const mv = types.toObject(result).as(types.MultipleValues);
+            if (mv.values.len == 0) return primitives.typeError("vector-unfold-right!", "at least one return value from step procedure", result);
+            gc.writeBarrier(types.toObject(args[1]), mv.values[0]);
+            vec.data[i] = mv.values[0];
+            for (mv.values[1..], 0..) |v, si| {
+                if (si < seeds.items.len) seeds.items[si] = v;
+            }
+        } else {
+            gc.writeBarrier(types.toObject(args[1]), result);
+            vec.data[i] = result;
+        }
+        for (seeds.items) |s| {
+            gc.extra_roots.append(gc.allocator, s) catch return PrimitiveError.OutOfMemory;
+        }
+    }
+    return types.VOID;
+}
+
+// (reverse-vector->list vec [start [end]])
+fn reverseVectorToListFn(args: []const Value) PrimitiveError!Value {
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
+    if (!types.isVector(args[0])) return primitives.typeError("reverse-vector->list", "vector", args[0]);
+    const vec = types.toVector(args[0]);
+    const len = vec.data.len;
+
+    const range = try primitives.parseOptionalRange(args, 1, len, "reverse-vector->list");
+    const start = range.start;
+    const end = range.end;
+
+    var result: Value = types.NIL;
+    gc.pushRoot(&result);
+    defer gc.popRoot();
+    var idx = start;
+    while (idx < end) {
+        result = gc.allocPair(vec.data[idx], result) catch return PrimitiveError.OutOfMemory;
+        idx += 1;
+    }
+    return result;
+}
+
+// (reverse-list->vector list)
+fn reverseListToVectorFn(args: []const Value) PrimitiveError!Value {
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
+
+    var count: usize = 0;
+    var current = args[0];
+    while (current != types.NIL) {
+        if (!types.isPair(current)) return primitives.typeError("reverse-list->vector", "proper list", args[0]);
+        count += 1;
+        current = types.cdr(current);
+    }
+
+    const data = gc.allocator.alloc(Value, count) catch return PrimitiveError.OutOfMemory;
+    defer gc.allocator.free(data);
+    current = args[0];
+    var idx = count;
+    while (idx > 0) {
+        idx -= 1;
+        data[idx] = types.car(current);
+        current = types.cdr(current);
+    }
+    return gc.allocVector(data) catch return PrimitiveError.OutOfMemory;
 }
 
 fn vectorAppendSubvectorsFn(args: []const Value) PrimitiveError!Value {
