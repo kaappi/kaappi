@@ -15,6 +15,11 @@ pub const specs = [_]primitives.PrimSpec{
     .{ .name = "current-second", .func = &currentSecond, .arity = .{ .exact = 0 }, .libs = LS.initOne(.scheme_time) },
     .{ .name = "current-jiffy", .func = &currentJiffy, .arity = .{ .exact = 0 }, .libs = LS.initOne(.scheme_time) },
     .{ .name = "jiffies-per-second", .func = &jiffiesPerSecond, .arity = .{ .exact = 0 }, .libs = LS.initOne(.scheme_time) },
+    .{ .name = "time?", .func = &timePredFn, .arity = .{ .exact = 1 }, .libs = LS.initMany(&.{ .scheme_time, .srfi_18 }) },
+    .{ .name = "make-time", .func = &makeTimeFn, .arity = .{ .exact = 3 }, .libs = LS.initOne(.scheme_time) },
+    .{ .name = "time-type", .func = &timeTypeFn, .arity = .{ .exact = 1 }, .libs = LS.initOne(.scheme_time) },
+    .{ .name = "time-second", .func = &timeSecondFn, .arity = .{ .exact = 1 }, .libs = LS.initOne(.scheme_time) },
+    .{ .name = "time-nanosecond", .func = &timeNanosecondFn, .arity = .{ .exact = 1 }, .libs = LS.initOne(.scheme_time) },
     .{ .name = "command-line", .func = &commandLine, .arity = .{ .exact = 0 }, .libs = LS.initOne(.scheme_process_context), .sandbox = false },
     .{ .name = "exit", .func = &exitFn, .arity = .{ .variadic = 0 }, .libs = LS.initOne(.scheme_process_context), .sandbox = false },
     .{ .name = "emergency-exit", .func = &emergencyExitFn, .arity = .{ .variadic = 0 }, .libs = LS.initOne(.scheme_process_context), .sandbox = false },
@@ -416,4 +421,62 @@ fn schemeReportEnvironmentFn(args: []const Value) PrimitiveError!Value {
         }
     }
     return gc.allocEnvironment(env_map, true, true) catch return PrimitiveError.OutOfMemory;
+}
+
+// -------------------------------------------------------------------------
+// SRFI-19 time object primitives (in (scheme time) for WASM availability)
+// -------------------------------------------------------------------------
+
+fn timePredFn(args: []const Value) PrimitiveError!Value {
+    return if (types.isSrfi18Time(args[0])) types.TRUE else types.FALSE;
+}
+
+fn makeTimeFn(args: []const Value) PrimitiveError!Value {
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
+    if (!types.isSymbol(args[0]))
+        return primitives.typeError("make-time", "symbol", args[0]);
+    const time_type = parseTimeType(types.symbolName(args[0])) orelse
+        return primitives.typeError("make-time", "time type symbol (time-utc, time-tai, time-monotonic, time-duration)", args[0]);
+    if (!types.isFixnum(args[1]))
+        return primitives.typeError("make-time", "integer", args[1]);
+    const ns = types.toFixnum(args[1]);
+    if (ns < 0 or ns >= 1_000_000_000)
+        return primitives.typeError("make-time", "nanosecond in [0, 999999999]", args[1]);
+    if (!types.isFixnum(args[2]))
+        return primitives.typeError("make-time", "integer", args[2]);
+    return gc.allocSrfi18Time(types.toFixnum(args[2]), ns, time_type) catch return PrimitiveError.OutOfMemory;
+}
+
+fn timeTypeFn(args: []const Value) PrimitiveError!Value {
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
+    if (!types.isSrfi18Time(args[0]))
+        return primitives.typeError("time-type", "time", args[0]);
+    const t = types.toSrfi18Time(args[0]);
+    const name: []const u8 = switch (t.time_type) {
+        .utc => "time-utc",
+        .tai => "time-tai",
+        .monotonic => "time-monotonic",
+        .duration => "time-duration",
+    };
+    return gc.allocSymbol(name) catch return PrimitiveError.OutOfMemory;
+}
+
+fn timeSecondFn(args: []const Value) PrimitiveError!Value {
+    if (!types.isSrfi18Time(args[0]))
+        return primitives.typeError("time-second", "time", args[0]);
+    return types.makeFixnum(types.toSrfi18Time(args[0]).seconds);
+}
+
+fn timeNanosecondFn(args: []const Value) PrimitiveError!Value {
+    if (!types.isSrfi18Time(args[0]))
+        return primitives.typeError("time-nanosecond", "time", args[0]);
+    return types.makeFixnum(types.toSrfi18Time(args[0]).nanoseconds);
+}
+
+fn parseTimeType(name: []const u8) ?types.TimeType {
+    if (std.mem.eql(u8, name, "time-utc")) return .utc;
+    if (std.mem.eql(u8, name, "time-tai")) return .tai;
+    if (std.mem.eql(u8, name, "time-monotonic")) return .monotonic;
+    if (std.mem.eql(u8, name, "time-duration")) return .duration;
+    return null;
 }

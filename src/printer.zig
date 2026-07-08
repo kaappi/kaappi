@@ -697,7 +697,8 @@ fn printValueWithDepth(writer: anytype, value: Value, mode: PrintMode, depth: u3
                     .monotonic => "time-monotonic",
                     .duration => "time-duration",
                 };
-                try writer.print("#<time {s} {d}.{d:0>9}>", .{ type_name, t.seconds, @as(u64, @intCast(t.nanoseconds)) });
+                const ns: u64 = if (t.nanoseconds >= 0) @intCast(t.nanoseconds) else 0;
+                try writer.print("#<time {s} {d}.{d:0>9}>", .{ type_name, t.seconds, ns });
             },
             .bignum => {
                 const bignum_mod = @import("bignum.zig");
