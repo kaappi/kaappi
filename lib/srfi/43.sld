@@ -1,9 +1,10 @@
 ;;; SRFI 43 — Vector Library
 ;;; SRFI-43 iteration procedures pass the index as the first callback
-;;; argument; SRFI-133 does not.  Procedures with identical semantics
-;;; are re-exported directly from SRFI-133.
+;;; argument; SRFI-133 does not.  The six iteration procedures are
+;;; redefined below; remaining procedures are re-exported from
+;;; (scheme base) and (srfi 133).
 (define-library (srfi 43)
-  (import (scheme base)
+  (import (except (scheme base) vector-map vector-for-each)
           (except (srfi 133)
                   vector-map! vector-count
                   vector-fold vector-fold-right))
