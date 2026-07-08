@@ -1,8 +1,4 @@
 ;; SRFI-151 (bitwise operations) conformance tests — audit Phase 3.4
-;; The library's helper procedures compute bitwise ops on magnitudes with
-;; truncating quotients (see #1214), so most operations involving negative
-;; operands — including everything built on bitwise-not — return wrong
-;; values. Positive-operand behavior is exercised here.
 ;; Run directly: zig-out/bin/kaappi tests/scheme/srfi/srfi151.scm
 
 (import (scheme base) (srfi 151) (chibi test))
@@ -27,12 +23,15 @@
 (test 5 (bitwise-xor 7 3 1))
 
 ;; negative operands (two's-complement semantics)
-;; FAIL: #1214 (bitwise ops compute on magnitudes — wrong for negatives)
-;; (test 4 (bitwise-and -2 5))
-;; FAIL: #1214
-;; (test -1 (bitwise-ior -2 1))
-;; FAIL: #1214
-;; (test -7 (bitwise-xor -2 5))
+(test 8 (bitwise-and -4 8))
+(test 5 (bitwise-and -1 5))
+(test -8 (bitwise-and -4 -6))
+(test 4 (bitwise-and -2 5))
+(test -2 (bitwise-ior -4 2))
+(test -1 (bitwise-ior -2 1))
+(test -6 (bitwise-xor -1 5))
+(test -12 (bitwise-xor -4 8))
+(test -5 (bitwise-xor -2 5))
 
 ;;; --- derived two-operand ops ---
 (test -7 (bitwise-eqv 5 3))          ; not(xor) stays in positive helpers
@@ -41,26 +40,19 @@
 ;; SRFI-151: bitwise-eqv is n-ary: (bitwise-eqv) => -1, (bitwise-eqv 5) => 5
 ;; FAIL: #1233 (bitwise-eqv accepts exactly two arguments)
 ;; (test -1 (bitwise-eqv))
-;; andc/orc route one operand through bitwise-not, hitting the magnitude bug
-;; FAIL: #1214 (bitwise-andc1 wrong when complemented operand is odd-negative)
-;; (test 1 (bitwise-andc1 2 3))
-;; FAIL: #1214
-;; (test 1 (bitwise-andc2 3 2))
-;; FAIL: #1214
-;; (test -3 (bitwise-orc1 2 5))
-;; FAIL: #1214
-;; (test -3 (bitwise-orc2 5 2))
+(test 1 (bitwise-andc1 2 3))
+(test 1 (bitwise-andc2 3 2))
+(test -3 (bitwise-orc1 2 5))
+(test -3 (bitwise-orc2 5 2))
 
 ;;; --- arithmetic-shift ---
 (test 16 (arithmetic-shift 1 4))
 (test 4 (arithmetic-shift 16 -2))
 (test 0 (arithmetic-shift 7 -4))
 (test -12 (arithmetic-shift -3 2))
-;; right shift is arithmetic (floor), not truncating
-;; FAIL: #1214 (right shift uses truncating quotient)
-;; (test -1 (arithmetic-shift -1 -1))
-;; FAIL: #1214
-;; (test -4 (arithmetic-shift -7 -1))
+(test -1 (arithmetic-shift -1 -1))
+(test -4 (arithmetic-shift -7 -1))
+(test -4 (arithmetic-shift -15 -2))
 
 ;;; --- bit-count / integer-length ---
 (test 0 (bit-count 0))
@@ -77,19 +69,16 @@
 
 ;;; --- bitwise-if ---
 (test 3 (bitwise-if 1 1 2))
-;; FAIL: #1214 (not-mask path collapses: (bitwise-if 3 1 8) returns 1, not 9)
-;; (test 9 (bitwise-if 3 1 8))
-;; FAIL: #1214 (zero mask: all bits should come from the third argument)
-;; (test 6 (bitwise-if 0 15 6))
+(test 9 (bitwise-if 3 1 8))
+(test 6 (bitwise-if 0 15 6))
 
 ;;; --- single-bit operations ---
 (test #t (bit-set? 0 5))
 (test #f (bit-set? 1 5))
 (test #t (bit-set? 2 5))
 (test #f (bit-set? 31 5))
-;; FAIL: #1214 (bit-set? shifts with truncating quotient — wrong on negatives)
-;; (test #t (bit-set? 100 -1))
-;; (test #f (bit-set? 1 -3))
+(test #t (bit-set? 100 -1))
+(test #f (bit-set? 1 -3))
 
 ;; SRFI-151: the bit argument of copy-bit is a boolean
 ;; FAIL: #1233 (copy-bit expects 0/1 and errors on booleans)
@@ -98,11 +87,8 @@
 ;; (test 1 (copy-bit 2 5 #f))
 
 (test 5 (bit-swap 0 2 5))          ; both bits set: no clear path involved
-;; bit-swap clears bits via copy-bit's bitwise-not mask — magnitude bug
-;; FAIL: #1214 (bit-swap wrong whenever a bit must be cleared)
-;; (test 1 (bit-swap 0 2 4))
-;; FAIL: #1214
-;; (test 5 (bit-swap 0 1 6))
+(test 1 (bit-swap 0 2 4))
+(test 5 (bit-swap 0 1 6))
 
 (test #t (any-bit-set? 3 6))
 (test #f (any-bit-set? 1 6))
@@ -124,13 +110,9 @@
 (test #t (bit-field-every? 7 0 3))
 (test #f (bit-field-every? 5 0 3))
 (test 7 (bit-field-set 1 1 3))
-;; field clear/replace mask with bitwise-not — magnitude bug again
-;; FAIL: #1214 (bit-field-clear collapses high bits: returns 7 for (15 1 3))
-;; (test 9 (bit-field-clear 15 1 3))
-;; FAIL: #1214
-;; (test 5 (bit-field-replace 7 0 1 2))
-;; FAIL: #1214
-;; (test 21 (bit-field-replace-same 17 42 1 4))
+(test 9 (bit-field-clear 15 1 3))
+(test 5 (bit-field-replace 7 0 1 2))
+(test 27 (bit-field-replace-same 17 42 1 4))
 
 ;; rotate/reverse work when the value fits inside the field at offset 0
 (test 5 (bit-field-rotate 6 1 0 3))
