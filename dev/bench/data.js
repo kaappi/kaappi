@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783529227768,
+  "lastUpdate": 1783534600101,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "d88137b6999d65f8a4b8b8f9244816583d84c5b5",
-          "message": "Extract ir.lowerAndOptimize() to deduplicate the IR pipeline (#1122)\n\nThe 9-step sequence (lower → 3 analysis passes → 5 optimization passes)\nwas copy-pasted across 12 call sites in 5 files. A single entry point\nensures the bytecode and native backends stay in sync and makes adding\nnew optimization passes a one-line change.\n\nAlso fixes a latent pass-order bug in lowerSingleExprTail where\nidentifyPrimitives/markConstants ran before markTailPositions, unlike\nevery other site.\n\nCloses #1037\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-05T06:18:55+05:30",
-          "tree_id": "1f8073e17211fe951413994beea1e395dae4a680",
-          "url": "https://github.com/kaappi/kaappi/commit/d88137b6999d65f8a4b8b8f9244816583d84c5b5"
-        },
-        "date": 1783214261993,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.893122,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.699429,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.87676,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.881282,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.012652,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.198022,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.428425,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.06581,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 12.024333,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.637818,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 9.370901,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.88868,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 7.69165,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 0.966653,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.040123,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.026187,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "13fa2af088a1182dfcb2ccbf4853b288c16acfb7",
+          "message": "Fix SRFI-233 ini-file->alist missing (scheme char) import (#1223) (#1333)\n\nThe library's internal string-trim calls char-whitespace? which lives\nin (scheme char), but only (scheme base) and (scheme write) were\nimported. Every parse of non-empty input failed with an unbound\nvariable error.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-08T23:19:35+05:30",
+          "tree_id": "c16755eee5e7dda89001eb448eb75dd5a0a50c2d",
+          "url": "https://github.com/kaappi/kaappi/commit/13fa2af088a1182dfcb2ccbf4853b288c16acfb7"
+        },
+        "date": 1783534598778,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.052509,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 10.848885,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 1.042247,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.482916,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.013972,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.226688,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.514349,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.068262,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 13.684688,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.980604,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 11.424687,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 1.125402,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 9.291404,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.862471,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.047023,
             "unit": "seconds"
           }
         ]
