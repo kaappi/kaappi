@@ -6,15 +6,18 @@ set -euo pipefail
 
 KAAPPI="${KAAPPI:-zig-out/bin/kaappi}"
 
-output=$("$KAAPPI" /dev/stdin <<'EOF'
+tmpfile=$(mktemp)
+trap 'rm -f "$tmpfile"' EXIT
+cat > "$tmpfile" << 'EOF'
 (import (scheme base) (chibi test))
 (test-begin "exception-guard")
-(test 1 (car '()))   ;; should count as failure, not crash
+(test 1 (car '()))
 (test 2 (+ 1 1))
 (test 3 (+ 1 2))
 (test-end "exception-guard")
 EOF
-)
+
+output=$("$KAAPPI" "$tmpfile")
 
 # Should report exactly 2 pass and 1 fail
 if echo "$output" | grep -q "2 pass, 1 fail"; then
