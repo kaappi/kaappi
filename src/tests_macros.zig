@@ -716,3 +716,15 @@ test "lambda parameter shadows a syntactic keyword in its body (#788)" {
     // An unshadowed keyword still compiles as the special form.
     try std.testing.expectEqual(@as(i64, 2), types.toFixnum(try vm.eval("((lambda (x) (if 1 2 3)) 0)")));
 }
+
+test "recursive variadic macro: sibling calls produce correct values (#1215)" {
+    try th.expectEval(
+        \\(begin
+        \\  (define-syntax my-list
+        \\    (syntax-rules ()
+        \\      ((my-list) '())
+        \\      ((my-list x rest ...)
+        \\       (cons x (my-list rest ...)))))
+        \\  (+ (car (my-list 10 20)) (car (my-list 30 40))))
+    , 40);
+}

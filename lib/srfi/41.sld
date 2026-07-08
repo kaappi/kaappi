@@ -31,15 +31,15 @@
 
     (define-syntax stream
       (syntax-rules ()
-        ((stream) stream-null)
+        ((stream) (delay '()))
         ((stream x rest ...)
          (stream-cons x (stream rest ...)))))
 
     (define (stream-unfold mapper pred gen seed)
       (define (unfold-loop s)
         (if (pred s)
-            stream-null
-            (stream-cons (mapper s) (unfold-loop (gen s)))))
+            (stream-cons (mapper s) (unfold-loop (gen s)))
+            stream-null))
       (unfold-loop seed))
 
     (define (stream-map proc strm)
@@ -118,8 +118,12 @@
                        (apply stream-append (cdr strms))))))
 
     (define (stream-zip . strms)
+      (define (any-null? ss)
+        (and (not (null? ss))
+             (or (stream-null? (car ss))
+                 (any-null? (cdr ss)))))
       (define (zip-loop ss)
-        (if (or (null? ss) (stream-null? (car ss)))
+        (if (or (null? ss) (any-null? ss))
             stream-null
             (stream-cons (map stream-car ss)
                          (zip-loop (map stream-cdr ss)))))
