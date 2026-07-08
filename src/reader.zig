@@ -158,44 +158,9 @@ pub const Reader = struct {
         if (depth > 0) return ReadError.UnexpectedEof;
     }
 
-    // Unicode letter classification for identifier support
     pub fn isUnicodeLetter(cp: u21) bool {
         if (cp <= 127) return std.ascii.isAlphabetic(@intCast(cp));
-        if (cp >= 0xC0 and cp <= 0xFF and cp != 0xD7 and cp != 0xF7) return true;
-        if (cp >= 0x100 and cp <= 0x24F) return true;
-        if (cp >= 0x250 and cp <= 0x2AF) return true;
-        if (cp >= 0x370 and cp <= 0x3FF) return true;
-        if (cp >= 0x400 and cp <= 0x4FF) return true;
-        if (cp >= 0x500 and cp <= 0x52F) return true;
-        if (cp >= 0x530 and cp <= 0x58F) return true;
-        if (cp >= 0x5D0 and cp <= 0x5EA) return true;
-        if (cp >= 0x600 and cp <= 0x6FF) return true;
-        if (cp >= 0x900 and cp <= 0x97F) return true;
-        if (cp >= 0x0E01 and cp <= 0x0E3A) return true;
-        if (cp >= 0x10A0 and cp <= 0x10FF) return true;
-        if (cp >= 0x1100 and cp <= 0x11FF) return true;
-        if (cp >= 0x3040 and cp <= 0x309F) return true;
-        if (cp >= 0x30A0 and cp <= 0x30FF) return true;
-        if (cp >= 0x4E00 and cp <= 0x9FFF) return true;
-        if (cp >= 0xAC00 and cp <= 0xD7AF) return true;
-        if (cp >= 0x3400 and cp <= 0x4DBF) return true;
-        if (cp >= 0x1C90 and cp <= 0x1CBA) return true;
-        if (cp >= 0x1E00 and cp <= 0x1EFF) return true;
-        if (cp >= 0x1F00 and cp <= 0x1FFF) return true;
-        if (cp >= 0x13A0 and cp <= 0x13F5) return true;
-        if (cp >= 0xAB70 and cp <= 0xABBF) return true;
-        if (cp >= 0x2C00 and cp <= 0x2C5F) return true;
-        if (cp >= 0x2C80 and cp <= 0x2CF3) return true;
-        if (cp >= 0x10400 and cp <= 0x1044F) return true;
-        if (cp >= 0x104B0 and cp <= 0x104FB) return true;
-        if (cp >= 0x118A0 and cp <= 0x118DF) return true;
-        if (cp >= 0x1E900 and cp <= 0x1E943) return true;
-        // Fall back to Unicode case tables: any cased letter is alphabetic
-        if (unicode.findLower(cp) != null) return true;
-        if (unicode.findUpper(cp) != null) return true;
-        if (unicode.containsU21(&unicode.extra_uppercase, cp)) return true;
-        if (unicode.containsU21(&unicode.extra_lowercase, cp)) return true;
-        return false;
+        return unicode.inRanges(&unicode.alphabetic_ranges, cp);
     }
 
     fn isUnicodeSubsequent(cp: u21) bool {
