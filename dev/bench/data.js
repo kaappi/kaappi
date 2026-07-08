@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783522412791,
+  "lastUpdate": 1783524574568,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "503118fa54e1627f27ad99527cf0fe5ead260059",
-          "message": "Add native backend unit tests, .sbc equivalence tests, and fix OOM error paths (#1072) (#1117)\n\n- Add 28 golden .ll snapshot tests for the LLVM emitter (tests_native.zig),\n  covering preamble, constants, globals, calls, inline primitives, control\n  flow, definitions, lambda, let/let*, and begin\n- Add 6 .sbc serialize-deserialize-execute equivalence tests over\n  representative programs (arithmetic, conditionals, let, booleans, lists,\n  tail recursion)\n- Fix silent OOM corruption in runtime_exports.zig: kaappi_cons,\n  kaappi_create_native_closure, callPrimitive, and kaappi_gc_push_root\n  now abort with a message instead of returning 0\n- Enable LLVM native e2e tests on macOS CI\n- Wire tests/scheme/coverage/*-coverage.scm into the CI coverage job\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-04T23:43:59+05:30",
-          "tree_id": "7d0ac36f29311a18528a196f6c7bd9057b75dd80",
-          "url": "https://github.com/kaappi/kaappi/commit/503118fa54e1627f27ad99527cf0fe5ead260059"
-        },
-        "date": 1783191087271,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.307031,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.740736,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.890525,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.151278,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.012555,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.211315,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.469695,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.070716,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 12.459688,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.82058,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 9.982986,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.955819,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 8.282574,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.702256,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.042764,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.043544,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "1e251e07eaab5863037feeef9597f9ecfd8d1d3e",
+          "message": "Fix SRFI-232 curried procedures to support grouped application (#1238) (#1327)\n\nThe old implementation hardcoded four syntax-rules patterns that expanded\ninto strictly unary lambda chains, so grouped application like (add2 1 2)\nraised an arity error. Replace with the SRFI-232 reference implementation\nusing case-lambda dispatch: zero args returns self, exact args evaluates\nbody, surplus args forwards to the result, partial args accumulates via\na helper closure. Also export the curried form and support nullary,\nvariadic, and arbitrary-arity formals.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-08T20:34:08+05:30",
+          "tree_id": "a2bbec6b36142edc38ef32bf6068d6c0eabf5a63",
+          "url": "https://github.com/kaappi/kaappi/commit/1e251e07eaab5863037feeef9597f9ecfd8d1d3e"
+        },
+        "date": 1783524572650,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.320109,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.674138,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.980887,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.407598,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.012695,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.204008,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.502403,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.072118,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 12.724956,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.938128,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 10.178417,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 1.003622,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 8.431044,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.698704,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044173,
             "unit": "seconds"
           }
         ]
