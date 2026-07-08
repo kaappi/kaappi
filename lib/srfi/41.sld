@@ -5,7 +5,13 @@
           stream stream-unfold stream-map stream-for-each
           stream-filter stream-fold stream-take stream-drop
           stream-ref stream-length stream->list list->stream
-          stream-append stream-zip)
+          stream-append stream-zip
+          define-stream stream-let
+          stream-from stream-range stream-iterate stream-constant
+          stream-take-while stream-drop-while
+          stream-scan stream-reverse stream-concat
+          port->stream stream-unfolds
+          stream-match stream-of)
   (begin
     (define stream-null (delay '()))
 
@@ -127,4 +133,179 @@
             stream-null
             (stream-cons (map stream-car ss)
                          (zip-loop (map stream-cdr ss)))))
-      (zip-loop strms))))
+      (zip-loop strms))
+
+    ;; --- derived library (SRFI-41 §2) ---
+
+    (define-syntax define-stream
+      (syntax-rules ()
+        ((define-stream (name . formals) body0 body1 ...)
+         (define name (stream-lambda formals body0 body1 ...)))))
+
+    (define-syntax stream-let
+      (syntax-rules ()
+        ((stream-let tag ((name val) ...) body0 body1 ...)
+         ((letrec ((tag (stream-lambda (name ...) body0 body1 ...))) tag)
+          val ...))))
+
+    (define (stream-from first . step)
+      (let ((delta (if (null? step) 1 (car step))))
+        (stream-let loop ((n first))
+          (stream-cons n (loop (+ n delta))))))
+
+    (define (stream-range first past . step)
+      (let* ((delta (cond ((pair? step) (car step))
+                          ((< first past) 1)
+                          (else -1)))
+             (lt? (if (< 0 delta) < >)))
+        (stream-let loop ((n first))
+          (if (lt? n past)
+              (stream-cons n (loop (+ n delta)))
+              stream-null))))
+
+    (define (stream-iterate proc base)
+      (stream-let loop ((v base))
+        (stream-cons v (loop (proc v)))))
+
+    (define stream-constant
+      (stream-lambda objs
+        (cond ((null? objs) stream-null)
+              ((null? (cdr objs))
+               (stream-cons (car objs) (stream-constant (car objs))))
+              (else
+               (stream-cons (car objs)
+                            (apply stream-constant
+                                   (append (cdr objs)
+                                           (list (car objs)))))))))
+
+    (define (stream-take-while pred? strm)
+      (stream-let loop ((s strm))
+        (cond ((stream-null? s) stream-null)
+              ((pred? (stream-car s))
+               (stream-cons (stream-car s) (loop (stream-cdr s))))
+              (else stream-null))))
+
+    (define (stream-drop-while pred? strm)
+      (stream-let loop ((s strm))
+        (if (and (stream-pair? s) (pred? (stream-car s)))
+            (loop (stream-cdr s))
+            s)))
+
+    (define (stream-scan proc base strm)
+      (stream-let loop ((b base) (s strm))
+        (if (stream-null? s)
+            (stream b)
+            (stream-cons b (loop (proc b (stream-car s))
+                                 (stream-cdr s))))))
+
+    (define (stream-reverse strm)
+      (stream-let loop ((s strm) (rev stream-null))
+        (if (stream-null? s)
+            rev
+            (loop (stream-cdr s)
+                  (stream-cons (stream-car s) rev)))))
+
+    (define (stream-concat strms)
+      (stream-let loop ((ss strms))
+        (cond ((stream-null? ss) stream-null)
+              ((stream-null? (stream-car ss))
+               (loop (stream-cdr ss)))
+              (else
+               (stream-cons
+                (stream-car (stream-car ss))
+                (loop (stream-cons (stream-cdr (stream-car ss))
+                                   (stream-cdr ss))))))))
+
+    (define (port->stream . args)
+      (let ((p (if (null? args) (current-input-port) (car args))))
+        (stream-let loop ((p p))
+          (let ((c (read-char p)))
+            (if (eof-object? c)
+                stream-null
+                (stream-cons c (loop p)))))))
+
+    (define (stream-unfolds gen seed)
+      (define (len-values gen seed)
+        (call-with-values
+          (lambda () (gen seed))
+          (lambda vs (- (length vs) 1))))
+      (define unfold-result-stream
+        (stream-lambda (gen seed)
+          (call-with-values
+            (lambda () (gen seed))
+            (lambda (next . results)
+              (stream-cons results
+                           (unfold-result-stream gen next))))))
+      (define result-stream->output-stream
+        (stream-lambda (result-stream i)
+          (let ((result (list-ref (stream-car result-stream) (- i 1))))
+            (cond ((pair? result)
+                   (stream-cons
+                    (car result)
+                    (result-stream->output-stream
+                     (stream-cdr result-stream) i)))
+                  ((not result)
+                   (result-stream->output-stream
+                    (stream-cdr result-stream) i))
+                  ((null? result) stream-null)
+                  (else (error "stream-unfolds: unexpected result"))))))
+      (define (result-stream->output-streams result-stream)
+        (let loop ((i (len-values gen seed)) (outputs '()))
+          (if (zero? i)
+              (apply values outputs)
+              (loop (- i 1)
+                    (cons (result-stream->output-stream result-stream i)
+                          outputs)))))
+      (result-stream->output-streams (unfold-result-stream gen seed)))
+
+    (define-syntax stream-match
+      (syntax-rules ()
+        ((stream-match strm-expr clause ...)
+         (letrec-syntax
+           ((smp
+             (syntax-rules (_)
+               ((smp s () body)
+                (and (stream-null? s) body))
+               ((smp s (_ . rest) body)
+                (and (stream-pair? s)
+                     (let ((tail (stream-cdr s)))
+                       (smp tail rest body))))
+               ((smp s (var . rest) body)
+                (and (stream-pair? s)
+                     (let ((var (stream-car s))
+                           (tail (stream-cdr s)))
+                       (smp tail rest body))))
+               ((smp s _ body)
+                body)
+               ((smp s var body)
+                (let ((var s)) body))))
+            (smt
+             (syntax-rules ()
+               ((smt s (pattern fender expr))
+                (smp s pattern (and fender (list expr))))
+               ((smt s (pattern expr))
+                (smp s pattern (list expr))))))
+           (let ((strm strm-expr))
+             (cond
+              ((smt strm clause) => car) ...
+              (else (error "stream-match: no matching pattern"))))))))
+
+    (define-syntax stream-of-aux
+      (syntax-rules (in is)
+        ((stream-of-aux expr base)
+         (stream-cons expr base))
+        ((stream-of-aux expr base (var in strm) rest ...)
+         (stream-let loop ((s strm))
+           (if (stream-null? s)
+               base
+               (let ((var (stream-car s)))
+                 (stream-of-aux expr (loop (stream-cdr s)) rest ...)))))
+        ((stream-of-aux expr base (var is exp) rest ...)
+         (let ((var exp)) (stream-of-aux expr base rest ...)))
+        ((stream-of-aux expr base pred? rest ...)
+         (if pred? (stream-of-aux expr base rest ...) base))))
+
+    (define-syntax stream-of
+      (syntax-rules ()
+        ((stream-of expr rest ...)
+         (stream-of-aux expr stream-null rest ...))))))
