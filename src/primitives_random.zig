@@ -55,14 +55,10 @@ fn getRS(proc: []const u8, v: Value) PrimitiveError!*types.RandomSource {
 }
 
 fn randomIntegerFn(args: []const Value) PrimitiveError!Value {
-    if (!types.isFixnum(args[0])) return primitives.typeError("random-integer", "integer", args[0]);
-    const n = types.toFixnum(args[0]);
-    if (n <= 0) return primitives.typeError("random-integer", "positive integer", args[0]);
     ensureDefaultRS();
     const vm = vm_mod.vm_instance orelse return PrimitiveError.OutOfMemory;
     const rs = try getRS("random-integer", vm.default_random_source);
-    const r = rs.prng.random();
-    return types.makeFixnum(r.intRangeLessThan(i64, 0, n));
+    return randomBelow("random-integer", rs, args[0]);
 }
 
 fn randomRealFn(args: []const Value) PrimitiveError!Value {
@@ -98,15 +94,10 @@ fn randomSourceRandomizeFn(args: []const Value) PrimitiveError!Value {
 }
 
 fn randomSourcePseudoRandomizeFn(args: []const Value) PrimitiveError!Value {
-    const rs = try getRS("random-source-pseudo-randomize!", args[0]);
-    if (!types.isFixnum(args[1])) return primitives.typeError("random-source-pseudo-randomize!", "integer", args[1]);
-    if (!types.isFixnum(args[2])) return primitives.typeError("random-source-pseudo-randomize!", "integer", args[2]);
-    const i_val = types.toFixnum(args[1]);
-    const j_val = types.toFixnum(args[2]);
-    if (i_val < 0) return primitives.typeError("random-source-pseudo-randomize!", "non-negative integer", args[1]);
-    if (j_val < 0) return primitives.typeError("random-source-pseudo-randomize!", "non-negative integer", args[2]);
-    const i: u64 = @intCast(i_val);
-    const j: u64 = @intCast(j_val);
+    const proc = "random-source-pseudo-randomize!";
+    const rs = try getRS(proc, args[0]);
+    const i = try intToSeedU64(proc, args[1]);
+    const j = try intToSeedU64(proc, args[2]);
     rs.prng = std.Random.DefaultPrng.init(i *% 2654435761 +% j *% 2246822519);
     return types.VOID;
 }
@@ -162,11 +153,7 @@ fn randomSourceStateSetFn(args: []const Value) PrimitiveError!Value {
 // (%rs-next-int rs n) — used by random-source-make-integers closure
 fn rsNextIntFn(args: []const Value) PrimitiveError!Value {
     const rs = try getRS("%rs-next-int", args[0]);
-    if (!types.isFixnum(args[1])) return primitives.typeError("%rs-next-int", "integer", args[1]);
-    const n = types.toFixnum(args[1]);
-    if (n <= 0) return primitives.typeError("%rs-next-int", "positive integer", args[1]);
-    const r = rs.prng.random();
-    return types.makeFixnum(r.intRangeLessThan(i64, 0, n));
+    return randomBelow("%rs-next-int", rs, args[1]);
 }
 
 // (%rs-next-real rs) — used by random-source-make-reals closure
@@ -174,4 +161,79 @@ fn rsNextRealFn(args: []const Value) PrimitiveError!Value {
     const rs = try getRS("%rs-next-real", args[0]);
     const r = rs.prng.random();
     return types.makeFlonum(r.float(f64));
+}
+
+fn randomBelow(proc: []const u8, rs: *types.RandomSource, bound: Value) PrimitiveError!Value {
+    if (types.isFixnum(bound)) {
+        const n = types.toFixnum(bound);
+        if (n <= 0) return primitives.typeError(proc, "positive integer", bound);
+        const r = rs.prng.random();
+        return types.makeFixnum(r.intRangeLessThan(i64, 0, n));
+    }
+    if (types.isBignum(bound)) {
+        const bn = types.toBignum(bound);
+        if (!bn.positive or bn.len == 0) return primitives.typeError(proc, "positive integer", bound);
+        return randomBignumBelow(rs, bn);
+    }
+    return primitives.typeError(proc, "integer", bound);
+}
+
+fn randomBignumBelow(rs: *types.RandomSource, bn: *const types.Bignum) PrimitiveError!Value {
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
+    const n_len = bn.len;
+    const top_limb = bn.limbs[n_len - 1];
+    const top_bits: u7 = @intCast(64 - @clz(top_limb));
+    const mask: u64 = if (top_bits >= 64) std.math.maxInt(u64) else (@as(u64, 1) << @as(u6, @intCast(top_bits))) - 1;
+    const r = rs.prng.random();
+
+    var stack_buf: [16]u64 = undefined;
+    const limbs = if (n_len <= 16)
+        stack_buf[0..n_len]
+    else
+        gc.allocator.alloc(u64, n_len) catch return PrimitiveError.OutOfMemory;
+    defer if (n_len > 16) gc.allocator.free(limbs);
+
+    var attempts: usize = 0;
+    while (attempts < 1000) : (attempts += 1) {
+        for (limbs) |*l| l.* = r.int(u64);
+        limbs[n_len - 1] &= mask;
+        if (limbsLessThan(limbs, bn.limbs, n_len)) {
+            var actual_len = n_len;
+            while (actual_len > 0 and limbs[actual_len - 1] == 0) actual_len -= 1;
+            if (actual_len == 0) return types.makeFixnum(0);
+            if (actual_len == 1 and limbs[0] <= @as(u64, @intCast(std.math.maxInt(i48)))) {
+                return types.makeFixnum(@intCast(limbs[0]));
+            }
+            return gc.allocBignumFromLimbs(limbs[0..actual_len], actual_len, true) catch
+                return PrimitiveError.OutOfMemory;
+        }
+    }
+    return PrimitiveError.OutOfMemory;
+}
+
+fn limbsLessThan(a: []const u64, b: []const u64, len: usize) bool {
+    var i: usize = len;
+    while (i > 0) {
+        i -= 1;
+        if (a[i] < b[i]) return true;
+        if (a[i] > b[i]) return false;
+    }
+    return false;
+}
+
+fn intToSeedU64(proc: []const u8, v: Value) PrimitiveError!u64 {
+    if (types.isFixnum(v)) {
+        const n = types.toFixnum(v);
+        if (n < 0) return primitives.typeError(proc, "non-negative integer", v);
+        return @intCast(n);
+    }
+    if (types.isBignum(v)) {
+        const bn = types.toBignum(v);
+        if (!bn.positive) return primitives.typeError(proc, "non-negative integer", v);
+        if (bn.len == 0) return 0;
+        var result: u64 = 0;
+        for (bn.limbs[0..bn.len]) |limb| result ^= limb;
+        return result;
+    }
+    return primitives.typeError(proc, "integer", v);
 }
