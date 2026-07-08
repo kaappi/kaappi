@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783490522023,
+  "lastUpdate": 1783490667492,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "bd2ea1d8e2562b7295523649dedb6f8d4bb3c9f1",
-          "message": "Assert expected values in IR behavioral tests instead of ignoring results (#1073) (#1101)\n\nThe 29 `expectBehavioralParity` tests evaluated source but discarded\nthe result, so a wrong return value would pass silently. Replace with\n`expectEvalFixnum`, `expectEvalBool`, and `expectEvalVoid` assertions\nthat verify the actual result. Tag the 11 bytecode-parity tests with\ntheir legacy compileExpr form so each is deleted with #1038.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-04T21:33:56+05:30",
-          "tree_id": "e84272b4ef2414a52eb595bb7f67e999d89bf838",
-          "url": "https://github.com/kaappi/kaappi/commit/bd2ea1d8e2562b7295523649dedb6f8d4bb3c9f1"
-        },
-        "date": 1783184030990,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.273256,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.096407,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.915897,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.248163,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.012614,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.210796,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.474712,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.070577,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 12.451876,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.818446,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 9.909201,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.951454,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 8.278244,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.694364,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.043807,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.043735,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "36022b75419303da7780b2d7d8fd7a7fbd6c03b9",
+          "message": "Implement string-join grammar argument per SRFI-13 (#825) (#1312)\n\nThe optional third argument (infix, strict-infix, prefix, suffix) was\nsilently ignored — all calls produced infix output regardless. Now\nprefix prepends the delimiter before each element, suffix appends it\nafter each, and strict-infix raises an error on an empty list.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-08T10:54:52+05:30",
+          "tree_id": "2442d0201b9c935f7e249bd256c89d78fc4c0ac0",
+          "url": "https://github.com/kaappi/kaappi/commit/36022b75419303da7780b2d7d8fd7a7fbd6c03b9"
+        },
+        "date": 1783490666764,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.098875,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 10.354968,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 1.020066,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.416524,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.013911,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.222942,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.511015,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.07015,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 13.46169,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.981011,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 11.142881,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 1.066131,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 9.165721,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.860421,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.046193,
             "unit": "seconds"
           }
         ]
