@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783506924747,
+  "lastUpdate": 1783511339527,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "db2f7dd32b75c4bda9124b7da88321408330e767",
-          "message": "Add TestContext and expectEval helpers to testing_helpers (#1074) (#1111)\n\nReduce the 4-line GC+VM setup dance repeated across test files by\nadding TestContext (bundles GC+VM with in-place init/deinit) and four\neval assertion helpers (expectEval, expectEvalTrue, expectEvalBool,\nexpectEvalVoid). Migrate tests_ir.zig and tests_core_eval.zig as the\nfirst two files. Fix doc drift in src/CLAUDE.md (non-existent\nmakeTestGc, wrong test file count, vm.run→vm.eval) and\ntests/scheme/CLAUDE.md (removed deferred/, added compile/).\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-04T23:31:25+05:30",
-          "tree_id": "e01a3ce79b9dcdade896abc2c5c4f785aa073f80",
-          "url": "https://github.com/kaappi/kaappi/commit/db2f7dd32b75c4bda9124b7da88321408330e767"
-        },
-        "date": 1783190299694,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.487258,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.74244,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.899711,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.350768,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.012686,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.213661,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.470815,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.070688,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 12.690393,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.838174,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 10.111789,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.968537,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 8.381808,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.69763,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.047182,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.047444,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "9f757c25560767ac3de0f978e1a6ed3b10a341d5",
+          "message": "Fix posix-time/monotonic-time to return SRFI-19 time objects (#1162) (#1320)\n\n* Fix posix-time/monotonic-time to return SRFI-19 time objects (#1162)\n\nExtend the Zig-level Srfi18Time type to carry integer seconds,\nnanoseconds, and a time type enum (utc/tai/monotonic/duration),\nunifying it as the canonical time representation for both SRFI-18\nand SRFI-19. Register SRFI-19 time accessors (make-time, time?,\ntime-type, time-second, time-nanosecond) as built-in primitives\nin (scheme time), and update lib/srfi/19.sld to use them instead\nof define-record-type.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Address review: validate nanoseconds, fix WASM availability\n\n- Move time accessors (make-time, time?, time-type, time-second,\n  time-nanosecond) from primitives_srfi18.zig to primitives_r7rs.zig\n  so they are available on WASM builds (primitives_srfi18.zig is\n  excluded on wasm32-wasi)\n- Validate 0 <= nanosecond < 1e9 in make-time to prevent interpreter\n  panics from negative nanoseconds reaching u64 casts in the printer\n  and timeout paths\n- Defensively clamp nanoseconds in printer and timeoutToDeadlineNs\n- Use floor instead of trunc in seconds->time for correct negative\n  second handling\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-08T16:49:17+05:30",
+          "tree_id": "3d1f026fd22157005d6b6a3740b723d2fe1d4d3b",
+          "url": "https://github.com/kaappi/kaappi/commit/9f757c25560767ac3de0f978e1a6ed3b10a341d5"
+        },
+        "date": 1783511338429,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.457891,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.45573,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.978311,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.449284,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.012671,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.203553,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.504603,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.072526,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 12.859729,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.965994,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 10.180538,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 1.004413,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 8.439506,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.700894,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.043708,
             "unit": "seconds"
           }
         ]
