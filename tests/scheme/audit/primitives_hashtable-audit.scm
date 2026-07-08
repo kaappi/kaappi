@@ -210,13 +210,10 @@
 (test 'caught (guard (e (#t 'caught))
                 (hash-table-update!/default (make-hash-table) 'k
                                             (lambda (x) (error "boom")) 0)))
-;; SRFI-69 also specifies hash-table-update! (with optional failure thunk);
-;; it is absent from (srfi 69) — only SRFI-125's Scheme lib defines one.
-;; FAIL: #1182 (hash-table-update! missing from (srfi 69))
-;; (test 11 (let ((ht (make-hash-table)))
-;;            (hash-table-set! ht 'k 10)
-;;            (hash-table-update! ht 'k (lambda (x) (+ x 1)))
-;;            (hash-table-ref ht 'k)))
+(test 11 (let ((ht (make-hash-table)))
+           (hash-table-set! ht 'k 10)
+           (hash-table-update! ht 'k (lambda (x) (+ x 1)))
+           (hash-table-ref ht 'k)))
 
 ;;; --- copy / merge! ---
 (test '(1 2) (let ((h1 (make-hash-table)))
