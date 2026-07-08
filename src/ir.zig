@@ -650,10 +650,42 @@ fn lowerDefine(ir: *IR, expr: Value) CompileError!*Node {
 fn lowerSet(ir: *IR, args: Value) CompileError!*Node {
     if (args == types.NIL) return CompileError.InvalidSyntax;
     const name = types.car(args);
-    if (!types.isSymbol(name)) return CompileError.InvalidSyntax;
     const rest = types.cdr(args);
     if (rest == types.NIL) return CompileError.InvalidSyntax;
-    return ir.makeSet(name, types.car(rest));
+
+    if (types.isSymbol(name)) {
+        return ir.makeSet(name, types.car(rest));
+    }
+
+    // SRFI-17 generalized set!: (set! (proc arg ...) val)
+    // Desugar to: ((setter proc) arg ... val)
+    if (types.isPair(name)) {
+        const c = ir.compiler orelse return CompileError.InvalidSyntax;
+        const proc = types.car(name);
+        const proc_args = types.cdr(name);
+        const val_expr = types.car(rest);
+
+        // Build (setter proc) call node
+        const setter_sym = c.gc.allocSymbol("setter") catch return CompileError.OutOfMemory;
+        const setter_ref = try ir.makeGlobalRef(setter_sym);
+        const proc_node = try lowerWithMacros(ir, proc, null);
+        const setter_call = try ir.makeCall(setter_ref, &.{proc_node});
+
+        // Collect proc_args + val into argument list
+        var arg_nodes: std.ArrayList(*Node) = .empty;
+        defer arg_nodes.deinit(ir.allocator);
+        var cur = proc_args;
+        while (cur != types.NIL) {
+            if (!types.isPair(cur)) return CompileError.InvalidSyntax;
+            arg_nodes.append(ir.allocator, try lowerWithMacros(ir, types.car(cur), null)) catch return CompileError.OutOfMemory;
+            cur = types.cdr(cur);
+        }
+        arg_nodes.append(ir.allocator, try lowerWithMacros(ir, val_expr, null)) catch return CompileError.OutOfMemory;
+
+        return ir.makeCall(setter_call, arg_nodes.items);
+    }
+
+    return CompileError.InvalidSyntax;
 }
 
 fn lowerList(ir: *IR, args: Value, tag: NodeTag, macros: ?*std.StringHashMap(Value)) CompileError!*Node {

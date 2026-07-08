@@ -782,6 +782,45 @@ pub fn compileSet(self: *Compiler, args: Value, dst: u16) CompileError!void {
     const target = types.car(args);
     const rest = types.cdr(args);
     if (rest == types.NIL) return CompileError.InvalidSyntax;
+
+    // SRFI-17 generalized set!: (set! (proc arg ...) val)
+    // Desugar to: ((setter proc) arg ... val) and compile as a call.
+    if (types.isPair(target)) {
+        const proc = types.car(target);
+        const proc_args = types.cdr(target);
+        const val_expr = types.car(rest);
+
+        // Build (setter proc)
+        const setter_sym = self.gc.allocSymbol("setter") catch return CompileError.OutOfMemory;
+        const setter_proc_pair = self.gc.allocPair(proc, types.NIL) catch return CompileError.OutOfMemory;
+        var setter_call = self.gc.allocPair(setter_sym, setter_proc_pair) catch return CompileError.OutOfMemory;
+        self.gc.pushRoot(&setter_call);
+        defer self.gc.popRoot();
+
+        // Build args: append val to proc_args → (arg1 arg2 ... val)
+        var ext_args = self.gc.allocPair(val_expr, types.NIL) catch return CompileError.OutOfMemory;
+        // Collect proc_args into stack buffer, then prepend in reverse
+        var arg_buf: [16]Value = undefined;
+        var n_args: usize = 0;
+        var cur = proc_args;
+        while (cur != types.NIL) {
+            if (!types.isPair(cur)) return CompileError.InvalidSyntax;
+            if (n_args >= 16) return CompileError.InvalidSyntax;
+            arg_buf[n_args] = types.car(cur);
+            n_args += 1;
+            cur = types.cdr(cur);
+        }
+        var i = n_args;
+        while (i > 0) {
+            i -= 1;
+            ext_args = self.gc.allocPair(arg_buf[i], ext_args) catch return CompileError.OutOfMemory;
+        }
+
+        // Build ((setter proc) arg1 ... val) and compile as expression
+        const desugared = self.gc.allocPair(setter_call, ext_args) catch return CompileError.OutOfMemory;
+        return self.compileExprViaIR(desugared, dst, false);
+    }
+
     if (!types.isSymbol(target)) return CompileError.InvalidSyntax;
 
     const value_expr = types.car(rest);
