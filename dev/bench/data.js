@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783490782993,
+  "lastUpdate": 1783491814655,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "33f2f171e2592130540ab374093c0f1be8bd6637",
-          "message": "Deduplicate export lists and add drift test (#1053) (#1104)\n\nHoists all library export name arrays from inside registerStandardLibraries()\nto file-scope pub const declarations, shared by both standard and sandboxed\nregistration. Adds a unit test that asserts every non-syntax name in every\nexport list resolves in globals after registerAll — converting silent export\ndrift into a test failure.\n\nPhases 1 and 2 of #1053. Net -156 lines (13 duplicate arrays removed).\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-04T21:42:20+05:30",
-          "tree_id": "7535f9dd3c0d7ae39576fa860aa87db79dc996a0",
-          "url": "https://github.com/kaappi/kaappi/commit/33f2f171e2592130540ab374093c0f1be8bd6637"
-        },
-        "date": 1783184416436,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.490087,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.118902,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.987723,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.307496,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.012887,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.213379,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.479543,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.071099,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 12.689815,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.877598,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 10.046945,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.957069,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 8.437307,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.572195,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.043737,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.045397,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "dcef387312a310b4c761ce38589e548bfef0225b",
+          "message": "Fix FFI char type to accept Scheme characters and return characters (#1186) (#1309)\n\n* Fix FFI char type to accept Scheme characters and return characters (#1186)\n\nThe char FFI type was behaviorally identical to uint8 — it rejected\nScheme character values like #\\A with a bare error, and char returns\nproduced fixnums instead of characters. Now char params accept both\nintegers and Scheme characters (codepoint must fit 0–255), and char\nreturns produce Scheme character values.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Tighten char return range to 0–255 and update audit ledger\n\nSymmetric with the param path which already range-checks to 0–255.\nUpdate docs/audit-strategy.md to reflect 48 tests + 2 disabled.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-08T05:50:19Z",
+          "tree_id": "3e0c6f211bb780448b0c77ba5f02a5fb226c3b17",
+          "url": "https://github.com/kaappi/kaappi/commit/dcef387312a310b4c761ce38589e548bfef0225b"
+        },
+        "date": 1783491813648,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.102085,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.77775,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 1.0296,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.416734,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.014262,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.22493,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.510548,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.070471,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 13.57425,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.982155,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 11.240059,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 1.092537,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 9.229045,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.855042,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.046001,
             "unit": "seconds"
           }
         ]
