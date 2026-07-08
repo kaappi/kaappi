@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783524574568,
+  "lastUpdate": 1783524723704,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "374d7cb286be0a8d7e5d385b9e264f2846fd60e5",
-          "message": "Replace inline state-restore copies with saveScope/restoreScope (#1070) (#1116)\n\ntryCompileNativeClosure had 7 inline copies of an 8-field restore block,\nand emitLambdaFunction used a 10-positional-parameter restoreState helper\ncalled 8 times. Any new emitter field had to be threaded through every\ncopy, and the two functions saved different field sets (closures omitted\nlocals/rest_param_alloca/rest_param_name).\n\nAdd a SavedScope struct capturing all 11 per-function fields with\nsaveScope()/restoreScope() methods on LLVMEmitter. Both functions now\nuse `defer self.restoreScope(saved)` in a block scope, eliminating all\nmanual restore sites and fixing the field-set asymmetry.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-04T23:46:11+05:30",
-          "tree_id": "c2504bb43d6a583b17cd4d4c81ef37c18cabe6c6",
-          "url": "https://github.com/kaappi/kaappi/commit/374d7cb286be0a8d7e5d385b9e264f2846fd60e5"
-        },
-        "date": 1783191333672,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.009079,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.490958,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.926781,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.215402,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.013588,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.234572,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.467622,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.068486,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 13.404773,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.816937,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 11.082821,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 1.05774,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 9.060615,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.843902,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.04412,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044173,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "7e3e9108d404c3e5be746b4eb6f80f35c205ec4a",
+          "message": "Export SRFI-33 aliases and second-tier procedures from SRFI-60 (#1164) (#1328)\n\nThe (srfi 60) library only exported log*-style names. Now exports both\nnaming conventions (logand/bitwise-and, etc.), the SRFI-60 plural\nany-bits-set?, second-tier procedures (copy-bit-field, rotate-bit-field,\nreverse-bit-field, log2-binary-factors), and MSB-first boolean/integer\nconversions (integer->list, list->integer, booleans->integer).\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-08T20:35:21+05:30",
+          "tree_id": "465fc435fadf58a08d4df6657a61370741477fa9",
+          "url": "https://github.com/kaappi/kaappi/commit/7e3e9108d404c3e5be746b4eb6f80f35c205ec4a"
+        },
+        "date": 1783524723035,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.339744,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.372133,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.980017,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.405758,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.012641,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.203805,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.500529,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.07227,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 12.719255,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.939111,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 10.171963,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 1.007039,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 8.443292,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.509066,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.043335,
             "unit": "seconds"
           }
         ]
