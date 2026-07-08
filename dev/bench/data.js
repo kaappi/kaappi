@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783535616048,
+  "lastUpdate": 1783535959371,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "a7d8e7f1a69d10e35c84ac1d866f81bb59aeb8cf",
-          "message": "Centralize LLVM native/eval-fallback boundary in one comptime table (#1068) (#1126)\n\nThe native-vs-fallback classification was duplicated in four places across\ntwo files. A single `llvm_node_table` in ir.zig now drives all four sites:\nemitNode dispatch, emitSexprEval args/form-name extraction,\nisEvalFallbackForm string matching, and nodeHasFreeVars/collectNodeFreeVars.\nAdding a new NodeTag without classifying it is now a compile error.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-05T07:33:58+05:30",
-          "tree_id": "0caac031f4ae8caaf9b79b71ebd925ea7dd79dd8",
-          "url": "https://github.com/kaappi/kaappi/commit/a7d8e7f1a69d10e35c84ac1d866f81bb59aeb8cf"
-        },
-        "date": 1783218653659,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.327973,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.813661,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.916237,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.136581,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.012863,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.211891,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.468046,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.070727,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 12.555891,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.834862,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 9.957044,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.960042,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 8.316815,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.743447,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044855,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.03549,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "3ae17a3c3624ac262fcc525c11d4a46f1b075feb",
+          "message": "Fix SRFI-128 default comparator total order, hashability, and register-default! (#1335)\n\n* Fix SRFI-128 default comparator total order, hashability, and register-default! (#1230)\n\n- default-ordering: handle pairs (lexicographic), vectors (element-wise),\n  bytevectors (byte-wise), and cross-type comparisons via type-index\n- make-eq-comparator/make-eqv-comparator: use default-hash so they are hashable\n- comparator-if<=>: add 5-arg syntax-rules pattern (optional comparator)\n- comparator-register-default!: store comparators and wire into\n  default-ordering, default-equality, and default-hash\n- default-hash: reduce pair/vector/bytevector results modulo hash-bound;\n  improve vector hash to use all elements\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Guard default-ordering against unordered registered comparators\n\nCheck comparator-ordered? before dispatching to a registered comparator's\nordering predicate, so registering a comparator with #f ordering does not\nhit the error thunk. Add test for the edge case.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-08T18:11:03Z",
+          "tree_id": "e297a2aa3729fdf0900da9cd6c5f1dce9d9f4191",
+          "url": "https://github.com/kaappi/kaappi/commit/3ae17a3c3624ac262fcc525c11d4a46f1b075feb"
+        },
+        "date": 1783535958153,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.085632,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.661081,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 1.060572,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.404479,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.013897,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.22603,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.51379,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.069281,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 13.647259,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.995823,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 11.369301,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 1.116097,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 9.277214,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.823855,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.045999,
             "unit": "seconds"
           }
         ]
