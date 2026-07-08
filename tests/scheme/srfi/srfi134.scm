@@ -47,8 +47,7 @@
 ;;; --- higher-order operations ---
 (test '(2 4 6) (ideque->list (ideque-map (lambda (x) (* 2 x)) (ideque 1 2 3))))
 (test 6 (ideque-fold + 0 (ideque 1 2 3)))
-;; FAIL: #1212 (ideque-filter calls unbound 'filter' inside the library)
-;; (test '(2) (ideque->list (ideque-filter even? (ideque 1 2 3))))
+(test '(2) (ideque->list (ideque-filter even? (ideque 1 2 3))))
 (test '(1 2 3 4) (ideque->list (ideque-append (ideque 1 2) (ideque 3 4))))
 (test '(1 2 3)
       (let ((acc '()))
