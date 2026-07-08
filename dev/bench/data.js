@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783453869247,
+  "lastUpdate": 1783489900082,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "1aa429833924d68ea082139cb0a42ddb49758109",
-          "message": "Remove duplicate primitive registrations and add reg() collision guard (#1030) (#1092)\n\nDelete 15 shadowed reg() calls and 8 dead function implementations across\nprimitives_string.zig and primitives_io.zig. The surviving implementations\nin primitives_bytevector.zig and primitives_list.zig are unchanged.\n\nAdd a runtime_safety assert in reg() that panics on duplicate registration,\npreventing this class of silent-overwrite bug from recurring.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-04T20:19:56+05:30",
-          "tree_id": "6d0eeb6e7d71f30c4fb00bcb246b92e2b8fc85fc",
-          "url": "https://github.com/kaappi/kaappi/commit/1aa429833924d68ea082139cb0a42ddb49758109"
-        },
-        "date": 1783177863520,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.342966,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.860279,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.898076,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.216855,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.012541,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.210912,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.471857,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.070396,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 12.423226,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.851192,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 9.901434,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.949204,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 8.282993,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.49552,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.045422,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.046209,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "bf5d5813d33cc72386b39e2fb1f5b2c7fa6e8631",
+          "message": "Fix group-info by name returning gid 0 (#1161) (#1307)\n\nZig 0.16's std.c.getgrnam is misdeclared as returning ?*passwd instead\nof ?*group. Reading .gid through the wrong struct layout always yielded\n0. Declare a local extern with the correct return type.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-08T10:48:09+05:30",
+          "tree_id": "9b98490c0268dfb64185896d3cda77fc57f084d4",
+          "url": "https://github.com/kaappi/kaappi/commit/bf5d5813d33cc72386b39e2fb1f5b2c7fa6e8631"
+        },
+        "date": 1783489897842,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.421279,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.184628,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.768483,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 3.450076,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.012821,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.202567,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.391444,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.058584,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 12.574101,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.50246,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 10.239117,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.969953,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 8.238536,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.012129,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.04154,
             "unit": "seconds"
           }
         ]
