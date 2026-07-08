@@ -1,54 +1,84 @@
-;; SRFI-26 (cut / cute) conformance tests — audit Phase 3a
-;; Run directly: zig-out/bin/kaappi tests/scheme/srfi/srfi26.scm
+;; SRFI-26 (cut / cute) conformance tests
+;; Run: zig-out/bin/kaappi tests/scheme/srfi/srfi26.scm
 
-(import (scheme base) (srfi 26) (chibi test))
+(import (scheme base) (scheme write) (srfi 26) (srfi 64))
 
 (test-begin "srfi-26")
 
-;;; --- basic slots ---
-(test 6 ((cut + 1 <>) 5))
-;; FAIL: #1208 (cut: later slots swallowed by earlier fixed-arg patterns)
-;; (test '(1 a 2) ((cut list <> 'a <>) 1 2))
-(test 9 ((cut car '(9 8))))
-(test '(2 4 6) (map (cut * 2 <>) '(1 2 3)))
-(test '(b) ((cut cdr <>) '(a b)))
+;;; --- cut: basic slots ---
+(test-equal "cut: one fixed arg" 6 ((cut + 1 <>) 5))
+(test-equal "cut: car with quoted list" 9 ((cut car '(9 8))))
+(test-equal "cut: map with slot" '(2 4 6) (map (cut * 2 <>) '(1 2 3)))
+(test-equal "cut: cdr with slot" '(b) ((cut cdr <>) '(a b)))
+
+;; multiple slots (was broken: later slots swallowed by earlier patterns)
+(test-equal "cut: two slots" '(1 a 2) ((cut list <> 'a <>) 1 2))
+(test-equal "cut: three slots" '(1 2 3) ((cut list <> <> <>) 1 2 3))
+(test-equal "cut: slot-expr-slot" '(1 a 2) ((cut list <> 'a <>) 1 2))
+(test-equal "cut: expr-slot-expr-slot" '(a 1 b 2) ((cut list 'a <> 'b <>) 1 2))
 
 ;; zero-slot cut defers evaluation to call time
 (define calls 0)
 (define (probe) (set! calls (+ calls 1)) calls)
 (define th (cut probe))
-(test 0 calls)
-(test 1 (th))
-(test 2 (th))
+(test-equal "cut: zero-slot not called yet" 0 calls)
+(test-equal "cut: zero-slot first call" 1 (th))
+(test-equal "cut: zero-slot second call" 2 (th))
 
-;;; --- rest-slot <...> ---
-(test '(1 2 3) ((cut list <...>) 1 2 3))
-;; FAIL: #1208 (cut: (cut f <> <...>) shadowed by the (cut f <> b) pattern)
-;; (test '(1 2 3) ((cut list <> <...>) 1 2 3))
-(test '() ((cut list <...>)))
+;;; --- cut: rest-slot <...> ---
+(test-equal "cut: <...> only" '(1 2 3) ((cut list <...>) 1 2 3))
+(test-equal "cut: <...> empty" '() ((cut list <...>)))
+(test-equal "cut: slot + <...>" '(1 2 3) ((cut list <> <...>) 1 2 3))
+(test-equal "cut: fixed + <...>" '(1 2 3) ((cut list 1 <...>) 2 3))
+(test-equal "cut: fixed + slot + <...>" '(1 2 3 4) ((cut list 1 <> <...>) 2 3 4))
 
-;; <...> after a fixed argument:
-;; FAIL: #1208 (cut: <...> only supported in 3 hardcoded positions)
-;; (test '(1 2 3) ((cut list 1 <...>) 2 3))
+;;; --- cut: operator-position slot ---
+(test-equal "cut: operator slot" 3 ((cut <> 1 2) +))
+(test-equal "cut: operator slot + <...>" 6 ((cut <> <...>) + 1 2 3))
+(test-equal "cut: operator slot + fixed" '(42) ((cut <> 42) list))
 
-;;; --- operator-position slot: (cut <> a b) => (lambda (f) (f a b)) ---
-;; FAIL: #1208 (cut: operator-position slots unsupported)
-;; (test 3 ((cut <> 1 2) +))
+;;; --- cut: arity beyond hardcoded patterns ---
+(test-equal "cut: 5 args with 2 slots" '(1 2 3 4 5)
+  ((cut list 1 <> 3 <> 5) 2 4))
+(test-equal "cut: 6 fixed args" '(a b c d e f)
+  ((cut list 'a 'b 'c 'd 'e 'f)))
+(test-equal "cut: 4 slots" '(1 2 3 4)
+  ((cut list <> <> <> <>) 1 2 3 4))
 
-;;; --- arity beyond the hardcoded patterns ---
-;; SRFI-26 example: (cut list 1 <> 3 <> 5) => (lambda (x2 x4) (list 1 x2 3 x4 5))
-;; FAIL: #1208 (cut: arity capped by hardcoded pattern set — expand-time error)
-;; (test '(1 2 3 4 5) ((cut list 1 <> 3 <> 5) 2 4))
-
-;;; --- cute: non-slot expressions evaluate once, at construction ---
-;; SRFI-26: "cute evaluates the non-slot expressions at the time the
-;; procedure is constructed"
+;;; --- cute: non-slot expressions evaluate once at construction ---
 (define n 0)
 (define (tick) (set! n (+ n 1)) 10)
 (define f (cute + (tick) <>))
-(test 11 (f 1))
-(test 12 (f 2))
-;; FAIL: #1208 (cute is an alias of cut — re-evaluates per call; n is 2 here)
-;; (test 1 n)
+(test-equal "cute: first call" 11 (f 1))
+(test-equal "cute: second call" 12 (f 2))
+(test-equal "cute: tick called once" 1 n)
 
-(test-end "srfi-26")
+;; cute with multiple non-slot expressions
+(define m 0)
+(define (tick2) (set! m (+ m 1)) m)
+(define g (cute list (tick2) <> (tick2)))
+(test-equal "cute: multiple non-slots evaluated once" '(1 x 2) (g 'x))
+(test-equal "cute: stable across calls" '(1 y 2) (g 'y))
+(test-equal "cute: tick2 called exactly twice" 2 m)
+
+;; cute with <...>
+(define p 0)
+(define (tick3) (set! p (+ p 1)) p)
+(define h (cute list (tick3) <...>))
+(test-equal "cute: rest-slot" '(1 2 3) (h 2 3))
+(test-equal "cute: tick3 called once" 1 p)
+
+;; cute with operator slot (like cut, no binding needed)
+(test-equal "cute: operator slot" 3 ((cute <> 1 2) +))
+
+;; cute zero-slot evaluates at construction
+(define q 0)
+(define (tick4) (set! q (+ q 1)) q)
+(define j (cute list (tick4)))
+(test-equal "cute: zero-slot construction eval" 1 q)
+(test-equal "cute: zero-slot result stable" '(1) (j))
+(test-equal "cute: zero-slot no re-eval" 1 q)
+
+(let ((runner (test-runner-current)))
+  (test-end "srfi-26")
+  (when (> (test-runner-fail-count runner) 0) (exit 1)))
