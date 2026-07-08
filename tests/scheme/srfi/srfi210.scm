@@ -25,11 +25,19 @@
 (test 'many (case-receive (values 1 2 3) ((a) 'one) ((a b) 'two) (else 'many)))
 
 ;; set!-values assigns existing variables:
-;; FAIL: #1224 (set!-values is a no-op — assigns the consumer's own params)
-;; (define sv-a 0)
-;; (define sv-b 0)
-;; (set!-values (sv-a sv-b) (values 10 20))
-;; (test '(10 20) (list sv-a sv-b))
+(define sv-a 0)
+(define sv-b 0)
+(set!-values (sv-a sv-b) (values 10 20))
+(test '(10 20) (list sv-a sv-b))
+
+;; set!-values with single variable
+(define sv-c 0)
+(set!-values (sv-c) (values 99))
+(test 99 sv-c)
+
+;; set!-values overwrites previous set!-values results
+(set!-values (sv-a sv-b) (values 30 40))
+(test '(30 40) (list sv-a sv-b))
 
 ;; bind/mv chains a producer through transducers
 (test 3 (bind/mv (values 1 2) +))
