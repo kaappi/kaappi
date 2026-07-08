@@ -18,6 +18,8 @@ extern "c" fn getgroups(size: c_int, list: [*]std.c.gid_t) c_int;
 extern "c" fn nice(inc: c_int) c_int;
 extern "c" fn setenv(name: [*:0]const u8, value: [*:0]const u8, overwrite: c_int) c_int;
 extern "c" fn unsetenv(name: [*:0]const u8) c_int;
+// std.c.getgrnam is misdeclared as returning ?*passwd (Zig 0.16 bug)
+extern "c" fn getgrnam(name: [*:0]const u8) ?*std.c.group;
 const is_linux = @import("builtin").os.tag == .linux;
 
 fn validateMode(gc: *GC, val: Value) PrimitiveError!std.c.mode_t {
@@ -893,7 +895,7 @@ fn groupInfoFn(args: []const Value) PrimitiveError!Value {
         try validatePathNoNul(name, args[0]);
         const name_z = gc.allocator.dupeZ(u8, name) catch return PrimitiveError.OutOfMemory;
         defer gc.allocator.free(name_z);
-        const g = std.c.getgrnam(name_z) orelse return types.FALSE;
+        const g = getgrnam(name_z) orelse return types.FALSE;
         const name_str = std.mem.span(g.name.?);
         return gc.allocGroupInfo(name_str, g.gid) catch return PrimitiveError.OutOfMemory;
     } else return primitives.typeError("group-info", "string or integer", args[0]);

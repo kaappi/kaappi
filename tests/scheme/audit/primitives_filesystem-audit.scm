@@ -130,9 +130,8 @@
   (test #t (group-info? gi))
   (test #t (string? (group-info:name gi)))
   (test (user-gid) (group-info:gid gi)))
-;; FAIL: #1161 (group-info by name returns gid 0 — Zig std.c.getgrnam misdeclared)
-;; (test (user-gid)
-;;   (group-info:gid (group-info (group-info:name (group-info (user-gid))))))
+(test (user-gid)
+  (group-info:gid (group-info (group-info:name (group-info (user-gid))))))
 
 ;;; --- time ---
 (test #t (>= (monotonic-time) 0))
