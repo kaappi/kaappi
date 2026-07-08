@@ -348,6 +348,18 @@ fn valueHashDepth(key: Value, depth: usize) usize {
 fn findKey(ht: *HashTable, key: Value) PrimitiveError!?usize {
     if (ht.capacity == 0) return null;
     const mask = ht.capacity - 1;
+    if (ht.compare_mode == .equal) {
+        var idx = valueHash(key) & mask;
+        var probes: usize = 0;
+        while (probes < ht.capacity) {
+            const entry = &ht.entries[idx];
+            if (entry.state == .empty) return null;
+            if (entry.state == .occupied and primitives.deepEqual(entry.key, key)) return idx;
+            idx = (idx + 1) & mask;
+            probes += 1;
+        }
+        return null;
+    }
     var idx = (try hashForTable(ht, key)) & mask;
     var probes: usize = 0;
     while (probes < ht.capacity) {
@@ -364,6 +376,25 @@ const FindSlotResult = struct { idx: usize, found: bool };
 
 fn findSlot(ht: *HashTable, key: Value) PrimitiveError!FindSlotResult {
     const mask = ht.capacity - 1;
+    if (ht.compare_mode == .equal) {
+        var idx = valueHash(key) & mask;
+        var first_tombstone: ?usize = null;
+        var probes: usize = 0;
+        while (probes < ht.capacity) {
+            const entry = &ht.entries[idx];
+            if (entry.state == .empty) {
+                return .{ .idx = first_tombstone orelse idx, .found = false };
+            }
+            if (entry.state == .tombstone) {
+                if (first_tombstone == null) first_tombstone = idx;
+            } else if (primitives.deepEqual(entry.key, key)) {
+                return .{ .idx = idx, .found = true };
+            }
+            idx = (idx + 1) & mask;
+            probes += 1;
+        }
+        return .{ .idx = first_tombstone orelse 0, .found = false };
+    }
     var idx = (try hashForTable(ht, key)) & mask;
     var first_tombstone: ?usize = null;
     var probes: usize = 0;
