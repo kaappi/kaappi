@@ -47,14 +47,16 @@
 
 ;;; --- balanced/ : remainder in [-|d|/2, |d|/2) ---
 (test '(4 -1) (mv->list (lambda () (balanced/ 7 2))))
-;; FAIL: #1232 (balanced/ is aliased to round/ — ties break to even
-;; instead of keeping the remainder in [-|d|/2, |d|/2))
-;; (test '(3 -1) (mv->list (lambda () (balanced/ 5 2))))
-;; FAIL: #1232 (balanced/ aliased to round/)
-;; (test '(-3 -1) (mv->list (lambda () (balanced/ -7 2))))
-;; FAIL: #1232 (balanced/ aliased to round/)
-;; (test '(3 -1) (mv->list (lambda () (balanced/ -7 -2))))
-(test '(2 1) (mv->list (lambda () (balanced/ 7 3))))
+(test '(3 -1) (mv->list (lambda () (balanced/ 5 2))))     ; tie: r=-1 not +1
+(test '(-3 -1) (mv->list (lambda () (balanced/ -7 2))))   ; tie: keep q=-3
+(test '(-4 -1) (mv->list (lambda () (balanced/ 7 -2))))   ; tie: adjust q
+(test '(3 -1) (mv->list (lambda () (balanced/ -7 -2))))   ; tie: keep q=3
+(test '(-2 -1) (mv->list (lambda () (balanced/ -5 2))))   ; tie: keep q=-2
+(test '(-3 -1) (mv->list (lambda () (balanced/ 5 -2))))   ; tie: adjust q
+(test '(2 -1) (mv->list (lambda () (balanced/ -5 -2))))   ; tie: keep q=2
+(test '(2 1) (mv->list (lambda () (balanced/ 7 3))))      ; non-tie
+(test 3 (balanced-quotient 5 2))
+(test -1 (balanced-remainder 5 2))
 
 ;;; --- bignums ---
 (test '(14285714285714285714 2)
