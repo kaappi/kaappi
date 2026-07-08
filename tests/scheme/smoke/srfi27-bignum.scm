@@ -12,6 +12,15 @@
   (let ((r (random-integer (expt 2 128))))
     (and (exact? r) (>= r 0) (< r (expt 2 128)))))
 
+;; bounds whose top limb has the MSB set (top_bits = 64)
+(test-assert "random-integer (expt 2 127) — saturated top limb"
+  (let ((r (random-integer (expt 2 127))))
+    (and (exact? r) (>= r 0) (< r (expt 2 127)))))
+
+(test-assert "random-integer (- (expt 2 128) 1) — all-ones limbs"
+  (let ((r (random-integer (- (expt 2 128) 1))))
+    (and (exact? r) (>= r 0) (< r (- (expt 2 128) 1)))))
+
 ;; random-source-make-integers with bignum bound
 (test-assert "rs-make-integers bignum"
   (let* ((s (make-random-source))

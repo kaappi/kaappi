@@ -182,8 +182,8 @@ fn randomBignumBelow(rs: *types.RandomSource, bn: *const types.Bignum) Primitive
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const n_len = bn.len;
     const top_limb = bn.limbs[n_len - 1];
-    const top_bits: u6 = @intCast(64 - @clz(top_limb));
-    const mask: u64 = if (top_bits == 64) std.math.maxInt(u64) else (@as(u64, 1) << top_bits) - 1;
+    const top_bits: u7 = @intCast(64 - @clz(top_limb));
+    const mask: u64 = if (top_bits >= 64) std.math.maxInt(u64) else (@as(u64, 1) << @as(u6, @intCast(top_bits))) - 1;
     const r = rs.prng.random();
 
     var stack_buf: [16]u64 = undefined;

@@ -53,6 +53,12 @@
 (test #t (let ((r (random-integer (expt 2 64))))
            (and (>= r 0) (< r (expt 2 64)))))
 
+;; bound whose top limb has MSB set (top_bits = 64)
+(test #t (let ((r (random-integer (expt 2 127))))
+           (and (>= r 0) (< r (expt 2 127)))))
+(test #t (let ((r (random-integer (- (expt 2 128) 1))))
+           (and (>= r 0) (< r (- (expt 2 128) 1)))))
+
 ;; invalid arguments raise catchable errors
 (test #t (guard (e (#t (error-object? e))) (random-integer 0) #f))
 (test #t (guard (e (#t (error-object? e))) (random-integer -5) #f))
