@@ -70,14 +70,11 @@
 (test 'caught (guard (e (#t 'caught)) (c-sqrt)))
 ;; NUL bytes inside a 'string arg are rejected (cannot round-trip through C)
 (test 'caught (guard (e (#t 'caught)) (c-strlen (string #\a #\null #\b))))
-;; The char FFI type is an int alias in both directions: char returns yield
-;; fixnums and char params accept only integers — actual character values
-;; are rejected with a bare "error".
+;; The char FFI type bridges Scheme characters: char params accept both
+;; integers and character values, char returns produce Scheme characters.
 (define c-tolower-char (ffi-fn proc-lib "tolower" '(char) 'char))
-(test 97 (c-tolower-char 65))            ; fixnum accepted, fixnum returned
-;; FAIL: #1186 (char FFI type rejects character values and returns fixnums)
-;; (test 97 (c-tolower-char #\A))
-;; (test #\a (c-tolower-char #\A))
+(test #\a (c-tolower-char 65))            ; fixnum accepted, char returned
+(test #\a (c-tolower-char #\A))           ; char accepted, char returned
 
 ;;; --- ffi-close lifecycle ---
 (test 'ok (let ((lib (ffi-open #f)))
