@@ -1,18 +1,44 @@
 (define-library (srfi 78)
-  (import (scheme base) (scheme write))
-  (export check check-report check-reset!
-          check-passed? check-failed?)
+  (import (scheme base) (scheme write) (srfi 42))
+  (export check check-ec check-report check-set-mode!
+          check-reset! check-passed?
+          check-failed?)
   (begin
 
     (define %pass 0)
     (define %fail 0)
+    (define %mode 'report)
+    (define %first-fail #f)
 
     (define (check-reset!)
       (set! %pass 0)
-      (set! %fail 0))
+      (set! %fail 0)
+      (set! %first-fail #f))
 
-    (define (check-passed?) %pass)
+    (define (check-passed? expected-count)
+      (and (= %fail 0) (= %pass expected-count)))
+
     (define (check-failed?) %fail)
+
+    (define (check-set-mode! mode)
+      (set! %mode mode))
+
+    (define (%report-pass name actual)
+      (when (eq? %mode 'report)
+        (display "(") (display %pass) (display ") ")
+        (write name) (display " => ")
+        (write actual) (display " ; correct")
+        (newline)))
+
+    (define (%report-fail name actual expected)
+      (when (or (eq? %mode 'report) (eq? %mode 'report-failed))
+        (display "(") (display (+ %pass %fail)) (display ") ")
+        (write name) (display " => ")
+        (write actual) (display " ; *** WRONG ***")
+        (display " expected: ") (write expected)
+        (newline))
+      (when (not %first-fail)
+        (set! %first-fail (list name actual expected))))
 
     (define-syntax check
       (syntax-rules (=>)
@@ -22,38 +48,61 @@
          (check-proc-equal 'expr (lambda () expr) expected equal))))
 
     (define (check-proc name thunk expected)
-      (let ((actual (thunk)))
-        (if (equal? actual expected)
-            (begin
-              (set! %pass (+ %pass 1))
-              (display "(") (display %pass) (display ") ")
-              (write name) (display " => ")
-              (write actual) (display " ; correct")
-              (newline))
-            (begin
-              (set! %fail (+ %fail 1))
-              (display "(") (display (+ %pass %fail)) (display ") ")
-              (write name) (display " => ")
-              (write actual) (display " ; *** WRONG ***")
-              (display " expected: ") (write expected)
-              (newline)))))
+      (unless (eq? %mode 'off)
+        (let ((actual (thunk)))
+          (if (equal? actual expected)
+              (begin
+                (set! %pass (+ %pass 1))
+                (%report-pass name actual))
+              (begin
+                (set! %fail (+ %fail 1))
+                (%report-fail name actual expected))))))
 
     (define (check-proc-equal name thunk expected equal)
-      (let ((actual (thunk)))
-        (if (equal actual expected)
-            (begin
-              (set! %pass (+ %pass 1))
-              (display "(") (display %pass) (display ") ")
-              (write name) (display " => ")
-              (write actual) (display " ; correct")
-              (newline))
-            (begin
-              (set! %fail (+ %fail 1))
-              (display "(") (display (+ %pass %fail)) (display ") ")
-              (write name) (display " => ")
-              (write actual) (display " ; *** WRONG ***")
-              (display " expected: ") (write expected)
-              (newline)))))
+      (unless (eq? %mode 'off)
+        (let ((actual (thunk)))
+          (if (equal actual expected)
+              (begin
+                (set! %pass (+ %pass 1))
+                (%report-pass name actual))
+              (begin
+                (set! %fail (+ %fail 1))
+                (%report-fail name actual expected))))))
+
+    (define-syntax check-ec
+      (syntax-rules (=>)
+        ((_ qualifier expr => expected)
+         (check-ec-proc 'expr
+           (lambda ()
+             (let ((ok #t))
+               (do-ec qualifier
+                 (let ((actual expr)
+                       (exp expected))
+                   (when (not (equal? actual exp))
+                     (set! ok (list actual exp))))) ok))
+           equal?))
+        ((_ qualifier expr (=> equal) expected)
+         (check-ec-proc 'expr
+           (lambda ()
+             (let ((ok #t)
+                   (eq-fn equal))
+               (do-ec qualifier
+                 (let ((actual expr)
+                       (exp expected))
+                   (when (not (eq-fn actual exp))
+                     (set! ok (list actual exp))))) ok))
+           equal))))
+
+    (define (check-ec-proc name thunk equal)
+      (unless (eq? %mode 'off)
+        (let ((result (thunk)))
+          (if (eq? result #t)
+              (begin
+                (set! %pass (+ %pass 1))
+                (%report-pass name 'ok))
+              (begin
+                (set! %fail (+ %fail 1))
+                (%report-fail name (car result) (cadr result)))))))
 
     (define (check-report)
       (newline)
