@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783520223931,
+  "lastUpdate": 1783522412791,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "eeb32cb8b364aaf469b89b8ab1287fd90a5e6689",
-          "message": "Deduplicate file-reading and SLD-path resolution (#1064) (#1114)\n\nreporting.zig cloned vm_library's resolveLibraryPath with a smaller\nbuffer and hardcoded 18-path cap — if library search order ever changed,\ncoverage XML would silently resolve different files than the loader.\nFive private readFileContents copies existed across the interpreter tree\nwith inconsistent EINTR handling and max-size limits.\n\nAdd file_utils.zig with a shared readWholeFile(allocator, path, max)\nand make resolveLibraryPath pub. Delete all clones; thottam keeps its\nown copy (separate binary).\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-04T23:41:15+05:30",
-          "tree_id": "dc9b1a93c5858bc40e7d5f30c2faf04996cb94f8",
-          "url": "https://github.com/kaappi/kaappi/commit/eeb32cb8b364aaf469b89b8ab1287fd90a5e6689"
-        },
-        "date": 1783190819418,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.265155,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.958462,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.894952,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.154228,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.012388,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.211185,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.469172,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.070484,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 12.473388,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.807514,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 9.955299,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.953464,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 8.325887,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.725146,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.045889,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.0372,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b6be1fb07690086dd8b62a969aff708e7deacea5",
+          "message": "Fix SRFI-175 ascii-digit-value and add 16 missing procedures (#1236) (#1325)\n\nascii-digit-value incorrectly treated letters a-z/A-Z as radix digits\n10-35. Per SRFI-175, it handles only decimal digits 0-9; letters are\nthe domain of ascii-upper-case-value and ascii-lower-case-value.\n\nAlso implements all 16 missing spec exports: ascii-bytevector?,\nascii-ci=?/<?/>?/<=?/>=?, ascii-string-ci=?/<?/>?/<=?/>=?,\nascii-control->graphic, ascii-graphic->control, ascii-mirror-bracket,\nascii-nth-digit, ascii-nth-upper-case, ascii-nth-lower-case.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-08T19:52:38+05:30",
+          "tree_id": "052800baead81ac9accaf02293b9aff5cce9c5d3",
+          "url": "https://github.com/kaappi/kaappi/commit/b6be1fb07690086dd8b62a969aff708e7deacea5"
+        },
+        "date": 1783522411558,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.321762,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.012133,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 1.004917,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.39953,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.012675,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.203628,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.497639,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.071993,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 12.700877,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.932848,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 10.207355,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.999553,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 8.419889,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.670063,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.043544,
             "unit": "seconds"
           }
         ]
