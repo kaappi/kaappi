@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783534600101,
+  "lastUpdate": 1783534926608,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "677a3322e737b1d591341ec1aae458b5fe2803c2",
-          "message": "Extract CLI parsing into src/cli.zig with table-driven flag parser (#1062) (#1123)\n\nThree divergent flag parsers in mainImpl (sandbox pre-scan, standalone\nembedded-bytecode parser, full flag loop) are replaced by a single\ntable-driven parser in cli.zig consulted by all three call sites.\n\nAdding a new flag now requires one table entry instead of updating\nthree hand-written if/else chains plus completions.zig plus printUsage.\n\nAlso fixes: --profile-json now appears in --help output (was\nundocumented), dead sandbox_mode local removed, standalone binaries\nnow handle all flags (--timeout, --max-memory, --lib-path, etc. were\nsilently swallowed before).\n\nmain.zig: 1155 → 901 lines. cli.zig: 504 lines (incl. 20 unit tests).\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-05T06:19:14+05:30",
-          "tree_id": "0bf7b12c205b6326f2174c947739b841edcf96d1",
-          "url": "https://github.com/kaappi/kaappi/commit/677a3322e737b1d591341ec1aae458b5fe2803c2"
-        },
-        "date": 1783214531852,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.307863,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.196631,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.936901,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.202492,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.012792,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.212768,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.462906,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.070505,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 12.570078,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.812553,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 9.999057,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.971039,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 8.338814,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.749643,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.04383,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.047023,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "192d852a326b87546ce4b9c5f51f1b331d2b00e0",
+          "message": "Fix SRFI-141 balanced/ to use correct tie-breaking (#1232) (#1334)\n\nbalanced/ was aliased to round/, but they differ at ties: round/\nbreaks to even quotient while balanced/ must keep the remainder in\n[-|d/2|, |d/2|) — ties always produce a negative remainder.\n\nCloses #1232\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-08T23:21:10+05:30",
+          "tree_id": "70ae97ff28e20364f727a760c98188d011c9c527",
+          "url": "https://github.com/kaappi/kaappi/commit/192d852a326b87546ce4b9c5f51f1b331d2b00e0"
+        },
+        "date": 1783534925370,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.620771,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 10.122407,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 1.055697,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.705544,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.013844,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.204501,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.498001,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.0694,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 13.47389,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 2.10307,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 10.821171,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 1.056155,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 9.057451,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.878191,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.046924,
             "unit": "seconds"
           }
         ]
