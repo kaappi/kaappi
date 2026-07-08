@@ -3,7 +3,7 @@
   (export with-values case-receive set!-values
           apply/mv call/mv list/mv vector/mv value/mv coarity
           list-values vector-values box-values
-          value identity compose-left compose-right
+          value identity compose-left compose-right box/mv
           map-values bind bind/list bind/box bind/mv)
   (begin
 
@@ -61,6 +61,11 @@
         ((coarity producer)
          (call-with-values (lambda () producer) (lambda args (length args))))))
 
+    (define-syntax box/mv
+      (syntax-rules ()
+        ((box/mv element ... producer)
+         (apply box (list/mv element ... producer)))))
+
     (define-syntax bind/mv
       (syntax-rules ()
         ((bind/mv producer transducer)
@@ -79,9 +84,8 @@
     (define (box-values b)
       (unbox b))
 
-    (define (value obj . rest)
-      (if (null? rest) obj
-          (list-ref (cons obj rest) 0)))
+    (define (value index . objs)
+      (list-ref objs index))
 
     (define (identity . objs)
       (apply values objs))
