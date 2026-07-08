@@ -24,6 +24,7 @@ pub const specs = [_]primitives.PrimSpec{
     .{ .name = "hash-table->alist", .func = &hashTableToAlistFn, .arity = .{ .exact = 1 }, .libs = LS.initOne(.srfi_69) },
     .{ .name = "alist->hash-table", .func = &alistToHashTableFn, .arity = .{ .variadic = 1 }, .libs = LS.initOne(.srfi_69) },
     .{ .name = "hash-table-copy", .func = &hashTableCopyFn, .arity = .{ .exact = 1 }, .libs = LS.initOne(.srfi_69) },
+    .{ .name = "hash-table-update!", .func = &hashTableUpdateFn, .arity = .{ .variadic = 3 }, .libs = LS.initOne(.srfi_69) },
     .{ .name = "hash-table-update!/default", .func = &hashTableUpdateDefaultFn, .arity = .{ .exact = 4 }, .libs = LS.initOne(.srfi_69) },
     .{ .name = "hash", .func = &hashFn, .arity = .{ .variadic = 1 }, .libs = LS.initOne(.srfi_69) },
     .{ .name = "string-hash", .func = &stringHashFn, .arity = .{ .variadic = 1 }, .libs = LS.initOne(.srfi_69) },
@@ -377,6 +378,43 @@ fn hashTableCopyFn(args: []const Value) PrimitiveError!Value {
     @memcpy(dst.entries[0..src.capacity], src.entries[0..src.capacity]);
     dst.count = src.count;
     return dst_val;
+}
+
+// (hash-table-update! ht key function [thunk])
+fn hashTableUpdateFn(args: []const Value) PrimitiveError!Value {
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.OutOfMemory;
+    const ht = try getHashTable("hash-table-update!", args[0]);
+    const key = args[1];
+    const proc = args[2];
+
+    const old_val = if (findKey(ht, key)) |idx|
+        ht.entries[idx].value
+    else if (args.len > 3) blk: {
+        break :blk vm.callWithArgs(args[3], &[_]Value{}) catch |err| {
+            return err;
+        };
+    } else {
+        return primitives.typeError("hash-table-update!", "key to be present or thunk", key);
+    };
+
+    const call_args = [1]Value{old_val};
+    const new_val = vm.callWithArgs(proc, &call_args) catch |err| {
+        return err;
+    };
+
+    try growIfNeeded(ht);
+    const slot = findSlot(ht, key);
+    if (memory.gc_instance) |gc| {
+        gc.writeBarrier(types.toObject(args[0]), key);
+        gc.writeBarrier(types.toObject(args[0]), new_val);
+    }
+    if (slot.found) {
+        ht.entries[slot.idx].value = new_val;
+    } else {
+        ht.entries[slot.idx] = .{ .key = key, .value = new_val, .state = .occupied };
+        ht.count += 1;
+    }
+    return types.VOID;
 }
 
 // (hash-table-update!/default ht key proc default)
