@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783496992256,
+  "lastUpdate": 1783505206418,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "958009075c07e2758fb983f03e1b1f9d8641696a",
-          "message": "Delete dead forwarding wrappers in vm.zig; move re-entrant call machinery to vm_calls.zig (#1103)\n\nMove callHandler, callThunk, and callWithArgs from vm.zig to vm_calls.zig\nwhere they belong per the VM file split. Factor shared computeReentrantBase\nand callReentrant helpers to eliminate the duplicated base-calculation,\nframe-push, runUntil, and unwind-on-error blocks.\n\nDelete 19 zero-caller forwarding wrappers left behind when the dispatch\nloop and call machinery were extracted, plus the dead callWithCC in both\nvm.zig and vm_continuations.zig. Also remove a dead restoreContinuation\nforwarding function in vm_calls.zig.\n\nvm.zig: 1232 → 780 lines. vm_calls.zig: 532 → 816 lines.\n\nCloses #1049\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-04T21:37:04+05:30",
-          "tree_id": "3cb6be6a9d4329049956a079d4e13e5453851374",
-          "url": "https://github.com/kaappi/kaappi/commit/958009075c07e2758fb983f03e1b1f9d8641696a"
-        },
-        "date": 1783184503741,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.04373,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 10.223778,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.954436,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.339609,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.013724,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.235304,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.4763,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.068991,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 13.468425,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.839124,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 11.110338,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 1.061887,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 9.098955,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.819588,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.045071,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.025734,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "39febebd4f71a5c2dd8042ec92f31148f9f7cb31",
+          "message": "Fix SRFI-151 bit-argument API mismatch (#1233) (#1316)\n\n- copy-bit: accept boolean (not integer) as third argument per spec\n- bitwise-eqv: make n-ary with identity -1 (was fixed 2-arity)\n- bits->list/bits->vector: make len optional (default: integer-length)\n- make-bitwise-generator: return booleans (was 0/1 fixnums)\n- Update internal callers (bit-swap, list->bits, vector->bits,\n  bitwise-unfold) to pass booleans to copy-bit\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-08T15:01:56+05:30",
+          "tree_id": "fa7555fd40227ec53f8094ba8bec027853bf7c1b",
+          "url": "https://github.com/kaappi/kaappi/commit/39febebd4f71a5c2dd8042ec92f31148f9f7cb31"
+        },
+        "date": 1783505205660,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.109701,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.978431,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 1.032964,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.41998,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.015013,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.225675,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.512624,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.070602,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 13.69775,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.998399,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 11.266725,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 1.09197,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 9.355146,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.891078,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.047013,
             "unit": "seconds"
           }
         ]
