@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783539361107,
+  "lastUpdate": 1783539621946,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "7ad56d23246e7c103c1e30e695c7af8474dcd36e",
-          "message": "Delete ir_emitter.zig — duplicate emitter kept alive by obsolete parity tests (#1039) (#1130)\n\nThe standalone Emitter duplicated compiler_ir.zig's emission nearly\nbyte-for-byte, with copy drift (addConstant off-by-one at 65535 vs\n65536). Its only consumer was 11 Stage-1 bytecode-parity tests whose\npurpose is obsolete now that Compiler.compile() itself goes through IR.\n\n- Delete src/ir_emitter.zig (282 lines)\n- Convert all 11 parity tests to behavioral tests with expected values\n- Remove dead helpers (compileViaIR, compileViaDirectCompiler,\n  expectBytecodeParity)\n- Drop CompileError.NotImplemented (only used by deleted emitter)\n- Remove re-export from ir.zig and import from main.zig\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-05T08:59:05+05:30",
-          "tree_id": "54a4b0dc289d96b480623c455e1e7200a6d1bf1c",
-          "url": "https://github.com/kaappi/kaappi/commit/7ad56d23246e7c103c1e30e695c7af8474dcd36e"
-        },
-        "date": 1783223508418,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.277544,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.899919,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.915749,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.187928,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.0124,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.211453,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.467259,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.070968,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 12.531141,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.825374,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 10.007991,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.958473,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 8.39564,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.740552,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.046942,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044321,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a50fd864b9548708d7bf8f0a8281a6f76ae1523f",
+          "message": "Implement complete SRFI-132 sort library (22 procedures) (#1339)\n\n* Implement complete SRFI-132 sort library (22 procedures) (#1231)\n\nAdd the 14 missing procedures (list-stable-sort!, vector-stable-sort!,\nlist-merge, list-merge!, vector-merge, vector-merge!,\nlist-delete-neighbor-dups, list-delete-neighbor-dups!,\nvector-delete-neighbor-dups, vector-delete-neighbor-dups!,\nvector-find-median, vector-find-median!, vector-select!,\nvector-separate!) and retrofit all vector procedures with optional\nstart/end range parameters via case-lambda.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Fix delete-neighbor-dups predicate shadowing and relax separate! test\n\nRename the = parameter to elt= in %vector-delete-neighbor-dups and\n%vector-delete-neighbor-dups! so it does not shadow the built-in\nnumeric = used for index termination checks. Without this, non-numeric\npredicates like char=? crash on the (= i end) bounds test.\n\nAlso relax the vector-separate! test to assert set membership rather\nthan exact order, since SRFI-132 only guarantees the smallest k\nelements land in the first k positions.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-09T00:41:48+05:30",
+          "tree_id": "2525f4b1e32c069255a68a4ba80b4db2a147c178",
+          "url": "https://github.com/kaappi/kaappi/commit/a50fd864b9548708d7bf8f0a8281a6f76ae1523f"
+        },
+        "date": 1783539620995,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.86953,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.720902,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.955628,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.030291,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.013706,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.193013,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.468558,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.065269,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 12.597516,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.73859,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 9.62747,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.935619,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 7.864626,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.041998,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.041467,
             "unit": "seconds"
           }
         ]
