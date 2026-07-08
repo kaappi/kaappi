@@ -385,7 +385,7 @@ pub fn callFfi(ffi_fn: *types.FfiFunction, args: []const Value, gc: *memory.GC) 
     if (ffi_fn.return_type == .char_type) {
         if (types.isFixnum(result)) {
             const code = types.toFixnum(result);
-            if (code >= 0 and code <= 0x10FFFF)
+            if (code >= 0 and code <= 255)
                 return types.makeChar(@intCast(code));
         }
     }
