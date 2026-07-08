@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783489900082,
+  "lastUpdate": 1783489938921,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "distinct": true,
-          "id": "e2ce74ca455e76771da164f519b2ef3733baeb2e",
-          "message": "Improve parallel issue workflow: reuse worktrees and simplify issue format\n\nThe fix-issue script now reuses existing worktrees instead of failing,\nand falls back to checking out an existing branch if creation fails.\nThe parallel-issues skill drops # prefixes from issue numbers for\neasier parsing by downstream scripts.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-04T20:47:13+05:30",
-          "tree_id": "b080c0a7c6d76d0cc08d35cdd5851e061088562e",
-          "url": "https://github.com/kaappi/kaappi/commit/e2ce74ca455e76771da164f519b2ef3733baeb2e"
-        },
-        "date": 1783179304035,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.391133,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.538778,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.942058,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.233428,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.013231,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.212007,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.468192,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.070948,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 12.713437,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.856363,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 9.918333,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.958896,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 8.332712,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.711304,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.04299,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.04154,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "bbac070145333eca311ecb0f3bbba7a29bbaa2f7",
+          "message": "Honor explicit #f thread arg in mutex-lock! as locked/not-owned (#1154) (#1306)\n\nSRFI-18 specifies that when the thread argument to mutex-lock! is #f,\nthe mutex becomes locked/not-owned. The owner assignment logic treated\nany non-fiber value as \"absent\" and fell back to the current thread.\nAdd an explicit check for #f in all three owner-assignment sites\n(abandoned path, fast path, contended path).\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-08T10:47:40+05:30",
+          "tree_id": "990ad62630a64c202175480002a26c5f6dc21ca1",
+          "url": "https://github.com/kaappi/kaappi/commit/bbac070145333eca311ecb0f3bbba7a29bbaa2f7"
+        },
+        "date": 1783489937562,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.33734,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.341494,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.971673,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.442243,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.012581,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.201556,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.503789,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.072292,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 12.500748,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.955419,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 10.071645,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.951036,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 8.332446,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.720042,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.04409,
             "unit": "seconds"
           }
         ]
