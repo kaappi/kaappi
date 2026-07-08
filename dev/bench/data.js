@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783511339527,
+  "lastUpdate": 1783512403392,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "ec3209b4ee1ee20ef0cd3b452ab732054b431a65",
-          "message": "Remove dead opcodes and extract CallFrame.frameWindow helper (#1052) (#1112)\n\nRemove get_local, set_local, close_upvalue from OpCode — never emitted\nby any compiler, get_local/set_local fell through to InvalidBytecode,\nclose_upvalue dispatched as a no-op. Bump bytecode cache VERSION 7→8.\n\nExtract the duplicated frame-register-window formula (locals_count or\n256) into CallFrame.frameWindow(), replacing 4 identical inline copies\nacross vm.zig, gc_collect.zig, vm_continuations.zig, and fiber.zig.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-04T23:31:56+05:30",
-          "tree_id": "5537e996e76586575e02d0f0e57516319431465c",
-          "url": "https://github.com/kaappi/kaappi/commit/ec3209b4ee1ee20ef0cd3b452ab732054b431a65"
-        },
-        "date": 1783190381400,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.987444,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.631207,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.944573,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.180827,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.014019,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.234361,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.470236,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.067436,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 13.53212,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.806112,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 11.086333,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 1.064279,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 9.068195,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.910851,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044725,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.043708,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c25dcccba7db2d1a905138e64636fcaa4ce36f6e",
+          "message": "Fix stream-unfold predicate sense and stream macro hygiene (#1215) (#1322)\n\n* Fix stream-unfold predicate sense and stream macro hygiene (#1215)\n\nstream-unfold tested (pred? s) and stopped when true — inverted relative\nto SRFI-41 which says elements are produced while pred? holds.  Flip the\nif branches so unfold-loop continues while (pred s) is true.\n\nThe stream macro referenced the free variable stream-null in its base-case\ntemplate.  collectSetTargets pre-expands macros without VOID-marking free\nrefs, so renameForHygiene gave stream-null a hygienic prefix.  When two\n(stream …) calls appeared as sibling arguments in the same function call,\nthe second expansion's renamed stream-null resolved via the VM's\nhygienic-prefix fallback but landed in a compilation context where the\npromise layer was lost — producing a bare pair instead of a promise.\nReplace stream-null with (delay '()) in the base-case template to avoid\nthe free-variable reference entirely.\n\nAlso reverse the temp_globals cleanup loop in expandAndCompileMacroUse to\nLIFO order: Phase-A2 (def_env additions) and Phase-B (VOID sentinels) can\ncreate overlapping entries for the same name; forward cleanup let Phase-B\nre-add a name that Phase-A2 correctly removed, leaking it into globals\nfor subsequent sibling expansions.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Fix stream-zip any-stream-null check, strengthen sibling tests\n\nReview feedback:\n- stream-zip only checked the first stream for null; now checks all\n  streams via any-null? so zipping stops correctly when ANY stream\n  is exhausted (not just the first one)\n- Replace weak promise? sibling assertions with stream->list content\n  checks that actually verify expanded stream values\n- Add stream-zip test where first stream is longer than the second\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-08T17:08:44+05:30",
+          "tree_id": "19f0fd3d6edde6428300b12ff542cbe6e3407801",
+          "url": "https://github.com/kaappi/kaappi/commit/c25dcccba7db2d1a905138e64636fcaa4ce36f6e"
+        },
+        "date": 1783512402724,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.338741,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.586505,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 1.020638,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.410539,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.012708,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.20485,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.50015,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.072199,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 12.769677,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.933018,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 10.18602,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 1.006195,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 8.441809,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.749924,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044568,
             "unit": "seconds"
           }
         ]
