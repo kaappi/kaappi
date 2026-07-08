@@ -17,7 +17,7 @@ cat > "$tmpfile" << 'EOF'
 (test-end "exception-guard")
 EOF
 
-output=$("$KAAPPI" "$tmpfile")
+output=$("$KAAPPI" "$tmpfile") || true
 
 # Should report exactly 2 pass and 1 fail
 if echo "$output" | grep -q "2 pass, 1 fail"; then
