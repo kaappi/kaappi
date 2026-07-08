@@ -37,9 +37,13 @@ pub const specs = [_]primitives.PrimSpec{
     .{ .name = "condition-variable-signal!", .func = &condvarSignalFn, .arity = .{ .exact = 1 }, .libs = LS.initOne(.srfi_18), .sandbox = false, .wasm = false },
     .{ .name = "condition-variable-broadcast!", .func = &condvarBroadcastFn, .arity = .{ .exact = 1 }, .libs = LS.initOne(.srfi_18), .sandbox = false, .wasm = false },
     .{ .name = "current-time", .func = &currentTimeFn, .arity = .{ .exact = 0 }, .libs = LS.initOne(.srfi_18), .sandbox = false, .wasm = false },
-    .{ .name = "time?", .func = &timePredFn, .arity = .{ .exact = 1 }, .libs = LS.initOne(.srfi_18), .sandbox = false, .wasm = false },
+    .{ .name = "time?", .func = &timePredFn, .arity = .{ .exact = 1 }, .libs = LS.initMany(&.{ .srfi_18, .scheme_time }), .sandbox = false, .wasm = false },
     .{ .name = "time->seconds", .func = &timeToSecondsFn, .arity = .{ .exact = 1 }, .libs = LS.initOne(.srfi_18), .sandbox = false, .wasm = false },
     .{ .name = "seconds->time", .func = &secondsToTimeFn, .arity = .{ .exact = 1 }, .libs = LS.initOne(.srfi_18), .sandbox = false, .wasm = false },
+    .{ .name = "make-time", .func = &makeTimeFn, .arity = .{ .exact = 3 }, .libs = LS.initOne(.scheme_time) },
+    .{ .name = "time-type", .func = &timeTypeFn, .arity = .{ .exact = 1 }, .libs = LS.initOne(.scheme_time) },
+    .{ .name = "time-second", .func = &timeSecondFn, .arity = .{ .exact = 1 }, .libs = LS.initOne(.scheme_time) },
+    .{ .name = "time-nanosecond", .func = &timeNanosecondFn, .arity = .{ .exact = 1 }, .libs = LS.initOne(.scheme_time) },
     .{ .name = "join-timeout-exception?", .func = &joinTimeoutPredFn, .arity = .{ .exact = 1 }, .libs = LS.initOne(.srfi_18), .sandbox = false, .wasm = false },
     .{ .name = "abandoned-mutex-exception?", .func = &abandonedMutexPredFn, .arity = .{ .exact = 1 }, .libs = LS.initOne(.srfi_18), .sandbox = false, .wasm = false },
     .{ .name = "terminated-thread-exception?", .func = &terminatedThreadPredFn, .arity = .{ .exact = 1 }, .libs = LS.initOne(.srfi_18), .sandbox = false, .wasm = false },
@@ -116,7 +120,8 @@ fn timeoutToDeadlineNs(timeout: Value) PrimitiveError!?u64 {
     if (timeout == types.FALSE) return null;
     if (types.isSrfi18Time(timeout)) {
         const t = types.toSrfi18Time(timeout);
-        const sec_ns: u64 = @intFromFloat(@max(0.0, t.seconds) * 1_000_000_000.0);
+        if (t.seconds < 0) return 0;
+        const sec_ns: u64 = @as(u64, @intCast(t.seconds)) * 1_000_000_000 + @as(u64, @intCast(t.nanoseconds));
         var now_ts: std.c.timespec = undefined;
         _ = std.c.clock_gettime(.REALTIME, &now_ts);
         const now_ns = @as(u64, @intCast(now_ts.sec)) * 1_000_000_000 + @as(u64, @intCast(now_ts.nsec));
@@ -367,7 +372,8 @@ fn getSleepSeconds(v: Value) PrimitiveError!f64 {
         var ts: std.c.timespec = undefined;
         _ = std.c.clock_gettime(.REALTIME, &ts);
         const now: f64 = @as(f64, @floatFromInt(ts.sec)) + @as(f64, @floatFromInt(ts.nsec)) / 1e9;
-        return t.seconds - now;
+        const target: f64 = @as(f64, @floatFromInt(t.seconds)) + @as(f64, @floatFromInt(t.nanoseconds)) / 1e9;
+        return target - now;
     }
     return PrimitiveError.TypeError; // bare-ok: type guard
 }
@@ -953,8 +959,7 @@ fn currentTimeFn(_: []const Value) PrimitiveError!Value {
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     var ts: std.c.timespec = undefined;
     _ = std.c.clock_gettime(.REALTIME, &ts);
-    const seconds = @as(f64, @floatFromInt(ts.sec)) + @as(f64, @floatFromInt(ts.nsec)) / 1_000_000_000.0;
-    return gc.allocSrfi18Time(seconds) catch return PrimitiveError.OutOfMemory;
+    return gc.allocSrfi18Time(@intCast(ts.sec), @intCast(ts.nsec), .utc) catch return PrimitiveError.OutOfMemory;
 }
 
 fn timePredFn(args: []const Value) PrimitiveError!Value {
@@ -964,14 +969,65 @@ fn timePredFn(args: []const Value) PrimitiveError!Value {
 fn timeToSecondsFn(args: []const Value) PrimitiveError!Value {
     if (!types.isSrfi18Time(args[0]))
         return primitives.typeError("time->seconds", "time", args[0]);
-    return types.makeFlonum(types.toSrfi18Time(args[0]).seconds);
+    const t = types.toSrfi18Time(args[0]);
+    return types.makeFlonum(@as(f64, @floatFromInt(t.seconds)) + @as(f64, @floatFromInt(t.nanoseconds)) / 1_000_000_000.0);
 }
 
 fn secondsToTimeFn(args: []const Value) PrimitiveError!Value {
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const secs = primitives.toF64(args[0]) catch
         return primitives.typeError("seconds->time", "number", args[0]);
-    return gc.allocSrfi18Time(secs) catch return PrimitiveError.OutOfMemory;
+    const int_secs = @as(i64, @intFromFloat(@trunc(secs)));
+    const frac = secs - @trunc(secs);
+    const ns = @as(i64, @intFromFloat(@round(frac * 1_000_000_000.0)));
+    return gc.allocSrfi18Time(int_secs, ns, .utc) catch return PrimitiveError.OutOfMemory;
+}
+
+fn makeTimeFn(args: []const Value) PrimitiveError!Value {
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
+    if (!types.isSymbol(args[0]))
+        return primitives.typeError("make-time", "symbol", args[0]);
+    const time_type = parseTimeType(types.symbolName(args[0])) orelse
+        return primitives.typeError("make-time", "time type symbol (time-utc, time-tai, time-monotonic, time-duration)", args[0]);
+    if (!types.isFixnum(args[1]))
+        return primitives.typeError("make-time", "integer", args[1]);
+    if (!types.isFixnum(args[2]))
+        return primitives.typeError("make-time", "integer", args[2]);
+    return gc.allocSrfi18Time(types.toFixnum(args[2]), types.toFixnum(args[1]), time_type) catch return PrimitiveError.OutOfMemory;
+}
+
+fn timeTypeFn(args: []const Value) PrimitiveError!Value {
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
+    if (!types.isSrfi18Time(args[0]))
+        return primitives.typeError("time-type", "time", args[0]);
+    const t = types.toSrfi18Time(args[0]);
+    const name: []const u8 = switch (t.time_type) {
+        .utc => "time-utc",
+        .tai => "time-tai",
+        .monotonic => "time-monotonic",
+        .duration => "time-duration",
+    };
+    return gc.allocSymbol(name) catch return PrimitiveError.OutOfMemory;
+}
+
+fn timeSecondFn(args: []const Value) PrimitiveError!Value {
+    if (!types.isSrfi18Time(args[0]))
+        return primitives.typeError("time-second", "time", args[0]);
+    return types.makeFixnum(types.toSrfi18Time(args[0]).seconds);
+}
+
+fn timeNanosecondFn(args: []const Value) PrimitiveError!Value {
+    if (!types.isSrfi18Time(args[0]))
+        return primitives.typeError("time-nanosecond", "time", args[0]);
+    return types.makeFixnum(types.toSrfi18Time(args[0]).nanoseconds);
+}
+
+fn parseTimeType(name: []const u8) ?types.TimeType {
+    if (std.mem.eql(u8, name, "time-utc")) return .utc;
+    if (std.mem.eql(u8, name, "time-tai")) return .tai;
+    if (std.mem.eql(u8, name, "time-monotonic")) return .monotonic;
+    if (std.mem.eql(u8, name, "time-duration")) return .duration;
+    return null;
 }
 
 // ---------------------------------------------------------------------------

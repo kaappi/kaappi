@@ -294,7 +294,10 @@ fn deepCopyValue(gc: *GC, src: Value, visited: *std.AutoHashMap(usize, Value)) !
         // handle created inside a child thread and returned through
         // thread-join! dangles once the child heap is freed.
         .ffi_library, .ffi_function => src,
-        .srfi18_time => try gc.allocSrfi18Time(obj.as(types.Srfi18Time).seconds),
+        .srfi18_time => {
+            const t = obj.as(types.Srfi18Time);
+            return try gc.allocSrfi18Time(t.seconds, t.nanoseconds, t.time_type);
+        },
         .random_source => {
             const rs = obj.as(types.RandomSource);
             const new_val = try gc.allocRandomSource(0);

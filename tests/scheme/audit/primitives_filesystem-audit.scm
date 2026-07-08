@@ -134,10 +134,8 @@
   (group-info:gid (group-info (group-info:name (group-info (user-gid))))))
 
 ;;; --- time ---
-(test #t (>= (monotonic-time) 0))
-(test #t (> (posix-time) 0))
-;; FAIL: #1162 (posix-time/monotonic-time must return SRFI-19 time objects)
-;; (test #t (let ((t (posix-time))) (and (not (number? t)) #t)))
+(test #t (not (number? (monotonic-time))))
+(test #t (not (number? (posix-time))))
 
 ;;; --- terminal? ---
 (test #f (terminal? (open-input-string "x")))

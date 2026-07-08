@@ -872,12 +872,14 @@ pub const GC = struct {
         return types.makePointer(@ptrCast(cv));
     }
 
-    pub fn allocSrfi18Time(self: *GC, seconds: f64) !Value {
+    pub fn allocSrfi18Time(self: *GC, seconds: i64, nanoseconds: i64, time_type: types.TimeType) !Value {
         try self.maybeCollect();
         const t = try self.allocator.create(types.Srfi18Time);
         t.* = .{
             .header = .{ .tag = .srfi18_time },
             .seconds = seconds,
+            .nanoseconds = nanoseconds,
+            .time_type = time_type,
         };
         self.finishAlloc(&t.header, @sizeOf(types.Srfi18Time));
         return types.makePointer(@ptrCast(t));

@@ -19,27 +19,20 @@
           leap-year?)
   (begin
 
+    ;; time?, make-time, time-type, time-second, time-nanosecond are
+    ;; built-in primitives imported from (scheme time).
+
     (define time-utc 'time-utc)
     (define time-tai 'time-tai)
     (define time-monotonic 'time-monotonic)
     (define time-duration 'time-duration)
-
-    (define-record-type <time>
-      (%make-time type nanosecond second)
-      time?
-      (type time-type)
-      (nanosecond time-nanosecond)
-      (second time-second))
-
-    (define (make-time type nanosecond second)
-      (%make-time type nanosecond second))
 
     (define (current-time . args)
       (let ((type (if (pair? args) (car args) time-utc))
             (secs (current-second)))
         (let ((s (exact (truncate secs)))
               (ns (exact (truncate (* (- secs (truncate secs)) 1000000000)))))
-          (%make-time type ns s))))
+          (make-time type ns s))))
 
     ;; Comparison
     (define (time=? t1 t2)
@@ -58,23 +51,23 @@
       (let ((ds (- (time-second t1) (time-second t2)))
             (dn (- (time-nanosecond t1) (time-nanosecond t2))))
         (if (< dn 0)
-            (%make-time time-duration (+ dn 1000000000) (- ds 1))
-            (%make-time time-duration dn ds))))
+            (make-time time-duration (+ dn 1000000000) (- ds 1))
+            (make-time time-duration dn ds))))
     (define time-difference! time-difference)
 
     (define (add-duration t dur)
       (let ((s (+ (time-second t) (time-second dur)))
             (ns (+ (time-nanosecond t) (time-nanosecond dur))))
         (if (>= ns 1000000000)
-            (%make-time (time-type t) (- ns 1000000000) (+ s 1))
-            (%make-time (time-type t) ns s))))
+            (make-time (time-type t) (- ns 1000000000) (+ s 1))
+            (make-time (time-type t) ns s))))
 
     (define (subtract-duration t dur)
       (let ((s (- (time-second t) (time-second dur)))
             (ns (- (time-nanosecond t) (time-nanosecond dur))))
         (if (< ns 0)
-            (%make-time (time-type t) (+ ns 1000000000) (- s 1))
-            (%make-time (time-type t) ns s))))
+            (make-time (time-type t) (+ ns 1000000000) (- s 1))
+            (make-time (time-type t) ns s))))
 
     ;; Date record
     (define-record-type <date>
@@ -172,7 +165,7 @@
             (secs (+ (* (date-hour date) 3600)
                      (* (date-minute date) 60)
                      (date-second date))))
-        (%make-time time-utc
+        (make-time time-utc
                     (date-nanosecond date)
                     (- (+ (* epoch-days 86400) secs)
                        (date-zone-offset date)))))

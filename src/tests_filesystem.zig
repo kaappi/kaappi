@@ -294,22 +294,32 @@ test "delete-environment-variable! removes variable" {
     ));
 }
 
-test "posix-time returns reasonable epoch seconds" {
+test "posix-time returns SRFI-19 time object" {
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
     var vm = try th.makeTestVM(&gc);
     defer vm.deinit();
 
-    try std.testing.expectEqual(types.TRUE, try vm.eval("(> (posix-time) 1700000000)"));
+    const result = try vm.eval("(posix-time)");
+    try std.testing.expect(types.isSrfi18Time(result));
+    const t = types.toSrfi18Time(result);
+    try std.testing.expect(t.seconds > 1700000000);
+    try std.testing.expect(t.nanoseconds >= 0 and t.nanoseconds < 1_000_000_000);
+    try std.testing.expectEqual(types.TimeType.utc, t.time_type);
 }
 
-test "monotonic-time returns non-negative" {
+test "monotonic-time returns SRFI-19 time object" {
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
     var vm = try th.makeTestVM(&gc);
     defer vm.deinit();
 
-    try std.testing.expectEqual(types.TRUE, try vm.eval("(>= (monotonic-time) 0)"));
+    const result = try vm.eval("(monotonic-time)");
+    try std.testing.expect(types.isSrfi18Time(result));
+    const t = types.toSrfi18Time(result);
+    try std.testing.expect(t.seconds >= 0);
+    try std.testing.expect(t.nanoseconds >= 0 and t.nanoseconds < 1_000_000_000);
+    try std.testing.expectEqual(types.TimeType.monotonic, t.time_type);
 }
 
 test "rename-file works" {
