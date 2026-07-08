@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783537372132,
+  "lastUpdate": 1783539361107,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "9c84a769cd88395642f00c9a2643ecf666bf6e1e",
-          "message": "Extract macro-expansion machinery into compiler_macro.zig (#1043) (#1129)\n\nMove macro expansion, definition forms (define-syntax, let-syntax,\nletrec-syntax), syntax-rules parsing, and hygiene free-ref collection\nfrom compiler.zig and compiler_passthrough.zig into a new\ncompiler_macro.zig module. Consolidate duplicated tables:\n\n- stripHygienicPrefix (5 copies → 1 in types.zig)\n- isContinuationBarrier (3 copies → 1 in types.zig)\n\ncompiler.zig drops from 1254 to 889 lines; compileForm() shrinks from\n269 to ~95 lines. compiler_passthrough.zig drops from 562 to 341 lines\nand now contains only passthrough compilation (quote/if/call).\n\nPure refactoring — no behavioral changes.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-05T07:55:39+05:30",
-          "tree_id": "9ca9d7aedb8fa7dab9c4da039ea0b14ae567eb2a",
-          "url": "https://github.com/kaappi/kaappi/commit/9c84a769cd88395642f00c9a2643ecf666bf6e1e"
-        },
-        "date": 1783219841800,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.913856,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 10.154161,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.96621,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.168928,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.013907,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.234737,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.466386,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.067823,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 13.713192,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.817973,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 11.130926,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 1.092171,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 9.23761,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.912339,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.045637,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.043826,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c916a8e94030f82cd199966587b077fc768affd6",
+          "message": "Fix opt*-lambda sequential defaults and lift 2-optional cap (#1340)\n\n* Fix opt*-lambda sequential defaults and lift 2-optional cap (#1222)\n\nopt*-lambda was a bare alias of opt-lambda, so its zero-argument case\nused parallel let — defaults could not reference earlier parameters.\nBoth macros also used hand-enumerated patterns capped at 2 optionals.\n\nReplace with recursive syntax-rules using literal-tag dispatch (%p for\nparsing required/optional boundary, %b for clause accumulation, %d for\nnested-let default expansion). Both forms now support arbitrary numbers\nof required and optional parameters. opt*-lambda generates nested let\n(sequential), opt-lambda generates nested let (effectively sequential,\nbut consistent with partial-application cases where earlier params are\nalready case-lambda-bound).\n\nCloses #1222\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Give opt-lambda parallel default semantics distinct from opt*-lambda\n\nThe previous commit used nested let for both forms, making them\nsemantically identical. SRFI-227 requires opt-lambda defaults to be\nevaluated in the enclosing environment (parallel, like let), while\nopt*-lambda defaults are sequential (like let*).\n\nopt-lambda's %d phase now accumulates names and defaults into two\nlists, then emits ((lambda (names ...) body ...) defaults ...) — an\nimmediate application that evaluates all defaults in the outer scope\nbefore binding. This avoids a Kaappi expander limitation where ...\ncannot splice into let binding lists.\n\nObservable difference:\n  (define a 100)\n  ((opt-lambda  ((a 1) (b a)) (list a b)))  → (1 100)  ;; parallel\n  ((opt*-lambda ((a 1) (b a)) (list a b)))  → (1 1)    ;; sequential\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-09T00:44:18+05:30",
+          "tree_id": "4dfd0d6b9417cd0ef8ee51d6085c650b5ff690f8",
+          "url": "https://github.com/kaappi/kaappi/commit/c916a8e94030f82cd199966587b077fc768affd6"
+        },
+        "date": 1783539360405,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.332005,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.096949,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.99654,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.401881,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.012756,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.20441,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.498143,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.069503,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 12.652863,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.938407,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 10.190319,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 1.008044,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 8.487802,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.700425,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044321,
             "unit": "seconds"
           }
         ]
