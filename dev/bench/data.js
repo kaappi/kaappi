@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783505913303,
+  "lastUpdate": 1783506924747,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "146b88374fed679ecebc27f7e3451a43e121b5f1",
-          "message": "Remove dead code: unused fn, unreachable logic, dead param, doubled comment (#1075) (#1110)\n\n- Delete unused `emitSexprEvalValue` (zero callers) in llvm_emit.zig\n- Remove unreachable rest-param handling in llvm_emit_lambda.zig\n  (early `return null` at line 51 makes extra/allowed logic dead)\n- Remove dead `_: bool` discriminator from `compileLetrecImpl`\n  (compileLetrec and compileLetrecStar passed different bools,\n  but the parameter was always discarded)\n- Remove doubled `// Optimization passes` comment in compiler.zig\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-04T22:57:29+05:30",
-          "tree_id": "a54f313c4dafc209f8d79e7d7919bc640124b21a",
-          "url": "https://github.com/kaappi/kaappi/commit/146b88374fed679ecebc27f7e3451a43e121b5f1"
-        },
-        "date": 1783187901393,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.424914,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.61582,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.902873,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.398411,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.012577,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.211251,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.464715,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.070517,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 12.521551,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.810633,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 10.033681,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.958778,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 8.279785,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.518787,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.043099,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.046276,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c49b0d2f7c666c1c9a3706446673aa849989ebb8",
+          "message": "Fix SRFI-27 random-integer, %rs-next-int, and pseudo-randomize! to accept bignums (#1193) (#1319)\n\n* Fix SRFI-27 random-integer, %rs-next-int, and pseudo-randomize! to accept bignums (#1193)\n\nAll three procedures only checked for fixnums, rejecting valid exact\nintegers wider than 48 bits (e.g. (expt 2 64)).  For random-integer and\n%rs-next-int, add rejection sampling over bignum limbs.  For\npseudo-randomize!, fold bignum i/j values to u64 seeds via XOR.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Fix top_bits overflow: u6 cannot hold 64 when top limb MSB is set\n\nWiden to u7 and cast to u6 only for the shift operand.  Add regression\ntests with saturated top limbs ((expt 2 127), (- (expt 2 128) 1)).\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-08T15:37:39+05:30",
+          "tree_id": "fc39d571e5edcefea8823550bf89014cfa258c9f",
+          "url": "https://github.com/kaappi/kaappi/commit/c49b0d2f7c666c1c9a3706446673aa849989ebb8"
+        },
+        "date": 1783506923682,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.184067,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 10.178329,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 1.048177,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.401266,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.014984,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.226134,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.511409,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.070738,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 13.718545,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.978826,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 11.298684,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 1.102689,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 9.264412,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.993353,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.047444,
             "unit": "seconds"
           }
         ]
