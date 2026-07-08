@@ -114,7 +114,7 @@ test "default-random-source is per-VM" {
     var vm1 = try th.makeTestVM(&gc1);
     defer vm1.deinit();
 
-    const rs1 = try vm1.eval("(default-random-source)");
+    const rs1 = try vm1.eval("(%default-random-source)");
     try std.testing.expect(types.isRandomSource(rs1));
 
     var gc2 = memory.GC.init(std.testing.allocator);
@@ -122,14 +122,14 @@ test "default-random-source is per-VM" {
     var vm2 = try th.makeTestVM(&gc2);
     defer vm2.deinit();
 
-    const rs2 = try vm2.eval("(default-random-source)");
+    const rs2 = try vm2.eval("(%default-random-source)");
     try std.testing.expect(types.isRandomSource(rs2));
 
     // Each VM must have its own default random source
     try std.testing.expect(rs1 != rs2);
 
     // VM1's source must still be its own after VM2 was created
-    const rs1_again = try vm1.eval("(default-random-source)");
+    const rs1_again = try vm1.eval("(%default-random-source)");
     try std.testing.expectEqual(rs1, rs1_again);
 }
 

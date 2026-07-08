@@ -8,6 +8,8 @@
           random-source-state-ref random-source-state-set!)
   (begin
 
+    (define default-random-source (%default-random-source))
+
     (define (random-source-make-integers rs)
       (lambda (n) (%rs-next-int rs n)))
 

@@ -27,7 +27,7 @@ fn freshSeed() u64 {
 pub const specs = [_]primitives.PrimSpec{
     .{ .name = "random-integer", .func = &randomIntegerFn, .arity = .{ .exact = 1 }, .libs = LS.initOne(.scheme_base) },
     .{ .name = "random-real", .func = &randomRealFn, .arity = .{ .exact = 0 }, .libs = LS.initOne(.scheme_base) },
-    .{ .name = "default-random-source", .func = &defaultRandomSourceFn, .arity = .{ .exact = 0 }, .libs = LS.initOne(.scheme_base) },
+    .{ .name = "%default-random-source", .func = &defaultRandomSourceFn, .arity = .{ .exact = 0 }, .libs = LS.initOne(.scheme_base) },
     .{ .name = "random-source?", .func = &randomSourcePFn, .arity = .{ .exact = 1 }, .libs = LS.initOne(.scheme_base) },
     .{ .name = "make-random-source", .func = &makeRandomSourceFn, .arity = .{ .exact = 0 }, .libs = LS.initOne(.scheme_base) },
     .{ .name = "random-source-randomize!", .func = &randomSourceRandomizeFn, .arity = .{ .exact = 1 }, .libs = LS.initOne(.scheme_base) },

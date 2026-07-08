@@ -18,15 +18,11 @@
 ;; and random-real have been derived ... an assignment to default-random-source
 ;; does not change random or random-real" — i.e. it is a variable bound to a
 ;; random source, not a procedure.
-;; FAIL: #1192 (default-random-source is exported as a zero-argument procedure)
-;; (test #t (random-source? default-random-source))
-
-;; Kaappi's current calling convention returns the source when invoked.
-(test #t (random-source? (default-random-source)))
+(test #t (random-source? default-random-source))
 
 ;; random-integer draws from default-random-source: restoring the default
 ;; source's state reproduces the random-integer sequence.
-(let* ((d (default-random-source))
+(let* ((d default-random-source)
        (st (random-source-state-ref d))
        (x1 (random-integer 1000000)))
   (random-source-state-set! d st)
