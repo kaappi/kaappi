@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783505447268,
+  "lastUpdate": 1783505687512,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "d8ddf236b780457092d93d34dd5c8c5cd9b5d169",
-          "message": "Generate FFI call-signature matrix with comptime inline-for (#1058) (#1106)\n\nReplace 6 hand-enumerated callFfiN functions (~750 lines, 87 curated\nbranches) with a comptime-generic callFfiGeneric that uses nested\ninline-for over the 7 canonical types to generate exhaustive dispatch\nfor arities 0-3. Arities 4-5 remain curated but use shared marshalArg/\nmarshalRetValue helpers for consistency.\n\nCoverage: arities 1-3 go from 47%/7%/0.5% to 100% (2,800 branches).\nPreviously-unsupported signatures like (float,int)->double now work.\nBinary +13%, compile time +11%, file -37% (877 vs 1384 lines).\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-04T21:56:29+05:30",
-          "tree_id": "278391f29b9aa357473dcd93c01078dd7ef9149e",
-          "url": "https://github.com/kaappi/kaappi/commit/d8ddf236b780457092d93d34dd5c8c5cd9b5d169"
-        },
-        "date": 1783185098220,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.293771,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.7968,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.914258,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.319295,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.012478,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.211894,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.473622,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.071863,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 12.456724,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.818356,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 9.987746,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.952011,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 8.245163,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.705732,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044757,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.047332,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d8bdfed6d1f81549f704a687994b3e5398d11a7f",
+          "message": "Fix SRFI-210 value procedure and add box/mv export (#1218) (#1318)\n\nvalue returned its first argument (the index) instead of the index-th\nobject. Also add box/mv syntax which was implemented but not exported.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-08T15:04:35+05:30",
+          "tree_id": "9bd1b6431d0b6ebb8dc9863dc3fb9abeef7645a2",
+          "url": "https://github.com/kaappi/kaappi/commit/d8bdfed6d1f81549f704a687994b3e5398d11a7f"
+        },
+        "date": 1783505685836,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.331361,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.337406,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.982767,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.600147,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.012798,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.206338,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.508342,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.072064,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 12.666019,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.967989,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 10.093943,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.983675,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 8.368672,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.695299,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.043863,
             "unit": "seconds"
           }
         ]
