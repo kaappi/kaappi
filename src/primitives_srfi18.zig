@@ -695,6 +695,8 @@ fn mutexLockFn(args: []const Value) PrimitiveError!Value {
         const ctx = try ensureScheduler();
         m.owner = if (args.len > 2 and types.isFiber(args[2]))
             args[2]
+        else if (args.len > 2 and args[2] == types.FALSE)
+            types.VOID
         else if (ctx.vm.current_fiber) |cf|
             types.makePointer(@ptrCast(cf))
         else
@@ -707,6 +709,8 @@ fn mutexLockFn(args: []const Value) PrimitiveError!Value {
         const ctx = try ensureScheduler();
         m.owner = if (args.len > 2 and types.isFiber(args[2]))
             args[2]
+        else if (args.len > 2 and args[2] == types.FALSE)
+            types.VOID
         else if (ctx.vm.current_fiber) |cf|
             types.makePointer(@ptrCast(cf))
         else
@@ -739,6 +743,8 @@ fn mutexLockFn(args: []const Value) PrimitiveError!Value {
     m.locked = true;
     m.owner = if (args.len > 2 and types.isFiber(args[2]))
         args[2]
+    else if (args.len > 2 and args[2] == types.FALSE)
+        types.VOID
     else
         types.makePointer(@ptrCast(me));
 

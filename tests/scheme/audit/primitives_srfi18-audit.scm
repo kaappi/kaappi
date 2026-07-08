@@ -91,10 +91,9 @@
 (let ((m (make-mutex)))
   (mutex-lock! m)
   (test #f (mutex-lock! m 0.05)))
-;; FAIL: #1154 (explicit #f thread argument must yield locked/not-owned)
-;; (let ((m (make-mutex)))
-;;   (mutex-lock! m #f #f)
-;;   (test 'not-owned (mutex-state m)))
+(let ((m (make-mutex)))
+  (mutex-lock! m #f #f)
+  (test 'not-owned (mutex-state m)))
 
 ;;; --- condition variables ---
 (let ((cv (make-condition-variable 'audit-cv)))
