@@ -61,7 +61,11 @@
             (if (null? rest) result
                 (loop (%bitwise-xor2 result (car rest)) (cdr rest))))))
 
-    (define (bitwise-eqv a b) (bitwise-not (bitwise-xor a b)))
+    (define (bitwise-eqv . args)
+      (if (null? args) -1
+          (let loop ((result (car args)) (rest (cdr args)))
+            (if (null? rest) result
+                (loop (bitwise-not (bitwise-xor result (car rest))) (cdr rest))))))
     (define (bitwise-nand a b) (bitwise-not (bitwise-and a b)))
     (define (bitwise-nor a b) (bitwise-not (bitwise-ior a b)))
     (define (bitwise-andc1 a b) (bitwise-and (bitwise-not a) b))
@@ -91,13 +95,13 @@
     (define (bit-set? index n) (odd? (arithmetic-shift n (- index))))
 
     (define (copy-bit index n bit)
-      (if (= bit 0)
-          (bitwise-and n (bitwise-not (arithmetic-shift 1 index)))
-          (bitwise-ior n (arithmetic-shift 1 index))))
+      (if bit
+          (bitwise-ior n (arithmetic-shift 1 index))
+          (bitwise-and n (bitwise-not (arithmetic-shift 1 index)))))
 
     (define (bit-swap i j n)
-      (let ((bi (if (bit-set? i n) 1 0))
-            (bj (if (bit-set? j n) 1 0)))
+      (let ((bi (bit-set? i n))
+            (bj (bit-set? j n)))
         (copy-bit i (copy-bit j n bi) bj)))
 
     (define (any-bit-set? mask n) (not (= 0 (bitwise-and mask n))))
@@ -155,29 +159,35 @@
                     (+ (* result 2) (if (odd? x) 1 0))
                     (+ i 1))))))
 
-    (define (bits->list n len)
-      (let loop ((i 0) (result '()))
-        (if (= i len) (reverse result)
-            (loop (+ i 1) (cons (bit-set? i n) result)))))
+    (define bits->list
+      (case-lambda
+        ((n) (bits->list n (integer-length n)))
+        ((n len)
+         (let loop ((i 0) (result '()))
+           (if (= i len) (reverse result)
+               (loop (+ i 1) (cons (bit-set? i n) result)))))))
 
     (define (list->bits lst)
       (let loop ((l lst) (i 0) (result 0))
         (if (null? l) result
             (loop (cdr l) (+ i 1)
-                  (if (car l) (copy-bit i result 1) result)))))
+                  (if (car l) (copy-bit i result #t) result)))))
 
-    (define (bits->vector n len)
-      (let ((v (make-vector len)))
-        (let loop ((i 0))
-          (if (= i len) v
-              (begin (vector-set! v i (bit-set? i n))
-                     (loop (+ i 1)))))))
+    (define bits->vector
+      (case-lambda
+        ((n) (bits->vector n (integer-length n)))
+        ((n len)
+         (let ((v (make-vector len)))
+           (let loop ((i 0))
+             (if (= i len) v
+                 (begin (vector-set! v i (bit-set? i n))
+                        (loop (+ i 1)))))))))
 
     (define (vector->bits vec)
       (let loop ((i 0) (result 0))
         (if (= i (vector-length vec)) result
             (loop (+ i 1)
-                  (if (vector-ref vec i) (copy-bit i result 1) result)))))
+                  (if (vector-ref vec i) (copy-bit i result #t) result)))))
 
     (define (bits . lst) (list->bits lst))
 
@@ -196,12 +206,11 @@
       (let loop ((s seed) (i 0) (result 0))
         (if (stop? s) result
             (loop (successor s) (+ i 1)
-                  (if (mapper s) (copy-bit i result 1) result)))))
+                  (if (mapper s) (copy-bit i result #t) result)))))
 
     (define (make-bitwise-generator n)
       (let ((x n))
         (lambda ()
-          (if (= x 0) 0
-              (let ((bit (if (odd? x) 1 0)))
-                (set! x (arithmetic-shift x -1))
-                bit)))))))
+          (let ((bit (odd? x)))
+            (set! x (arithmetic-shift x -1))
+            bit))))))

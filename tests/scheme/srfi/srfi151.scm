@@ -37,9 +37,9 @@
 (test -7 (bitwise-eqv 5 3))          ; not(xor) stays in positive helpers
 (test -2 (bitwise-nand 5 3))
 (test -8 (bitwise-nor 5 3))
-;; SRFI-151: bitwise-eqv is n-ary: (bitwise-eqv) => -1, (bitwise-eqv 5) => 5
-;; FAIL: #1233 (bitwise-eqv accepts exactly two arguments)
-;; (test -1 (bitwise-eqv))
+(test -1 (bitwise-eqv))
+(test 5 (bitwise-eqv 5))
+(test 1 (bitwise-eqv 1 1 1))
 (test 1 (bitwise-andc1 2 3))
 (test 1 (bitwise-andc2 3 2))
 (test -3 (bitwise-orc1 2 5))
@@ -80,11 +80,8 @@
 (test #t (bit-set? 100 -1))
 (test #f (bit-set? 1 -3))
 
-;; SRFI-151: the bit argument of copy-bit is a boolean
-;; FAIL: #1233 (copy-bit expects 0/1 and errors on booleans)
-;; (test 4 (copy-bit 2 0 #t))
-;; FAIL: #1233
-;; (test 1 (copy-bit 2 5 #f))
+(test 4 (copy-bit 2 0 #t))
+(test 1 (copy-bit 2 5 #f))
 
 (test 5 (bit-swap 0 2 5))          ; both bits set: no clear path involved
 (test 1 (bit-swap 0 2 4))
@@ -131,11 +128,10 @@
 (test #(#t #f #t) (bits->vector 5 3))
 (test 5 (vector->bits #(#t #f #t)))
 (test 4 (vector->bits #(#f #f #t)))
-;; SRFI-151: the length argument of bits->list / bits->vector is optional
-;; FAIL: #1233 (length argument is required)
-;; (test '(#t #f #t) (bits->list 5))
-;; FAIL: #1233
-;; (test #(#t #f #t) (bits->vector 5))
+(test '(#t #f #t) (bits->list 5))
+(test '() (bits->list 0))
+(test #(#t #f #t) (bits->vector 5))
+(test #() (bits->vector 0))
 
 ;;; --- fold / for-each / unfold / generator ---
 (test 2 (bitwise-fold (lambda (b acc) (if b (+ acc 1) acc)) 0 5))
@@ -146,10 +142,11 @@
 (test 5 (bitwise-unfold (lambda (i) (= i 4)) even? (lambda (i) (+ i 1)) 0))
 (test 0 (bitwise-unfold (lambda (i) #t) odd? (lambda (i) i) 0))
 
-;; SRFI-151: the generator yields booleans
-;; FAIL: #1233 (make-bitwise-generator yields 0/1 fixnums, not booleans)
-;; (test '(#t #f #t #f)
-;;       (let ((g (make-bitwise-generator 5)))
-;;         (list (g) (g) (g) (g))))
+(test '(#t #f #t #f)
+      (let ((g (make-bitwise-generator 5)))
+        (list (g) (g) (g) (g))))
+(test '(#f #f)
+      (let ((g (make-bitwise-generator 0)))
+        (list (g) (g))))
 
 (test-end "srfi-151")
