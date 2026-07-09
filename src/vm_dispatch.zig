@@ -533,11 +533,14 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                     return VMError.ContinuationInvoked;
                 } else if (types.isFfiFunction(callee)) {
                     const ffi_fn = types.toObject(callee).as(types.FfiFunction);
-                    if (nargs != ffi_fn.param_count) return VMError.ArityMismatch;
+                    if (nargs != ffi_fn.param_count) {
+                        self.setErrorDetail("'{s}': expected {d} arguments, got {d}", .{ ffi_fn.name, ffi_fn.param_count, nargs });
+                        return VMError.ArityMismatch;
+                    }
                     const ffi_mod = @import("ffi.zig");
                     const return_dst = frame.dst;
                     const from_native_call = frame.returns_to_native;
-                    const result = ffi_mod.callFfi(ffi_fn, self.registers[abs_base + 1 .. abs_base + 1 + nargs], self.gc) catch return VMError.TypeError;
+                    const result = ffi_mod.callFfi(ffi_fn, self.registers[abs_base + 1 .. abs_base + 1 + nargs], self.gc, self) catch return VMError.TypeError;
                     self.frame_count -= 1;
                     if (self.frame_count <= target_frame_count) return result;
                     if (from_native_call) return raiseDeadNativeReturn(self);
@@ -680,13 +683,16 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                     return VMError.ContinuationInvoked;
                 } else if (types.isFfiFunction(proc)) {
                     const ffi_fn = types.toObject(proc).as(types.FfiFunction);
-                    if (count != ffi_fn.param_count) return VMError.ArityMismatch;
+                    if (count != ffi_fn.param_count) {
+                        self.setErrorDetail("'{s}': expected {d} arguments, got {d}", .{ ffi_fn.name, ffi_fn.param_count, count });
+                        return VMError.ArityMismatch;
+                    }
                     const ffi_mod = @import("ffi.zig");
                     // FFI callbacks may re-enter the VM and grow self.frames,
                     // invalidating `frame` — read dst before the call.
                     const return_dst = frame.dst;
                     const from_native_call = frame.returns_to_native;
-                    const result = ffi_mod.callFfi(ffi_fn, flat_args[0..count], self.gc) catch return VMError.TypeError;
+                    const result = ffi_mod.callFfi(ffi_fn, flat_args[0..count], self.gc, self) catch return VMError.TypeError;
                     self.frame_count -= 1;
                     if (self.frame_count <= target_frame_count) return result;
                     if (from_native_call) return raiseDeadNativeReturn(self);

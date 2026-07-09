@@ -1,8 +1,50 @@
 const std = @import("std");
 const types = @import("types.zig");
 const memory = @import("memory.zig");
+const VM = @import("vm.zig").VM;
 const Value = types.Value;
 const FfiType = types.FfiType;
+
+fn ffiTypeName(t: FfiType) []const u8 {
+    return switch (t) {
+        .int => "int",
+        .long => "long",
+        .double => "double",
+        .float => "float",
+        .string => "string",
+        .pointer => "pointer",
+        .void_type => "void",
+        .bool_type => "bool",
+        .uint8 => "uint8",
+        .int8 => "int8",
+        .int16 => "int16",
+        .int32 => "int32",
+        .int64 => "int64",
+        .uint16 => "uint16",
+        .uint32 => "uint32",
+        .uint64 => "uint64",
+        .size_type => "size_t",
+        .char_type => "char",
+    };
+}
+
+fn schemeTypeName(v: Value) []const u8 {
+    if (types.isFixnum(v)) return "integer";
+    if (types.isFlonum(v)) return "flonum";
+    if (types.isString(v)) return "string";
+    if (types.isBignum(v)) return "integer";
+    if (v == types.TRUE or v == types.FALSE) return "boolean";
+    if (types.isChar(v)) return "character";
+    if (types.isBytevector(v)) return "bytevector";
+    if (types.isFfiCallback(v)) return "ffi-callback";
+    if (types.isRationalObj(v)) return "rational";
+    if (types.isNil(v)) return "nil";
+    if (types.isPair(v)) return "pair";
+    if (types.isSymbol(v)) return "symbol";
+    if (types.isVector(v)) return "vector";
+    if (types.isClosure(v) or types.isNativeFn(v)) return "procedure";
+    return "object";
+}
 
 fn toIntArgOpt(v: Value) ?i64 {
     if (v == types.TRUE) return 1;
@@ -217,12 +259,51 @@ fn checkNarrowIntRange(v: Value, declared: FfiType) error{TypeError}!void {
     }
 }
 
-fn validateArgs(ffi_fn: *types.FfiFunction, args: []const Value) !void {
+fn validateArgsDetailed(ffi_fn: *types.FfiFunction, args: []const Value, vm: *VM) !void {
     for (0..ffi_fn.param_count) |i| {
         if (!validateArg(args[i], ffi_fn.param_types[i])) {
+            vm.setErrorDetail("'{s}': argument {d} must be {s}, got {s}", .{
+                ffi_fn.name, i + 1, ffiTypeName(ffi_fn.param_types[i]), schemeTypeName(args[i]),
+            });
             return error.TypeError;
         }
-        try checkNarrowIntRange(args[i], ffi_fn.param_types[i]);
+        checkNarrowIntRange(args[i], ffi_fn.param_types[i]) catch {
+            vm.setErrorDetail("'{s}': argument {d} out of range for {s}", .{
+                ffi_fn.name, i + 1, ffiTypeName(ffi_fn.param_types[i]),
+            });
+            return error.TypeError;
+        };
+        const nt = normalizeType(ffi_fn.param_types[i]);
+        if (nt == .int and ffi_fn.param_types[i] != .bool_type) {
+            if (toIntArgOpt(args[i])) |wide| {
+                if (std.math.cast(c_int, wide) == null) {
+                    vm.setErrorDetail("'{s}': argument {d} out of range for {s}", .{
+                        ffi_fn.name, i + 1, ffiTypeName(ffi_fn.param_types[i]),
+                    });
+                    return error.TypeError;
+                }
+            } else {
+                vm.setErrorDetail("'{s}': argument {d} out of range for {s}", .{
+                    ffi_fn.name, i + 1, ffiTypeName(ffi_fn.param_types[i]),
+                });
+                return error.TypeError;
+            }
+        }
+        if (nt == .string) {
+            const str = types.toObject(args[i]).as(types.SchemeString);
+            if (str.len >= 4096) {
+                vm.setErrorDetail("'{s}': argument {d} string too long ({d} bytes, max 4095)", .{
+                    ffi_fn.name, i + 1, str.len,
+                });
+                return error.TypeError;
+            }
+            if (std.mem.indexOfScalar(u8, str.data[0..str.len], 0) != null) {
+                vm.setErrorDetail("'{s}': argument {d} string contains NUL byte", .{
+                    ffi_fn.name, i + 1,
+                });
+                return error.TypeError;
+            }
+        }
     }
 }
 
@@ -361,22 +442,33 @@ fn callFfiGeneric(comptime N: u4, ffi_fn: *types.FfiFunction, args: []const Valu
 }
 
 /// Main FFI call dispatcher. Routes to arity-specific handlers.
-pub fn callFfi(ffi_fn: *types.FfiFunction, args: []const Value, gc: *memory.GC) !Value {
+pub fn callFfi(ffi_fn: *types.FfiFunction, args: []const Value, gc: *memory.GC, vm: *VM) !Value {
+    vm.last_error_detail_len = 0;
     if (types.isFfiLibrary(ffi_fn.library)) {
         const lib = types.toObject(ffi_fn.library).as(types.FfiLibrary);
-        if (lib.handle == null) return error.TypeError;
+        if (lib.handle == null) {
+            vm.setErrorDetail("'{s}': FFI library is closed", .{ffi_fn.name});
+            return error.TypeError;
+        }
     }
-    try validateArgs(ffi_fn, args);
+    try validateArgsDetailed(ffi_fn, args, vm);
     var bool_buf: [5]Value = undefined;
     const call_args = normalizeBoolArgs(ffi_fn, args, &bool_buf);
     const result = switch (ffi_fn.param_count) {
-        0 => try callFfiGeneric(0, ffi_fn, call_args, gc),
-        1 => try callFfiGeneric(1, ffi_fn, call_args, gc),
-        2 => try callFfiGeneric(2, ffi_fn, call_args, gc),
-        3 => try callFfiGeneric(3, ffi_fn, call_args, gc),
-        4 => try callFfi4(ffi_fn, call_args, gc),
-        5 => try callFfi5(ffi_fn, call_args, gc),
-        else => return error.TypeError,
+        0 => callFfiGeneric(0, ffi_fn, call_args, gc),
+        1 => callFfiGeneric(1, ffi_fn, call_args, gc),
+        2 => callFfiGeneric(2, ffi_fn, call_args, gc),
+        3 => callFfiGeneric(3, ffi_fn, call_args, gc),
+        4 => callFfi4(ffi_fn, call_args, gc),
+        5 => callFfi5(ffi_fn, call_args, gc),
+        else => {
+            vm.setErrorDetail("'{s}': unsupported parameter count ({d})", .{ ffi_fn.name, ffi_fn.param_count });
+            return error.TypeError;
+        },
+    } catch {
+        if (vm.last_error_detail_len == 0)
+            vm.setErrorDetail("'{s}': unsupported FFI signature", .{ffi_fn.name});
+        return error.TypeError;
     };
     if (ffi_fn.return_type == .bool_type) {
         if (types.isFixnum(result))
