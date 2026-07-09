@@ -1108,55 +1108,52 @@ fn carCdrFn(args: []const Value) PrimitiveError!Value {
     return gc.allocMultipleValues(&vals) catch return PrimitiveError.OutOfMemory;
 }
 
-// (take-right list k)
+// (take-right list k) — flist may be proper or dotted
 fn takeRightFn(args: []const Value) PrimitiveError!Value {
     if (!types.isFixnum(args[1])) return primitives.typeError("take-right", "integer", args[1]);
     const k = types.toFixnum(args[1]);
     if (k < 0) return primitives.typeError("take-right", "non-negative integer", args[1]);
-    // Find list length
-    var len: i64 = 0;
-    var current = args[0];
-    while (current != types.NIL) {
-        if (!types.isPair(current)) return primitives.typeError("take-right", "pair", current);
-        current = types.cdr(current);
-        len += 1;
-    }
-    // drop (len - k) elements
-    const to_drop = len - k;
-    if (to_drop < 0) return primitives.typeError("take-right", "valid index (k <= length)", args[1]);
-    current = args[0];
+
+    // Advance lead pointer k steps
+    var lead = args[0];
     var i: i64 = 0;
-    while (i < to_drop) : (i += 1) {
-        current = types.cdr(current);
+    while (i < k) : (i += 1) {
+        if (!types.isPair(lead)) return primitives.typeError("take-right", "valid index (k <= length)", args[1]);
+        lead = types.cdr(lead);
     }
-    return current;
+
+    // Advance both until lead hits end (nil or dotted tail)
+    var lag = args[0];
+    while (types.isPair(lead)) {
+        lead = types.cdr(lead);
+        lag = types.cdr(lag);
+    }
+    return lag;
 }
 
-// (drop-right list k)
+// (drop-right list k) — flist may be proper or dotted
 fn dropRightFn(args: []const Value) PrimitiveError!Value {
     const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     if (!types.isFixnum(args[1])) return primitives.typeError("drop-right", "integer", args[1]);
     const k = types.toFixnum(args[1]);
     if (k < 0) return primitives.typeError("drop-right", "non-negative integer", args[1]);
-    // Find list length
-    var len: i64 = 0;
-    var current = args[0];
-    while (current != types.NIL) {
-        if (!types.isPair(current)) return primitives.typeError("drop-right", "pair", current);
-        current = types.cdr(current);
-        len += 1;
-    }
-    const to_take = len - k;
-    if (to_take < 0) return primitives.typeError("drop-right", "valid index (k <= length)", args[1]);
-    const count: usize = @intCast(to_take);
 
+    // Advance lead pointer k steps
+    var lead = args[0];
+    var i: i64 = 0;
+    while (i < k) : (i += 1) {
+        if (!types.isPair(lead)) return primitives.typeError("drop-right", "valid index (k <= length)", args[1]);
+        lead = types.cdr(lead);
+    }
+
+    // Collect elements from lag while lead advances to end
     var elems: std.ArrayList(Value) = .empty;
     defer elems.deinit(gc.allocator);
-    current = args[0];
-    var i: usize = 0;
-    while (i < count) : (i += 1) {
-        elems.append(gc.allocator, types.car(current)) catch return PrimitiveError.OutOfMemory;
-        current = types.cdr(current);
+    var lag = args[0];
+    while (types.isPair(lead)) {
+        elems.append(gc.allocator, types.car(lag)) catch return PrimitiveError.OutOfMemory;
+        lead = types.cdr(lead);
+        lag = types.cdr(lag);
     }
 
     return buildList(gc, elems.items, types.NIL);
