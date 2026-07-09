@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783600265619,
+  "lastUpdate": 1783603171751,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "71d6624fa4b7de0ef0c4f01ee8fb92536381bfce",
-          "message": "Add behavioral tests for 12 smoke-only SRFIs (audit Phase 3.4) (#1239)\n\nUpgrades SRFIs 98, 125, 128, 132, 141, 151, 152, 174, 175, 195, 219,\nand 232 from load-only smoke checks to behavioral conformance suites\n(tracking: see #1137).\n\n402 passing assertions; ~60 disabled with FAIL markers referencing the\n10 issues filed during this phase (see #1229 through #1238) plus the\nbitwise magnitude bug (see #1214). Highlights: SRFI-219 is dead on\narrival because an imported define macro cannot shadow the built-in\nspecial form (see #1237, core expander bug); SRFI-232 currying only\naccepts one argument at a time (see #1238); balanced/ is aliased to\nround/ (see #1232); the SRFI-128 default comparator is not a total\norder and eq/eqv comparators are unhashable (see #1230); SRFI-125's\nhash-table-ref/find drop the success/proc result (see #1229);\nstring-every discards the final predicate value (see #1234);\nascii-digit-value treats letters as digits (see #1236). SRFI-98 and\nSRFI-195 conform fully.\n\nTracker updated: 3.4 checked in docs/audit-strategy.md.\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-05T22:09:57+05:30",
-          "tree_id": "30dfe04be5adf75690bf218312dd6d176680658d",
-          "url": "https://github.com/kaappi/kaappi/commit/71d6624fa4b7de0ef0c4f01ee8fb92536381bfce"
-        },
-        "date": 1783271103460,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.983054,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.89246,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.95316,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 3.96363,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.013545,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.234352,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.47312,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.068632,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 13.356003,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.806118,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 11.060598,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 1.063709,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 9.110631,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.830209,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044326,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.043464,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "569b698297c785290629a49fe89239dd5147296c",
+          "message": "Add feasibility note on fuzzing Kaappi with Fuzzilli (#1373)\n\nFuzzilli is a recurring \"can we use this?\" question, but it generates\nJavaScript exclusively and Kaappi has no JS front-end, so it can't be\npointed at the interpreter directly. Record the analysis so the question\nresolves quickly next time, and redirect the energy: Kaappi already has\ncoverage-guided std.testing.fuzz targets and a fast in-process eval\nharness, so the payoff is applying Fuzzilli's ideas (CI wiring, seed\ncorpus, structure-aware generation, differential testing) rather than\nadopting the tool.\n\nCo-authored-by: Claude Opus 4.8 <noreply@anthropic.com>",
+          "timestamp": "2026-07-09T18:02:19+05:30",
+          "tree_id": "8751c2c53f4831920a7deeb42ef3ee97687a4d78",
+          "url": "https://github.com/kaappi/kaappi/commit/569b698297c785290629a49fe89239dd5147296c"
+        },
+        "date": 1783603170993,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.320058,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.793162,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 1.041975,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.460919,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.013348,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.206061,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.505955,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.069658,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 12.870785,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.966591,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 10.199743,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 1.005729,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 8.64652,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.76543,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.045296,
             "unit": "seconds"
           }
         ]
