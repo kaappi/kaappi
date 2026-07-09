@@ -58,7 +58,8 @@ fn spawnFn(args: []const Value) PrimitiveError!Value {
 
 fn yieldFn(_: []const Value) PrimitiveError!Value {
     const vm = vm_mod.vm_instance orelse return PrimitiveError.OutOfMemory;
-    if (vm.scheduler == null) return types.VOID;
+    const sched = vm.scheduler orelse return types.VOID;
+    if (sched.schedule() == null) return types.VOID;
     vm.yielded = true;
     return types.VOID;
 }

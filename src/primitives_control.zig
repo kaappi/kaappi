@@ -87,6 +87,10 @@ fn withExceptionHandlerFn(args: []const Value) PrimitiveError!Value {
         if (err == vm_mod.VMError.ContinuationInvoked) {
             return PrimitiveError.ContinuationInvoked;
         }
+        if (err == vm_mod.VMError.Yielded) {
+            vm.popHandler();
+            return PrimitiveError.Yielded;
+        }
         if (err == vm_mod.VMError.ExceptionRaised) {
             vm.popHandler();
             var handler_root = handler;
