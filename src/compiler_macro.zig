@@ -272,7 +272,7 @@ pub fn compileDefineSyntax(self: *Compiler, args: Value, dst: u16) CompileError!
     }
 
     try captureLocalsOnTransformer(self, transformer);
-    computeBoundFreeRefs(self, transformer);
+    try computeBoundFreeRefs(self, transformer);
 
     const name = types.symbolName(keyword);
     try self.recordBodyMacro(name);
@@ -359,7 +359,7 @@ pub fn compileLetSyntax(self: *Compiler, args: Value, dst: u16, is_tail: bool) C
         saved_names.append(self.gc.allocator, name) catch return CompileError.OutOfMemory;
         saved_values.append(self.gc.allocator, self.macros.get(name)) catch return CompileError.OutOfMemory;
         try captureLocalsOnTransformer(self, transformer);
-        computeBoundFreeRefs(self, transformer);
+        try computeBoundFreeRefs(self, transformer);
         const tx = types.toObject(transformer).as(types.Transformer);
         tx.let_syntax_peer_names = self.gc.allocator.dupe([]const u8, peer_snap_names) catch return CompileError.OutOfMemory;
         tx.let_syntax_peer_vals = self.gc.allocator.dupe(Value, peer_snap_vals) catch return CompileError.OutOfMemory;
@@ -397,7 +397,7 @@ pub fn compileLetrecSyntax(self: *Compiler, args: Value, dst: u16, is_tail: bool
         saved_names.append(self.gc.allocator, name) catch return CompileError.OutOfMemory;
         saved_values.append(self.gc.allocator, self.macros.get(name)) catch return CompileError.OutOfMemory;
         try captureLocalsOnTransformer(self, transformer);
-        computeBoundFreeRefs(self, transformer);
+        try computeBoundFreeRefs(self, transformer);
         self.macros.put(name, transformer) catch return CompileError.OutOfMemory;
         binding_list = types.cdr(binding_list);
     }
@@ -445,7 +445,7 @@ fn restoreMacros(self: *Compiler, names: [][]const u8, values: []?Value) void {
     }
 }
 
-fn computeBoundFreeRefs(self: *Compiler, transformer: Value) void {
+fn computeBoundFreeRefs(self: *Compiler, transformer: Value) CompileError!void {
     const tx = types.toObject(transformer).as(types.Transformer);
     var pv_names: [64][]const u8 = undefined;
     var pv_count: usize = 0;
@@ -474,7 +474,8 @@ fn computeBoundFreeRefs(self: *Compiler, transformer: Value) void {
         }
     }
     if (bound_count == 0) return;
-    tx.bound_free_refs = self.gc.allocator.alloc([]const u8, bound_count) catch return;
+    tx.bound_free_refs = self.gc.allocator.alloc([]const u8, bound_count) catch
+        return CompileError.OutOfMemory;
     @memcpy(tx.bound_free_refs, bound[0..bound_count]);
 }
 

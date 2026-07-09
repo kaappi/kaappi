@@ -86,15 +86,18 @@
 (test-equal "cute: zero-slot result stable" '(1) (j))
 (test-equal "cute: zero-slot no re-eval" 1 q)
 
-;;; --- hygiene: top-level x/y/t must not interfere with cut/cute ---
+;;; --- hygiene: top-level x/y/t/rest-slot must not interfere ---
 (define x 5)
 (define y 99)
 (define t 77)
+(define rest-slot 0)
 (test-equal "cut: hygiene with top-level x" 10 ((cut + <>) 10))
 (test-equal "cut: hygiene two slots" '(1 2) ((cut list <> <>) 1 2))
+(test-equal "cut: hygiene rest-slot" '(1 2 3) ((cut list <> <...>) 1 2 3))
 (test-equal "cute: hygiene with top-level y" 10 ((cute + <>) 10))
 (test-equal "cute: hygiene non-slot eval" '(1 a 2)
   (let ((r (cute list (+ 0 1) <> (+ 0 2)))) (r 'a)))
+(test-equal "cute: hygiene rest-slot" '(a 1 2) ((cute list 'a <...>) 1 2))
 
 (let ((runner (test-runner-current)))
   (test-end "srfi-26")
