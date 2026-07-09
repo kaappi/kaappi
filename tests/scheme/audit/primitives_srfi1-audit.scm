@@ -46,10 +46,10 @@
 (test '(1 2 3) (drop-right '(1 2 3 4 5) 2))
 (test '((1 2) (3 4)) (call-with-values (lambda () (split-at '(1 2 3 4) 2)) list))
 (test #t (guard (e (#t #t)) (take '(1) 5)))
-;; FAIL: #1166 (take-right/drop-right reject dotted lists)
-;; (test '(2 3 . d) (take-right '(1 2 3 . d) 2))
-;; FAIL: #1166
-;; (test '(1) (drop-right '(1 2 3 . d) 2))
+(test '(2 3 . d) (take-right '(1 2 3 . d) 2))
+(test 'd (take-right '(1 2 3 . d) 0))
+(test '(1) (drop-right '(1 2 3 . d) 2))
+(test '(1 2 3) (drop-right '(1 2 3 . d) 0))
 
 ;;; --- span / break / partition return two values ---
 (test '((2 4) (1 3)) (call-with-values (lambda () (span even? '(2 4 1 3))) list))
