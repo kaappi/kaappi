@@ -1,6 +1,6 @@
 (define-library (srfi 37)
   (import (scheme base))
-  (export args-fold
+  (export args-fold option?
           option option-names option-required-arg? option-optional-arg?
           option-processor)
   (begin
@@ -59,9 +59,10 @@
                  (let oloop ((operands rest) (seeds seeds))
                    (if (null? operands)
                        (apply values seeds)
-                       (let ((new-seeds (apply operand-proc (car operands) seeds)))
-                         (oloop (cdr operands)
-                                (if (list? new-seeds) new-seeds (list new-seeds)))))))
+                       (call-with-values
+                         (lambda () (apply operand-proc (car operands) seeds))
+                         (lambda new-seeds
+                           (oloop (cdr operands) new-seeds))))))
                 ((long-opt? arg)
                  (let* ((name (long-opt-name arg))
                         (opt-arg (long-opt-arg arg))
@@ -69,19 +70,22 @@
                    (if opt
                        (if (option-required-arg? opt)
                            (let* ((a (or opt-arg (if (pair? rest) (car rest) #f)))
-                                  (r (if (and (not opt-arg) (pair? rest)) (cdr rest) rest))
-                                  (new-seeds (apply (option-processor opt) opt name a seeds)))
-                             (loop r (if (list? new-seeds) new-seeds (list new-seeds))))
-                           (let ((new-seeds (apply (option-processor opt) opt name opt-arg seeds)))
-                             (loop rest (if (list? new-seeds) new-seeds (list new-seeds)))))
-                       (let ((new-seeds (apply unrecognized-proc
-                                               (%make-option (list name) #f #f #f) name #f seeds)))
-                         (loop rest (if (list? new-seeds) new-seeds (list new-seeds)))))))
+                                  (r (if (and (not opt-arg) (pair? rest)) (cdr rest) rest)))
+                             (call-with-values
+                               (lambda () (apply (option-processor opt) opt name a seeds))
+                               (lambda new-seeds (loop r new-seeds))))
+                           (call-with-values
+                             (lambda () (apply (option-processor opt) opt name opt-arg seeds))
+                             (lambda new-seeds (loop rest new-seeds))))
+                       (call-with-values
+                         (lambda () (apply unrecognized-proc
+                                          (%make-option (list name) #f #f #f) name #f seeds))
+                         (lambda new-seeds (loop rest new-seeds))))))
                 ((short-opt? arg)
                  (let sloop ((i 1) (seeds seeds) (rest rest))
                    (if (>= i (string-length arg))
                        (loop rest seeds)
-                       (let* ((ch (string (string-ref arg i)))
+                       (let* ((ch (string-ref arg i))
                               (opt (find-option options ch)))
                          (if opt
                              (if (option-required-arg? opt)
@@ -89,18 +93,20 @@
                                                (substring arg (+ i 1) (string-length arg))
                                                (if (pair? rest) (car rest) #f)))
                                         (r (if (< (+ i 1) (string-length arg))
-                                               rest (if (pair? rest) (cdr rest) rest)))
-                                        (new-seeds (apply (option-processor opt) opt ch a seeds)))
-                                   (loop r (if (list? new-seeds) new-seeds (list new-seeds))))
-                                 (let ((new-seeds (apply (option-processor opt) opt ch #f seeds)))
-                                   (sloop (+ i 1)
-                                          (if (list? new-seeds) new-seeds (list new-seeds))
-                                          rest)))
-                             (let ((new-seeds (apply unrecognized-proc
-                                                     (%make-option (list ch) #f #f #f) ch #f seeds)))
-                               (sloop (+ i 1)
-                                      (if (list? new-seeds) new-seeds (list new-seeds))
-                                      rest)))))))
+                                               rest (if (pair? rest) (cdr rest) rest))))
+                                   (call-with-values
+                                     (lambda () (apply (option-processor opt) opt ch a seeds))
+                                     (lambda new-seeds (loop r new-seeds))))
+                                 (call-with-values
+                                   (lambda () (apply (option-processor opt) opt ch #f seeds))
+                                   (lambda new-seeds
+                                     (sloop (+ i 1) new-seeds rest))))
+                             (call-with-values
+                               (lambda () (apply unrecognized-proc
+                                                 (%make-option (list ch) #f #f #f) ch #f seeds))
+                               (lambda new-seeds
+                                 (sloop (+ i 1) new-seeds rest))))))))
                 (else
-                 (let ((new-seeds (apply operand-proc arg seeds)))
-                   (loop rest (if (list? new-seeds) new-seeds (list new-seeds))))))))))))
+                 (call-with-values
+                   (lambda () (apply operand-proc arg seeds))
+                   (lambda new-seeds (loop rest new-seeds)))))))))))
