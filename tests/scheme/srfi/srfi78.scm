@@ -63,9 +63,13 @@
 
 ;; check-ec with actual failure — stops at first mismatch
 (check-reset!)
-(check-ec (:range i 0 10) i => -1)
-(test-assert "check-ec failure" (not (check-passed? 1)))
-(test-equal "check-ec failure count" 1 (check-failed?))
+(let ((calls 0))
+  (check-ec (:range i 0 10)
+            (begin (set! calls (+ calls 1)) i)
+            => -1)
+  (test-equal "check-ec stops after first mismatch" 1 calls)
+  (test-assert "check-ec failure" (not (check-passed? 1)))
+  (test-equal "check-ec failure count" 1 (check-failed?)))
 
 ;; check-ec with custom equality
 (check-reset!)
@@ -89,11 +93,8 @@
 (check-report)
 (test-assert "check-report does not disturb counters" (check-passed? 1))
 
-;; check-report failure path: check-report calls (exit 1) on failure which
-;; terminates the process, so it cannot be tested inline. Verified manually:
-;;   echo '(import (scheme base) (srfi 78)) (check (+ 1 1) => 99) (check-report)' > /tmp/t.scm
-;;   zig build run -- /tmp/t.scm
-;; Must print "First failure: ..." then exit 1 (not crash on undefined caddr)
+;; check-report failure path (exit + first-fail printing) is tested in
+;; tests/scheme/errors/exit-code.sh as a subprocess regression
 
 (let ((runner (test-runner-current)))
   (test-end "srfi-78")

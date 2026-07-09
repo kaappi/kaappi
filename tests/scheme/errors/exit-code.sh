@@ -125,6 +125,25 @@ assert_exit_code "--disassemble without file exits 2" 2 "$KAAPPI" --disassemble
 assert_exit_code "--emit-llvm without file exits 2" 2 "$KAAPPI" --emit-llvm
 assert_exit_code "compile subcommand without file exits 2" 2 "$KAAPPI" compile
 
+# SRFI-78 check-report with failure exits 1 and prints first-fail (#1220)
+cat > "$TMPDIR_TESTS/srfi78-fail.scm" << 'SRFI78'
+(import (scheme base) (srfi 78))
+(check-reset!)
+(check-set-mode! 'summary)
+(check (+ 1 1) => 99)
+(check-report)
+SRFI78
+assert_exit_code "SRFI-78 check-report with failure exits 1" 1 "$KAAPPI" "$TMPDIR_TESTS/srfi78-fail.scm"
+# Also verify it prints "First failure:" (not crash on unbound caddr)
+output=$("$KAAPPI" "$TMPDIR_TESTS/srfi78-fail.scm" 2>&1 || true)
+if echo "$output" | grep -q "First failure:"; then
+    echo "PASS: SRFI-78 check-report prints first failure"
+    PASS=$((PASS + 1))
+else
+    echo "FAIL: SRFI-78 check-report missing 'First failure:' output"
+    FAIL=$((FAIL + 1))
+fi
+
 echo ""
 echo "exit-code: $PASS pass, $FAIL fail"
 [[ $FAIL -eq 0 ]]
