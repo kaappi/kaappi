@@ -94,10 +94,6 @@ fn stringSuffixPFn(args: []const Value) PrimitiveError!Value {
     return if (std.mem.endsWith(u8, s2_range.data, s1_range.data)) types.TRUE else types.FALSE;
 }
 
-fn isWhitespace(c: u8) bool {
-    return c == ' ' or c == '\t' or c == '\n' or c == '\r' or c == 0x0B or c == 0x0C;
-}
-
 /// Call a predicate or char-set-contains? with a character.
 /// Handles both procedure arguments and SRFI-14 char-set record arguments.
 fn callPredOrCharset(pred: Value, cp: u21) PrimitiveError!bool {
@@ -169,7 +165,11 @@ fn stringTrimFn(args: []const Value) PrimitiveError!Value {
     const full_data = try getStringSlice("string-trim", args[0]);
     if (args.len <= 1) {
         var start: usize = 0;
-        while (start < full_data.len and isWhitespace(full_data[start])) start += 1;
+        while (start < full_data.len) {
+            const d = decodeForward(full_data, start);
+            if (d.len == 0 or !pchar.isUnicodeWhitespace(d.cp)) break;
+            start += d.len;
+        }
         return gc.allocString(full_data[start..]) catch return PrimitiveError.OutOfMemory;
     }
     const pred = args[1];
@@ -191,7 +191,12 @@ fn stringTrimRightFn(args: []const Value) PrimitiveError!Value {
     const full_data = try getStringSlice("string-trim-right", args[0]);
     if (args.len <= 1) {
         var end: usize = full_data.len;
-        while (end > 0 and isWhitespace(full_data[end - 1])) end -= 1;
+        while (end > 0) {
+            const cp_start = findPrevCpStart(full_data, end);
+            const d = decodeForward(full_data, cp_start);
+            if (d.len == 0 or !pchar.isUnicodeWhitespace(d.cp)) break;
+            end = cp_start;
+        }
         return gc.allocString(full_data[0..end]) catch return PrimitiveError.OutOfMemory;
     }
     const pred = args[1];
@@ -214,9 +219,18 @@ fn stringTrimBothFn(args: []const Value) PrimitiveError!Value {
     const full_data = try getStringSlice("string-trim-both", args[0]);
     if (args.len <= 1) {
         var start: usize = 0;
-        while (start < full_data.len and isWhitespace(full_data[start])) start += 1;
+        while (start < full_data.len) {
+            const d = decodeForward(full_data, start);
+            if (d.len == 0 or !pchar.isUnicodeWhitespace(d.cp)) break;
+            start += d.len;
+        }
         var end: usize = full_data.len;
-        while (end > start and isWhitespace(full_data[end - 1])) end -= 1;
+        while (end > start) {
+            const cp_start = findPrevCpStart(full_data, end);
+            const d = decodeForward(full_data, cp_start);
+            if (d.len == 0 or !pchar.isUnicodeWhitespace(d.cp)) break;
+            end = cp_start;
+        }
         return gc.allocString(full_data[start..end]) catch return PrimitiveError.OutOfMemory;
     }
     const pred = args[1];

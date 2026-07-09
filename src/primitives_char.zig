@@ -62,7 +62,7 @@ pub fn isUnicodeCased(cp: u21) bool {
     return unicode.inRanges(&unicode.cased_ranges, cp);
 }
 
-fn isUnicodeWhitespace(cp: u21) bool {
+pub fn isUnicodeWhitespace(cp: u21) bool {
     if (cp <= 127) {
         return switch (cp) {
             0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x20 => true,
