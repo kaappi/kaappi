@@ -36,7 +36,7 @@ All predicate-accepting procedures accept SRFI-14 char-set objects directly in a
 
 ### SRFI 27 — Random Numbers
 
-**Coverage: 100%** (11 of 11 spec procedures). Full state save/restore via `random-source-state-ref`/`state-set!` (all 4 xoshiro256 state words).
+**Coverage: 100%** (11 of 11 spec procedures). Full state save/restore via `random-source-state-ref`/`state-set!` (all 4 xoshiro256 state words). For exact `unit`, `random-source-make-reals` quantizes to **every** multiple of `unit` in the open interval `(0,1)` — `x·unit` for `x ∈ {1, …, ceil(1/unit)−1}`. This intentionally extends the spec's illustrative `{1, …, floor(1/unit)−1}` set (introduced with "One can imagine…", i.e. non-normative), which undershoots when `1/unit` is non-integral.
 
 ### SRFI 39 — Parameter Objects
 

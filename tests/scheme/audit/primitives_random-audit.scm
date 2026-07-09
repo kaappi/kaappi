@@ -126,8 +126,7 @@
 ;; SRFI-27: "The numbers created by rand are of the same numerical type as
 ;; unit and the potential output values are spaced by at most unit." With an
 ;; exact unit the results must be exact.
-;; FAIL: #1194 (random-source-make-reals ignores the unit argument)
-;; (test #t (exact? ((random-source-make-reals (make-random-source) 1/10))))
+(test #t (exact? ((random-source-make-reals (make-random-source) 1/10))))
 
 ;; unit outside (0,1) is rejected
 (test #t (guard (e (#t (error-object? e)))
