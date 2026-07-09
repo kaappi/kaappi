@@ -66,8 +66,7 @@ fn randomRealFn(args: []const Value) PrimitiveError!Value {
     ensureDefaultRS();
     const vm = vm_mod.vm_instance orelse return PrimitiveError.OutOfMemory;
     const rs = try getRS("random-real", vm.default_random_source);
-    const r = rs.prng.random();
-    return types.makeFlonum(r.float(f64));
+    return types.makeFlonum(openUnitReal(rs));
 }
 
 fn defaultRandomSourceFn(args: []const Value) PrimitiveError!Value {
@@ -159,8 +158,14 @@ fn rsNextIntFn(args: []const Value) PrimitiveError!Value {
 // (%rs-next-real rs) — used by random-source-make-reals closure
 fn rsNextRealFn(args: []const Value) PrimitiveError!Value {
     const rs = try getRS("%rs-next-real", args[0]);
-    const r = rs.prng.random();
-    return types.makeFlonum(r.float(f64));
+    return types.makeFlonum(openUnitReal(rs));
+}
+
+// SRFI-27 requires 0 < x < 1 (open interval); Zig's float(f64) returns [0, 1).
+fn openUnitReal(rs: *types.RandomSource) f64 {
+    var x = rs.prng.random().float(f64);
+    while (x == 0.0) x = rs.prng.random().float(f64);
+    return x;
 }
 
 fn randomBelow(proc: []const u8, rs: *types.RandomSource, bound: Value) PrimitiveError!Value {
