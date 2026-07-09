@@ -164,6 +164,17 @@
 (test-equal "force of delay" 42 (force (delay 42)))
 (test-equal "force of non-promise" 7 (force 7))
 
+;; string-map/string-for-each must be linear in string length: an
+;; index-driven (string-ref s i) loop is O(n^2) because UTF-8 codepoint
+;; indexing rescans from byte 0. Quadratic behavior takes minutes on
+;; 300k chars and trips the suite's per-file timeout; linear is instant.
+(define big-string (make-string 300000 #\x))
+(define sfe-count 0)
+(string-for-each (lambda (c) (set! sfe-count (+ sfe-count 1))) big-string)
+(test-equal "string-for-each over 300k chars is linear" 300000 sfe-count)
+(test-equal "string-map over 300k chars is linear"
+            300000 (string-length (string-map char-upcase big-string)))
+
 (let ((runner (test-runner-current)))
   (test-end "trampoline-polish-1375")
   (when (> (test-runner-fail-count runner) 0) (exit 1)))

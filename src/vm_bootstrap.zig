@@ -190,63 +190,73 @@ const vector_map_src =
     \\            result)))))
 ;
 
+// Strings are UTF-8; indexing by codepoint (string-ref) rescans from byte 0
+// each call, so an index-driven loop is O(n^2). Convert to char lists once
+// (one O(n) pass per string) and walk pairs instead.
 const string_for_each_src =
     \\(define string-for-each
-    \\  (let ((null? null?) (car car) (cdr cdr) (cons cons) (apply apply)
-    \\        (string-length string-length) (string-ref string-ref)
-    \\        (procedure? procedure?) (not not) (error error)
-    \\        (< <) (>= >=) (+ +))
+    \\  (let ((null? null?) (pair? pair?) (car car) (cdr cdr) (cons cons)
+    \\        (apply apply) (string->list string->list)
+    \\        (procedure? procedure?) (not not) (error error))
     \\    (lambda (proc str1 . strs)
     \\      (if (not (procedure? proc))
     \\          (error "type error in 'string-for-each': expected procedure, got" proc))
     \\      (if (null? strs)
-    \\          (let ((len (string-length str1)))
-    \\            (do ((i 0 (+ i 1))) ((>= i len))
-    \\              (proc (string-ref str1 i))))
-    \\          (let ((len (let min-len ((s strs) (m (string-length str1)))
-    \\                       (if (null? s) m
-    \\                           (let ((n (string-length (car s))))
-    \\                             (min-len (cdr s) (if (< n m) n m))))))
-    \\                (all (cons str1 strs)))
-    \\            (do ((i 0 (+ i 1))) ((>= i len))
-    \\              (apply proc
-    \\                (let refs ((s all))
-    \\                  (if (null? s) '()
-    \\                      (cons (string-ref (car s) i)
-    \\                            (refs (cdr s))))))))))))
+    \\          (let loop ((l (string->list str1)))
+    \\            (when (pair? l)
+    \\              (proc (car l))
+    \\              (loop (cdr l))))
+    \\          (let loop ((ls (let conv ((s (cons str1 strs)))
+    \\                           (if (null? s) '()
+    \\                               (cons (string->list (car s)) (conv (cdr s)))))))
+    \\            (let ((go (let check ((l ls))
+    \\                        (if (null? l) #t
+    \\                            (if (null? (car l)) #f (check (cdr l)))))))
+    \\              (when go
+    \\                (apply proc
+    \\                  (let cars ((l ls))
+    \\                    (if (null? l) '()
+    \\                        (cons (car (car l)) (cars (cdr l))))))
+    \\                (loop
+    \\                  (let cdrs ((l ls))
+    \\                    (if (null? l) '()
+    \\                        (cons (cdr (car l)) (cdrs (cdr l)))))))))))))
 ;
 
+// Same char-list traversal as string-for-each (see comment there).
 const string_map_src =
     \\(define string-map
-    \\  (let ((null? null?) (car car) (cdr cdr) (cons cons) (apply apply)
-    \\        (string-length string-length) (string-ref string-ref)
+    \\  (let ((null? null?) (pair? pair?) (car car) (cdr cdr) (cons cons)
+    \\        (apply apply) (string->list string->list)
     \\        (list->string list->string) (reverse reverse)
-    \\        (procedure? procedure?) (not not) (error error)
-    \\        (< <) (>= >=) (+ +))
+    \\        (procedure? procedure?) (not not) (error error))
     \\    (lambda (proc str1 . strs)
     \\      (if (not (procedure? proc))
     \\          (error "type error in 'string-map': expected procedure, got" proc))
-    \\      (let ((len (if (null? strs)
-    \\                     (string-length str1)
-    \\                     (let min-len ((s strs) (m (string-length str1)))
-    \\                       (if (null? s) m
-    \\                           (let ((n (string-length (car s))))
-    \\                             (min-len (cdr s) (if (< n m) n m)))))))
-    \\            (all (cons str1 strs)))
-    \\        (list->string
-    \\          (let loop ((i 0) (acc '()))
-    \\            (if (>= i len)
-    \\                (reverse acc)
-    \\                (loop (+ i 1)
-    \\                  (cons
-    \\                    (if (null? strs)
-    \\                        (proc (string-ref str1 i))
-    \\                        (apply proc
-    \\                          (let refs ((s all))
-    \\                            (if (null? s) '()
-    \\                                (cons (string-ref (car s) i)
-    \\                                      (refs (cdr s)))))))
-    \\                    acc)))))))))
+    \\      (if (null? strs)
+    \\          (let loop ((l (string->list str1)) (acc '()))
+    \\            (if (pair? l)
+    \\                (loop (cdr l) (cons (proc (car l)) acc))
+    \\                (list->string (reverse acc))))
+    \\          (let loop ((ls (let conv ((s (cons str1 strs)))
+    \\                           (if (null? s) '()
+    \\                               (cons (string->list (car s)) (conv (cdr s))))))
+    \\                     (acc '()))
+    \\            (let ((go (let check ((l ls))
+    \\                        (if (null? l) #t
+    \\                            (if (null? (car l)) #f (check (cdr l)))))))
+    \\              (if go
+    \\                  (loop
+    \\                    (let cdrs ((l ls))
+    \\                      (if (null? l) '()
+    \\                          (cons (cdr (car l)) (cdrs (cdr l)))))
+    \\                    (cons
+    \\                      (apply proc
+    \\                        (let cars ((l ls))
+    \\                          (if (null? l) '()
+    \\                              (cons (car (car l)) (cars (cdr l))))))
+    \\                      acc))
+    \\                  (list->string (reverse acc)))))))))
 ;
 
 // Validates all three arguments before running (before), so a bad-argument
