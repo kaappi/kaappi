@@ -153,10 +153,18 @@ pub fn execute(vm: *VM, func: *types.Function) VMError!Value {
         // Unwind any pending dynamic-wind after-thunks so that
         // (dynamic-wind before thunk after) calls after even when
         // thunk raises an uncaught exception that escapes execute().
+        // Preserve the error detail: after-thunks that make native
+        // calls (e.g. display) clear last_error_detail as a side
+        // effect, which would lose the real exception message.
+        const saved_detail_len = vm.last_error_detail_len;
+        var saved_detail: [256]u8 = undefined;
+        @memcpy(saved_detail[0..saved_detail_len], vm.last_error_detail[0..saved_detail_len]);
         while (vm.wind_count > 0) {
             vm.wind_count -= 1;
             _ = vm.callThunk(vm.wind_stack[vm.wind_count].after) catch {};
         }
+        @memcpy(vm.last_error_detail[0..saved_detail_len], saved_detail[0..saved_detail_len]);
+        vm.last_error_detail_len = saved_detail_len;
         vm.resetExecutionState();
         return err;
     };

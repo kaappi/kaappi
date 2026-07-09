@@ -194,6 +194,11 @@ assert_output_contains "anonymous lambda arity error has no name" \
 # Continuation captured inside map can now be reinvoked (map is bytecode-driven).
 # The old "dead native call" error no longer applies — this is a success case.
 
+# Error message must survive dynamic-wind after-thunks that do I/O
+assert_output_contains "error message preserved through dynamic-wind after with I/O" \
+    '(dynamic-wind (lambda () #t) (lambda () (error "REAL-MSG")) (lambda () (display "")))' \
+    "REAL-MSG"
+
 # Issue #1032: malformed let*-values and guard must report InvalidSyntax, not OOM
 assert_output_contains "malformed let*-values reports InvalidSyntax" \
     '(let*-values (42) 1)' "InvalidSyntax"
