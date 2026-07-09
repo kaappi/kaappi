@@ -72,7 +72,7 @@ jobs:
       - name: Scheme suites
         run: bash tests/scheme/run-all.sh
         env:
-          KAAPPI_SKIP: ${{ matrix.skip_stress || '' }}
+          KAAPPI_TEST_SKIP: ${{ matrix.skip_stress || '' }}
 
       - name: Sandbox escape tests
         run: bash tests/scheme/sandbox/sandbox-escape.sh

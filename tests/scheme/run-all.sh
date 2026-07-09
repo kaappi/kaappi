@@ -15,14 +15,14 @@ TMPSTDOUT=$(mktemp /tmp/kaappi-r7rs-stdout-XXXXXX)
 TMPSTDERR=$(mktemp /tmp/kaappi-r7rs-stderr-XXXXXX)
 trap 'rm -f "$TMPOUT" "$TMPSTDOUT" "$TMPSTDERR"' EXIT
 
-TIMEOUT="${KAAPPI_TIMEOUT:-60}"
+TIMEOUT="${KAAPPI_TEST_TIMEOUT:-60}"
 PASS=0
 FAIL=0
 TIMEDOUT=0
 SKIPPED=0
 
-# Space-separated basenames to skip (e.g. KAAPPI_SKIP="callcc-bench.scm foo.scm")
-SKIP="${KAAPPI_SKIP:-}"
+# Space-separated basenames to skip (e.g. KAAPPI_TEST_SKIP="callcc-bench.scm foo.scm")
+SKIP="${KAAPPI_TEST_SKIP:-}"
 
 should_skip() {
     local base
