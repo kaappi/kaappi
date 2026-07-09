@@ -112,13 +112,21 @@
 
 ;; A call/cc escape out of the thunk must also reset the forcing flag
 ;; (the native forceFn cleared it on any abnormal exit, escapes included).
+;; The flag itself is no longer observable (%promise-forcing? is not
+;; globally reachable since #1375), so probe it behaviorally: if the escape
+;; left it set, forcing p through a delay-force chain would raise
+;; "re-entrant forcing of promise" instead of re-running the thunk.
 (let ()
   (define p #f)
+  (define fired #f)
   (define v (call/cc (lambda (escape)
-                       (set! p (delay (escape 'out)))
+                       (set! p (delay (if fired
+                                          'done
+                                          (begin (set! fired #t)
+                                                 (escape 'out)))))
                        (force p))))
   (test 'out v)
-  (test #f (%promise-forcing? p)))
+  (test 'done (force (delay-force p))))
 
 ;;; --- continuation captured in a promise thunk, reinvoked after force ---
 ;; force is bytecode-driven (#1347): a full continuation captured inside

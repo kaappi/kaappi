@@ -25,8 +25,10 @@ pub const specs = [_]primitives.PrimSpec{
     .{ .name = "assoc", .func = &assocFn, .arity = .{ .variadic = 2 }, .libs = LS.initMany(&.{ .scheme_base, .scheme_r5rs, .srfi_1 }) },
     .{ .name = "assq", .func = &assqFn, .arity = .{ .exact = 2 }, .libs = LS.initMany(&.{ .scheme_base, .scheme_r5rs, .srfi_1 }) },
     .{ .name = "assv", .func = &assvFn, .arity = .{ .exact = 2 }, .libs = LS.initMany(&.{ .scheme_base, .scheme_r5rs, .srfi_1 }) },
-    .{ .name = "map", .func = &mapFn, .arity = .{ .variadic = 2 }, .libs = LS.initMany(&.{ .scheme_base, .scheme_r5rs, .srfi_1 }) },
-    .{ .name = "for-each", .func = &forEachFn, .arity = .{ .variadic = 2 }, .libs = LS.initMany(&.{ .scheme_base, .scheme_r5rs, .srfi_1 }) },
+    // map and for-each are implemented in Scheme (src/vm_bootstrap.zig);
+    // these entries keep the arity metadata and library exports.
+    .{ .name = "map", .func = primitives.bootstrapStub("map"), .arity = .{ .variadic = 2 }, .libs = LS.initMany(&.{ .scheme_base, .scheme_r5rs, .srfi_1 }) },
+    .{ .name = "for-each", .func = primitives.bootstrapStub("for-each"), .arity = .{ .variadic = 2 }, .libs = LS.initMany(&.{ .scheme_base, .scheme_r5rs, .srfi_1 }) },
     .{ .name = "boolean=?", .func = &booleanEqP, .arity = .{ .variadic = 2 }, .libs = LS.initOne(.scheme_base) },
     .{ .name = "symbol=?", .func = &symbolEqP, .arity = .{ .variadic = 2 }, .libs = LS.initOne(.scheme_base) },
     .{ .name = "features", .func = &featuresFn, .arity = .{ .exact = 0 }, .libs = LS.initOne(.scheme_base) },
@@ -342,129 +344,6 @@ fn symbolEqP(args: []const Value) PrimitiveError!Value {
         if (a != args[0]) return types.FALSE;
     }
     return types.TRUE;
-}
-
-// ---------------------------------------------------------------------------
-// map and for-each (higher-order list functions)
-// ---------------------------------------------------------------------------
-
-fn mapFn(args: []const Value) PrimitiveError!Value {
-    const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError; // bare-ok: no VM
-    const gc = getGC() orelse return PrimitiveError.OutOfMemory;
-    const proc = args[0];
-    if (!types.isProcedure(proc) and !types.isNativeFn(proc)) return primitives.typeError("map", "procedure", proc);
-
-    const list_count = args.len - 1;
-    std.debug.assert(list_count > 0);
-
-    // Build result list incrementally (rooted head + tail)
-    var result_head: Value = types.NIL;
-    gc.pushRoot(&result_head);
-    defer gc.popRoot();
-
-    var result_tail: Value = types.NIL;
-    gc.pushRoot(&result_tail);
-    defer gc.popRoot();
-
-    // Current pointers for each list
-    var currents: [256]Value = undefined;
-    for (0..list_count) |i| {
-        currents[i] = args[1 + i];
-    }
-
-    var call_args: [256]Value = undefined;
-
-    while (true) {
-        // Check if any list is exhausted
-        var all_pairs = true;
-        for (0..list_count) |i| {
-            if (currents[i] == types.NIL) {
-                all_pairs = false;
-                break;
-            }
-            if (!types.isPair(currents[i])) return primitives.typeError("map", "proper list", currents[i]);
-        }
-        if (!all_pairs) break;
-
-        // Extract car of each list
-        for (0..list_count) |i| {
-            call_args[i] = types.car(currents[i]);
-        }
-
-        // Call procedure
-        var result = vm.callWithArgs(proc, call_args[0..list_count]) catch |err| {
-            return err;
-        };
-
-        // Root result: callWithArgs pops its frame, so the return value has
-        // no GC root until it is consed into the result list.
-        gc.pushRoot(&result);
-        const new_pair = gc.allocPair(result, types.NIL) catch {
-            gc.popRoot();
-            return PrimitiveError.OutOfMemory;
-        };
-        gc.popRoot();
-        if (result_head == types.NIL) {
-            result_head = new_pair;
-        } else {
-            types.setCdr(result_tail, new_pair);
-        }
-        result_tail = new_pair;
-
-        // Advance each list
-        for (0..list_count) |i| {
-            currents[i] = types.cdr(currents[i]);
-        }
-    }
-
-    return result_head;
-}
-
-fn forEachFn(args: []const Value) PrimitiveError!Value {
-    const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError; // bare-ok: no VM
-    const proc = args[0];
-    if (!types.isProcedure(proc) and !types.isNativeFn(proc)) return primitives.typeError("for-each", "procedure", proc);
-
-    const list_count = args.len - 1;
-    std.debug.assert(list_count > 0);
-
-    // Current pointers for each list
-    var currents: [256]Value = undefined;
-    for (0..list_count) |i| {
-        currents[i] = args[1 + i];
-    }
-
-    var call_args: [256]Value = undefined;
-
-    while (true) {
-        // Check if any list is exhausted
-        var all_pairs = true;
-        for (0..list_count) |i| {
-            if (currents[i] == types.NIL) {
-                all_pairs = false;
-                break;
-            }
-            if (!types.isPair(currents[i])) return primitives.typeError("for-each", "proper list", currents[i]);
-        }
-        if (!all_pairs) break;
-
-        // Extract car of each list
-        for (0..list_count) |i| {
-            call_args[i] = types.car(currents[i]);
-        }
-
-        // Call procedure (discard result)
-        _ = vm.callWithArgs(proc, call_args[0..list_count]) catch |err| {
-            return err;
-        };
-
-        // Advance each list
-        for (0..list_count) |i| {
-            currents[i] = types.cdr(currents[i]);
-        }
-    }
-
-    return types.VOID;
 }
 
 // ---------------------------------------------------------------------------

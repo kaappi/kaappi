@@ -20,8 +20,11 @@ pub const specs = [_]primitives.PrimSpec{
     .{ .name = "string->list", .func = &stringToListFn, .arity = .{ .variadic = 1 }, .libs = LS.initMany(&.{ .scheme_base, .scheme_r5rs }) },
     .{ .name = "list->string", .func = &listToStringFn, .arity = .{ .exact = 1 }, .libs = LS.initMany(&.{ .scheme_base, .scheme_r5rs }) },
     .{ .name = "string->vector", .func = &stringToVectorFn, .arity = .{ .variadic = 1 }, .libs = LS.initMany(&.{ .scheme_base, .srfi_133 }) },
-    .{ .name = "string-for-each", .func = &stringForEachFn, .arity = .{ .variadic = 2 }, .libs = LS.initOne(.scheme_base) },
-    .{ .name = "string-map", .func = &stringMapFn, .arity = .{ .variadic = 2 }, .libs = LS.initOne(.scheme_base) },
+    // string-for-each and string-map are implemented in Scheme
+    // (src/vm_bootstrap.zig); these entries keep the arity metadata and
+    // library exports.
+    .{ .name = "string-for-each", .func = primitives.bootstrapStub("string-for-each"), .arity = .{ .variadic = 2 }, .libs = LS.initOne(.scheme_base) },
+    .{ .name = "string-map", .func = primitives.bootstrapStub("string-map"), .arity = .{ .variadic = 2 }, .libs = LS.initOne(.scheme_base) },
     .{ .name = "string<?", .func = &stringLtFn, .arity = .{ .variadic = 2 }, .libs = LS.initMany(&.{ .scheme_base, .scheme_r5rs, .srfi_13 }) },
     .{ .name = "string<=?", .func = &stringLeFn, .arity = .{ .variadic = 2 }, .libs = LS.initMany(&.{ .scheme_base, .scheme_r5rs, .srfi_13 }) },
     .{ .name = "string=?", .func = &stringEqFn, .arity = .{ .variadic = 2 }, .libs = LS.initMany(&.{ .scheme_base, .scheme_r5rs, .srfi_13 }) },
@@ -426,89 +429,6 @@ fn stringToVectorFn(args: []const Value) PrimitiveError!Value {
         byte_i += utf8ByteLenAt(data, byte_i);
     }
     return gc.allocVector(vec_data[0..range_count]) catch return PrimitiveError.OutOfMemory;
-}
-
-// ---------------------------------------------------------------------------
-// (string-for-each proc str1 ...)
-// ---------------------------------------------------------------------------
-
-fn stringForEachFn(args: []const Value) PrimitiveError!Value {
-    const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError; // bare-ok: no VM
-    const proc = args[0];
-    if (!types.isProcedure(proc) and !types.isNativeFn(proc)) return primitives.typeError("string-for-each", "procedure", proc);
-
-    const str_count = args.len - 1;
-    std.debug.assert(str_count > 0);
-    if (str_count > 256) return PrimitiveError.ArityMismatch;
-
-    // Find minimum codepoint length
-    var min_cp_len: usize = std.math.maxInt(usize);
-    for (args[1..]) |a| {
-        const data = try getStringSlice("string-for-each", a);
-        const cp_len = utf8CodepointCount(data);
-        if (cp_len < min_cp_len) min_cp_len = cp_len;
-    }
-
-    var call_args: [256]Value = undefined;
-    for (0..min_cp_len) |cp_idx| {
-        for (0..str_count) |si| {
-            const data = try getStringSlice("string-for-each", args[1 + si]);
-            const byte_off = utf8IndexToByteOffset(data, cp_idx) orelse return primitives.typeError("string-for-each", "valid UTF-8 string", args[1 + si]);
-            const cp = utf8DecodeAt(data, byte_off) orelse return primitives.typeError("string-for-each", "valid UTF-8 string", args[1 + si]);
-            call_args[si] = types.makeChar(cp);
-        }
-        _ = vm.callWithArgs(proc, call_args[0..str_count]) catch |err| {
-            return err;
-        };
-    }
-    return types.VOID;
-}
-
-// ---------------------------------------------------------------------------
-// (string-map proc str1 ...)
-// ---------------------------------------------------------------------------
-
-fn stringMapFn(args: []const Value) PrimitiveError!Value {
-    const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError; // bare-ok: no VM
-    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
-    const proc = args[0];
-    if (!types.isProcedure(proc) and !types.isNativeFn(proc)) return primitives.typeError("string-map", "procedure", proc);
-
-    const str_count = args.len - 1;
-    std.debug.assert(str_count > 0);
-    if (str_count > 256) return PrimitiveError.ArityMismatch;
-
-    // Find minimum codepoint length
-    var min_cp_len: usize = std.math.maxInt(usize);
-    for (args[1..]) |a| {
-        const data = try getStringSlice("string-map", a);
-        const cp_len = utf8CodepointCount(data);
-        if (cp_len < min_cp_len) min_cp_len = cp_len;
-    }
-
-    // Collect result chars
-    var result_buf: std.ArrayList(u8) = .empty;
-    defer result_buf.deinit(gc.allocator);
-
-    var call_args: [256]Value = undefined;
-    for (0..min_cp_len) |cp_idx| {
-        for (0..str_count) |si| {
-            const data = try getStringSlice("string-map", args[1 + si]);
-            const byte_off = utf8IndexToByteOffset(data, cp_idx) orelse return primitives.typeError("string-map", "valid UTF-8 string", args[1 + si]);
-            const cp = utf8DecodeAt(data, byte_off) orelse return primitives.typeError("string-map", "valid UTF-8 string", args[1 + si]);
-            call_args[si] = types.makeChar(cp);
-        }
-        const result = vm.callWithArgs(proc, call_args[0..str_count]) catch |err| {
-            return err;
-        };
-        if (!types.isChar(result)) return primitives.typeError("string-map", "character", result);
-        const cp = types.toChar(result);
-        var tmp: [4]u8 = undefined;
-        const n = std.unicode.utf8Encode(cp, &tmp) catch return primitives.typeError("string-map", "valid character", result);
-        result_buf.appendSlice(gc.allocator, tmp[0..n]) catch return PrimitiveError.OutOfMemory;
-    }
-
-    return gc.allocString(result_buf.items) catch return PrimitiveError.OutOfMemory;
 }
 
 // ---------------------------------------------------------------------------

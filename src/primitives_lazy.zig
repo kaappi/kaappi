@@ -9,7 +9,9 @@ const LS = primitives.LibSet;
 const NativeFn = types.NativeFn;
 
 pub const specs = [_]primitives.PrimSpec{
-    .{ .name = "force", .func = &forceFn, .arity = .{ .exact = 1 }, .libs = LS.initMany(&.{ .scheme_lazy, .scheme_r5rs }) },
+    // force is implemented in Scheme (src/vm_bootstrap.zig); this entry keeps
+    // the arity metadata and library exports.
+    .{ .name = "force", .func = primitives.bootstrapStub("force"), .arity = .{ .exact = 1 }, .libs = LS.initMany(&.{ .scheme_lazy, .scheme_r5rs }) },
     .{ .name = "promise?", .func = &promiseP, .arity = .{ .exact = 1 }, .libs = LS.initMany(&.{ .scheme_base, .scheme_lazy }) },
     .{ .name = "make-promise", .func = &makePromiseFn, .arity = .{ .exact = 1 }, .libs = LS.initMany(&.{ .scheme_base, .scheme_lazy }) },
     .{ .name = "%make-promise-lazy", .func = &makePromiseLazy, .arity = .{ .exact = 1 }, .libs = LS.initOne(.scheme_base) },
@@ -81,80 +83,4 @@ fn promiseMerge(args: []const Value) PrimitiveError!Value {
     gc.writeBarrier(&inner.header, types.makePointer(@ptrCast(outer)));
     outer.forcing = false;
     return types.VOID;
-}
-
-fn forceFn(args: []const Value) PrimitiveError!Value {
-    const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError; // bare-ok: no VM
-    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
-
-    var current = args[0];
-    gc.pushRoot(&current);
-    defer gc.popRoot();
-
-    if (!types.isPromise(current)) return current;
-
-    while (true) {
-        if (!types.isPromise(current)) return current;
-        const promise = types.toPromise(current);
-
-        if (promise.forced) {
-            // Follow redirect: forced value is a promise only via SRFI-45 merge (inner → head), never a cycle.
-            current = promise.value;
-            continue;
-        }
-
-        const thunk = promise.value;
-        if (!types.isProcedure(thunk)) {
-            promise.forced = true;
-            return thunk;
-        }
-
-        promise.forcing = true;
-
-        const result = vm.callWithArgs(thunk, &[_]Value{}) catch |err| {
-            promise.forcing = false;
-            return err;
-        };
-
-        // SRFI-45 §8: after the thunk returns, check if another force
-        // has already completed this promise (re-entrant force).
-        if (promise.forced) {
-            promise.forcing = false;
-            current = promise.value;
-            continue;
-        }
-
-        if (types.isPromise(result)) {
-            const inner = types.toPromise(result);
-            // SRFI-45 §8: detect cyclic promise chains where a thunk
-            // returns a promise that is already being forced.
-            if (inner.forcing) {
-                promise.forcing = false;
-                vm.setErrorDetail("re-entrant forcing of promise", .{});
-                return PrimitiveError.TypeError; // bare-ok: detail set above
-            }
-            if (inner.forced) {
-                promise.forcing = false;
-                promise.forced = true;
-                promise.value = inner.value;
-                gc.writeBarrier(&promise.header, inner.value);
-                current = inner.value;
-                continue;
-            }
-            promise.value = inner.value;
-            gc.writeBarrier(&promise.header, inner.value);
-            inner.forced = true;
-            inner.value = types.makePointer(@ptrCast(promise));
-            gc.writeBarrier(&inner.header, types.makePointer(@ptrCast(promise)));
-            promise.forcing = false;
-            current = types.makePointer(@ptrCast(promise));
-            continue;
-        }
-
-        promise.forcing = false;
-        promise.forced = true;
-        promise.value = result;
-        gc.writeBarrier(&promise.header, result);
-        return result;
-    }
 }

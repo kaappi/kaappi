@@ -21,8 +21,11 @@ pub const specs = [_]primitives.PrimSpec{
     .{ .name = "vector-copy", .func = &vectorCopyFn, .arity = .{ .variadic = 1 }, .libs = LS.initOne(.scheme_base) },
     .{ .name = "vector-copy!", .func = &vectorCopyBangFn, .arity = .{ .variadic = 3 }, .libs = LS.initOne(.scheme_base) },
     .{ .name = "vector-append", .func = &vectorAppendFn, .arity = .{ .variadic = 0 }, .libs = LS.initOne(.scheme_base) },
-    .{ .name = "vector-for-each", .func = &vectorForEachFn, .arity = .{ .variadic = 2 }, .libs = LS.initMany(&.{ .scheme_base, .scheme_r5rs }) },
-    .{ .name = "vector-map", .func = &vectorMapFn, .arity = .{ .variadic = 2 }, .libs = LS.initMany(&.{ .scheme_base, .scheme_r5rs }) },
+    // vector-for-each and vector-map are implemented in Scheme
+    // (src/vm_bootstrap.zig); these entries keep the arity metadata and
+    // library exports.
+    .{ .name = "vector-for-each", .func = primitives.bootstrapStub("vector-for-each"), .arity = .{ .variadic = 2 }, .libs = LS.initMany(&.{ .scheme_base, .scheme_r5rs }) },
+    .{ .name = "vector-map", .func = primitives.bootstrapStub("vector-map"), .arity = .{ .variadic = 2 }, .libs = LS.initMany(&.{ .scheme_base, .scheme_r5rs }) },
     .{ .name = "vector->string", .func = &vectorToStringFn, .arity = .{ .variadic = 1 }, .libs = LS.initOne(.scheme_base) },
     .{ .name = "vector-empty?", .func = &vectorEmptyFn, .arity = .{ .exact = 1 }, .libs = LS.initOne(.srfi_133) },
     .{ .name = "vector-count", .func = &vectorCountFn, .arity = .{ .variadic = 2 }, .libs = LS.initOne(.srfi_133) },
@@ -280,95 +283,6 @@ fn vectorAppendFn(args: []const Value) PrimitiveError!Value {
     }
 
     return gc.allocVector(data) catch return PrimitiveError.OutOfMemory;
-}
-
-// ---------------------------------------------------------------------------
-// (vector-for-each proc v1 v2 ...)
-// ---------------------------------------------------------------------------
-
-fn vectorForEachFn(args: []const Value) PrimitiveError!Value {
-    const vm = vm_mod.vm_instance orelse return PrimitiveError.OutOfMemory;
-    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
-    const proc = args[0];
-    if (!types.isProcedure(proc) and !types.isNativeFn(proc)) return primitives.typeError("vector-for-each", "procedure", proc);
-
-    // Validate all vector arguments and find minimum length
-    const vec_count = args.len - 1;
-    if (vec_count == 0) return primitives.typeError("vector-for-each", "at least one vector argument", types.VOID);
-
-    var min_len: usize = std.math.maxInt(usize);
-    for (args[1..]) |a| {
-        if (!types.isVector(a)) return primitives.typeError("vector-for-each", "vector", a);
-        const vlen = types.toVector(a).data.len;
-        if (vlen < min_len) min_len = vlen;
-    }
-
-    // Iterate over elements
-    var stack_buf: [256]Value = undefined;
-    const call_args = if (vec_count > 256)
-        gc.allocator.alloc(Value, vec_count) catch return PrimitiveError.OutOfMemory
-    else
-        stack_buf[0..vec_count];
-    defer if (vec_count > 256) gc.allocator.free(call_args);
-    for (0..min_len) |i| {
-        for (0..vec_count) |vi| {
-            call_args[vi] = types.toVector(args[1 + vi]).data[i];
-        }
-
-        _ = vm.callWithArgs(proc, call_args) catch |err| {
-            return err;
-        };
-    }
-
-    return types.VOID;
-}
-
-// ---------------------------------------------------------------------------
-// (vector-map proc v1 v2 ...)
-// ---------------------------------------------------------------------------
-
-fn vectorMapFn(args: []const Value) PrimitiveError!Value {
-    const vm = vm_mod.vm_instance orelse return PrimitiveError.OutOfMemory;
-    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
-    const proc = args[0];
-    if (!types.isProcedure(proc) and !types.isNativeFn(proc)) return primitives.typeError("vector-map", "procedure", proc);
-
-    // Validate all vector arguments and find minimum length
-    const vec_count = args.len - 1;
-    if (vec_count == 0) return primitives.typeError("vector-map", "at least one vector argument", types.VOID);
-
-    var min_len: usize = std.math.maxInt(usize);
-    for (args[1..]) |a| {
-        if (!types.isVector(a)) return primitives.typeError("vector-map", "vector", a);
-        const vlen = types.toVector(a).data.len;
-        if (vlen < min_len) min_len = vlen;
-    }
-
-    // Allocate result buffer
-    const results = gc.allocator.alloc(Value, min_len) catch return PrimitiveError.OutOfMemory;
-    defer gc.allocator.free(results);
-
-    const scope = gc.rootedScope();
-    defer scope.release();
-
-    var stack_buf: [256]Value = undefined;
-    const call_args = if (vec_count > 256)
-        gc.allocator.alloc(Value, vec_count) catch return PrimitiveError.OutOfMemory
-    else
-        stack_buf[0..vec_count];
-    defer if (vec_count > 256) gc.allocator.free(call_args);
-    for (0..min_len) |i| {
-        for (0..vec_count) |vi| {
-            call_args[vi] = types.toVector(args[1 + vi]).data[i];
-        }
-
-        results[i] = vm.callWithArgs(proc, call_args) catch |err| {
-            return err;
-        };
-        gc.extra_roots.append(gc.allocator, results[i]) catch return PrimitiveError.OutOfMemory;
-    }
-
-    return gc.allocVector(results) catch return PrimitiveError.OutOfMemory;
 }
 
 // ---------------------------------------------------------------------------

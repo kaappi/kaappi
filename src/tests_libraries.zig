@@ -513,7 +513,18 @@ test "every spec name resolves in globals (drift guard)" {
     var vm = try th.makeTestVM(&gc);
     defer vm.deinit();
 
-    for (&@import("primitives.zig").all_specs) |spec| {
+    for (&primitives_mod.all_specs) |spec| {
+        // .internal-only helpers are deliberately removed from globals by
+        // vm_bootstrap.install() after being captured by the bootstrapped
+        // closures (#1375) — they must NOT resolve.
+        const internal_only = spec.libs.eql(primitives_mod.LibSet.initOne(.internal));
+        if (internal_only) {
+            if (vm.globals.get(spec.name) != null) {
+                std.debug.print("DRIFT: internal spec \"{s}\" is still in globals\n", .{spec.name});
+                return error.TestUnexpectedResult;
+            }
+            continue;
+        }
         if (vm.globals.get(spec.name) == null) {
             std.debug.print("DRIFT: spec \"{s}\" is not in globals\n", .{spec.name});
             return error.TestUnexpectedResult;

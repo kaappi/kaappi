@@ -506,3 +506,23 @@ test "Unicode symbol write/read round-trip (#1268)" {
     );
     try std.testing.expectEqual(types.TRUE, result);
 }
+
+test "bootstrap stubs fail loudly without vm_bootstrap.install (#1375)" {
+    // A VM that registers primitives but never runs vm_bootstrap.install()
+    // must raise a clear error from the bootstrapped procedures instead of
+    // silently reverting to retired native implementations.
+    const vm_mod = @import("vm.zig");
+    const primitives_mod = @import("primitives.zig");
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try vm_mod.VM.init(&gc);
+    defer vm.deinit();
+    memory.setGCInstance(&gc);
+    try primitives_mod.registerAll(&vm);
+
+    const result = vm.eval("(map (lambda (x) x) (list 1 2 3))");
+    try std.testing.expectError(vm_mod.VMError.TypeError, result);
+    const detail = vm.last_error_detail[0..vm.last_error_detail_len];
+    try std.testing.expect(std.mem.indexOf(u8, detail, "vm_bootstrap.install") != null);
+    try std.testing.expect(std.mem.indexOf(u8, detail, "'map'") != null);
+}

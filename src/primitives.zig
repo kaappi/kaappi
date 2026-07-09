@@ -237,6 +237,25 @@ pub fn registerSandboxed(vm: *vm_mod.VM) !void {
     }
 }
 
+/// Registration placeholder for procedures whose real implementation is
+/// Scheme source in vm_bootstrap.zig, installed at VM init right after
+/// registration. The spec entry must stay (it drives arity metadata and
+/// library exports), but the native body was retired when the Scheme
+/// version became the single implementation (#1375): a stub that errors
+/// makes a missing vm_bootstrap.install() fail loudly instead of silently
+/// falling back to a native implementation that has since diverged.
+pub fn bootstrapStub(comptime name: []const u8) types.NativeFnType {
+    const S = struct {
+        fn call(args: []const Value) PrimitiveError!Value {
+            _ = args;
+            const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError; // bare-ok: no VM
+            vm.setErrorDetail("'{s}' is implemented in Scheme (src/vm_bootstrap.zig) but vm_bootstrap.install() has not run for this VM", .{name});
+            return PrimitiveError.TypeError;
+        }
+    };
+    return &S.call;
+}
+
 pub fn reg(vm: *vm_mod.VM, name: []const u8, func: types.NativeFnType, arity: NativeFn.Arity) !void {
     if (std.debug.runtime_safety) {
         if (vm.globals.get(name) != null) {

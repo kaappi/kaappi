@@ -24,7 +24,9 @@ pub const specs = [_]primitives.PrimSpec{
     .{ .name = "call/cc", .func = &callWithCurrentContinuation, .arity = .{ .exact = 1 }, .libs = LS.initOne(.scheme_base) },
     .{ .name = "call-with-escape-continuation", .func = &callWithEscapeContinuation, .arity = .{ .exact = 1 }, .libs = LS.initOne(.scheme_base) },
     .{ .name = "call/ec", .func = &callWithEscapeContinuation, .arity = .{ .exact = 1 }, .libs = LS.initOne(.scheme_base) },
-    .{ .name = "dynamic-wind", .func = &dynamicWindFn, .arity = .{ .exact = 3 }, .libs = LS.initMany(&.{ .scheme_base, .scheme_r5rs }) },
+    // dynamic-wind is implemented in Scheme (src/vm_bootstrap.zig); this
+    // entry keeps the arity metadata and library exports.
+    .{ .name = "dynamic-wind", .func = primitives.bootstrapStub("dynamic-wind"), .arity = .{ .exact = 3 }, .libs = LS.initMany(&.{ .scheme_base, .scheme_r5rs }) },
     .{ .name = "values", .func = &valuesFn, .arity = .{ .variadic = 0 }, .libs = LS.initMany(&.{ .scheme_base, .scheme_r5rs }) },
     .{ .name = "call-with-values", .func = &callWithValuesFn, .arity = .{ .exact = 2 }, .libs = LS.initMany(&.{ .scheme_base, .scheme_r5rs }) },
     .{ .name = "%push-wind", .func = &pushWindFn, .arity = .{ .exact = 2 }, .libs = LS.initOne(.internal) },
@@ -260,52 +262,6 @@ fn callWithEscapeContinuation(args: []const Value) PrimitiveError!Value {
 
     // proc returned normally without escaping; the extent is over.
     cont_obj.valid = false;
-    return result;
-}
-
-fn dynamicWindFn(args: []const Value) PrimitiveError!Value {
-    const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError; // bare-ok: no VM
-    const before = args[0];
-    const thunk = args[1];
-    const after = args[2];
-
-    if (!types.isProcedure(before)) return primitives.typeError("dynamic-wind", "procedure", args[0]);
-    if (!types.isProcedure(thunk)) return primitives.typeError("dynamic-wind", "procedure", args[1]);
-    if (!types.isProcedure(after)) return primitives.typeError("dynamic-wind", "procedure", args[2]);
-
-    // Call before thunk
-    _ = vm.callThunk(before) catch |err| {
-        return err;
-    };
-
-    // Push wind record
-    if (vm.wind_count >= vm_mod.MAX_WINDS) return PrimitiveError.OutOfMemory;
-    vm.wind_stack[vm.wind_count] = .{ .before = before, .after = after };
-    vm.wind_count += 1;
-
-    // Call thunk
-    const result = vm.callThunk(thunk) catch |err| {
-        // If continuation was invoked, the wind stack has been replaced
-        // so we shouldn't try to pop/call after
-        if (err == vm_mod.VMError.ContinuationInvoked) return PrimitiveError.ContinuationInvoked;
-
-        // On other errors, pop wind record and call after
-        vm.wind_count -= 1;
-        _ = vm.callThunk(after) catch |after_err| {
-            if (after_err == vm_mod.VMError.ContinuationInvoked)
-                return PrimitiveError.ContinuationInvoked;
-        };
-        return err;
-    };
-
-    // Pop wind record
-    vm.wind_count -= 1;
-
-    // Call after thunk
-    _ = vm.callThunk(after) catch |err| {
-        return err;
-    };
-
     return result;
 }
 
