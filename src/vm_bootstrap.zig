@@ -183,7 +183,20 @@ const force_src =
     \\                      (begin (%promise-complete! current thunk) thunk)
     \\                      (begin
     \\                        (%promise-set-forcing! current #t)
-    \\                        (let ((result (thunk)))
+    \\                        ;; Clear `forcing` on ABNORMAL exit only (raise or
+    \\                        ;; call/cc escape), matching the native forceFn's
+    \\                        ;; `catch |err|`. Normal returns keep it set so the
+    \\                        ;; (%promise-forcing? result) cycle check below can
+    \\                        ;; see it; the exit paths clear it explicitly.
+    \\                        (let* ((ok #f)
+    \\                               (result
+    \\                                (dynamic-wind
+    \\                                  (lambda () #f)
+    \\                                  (lambda ()
+    \\                                    (let ((r (thunk))) (set! ok #t) r))
+    \\                                  (lambda ()
+    \\                                    (if (not ok)
+    \\                                        (%promise-set-forcing! current #f))))))
     \\                          (if (%promise-forced? current)
     \\                              (begin
     \\                                (%promise-set-forcing! current #f)
