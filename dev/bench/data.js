@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783603171751,
+  "lastUpdate": 1783603658657,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "distinct": true,
-          "id": "c1526aa3ded71a3c1938f296e8bc32ee89381f82",
-          "message": "Release v0.13.0",
-          "timestamp": "2026-07-05T22:20:05+05:30",
-          "tree_id": "dc10578603da2fde24317cbac963fa85336ef918",
-          "url": "https://github.com/kaappi/kaappi/commit/c1526aa3ded71a3c1938f296e8bc32ee89381f82"
-        },
-        "date": 1783271735819,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.373419,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.542624,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.920285,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.17693,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.012404,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.211466,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.471926,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.07046,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 12.340675,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.812137,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 9.980701,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.955982,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 8.33986,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.787822,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044137,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.045296,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c7747d31714699542e6cb848db6e8c335462a046",
+          "message": "Add descriptive FFI call-time error messages (#1187) (#1370)\n\n* Add descriptive error messages for FFI call-time marshaling errors (#1187)\n\nFFI call-time rejections (wrong arg type, arity mismatch, NUL-in-string,\nclosed library, out-of-range) previously raised a bare \"error\" with no\ndiagnostic detail. Now every failure path sets vm.setErrorDetail with the\nFFI function name, argument position, and expected/actual types.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Address review feedback and fix Linux CI failure\n\n- Fix arity test: use abs (libc) instead of sqrt (libm) for portability\n- Handle toIntArgOpt null for c_int range check (multi-limb bignum)\n- Clear vm.last_error_detail_len at start of callFfi (stale detail)\n- Add vector/procedure to schemeTypeName for better diagnostics\n- Add closed-library and out-of-range regression tests\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-09T12:47:58Z",
+          "tree_id": "a6f74d7749fb380ca28efd82dac84ca4706f93d0",
+          "url": "https://github.com/kaappi/kaappi/commit/c7747d31714699542e6cb848db6e8c335462a046"
+        },
+        "date": 1783603657175,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.385169,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.737516,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.970039,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.423552,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.012558,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.204202,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.502201,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.068832,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 12.75873,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.934535,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 10.219352,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.994735,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 8.431896,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.556184,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.0434,
             "unit": "seconds"
           }
         ]
