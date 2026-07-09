@@ -27,8 +27,8 @@ fn getScheduler() ?*fiber_mod.FiberScheduler {
 
 fn spawnFn(args: []const Value) PrimitiveError!Value {
     const proc = args[0];
-    if (!types.isClosure(proc))
-        return primitives.typeError("spawn", "closure", proc);
+    if (!types.isProcedure(proc))
+        return primitives.typeError("spawn", "procedure", proc);
 
     const vm = vm_mod.vm_instance orelse return PrimitiveError.OutOfMemory;
 

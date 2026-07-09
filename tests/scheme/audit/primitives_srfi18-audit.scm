@@ -36,8 +36,7 @@
 (test #t (guard (e (#t #t)) (thread-start! 'not-a-thread)))
 (test #t (guard (e (#t #t)) (thread-join! "nope")))
 (test #t (guard (e (#t #t)) (thread-terminate! 5)))
-;; FAIL: #1155 (make-thread rejects native procedures)
-;; (test '() (thread-join! (thread-start! (make-thread list))))
+(test '() (thread-join! (thread-start! (make-thread list))))
 
 ;;; --- thread lifecycle ---
 ;; starting a thread twice is an error (SRFI-18: thread must be new)
