@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783591204614,
+  "lastUpdate": 1783592113421,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "f271b4b0d8363e04dfe521cd7a25eeb78d69b574",
-          "message": "Add primitives_srfi1.zig audit tests (audit Phase 2.6) (#1167)\n\n105 assertions covering the SRFI-1 surface beyond srfi1*.scm: fold\nfamily argument order and multi-list forms, reduce ridentity\nsemantics, pair-fold tail walking, unfold/unfold-right with optional\ntails, iota variants, dotted-list handling in take/drop, two-value\nreturns from span/break/partition/split-at/car+cdr/unzip2,\ndelete-duplicates first-kept ordering with custom equality, lset\noperation result shapes, length+ on circular lists, structure\npredicates, alist pair copying, mapping variants, callback error\npropagation, and type-error catchability. gc-stress clean.\n\nTwo assertions disabled with FAIL markers: #1166 take-right and\ndrop-right reject dotted lists (spec requires proper-or-dotted;\ntake/drop already conform - the -right variants' length-counting\nloop demands proper lists). Part of the #1137 audit campaign.\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-05T09:58:37Z",
-          "tree_id": "fd4d7af5f9f5091089de20a42c6e14cab1107779",
-          "url": "https://github.com/kaappi/kaappi/commit/f271b4b0d8363e04dfe521cd7a25eeb78d69b574"
-        },
-        "date": 1783246685129,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.410331,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.429005,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.920849,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.124588,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.01244,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.211261,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.471596,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.069725,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 12.332033,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.8237,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 9.940004,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.952386,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 8.294906,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.661447,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.04234,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.043763,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a8e2352167b36a93122c923bbe1a3207af9de31e",
+          "message": "Fix SRFI-13 wrong-typed optional args silently ignored (#1159) (#1360)\n\nstring-pad/string-pad-right treated a non-char pad argument as absent\n(defaulting to space). string-unfold/string-unfold-right did the same\nfor a non-string base argument, and silently dropped make-final return\nvalues that weren't strings. All six sites now raise a type error.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-09T15:16:35+05:30",
+          "tree_id": "1c4086d0ce7506ba81efcb5051ec8e4562f34205",
+          "url": "https://github.com/kaappi/kaappi/commit/a8e2352167b36a93122c923bbe1a3207af9de31e"
+        },
+        "date": 1783592112659,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.360633,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.514839,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 1.002208,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.408966,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.013032,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.205765,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.504587,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.069824,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 12.763283,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.957858,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 10.266607,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 1.003305,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 8.721833,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.779457,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.045596,
             "unit": "seconds"
           }
         ]
