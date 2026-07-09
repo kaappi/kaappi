@@ -15,10 +15,23 @@ TMPSTDOUT=$(mktemp /tmp/kaappi-r7rs-stdout-XXXXXX)
 TMPSTDERR=$(mktemp /tmp/kaappi-r7rs-stderr-XXXXXX)
 trap 'rm -f "$TMPOUT" "$TMPSTDOUT" "$TMPSTDERR"' EXIT
 
-TIMEOUT=60
+TIMEOUT="${KAAPPI_TIMEOUT:-60}"
 PASS=0
 FAIL=0
 TIMEDOUT=0
+SKIPPED=0
+
+# Space-separated basenames to skip (e.g. KAAPPI_SKIP="callcc-bench.scm foo.scm")
+SKIP="${KAAPPI_SKIP:-}"
+
+should_skip() {
+    local base
+    base=$(basename "$1")
+    for s in $SKIP; do
+        if [[ "$base" == "$s" ]]; then return 0; fi
+    done
+    return 1
+}
 R7RS_PASS=0
 R7RS_FAIL=0
 R7RS_STATUS_FAIL=0
@@ -77,6 +90,11 @@ run_suite() {
     for pattern in "$@"; do
         for file in $pattern; do
             if [[ -e "$file" ]]; then
+                if should_skip "$file"; then
+                    echo "  SKIP  $file"
+                    SKIPPED=$((SKIPPED + 1))
+                    continue
+                fi
                 matched=1
                 run_file "$file"
             fi
@@ -152,9 +170,9 @@ fi
 
 echo ""
 echo "=== Summary ==="
-echo "  Scheme files: $PASS pass, $FAIL fail, $TIMEDOUT timeout"
+echo "  Scheme files: $PASS pass, $FAIL fail, $TIMEDOUT timeout, $SKIPPED skipped"
 echo "  R7RS suite:   $R7RS_PASS pass, $R7RS_FAIL fail"
-echo "  Total:        $((PASS + R7RS_PASS)) pass, $((FAIL + R7RS_FAIL + R7RS_STATUS_FAIL + TIMEDOUT)) fail ($TIMEDOUT from timeouts)"
+echo "  Total:        $((PASS + R7RS_PASS)) pass, $((FAIL + R7RS_FAIL + R7RS_STATUS_FAIL + TIMEDOUT)) fail ($TIMEDOUT from timeouts, $SKIPPED skipped)"
 
 if [[ $FAIL -gt 0 || $TIMEDOUT -gt 0 || $R7RS_FAIL -gt 0 || $R7RS_STATUS_FAIL -gt 0 ]]; then
     exit 1
