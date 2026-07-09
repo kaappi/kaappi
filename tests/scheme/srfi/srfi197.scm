@@ -35,13 +35,25 @@
 (test-equal "chain-and immediate false" #f
   (chain-and 1 (to-false _) (boom _)))
 
-;;; --- chain-when ---
+;;; --- chain-when: guard is an expression, not a procedure call ---
 (test-equal "chain-when guard true" 15
-  (chain-when 10 (positive? (+ _ 5))))
-(test-equal "chain-when guard false" -10
-  (chain-when -10 (positive? (+ _ 5))))
-(test-equal "chain-when multi" 12
-  (chain-when 10 (positive? (+ _ 2)) (even? (* _ 1))))
+  (chain-when 10 (#t (+ _ 5))))
+(test-equal "chain-when guard false" 10
+  (chain-when 10 (#f (+ _ 5))))
+(test-equal "chain-when expression guard"
+  '("positive" "odd")
+  (let ((n 3))
+    (chain-when '()
+      ((odd? n) (cons "odd" _))
+      ((even? n) (cons "even" _))
+      ((positive? n) (cons "positive" _)))))
+(test-equal "chain-when false guard in middle"
+  '("positive" "even")
+  (let ((n 4))
+    (chain-when '()
+      ((odd? n) (cons "odd" _))
+      ((even? n) (cons "even" _))
+      ((positive? n) (cons "positive" _)))))
 
 ;;; --- chain-lambda ---
 (test-equal "chain-lambda basic" 9
@@ -65,7 +77,7 @@
 
 ;;; --- nest and nest-reverse equivalence ---
 (test-equal "nest = nest-reverse (reversed)"
-  (nest (list 'a _) (list 'b _) 'c)
+  '(a (b c))
   (nest-reverse 'c (list 'b _) (list 'a _)))
 
 (let ((runner (test-runner-current)))

@@ -49,12 +49,13 @@
            (and v (chain-and (chain v step) rest ...))))))
 
     ;; --- chain-when: conditional steps ---
+    ;; guard is an expression (not called as a procedure on the pipeline value)
     (define-syntax chain-when
       (syntax-rules ()
         ((chain-when initial) initial)
-        ((chain-when initial (guard? step) rest ...)
+        ((chain-when initial (guard step) rest ...)
          (let ((v initial))
-           (chain-when (if (guard? v) (chain v step) v) rest ...)))))
+           (chain-when (if guard (chain v step) v) rest ...)))))
 
     ;; --- chain-lambda ---
     (define-syntax chain-lambda
@@ -72,7 +73,7 @@
         ((%nest-subst (acc ...) (x . more) inner)
          (%nest-subst (acc ... x) more inner))
         ((%nest-subst (acc ...) () inner)
-         (acc ...))))
+         (syntax-error "nest: step must contain _"))))
 
     ;; Copy phase — _ found, replace remaining _
     (define-syntax %nest-subst*
@@ -102,7 +103,7 @@
         ((%nest-rev-subst val (acc ...) (x . more) rest ...)
          (%nest-rev-subst val (acc ... x) more rest ...))
         ((%nest-rev-subst val (acc ...) () rest ...)
-         (nest-reverse (acc ...) rest ...))))
+         (syntax-error "nest-reverse: step must contain _"))))
 
     ;; Copy phase — _ found, replace remaining _
     (define-syntax %nest-rev-subst*
