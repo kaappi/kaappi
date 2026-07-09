@@ -183,12 +183,7 @@ const force_src =
     \\                      (begin (%promise-complete! current thunk) thunk)
     \\                      (begin
     \\                        (%promise-set-forcing! current #t)
-    \\                        (let ((result
-    \\                               (with-exception-handler
-    \\                                 (lambda (e)
-    \\                                   (%promise-set-forcing! current #f)
-    \\                                   (raise e))
-    \\                                 (lambda () (thunk)))))
+    \\                        (let ((result (thunk)))
     \\                          (if (%promise-forced? current)
     \\                              (begin
     \\                                (%promise-set-forcing! current #f)
@@ -200,12 +195,14 @@ const force_src =
     \\                                        (error "re-entrant forcing of promise"))
     \\                                      (if (%promise-forced? result)
     \\                                          (begin
+    \\                                            (%promise-set-forcing! current #f)
     \\                                            (%promise-complete! current (%promise-value result))
     \\                                            (loop (%promise-value result)))
     \\                                          (begin
     \\                                            (%promise-merge! current result)
     \\                                            (loop current))))
     \\                                  (begin
+    \\                                    (%promise-set-forcing! current #f)
     \\                                    (%promise-complete! current result)
     \\                                    result))))))))))))
 ;
