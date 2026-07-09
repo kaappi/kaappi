@@ -57,6 +57,12 @@
 bash tests/scheme/run-all.sh              # all suites (60s timeout per file)
 zig build run -- tests/scheme/smoke/foo.scm  # single file
 zig build run -- tests/scheme/r7rs/r7rs-tests.scm  # full R7RS suite
+
+# Override per-file timeout (default 60s)
+KAAPPI_TEST_TIMEOUT=120 bash tests/scheme/run-all.sh
+
+# Skip specific files (space-separated basenames)
+KAAPPI_TEST_SKIP="callcc-bench.scm" bash tests/scheme/run-all.sh
 ```
 
 ## Quirks

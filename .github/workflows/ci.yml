@@ -50,7 +50,6 @@ jobs:
           - os: ubuntu-latest
             optimize: Debug
             timeout: 30
-            skip_stress: "callcc-bench.scm r7rs-tail-procedures-gaps.scm r7rs-thin-forms-gaps.scm"
           - os: ubuntu-latest
             optimize: ReleaseFast
 
@@ -72,7 +71,7 @@ jobs:
       - name: Scheme suites
         run: bash tests/scheme/run-all.sh
         env:
-          KAAPPI_TEST_SKIP: ${{ matrix.skip_stress || '' }}
+          KAAPPI_TEST_SKIP: ${{ matrix.optimize == 'Debug' && 'callcc-bench.scm r7rs-tail-procedures-gaps.scm r7rs-thin-forms-gaps.scm' || '' }}
 
       - name: Sandbox escape tests
         run: bash tests/scheme/sandbox/sandbox-escape.sh

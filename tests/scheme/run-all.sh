@@ -93,6 +93,7 @@ run_suite() {
                 if should_skip "$file"; then
                     echo "  SKIP  $file"
                     SKIPPED=$((SKIPPED + 1))
+                    matched=1
                     continue
                 fi
                 matched=1
