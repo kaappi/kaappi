@@ -501,7 +501,10 @@ fn stringPadFn(args: []const Value) PrimitiveError!Value {
     if (tlv < 0) return primitives.typeError("string-pad", "non-negative integer", args[1]);
     const target_len: usize = @intCast(tlv);
     var pad_buf: [4]u8 = undefined;
-    const pad_cp: u21 = if (args.len > 2 and types.isChar(args[2])) types.toChar(args[2]) else ' ';
+    const pad_cp: u21 = if (args.len > 2) blk: {
+        if (!types.isChar(args[2])) return primitives.typeError("string-pad", "char", args[2]);
+        break :blk types.toChar(args[2]);
+    } else ' ';
     const pad_len = std.unicode.utf8Encode(pad_cp, &pad_buf) catch
         return primitives.typeError("string-pad", "valid character", args[2]);
     const range = try parseStartEnd(full_data, args, 3);
@@ -529,7 +532,10 @@ fn stringPadRightFn(args: []const Value) PrimitiveError!Value {
     if (tlv < 0) return primitives.typeError("string-pad-right", "non-negative integer", args[1]);
     const target_len: usize = @intCast(tlv);
     var pad_buf: [4]u8 = undefined;
-    const pad_cp: u21 = if (args.len > 2 and types.isChar(args[2])) types.toChar(args[2]) else ' ';
+    const pad_cp: u21 = if (args.len > 2) blk: {
+        if (!types.isChar(args[2])) return primitives.typeError("string-pad-right", "char", args[2]);
+        break :blk types.toChar(args[2]);
+    } else ' ';
     const pad_len = std.unicode.utf8Encode(pad_cp, &pad_buf) catch
         return primitives.typeError("string-pad-right", "valid character", args[2]);
     const range = try parseStartEnd(full_data, args, 3);
@@ -845,7 +851,8 @@ fn stringUnfoldFn(args: []const Value) PrimitiveError!Value {
     var result: std.ArrayList(u8) = .empty;
     defer result.deinit(gc.allocator);
 
-    if (args.len > 4 and types.isString(args[4])) {
+    if (args.len > 4) {
+        if (!types.isString(args[4])) return primitives.typeError("string-unfold", "string", args[4]);
         const base = types.toObject(args[4]).as(types.SchemeString);
         result.appendSlice(gc.allocator, base.data[0..base.len]) catch return PrimitiveError.OutOfMemory;
     }
@@ -863,10 +870,9 @@ fn stringUnfoldFn(args: []const Value) PrimitiveError!Value {
 
     if (args.len > 5) {
         const final_val = try callVM(args[5], &[1]Value{seed});
-        if (types.isString(final_val)) {
-            const fs = types.toObject(final_val).as(types.SchemeString);
-            result.appendSlice(gc.allocator, fs.data[0..fs.len]) catch return PrimitiveError.OutOfMemory;
-        }
+        if (!types.isString(final_val)) return primitives.typeError("string-unfold", "string", final_val);
+        const fs = types.toObject(final_val).as(types.SchemeString);
+        result.appendSlice(gc.allocator, fs.data[0..fs.len]) catch return PrimitiveError.OutOfMemory;
     }
     return gc.allocString(result.items) catch return PrimitiveError.OutOfMemory;
 }
@@ -898,10 +904,9 @@ fn stringUnfoldRightFn(args: []const Value) PrimitiveError!Value {
 
     if (args.len > 5) {
         const final_val = try callVM(args[5], &[1]Value{seed});
-        if (types.isString(final_val)) {
-            const fs = types.toObject(final_val).as(types.SchemeString);
-            result.appendSlice(gc.allocator, fs.data[0..fs.len]) catch return PrimitiveError.OutOfMemory;
-        }
+        if (!types.isString(final_val)) return primitives.typeError("string-unfold-right", "string", final_val);
+        const fs = types.toObject(final_val).as(types.SchemeString);
+        result.appendSlice(gc.allocator, fs.data[0..fs.len]) catch return PrimitiveError.OutOfMemory;
     }
 
     var i = chars.items.len;
@@ -912,7 +917,8 @@ fn stringUnfoldRightFn(args: []const Value) PrimitiveError!Value {
         result.appendSlice(gc.allocator, tmp[0..n]) catch return PrimitiveError.OutOfMemory;
     }
 
-    if (args.len > 4 and types.isString(args[4])) {
+    if (args.len > 4) {
+        if (!types.isString(args[4])) return primitives.typeError("string-unfold-right", "string", args[4]);
         const base = types.toObject(args[4]).as(types.SchemeString);
         result.appendSlice(gc.allocator, base.data[0..base.len]) catch return PrimitiveError.OutOfMemory;
     }
