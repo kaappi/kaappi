@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783593173037,
+  "lastUpdate": 1783594664433,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "063744f7f85f88d9eb118208f1b43a0d8c037955",
-          "message": "Add primitives.zig core audit tests (audit Phase 2.18) (#1200)\n\nAudits the core primitives file: pairs/lists, 13 type predicates, the\nequivalence trio, not, core string ops, apply, and the internal record\nprimitives. 196 assertions pass; 4 are disabled with FAIL markers\nawaiting the referenced issues:\n\n- see #1198: reverse, append (non-last args), and the native applyFn\n  hang with unbounded allocation on circular lists, while length/list?\n  use Floyd detection and tail-position apply compiles to a bounded\n  tail_apply opcode - same-expression behavior differs by position\n- see #1199: record accessors/mutators omit the record-type check, so\n  cross-type access silently reads/writes another type's field\n  (non-record arguments do raise)\n\nEverything else conforms: R7RS 6.2.6 predicate examples, eqv?/equal?\nacross the numeric tower (bignum/rational/complex, NaN, -0.0), circular\nequal? termination, append tail sharing, symbol->string immutability,\nUTF-8 codepoint string-length, and apply argument flattening.\n\nThe tracker also re-applies the 2.15-2.17 lines byte-identically to\nPR #1197 so the two PRs merge cleanly in either order.\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-05T20:19:33+05:30",
-          "tree_id": "6ad7bf18f9fa70bda998e01dbe90b3c1ab9c1852",
-          "url": "https://github.com/kaappi/kaappi/commit/063744f7f85f88d9eb118208f1b43a0d8c037955"
-        },
-        "date": 1783264235391,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.35215,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.88116,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.951541,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.059431,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.012599,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.211228,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.470711,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.069765,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 12.4381,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.824428,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 9.980423,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.959384,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 8.541072,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.733384,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.043634,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.045433,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "3e196f07ea359df662d9f22182dbb794e4595c39",
+          "message": "Fix random-source-make-reals to honor the unit argument (#1194) (#1367)\n\n* Fix random-source-make-reals to honor the unit argument (#1194)\n\nThe procedure validated that 0 < unit < 1 but then discarded it,\nalways returning a default-precision flonum. With an exact rational\nunit, the SRFI-27 spec requires exact results quantized as\nx*unit for random x in {1, ..., floor(1/unit)-1}.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Address review: fix bound for non-integer reciprocal units, add tests\n\nWhen 1/unit is not an integer (e.g. unit=3/5, 3/10), use floor(1/unit)\ndirectly instead of floor(1/unit)-1, which would undershoot or hit zero.\nThe -1 is only needed when 1/unit is an integer (to avoid generating\nexactly 1.0). Also drops the redundant exact wrapper.\n\nAdds test cases for 3/10, 3/5, and 2/3 units covering the non-integer\nreciprocal and (1/2,1) edge cases.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Update lib/srfi/27.sld\n\n* Document exact-unit quantization choice in CONFORMANCE.md\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-09T10:33:28Z",
+          "tree_id": "4782af2069e953fe97349fb0d6ea3f64e34b122b",
+          "url": "https://github.com/kaappi/kaappi/commit/3e196f07ea359df662d9f22182dbb794e4595c39"
+        },
+        "date": 1783594663555,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.148315,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.722097,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.81296,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 3.42002,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.010927,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.175614,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.396804,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.052682,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 9.959972,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.533468,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 8.844765,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.871646,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 7.211644,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.498043,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.035903,
             "unit": "seconds"
           }
         ]
