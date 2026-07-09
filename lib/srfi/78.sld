@@ -1,5 +1,5 @@
 (define-library (srfi 78)
-  (import (scheme base) (scheme write) (srfi 42))
+  (import (scheme base) (scheme write) (scheme process-context) (srfi 42))
   (export check check-ec check-report check-set-mode!
           check-reset! check-passed?
           check-failed?)
@@ -21,6 +21,8 @@
     (define (check-failed?) %fail)
 
     (define (check-set-mode! mode)
+      (unless (memq mode '(off summary report-failed report))
+        (error "check-set-mode!: invalid mode" mode))
       (set! %mode mode))
 
     (define (%report-pass name actual)
@@ -71,31 +73,51 @@
 
     (define-syntax check-ec
       (syntax-rules (=>)
+        ((_ expr => expected)
+         (check expr => expected))
+        ((_ expr (=> equal) expected)
+         (check expr (=> equal) expected))
         ((_ qualifier expr => expected)
-         (check-ec-proc 'expr
-           (lambda ()
-             (let ((ok #t))
-               (do-ec qualifier
-                 (let ((actual expr)
-                       (exp expected))
-                   (when (not (equal? actual exp))
-                     (set! ok (list actual exp))))) ok))
+         (check-ec-run 'expr
+           (lambda (escape)
+             (do-ec qualifier
+               (let ((actual expr) (exp expected))
+                 (when (not (equal? actual exp))
+                   (escape (list actual exp))))))
            equal?))
         ((_ qualifier expr (=> equal) expected)
-         (check-ec-proc 'expr
-           (lambda ()
-             (let ((ok #t)
-                   (eq-fn equal))
+         (check-ec-run 'expr
+           (lambda (escape)
+             (let ((eq-fn equal))
                (do-ec qualifier
-                 (let ((actual expr)
-                       (exp expected))
+                 (let ((actual expr) (exp expected))
                    (when (not (eq-fn actual exp))
-                     (set! ok (list actual exp))))) ok))
+                     (escape (list actual exp)))))))
+           equal))
+        ((_ qualifier expr => expected (arg ...))
+         (check-ec-run 'expr
+           (lambda (escape)
+             (do-ec qualifier
+               (let ((actual expr) (exp expected))
+                 (when (not (equal? actual exp))
+                   (escape (list actual exp))))))
+           equal?))
+        ((_ qualifier expr (=> equal) expected (arg ...))
+         (check-ec-run 'expr
+           (lambda (escape)
+             (let ((eq-fn equal))
+               (do-ec qualifier
+                 (let ((actual expr) (exp expected))
+                   (when (not (eq-fn actual exp))
+                     (escape (list actual exp)))))))
            equal))))
 
-    (define (check-ec-proc name thunk equal)
+    (define (check-ec-run name body-fn equal)
       (unless (eq? %mode 'off)
-        (let ((result (thunk)))
+        (let ((result (call-with-current-continuation
+                        (lambda (escape)
+                          (body-fn escape)
+                          #t))))
           (if (eq? result #t)
               (begin
                 (set! %pass (+ %pass 1))
@@ -112,4 +134,12 @@
       (display %pass) (display " passed, ")
       (display %fail) (display " failed.")
       (newline)
+      (when %first-fail
+        (display "First failure: ")
+        (write (car %first-fail))
+        (display " => ")
+        (write (cadr %first-fail))
+        (display " ; expected: ")
+        (write (caddr %first-fail))
+        (newline))
       (when (> %fail 0) (exit 1)))))

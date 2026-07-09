@@ -41,6 +41,16 @@
 (check (+ 1 1) => 2)
 (test-assert "report mode runs checks" (check-passed? 1))
 
+;; summary mode: checks run, no per-check output
+(check-reset!)
+(check-set-mode! 'summary)
+(check (+ 1 1) => 2)
+(test-assert "summary mode counts" (check-passed? 1))
+(check-set-mode! 'report)
+
+;; check-set-mode! rejects invalid modes
+(test-error "invalid mode rejected" (check-set-mode! 'bogus))
+
 ;; --- check-ec ---
 (check-reset!)
 (check-ec (:range i 0 5) (* i i) => (* i i))
@@ -51,9 +61,9 @@
 (check-ec (:list x '(1 2 3)) (* x 2) => (+ x x))
 (test-assert "check-ec list qualifier" (check-passed? 1))
 
-;; check-ec with actual failure
+;; check-ec with actual failure — stops at first mismatch
 (check-reset!)
-(check-ec (:range i 1 4) i => 0)
+(check-ec (:range i 0 10) i => -1)
 (test-assert "check-ec failure" (not (check-passed? 1)))
 (test-equal "check-ec failure count" 1 (check-failed?))
 
@@ -61,6 +71,16 @@
 (check-reset!)
 (check-ec (:range i 0 3) (* 1.0 i) (=> =) i)
 (test-assert "check-ec custom equality" (check-passed? 1))
+
+;; check-ec zero qualifiers delegates to check
+(check-reset!)
+(check-ec (+ 2 3) => 5)
+(test-assert "check-ec zero qualifiers" (check-passed? 1))
+
+;; check-ec with trailing diagnostic arguments (accepted)
+(check-reset!)
+(check-ec (:range i 0 3) (* i i) => (* i i) (i))
+(test-assert "check-ec with arguments" (check-passed? 1))
 
 ;; --- check-report exists and does not raise ---
 (check-reset!)
