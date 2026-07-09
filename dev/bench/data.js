@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783575608158,
+  "lastUpdate": 1783579430072,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "4ecde30b4f047f38b1d3ce0d8ed8eb169ed35dce",
-          "message": "Add audit-baseline.sh and record Phase 0 baseline results (#1138)\n\nPhase 0 of the audit campaign (docs/audit-strategy.md): the committed\nbaseline script reruns unit tests, the R7RS suite, run-all.sh, and each\nSRFI file individually. The script uses a portable timeout helper\nbecause stock macOS lacks GNU timeout — this footgun is now documented\nin the strategy doc.\n\nBaseline at b2317e8 is fully green (unit tests pass, R7RS suite 0 fail\nin every section, run-all.sh 1702 pass / 0 fail, all 35 SRFI files\npass), so no issues were filed. Tracking issue: #1137.\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-05T13:15:55+05:30",
-          "tree_id": "0a05a7a277eae0368bcd8796f892bc2d554122b7",
-          "url": "https://github.com/kaappi/kaappi/commit/4ecde30b4f047f38b1d3ce0d8ed8eb169ed35dce"
-        },
-        "date": 1783238816950,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.328045,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.847616,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.921948,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.067876,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.012357,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.211616,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.477825,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.069877,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 12.349987,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.820543,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 9.950489,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.957699,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 8.340882,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.768056,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.043465,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044036,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "cc5ff20178228b4fd458818ae02c78c11ddaae3b",
+          "message": "Add SRFI-174 timespec-hash, timespec->inexact, inexact->timespec (#1235) (#1352)\n\nThe library was missing three of the nine procedures defined by the spec.\nUses floor (not truncate) for inexact->timespec so nanoseconds stays\nnon-negative, consistent with the POSIX convention and existing comparisons.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-09T11:28:21+05:30",
+          "tree_id": "2a70a2390a400d6048a087669ffe98d09f4c8fd3",
+          "url": "https://github.com/kaappi/kaappi/commit/cc5ff20178228b4fd458818ae02c78c11ddaae3b"
+        },
+        "date": 1783579429394,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.323152,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.868227,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.964982,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.395056,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.012531,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.203637,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.496114,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.068756,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 12.63632,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.937918,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 10.157106,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.991583,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 8.402897,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.683711,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.04358,
             "unit": "seconds"
           }
         ]
