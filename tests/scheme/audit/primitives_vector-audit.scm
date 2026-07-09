@@ -217,11 +217,8 @@
 (test 0 (vector-skip symbol? #(1 2 3)))
 (test 2 (vector-skip-right number? #(1 a b 2)))   ; b at index 2 is first non-number from the right
 (test 'caught (guard (e (#t 'caught)) (vector-skip number? '(1))))
-;; SRFI-133: (vector-skip pred? vec1 vec2 ...) accepts multiple vectors;
-;; registered with exact arity 2 so the multi-vector form raises an arity error.
-;; FAIL: #1171 (vector-skip/vector-skip-right reject the multi-vector form)
-;; (test 2 (vector-skip = #(1 2 3 4 5) #(1 2 -3 4)))
-;; (test 2 (vector-skip-right = #(1 2 3 4 5) #(1 2 -3 4 5)))
+(test 2 (vector-skip = #(1 2 3 4 5) #(1 2 -3 4)))
+(test 2 (vector-skip-right = #(1 2 3 4 5) #(1 2 -3 4 5)))
 
 ;;; --- SRFI-133: vector-swap! ---
 (test #(3 2 1) (let ((v (vector 1 2 3))) (vector-swap! v 0 2) v))
