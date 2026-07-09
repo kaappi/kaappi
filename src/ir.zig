@@ -659,6 +659,10 @@ fn lowerSet(ir: *IR, args: Value) CompileError!*Node {
 
     // SRFI-17 generalized set!: (set! (proc arg ...) val)
     // Desugar to: ((setter proc) arg ... val)
+    // Requires (srfi 17) imported so the global `setter` is defined.
+    // Needs ir.compiler for symbol interning; the LLVM native backend
+    // (compiler-less lowering) falls through to InvalidSyntax — it
+    // would need an eval fallback for this form anyway.
     if (types.isPair(name)) {
         const c = ir.compiler orelse return CompileError.InvalidSyntax;
         const proc = types.car(name);

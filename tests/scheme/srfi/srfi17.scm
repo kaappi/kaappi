@@ -47,5 +47,7 @@
   (let ((p (list 1 2 3))) (set! (cadr p) 9) p))
 (test '((1 . 9) 3)
   (let ((p (list (cons 1 2) 3))) (set! (cdar p) 9) p))
+(test '(1 2 3 99 5)
+  (let ((l (list 1 2 3 4 5))) (set! (cadddr l) 99) l))
 
 (test-end "srfi-17")

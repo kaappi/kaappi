@@ -785,39 +785,45 @@ pub fn compileSet(self: *Compiler, args: Value, dst: u16) CompileError!void {
 
     // SRFI-17 generalized set!: (set! (proc arg ...) val)
     // Desugar to: ((setter proc) arg ... val) and compile as a call.
+    // Defensive fallback — the IR path (lowerSet) handles this first;
+    // this branch fires only if compilation routes through compileExpr.
+    // Requires (srfi 17) imported so the global `setter` is defined.
     if (types.isPair(target)) {
         const proc = types.car(target);
         const proc_args = types.cdr(target);
         const val_expr = types.car(rest);
 
-        // Build (setter proc)
-        const setter_sym = self.gc.allocSymbol("setter") catch return CompileError.OutOfMemory;
-        const setter_proc_pair = self.gc.allocPair(proc, types.NIL) catch return CompileError.OutOfMemory;
-        var setter_call = self.gc.allocPair(setter_sym, setter_proc_pair) catch return CompileError.OutOfMemory;
-        self.gc.pushRoot(&setter_call);
-        defer self.gc.popRoot();
-
-        // Build args: append val to proc_args → (arg1 arg2 ... val)
-        var ext_args = self.gc.allocPair(val_expr, types.NIL) catch return CompileError.OutOfMemory;
-        // Collect proc_args into stack buffer, then prepend in reverse
         var arg_buf: [16]Value = undefined;
         var n_args: usize = 0;
         var cur = proc_args;
         while (cur != types.NIL) {
             if (!types.isPair(cur)) return CompileError.InvalidSyntax;
-            if (n_args >= 16) return CompileError.InvalidSyntax;
+            if (n_args >= 16) return CompileError.InternalLimit;
             arg_buf[n_args] = types.car(cur);
             n_args += 1;
             cur = types.cdr(cur);
         }
-        var i = n_args;
-        while (i > 0) {
-            i -= 1;
-            ext_args = self.gc.allocPair(arg_buf[i], ext_args) catch return CompileError.OutOfMemory;
-        }
 
-        // Build ((setter proc) arg1 ... val) and compile as expression
-        const desugared = self.gc.allocPair(setter_call, ext_args) catch return CompileError.OutOfMemory;
+        // Suppress GC during S-expression construction — intermediate
+        // pairs are not reachable from any root until `desugared` is
+        // rooted (same pattern as compileDefineValues, issue #1010).
+        var desugared: Value = undefined;
+        {
+            self.gc.no_collect += 1;
+            defer self.gc.no_collect -= 1;
+            const setter_sym = self.gc.allocSymbol("setter") catch return CompileError.OutOfMemory;
+            const setter_proc_pair = self.gc.allocPair(proc, types.NIL) catch return CompileError.OutOfMemory;
+            const setter_call = self.gc.allocPair(setter_sym, setter_proc_pair) catch return CompileError.OutOfMemory;
+            var ext_args = self.gc.allocPair(val_expr, types.NIL) catch return CompileError.OutOfMemory;
+            var i = n_args;
+            while (i > 0) {
+                i -= 1;
+                ext_args = self.gc.allocPair(arg_buf[i], ext_args) catch return CompileError.OutOfMemory;
+            }
+            desugared = self.gc.allocPair(setter_call, ext_args) catch return CompileError.OutOfMemory;
+        }
+        self.gc.pushRoot(&desugared);
+        defer self.gc.popRoot();
         return self.compileExprViaIR(desugared, dst, false);
     }
 
