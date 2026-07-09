@@ -75,8 +75,8 @@
 (test "**x" (string-pad "x" 3 #\*))
 (test "\x3BB;\x3BB;x" (string-pad "x" 3 #\x3BB)) ; multibyte pad char
 (test "" (string-pad "abc" 0))
-;; FAIL: #1159 (non-char pad argument silently ignored)
-;; (test #t (guard (e (#t #t)) (string-pad "x" 5 "*") #f))
+(test #t (guard (e (#t #t)) (string-pad "x" 5 "*") #f))
+(test #t (guard (e (#t #t)) (string-pad-right "x" 5 "*") #f))
 
 ;;; --- reverse / filter / delete / replace / titlecase ---
 (test "cba" (string-reverse "abc"))
@@ -124,10 +124,20 @@
   (string-tabulate (lambda (i) (error "cb")) 2)))
 (test 'caught (guard (e (#t 'caught))
   (string-every (lambda (c) (error "cb")) "abc")))
-;; FAIL: #1159 (non-string base silently ignored)
-;; (test #t (guard (e (#t #t))
-;;   (string-unfold (lambda (s) (> s 2)) (lambda (s) #\a) (lambda (s) (+ s 1)) 0 #\Z)
-;;   #f))
+(test #t (guard (e (#t #t))
+  (string-unfold (lambda (s) (> s 2)) (lambda (s) #\a) (lambda (s) (+ s 1)) 0 #\Z)
+  #f))
+(test #t (guard (e (#t #t))
+  (string-unfold-right (lambda (s) (> s 2)) (lambda (s) #\a) (lambda (s) (+ s 1)) 0 #\Z)
+  #f))
+(test #t (guard (e (#t #t))
+  (string-unfold (lambda (s) #t) (lambda (s) #\a) (lambda (s) s) 0
+                 "" (lambda (s) 42))
+  #f))
+(test #t (guard (e (#t #t))
+  (string-unfold-right (lambda (s) #t) (lambda (s) #\a) (lambda (s) s) 0
+                       "" (lambda (s) 42))
+  #f))
 
 ;;; --- type errors are catchable, not crashes ---
 (test #t (guard (e (#t #t)) (string-contains 42 "x")))
