@@ -73,21 +73,27 @@ fn copyTransformerFreeRefs(
         _ = macro.collectFreeRefs(tmpl, pv_names[0..pv_count], tx.literals, &free_names, &free_count);
         for (free_names[0..free_count]) |fname| {
             if (env.get(fname)) |fval| {
+                const is_tx = types.isTransformer(fval);
                 if (target == vm.globals) {
-                    vm.globals_lock.lock();
-                    const missing = !target.contains(fname);
-                    if (missing) {
-                        target.put(fname, fval) catch {
-                            vm.globals_lock.unlock();
-                            return error.OutOfMemory;
-                        };
+                    // Non-exported transformer free refs go into vm.macros
+                    // only (below), not vm.globals — keeps non-exported
+                    // library macros from leaking as bindings (#1332).
+                    if (!is_tx) {
+                        vm.globals_lock.lock();
+                        const missing = !target.contains(fname);
+                        if (missing) {
+                            target.put(fname, fval) catch {
+                                vm.globals_lock.unlock();
+                                return error.OutOfMemory;
+                            };
+                        }
+                        vm.globals_lock.unlock();
+                        if (missing) vm.global_version +%= 1;
                     }
-                    vm.globals_lock.unlock();
-                    if (missing) vm.global_version +%= 1;
                 } else if (!target.contains(fname)) {
                     target.put(fname, fval) catch return error.OutOfMemory;
                 }
-                if (types.isTransformer(fval)) {
+                if (is_tx) {
                     // An exported macro may expand into a library-internal
                     // helper macro (e.g. SRFI 64 test-assert → %test-comp1body).
                     // The helper lives in the source library's lib_env, not the
