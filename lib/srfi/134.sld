@@ -83,8 +83,13 @@
       (if (null? lst) seed
           (fold-left f (f seed (car lst)) (cdr lst))))
 
+    (define (filter-list pred lst)
+      (cond ((null? lst) '())
+            ((pred (car lst)) (cons (car lst) (filter-list pred (cdr lst))))
+            (else (filter-list pred (cdr lst)))))
+
     (define (ideque-filter pred dq)
-      (list->ideque (filter pred (ideque->list dq))))
+      (list->ideque (filter-list pred (ideque->list dq))))
 
     (define (ideque-append . dqs)
       (list->ideque (apply append (map ideque->list dqs))))
