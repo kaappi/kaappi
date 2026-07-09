@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783592747845,
+  "lastUpdate": 1783593170464,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "76f67a31f1d48aac6c3543a02cc53baf7cafecf6",
-          "message": "Add random, lazy, and cxr audit tests (audit Phases 2.15-2.17) (#1197)\n\nBatched audit of the three smallest primitives files per the strategy\ndoc: primitives_random.zig (SRFI-27), primitives_lazy.zig, and\nprimitives_cxr.zig. 125 assertions pass; 6 are disabled with FAIL\nmarkers pending fixes:\n\n- #1191 direct re-entrant force panics (GC root stack overflow; also\n  reproducible with nested map at depth 2000 - general VM issue)\n- #1192 default-random-source is a procedure, spec requires a variable\n- #1193 random-integer / %rs-next-int / pseudo-randomize! reject bignums\n- #1194 random-source-make-reals ignores the unit argument\n- #1195 random-real uses a [0,1) generator (code inspection, no test)\n- #1196 chibi-test shim lets errors escape test, undercounting failures\n\nprimitives_cxr.zig is fully conforming (self-labeling complete trees\nverify all 24 accessors); primitives_lazy.zig conforms apart from the\nshared crash class (delay-force chains force in bounded space, SRFI-45\ncycle detection works).\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-05T19:51:19+05:30",
-          "tree_id": "093f1b92b96f7b1c0d470e03b780642d2af19e9b",
-          "url": "https://github.com/kaappi/kaappi/commit/76f67a31f1d48aac6c3543a02cc53baf7cafecf6"
-        },
-        "date": 1783262835064,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.332062,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.399123,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.950164,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.080215,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.012374,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.211442,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.469381,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.069691,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 12.391296,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.831984,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 10.001812,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.960228,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 8.316581,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.691317,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.042241,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.046718,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ff6ee45706025061d044aed7852d2cb3549c9c7c",
+          "message": "Accept native procedures in make-thread and spawn (#1155) (#1366)\n\n* Accept native procedures in make-thread and spawn (#1155)\n\nmake-thread (SRFI-18) and spawn (fibers) rejected native built-in\nprocedures like `list` or `newline` because they checked isClosure\ninstead of isProcedure. For make-thread, the downstream callWithArgs\nalready handles all procedure types, so the fix is a predicate change.\n\nFor spawn, the fiber scheduler sets up an initial bytecode frame\ndirectly from the closure's code, so non-closure procedures need a\ntrampoline: a synthetic closure whose bytecode loads the real procedure\nfrom an upvalue and calls it. The fiber is rooted across the trampoline\nallocation to prevent GC from freeing it.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Move fiber-native-thunk test to smoke/ and add ISA coupling comment\n\nfiber-native-thunk.scm tests (kaappi fibers), not an SRFI library,\nso it belongs in tests/scheme/smoke/ per test directory conventions.\n\nAlso adds a comment noting the trampoline bytecode's operand width\ndependency on vm_dispatch.zig's fixed_operand_bytes table.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-09T15:28:54+05:30",
+          "tree_id": "bd14513def1bf2b57215ab3fbf10feed8533c787",
+          "url": "https://github.com/kaappi/kaappi/commit/ff6ee45706025061d044aed7852d2cb3549c9c7c"
+        },
+        "date": 1783593169593,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.411998,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.309634,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 1.011141,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.459255,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.012721,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.203873,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.511586,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.068621,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 12.589531,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.954491,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 10.178288,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 1.007721,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 8.447222,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.67817,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.04457,
             "unit": "seconds"
           }
         ]
