@@ -346,16 +346,6 @@ captured in tight inner loops. Continuations captured in one top-level REPL
 expression cannot re-enter subsequent top-level expressions (standard behavior
 shared by Guile, Chibi, Chicken, Chez, and Racket).
 
-### Fibers
-
-A fiber that blocks on an empty channel inside a callback driven by a native
-higher-order procedure (`map`, `for-each`, `dynamic-wind`, `eval`, ...) cannot
-be parked: the native call's state lives on the Zig stack and cannot be
-suspended. If other fibers are runnable the scheduler still makes progress,
-but if the blocked receive is the only thing left it raises a deadlock error
-instead of suspending. Move blocking `channel-receive` calls into plain
-Scheme loops (named `let`, `do`) when a fiber must wait inside iteration.
-
 ### OS threads (SRFI-18)
 
 Each OS thread gets its own GC with an independent heap. Values are deep-copied

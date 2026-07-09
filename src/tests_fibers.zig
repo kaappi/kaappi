@@ -151,11 +151,10 @@ test "fiber parked inside apply-forwarded channel-receive retries the apply" {
     try std.testing.expectEqual(@as(i64, 21), types.toFixnum(result));
 }
 
-test "fiber blocked inside for-each callback errors instead of corrupting" {
-    // A receive inside a native-driven callback cannot be parked (native
-    // frames sit between the fiber's bytecode and the scheduler). With
-    // nothing else runnable it must raise a deadlock error in that fiber —
-    // not return an unspecified value or rewind through the native call.
+test "fiber blocked inside for-each callback deadlocks when nothing runnable" {
+    // The fiber parks inside for-each's callback (now bytecode-driven).
+    // With no sender and nothing else runnable the scheduler detects
+    // deadlock and raises a catchable error in the blocked fiber.
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
     var vm = try th.makeTestVM(&gc);
@@ -199,4 +198,28 @@ test "main fiber still blocked after guard-recovered deadlock can be unblocked" 
     _ = try vm.eval("(channel-send ch 41)");
     const result = try vm.eval("(channel-receive out)");
     try std.testing.expectEqual(@as(i64, 42), types.toFixnum(result));
+}
+
+test "fiber parks inside for-each callback and is woken by channel-send" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    const result = try vm.eval(
+        \\(define ch (make-channel))
+        \\(define out (make-channel))
+        \\(define f (spawn (lambda ()
+        \\  (define total 0)
+        \\  (for-each (lambda (x) (set! total (+ total (channel-receive ch)))) '(a b c))
+        \\  (channel-send out total))))
+        \\(yield)
+        \\(channel-send ch 10)
+        \\(yield)
+        \\(channel-send ch 20)
+        \\(yield)
+        \\(channel-send ch 30)
+        \\(channel-receive out)
+    );
+    try std.testing.expectEqual(@as(i64, 60), types.toFixnum(result));
 }

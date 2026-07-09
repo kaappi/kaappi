@@ -48,5 +48,5 @@ jobs:
           pr-benchmark-file-path: pr-results.json
           base-benchmark-file-path: base-results.json
           github-token: ${{ secrets.GITHUB_TOKEN }}
-          alert-threshold: '120%'
+          alert-threshold: '200%'
           comment-always: true

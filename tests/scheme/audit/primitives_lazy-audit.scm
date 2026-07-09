@@ -100,4 +100,39 @@
   (test 1 (car (force ones)))
   (test 1 (car (force (cdr (force ones))))))
 
+;;; --- forcing flag cleared on abnormal thunk exit (#1374) ---
+;; A raising thunk must reset the forcing flag, so a later delay-force
+;; chain re-raises the original error instead of a spurious
+;; "re-entrant forcing of promise".
+(let ()
+  (define p (delay (error "boom")))
+  (test 'caught (guard (e (#t 'caught)) (force p)))
+  (test "boom" (guard (e (#t (error-object-message e)))
+                 (force (delay-force p)))))
+
+;; A call/cc escape out of the thunk must also reset the forcing flag
+;; (the native forceFn cleared it on any abnormal exit, escapes included).
+(let ()
+  (define p #f)
+  (define v (call/cc (lambda (escape)
+                       (set! p (delay (escape 'out)))
+                       (force p))))
+  (test 'out v)
+  (test #f (%promise-forcing? p)))
+
+;;; --- continuation captured in a promise thunk, reinvoked after force ---
+;; force is bytecode-driven (#1347): a full continuation captured inside
+;; the thunk can be reinvoked after force returns. The promise is already
+;; memoized on re-entry, so the cached value is delivered each time.
+(let ()
+  (define k #f)
+  (define n 0)
+  (define acc '())
+  (let ((r (force (delay (call/cc (lambda (c) (set! k c) 'first))))))
+    (set! n (+ n 1))
+    (set! acc (cons r acc))
+    (if (< n 3) (k 'again) #f))
+  (test 3 n)
+  (test '(first first first) acc))
+
 (test-end "primitives_lazy audit")

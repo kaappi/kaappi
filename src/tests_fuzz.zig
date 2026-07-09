@@ -80,6 +80,7 @@ test "fuzz eval" {
             vm_mod.setVMInstance(vm);
             primitives.registerAll(vm) catch return;
             memory.setGCInstance(&gc);
+            vm_mod.vm_bootstrap.install(vm) catch return;
             library.registerStandardLibraries(&vm.libraries, vm.globals) catch return;
             vm.timeout_deadline_ns = @import("vm_calls.zig").clockNs() + 100_000_000;
             _ = vm.eval(input) catch return;

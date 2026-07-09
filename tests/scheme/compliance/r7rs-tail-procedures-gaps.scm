@@ -108,18 +108,17 @@
         (loop (+ i 1) (delay-force p)))))
 (test-equal "delay-force chain resolves" 'done (force (chain-test 100)))
 
-;; --- deep native re-entrancy no longer panics (#1191) ---
-;; In Release the root buffer grows and moderate depth succeeds;
-;; in Debug the native cap (200) fires first with a catchable error.
+;; --- deep map recursion works without native re-entrancy (#1347) ---
+;; map is now a Scheme closure; callbacks execute as regular bytecode
+;; calls with no native re-entrancy limit, so arbitrary depth works.
 (define (deep-map n)
   (if (= n 0) 0
       (car (map (lambda (x) (deep-map (- x 1))) (list n)))))
-(test-assert "deep native map does not panic"
+(test-assert "deep map does not panic"
   (guard (e (#t #t))
     (eqv? (deep-map 2500) 0)))
-;; Exceeding the native re-entrancy limit is still catchable
-(test-equal "deep native map catchable past limit" 'caught
-  (guard (e (#t 'caught)) (deep-map 4000)))
+(test-equal "deep map at 4000 succeeds" 0
+  (deep-map 4000))
 
 (let ((runner (test-runner-current)))
   (test-end "r7rs-tail-procedures-gaps")

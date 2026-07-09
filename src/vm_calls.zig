@@ -150,6 +150,21 @@ pub fn execute(vm: *VM, func: *types.Function) VMError!Value {
             vm.gc.profile_alloc_target = null;
         }
         vm.noteUncaughtException(err);
+        // Unwind any pending dynamic-wind after-thunks so that
+        // (dynamic-wind before thunk after) calls after even when
+        // thunk raises an uncaught exception that escapes execute().
+        // Preserve the error detail: after-thunks that make native
+        // calls (e.g. display) clear last_error_detail as a side
+        // effect, which would lose the real exception message.
+        const saved_detail_len = vm.last_error_detail_len;
+        var saved_detail: [256]u8 = undefined;
+        @memcpy(saved_detail[0..saved_detail_len], vm.last_error_detail[0..saved_detail_len]);
+        while (vm.wind_count > 0) {
+            vm.wind_count -= 1;
+            _ = vm.callThunk(vm.wind_stack[vm.wind_count].after) catch {};
+        }
+        @memcpy(vm.last_error_detail[0..saved_detail_len], saved_detail[0..saved_detail_len]);
+        vm.last_error_detail_len = saved_detail_len;
         vm.resetExecutionState();
         return err;
     };
@@ -574,7 +589,21 @@ fn callReentrant(vm: *VM, closure: *types.Closure, base: u32, dst: u8, returns_t
         if (vm.continuation_generation == saved_cgen) {
             vm.frame_count = saved_frame_count;
             vm.handler_count = saved_handler_count;
-            vm.wind_count = saved_wind_count;
+            // Unwind any winds pushed during this re-entrant call by
+            // calling their after-thunks (Scheme-level dynamic-wind
+            // records from %push-wind). This ensures proper cleanup
+            // when exceptions propagate through callReentrant.
+            // Preserve error detail: after-thunks that make native
+            // calls (e.g. display) clear last_error_detail.
+            const saved_detail_len = vm.last_error_detail_len;
+            var saved_detail: [256]u8 = undefined;
+            @memcpy(saved_detail[0..saved_detail_len], vm.last_error_detail[0..saved_detail_len]);
+            while (vm.wind_count > saved_wind_count) {
+                vm.wind_count -= 1;
+                _ = vm.callThunk(vm.wind_stack[vm.wind_count].after) catch {};
+            }
+            @memcpy(vm.last_error_detail[0..saved_detail_len], saved_detail[0..saved_detail_len]);
+            vm.last_error_detail_len = saved_detail_len;
         }
         return err;
     };

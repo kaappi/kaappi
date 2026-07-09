@@ -154,12 +154,9 @@
 (test 3 (call/cc (lambda (k)
                    (map (lambda (x) (if (= x 3) (k x) x)) '(1 2 3 4))
                    'no-escape)))
-;; 256-list boundary: exactly 256 lists works ...
-(test '(256) (apply map + (make-list 256 '(1))))
-;; ... but 257+ crashes with an uncatchable ReleaseSafe panic (fixed [256]Value
-;; buffers in mapFn/forEachFn with no bounds check; vector-map heap-allocates).
-;; Cannot even be a disabled chibi test target — the process aborts (exit 134).
-;; FAIL: #1176 (map/for-each with >256 lists panic instead of erroring)
+;; map is now a Scheme closure; the closure calling convention limits
+;; args to 255, so 250 lists (well within the limit) is tested instead.
+(test '(250) (apply map + (make-list 250 '(1))))
 ;; (test '(257) (apply map + (make-list 257 '(1))))
 ;; (test-assert (begin (apply for-each (lambda args #f) (make-list 257 '(1))) #t))
 
@@ -224,5 +221,9 @@
 (test "λx" (symbol->string (string->symbol "λx")))
 (test 'caught (guard (e (#t 'caught)) (string->symbol 'not-a-string)))
 (test 'caught (guard (e (#t 'caught)) (string->symbol 42)))
+
+;;; --- map: too many lists raises catchable error, not panic ---
+(test-assert "map with 257 lists raises error"
+  (guard (e (#t #t)) (apply map + (make-list 257 (list 1))) #f))
 
 (test-end "primitives_list audit")

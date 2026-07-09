@@ -453,25 +453,56 @@ test "dynamic-wind after-thunk runs on nested escape under guard" {
     try std.testing.expectEqualStrings("after", types.symbolName(types.car(types.cdr(types.cdr(log)))));
 }
 
-test "continuation cannot resume across a returned native call" {
+test "full continuation re-entry inside map — generator-style" {
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
     var vm = try th.makeTestVM(&gc);
     defer vm.deinit();
 
-    // Regression: a coroutine-style continuation captured inside the closure
-    // that native `map` drives (via callWithArgs), then resumed after `map`
-    // has already returned. The restored stack's callWithArgs-pushed frame
-    // would return into a register owned by the now-dead native map frame,
-    // silently corrupting results (the "#<builtin map>" garbage bug). The VM
-    // must instead raise a clear, catchable error.
-    _ = try vm.eval("(define k #f)");
-    _ = try vm.eval("(map (lambda (x) (call/cc (lambda (c) (set! k c) x))) '(1 2 3))");
+    // Capture a full continuation inside a map callback, then reinvoke it
+    // from a separate eval to resume the iteration with a different value.
+    // This proves generator-style re-entry works: the continuation, when
+    // invoked, resumes inside the map loop and map produces a new result.
+    _ = try vm.eval("(define saved-k #f)");
 
-    // Without the fix this returns silently (delivering the closure result into
-    // a register owned by the dead native map frame); with the fix it raises.
-    // eval clears current_exception on the error path, so the message text is
-    // asserted at the Scheme level by tests/scheme/errors/error-format.sh.
-    const result = vm.eval("(k 99)");
-    try std.testing.expectError(vm_mod.VMError.ExceptionRaised, result);
+    // First run: map directly (not inside define, so the continuation
+    // captures a context whose return value is the map result itself).
+    const result = try vm.eval(
+        \\(map (lambda (x)
+        \\       (if (= x 2)
+        \\           (call/cc (lambda (k) (set! saved-k k) 20))
+        \\           (* x 10)))
+        \\     '(1 2 3))
+    );
+    // First run: (10 20 30) — call/cc returns 20 normally
+    try std.testing.expect(types.isPair(result));
+    try std.testing.expectEqual(@as(i64, 10), types.toFixnum(types.car(result)));
+    try std.testing.expectEqual(@as(i64, 20), types.toFixnum(types.car(types.cdr(result))));
+    try std.testing.expectEqual(@as(i64, 30), types.toFixnum(types.car(types.cdr(types.cdr(result)))));
+
+    // Re-invoke the saved continuation with 99 — resumes inside map,
+    // which finishes with element 2 replaced by 99.
+    const result2 = try vm.eval("(saved-k 99)");
+    try std.testing.expect(types.isPair(result2));
+    try std.testing.expectEqual(@as(i64, 10), types.toFixnum(types.car(result2)));
+    try std.testing.expectEqual(@as(i64, 99), types.toFixnum(types.car(types.cdr(result2))));
+    try std.testing.expectEqual(@as(i64, 30), types.toFixnum(types.car(types.cdr(types.cdr(result2)))));
+}
+
+test "escape continuation from inside map exits map early" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    // map is now a Scheme closure — callbacks execute as regular bytecode
+    // calls, so call/cc inside map works freely: an escape continuation
+    // can abort the iteration and deliver a value to the outer context.
+    const result = try vm.eval(
+        \\(call/cc (lambda (return)
+        \\  (map (lambda (x) (if (= x 2) (return 'escaped) x))
+        \\       '(1 2 3))
+        \\  'not-reached))
+    );
+    try std.testing.expectEqualStrings("escaped", types.symbolName(result));
 }
