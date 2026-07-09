@@ -10,6 +10,7 @@ const OpCode = types.OpCode;
 pub const vm_library = @import("vm_library.zig");
 pub const vm_records = @import("vm_records.zig");
 pub const vm_continuations = @import("vm_continuations.zig");
+pub const vm_bootstrap = @import("vm_bootstrap.zig");
 
 pub const VMError = @import("errors.zig").KaappiError;
 

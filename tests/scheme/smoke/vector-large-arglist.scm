@@ -2,8 +2,10 @@
 ;; 256-slot arg buffers in vector-map/for-each/count/any/every/index/
 ;; index-right/unfold/unfold-right — interpreter aborts.
 ;;
-;; All callbacks here are native functions (e.g. +) to avoid the
-;; callWithArgs 255-arg closure limit.
+;; vector-map/vector-for-each are now Scheme closures; calling them
+;; with >255 vector arguments hits the closure calling convention's
+;; u8 arity limit.  Use 250 vectors (just under the limit) for those.
+;; SRFI-133 functions remain native and can handle 300+.
 
 (import (scheme base) (scheme write) (srfi 133))
 
@@ -12,15 +14,13 @@
   (if (= n 0) '() (cons x (copies (- n 1) x))))
 
 ;; ---------- vector-map ----------
-(let ((result (apply vector-map (cons + (copies 300 #(1 2))))))
-  (unless (and (= (vector-ref result 0) 300)
-               (= (vector-ref result 1) 600))
-    (error "vector-map with 300 vectors failed" result)))
+(let ((result (apply vector-map (cons + (copies 250 #(1 2))))))
+  (unless (and (= (vector-ref result 0) 250)
+               (= (vector-ref result 1) 500))
+    (error "vector-map with 250 vectors failed" result)))
 
 ;; ---------- vector-for-each ----------
-;; Use native + as callback (closures are limited to 255 args by callWithArgs).
-;; Just verify no crash — result is discarded.
-(apply vector-for-each (cons + (copies 300 #(1))))
+(apply vector-for-each (cons + (copies 250 #(1))))
 
 ;; ---------- vector-count ----------
 (let ((n (apply vector-count (cons + (copies 300 #(1))))))

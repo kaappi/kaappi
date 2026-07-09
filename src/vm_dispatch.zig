@@ -748,19 +748,23 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                     return result;
                 }
                 if (from_native_call) return raiseDeadNativeReturn(self);
-                // Also unwind any winds that were pushed by native
-                // functions (e.g. dynamic-wind) between this frame
-                // and the caller. After a continuation restore the
-                // native function isn't on the Zig stack, so its
-                // cleanup won't run. The caller's saved_wind_count
-                // tells us the correct wind level to unwind to.
+                // Unwind any winds that were pushed by native
+                // functions (via callReentrant) between this frame
+                // and the caller — only when the caller itself was
+                // pushed by a native re-entry. Bytecode callers
+                // (e.g. Scheme-level dynamic-wind) manage their own
+                // winds via %push-wind/%pop-wind and must not be
+                // unwound here.
                 // callThunk may re-enter the VM and grow self.frames — copy
                 // the caller's fields instead of holding a pointer across it.
+                const caller_returns_to_native = self.frames[self.frame_count - 1].returns_to_native;
                 const caller_wind_count = self.frames[self.frame_count - 1].saved_wind_count;
                 const caller_base = self.frames[self.frame_count - 1].base;
-                while (self.wind_count > caller_wind_count) {
-                    self.wind_count -= 1;
-                    _ = self.callThunk(self.wind_stack[self.wind_count].after) catch {};
+                if (caller_returns_to_native) {
+                    while (self.wind_count > caller_wind_count) {
+                        self.wind_count -= 1;
+                        _ = self.callThunk(self.wind_stack[self.wind_count].after) catch {};
+                    }
                 }
                 const ret_idx = try registerIndex(self, caller_base, return_dst);
                 self.registers[ret_idx] = result;

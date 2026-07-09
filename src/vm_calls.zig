@@ -574,7 +574,14 @@ fn callReentrant(vm: *VM, closure: *types.Closure, base: u32, dst: u8, returns_t
         if (vm.continuation_generation == saved_cgen) {
             vm.frame_count = saved_frame_count;
             vm.handler_count = saved_handler_count;
-            vm.wind_count = saved_wind_count;
+            // Unwind any winds pushed during this re-entrant call by
+            // calling their after-thunks (Scheme-level dynamic-wind
+            // records from %push-wind). This ensures proper cleanup
+            // when exceptions propagate through callReentrant.
+            while (vm.wind_count > saved_wind_count) {
+                vm.wind_count -= 1;
+                _ = vm.callThunk(vm.wind_stack[vm.wind_count].after) catch {};
+            }
         }
         return err;
     };

@@ -27,6 +27,8 @@ pub const specs = [_]primitives.PrimSpec{
     .{ .name = "dynamic-wind", .func = &dynamicWindFn, .arity = .{ .exact = 3 }, .libs = LS.initMany(&.{ .scheme_base, .scheme_r5rs }) },
     .{ .name = "values", .func = &valuesFn, .arity = .{ .variadic = 0 }, .libs = LS.initMany(&.{ .scheme_base, .scheme_r5rs }) },
     .{ .name = "call-with-values", .func = &callWithValuesFn, .arity = .{ .exact = 2 }, .libs = LS.initMany(&.{ .scheme_base, .scheme_r5rs }) },
+    .{ .name = "%push-wind", .func = &pushWindFn, .arity = .{ .exact = 2 }, .libs = LS.initOne(.scheme_base) },
+    .{ .name = "%pop-wind", .func = &popWindFn, .arity = .{ .exact = 0 }, .libs = LS.initOne(.scheme_base) },
 };
 
 // ---------------------------------------------------------------------------
@@ -345,4 +347,21 @@ fn callWithValuesFn(args: []const Value) PrimitiveError!Value {
         };
         return result;
     }
+}
+
+fn pushWindFn(args: []const Value) PrimitiveError!Value {
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError; // bare-ok: no VM
+    if (!types.isProcedure(args[0])) return primitives.typeError("%push-wind", "procedure", args[0]);
+    if (!types.isProcedure(args[1])) return primitives.typeError("%push-wind", "procedure", args[1]);
+    if (vm.wind_count >= vm_mod.MAX_WINDS) return PrimitiveError.OutOfMemory;
+    vm.wind_stack[vm.wind_count] = .{ .before = args[0], .after = args[1] };
+    vm.wind_count += 1;
+    return types.VOID;
+}
+
+fn popWindFn(_: []const Value) PrimitiveError!Value {
+    const vm = vm_mod.vm_instance orelse return PrimitiveError.TypeError; // bare-ok: no VM
+    if (vm.wind_count == 0) return PrimitiveError.TypeError; // bare-ok: underflow
+    vm.wind_count -= 1;
+    return types.VOID;
 }

@@ -174,6 +174,7 @@ fn mainImpl(init: std.process.Init.Minimal) !void {
     if (comptime is_wasm) {
         try primitives.registerAll(vm);
         memory.setGCInstance(&gc);
+        try vm_mod.vm_bootstrap.install(vm);
         try library.registerStandardLibraries(&vm.libraries, vm.globals);
 
         var wasi_args = try init.args.iterateAllocator(allocator);
@@ -192,11 +193,13 @@ fn mainImpl(init: std.process.Init.Minimal) !void {
     if (is_sandboxed) {
         try primitives.registerSandboxed(vm);
         memory.setGCInstance(&gc);
+        try vm_mod.vm_bootstrap.install(vm);
         try library.registerSandboxedLibraries(&vm.libraries, vm.globals);
         vm.sandbox_mode = true;
     } else {
         try primitives.registerAll(vm);
         memory.setGCInstance(&gc);
+        try vm_mod.vm_bootstrap.install(vm);
         try library.registerStandardLibraries(&vm.libraries, vm.globals);
     }
 

@@ -12,6 +12,7 @@ pub fn makeTestVM(gc: *memory.GC) !VM {
     var vm = try VM.init(gc);
     memory.setGCInstance(gc);
     try primitives_mod.registerAll(&vm);
+    try vm_mod.vm_bootstrap.install(&vm);
     try library_mod.registerStandardLibraries(&vm.libraries, vm.globals);
     return vm;
 }

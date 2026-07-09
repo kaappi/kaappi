@@ -191,13 +191,8 @@ assert_output_contains "variadic closure arity error shows counts" \
 assert_output_contains "anonymous lambda arity error has no name" \
     '((lambda (x) x) 1 2)' "expected 1 arguments, got 2"
 
-# Continuation captured inside a native driver (map) and resumed after that
-# native call returned must raise a clear error, not silently corrupt results.
-echo
-echo "-- Continuation across returned native call --"
-assert_output_contains "resume across dead native call is an error" \
-    '(define k #f) (map (lambda (x) (call/cc (lambda (c) (set! k c) x))) (list 1 2 3)) (k 99)' \
-    "continuation cannot resume across a returned native call"
+# Continuation captured inside map can now be reinvoked (map is bytecode-driven).
+# The old "dead native call" error no longer applies — this is a success case.
 
 # Issue #1032: malformed let*-values and guard must report InvalidSyntax, not OOM
 assert_output_contains "malformed let*-values reports InvalidSyntax" \
