@@ -19,6 +19,7 @@
             (if (not (and (real? unit) (> unit 0) (< unit 1)))
                 (error "random-source-make-reals: unit must satisfy 0 < unit < 1" unit)
                 (if (exact? unit)
+                    ;; n = max x with x*unit < 1 (ceil(1/unit)-1); subtract 1 only when 1/unit is integral, to exclude the 1.0 endpoint
                     (let* ((recip (/ 1 unit))
                            (n (if (integer? recip)
                                   (- recip 1)
