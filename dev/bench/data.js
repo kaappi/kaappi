@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783603658657,
+  "lastUpdate": 1783633684543,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "27e610b089e19e69fd01718fe6016752c8f5bf06",
-          "message": "Phase 5 synthesis: harden run-all.sh, check final tracker box (#1247)\n\nCloses out the audit campaign (tracking: see #1137). The synthesis\ndeliverables live on the tracking issue: 87 findings grouped into 9\nroot-cause clusters, priority order (crashes > wrong results > missing\nfeatures > edge cases), a 197-marker disabled-test inventory, and two\nepics (see #1245 native VM re-entrancy, see #1246 portable SRFI\nquality). Six issues already fixed still have stale FAIL markers to\nre-enable.\n\nrun-all.sh now inspects each passing file's output for chibi-test\n\"N fail\" and SRFI-64 \"unexpected failures\" counts: the chibi shim exits\n0 even when assertions fail (see #1196), so exit codes alone silently\npassed failing files. Verified: a failing chibi file is now caught,\nsrfi64.scm's intentional expected-failure still passes, and the full\nsuite is green (373 files + 1395 R7RS assertions).\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-05T23:40:10+05:30",
-          "tree_id": "42b78d0c750408d97c39b90fd53163471c0a4fde",
-          "url": "https://github.com/kaappi/kaappi/commit/27e610b089e19e69fd01718fe6016752c8f5bf06"
-        },
-        "date": 1783276367146,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.373492,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.173682,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.918152,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.077662,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.012427,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.211586,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.471555,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.070426,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 12.313531,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.809301,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 9.960267,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.951579,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 8.353927,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.515903,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.042428,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.0434,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a94cce8d2225937e95e8ae3970a68b4b0cd3fdec",
+          "message": "Trampoline map/for-each/dynamic-wind/force callback family (#1347) (#1374)\n\n* Trampoline map/for-each/dynamic-wind/force callback family (#1347)\n\nRewrite map, for-each, vector-map, vector-for-each, string-for-each,\nstring-map, dynamic-wind, and force as Scheme closures compiled at VM\ninit time, replacing the native Zig implementations that used\ncallReentrant. Callbacks now execute as regular bytecode calls in the\ndispatch loop, lifting two documented limitations:\n\n- Fibers can park inside callbacks (channel-receive in a for-each\n  callback no longer deadlocks when other fibers are available)\n- Continuations captured inside map/for-each can be reinvoked after\n  the iteration returns\n\nThe Scheme implementations are bootstrapped between registerAll() and\nregisterStandardLibraries(), overwriting the native versions in\nvm.globals before library export. Internal helpers (%push-wind,\n%pop-wind, %promise-* accessors) expose low-level VM operations\nwithout re-entering Scheme.\n\nTwo dispatch-loop fixes support the new architecture:\n- callReentrant error path now calls after-thunks for winds pushed\n  during the re-entrant call (instead of silently resetting wind_count)\n- Return opcode's caller-wind-cleanup only fires for returns_to_native\n  callers, preventing premature unwind of Scheme-managed winds\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Print which benchmarks failed verification in run-benchmarks.sh\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Halve closures benchmark iterations to fit CI timeout\n\nThe closures benchmark does 10K map calls over 1000-element lists.\nWith map now a Scheme closure (bytecode dispatch instead of native\nloop), this exceeds the 120s timeout on slow CI runners. Reduce to\n5000 iterations — still exercises the same closure allocation and\nGC patterns.\n\nAlso print which specific benchmarks failed in run-benchmarks.sh.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Raise benchmark alert threshold for callback trampoline PR\n\nThe list benchmark uses map in its hot loop. With map now a Scheme\nclosure (bytecode dispatch per callback instead of tight native loop),\nthe microbenchmark is ~1.6x slower. This is expected — the tradeoff\nis correctness (fibers can park, continuations can resume) over raw\ncallback throughput. Real-world programs are dominated by callback\nwork, not the loop overhead.\n\nRaise the alert threshold to 200% for this PR. The threshold should\nbe lowered back to 120% after merge.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Address review feedback: missing init paths, force error handling, export hygiene, tests\n\nM1: Add vm_bootstrap.install() to all init paths that were missed:\n    runtime_exports.zig, kaappi_lsp.zig, bench.zig, tests_fuzz.zig.\n\nm2: Unwind pending dynamic-wind after-thunks in execute()'s error\n    path so (dynamic-wind before thunk after) calls after even when\n    thunk raises an uncaught exception that escapes to the top level.\n\nm3: Wrap force's (thunk) call with with-exception-handler to reset\n    the forcing flag on error, then re-raise. Prevents promise from\n    getting stuck in the forcing state after an exception.\n\nm5: Add Lib.internal tag for primitives that live in globals but must\n    not be exported by any standard library. Move %push-wind, %pop-wind,\n    and %promise-* helpers to .internal. Keep %make-promise-lazy in\n    scheme_base since the compiler emits references to it from library\n    contexts where restricted_globals blocks the globals fallback.\n\nT1: Add continuation re-entry test in tests_continuations.zig that\n    captures a full continuation inside a map callback and reinvokes\n    it from a separate eval, proving generator-style re-entry works.\n\nT2: Add 257-list map error assertion to primitives_list-audit.scm.\n\nT7: Add yield calls between channel-sends in the fiber for-each test\n    to force the fiber to park before data is available.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Preserve error detail across dynamic-wind after-thunk unwind\n\nAfter-thunks that make native calls (e.g. display) clear\nlast_error_detail as a side effect. Save/restore the detail\nacross the wind unwind loop in execute()'s error path so the\nreal exception message survives.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Preserve error detail in callReentrant wind unwind loop\n\nMirror the save/restore pattern from execute()'s error path so\nafter-thunks that do native I/O don't clear the exception message\nduring callReentrant's wind cleanup either.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Fix force cycle detection: clear forcing at exit points, not via wrapper\n\nThe with-exception-handler wrapper cleared the forcing flag before the\ncycle detection check could examine it. After a merge-and-loop, the\nresult promise could be the same object as current, but forcing was\nalready false — so the (%promise-forcing? result) check never triggered,\ncausing an infinite loop on cyclic delay-force chains.\n\nFix by removing the wrapper and clearing forcing explicitly at each\nnormal exit path, matching the native algorithm. The forcing flag now\npersists across loop iterations until force returns or errors.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Clear promise forcing flag on abnormal thunk exit via dynamic-wind\n\nThe native forceFn cleared `forcing` in its `catch |err|`, which fires\non any error return — including ContinuationInvoked from a call/cc\nescape. The Scheme force lost that: 2627a2cb's with-exception-handler\nwrapper only caught raises (and, being a native primitive, drove the\nthunk through callReentrant — breaking continuation re-entry through\npromise thunks), while 80125b29 removed the wrapper and left `forcing`\nstuck on both raises and escapes, so a later delay-force chain over the\npromise raised a spurious \"re-entrant forcing of promise\".\n\nWrap the thunk call in a flag-based dynamic-wind instead: the after\nthunk clears `forcing` only when the body did not complete normally,\nso raises and call/cc escapes both reset the flag while normal returns\nkeep it set for the SRFI-45 cycle-detection check. dynamic-wind is\nitself Scheme-bootstrapped, so force stays pure bytecode — fibers can\nstill park and continuations captured in thunks can still be reinvoked.\n\nRegression tests cover the raise path, the escape path, and\ncontinuation re-entry through a forced thunk; the first two fail on the\nprevious commit.\n\nCo-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-09T21:18:23Z",
+          "tree_id": "3fcb6fcd05bd5a7e39db2f6601e09fd05637eb6e",
+          "url": "https://github.com/kaappi/kaappi/commit/a94cce8d2225937e95e8ae3970a68b4b0cd3fdec"
+        },
+        "date": 1783633683057,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 3.393525,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 7.851065,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.80824,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 3.446949,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.013881,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.345795,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.398804,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.058006,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 13.784998,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.532447,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 10.498444,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 1.061574,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 8.84807,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.039205,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.039335,
             "unit": "seconds"
           }
         ]
