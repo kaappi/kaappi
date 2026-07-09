@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783599276749,
+  "lastUpdate": 1783600209181,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "ffb4ae293afb0ed3d39fa4720b2e41bdb1b9571c",
-          "message": "Add conformance tests for 28 portable SRFIs (audit Phases 3a-3e) (#1227)\n\nConformance test files for the portable-SRFI units 3a-3e of the audit\ncampaign (tracking: see #1137):\n\n- 3a: SRFI 0, 6, 17, 23, 26\n- 3b: SRFI 37, 38, 43, 116, 117, 134\n- 3c: SRFI 41, 42, 45, 143, 144\n- 3d: SRFI 60, 61, 78, 87, 197, 210, 227\n- 3e: SRFI 4, 127, 130, 233, 235\n\n549 passing assertions total; ~63 assertions disabled with FAIL markers\nreferencing the 22 issues filed during this phase (see #1205 through\n#1226) plus the earlier reader issue (see #1164). Highlights: bitwise\nops use magnitude semantics for negative operands (see #1214, affects\nSRFI 60/143/151), SRFI-4 integer vector kinds are bare bytevector\naliases (see #1225), SRFI-210 value/set!-values are broken (see #1218,\nsee #1224), SRFI-233 parser calls unbound char-whitespace? (see #1223).\n\nTracker updated: 3a-3e checked in docs/audit-strategy.md.\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-05T16:06:00Z",
-          "tree_id": "90c5b0ba79c3481a0189495086575dc700506d3a",
-          "url": "https://github.com/kaappi/kaappi/commit/ffb4ae293afb0ed3d39fa4720b2e41bdb1b9571c"
-        },
-        "date": 1783268713243,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.314296,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.627799,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.929017,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.064612,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.012453,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.211451,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.469748,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.069635,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 12.364279,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.822387,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 9.938557,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.956734,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 8.295738,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.694856,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.042493,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.043356,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f75588de4b34f117138abb003f0325fc74572a6c",
+          "message": "Fix SRFI-9 record-type redefinition retargeting old procedures (#1203) (#1371)\n\n* Fix record-type redefinition retargeting old procedures (#1203)\n\nThe desugared constructors/predicates/accessors/mutators referenced the\nrecord type through a global name resolved at call time.  Redefining the\nsame record type overwrote that global, silently retargeting every\npreviously created procedure to the new type.\n\nWrap each generated procedure in (let ((__rt <global>)) (lambda ...)) so\nthe record-type object is captured at definition time via closure.\nApplied to both the top-level path (handleDefineRecordType) and the body\ncontext path (expandRecordTypeDefines).\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Update stale comment in SRFI-9 test to reflect the fix\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-09T17:32:45+05:30",
+          "tree_id": "81770361e9307bbba42f74f8198ea059886a5546",
+          "url": "https://github.com/kaappi/kaappi/commit/f75588de4b34f117138abb003f0325fc74572a6c"
+        },
+        "date": 1783600207052,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.326211,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.066385,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.984779,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.380743,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.012817,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.204798,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.505951,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.069381,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 12.672672,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.950852,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 10.219527,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 1.0044,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 8.458626,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.701472,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.043811,
             "unit": "seconds"
           }
         ]
