@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783579637225,
+  "lastUpdate": 1783579970725,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "3422197e9d72a1dc970932bca35f705035446bf7",
-          "message": "Add R7RS 6.10-6.14 conformance gap tests (audit Phase 1D) (#1152)\n\n30 assertions covering spec corners the R7RS suite misses:\nshortest-list termination for map/vector-map/string-map, apply with\nspread arguments, call-with-values spec examples, raise-continuable\nhandler-value semantics, error-object accessors, file-error?/\nread-error? predicates, eval environment isolation and import-set\nrestriction, cyclic write with datum labels, read-line CR/CRLF/LF\nhandling, peek-char/peek-u8 non-advancement, port lifecycle\npredicates, parameterized current-output-port, bytevector ports,\nranged write-string, and system interface types.\n\nTwo assertions disabled with FAIL: #1147 markers - define/set! into\nan immutable (environment ...) silently succeeds instead of\nsignaling an error (isolation itself is correct). Deep continuation\ninteractions are deferred to Phase 4B. Part of the #1137 audit\ncampaign.\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-05T08:34:45Z",
-          "tree_id": "907997e57d5d2c9db31bc82b0f62c7e22c6a21bc",
-          "url": "https://github.com/kaappi/kaappi/commit/3422197e9d72a1dc970932bca35f705035446bf7"
-        },
-        "date": 1783241745295,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.278111,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.700162,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.920778,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.083317,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.012552,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.211234,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.472143,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.069835,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 12.336581,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.839048,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 9.998511,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.952429,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 8.290279,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.677878,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.043055,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.04398,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "04149d24b24b018ca79ed6a63d1f7df98c8448ff",
+          "message": "Implement SRFI-61 general cond clause (generator guard => receiver) (#1206) (#1357)\n\nReplace the empty SRFI-61 stub with a syntax-rules macro that shadows the\nbuilt-in cond, adding the (generator guard => receiver) clause form. The\ngenerator may return multiple values via call-with-values; the guard is\napplied to them, and if true the receiver gets the same argument list.\n\nAll standard R7RS cond clause forms are preserved by the macro.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-09T06:12:55Z",
+          "tree_id": "b8e062272dda90b26a925d89e269a3ecbdb41862",
+          "url": "https://github.com/kaappi/kaappi/commit/04149d24b24b018ca79ed6a63d1f7df98c8448ff"
+        },
+        "date": 1783579969785,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.047641,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.763082,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 1.028305,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.411822,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.01397,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.226041,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.543857,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.068488,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 13.633277,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.981726,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 11.330798,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 1.116436,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 9.276736,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.86241,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.046734,
             "unit": "seconds"
           }
         ]
