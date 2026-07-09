@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783587289082,
+  "lastUpdate": 1783590573432,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "83718b6706d4c1bcb47267b9ce15ef19bec300e2",
-          "message": "Phases 2.2-2.4: SRFI-13, char, and IO primitives audit tests (#1160)\n\n* Add primitives_string_ext.zig audit tests (audit Phase 2.2)\n\n84 assertions covering the SRFI-13 surface: codepoint indexing in\ncontains/take/reverse/pad, left-only trim semantics, pad truncation\ndirections, criterion-first filter/delete, every/any return values,\nunfold/unfold-right base and make-final placement, callback error\npropagation, and type-error catchability. gc-stress clean.\n\nSix assertions disabled with FAIL markers: #825 (string-join grammar\nstill ignored - reopened), #826 (default trim misses Unicode\nwhitespace - reopened), #1158 (string-contains ignores start2/end2,\nstring-replace rejects them), #1159 (wrong-typed optional args\nsilently ignored). Part of the #1137 audit campaign.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n* Add primitives_char and primitives_io audit tests (Phases 2.3, 2.4)\n\nPhase 2.3 (primitives_char.zig, 59 assertions): no new bugs. The\nhard Unicode paths all conform - contextual final-sigma downcasing,\nligature expansion in string-upcase, Cherokee case pairs, sigma\nfoldcase equivalence, Numeric_Type=Decimal discrimination in\nchar-numeric?/digit-value. Three property-based classification\nassertions stay disabled pending #1145 (filed in Phase 1C).\n\nPhase 2.4 (primitives_io.zig, 49 assertions): no bugs. Closed-port\nerrors, read-string boundaries, write/write-shared/write-simple\ndatum-label semantics, write escape behavior, textual and binary\nfile round-trips, and file-error discrimination all conform.\n\nChecks off 2.2-2.4 in the tracker (2.2's test file is the previous\ncommit on this branch). Part of the #1137 audit campaign.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-05T08:53:24Z",
-          "tree_id": "b1d397955f6afc5eae2e15d8c9d502a473205943",
-          "url": "https://github.com/kaappi/kaappi/commit/83718b6706d4c1bcb47267b9ce15ef19bec300e2"
-        },
-        "date": 1783242892946,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.338501,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.543303,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.923249,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.080603,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.012516,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.211345,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.471181,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.069609,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 12.367369,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.823383,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 9.946592,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.948013,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 8.344881,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.65661,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.042739,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.043823,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "727f916d5139537dfe8c7d4f00af7a89b734fb26",
+          "message": "Fix SRFI-133 vector-skip/vector-skip-right multi-vector form (#1171) (#1359)\n\nBoth procedures were registered with exact arity 2, rejecting the\nmulti-vector form specified by SRFI-133. Change to variadic arity and\nimplement the multi-vector loop pattern (matching vector-index and\nvector-index-right).\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-09T14:54:06+05:30",
+          "tree_id": "29d798fca7b9bd6c6713509efe22add5f86221a0",
+          "url": "https://github.com/kaappi/kaappi/commit/727f916d5139537dfe8c7d4f00af7a89b734fb26"
+        },
+        "date": 1783590572443,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.353974,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.387366,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.984675,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.420165,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.01259,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.203867,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.505349,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.06918,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 12.8198,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.948949,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 10.184067,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 1.018921,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 8.428529,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.726348,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044605,
             "unit": "seconds"
           }
         ]
