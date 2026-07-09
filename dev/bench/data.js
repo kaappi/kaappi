@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783573826290,
+  "lastUpdate": 1783573970212,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "803b62a8c816fc0c58d9ab4118debbfdfa3fb8a2",
-          "message": "Route sub-expression compilation through the IR pipeline (#1038) (#1136)\n\nAdd compileExprViaIR bridge so sub-expressions compiled by legacy form\ncompilers (let, do, cond, etc.) re-enter the IR pipeline and receive\noptimization passes (constant folding, dead branch elimination, boolean\nsimplification). Converts 48 compileExpr call sites across 7 compiler\nfiles; keeps compileExpr for the passthrough→macro expansion path.\n\nAlso fixes three bugs exposed by the routing change:\n- IR macro lookup used stripped hygienic prefix, missing macros defined\n  under renamed identifiers in nested let-syntax\n- compileSetFromIR lacked is_global_alias write-through handling,\n  causing macro template set! to silently lose global updates\n- Five IR optimizer passes used fixed 256-element buffers, panicking\n  on begin/and/or forms with >256 children\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-05T12:18:06+05:30",
-          "tree_id": "86ddf4b3e83b9c767c1a404c6acbe28c295e83d1",
-          "url": "https://github.com/kaappi/kaappi/commit/803b62a8c816fc0c58d9ab4118debbfdfa3fb8a2"
-        },
-        "date": 1783235516126,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.328156,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.025239,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.926949,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.058737,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.012464,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.211231,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.470195,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.06964,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 12.372899,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.823011,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 9.964273,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.957214,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 8.369952,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.720767,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.042842,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.046499,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "280085559c1ff2221e3a8bc921f5056fbc086252",
+          "message": "Fix SRFI-78 check-passed?, add check-set-mode! and check-ec (#1342)\n\n* Fix SRFI-78 check-passed? signature, add check-set-mode! and check-ec (#1220)\n\ncheck-passed? now takes an expected-total-count argument and returns a\nboolean per the SRFI-78 specification, instead of returning the raw pass\ncount. Adds check-set-mode! (off/summary/report-failed/report) and\ncheck-ec (eager comprehension checks using SRFI-42).\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Address review: check-ec early-stop, mode validation, first-fail reporting\n\n- check-ec now uses call/cc to escape on the first mismatch, per spec\n  (previously ran the whole comprehension and reported the last failure)\n- check-ec accepts zero qualifiers (delegates to check) and trailing\n  diagnostic argument lists\n- check-set-mode! rejects unknown modes with an error\n- check-report prints the first failed check when there are failures\n- Add (scheme process-context) import for exit\n- %first-fail is now read by check-report (was dead state)\n- Tests cover early-stop, summary mode, invalid mode, zero qualifiers,\n  and diagnostic arguments (19 assertions)\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Fix caddr crash in check-report, remove dead equal parameter\n\ncheck-report used caddr which is not in (scheme base) — crashes inside\nthe library on any run with a failure. Replaced with (car (cddr ...)).\nAlso added (scheme process-context) import for exit, and removed the\nunused equal parameter from check-ec-run.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Add side-effect counter for early-stop and check-report failure regression\n\n- check-ec early-stop test now uses a mutation counter to prove only 1\n  iteration runs (would fail if escape were removed)\n- check-report failure path tested as subprocess in exit-code.sh:\n  verifies exit code 1 and \"First failure:\" output\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-09T04:46:11Z",
+          "tree_id": "5323bf41843a4a4eac9c80568223ef6bda2542ec",
+          "url": "https://github.com/kaappi/kaappi/commit/280085559c1ff2221e3a8bc921f5056fbc086252"
+        },
+        "date": 1783573969465,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.089698,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.661314,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 1.019605,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.422565,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.013835,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.226041,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.512759,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.06806,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 13.572369,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.984179,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 11.376078,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 1.115444,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 9.270053,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.850152,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.045482,
             "unit": "seconds"
           }
         ]
