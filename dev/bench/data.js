@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783579580697,
+  "lastUpdate": 1783579637225,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "1a9e5aea40a44e487e063c28d264c90d15b96710",
-          "message": "Add R7RS 6.6-6.9 conformance gap tests (audit Phase 1C) (#1151)\n\n43 assertions covering spec corners the R7RS suite misses: digit-value\nfor non-ASCII decimal digits, char classification against Unicode\nproperties, string literal escapes and line continuation, full Unicode\nstring casing (length-changing sharp-s), -ci comparison via foldcase,\noverlap guarantees for string/vector/bytevector-copy!, ranged\nfill/copy/conversion variants, and UTF-8 conversions where string\nindices are codepoints but bytevector indices are bytes.\n\nFour assertions disabled with FAIL: #1145 markers - char-upper-case?/\nlower-case?/alphabetic? classify titlecase (U+01C5, U+1FBC), sharp-s,\nand ordinal indicators (U+00AA/BA) wrongly because classification is\nderived from simple case mappings instead of Unicode Uppercase/\nLowercase/Alphabetic properties. Part of the #1137 audit campaign.\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-05T13:42:08+05:30",
-          "tree_id": "bf43a20781048a513ec6789b4891570cd14839a0",
-          "url": "https://github.com/kaappi/kaappi/commit/1a9e5aea40a44e487e063c28d264c90d15b96710"
-        },
-        "date": 1783240911442,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.310345,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.587509,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.921639,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.070202,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.012925,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.212464,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.472477,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.069983,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 12.382856,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.831192,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 9.950347,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.953224,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 8.311738,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.533107,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.042677,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.04675,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c20b06e8355a97a0bd15ef3ec072f60fa77c96b3",
+          "message": "Fix SRFI-1 take-right/drop-right to accept dotted lists (#1166) (#1354)\n\nThe spec says flist may be proper or dotted, but the length-counting\nloop required every cdr to be a pair, rejecting dotted tails. Replace\nwith a lead/lag two-pointer walk that naturally handles dotted tails.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-09T06:12:51Z",
+          "tree_id": "877b9ccafc6d234279581cdefaa0f7c09f92f164",
+          "url": "https://github.com/kaappi/kaappi/commit/c20b06e8355a97a0bd15ef3ec072f60fa77c96b3"
+        },
+        "date": 1783579636498,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.362967,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.182808,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.99893,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.397233,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.013135,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.204096,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.502921,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.069175,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 12.635749,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.932078,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 10.155653,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 1.001573,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 8.439286,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.666999,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.04398,
             "unit": "seconds"
           }
         ]
