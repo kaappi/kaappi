@@ -127,6 +127,12 @@ fi
 
 # Fail if any benchmark failed verification
 if printf '%s\n' "${results[@]}" | grep -qw 'fail'; then
-    echo "ERROR: One or more benchmarks failed verification" >&2
+    echo "ERROR: One or more benchmarks failed verification:" >&2
+    for r in "${results[@]}"; do
+        read -r name value status _ <<< "$r"
+        if [ "$status" = "fail" ]; then
+            echo "  FAIL: $name (value=$value)" >&2
+        fi
+    done
     exit 1
 fi
