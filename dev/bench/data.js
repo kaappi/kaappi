@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783559027832,
+  "lastUpdate": 1783559382582,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "4a9ccba03fa888b2e00f2b5b54c4e5011526280f",
-          "message": "Add RootedSlot/RootedScope helpers, migrate 36 manual extra_roots sites (#1054) (#1132)\n\nReplace fragile manual gc.extra_roots index-poke patterns with two small\nhelpers on GC: rootedSlot(val) returns a RootedSlot with get/set/release,\nand rootedScope() returns a RootedScope that shrinks back on release.\n\nMigrated all 31 index-poke sites in primitives_arithmetic.zig and\nprimitives_numeric.zig from raw items[len-N] to named slot handles,\neliminating a class of off-by-one rooting bugs. Migrated 9 manual\nsnapshot/shrinkRetainingCapacity sites in primitives_vector.zig and\nprimitives_srfi1.zig to rootedScope().\n\nVerified: 1702/1702 Scheme tests, arithmetic+numeric audit, unit tests,\nand GC stress mode all pass.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-05T08:59:37+05:30",
-          "tree_id": "c41a58ad11edeaefff1d1d11bbe5274501d05207",
-          "url": "https://github.com/kaappi/kaappi/commit/4a9ccba03fa888b2e00f2b5b54c4e5011526280f"
-        },
-        "date": 1783224240385,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.956287,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.458297,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.945198,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.168642,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.013616,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.234917,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.467529,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.06894,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 13.464958,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.816386,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 11.119498,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 1.06145,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 9.103443,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.797722,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.046331,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.046125,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a864683c326b4765da08762b45a6d86de7453634",
+          "message": "Fix SRFI-37 args-fold: short option matching, seed threading, option? export (#1211) (#1343)\n\nThree bugs made args-fold unusable for typical CLI parsing:\n\n1. Short char-name options never matched — the lookup built a string\n   from the char (e.g. \"v\") and compared it via member against names\n   that are chars (#\\v). Fixed by passing the char directly.\n\n2. List-valued seeds were splatted — the heuristic\n   `(if (list? new-seeds) new-seeds (list new-seeds))` unwrapped any\n   processor that legitimately returned a list as its single seed.\n   Replaced all 8 sites with call-with-values to thread seeds correctly.\n\n3. option? predicate was not exported despite being part of the SRFI\n   specification.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-09T06:05:21+05:30",
+          "tree_id": "896e722d43f043dd374e86d0aba924f8128bce6f",
+          "url": "https://github.com/kaappi/kaappi/commit/a864683c326b4765da08762b45a6d86de7453634"
+        },
+        "date": 1783559380919,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.322676,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.648277,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.962974,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.390659,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.012752,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.203695,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.496587,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.068732,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 12.656907,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.929298,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 10.191902,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 1.003227,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 8.430952,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.754718,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.043772,
             "unit": "seconds"
           }
         ]
