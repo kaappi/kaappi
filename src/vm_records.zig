@@ -40,28 +40,19 @@ pub fn handleDefineRecordType(vm: *VM, args: Value) VMError!Value {
         vm.defineGlobal(internal_name, rt_val) catch return VMError.OutOfMemory;
     }
 
-    // Generate constructor:
-    // (define (make-point x y) (%make-record __record_type_point x y))
-    // But we need to handle field ordering: constructor args may be in a different order
-    // than the field specs. The constructor always creates fields in the field_spec order.
+    // Generate constructor — close over the record type so redefinition
+    // does not retarget previously created constructors (#1203):
+    // (define ctor (let (( __rt __record_type_X))
+    //               (lambda (f1 f2) (%make-record  __rt f_for_0 ...))))
     {
         vm.gc.no_collect += 1;
         errdefer vm.gc.no_collect -= 1;
-        // Build the body: (%make-record <type> <fields-in-field-order>)
-        // For each field in all_fields order, find it in the constructor args
-        // Actually: %make-record takes type + field values in order.
-        // The constructor needs to map its parameters to field positions.
-        // We'll generate:
-        //   (define (ctor p1 p2 ...) (%make-record type p_for_field0 p_for_field1 ...))
-        // where p_for_fieldN is the constructor param corresponding to field N.
+        const rt_local = vm.gc.allocSymbol(" __rt") catch return VMError.OutOfMemory;
 
         var body_args: [258]Value = undefined;
-        // body_args[0] = %make-record symbol
         body_args[0] = vm.gc.allocSymbol("%make-record") catch return VMError.OutOfMemory;
-        // body_args[1] = internal_name (the record type reference)
-        body_args[1] = vm.gc.allocSymbol(internal_name) catch return VMError.OutOfMemory;
+        body_args[1] = rt_local;
 
-        // For each field in order, find its constructor param
         for (0..all_field_count) |fi| {
             var found_in_ctor = false;
             for (0..ctor_field_count) |ci| {
@@ -72,57 +63,30 @@ pub fn handleDefineRecordType(vm: *VM, args: Value) VMError!Value {
                 }
             }
             if (!found_in_ctor) {
-                // (if #f #f) evaluates to void/undefined without polluting the namespace
                 const if_sym = vm.gc.allocSymbol("if") catch return VMError.OutOfMemory;
                 body_args[2 + fi] = vm.gc.makeList(&[_]Value{ if_sym, types.FALSE, types.FALSE }) catch return VMError.OutOfMemory;
             }
         }
 
-        var body_list = vm.gc.makeList(body_args[0 .. 2 + all_field_count]) catch return VMError.OutOfMemory;
-        vm.gc.pushRoot(&body_list);
-        defer vm.gc.popRoot();
+        const body = vm.gc.makeList(body_args[0 .. 2 + all_field_count]) catch return VMError.OutOfMemory;
 
-        // Build parameter list
         var param_syms: [256]Value = undefined;
         for (0..ctor_field_count) |ci| {
             param_syms[ci] = vm.gc.allocSymbol(spec.ctor_fields[ci]) catch return VMError.OutOfMemory;
         }
         const params = vm.gc.makeList(param_syms[0..ctor_field_count]) catch return VMError.OutOfMemory;
 
-        // Build: (define (ctor-name params...) body)
-        const define_sym = vm.gc.allocSymbol("define") catch return VMError.OutOfMemory;
-        const name_and_params = vm.gc.allocPair(
-            vm.gc.allocSymbol(ctor_name) catch return VMError.OutOfMemory,
-            params,
-        ) catch return VMError.OutOfMemory;
-        const define_expr = vm.gc.makeList(&[_]Value{ define_sym, name_and_params, body_list }) catch return VMError.OutOfMemory;
-        vm.gc.no_collect -= 1;
-
-        body_list = define_expr;
-
-        const func = if (vm.current_lib_env) |env|
-            compiler_mod.compileExpressionInEnv(vm.gc, define_expr, &vm.macros, env, types.NIL, false) catch return VMError.CompileError
-        else
-            compiler_mod.compileExpressionWithMacros(vm.gc, define_expr, &vm.macros, vm.globals) catch return VMError.CompileError;
-        const func_val = types.makePointer(@ptrCast(func));
-        body_list = func_val;
-        compiler_mod.Compiler.unrootFunction(vm.gc, func);
-        _ = vm.execute(func) catch |err| return err;
-    }
-
-    // Generate predicate: (define (pred? v) (%record? v __record_type_point))
-    {
-        vm.gc.no_collect += 1;
-        errdefer vm.gc.no_collect -= 1;
-        const define_sym = vm.gc.allocSymbol("define") catch return VMError.OutOfMemory;
-        const v_sym = vm.gc.allocSymbol("v") catch return VMError.OutOfMemory;
-        const pred_sym = vm.gc.allocSymbol(pred_name) catch return VMError.OutOfMemory;
-        const record_check_sym = vm.gc.allocSymbol("%record?") catch return VMError.OutOfMemory;
+        const lambda_sym = vm.gc.allocSymbol("lambda") catch return VMError.OutOfMemory;
+        const lambda_expr = vm.gc.makeList(&[_]Value{ lambda_sym, params, body }) catch return VMError.OutOfMemory;
+        const let_sym = vm.gc.allocSymbol("let") catch return VMError.OutOfMemory;
         const type_ref = vm.gc.allocSymbol(internal_name) catch return VMError.OutOfMemory;
+        const let_binding = vm.gc.makeList(&[_]Value{ rt_local, type_ref }) catch return VMError.OutOfMemory;
+        const let_bindings = vm.gc.makeList(&[_]Value{let_binding}) catch return VMError.OutOfMemory;
+        const let_expr = vm.gc.makeList(&[_]Value{ let_sym, let_bindings, lambda_expr }) catch return VMError.OutOfMemory;
 
-        const body = vm.gc.makeList(&[_]Value{ record_check_sym, v_sym, type_ref }) catch return VMError.OutOfMemory;
-        const name_and_params = vm.gc.makeList(&[_]Value{ pred_sym, v_sym }) catch return VMError.OutOfMemory;
-        var define_expr = vm.gc.makeList(&[_]Value{ define_sym, name_and_params, body }) catch return VMError.OutOfMemory;
+        const define_sym = vm.gc.allocSymbol("define") catch return VMError.OutOfMemory;
+        const ctor_sym = vm.gc.allocSymbol(ctor_name) catch return VMError.OutOfMemory;
+        var define_expr = vm.gc.makeList(&[_]Value{ define_sym, ctor_sym, let_expr }) catch return VMError.OutOfMemory;
         vm.gc.no_collect -= 1;
         vm.gc.pushRoot(&define_expr);
         defer vm.gc.popRoot();
@@ -136,22 +100,65 @@ pub fn handleDefineRecordType(vm: *VM, args: Value) VMError!Value {
         _ = vm.execute(func) catch |err| return err;
     }
 
-    // Generate accessors and mutators for each field
+    // Generate predicate — close over record type (#1203):
+    // (define pred? (let (( __rt __record_type_X)) (lambda (v) (%record? v  __rt))))
+    {
+        vm.gc.no_collect += 1;
+        errdefer vm.gc.no_collect -= 1;
+        const rt_local = vm.gc.allocSymbol(" __rt") catch return VMError.OutOfMemory;
+        const define_sym = vm.gc.allocSymbol("define") catch return VMError.OutOfMemory;
+        const v_sym = vm.gc.allocSymbol("v") catch return VMError.OutOfMemory;
+        const pred_sym = vm.gc.allocSymbol(pred_name) catch return VMError.OutOfMemory;
+        const record_check_sym = vm.gc.allocSymbol("%record?") catch return VMError.OutOfMemory;
+
+        const body = vm.gc.makeList(&[_]Value{ record_check_sym, v_sym, rt_local }) catch return VMError.OutOfMemory;
+        const params = vm.gc.makeList(&[_]Value{v_sym}) catch return VMError.OutOfMemory;
+        const lambda_sym = vm.gc.allocSymbol("lambda") catch return VMError.OutOfMemory;
+        const lambda_expr = vm.gc.makeList(&[_]Value{ lambda_sym, params, body }) catch return VMError.OutOfMemory;
+        const let_sym = vm.gc.allocSymbol("let") catch return VMError.OutOfMemory;
+        const type_ref = vm.gc.allocSymbol(internal_name) catch return VMError.OutOfMemory;
+        const let_binding = vm.gc.makeList(&[_]Value{ rt_local, type_ref }) catch return VMError.OutOfMemory;
+        const let_bindings = vm.gc.makeList(&[_]Value{let_binding}) catch return VMError.OutOfMemory;
+        const let_expr = vm.gc.makeList(&[_]Value{ let_sym, let_bindings, lambda_expr }) catch return VMError.OutOfMemory;
+
+        var define_expr = vm.gc.makeList(&[_]Value{ define_sym, pred_sym, let_expr }) catch return VMError.OutOfMemory;
+        vm.gc.no_collect -= 1;
+        vm.gc.pushRoot(&define_expr);
+        defer vm.gc.popRoot();
+
+        const func = if (vm.current_lib_env) |env|
+            compiler_mod.compileExpressionInEnv(vm.gc, define_expr, &vm.macros, env, types.NIL, false) catch return VMError.CompileError
+        else
+            compiler_mod.compileExpressionWithMacros(vm.gc, define_expr, &vm.macros, vm.globals) catch return VMError.CompileError;
+        define_expr = types.makePointer(@ptrCast(func));
+        compiler_mod.Compiler.unrootFunction(vm.gc, func);
+        _ = vm.execute(func) catch |err| return err;
+    }
+
+    // Generate accessors and mutators — close over record type (#1203)
     for (0..all_field_count) |fi| {
-        // Accessor: (define (accessor p) (%record-ref p <index> __record_type_X))
+        // Accessor: (define acc (let (( __rt ...)) (lambda (p) (%record-ref p idx  __rt))))
         {
             vm.gc.no_collect += 1;
             errdefer vm.gc.no_collect -= 1;
+            const rt_local = vm.gc.allocSymbol(" __rt") catch return VMError.OutOfMemory;
             const define_sym = vm.gc.allocSymbol("define") catch return VMError.OutOfMemory;
             const p_sym = vm.gc.allocSymbol("p") catch return VMError.OutOfMemory;
             const acc_sym = vm.gc.allocSymbol(spec.accessor_names[fi]) catch return VMError.OutOfMemory;
             const record_ref_sym = vm.gc.allocSymbol("%record-ref") catch return VMError.OutOfMemory;
             const idx_val = types.makeFixnum(@intCast(fi));
-            const type_ref = vm.gc.allocSymbol(internal_name) catch return VMError.OutOfMemory;
 
-            const body = vm.gc.makeList(&[_]Value{ record_ref_sym, p_sym, idx_val, type_ref }) catch return VMError.OutOfMemory;
-            const name_and_params = vm.gc.makeList(&[_]Value{ acc_sym, p_sym }) catch return VMError.OutOfMemory;
-            var define_expr = vm.gc.makeList(&[_]Value{ define_sym, name_and_params, body }) catch return VMError.OutOfMemory;
+            const body = vm.gc.makeList(&[_]Value{ record_ref_sym, p_sym, idx_val, rt_local }) catch return VMError.OutOfMemory;
+            const params = vm.gc.makeList(&[_]Value{p_sym}) catch return VMError.OutOfMemory;
+            const lambda_sym = vm.gc.allocSymbol("lambda") catch return VMError.OutOfMemory;
+            const lambda_expr = vm.gc.makeList(&[_]Value{ lambda_sym, params, body }) catch return VMError.OutOfMemory;
+            const let_sym = vm.gc.allocSymbol("let") catch return VMError.OutOfMemory;
+            const type_ref = vm.gc.allocSymbol(internal_name) catch return VMError.OutOfMemory;
+            const let_binding = vm.gc.makeList(&[_]Value{ rt_local, type_ref }) catch return VMError.OutOfMemory;
+            const let_bindings = vm.gc.makeList(&[_]Value{let_binding}) catch return VMError.OutOfMemory;
+            const let_expr = vm.gc.makeList(&[_]Value{ let_sym, let_bindings, lambda_expr }) catch return VMError.OutOfMemory;
+
+            var define_expr = vm.gc.makeList(&[_]Value{ define_sym, acc_sym, let_expr }) catch return VMError.OutOfMemory;
             vm.gc.no_collect -= 1;
             vm.gc.pushRoot(&define_expr);
             defer vm.gc.popRoot();
@@ -165,21 +172,29 @@ pub fn handleDefineRecordType(vm: *VM, args: Value) VMError!Value {
             _ = vm.execute(func) catch |err| return err;
         }
 
-        // Mutator (if specified): (define (mutator p v) (%record-set! p <index> v __record_type_X))
+        // Mutator: (define mut! (let (( __rt ...)) (lambda (p v) (%record-set! p idx v  __rt))))
         if (spec.mutator_names[fi]) |mut_name| {
             vm.gc.no_collect += 1;
             errdefer vm.gc.no_collect -= 1;
+            const rt_local = vm.gc.allocSymbol(" __rt") catch return VMError.OutOfMemory;
             const define_sym = vm.gc.allocSymbol("define") catch return VMError.OutOfMemory;
             const p_sym = vm.gc.allocSymbol("p") catch return VMError.OutOfMemory;
             const v_sym = vm.gc.allocSymbol("v") catch return VMError.OutOfMemory;
             const mut_sym = vm.gc.allocSymbol(mut_name) catch return VMError.OutOfMemory;
             const record_set_sym = vm.gc.allocSymbol("%record-set!") catch return VMError.OutOfMemory;
             const idx_val = types.makeFixnum(@intCast(fi));
-            const type_ref = vm.gc.allocSymbol(internal_name) catch return VMError.OutOfMemory;
 
-            const body = vm.gc.makeList(&[_]Value{ record_set_sym, p_sym, idx_val, v_sym, type_ref }) catch return VMError.OutOfMemory;
-            const name_and_params = vm.gc.makeList(&[_]Value{ mut_sym, p_sym, v_sym }) catch return VMError.OutOfMemory;
-            var define_expr = vm.gc.makeList(&[_]Value{ define_sym, name_and_params, body }) catch return VMError.OutOfMemory;
+            const body = vm.gc.makeList(&[_]Value{ record_set_sym, p_sym, idx_val, v_sym, rt_local }) catch return VMError.OutOfMemory;
+            const params = vm.gc.makeList(&[_]Value{ p_sym, v_sym }) catch return VMError.OutOfMemory;
+            const lambda_sym = vm.gc.allocSymbol("lambda") catch return VMError.OutOfMemory;
+            const lambda_expr = vm.gc.makeList(&[_]Value{ lambda_sym, params, body }) catch return VMError.OutOfMemory;
+            const let_sym = vm.gc.allocSymbol("let") catch return VMError.OutOfMemory;
+            const type_ref = vm.gc.allocSymbol(internal_name) catch return VMError.OutOfMemory;
+            const let_binding = vm.gc.makeList(&[_]Value{ rt_local, type_ref }) catch return VMError.OutOfMemory;
+            const let_bindings = vm.gc.makeList(&[_]Value{let_binding}) catch return VMError.OutOfMemory;
+            const let_expr = vm.gc.makeList(&[_]Value{ let_sym, let_bindings, lambda_expr }) catch return VMError.OutOfMemory;
+
+            var define_expr = vm.gc.makeList(&[_]Value{ define_sym, mut_sym, let_expr }) catch return VMError.OutOfMemory;
             vm.gc.no_collect -= 1;
             vm.gc.pushRoot(&define_expr);
             defer vm.gc.popRoot();
@@ -376,15 +391,15 @@ pub fn expandRecordTypeDefines(
         count.* += 1;
     }
 
-    // 2. (define (ctor f1 f2) (%make-record __rt f_for_0 f_for_1 ...))
+    // 2. (define ctor (let (( __rt __record_type_X)) (lambda (f1 f2) (%make-record  __rt ...))))
     {
+        const rt_local = gc.allocSymbol(" __rt") catch return CompileError.OutOfMemory;
         const lambda_sym = gc.allocSymbol("lambda") catch return CompileError.OutOfMemory;
         const mr_sym = gc.allocSymbol("%make-record") catch return CompileError.OutOfMemory;
-        const rt_ref = gc.allocSymbol(internal_name) catch return CompileError.OutOfMemory;
 
         var body_elems: [258]Value = undefined;
         body_elems[0] = mr_sym;
-        body_elems[1] = rt_ref;
+        body_elems[1] = rt_local;
         for (0..spec.field_count) |fi| {
             var found = false;
             for (0..spec.ctor_field_count) |ci| {
@@ -407,56 +422,76 @@ pub fn expandRecordTypeDefines(
         }
         const params = gc.makeList(param_syms[0..spec.ctor_field_count]) catch return CompileError.OutOfMemory;
 
-        def_inits[count.*] = gc.makeList(&[_]Value{ lambda_sym, params, body }) catch return CompileError.OutOfMemory;
+        const lambda_expr = gc.makeList(&[_]Value{ lambda_sym, params, body }) catch return CompileError.OutOfMemory;
+        const let_sym = gc.allocSymbol("let") catch return CompileError.OutOfMemory;
+        const rt_ref = gc.allocSymbol(internal_name) catch return CompileError.OutOfMemory;
+        const let_binding = gc.makeList(&[_]Value{ rt_local, rt_ref }) catch return CompileError.OutOfMemory;
+        const let_bindings = gc.makeList(&[_]Value{let_binding}) catch return CompileError.OutOfMemory;
+        def_inits[count.*] = gc.makeList(&[_]Value{ let_sym, let_bindings, lambda_expr }) catch return CompileError.OutOfMemory;
         def_names[count.*] = spec.ctor_name;
         extra_roots.append(gc.allocator, def_inits[count.*]) catch return CompileError.OutOfMemory;
         count.* += 1;
     }
 
-    // 3. (define (pred? v) (%record? v __rt))
+    // 3. (define pred? (let (( __rt ...)) (lambda (v) (%record? v  __rt))))
     {
+        const rt_local = gc.allocSymbol(" __rt") catch return CompileError.OutOfMemory;
         const lambda_sym = gc.allocSymbol("lambda") catch return CompileError.OutOfMemory;
         const rc_sym = gc.allocSymbol("%record?") catch return CompileError.OutOfMemory;
         const v_sym = gc.allocSymbol("v") catch return CompileError.OutOfMemory;
-        const rt_ref = gc.allocSymbol(internal_name) catch return CompileError.OutOfMemory;
 
-        const body = gc.makeList(&[_]Value{ rc_sym, v_sym, rt_ref }) catch return CompileError.OutOfMemory;
+        const body = gc.makeList(&[_]Value{ rc_sym, v_sym, rt_local }) catch return CompileError.OutOfMemory;
         const params = gc.makeList(&[_]Value{v_sym}) catch return CompileError.OutOfMemory;
-        def_inits[count.*] = gc.makeList(&[_]Value{ lambda_sym, params, body }) catch return CompileError.OutOfMemory;
+        const lambda_expr = gc.makeList(&[_]Value{ lambda_sym, params, body }) catch return CompileError.OutOfMemory;
+        const let_sym = gc.allocSymbol("let") catch return CompileError.OutOfMemory;
+        const rt_ref = gc.allocSymbol(internal_name) catch return CompileError.OutOfMemory;
+        const let_binding = gc.makeList(&[_]Value{ rt_local, rt_ref }) catch return CompileError.OutOfMemory;
+        const let_bindings = gc.makeList(&[_]Value{let_binding}) catch return CompileError.OutOfMemory;
+        def_inits[count.*] = gc.makeList(&[_]Value{ let_sym, let_bindings, lambda_expr }) catch return CompileError.OutOfMemory;
         def_names[count.*] = spec.pred_name;
         extra_roots.append(gc.allocator, def_inits[count.*]) catch return CompileError.OutOfMemory;
         count.* += 1;
     }
 
-    // 4. Accessors: (define (acc p) (%record-ref p idx __rt))
+    // 4. Accessors: (define acc (let (( __rt ...)) (lambda (p) (%record-ref p idx  __rt))))
     for (0..spec.field_count) |fi| {
+        const rt_local = gc.allocSymbol(" __rt") catch return CompileError.OutOfMemory;
         const lambda_sym = gc.allocSymbol("lambda") catch return CompileError.OutOfMemory;
         const rr_sym = gc.allocSymbol("%record-ref") catch return CompileError.OutOfMemory;
         const p_sym = gc.allocSymbol("p") catch return CompileError.OutOfMemory;
         const idx = types.makeFixnum(@intCast(fi));
-        const rt_ref = gc.allocSymbol(internal_name) catch return CompileError.OutOfMemory;
 
-        const body = gc.makeList(&[_]Value{ rr_sym, p_sym, idx, rt_ref }) catch return CompileError.OutOfMemory;
+        const body = gc.makeList(&[_]Value{ rr_sym, p_sym, idx, rt_local }) catch return CompileError.OutOfMemory;
         const params = gc.makeList(&[_]Value{p_sym}) catch return CompileError.OutOfMemory;
-        def_inits[count.*] = gc.makeList(&[_]Value{ lambda_sym, params, body }) catch return CompileError.OutOfMemory;
+        const lambda_expr = gc.makeList(&[_]Value{ lambda_sym, params, body }) catch return CompileError.OutOfMemory;
+        const let_sym = gc.allocSymbol("let") catch return CompileError.OutOfMemory;
+        const rt_ref = gc.allocSymbol(internal_name) catch return CompileError.OutOfMemory;
+        const let_binding = gc.makeList(&[_]Value{ rt_local, rt_ref }) catch return CompileError.OutOfMemory;
+        const let_bindings = gc.makeList(&[_]Value{let_binding}) catch return CompileError.OutOfMemory;
+        def_inits[count.*] = gc.makeList(&[_]Value{ let_sym, let_bindings, lambda_expr }) catch return CompileError.OutOfMemory;
         def_names[count.*] = spec.accessor_names[fi];
         extra_roots.append(gc.allocator, def_inits[count.*]) catch return CompileError.OutOfMemory;
         count.* += 1;
     }
 
-    // 5. Mutators: (define (mut! p v) (%record-set! p idx v __rt))
+    // 5. Mutators: (define mut! (let (( __rt ...)) (lambda (p v) (%record-set! p idx v  __rt))))
     for (0..spec.field_count) |fi| {
         if (spec.mutator_names[fi]) |mname| {
+            const rt_local = gc.allocSymbol(" __rt") catch return CompileError.OutOfMemory;
             const lambda_sym = gc.allocSymbol("lambda") catch return CompileError.OutOfMemory;
             const rs_sym = gc.allocSymbol("%record-set!") catch return CompileError.OutOfMemory;
             const p_sym = gc.allocSymbol("p") catch return CompileError.OutOfMemory;
             const v_sym = gc.allocSymbol("v") catch return CompileError.OutOfMemory;
             const idx = types.makeFixnum(@intCast(fi));
-            const rt_ref = gc.allocSymbol(internal_name) catch return CompileError.OutOfMemory;
 
-            const body = gc.makeList(&[_]Value{ rs_sym, p_sym, idx, v_sym, rt_ref }) catch return CompileError.OutOfMemory;
+            const body = gc.makeList(&[_]Value{ rs_sym, p_sym, idx, v_sym, rt_local }) catch return CompileError.OutOfMemory;
             const params = gc.makeList(&[_]Value{ p_sym, v_sym }) catch return CompileError.OutOfMemory;
-            def_inits[count.*] = gc.makeList(&[_]Value{ lambda_sym, params, body }) catch return CompileError.OutOfMemory;
+            const lambda_expr = gc.makeList(&[_]Value{ lambda_sym, params, body }) catch return CompileError.OutOfMemory;
+            const let_sym = gc.allocSymbol("let") catch return CompileError.OutOfMemory;
+            const rt_ref = gc.allocSymbol(internal_name) catch return CompileError.OutOfMemory;
+            const let_binding = gc.makeList(&[_]Value{ rt_local, rt_ref }) catch return CompileError.OutOfMemory;
+            const let_bindings = gc.makeList(&[_]Value{let_binding}) catch return CompileError.OutOfMemory;
+            def_inits[count.*] = gc.makeList(&[_]Value{ let_sym, let_bindings, lambda_expr }) catch return CompileError.OutOfMemory;
             def_names[count.*] = mname;
             extra_roots.append(gc.allocator, def_inits[count.*]) catch return CompileError.OutOfMemory;
             count.* += 1;

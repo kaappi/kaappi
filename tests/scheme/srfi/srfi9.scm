@@ -94,13 +94,11 @@
 ;; the new predicate rejects instances of the old type
 (test #f (tt? old-inst))
 
-;; ...but previously-created procedures must keep referring to the OLD type.
-;; The desugar resolves the __record_type_ global at call time, so they
-;; silently retarget to the new type:
-;; FAIL: #1203 (record-type redefinition retargets old constructors/predicates)
-;; (test #t (old-pred old-inst))
-;; FAIL: #1203 (record-type redefinition retargets old constructors/predicates)
-;; (test #f (tt? (old-mk)))
+;; ...previously-created procedures must keep referring to the OLD type.
+;; The desugar closes over the record-type object at definition time,
+;; so redefinition does not retarget them (#1203):
+(test #t (old-pred old-inst))
+(test #f (tt? (old-mk)))
 
 ;;; --- define-record-type inside begin (R7RS 5.5: outermost level or body) ---
 (begin
