@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783579478151,
+  "lastUpdate": 1783579580697,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "5ae7e1b799878a91cc0bc927700860a1eb0be9ab",
-          "message": "Add R7RS 4.1-4.3 and 5.6 conformance gap tests (audit Phase 1A) (#1143)\n\n34 new assertions covering spec requirements the R7RS suite misses:\nunquoted self-evaluating vectors/bytevectors, include/include-ci, cond\ntest-only clauses, multiple values through and/or, let* duplicate\nbindings, let-values formals variants and init scoping, do with omitted\nstep, expression-level cond-expand, parameterize converter semantics,\nimproper quasiquote templates, constant patterns, literal hygiene, and\nlet-syntax vs letrec-syntax keyword scoping. Library-system tests (5.6)\ncover numeric name components, export rename, nested import sets,\nimport merging, and single instantiation - all passing.\n\nThree assertions are disabled with FAIL markers pending fixes:\n#1139 (literal matching ignores lexical bindings), #1140 (let-syntax\nsibling keyword scoping), #1141 (include-ci does not fold case).\nsyntax-error diagnostics filed as #1142 (needs an error-format.sh\ncase, no in-file test). Part of the #1137 audit campaign.\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-05T13:37:04+05:30",
-          "tree_id": "8103afefc280b19198968b0ed6a4ee5b4f3916de",
-          "url": "https://github.com/kaappi/kaappi/commit/5ae7e1b799878a91cc0bc927700860a1eb0be9ab"
-        },
-        "date": 1783240277273,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.575686,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.298351,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.777686,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 3.356718,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.012969,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.216157,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.386037,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.058533,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 12.636149,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.525649,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 10.312462,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 1.004396,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 8.507119,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 0.956265,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.037478,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.046244,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d26037326c3bd929ddacf668e41ba9c99eeab975",
+          "message": "Export lazy and eager from SRFI-45 (#1207) (#1353)\n\nThe library only re-exported the R7RS (scheme lazy) surface. SRFI-45\nspecifies two additional names: lazy (alias for delay-force) and eager\n(wraps make-promise). Add both and enable the disabled tests.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-09T11:28:56+05:30",
+          "tree_id": "0aaa2bf84e35c4670dca31d16756e32199762b26",
+          "url": "https://github.com/kaappi/kaappi/commit/d26037326c3bd929ddacf668e41ba9c99eeab975"
+        },
+        "date": 1783579579325,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.048278,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 10.031534,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 1.026483,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.397855,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.014198,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.225819,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.512987,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.06784,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 13.694373,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.979417,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 11.331747,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 1.116877,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 9.306339,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.855549,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.04675,
             "unit": "seconds"
           }
         ]
