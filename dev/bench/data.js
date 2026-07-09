@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783560750556,
+  "lastUpdate": 1783573572108,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "0d91e8db70beddda42091853a68ec2672da3856c",
-          "message": "Collapse 17 SexprArgs NodeTag variants into .sexpr_form with FormKind (#1040) (#1134)\n\nReplace 17 identical SexprArgs NodeTag variants with a single .sexpr_form\ntag carrying a FormKind discriminant. Replace string-comparison chains in\nlowerFormWithMacros and isSpecialForm with StaticStringMap lookups. Adding\na new delegating compiler form now takes ~4 edits instead of 8+.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-05T10:38:06+05:30",
-          "tree_id": "db492030693c959a60aefcc17904e7e44e8d627f",
-          "url": "https://github.com/kaappi/kaappi/commit/0d91e8db70beddda42091853a68ec2672da3856c"
-        },
-        "date": 1783229394692,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.348399,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.73238,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.895534,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.836651,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.012516,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.211747,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.476449,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.070648,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 12.382618,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.800922,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 9.965699,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.954128,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 8.257149,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.690229,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.042814,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.045724,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2f6ccae01aaf2cdb2bae5157804b918ffcc9faa5",
+          "message": "Fix SRFI-42 comprehensions: recursive qualifiers, guards, and missing generators (#1346)\n\n* Fix SRFI-42 comprehensions: recursive qualifiers, guards, and missing generators (#1216)\n\nRewrite SRFI-42 with a two-macro architecture: do-ec introduces a mutable\nstop flag and delegates to %do-ec, which recursively processes one qualifier\nper expansion. This enables nested qualifiers (cartesian products), (if ...)\nguards, and :while/:until early exit via the stop flag. Also implements\n:string, :vector, :integers, :let generators and corrects fold-ec to match\nthe SRFI-42 signature (seed qualifier... expr proc).\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Fix fold-ec/fold3-ec arg order and add :while/:until generator-wrapping form\n\nAddress review feedback:\n- fold-ec: call reducer as (f value accumulator) per SRFI-42 spec\n- fold3-ec: add missing x0 seed parameter, fix f2 arg order, return\n  x0 on empty sequences\n- Add :while/:until generator-wrapping patterns so the spec form\n  (:while (:range i 10) (< i 5)) works alongside the standalone form\n- Add tests: fold-ec with cons/-, fold3-ec (including empty case),\n  and/or guards, :while wrapping generator\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-09T10:03:31+05:30",
+          "tree_id": "b0bfdf23b3abd86dafe32923387f518ab7ddcb9e",
+          "url": "https://github.com/kaappi/kaappi/commit/2f6ccae01aaf2cdb2bae5157804b918ffcc9faa5"
+        },
+        "date": 1783573570784,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.08692,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 10.586866,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 1.036403,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.744011,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.014242,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.225702,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.512493,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.067823,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 13.598159,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.975959,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 11.306493,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 1.12432,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 9.302816,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.896588,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.046797,
             "unit": "seconds"
           }
         ]
