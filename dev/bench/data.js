@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783579430072,
+  "lastUpdate": 1783579478151,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "7e2153a83437f9dfcf958a06523e8af1c5e742a3",
-          "message": "Add R7RS 6.1-6.5 conformance gap tests (audit Phase 1B) (#1150)\n\n40 assertions covering spec corners the R7RS suite misses: eqv? on\nmixed exactness, negative zero, bignums, and records; equal?\ntermination on circular lists, circular vectors, and mixed\npair/vector cycles; number->string/string->number radix round-trips\nand prefix combinations; #true/#false long literals; append identity\nand structure sharing; list-ref on circular lists; and write/read\nsymbol round-trips through pipe notation.\n\nAll pass - no bugs found in these sections. Part of the #1137 audit\ncampaign.\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-05T13:41:20+05:30",
-          "tree_id": "6763ba1e59605076097283443b23ed724f3d2ccb",
-          "url": "https://github.com/kaappi/kaappi/commit/7e2153a83437f9dfcf958a06523e8af1c5e742a3"
-        },
-        "date": 1783240247160,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.336214,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.210039,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.954386,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.081163,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.013146,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.211795,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.470888,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.069627,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 12.469611,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.824134,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 9.953027,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.961651,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 8.349424,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.5977,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044175,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.04358,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d7eaaf6f4eda89f7a9d05ab16885d17946cc1089",
+          "message": "Fix SRFI-143 fxcopy-bit to accept boolean bit argument (#1323) (#1351)\n\nfxcopy-bit used (= bit 0) which rejected booleans with a type error.\nThe SRFI-143 spec says bitwise ops match SRFI-151, where copy-bit takes\na boolean. Use (if bit ...) instead, mirroring the SRFI-151 fix in #1316.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-09T11:27:47+05:30",
+          "tree_id": "ed65d8fed2ccd1e82d57a36a59a4eadab7e52f67",
+          "url": "https://github.com/kaappi/kaappi/commit/d7eaaf6f4eda89f7a9d05ab16885d17946cc1089"
+        },
+        "date": 1783579476913,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.065119,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 10.6979,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 1.039756,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.407508,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.013855,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.225974,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.51243,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.06816,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 13.649293,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.980631,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 11.308792,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 1.123852,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 9.289353,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.895397,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.046244,
             "unit": "seconds"
           }
         ]
