@@ -385,6 +385,7 @@ pub const Transformer = struct {
     literal_bound: []u32 = &.{},
     let_syntax_peer_names: [][]const u8 = &.{},
     let_syntax_peer_vals: []Value = &.{},
+    bound_free_refs: [][]const u8 = &.{},
 };
 
 pub const ErrorObject = struct {

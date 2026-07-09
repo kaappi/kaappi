@@ -71,6 +71,13 @@
 ;; cute with operator slot (like cut, no binding needed)
 (test-equal "cute: operator slot" 3 ((cute <> 1 2) +))
 
+;; cute with non-slot operator expression
+(define op-count 0)
+(define (get-adder) (set! op-count (+ op-count 1)) +)
+(define k (cute (get-adder) 1 <>))
+(test-equal "cute: operator expr result" 11 (k 10))
+(test-equal "cute: operator expr once" 1 op-count)
+
 ;; cute zero-slot evaluates at construction
 (define q 0)
 (define (tick4) (set! q (+ q 1)) q)
@@ -78,6 +85,16 @@
 (test-equal "cute: zero-slot construction eval" 1 q)
 (test-equal "cute: zero-slot result stable" '(1) (j))
 (test-equal "cute: zero-slot no re-eval" 1 q)
+
+;;; --- hygiene: top-level x/y/t must not interfere with cut/cute ---
+(define x 5)
+(define y 99)
+(define t 77)
+(test-equal "cut: hygiene with top-level x" 10 ((cut + <>) 10))
+(test-equal "cut: hygiene two slots" '(1 2) ((cut list <> <>) 1 2))
+(test-equal "cute: hygiene with top-level y" 10 ((cute + <>) 10))
+(test-equal "cute: hygiene non-slot eval" '(1 a 2)
+  (let ((r (cute list (+ 0 1) <> (+ 0 2)))) (r 'a)))
 
 (let ((runner (test-runner-current)))
   (test-end "srfi-26")
