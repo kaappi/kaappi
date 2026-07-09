@@ -34,11 +34,15 @@
 (test #t (timespec>=? (timespec 1 5) (timespec 1 5)))
 (test #f (timespec>=? (timespec 0 5) (timespec 1 5)))
 
-;;; --- missing exports ---
-;; FAIL: #1235 (timespec-hash, timespec->inexact, inexact->timespec
-;;   not exported)
-;; (test #t (exact-integer? (timespec-hash (timespec 1 2))))
-;; (test 1.5 (timespec->inexact (timespec 1 500000000)))
-;; (test #t (timespec=? (timespec 1 500000000) (inexact->timespec 1.5)))
+;;; --- conversions and hashing ---
+(test 1.5 (timespec->inexact (timespec 1 500000000)))
+(test 0.0 (timespec->inexact (timespec 0 0)))
+(test #t (timespec=? (timespec 1 500000000) (inexact->timespec 1.5)))
+(test #t (timespec=? (timespec 0 0) (inexact->timespec 0.0)))
+(test #t (timespec=? (timespec -2 750000000) (inexact->timespec -1.25)))
+(test -1.25 (timespec->inexact (timespec -2 750000000)))
+(test #t (exact-integer? (timespec-hash (timespec 1 2))))
+(test #t (>= (timespec-hash (timespec 1 2)) 0))
+(test (timespec-hash (timespec 3 4)) (timespec-hash (timespec 3 4)))
 
 (test-end "srfi-174")
