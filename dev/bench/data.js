@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783590573432,
+  "lastUpdate": 1783591204614,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "5b5a4e8f6c15dcd223bbbb707e5e4f852adc0055",
-          "message": "Add primitives_filesystem.zig audit tests (audit Phase 2.5) (#1165)\n\n65 assertions covering the SRFI-170 surface: directory-files dotfile\nhandling, file-info follow? (stat vs lstat) semantics, symlink and\nhard-link operations, create-directory permission bits, rename\noverwrite, truncate, fifo creation, self-chown, temp files, directory\nstreams, umask round-trip, user/group database dispatch, environment\nvariable write-side, and error catchability. gc-stress clean. Also\nserves as Phase 3.1's SRFI-170 coverage per the strategy doc.\n\nThree assertions disabled with FAIL markers:\n- #1161 group-info by name returns gid 0 (root cause is an upstream\n  Zig 0.16 stdlib misdeclaration: std.c.getgrnam returns ?*passwd)\n- #1162 posix-time/monotonic-time return bare fixnums, not SRFI-19\n  time objects\n- #1163 owner/unchanged and group/unchanged constants not exported\n\nFound in passing and filed as #1164: (srfi 60) exports only the log*\nnames; the bitwise-* aliases and second-tier procedures are missing.\nPart of the #1137 audit campaign.\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-05T09:20:04Z",
-          "tree_id": "f4492b0184bf7b7768878f4a22954698af695fd8",
-          "url": "https://github.com/kaappi/kaappi/commit/5b5a4e8f6c15dcd223bbbb707e5e4f852adc0055"
-        },
-        "date": 1783244380312,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.314755,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.947184,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.92825,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.081141,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.012573,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.211436,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.471514,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.069643,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 12.41174,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.820349,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 9.945805,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.955383,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 8.301048,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.677498,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.042249,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044605,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "a03e120143032efdd47bc39c2f8934e3f60d7e5e",
+          "message": "Fix SRFI-143 comparison and min/max to accept variadic arguments (#1226) (#1361)\n\nfx=?/fx<?/fx>?/fx<=?/fx>=? now accept two or more arguments (chained\ncomparison) and fxmax/fxmin accept one or more, matching the SRFI-143 spec.\nPreviously all were fixed at exactly 2 arguments.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-09T14:55:29+05:30",
+          "tree_id": "3e2863162aaaa8d7841b173c6ea354377b740f54",
+          "url": "https://github.com/kaappi/kaappi/commit/a03e120143032efdd47bc39c2f8934e3f60d7e5e"
+        },
+        "date": 1783591203172,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.351094,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.145511,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.969931,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.397312,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.012563,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.204161,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.503941,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.069178,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 12.69444,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.948383,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 10.168648,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 1.000758,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 8.409193,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.687733,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.043763,
             "unit": "seconds"
           }
         ]
