@@ -30,8 +30,8 @@ pub const specs = [_]primitives.PrimSpec{
     .{ .name = "vector-every", .func = &vectorEveryFn, .arity = .{ .variadic = 2 }, .libs = LS.initOne(.srfi_133) },
     .{ .name = "vector-index", .func = &vectorIndexFn, .arity = .{ .variadic = 2 }, .libs = LS.initOne(.srfi_133) },
     .{ .name = "vector-index-right", .func = &vectorIndexRightFn, .arity = .{ .variadic = 2 }, .libs = LS.initOne(.srfi_133) },
-    .{ .name = "vector-skip", .func = &vectorSkipFn, .arity = .{ .exact = 2 }, .libs = LS.initOne(.srfi_133) },
-    .{ .name = "vector-skip-right", .func = &vectorSkipRightFn, .arity = .{ .exact = 2 }, .libs = LS.initOne(.srfi_133) },
+    .{ .name = "vector-skip", .func = &vectorSkipFn, .arity = .{ .variadic = 2 }, .libs = LS.initOne(.srfi_133) },
+    .{ .name = "vector-skip-right", .func = &vectorSkipRightFn, .arity = .{ .variadic = 2 }, .libs = LS.initOne(.srfi_133) },
     .{ .name = "vector-swap!", .func = &vectorSwapFn, .arity = .{ .exact = 3 }, .libs = LS.initOne(.srfi_133) },
     .{ .name = "vector-reverse!", .func = &vectorReverseBangFn, .arity = .{ .variadic = 1 }, .libs = LS.initOne(.srfi_133) },
     .{ .name = "vector-reverse-copy", .func = &vectorReverseCopyFn, .arity = .{ .variadic = 1 }, .libs = LS.initOne(.srfi_133) },
@@ -586,12 +586,28 @@ fn vectorIndexRightFn(args: []const Value) PrimitiveError!Value {
 
 // (vector-skip pred v1 ...) — index of first element NOT satisfying pred
 fn vectorSkipFn(args: []const Value) PrimitiveError!Value {
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const pred = args[0];
     if (!types.isVector(args[1])) return primitives.typeError("vector-skip", "vector", args[1]);
     const vec = types.toVector(args[1]);
+    const total_args = args.len - 1;
+    var stack_buf: [256]Value = undefined;
+    const call_args_buf = if (total_args > 256)
+        gc.allocator.alloc(Value, total_args) catch return PrimitiveError.OutOfMemory
+    else
+        stack_buf[0..total_args];
+    defer if (total_args > 256) gc.allocator.free(call_args_buf);
     for (0..vec.data.len) |i| {
-        const call_args_buf = [1]Value{vec.data[i]};
-        const result = try callVM(pred, &call_args_buf);
+        call_args_buf[0] = vec.data[i];
+        var arg_count: usize = 1;
+        for (args[2..]) |extra| {
+            if (!types.isVector(extra)) return primitives.typeError("vector-skip", "vector", extra);
+            const ev = types.toVector(extra);
+            if (i >= ev.data.len) return types.FALSE;
+            call_args_buf[arg_count] = ev.data[i];
+            arg_count += 1;
+        }
+        const result = try callVM(pred, call_args_buf[0..arg_count]);
         if (!types.isTruthy(result)) return types.makeFixnum(@intCast(i));
     }
     return types.FALSE;
@@ -599,14 +615,34 @@ fn vectorSkipFn(args: []const Value) PrimitiveError!Value {
 
 // (vector-skip-right pred v1 ...)
 fn vectorSkipRightFn(args: []const Value) PrimitiveError!Value {
+    const gc = memory.gc_instance orelse return PrimitiveError.OutOfMemory;
     const pred = args[0];
     if (!types.isVector(args[1])) return primitives.typeError("vector-skip-right", "vector", args[1]);
     const vec = types.toVector(args[1]);
-    var i = vec.data.len;
+    var min_len: usize = vec.data.len;
+    for (args[2..]) |extra| {
+        if (!types.isVector(extra)) return primitives.typeError("vector-skip-right", "vector", extra);
+        const ev = types.toVector(extra);
+        if (ev.data.len < min_len) min_len = ev.data.len;
+    }
+    const total_args = args.len - 1;
+    var stack_buf: [256]Value = undefined;
+    const call_args_buf = if (total_args > 256)
+        gc.allocator.alloc(Value, total_args) catch return PrimitiveError.OutOfMemory
+    else
+        stack_buf[0..total_args];
+    defer if (total_args > 256) gc.allocator.free(call_args_buf);
+    var i = min_len;
     while (i > 0) {
         i -= 1;
-        const call_args_buf = [1]Value{vec.data[i]};
-        const result = try callVM(pred, &call_args_buf);
+        call_args_buf[0] = vec.data[i];
+        var arg_count: usize = 1;
+        for (args[2..]) |extra| {
+            const ev = types.toVector(extra);
+            call_args_buf[arg_count] = ev.data[i];
+            arg_count += 1;
+        }
+        const result = try callVM(pred, call_args_buf[0..arg_count]);
         if (!types.isTruthy(result)) return types.makeFixnum(@intCast(i));
     }
     return types.FALSE;
