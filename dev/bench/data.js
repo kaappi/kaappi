@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783573970212,
+  "lastUpdate": 1783575608158,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "distinct": true,
-          "id": "b2317e8c37b3993dcc094187c6a37dc014e00ddc",
-          "message": "Add systematic R7RS conformance and SRFI audit strategy\n\nPhased plan for auditing all 21 primitives files, 72 SRFIs, and R7RS\nspec coverage gaps. Sized for parallel Claude Code sessions (~33 units,\n~4hr wall-clock at 4-way parallelism). Includes session protocol,\nprogress tracker, issue templates, and community test resources.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-05T12:20:18+05:30",
-          "tree_id": "2b94ee495f826a6eca57e48864b38da6f2b78e0f",
-          "url": "https://github.com/kaappi/kaappi/commit/b2317e8c37b3993dcc094187c6a37dc014e00ddc"
-        },
-        "date": 1783235719127,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.326435,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.597324,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.934001,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.056906,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.012369,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.21135,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.471674,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.069594,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 12.383114,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.824523,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 9.943872,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.955123,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 8.30077,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.704861,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.042785,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.045482,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "84e9d6808d9f7ce2f2e10d377daf1154f500f85e",
+          "message": "Rewrite SRFI-26 cut/cute with recursive helper macros (#1208) (#1344)\n\n* Rewrite SRFI-26 cut/cute with recursive helper macros (#1208)\n\nThe previous implementation used a finite set of hardcoded syntax-rules\npatterns that capped arity, broke pattern matching order (earlier patterns\nswallowed later slot tokens), lacked operator-position slot support, and\ndefined cute as a plain alias of cut.\n\nReplace with the standard recursive-helper-macro technique: cut and cute\nentry macros separate the operator, then srfi-26-internal-cut/cute walk the\nargument list one element at a time, accumulating slot-names and the call\nform. cute wraps each non-slot expression in a nested single-binding let\nso it evaluates once at construction time (avoids an expander limitation\nwith ellipsis in let binding lists).\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Fix expander hygiene for recursive binder-accumulating macros\n\nTemplate-introduced identifiers accumulated across recursive macro\nself-invocations (e.g. x in SRFI-26's (slot-name ... x) pattern)\nwere colliding with top-level defines of the same name. The VOID-\nmarking trick in expandAndCompileMacroUse was suppressing hygiene\nrenaming for any template free-ref candidate that matched a global,\nincluding template-introduced binders that only coincidentally shared\na name.\n\nFix: record which free-ref candidates were actually bound at macro\ndefinition time (bound_free_refs on the Transformer), and restrict\nVOID marking to only those identifiers. Template-introduced names\nthat weren't in scope when the macro was defined are now correctly\nrenamed regardless of later user defines.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Propagate OOM from computeBoundFreeRefs, add rest-slot hygiene test\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-09T05:08:12Z",
+          "tree_id": "fcc0aad7e2df2b07475ed3a81923a8276943f086",
+          "url": "https://github.com/kaappi/kaappi/commit/84e9d6808d9f7ce2f2e10d377daf1154f500f85e"
+        },
+        "date": 1783575607418,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.319834,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.44072,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.982846,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.399059,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.012967,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.203502,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.504719,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.06949,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 12.652432,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.933856,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 10.166301,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 1.004414,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 8.406168,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.552838,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044036,
             "unit": "seconds"
           }
         ]
