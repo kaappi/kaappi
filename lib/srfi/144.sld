@@ -60,8 +60,20 @@
     (define flround round)
 
     ;; Min/max
-    (define (flmin a b) (if (< a b) a b))
-    (define (flmax a b) (if (> a b) a b))
+    (define (flmin . args)
+      (if (null? args)
+          +inf.0
+          (let loop ((best (car args)) (rest (cdr args)))
+            (if (null? rest)
+                best
+                (loop (if (< (car rest) best) (car rest) best) (cdr rest))))))
+    (define (flmax . args)
+      (if (null? args)
+          -inf.0
+          (let loop ((best (car args)) (rest (cdr args)))
+            (if (null? rest)
+                best
+                (loop (if (> (car rest) best) (car rest) best) (cdr rest))))))
 
     ;; Math
     (define flsqrt sqrt)

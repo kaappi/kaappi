@@ -46,9 +46,12 @@
 (test 5.0 (flabs -5.0))
 (test 3.0 (flmax 1.0 3.0))
 (test 1.0 (flmin 2.0 1.0))
-;; FAIL: #1217 (flmax/flmin accept exactly 2 arguments; spec is variadic)
-;; (test 3.0 (flmax 1.0 3.0 2.0))
-;; (test 1.0 (flmin 2.0 1.0 3.0))
+(test 3.0 (flmax 1.0 3.0 2.0))
+(test 1.0 (flmin 2.0 1.0 3.0))
+(test -inf.0 (flmax))
+(test +inf.0 (flmin))
+(test 5.0 (flmax 5.0))
+(test 5.0 (flmin 5.0))
 
 ;;; --- rounding ---
 (test 1.0 (flfloor 1.7))
