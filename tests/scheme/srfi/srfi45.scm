@@ -30,11 +30,8 @@
 ;; "lazy: Takes an expression of type (Promise a) and returns a promise";
 ;; "eager: ... (eager expression) is equivalent to (let ((value expression))
 ;;  (delay value))"
-;; FAIL: #1207 (lazy and eager are not exported from (srfi 45))
-;; (test 1 (force (lazy (delay 1))))
-;; FAIL: #1207 (lazy and eager are not exported from (srfi 45))
-;; (test 2 (force (eager 2)))
-;; FAIL: #1207 (lazy and eager are not exported from (srfi 45))
-;; (test #t (promise? (eager 5)))
+(test 1 (force (lazy (delay 1))))
+(test 2 (force (eager 2)))
+(test #t (promise? (eager 5)))
 
 (test-end "srfi-45")
