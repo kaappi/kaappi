@@ -82,11 +82,18 @@
 (check-ec (:range i 0 3) (* i i) => (* i i) (i))
 (test-assert "check-ec with arguments" (check-passed? 1))
 
-;; --- check-report exists and does not raise ---
+;; --- check-report ---
+;; passing case: does not raise or disturb counters
 (check-reset!)
 (check (* 2 2) => 4)
 (check-report)
 (test-assert "check-report does not disturb counters" (check-passed? 1))
+
+;; check-report failure path: check-report calls (exit 1) on failure which
+;; terminates the process, so it cannot be tested inline. Verified manually:
+;;   echo '(import (scheme base) (srfi 78)) (check (+ 1 1) => 99) (check-report)' > /tmp/t.scm
+;;   zig build run -- /tmp/t.scm
+;; Must print "First failure: ..." then exit 1 (not crash on undefined caddr)
 
 (let ((runner (test-runner-current)))
   (test-end "srfi-78")

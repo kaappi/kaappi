@@ -84,7 +84,7 @@
                (let ((actual expr) (exp expected))
                  (when (not (equal? actual exp))
                    (escape (list actual exp))))))
-           equal?))
+           ))
         ((_ qualifier expr (=> equal) expected)
          (check-ec-run 'expr
            (lambda (escape)
@@ -92,16 +92,14 @@
                (do-ec qualifier
                  (let ((actual expr) (exp expected))
                    (when (not (eq-fn actual exp))
-                     (escape (list actual exp)))))))
-           equal))
+                     (escape (list actual exp)))))))))
         ((_ qualifier expr => expected (arg ...))
          (check-ec-run 'expr
            (lambda (escape)
              (do-ec qualifier
                (let ((actual expr) (exp expected))
                  (when (not (equal? actual exp))
-                   (escape (list actual exp))))))
-           equal?))
+                   (escape (list actual exp))))))))
         ((_ qualifier expr (=> equal) expected (arg ...))
          (check-ec-run 'expr
            (lambda (escape)
@@ -109,10 +107,9 @@
                (do-ec qualifier
                  (let ((actual expr) (exp expected))
                    (when (not (eq-fn actual exp))
-                     (escape (list actual exp)))))))
-           equal))))
+                     (escape (list actual exp)))))))))))
 
-    (define (check-ec-run name body-fn equal)
+    (define (check-ec-run name body-fn)
       (unless (eq? %mode 'off)
         (let ((result (call-with-current-continuation
                         (lambda (escape)
@@ -140,6 +137,6 @@
         (display " => ")
         (write (cadr %first-fail))
         (display " ; expected: ")
-        (write (caddr %first-fail))
+        (write (car (cddr %first-fail)))
         (newline))
       (when (> %fail 0) (exit 1)))))
