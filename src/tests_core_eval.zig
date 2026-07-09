@@ -258,6 +258,23 @@ test "typeName covers all ObjectTags exhaustively" {
     try std.testing.expectEqualStrings("record", types.typeName(rec));
 }
 
+// Regression for #1203: record-type redefinition must not retarget old
+// constructors/predicates — they must close over the original type.
+test "record-type redefinition does not retarget old procedures (#1203)" {
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
+    _ = try ctx.vm.eval("(define-record-type tt (mk-tt) tt?)");
+    _ = try ctx.vm.eval("(define old-inst (mk-tt))");
+    _ = try ctx.vm.eval("(define old-pred tt?)");
+    _ = try ctx.vm.eval("(define old-mk mk-tt)");
+    _ = try ctx.vm.eval("(define-record-type tt (mk-tt v) tt? (v tt-v))");
+    const r1 = try ctx.vm.eval("(old-pred old-inst)");
+    try std.testing.expectEqual(types.TRUE, r1);
+    const r2 = try ctx.vm.eval("(tt? (old-mk))");
+    try std.testing.expectEqual(types.FALSE, r2);
+}
+
 // Regression for #1202: parameterize must evaluate all value expressions
 // before installing any bindings — (b (a)) must see the outer value of a.
 test "parameterize evaluates values before binding (#1202)" {
