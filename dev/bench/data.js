@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783539621946,
+  "lastUpdate": 1783559027832,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "baf276b9ffde181939239ccb82630cdef01306d7",
-          "message": "Consolidate writeToFd/writeStdout/writeStderr into reporting.zig (#1067) (#1131)\n\nNine copies of the write-with-retry loop existed across the interpreter,\nwith thottam.zig missing EINTR handling entirely. Consolidate to one pub\nimplementation in reporting.zig, re-exported through vm.zig and\nprimitives_io.zig for backward compat. Fix thottam's own copy (separate\nbinary) to retry on EINTR. Also replace an inline write loop in\nreporting.zig's XML coverage output with a writeToFd call.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-05T08:59:19+05:30",
-          "tree_id": "9dc6bc9f9c3a11c7c2c864f6c94a438371e38491",
-          "url": "https://github.com/kaappi/kaappi/commit/baf276b9ffde181939239ccb82630cdef01306d7"
-        },
-        "date": 1783223520379,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.937268,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.959489,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.957216,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 5.215701,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.013817,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.235287,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.467778,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.067686,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 13.493247,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.814305,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 11.12702,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 1.067095,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 9.118356,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.762608,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044712,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.041467,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "fa451202863a3fa0d29ab925c29555eca96c18c6",
+          "message": "Fix SRFI-134 ideque-filter calling unbound 'filter' (#1212) (#1341)\n\nideque-filter called 'filter' which is not exported by (scheme base).\nDefine a local filter-list helper, consistent with the existing local\nfold-left in the same library. Re-enable the previously disabled test.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-09T06:02:47+05:30",
+          "tree_id": "40b14051a70a65ddea4373d594068c496c6f97d5",
+          "url": "https://github.com/kaappi/kaappi/commit/fa451202863a3fa0d29ab925c29555eca96c18c6"
+        },
+        "date": 1783559026583,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.08113,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.683051,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 1.024605,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.479889,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.013881,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.225982,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.514154,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.068081,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 13.626942,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.990783,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 11.307326,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 1.125681,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 9.293784,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.844426,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.046125,
             "unit": "seconds"
           }
         ]
