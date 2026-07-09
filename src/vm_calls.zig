@@ -322,11 +322,14 @@ pub fn callValue(vm: *VM, callee: Value, base: u32, nargs: u8) VMError!void {
     }
     if (types.isFfiFunction(callee)) {
         const ffi_fn = types.toObject(callee).as(types.FfiFunction);
-        if (nargs != ffi_fn.param_count) return VMError.ArityMismatch;
+        if (nargs != ffi_fn.param_count) {
+            vm.setErrorDetail("'{s}': expected {d} arguments, got {d}", .{ ffi_fn.name, ffi_fn.param_count, nargs });
+            return VMError.ArityMismatch;
+        }
         const ffi_mod = @import("ffi.zig");
-        const result = ffi_mod.callFfi(ffi_fn, vm.registers[base + 1 .. base + 1 + nargs], vm.gc) catch {
+        const result = ffi_mod.callFfi(ffi_fn, vm.registers[base + 1 .. base + 1 + nargs], vm.gc, vm) catch {
             if (vm.last_error_detail_len == 0)
-                vm.setErrorDetail("unsupported FFI signature for '{s}'", .{ffi_fn.name});
+                vm.setErrorDetail("'{s}': unsupported FFI signature", .{ffi_fn.name});
             return VMError.TypeError;
         };
         vm.registers[base] = result;
@@ -647,11 +650,14 @@ pub fn callThunk(vm: *VM, thunk_val: Value) VMError!Value {
 pub fn callWithArgs(vm: *VM, proc: Value, args: []const Value) VMError!Value {
     if (types.isFfiFunction(proc)) {
         const ffi_fn = types.toObject(proc).as(types.FfiFunction);
-        if (args.len != ffi_fn.param_count) return VMError.ArityMismatch;
+        if (args.len != ffi_fn.param_count) {
+            vm.setErrorDetail("'{s}': expected {d} arguments, got {d}", .{ ffi_fn.name, ffi_fn.param_count, args.len });
+            return VMError.ArityMismatch;
+        }
         const ffi_mod = @import("ffi.zig");
-        return ffi_mod.callFfi(ffi_fn, args, vm.gc) catch {
+        return ffi_mod.callFfi(ffi_fn, args, vm.gc, vm) catch {
             if (vm.last_error_detail_len == 0)
-                vm.setErrorDetail("unsupported FFI signature for '{s}'", .{ffi_fn.name});
+                vm.setErrorDetail("'{s}': unsupported FFI signature", .{ffi_fn.name});
             return VMError.TypeError;
         };
     }
