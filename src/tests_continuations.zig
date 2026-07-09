@@ -453,6 +453,42 @@ test "dynamic-wind after-thunk runs on nested escape under guard" {
     try std.testing.expectEqualStrings("after", types.symbolName(types.car(types.cdr(types.cdr(log)))));
 }
 
+test "full continuation re-entry inside map — generator-style" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    // Capture a full continuation inside a map callback, then reinvoke it
+    // from a separate eval to resume the iteration with a different value.
+    // This proves generator-style re-entry works: the continuation, when
+    // invoked, resumes inside the map loop and map produces a new result.
+    _ = try vm.eval("(define saved-k #f)");
+
+    // First run: map directly (not inside define, so the continuation
+    // captures a context whose return value is the map result itself).
+    const result = try vm.eval(
+        \\(map (lambda (x)
+        \\       (if (= x 2)
+        \\           (call/cc (lambda (k) (set! saved-k k) 20))
+        \\           (* x 10)))
+        \\     '(1 2 3))
+    );
+    // First run: (10 20 30) — call/cc returns 20 normally
+    try std.testing.expect(types.isPair(result));
+    try std.testing.expectEqual(@as(i64, 10), types.toFixnum(types.car(result)));
+    try std.testing.expectEqual(@as(i64, 20), types.toFixnum(types.car(types.cdr(result))));
+    try std.testing.expectEqual(@as(i64, 30), types.toFixnum(types.car(types.cdr(types.cdr(result)))));
+
+    // Re-invoke the saved continuation with 99 — resumes inside map,
+    // which finishes with element 2 replaced by 99.
+    const result2 = try vm.eval("(saved-k 99)");
+    try std.testing.expect(types.isPair(result2));
+    try std.testing.expectEqual(@as(i64, 10), types.toFixnum(types.car(result2)));
+    try std.testing.expectEqual(@as(i64, 99), types.toFixnum(types.car(types.cdr(result2))));
+    try std.testing.expectEqual(@as(i64, 30), types.toFixnum(types.car(types.cdr(types.cdr(result2)))));
+}
+
 test "escape continuation from inside map exits map early" {
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();

@@ -213,8 +213,11 @@ test "fiber parks inside for-each callback and is woken by channel-send" {
         \\  (define total 0)
         \\  (for-each (lambda (x) (set! total (+ total (channel-receive ch)))) '(a b c))
         \\  (channel-send out total))))
+        \\(yield)
         \\(channel-send ch 10)
+        \\(yield)
         \\(channel-send ch 20)
+        \\(yield)
         \\(channel-send ch 30)
         \\(channel-receive out)
     );

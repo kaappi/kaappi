@@ -34,6 +34,11 @@ pub export fn kaappi_runtime_init() callconv(.c) ?*vm_mod.VM {
         return null;
     };
     memory.setGCInstance(&rt_gc);
+    vm_mod.vm_bootstrap.install(vm) catch {
+        vm.deinit();
+        allocator.destroy(vm);
+        return null;
+    };
     library.registerStandardLibraries(&vm.libraries, vm.globals) catch {
         vm.deinit();
         allocator.destroy(vm);

@@ -150,6 +150,13 @@ pub fn execute(vm: *VM, func: *types.Function) VMError!Value {
             vm.gc.profile_alloc_target = null;
         }
         vm.noteUncaughtException(err);
+        // Unwind any pending dynamic-wind after-thunks so that
+        // (dynamic-wind before thunk after) calls after even when
+        // thunk raises an uncaught exception that escapes execute().
+        while (vm.wind_count > 0) {
+            vm.wind_count -= 1;
+            _ = vm.callThunk(vm.wind_stack[vm.wind_count].after) catch {};
+        }
         vm.resetExecutionState();
         return err;
     };

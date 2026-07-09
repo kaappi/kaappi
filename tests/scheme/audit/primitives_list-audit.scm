@@ -222,4 +222,8 @@
 (test 'caught (guard (e (#t 'caught)) (string->symbol 'not-a-string)))
 (test 'caught (guard (e (#t 'caught)) (string->symbol 42)))
 
+;;; --- map: too many lists raises catchable error, not panic ---
+(test-assert "map with 257 lists raises error"
+  (guard (e (#t #t)) (apply map + (make-list 257 (list 1))) #f))
+
 (test-end "primitives_list audit")

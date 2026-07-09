@@ -35,6 +35,7 @@ fn measure(allocator: std.mem.Allocator, prim: []const u8, depth: u32, iters: u3
     defer vm.deinit();
     try primitives.registerAll(&vm);
     memory.setGCInstance(&gc);
+    try vm_mod.vm_bootstrap.install(&vm);
     try library.registerStandardLibraries(&vm.libraries, vm.globals);
 
     // at-depth builds `depth` real (non-tail) frames to elevate the register

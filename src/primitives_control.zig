@@ -27,8 +27,8 @@ pub const specs = [_]primitives.PrimSpec{
     .{ .name = "dynamic-wind", .func = &dynamicWindFn, .arity = .{ .exact = 3 }, .libs = LS.initMany(&.{ .scheme_base, .scheme_r5rs }) },
     .{ .name = "values", .func = &valuesFn, .arity = .{ .variadic = 0 }, .libs = LS.initMany(&.{ .scheme_base, .scheme_r5rs }) },
     .{ .name = "call-with-values", .func = &callWithValuesFn, .arity = .{ .exact = 2 }, .libs = LS.initMany(&.{ .scheme_base, .scheme_r5rs }) },
-    .{ .name = "%push-wind", .func = &pushWindFn, .arity = .{ .exact = 2 }, .libs = LS.initOne(.scheme_base) },
-    .{ .name = "%pop-wind", .func = &popWindFn, .arity = .{ .exact = 0 }, .libs = LS.initOne(.scheme_base) },
+    .{ .name = "%push-wind", .func = &pushWindFn, .arity = .{ .exact = 2 }, .libs = LS.initOne(.internal) },
+    .{ .name = "%pop-wind", .func = &popWindFn, .arity = .{ .exact = 0 }, .libs = LS.initOne(.internal) },
 };
 
 // ---------------------------------------------------------------------------

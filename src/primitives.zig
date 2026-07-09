@@ -53,6 +53,10 @@ pub const Lib = enum {
     srfi_69,
     srfi_133,
     srfi_170,
+    /// Internal-only tag for primitives that live in vm.globals but must
+    /// not be exported by any standard library. No library is registered
+    /// for this tag, so `addExportsForLib` never picks these specs up.
+    internal,
 
     pub fn canonicalName(self: Lib) []const u8 {
         return switch (self) {
@@ -80,6 +84,7 @@ pub const Lib = enum {
             .srfi_69 => "srfi.69",
             .srfi_133 => "srfi.133",
             .srfi_170 => "srfi.170",
+            .internal => "kaappi.internal",
         };
     }
 
@@ -94,6 +99,7 @@ pub const Lib = enum {
             .kaappi_ffi,
             .srfi_18,
             .srfi_170,
+            .internal,
             => false,
             else => true,
         };
@@ -104,6 +110,12 @@ pub const Lib = enum {
             .kaappi_ffi, .srfi_18, .srfi_170 => false,
             else => true,
         };
+    }
+
+    /// Whether this lib tag corresponds to a real library that should
+    /// be registered. Returns false for `.internal`.
+    pub fn isRegisterable(self: Lib) bool {
+        return self != .internal;
     }
 };
 

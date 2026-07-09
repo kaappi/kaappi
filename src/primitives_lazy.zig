@@ -13,12 +13,12 @@ pub const specs = [_]primitives.PrimSpec{
     .{ .name = "promise?", .func = &promiseP, .arity = .{ .exact = 1 }, .libs = LS.initMany(&.{ .scheme_base, .scheme_lazy }) },
     .{ .name = "make-promise", .func = &makePromiseFn, .arity = .{ .exact = 1 }, .libs = LS.initMany(&.{ .scheme_base, .scheme_lazy }) },
     .{ .name = "%make-promise-lazy", .func = &makePromiseLazy, .arity = .{ .exact = 1 }, .libs = LS.initOne(.scheme_base) },
-    .{ .name = "%promise-forced?", .func = &promiseForcedP, .arity = .{ .exact = 1 }, .libs = LS.initOne(.scheme_lazy) },
-    .{ .name = "%promise-forcing?", .func = &promiseForcingP, .arity = .{ .exact = 1 }, .libs = LS.initOne(.scheme_lazy) },
-    .{ .name = "%promise-value", .func = &promiseValue, .arity = .{ .exact = 1 }, .libs = LS.initOne(.scheme_lazy) },
-    .{ .name = "%promise-complete!", .func = &promiseComplete, .arity = .{ .exact = 2 }, .libs = LS.initOne(.scheme_lazy) },
-    .{ .name = "%promise-set-forcing!", .func = &promiseSetForcing, .arity = .{ .exact = 2 }, .libs = LS.initOne(.scheme_lazy) },
-    .{ .name = "%promise-merge!", .func = &promiseMerge, .arity = .{ .exact = 2 }, .libs = LS.initOne(.scheme_lazy) },
+    .{ .name = "%promise-forced?", .func = &promiseForcedP, .arity = .{ .exact = 1 }, .libs = LS.initOne(.internal) },
+    .{ .name = "%promise-forcing?", .func = &promiseForcingP, .arity = .{ .exact = 1 }, .libs = LS.initOne(.internal) },
+    .{ .name = "%promise-value", .func = &promiseValue, .arity = .{ .exact = 1 }, .libs = LS.initOne(.internal) },
+    .{ .name = "%promise-complete!", .func = &promiseComplete, .arity = .{ .exact = 2 }, .libs = LS.initOne(.internal) },
+    .{ .name = "%promise-set-forcing!", .func = &promiseSetForcing, .arity = .{ .exact = 2 }, .libs = LS.initOne(.internal) },
+    .{ .name = "%promise-merge!", .func = &promiseMerge, .arity = .{ .exact = 2 }, .libs = LS.initOne(.internal) },
 };
 
 fn promiseP(args: []const Value) PrimitiveError!Value {

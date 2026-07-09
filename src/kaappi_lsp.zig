@@ -740,6 +740,7 @@ pub fn main(init: std.process.Init.Minimal) !void {
     defer vm.deinit();
     try primitives.registerAll(&vm);
     memory.setGCInstance(&gc);
+    try vm_mod.vm_bootstrap.install(&vm);
     try library.registerStandardLibraries(&vm.libraries, vm.globals);
 
     var initialized = false;

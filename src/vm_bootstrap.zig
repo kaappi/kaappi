@@ -183,7 +183,12 @@ const force_src =
     \\                      (begin (%promise-complete! current thunk) thunk)
     \\                      (begin
     \\                        (%promise-set-forcing! current #t)
-    \\                        (let ((result (thunk)))
+    \\                        (let ((result
+    \\                               (with-exception-handler
+    \\                                 (lambda (e)
+    \\                                   (%promise-set-forcing! current #f)
+    \\                                   (raise e))
+    \\                                 (lambda () (thunk)))))
     \\                          (if (%promise-forced? current)
     \\                              (begin
     \\                                (%promise-set-forcing! current #f)
