@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783579970725,
+  "lastUpdate": 1783587289082,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "d270c399d249c6be32226a11d6aad979f82f6505",
-          "message": "Phase 2.1: SRFI-18 primitives audit tests (#1157)\n\n* Add primitives_srfi18.zig audit tests (audit Phase 2.1)\n\n73 assertions covering the SRFI-18 surface beyond the existing\nsrfi18*.scm suite: type-error catchability for every accessor,\nthread lifecycle rules (double-start, self-join, timeout-val,\njoin-timeout exceptions), thread-sleep! edge cases (zero, negative,\nrational, past time objects), mutex state transitions, condvar\nno-waiter signal/broadcast, time conversion round-trips, and\nexception predicate discrimination.\n\nFour assertions disabled with FAIL markers:\n- #1153 mutex-lock! with timeout on a locked mutex steals the lock\n  (and the same scheduler-dry bug makes timed condvar waits in\n  mutex-unlock! return #t immediately)\n- #1154 explicit #f thread argument assigns current thread as owner\n- #1155 make-thread rejects native procedures\n\nAlso filed #1156: this file crashes with a deterministic SIGSEGV in\nminor-GC marking under -Dgc-stress=true (stale root after thread\nstart/join cycles); it passes 73/0 on the default build. Part of\nthe #1137 audit campaign.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n* Check off Phase 2.1 in the audit tracker\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-05T08:40:06Z",
-          "tree_id": "2c5bf445b824abcf413b18fec46ecaf583580b09",
-          "url": "https://github.com/kaappi/kaappi/commit/d270c399d249c6be32226a11d6aad979f82f6505"
-        },
-        "date": 1783242066376,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.321337,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.741155,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.936911,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.058831,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.012572,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.211579,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.469972,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.070111,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 12.387336,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.821625,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 9.948298,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.972851,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 8.31276,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.699261,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.04296,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.046734,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "0e11c9b962454992f1fb6e500feadf7bec110cc5",
+          "message": "Skip stress tests in Debug CI builds (#1365)\n\n* Skip stress tests in Debug CI builds (#1364)\n\nDebug builds are ~500x slower for allocation-heavy workloads, causing\nthree stress/benchmark files to exceed run-all.sh's 60s per-file timeout.\nAdd KAAPPI_SKIP env var support to skip named files, and KAAPPI_TIMEOUT\nto override the default timeout. CI sets KAAPPI_SKIP for the Debug matrix\nentry to skip callcc-bench.scm, r7rs-tail-procedures-gaps.scm, and\nr7rs-thin-forms-gaps.scm. These files still run in all Release builds.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Rename env vars to KAAPPI_TEST_SKIP and KAAPPI_TEST_TIMEOUT\n\nThese are test-runner-specific, so the KAAPPI_TEST_ prefix is clearer.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Address review feedback\n\n- Set matched=1 for skipped files to avoid false \"(no tests matched)\"\n- Compute KAAPPI_TEST_SKIP inline instead of via matrix field to keep\n  the GitHub job name clean\n- Document KAAPPI_TEST_SKIP and KAAPPI_TEST_TIMEOUT in tests/scheme/CLAUDE.md\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-09T08:28:17Z",
+          "tree_id": "beb2149fae709648805b0b10fe3a63266f45dd08",
+          "url": "https://github.com/kaappi/kaappi/commit/0e11c9b962454992f1fb6e500feadf7bec110cc5"
+        },
+        "date": 1783587287776,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.332639,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.76801,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.988455,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.395257,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.012948,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.204046,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.504437,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.069118,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 12.649345,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.947478,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 10.165431,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 1.001799,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 8.438081,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.714194,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.043823,
             "unit": "seconds"
           }
         ]
