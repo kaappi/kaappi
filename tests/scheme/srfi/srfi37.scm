@@ -112,6 +112,43 @@
 ;;; --- empty args ---
 (test-equal "empty args" 0 (args-fold '() opts unrec count-operand 0))
 
+;;; --- short optional-arg (#1350: trailing chars dropped) ---
+(define opt-p
+  (option '(#\p) #f #t
+          (lambda (opt name arg seed) (cons (list name arg) seed))))
+
+(test-equal "short optional-arg inline"
+  '((#\p "X"))
+  (args-fold '("-pX") (list opt-p)
+             (lambda (o n a s) s) (lambda (op s) s) '()))
+
+(test-equal "short optional-arg multi-char"
+  '((#\p "val"))
+  (args-fold '("-pval") (list opt-p)
+             (lambda (o n a s) s) (lambda (op s) s) '()))
+
+(test-equal "short optional-arg absent"
+  '((#\p #f))
+  (args-fold '("-p") (list opt-p)
+             (lambda (o n a s) s) (lambda (op s) s) '()))
+
+(test-equal "short optional-arg absent, next is operand"
+  '(("file") (#\p #f))
+  (args-fold '("-p" "file") (list opt-p)
+             (lambda (o n a s) s) (lambda (op s) (cons (list op) s)) '()))
+
+(test-equal "combined short, optional-arg last with value"
+  '((#\p "X") (#\v #f))
+  (let ((v (option '(#\v) #f #f (lambda (o n a s) (cons (list n a) s)))))
+    (args-fold '("-vpX") (list v opt-p)
+               (lambda (o n a s) s) (lambda (op s) s) '())))
+
+(test-equal "combined short, optional-arg last no value"
+  '((#\p #f) (#\v #f))
+  (let ((v (option '(#\v) #f #f (lambda (o n a s) (cons (list n a) s)))))
+    (args-fold '("-vp") (list v opt-p)
+               (lambda (o n a s) s) (lambda (op s) s) '())))
+
 (let ((runner (test-runner-current)))
   (test-end "srfi-37")
   (when (> (test-runner-fail-count runner) 0) (exit 1)))
