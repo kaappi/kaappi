@@ -86,4 +86,11 @@
 (test 0 (fxfirst-set-bit 1))
 (test 2 (fxbit-field 13 1 3))
 
+(test 4 (fxcopy-bit 2 0 #t))
+(test 1 (fxcopy-bit 2 5 #f))
+(test 0 (fxcopy-bit 0 0 #f))
+(test 1 (fxcopy-bit 0 0 #t))
+(test 5 (fxcopy-bit 0 5 #t))
+(test 4 (fxcopy-bit 0 5 #f))
+
 (test-end "srfi-143")

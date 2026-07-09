@@ -99,9 +99,9 @@
       (fxior (fxand mask n0) (fxand (fxnot mask) n1)))
 
     (define (fxcopy-bit index x bit)
-      (if (= bit 0)
-          (fxand x (fxnot (arithmetic-shift 1 index)))
-          (fxior x (arithmetic-shift 1 index))))
+      (if bit
+          (fxior x (arithmetic-shift 1 index))
+          (fxand x (fxnot (arithmetic-shift 1 index)))))
 
     (define (fxfirst-set-bit x)
       (if (= x 0) -1
