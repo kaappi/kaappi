@@ -453,6 +453,37 @@ test "dynamic-wind after-thunk runs on nested escape under guard" {
     try std.testing.expectEqualStrings("after", types.symbolName(types.car(types.cdr(types.cdr(log)))));
 }
 
+test "dynamic-wind tail-called from a native-driven callback (#1377)" {
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    // member invokes the predicate via callWithArgs, which pushes a
+    // returns_to_native frame; the predicate tail-calls dynamic-wind,
+    // reusing that frame, so the wind pushed by dynamic-wind's own
+    // bytecode sits above the frame's saved_wind_count. The Return
+    // opcode's caller-wind cleanup used to unwind it as soon as the
+    // wound thunk returned, making the subsequent %pop-wind underflow
+    // (#1377 — same failure as dynamic-wind inside an SRFI-18 thread
+    // thunk). The thunk must yield its value through a real `return`
+    // opcode (not a native tail call) to reach that path.
+    _ = try vm.eval("(define trace '())");
+    _ = try vm.eval(
+        \\(define result
+        \\  (member 2 '(1 2 3)
+        \\    (lambda (x y)
+        \\      (dynamic-wind
+        \\        (lambda () (set! trace (cons 'b trace)))
+        \\        (lambda () (if (equal? x y) #t #f))
+        \\        (lambda () (set! trace (cons 'a trace)))))))
+    );
+    // Predicate ran for 1 (no match) then 2 (match): before/after fired
+    // exactly once per call and member returned the tail from the match.
+    const ok = try vm.eval("(and (equal? result '(2 3)) (equal? trace '(a b a b)))");
+    try std.testing.expectEqual(types.TRUE, ok);
+}
+
 test "full continuation re-entry inside map — generator-style" {
     var gc = memory.GC.init(std.testing.allocator);
     defer gc.deinit();
