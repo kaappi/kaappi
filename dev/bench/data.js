@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783559382582,
+  "lastUpdate": 1783560750556,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "c8cd856c3b22d099f94fb6eaefd285bdd4ab0c6e",
-          "message": "Replace registration/export bookkeeping with comptime spec tables (#1053) (#1133)\n\n* Replace registration/export bookkeeping with comptime spec tables (#1053)\n\nEach primitive is now declared once as a PrimSpec with name, function\npointer, arity, library membership (LibSet), and sandbox/WASM flags.\nBoth registerAll and registerStandardLibraries consume the same\nall_specs array, eliminating the 3-way bookkeeping between reg() calls,\nname arrays, and sandbox variant functions.\n\n- Add Lib enum (24 libraries), LibSet, PrimSpec types to primitives.zig\n- Convert all 21 primitives files to pub const specs arrays\n- Derive registerAll/registerSandboxed from all_specs iteration\n- Derive registerStandardLibraries/registerSandboxedLibraries from specs\n- Delete 25 hand-maintained name arrays from library.zig (~400 lines)\n- Delete registerIOSandboxed, registerR7RSSandboxed variants\n- Add comptime collision and orphan-spec checks\n- Update drift test to iterate all_specs\n\nNet: -787 lines. All 1702 tests pass (307 Scheme + 1395 R7RS).\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Gate WASM-unavailable module specs behind is_wasm\n\nThe WASM build (single-threaded, no dlopen) fails when the compiler\nresolves function pointers in srfi18/filesystem/ffi specs. Gate these\nmodules with `if (is_wasm) no_specs` so the compiler never sees their\nfunction bodies on wasm32-wasi.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-05T09:27:03+05:30",
-          "tree_id": "3ade7ec34c0076aaffa0482c06d7d3dde434909e",
-          "url": "https://github.com/kaappi/kaappi/commit/c8cd856c3b22d099f94fb6eaefd285bdd4ab0c6e"
-        },
-        "date": 1783225245793,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.295489,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.795561,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.909097,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.918995,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.012592,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.21144,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.474011,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.069803,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 12.369555,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.844032,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 9.957627,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.978337,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 8.290325,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.701322,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.043618,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.043772,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "771b480a01164e387a87da94233059aea18b69ba",
+          "message": "Implement SRFI-17 generalized set! with pre-defined setters (#1349)\n\n* Implement SRFI-17 generalized set! with pre-defined setters (#1205)\n\nThe compiler now desugars (set! (proc arg ...) val) to\n((setter proc) arg ... val) in both the IR lowering path and the\nlegacy compiler path. The SRFI-17 library registers pre-defined\nsetters for car, cdr, vector-ref, string-ref, and all 28 cXXr\ncompositions as specified by the SRFI.\n\nCloses #1205\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Address review feedback: GC safety, error type, comments, test coverage\n\n- Use no_collect + pushRoot in legacy compileSet to protect intermediate\n  pairs during S-expression construction (mirrors compileDefineValues)\n- Change 16-arg cap error from InvalidSyntax to InternalLimit\n- Add comments: setter global dependency, LLVM backend fallback,\n  defensive-fallback note on legacy path\n- Add 4-deep cXXr test case (cadddr)\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-09T06:31:27+05:30",
+          "tree_id": "3c51be38b8d049ee4c5eb7ada39ec01a1c781fd8",
+          "url": "https://github.com/kaappi/kaappi/commit/771b480a01164e387a87da94233059aea18b69ba"
+        },
+        "date": 1783560748951,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.332546,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.349344,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.981794,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.441684,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.01259,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.204727,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.509252,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.069815,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 12.717361,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.943761,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 10.198703,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 1.014291,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 8.429991,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.72545,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.045724,
             "unit": "seconds"
           }
         ]
