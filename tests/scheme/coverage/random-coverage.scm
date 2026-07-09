@@ -25,7 +25,7 @@
 
 ;;; ---- random-real ----
 (let ((r (random-real)))
-  (check-true "random-real >= 0" (>= r 0.0))
+  (check-true "random-real > 0" (> r 0.0))
   (check-true "random-real < 1" (< r 1.0)))
 
 ;;; ---- default-random-source ----
