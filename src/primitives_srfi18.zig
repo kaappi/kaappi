@@ -190,7 +190,7 @@ fn threadPredFn(args: []const Value) PrimitiveError!Value {
 
 fn makeThreadFn(args: []const Value) PrimitiveError!Value {
     const thunk = args[0];
-    if (!types.isClosure(thunk))
+    if (!types.isProcedure(thunk))
         return primitives.typeError("make-thread", "procedure", thunk);
 
     const ctx = try ensureScheduler();

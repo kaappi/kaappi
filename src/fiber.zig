@@ -94,11 +94,23 @@ pub const FiberScheduler = struct {
         self.vm.gc.popRoot();
         self.next_id += 1;
 
-        if (!types.isClosure(thunk_val)) return VMError.NotAProcedure;
-        const closure = types.toObject(thunk_val).as(types.Closure);
+        if (!types.isProcedure(thunk_val)) return VMError.NotAProcedure;
+
+        var closure: *types.Closure = undefined;
+        if (types.isClosure(thunk_val)) {
+            closure = types.toObject(thunk_val).as(types.Closure);
+        } else {
+            var fiber_root = types.makePointer(@ptrCast(fiber));
+            self.vm.gc.pushRoot(&fiber_root);
+            const trampoline = try wrapInTrampoline(self.vm.gc, thunk_val);
+            self.vm.gc.popRoot();
+            fiber.thunk = trampoline;
+            self.vm.gc.writeBarrier(&fiber.header, trampoline);
+            closure = types.toObject(trampoline).as(types.Closure);
+        }
 
         @memset(fiber.registers, types.UNDEFINED);
-        fiber.registers[0] = thunk_val;
+        fiber.registers[0] = types.makePointer(@ptrCast(closure));
         fiber.frames[0] = .{
             .closure = closure,
             .code = closure.func.code.items,
@@ -120,6 +132,41 @@ pub const FiberScheduler = struct {
 
         try self.addFiber(fiber);
         return fiber;
+    }
+
+    // Build a closure whose bytecode does: get_upvalue 1,0 ; call 1,0 ; return 1
+    // Operand widths must match fixed_operand_bytes in vm_dispatch.zig.
+    fn wrapInTrampoline(gc: *memory.GC, proc: Value) !Value {
+        const OpCode = types.OpCode;
+        const func = try gc.allocFunction();
+        func.upvalue_count = 1;
+        func.locals_count = 2;
+
+        const code = &func.code;
+        const alloc = gc.allocator;
+        try code.append(alloc, @intFromEnum(OpCode.get_upvalue));
+        try code.append(alloc, 0x00); // dst hi
+        try code.append(alloc, 0x01); // dst lo = 1
+        try code.append(alloc, 0x00); // idx hi
+        try code.append(alloc, 0x00); // idx lo = 0
+
+        try code.append(alloc, @intFromEnum(OpCode.call));
+        try code.append(alloc, 0x00); // base hi
+        try code.append(alloc, 0x01); // base lo = 1
+        try code.append(alloc, 0x00); // nargs = 0
+
+        try code.append(alloc, @intFromEnum(OpCode.@"return"));
+        try code.append(alloc, 0x00); // src hi
+        try code.append(alloc, 0x01); // src lo = 1
+
+        var proc_root = proc;
+        gc.pushRoot(&proc_root);
+        const closure_val = try gc.allocClosure(func);
+        gc.popRoot();
+        const closure = types.toObject(closure_val).as(types.Closure);
+        closure.upvalues[0] = proc_root;
+        gc.writeBarrier(&closure.header, proc_root);
+        return closure_val;
     }
 
     pub fn saveCurrentFiber(self: *FiberScheduler) void {

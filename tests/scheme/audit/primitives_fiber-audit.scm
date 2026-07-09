@@ -48,15 +48,16 @@
 (test 'caught (guard (e (#t 'caught)) (channel-receive "not-a-channel")))
 (test 'caught (guard (e (#t 'caught)) (fiber-join 42)))
 (test 'caught (guard (e (#t 'caught)) (spawn 42)))
-;; native procedures are rejected as spawn thunks (resolution of #551;
-;; same class as #1155 for SRFI-18 make-thread)
-(test 'caught (guard (e (#t 'caught)) (spawn newline)))
 
 ;;; --- yield ---
 ;; top-level yield with no scheduler is a no-op
 (test 'ok (begin (yield) 'ok))
 
 ;;; --- spawn / fiber-join ---
+;; native procedures are now accepted as spawn thunks (#1155)
+(test #t (let ((f (spawn newline)))
+           (fiber-join f)
+           (fiber? f)))
 (test #t (fiber? (spawn (lambda () 1))))
 (test 42 (fiber-join (spawn (lambda () (* 6 7)))))
 ;; yield with a runnable scheduler is fine
