@@ -24,9 +24,15 @@
 (test #t (fx>? 3 2))
 (test #t (fx<=? 1 1))
 (test #t (fx>=? 2 2))
-;; FAIL: #1226 (comparison predicates accept exactly 2 arguments)
-;; (test #t (fx<? 1 2 3))
-;; (test #t (fx>? 3 2 1))
+(test #t (fx<? 1 2 3))
+(test #f (fx<? 1 3 2))
+(test #t (fx>? 3 2 1))
+(test #f (fx>? 3 1 2))
+(test #t (fx=? 5 5 5))
+(test #f (fx=? 5 5 6))
+(test #t (fx<=? 1 1 2 3))
+(test #f (fx<=? 1 3 2))
+(test #t (fx>=? 3 2 2 1))
 
 ;;; --- predicates ---
 (test #t (fxzero? 0))
@@ -51,9 +57,11 @@
 (test 9 (fxsquare 3))
 (test 3 (fxmax 1 3))
 (test 1 (fxmin 2 1))
-;; FAIL: #1226 (fxmax/fxmin accept exactly 2 arguments)
-;; (test 3 (fxmax 1 3 2))
-;; (test 1 (fxmin 2 1 3))
+(test 3 (fxmax 1 3 2))
+(test 1 (fxmin 2 1 3))
+(test 5 (fxmax 5))
+(test 5 (fxmin 5))
+(test 4 (fxmax 1 4 2 3))
 
 ;;; --- bitwise ---
 (test 10 (fxand 11 26))
