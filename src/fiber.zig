@@ -135,6 +135,7 @@ pub const FiberScheduler = struct {
     }
 
     // Build a closure whose bytecode does: get_upvalue 1,0 ; call 1,0 ; return 1
+    // Operand widths must match fixed_operand_bytes in vm_dispatch.zig.
     fn wrapInTrampoline(gc: *memory.GC, proc: Value) !Value {
         const OpCode = types.OpCode;
         const func = try gc.allocFunction();
