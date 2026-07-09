@@ -888,6 +888,7 @@ pub fn freeObject(gc: *GC, obj: *Object) void {
             if (tx.literal_bound.len > 0) gc.allocator.free(tx.literal_bound);
             if (tx.let_syntax_peer_names.len > 0) gc.allocator.free(tx.let_syntax_peer_names);
             if (tx.let_syntax_peer_vals.len > 0) gc.allocator.free(tx.let_syntax_peer_vals);
+            if (tx.bound_free_refs.len > 0) gc.allocator.free(tx.bound_free_refs);
             poisonAndDestroy(gc, Transformer, tx);
         },
         .error_object => {
