@@ -41,6 +41,8 @@ fn schemeTypeName(v: Value) []const u8 {
     if (types.isNil(v)) return "nil";
     if (types.isPair(v)) return "pair";
     if (types.isSymbol(v)) return "symbol";
+    if (types.isVector(v)) return "vector";
+    if (types.isClosure(v) or types.isNativeFn(v)) return "procedure";
     return "object";
 }
 
@@ -280,6 +282,11 @@ fn validateArgsDetailed(ffi_fn: *types.FfiFunction, args: []const Value, vm: *VM
                     });
                     return error.TypeError;
                 }
+            } else {
+                vm.setErrorDetail("'{s}': argument {d} out of range for {s}", .{
+                    ffi_fn.name, i + 1, ffiTypeName(ffi_fn.param_types[i]),
+                });
+                return error.TypeError;
             }
         }
         if (nt == .string) {
@@ -436,6 +443,7 @@ fn callFfiGeneric(comptime N: u4, ffi_fn: *types.FfiFunction, args: []const Valu
 
 /// Main FFI call dispatcher. Routes to arity-specific handlers.
 pub fn callFfi(ffi_fn: *types.FfiFunction, args: []const Value, gc: *memory.GC, vm: *VM) !Value {
+    vm.last_error_detail_len = 0;
     if (types.isFfiLibrary(ffi_fn.library)) {
         const lib = types.toObject(ffi_fn.library).as(types.FfiLibrary);
         if (lib.handle == null) {
