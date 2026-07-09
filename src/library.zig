@@ -112,6 +112,8 @@ const extra_exports = [_]ExtraExport{
     .{ .name = "current-input-port", .libs = LS.initMany(&.{ .scheme_base, .scheme_r5rs }) },
     .{ .name = "current-output-port", .libs = LS.initMany(&.{ .scheme_base, .scheme_r5rs }) },
     .{ .name = "current-error-port", .libs = LS.initOne(.scheme_base) },
+    .{ .name = "owner/unchanged", .libs = LS.initOne(.srfi_170) },
+    .{ .name = "group/unchanged", .libs = LS.initOne(.srfi_170) },
 };
 
 fn addExportsForLib(library: *Library, lib: Lib, globals: *std.StringHashMap(Value), sandboxed: bool) !void {

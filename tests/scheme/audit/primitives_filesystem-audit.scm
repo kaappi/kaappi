@@ -72,9 +72,8 @@
 ;; chown to self is always permitted (spec: 3-arg chown-style signature)
 (test #t (begin (set-file-owner (string-append D "/a.txt") (user-uid) (user-gid)) #t))
 (test #t (begin (set-file-times (string-append D "/a.txt")) #t))
-;; FAIL: #1163 (owner/unchanged, group/unchanged constants not exported)
-;; (test #t (begin (set-file-owner (string-append D "/a.txt")
-;;                                 owner/unchanged group/unchanged) #t))
+(test #t (begin (set-file-owner (string-append D "/a.txt")
+                                owner/unchanged group/unchanged) #t))
 
 ;;; --- temp files ---
 (test #t (procedure? temp-file-prefix))     ; parameter object

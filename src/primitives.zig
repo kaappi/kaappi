@@ -210,6 +210,8 @@ pub fn registerAll(vm: *vm_mod.VM) !void {
         if (!is_wasm or spec.wasm)
             try reg(vm, spec.name, spec.func, spec.arity);
     }
+    try vm.defineGlobal("owner/unchanged", types.makeFixnum(-1));
+    try vm.defineGlobal("group/unchanged", types.makeFixnum(-1));
 }
 
 pub fn registerSandboxed(vm: *vm_mod.VM) !void {
