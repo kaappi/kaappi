@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783600209181,
+  "lastUpdate": 1783600265619,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "451455defddfb4a057dde68ac86b28447e52f901",
-          "message": "Add matching parenthesis highlighting to REPL (#1228)\n\nWhen the cursor is right after a closing ) or ], both the closing\ndelimiter and its matching opening delimiter are highlighted in bold\nbright yellow. This provides visual feedback for balanced expressions\nwhile typing, similar to paren-matching in Emacs and other Lisp editors.\n\nThe matching is lexically aware — it correctly skips parens inside\nstrings, line comments, block comments, character literals (#\\(), and\npipe-quoted symbols (|...|). Multi-line input is supported: on\ncontinuation lines, the matcher considers accumulated previous lines\nto confirm balance even when the opening delimiter is on an earlier line.\n\nImplementation extends the vendored linenoise highlight callback to\nreceive cursor position, adds a forward-scanning paren matcher, and\nintegrates it into the existing syntax highlighting pipeline.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-05T16:27:16Z",
-          "tree_id": "8c4b4d00131691482ac71c1d66fd9dfc784390b3",
-          "url": "https://github.com/kaappi/kaappi/commit/451455defddfb4a057dde68ac86b28447e52f901"
-        },
-        "date": 1783270360199,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.354055,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.537352,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.919999,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.094855,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.012405,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.211717,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.471032,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.070311,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 12.34488,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.810715,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 10.024542,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.956644,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 8.325894,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.698782,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.043147,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.043811,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "53034d9c9022375e8945ccd54b98bcab5b2bde82",
+          "message": "Fix yield raising inside with-exception-handler after spawn (#1314) (#1369)\n\n* Fix yield raising inside with-exception-handler after spawn (#1314)\n\nTwo fixes:\n- yield is now a no-op when no other fibers are runnable (checks\n  scheduler.schedule() instead of just scheduler != null)\n- with-exception-handler propagates VMError.Yielded instead of\n  catching it and converting to a Scheme exception\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Drop with-exception-handler Yielded propagation\n\nReverts the withExceptionHandlerFn change per review: propagating\nVMError.Yielded through callReentrant discards the thunk's frames\n(native-frame limitation), producing a silent wrong value. The\nyieldFn schedule() check alone fixes #1314.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-09T17:31:37+05:30",
+          "tree_id": "11fd4f7715a2632ade5728a5190f7064bec6beda",
+          "url": "https://github.com/kaappi/kaappi/commit/53034d9c9022375e8945ccd54b98bcab5b2bde82"
+        },
+        "date": 1783600264906,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.273671,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.308032,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.965494,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.464661,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.012604,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.204438,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.501082,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.069016,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 12.69045,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.945853,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 10.193762,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 1.003445,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 8.424818,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.693697,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.043464,
             "unit": "seconds"
           }
         ]
