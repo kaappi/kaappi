@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783573572108,
+  "lastUpdate": 1783573826290,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "521cf6e1c4b13f37f69abc63db2f628a3f772f89",
-          "message": "Add expect* typed accessors and eliminate bare TypeErrors (#1057) (#1135)\n\nEvery bare PrimitiveError.TypeError now carries a \"type error in\n'proc': expected X, got Y\" message, matching the quality already\nprovided by caddr/car/vector-ref.  Six new typed accessors\n(expectPair, expectVector, expectFixnum, expectChar, expectString,\nexpectPort) combine the type check and cast into one call.\n\n- primitives.zig: add 6 expect* accessors, fix 28 bare TypeErrors\n- primitives_arithmetic.zig: fix 19 bare TypeErrors, 2 dead arity→assert\n- primitives_string.zig: parameterize getStringSlice with proc name,\n  fix 2 dead arity→assert\n- primitives_string_ext.zig: update ~35 getStringSlice callsites with\n  proc names, fix 4 bare TypeErrors\n- primitives_char.zig: replace private getStringSlice with expectString\n- primitives_ffi.zig: fix 15 bare TypeErrors\n- primitives_io.zig: fix 5 bare TypeErrors\n- primitives_numeric.zig: fix 3 bare TypeErrors\n- primitives_r7rs.zig: fix 3 bare TypeErrors\n- primitives_lazy.zig: fix 1 bare TypeError\n- primitives_list.zig: 2 dead arity→assert\n- primitives_srfi1.zig: 13 dead arity→assert\n- vm_calls.zig: add FFI error detail at 2 call sites\n- error-format.sh: 12 new assertions for consistent error messages\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-05T05:20:54Z",
-          "tree_id": "7dcefba500c31fdb814113e8a91e57cb63df7ffe",
-          "url": "https://github.com/kaappi/kaappi/commit/521cf6e1c4b13f37f69abc63db2f628a3f772f89"
-        },
-        "date": 1783230282371,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.330075,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.869357,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.951425,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.930424,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.012574,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.211683,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.472877,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.070514,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 12.365805,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.825743,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 9.975447,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.970532,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 8.296831,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.741761,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.042685,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.046797,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "72477f4262989071568aa9380e77d8b120b29381",
+          "message": "Fix SRFI-197 chain _ placeholder and add nest/nest-reverse (#1219) (#1345)\n\n* Fix SRFI-197 chain to substitute _ placeholder; add nest/nest-reverse (#1219)\n\nchain previously inserted the pipeline value as the first argument\nunconditionally.  Per SRFI-197, the _ placeholder marks where the value\ngoes; steps without _ ignore the pipeline value entirely.\n\nThe rewrite uses a two-phase helper (%chain-subst / %chain-subst*) that\nscans step arguments for _ as a syntax-rules literal and replaces each\noccurrence with the pipeline value.  chain-and and chain-when delegate to\nchain for step application, so they inherit _ support automatically.\n\nAlso adds nest (outermost-first) and nest-reverse (innermost-first)\nnesting operators, both with _ substitution.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Fix chain-when guard semantics and add nest syntax-error for missing _\n\nAddress review feedback:\n\n- chain-when: guard is an expression evaluated directly, not a procedure\n  called with the pipeline value. (if guard ...) not (if (guard? v) ...).\n  Matches the SRFI-197 spec example: ((odd? n) (cons \"odd\" _)).\n\n- nest/nest-reverse: raise syntax-error when a step has no _ placeholder\n  instead of silently dropping the inner form.\n\n- Tests: add expression-guard and false-guard-in-middle coverage for\n  chain-when; assert nest-reverse equivalence test against a literal.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-09T10:09:01+05:30",
+          "tree_id": "a7a7785c6d623fa7a63e98ef5ac2be5d3ac8689b",
+          "url": "https://github.com/kaappi/kaappi/commit/72477f4262989071568aa9380e77d8b120b29381"
+        },
+        "date": 1783573825569,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.334447,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.217004,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 0.975358,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.422328,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.012765,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.203741,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.505131,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.069714,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 12.702845,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.952491,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 10.175907,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 0.998544,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 8.420488,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.738723,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.046499,
             "unit": "seconds"
           }
         ]
