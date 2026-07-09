@@ -37,7 +37,13 @@
     (reverse acc)))
 
 ;;; --- fold-ec (SRFI-42 signature: seed qualifier... expr proc) ---
-(test-equal "fold-ec" 6 (fold-ec 0 (:range i 4) i +))
+(test-equal "fold-ec +" 6 (fold-ec 0 (:range i 4) i +))
+(test-equal "fold-ec cons" '(2 1 0) (fold-ec '() (:range i 3) i cons))
+(test-equal "fold-ec -" 2 (fold-ec 0 (:range i 1 4) i -))
+
+;;; --- fold3-ec (seed qualifier... expr f1 f2) ---
+(test-equal "fold3-ec" 6 (fold3-ec 'unused (:range i 1 4) i values +))
+(test-equal "fold3-ec empty" 'empty (fold3-ec 'empty (:range i 0) i values +))
 
 ;;; --- nested generators (cartesian product, rightmost spins fastest) ---
 (test-equal "nested list x list"
@@ -53,6 +59,10 @@
 
 (test-equal "not guard" '(1 3 5) (list-ec (:range i 6) (not (even? i)) i))
 
+(test-equal "and guard" '(2 4) (list-ec (:range i 6) (and (even? i) (> i 0)) i))
+
+(test-equal "or guard" '(0 1 3 5) (list-ec (:range i 6) (or (not (even? i)) (= i 0)) i))
+
 ;;; --- :let ---
 (test-equal ":let" '(10) (list-ec (:let x 10) x))
 
@@ -61,7 +71,11 @@
   (list-ec (:range i 3) (:let x (* i 10)) x))
 
 ;;; --- :while (stop entire comprehension when test becomes false) ---
-(test-equal ":while" '(0 1 2) (list-ec (:range i 100) (:while (< i 3)) i))
+(test-equal ":while standalone" '(0 1 2)
+  (list-ec (:range i 100) (:while (< i 3)) i))
+
+(test-equal ":while wrapping generator" '(0 1 2 3 4)
+  (list-ec (:while (:range i 10) (< i 5)) i))
 
 ;;; --- :until (include the triggering element, then stop) ---
 (test-equal ":until" '(0 1 2 3) (list-ec (:range i 100) (:until (= i 3)) i))

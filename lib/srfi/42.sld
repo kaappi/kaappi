@@ -101,6 +101,28 @@
          (let ((var expr))
            (%do-ec s rest1 rest2 ...)))
         ;; --- control qualifiers ---
+        ;; :while/:until wrapping a generator (spec form)
+        ((_ s (:while (:range rargs ...) test) rest1 rest2 ...)
+         (%do-ec s (:range rargs ...) (:while test) rest1 rest2 ...))
+        ((_ s (:while (:list largs ...) test) rest1 rest2 ...)
+         (%do-ec s (:list largs ...) (:while test) rest1 rest2 ...))
+        ((_ s (:while (:string sargs ...) test) rest1 rest2 ...)
+         (%do-ec s (:string sargs ...) (:while test) rest1 rest2 ...))
+        ((_ s (:while (:vector vargs ...) test) rest1 rest2 ...)
+         (%do-ec s (:vector vargs ...) (:while test) rest1 rest2 ...))
+        ((_ s (:while (:integers iargs ...) test) rest1 rest2 ...)
+         (%do-ec s (:integers iargs ...) (:while test) rest1 rest2 ...))
+        ((_ s (:until (:range rargs ...) test) rest1 rest2 ...)
+         (%do-ec s (:range rargs ...) (:until test) rest1 rest2 ...))
+        ((_ s (:until (:list largs ...) test) rest1 rest2 ...)
+         (%do-ec s (:list largs ...) (:until test) rest1 rest2 ...))
+        ((_ s (:until (:string sargs ...) test) rest1 rest2 ...)
+         (%do-ec s (:string sargs ...) (:until test) rest1 rest2 ...))
+        ((_ s (:until (:vector vargs ...) test) rest1 rest2 ...)
+         (%do-ec s (:vector vargs ...) (:until test) rest1 rest2 ...))
+        ((_ s (:until (:integers iargs ...) test) rest1 rest2 ...)
+         (%do-ec s (:integers iargs ...) (:until test) rest1 rest2 ...))
+        ;; :while/:until as standalone qualifiers
         ((_ s (:while test) rest1 rest2 ...)
          (if test
            (%do-ec s rest1 rest2 ...)
@@ -139,18 +161,18 @@
       (syntax-rules ()
         ((_ seed qualifier ... expr f)
          (let ((%ec-acc seed))
-           (do-ec qualifier ... (set! %ec-acc (f %ec-acc expr)))
+           (do-ec qualifier ... (set! %ec-acc (f expr %ec-acc)))
            %ec-acc))))
 
     (define-syntax fold3-ec
       (syntax-rules ()
-        ((_ qualifier ... expr f1 f2)
-         (let ((%ec-first #t) (%ec-acc #f))
+        ((_ x0 qualifier ... expr f1 f2)
+         (let ((%ec-first #t) (%ec-acc x0))
            (do-ec qualifier ...
              (if %ec-first
                (begin (set! %ec-acc (f1 expr))
                       (set! %ec-first #f))
-               (set! %ec-acc (f2 %ec-acc expr))))
+               (set! %ec-acc (f2 expr %ec-acc))))
            %ec-acc))))
 
     (define-syntax string-ec
