@@ -97,10 +97,16 @@
                                    (call-with-values
                                      (lambda () (apply (option-processor opt) opt ch a seeds))
                                      (lambda new-seeds (loop r new-seeds))))
-                                 (call-with-values
-                                   (lambda () (apply (option-processor opt) opt ch #f seeds))
-                                   (lambda new-seeds
-                                     (sloop (+ i 1) new-seeds rest))))
+                                 (if (and (option-optional-arg? opt)
+                                          (< (+ i 1) (string-length arg)))
+                                     (let ((a (substring arg (+ i 1) (string-length arg))))
+                                       (call-with-values
+                                         (lambda () (apply (option-processor opt) opt ch a seeds))
+                                         (lambda new-seeds (loop rest new-seeds))))
+                                     (call-with-values
+                                       (lambda () (apply (option-processor opt) opt ch #f seeds))
+                                       (lambda new-seeds
+                                         (sloop (+ i 1) new-seeds rest)))))
                              (call-with-values
                                (lambda () (apply unrecognized-proc
                                                  (%make-option (list ch) #f #f #f) ch #f seeds))
