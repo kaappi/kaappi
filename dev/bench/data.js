@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783594664433,
+  "lastUpdate": 1783598635289,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "5d0aeeb710cac4b7d58aafefd8a71d89625b6606",
-          "message": "Check off audit Phase 3.0: all 35 SRFI test files validated, no failures (#1201)\n\nRan every file in tests/scheme/srfi/ individually with a 30-second\ntimeout at 96ce73b, reading printed counts rather than exit codes (the\nchibi-test shim and SRFI-64 both exit 0 on assertion failures):\n\n- chibi-test files: all print \"N pass, 0 fail\"\n- SRFI-64 files (srfi64, srfi189, srfi18-atomic-stress): 0 unexpected\n  failures; srfi64.scm's single \"expected failure\" is an intentional\n  test-expect-fail case\n- exit-code files: all print their final OK markers (no silent aborts)\n- no hangs, no timeouts, no escaped top-level errors\n\nNo issues to file; matches the Phase 0 baseline. Tracker lines for\nPhases 2.15-2.18 are re-applied byte-identically to PRs #1197/#1200 so\nall three PRs merge cleanly in any order.\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-05T20:19:36+05:30",
-          "tree_id": "6ad7bf18f9fa70bda998e01dbe90b3c1ab9c1852",
-          "url": "https://github.com/kaappi/kaappi/commit/5d0aeeb710cac4b7d58aafefd8a71d89625b6606"
-        },
-        "date": 1783264318549,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.374477,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.679283,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.951195,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.094211,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.012499,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.211381,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.471098,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.069532,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 12.415048,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.827902,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 9.971198,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.954635,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 8.360955,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.715151,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.042965,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.035903,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "57d7c5d43b62b943e15f3f16067a7537c979cab8",
+          "message": "Fix string-trim default criterion to use Unicode whitespace (#826) (#1368)\n\nThe no-argument fast paths in string-trim, string-trim-right, and\nstring-trim-both scanned raw bytes with a hard-coded ASCII whitespace\ncheck, missing vertical tab, form feed, and all multi-byte Unicode\nwhitespace (NBSP, EM SPACE, IDEOGRAPHIC SPACE, etc.). Now decodes\ncodepoints and delegates to isUnicodeWhitespace, matching char-whitespace?\nand the SRFI-13 spec (default criterion is char-set:whitespace).\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-09T16:55:14+05:30",
+          "tree_id": "2c25551b37d3c270ffd7d0c8790e3d7450338162",
+          "url": "https://github.com/kaappi/kaappi/commit/57d7c5d43b62b943e15f3f16067a7537c979cab8"
+        },
+        "date": 1783598633849,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.084027,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 10.140564,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 1.012393,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.428552,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.013968,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.226089,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.512854,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.06815,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 13.655432,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.976762,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 11.33801,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 1.123657,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 9.301226,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.905559,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.046609,
             "unit": "seconds"
           }
         ]
