@@ -66,14 +66,18 @@
           (let loop ((best (car args)) (rest (cdr args)))
             (if (null? rest)
                 best
-                (loop (if (< (car rest) best) (car rest) best) (cdr rest))))))
+                (let ((x (car rest)))
+                  (loop (if (nan? best) x (if (nan? x) best (min best x)))
+                        (cdr rest)))))))
     (define (flmax . args)
       (if (null? args)
           -inf.0
           (let loop ((best (car args)) (rest (cdr args)))
             (if (null? rest)
                 best
-                (loop (if (> (car rest) best) (car rest) best) (cdr rest))))))
+                (let ((x (car rest)))
+                  (loop (if (nan? best) x (if (nan? x) best (max best x)))
+                        (cdr rest)))))))
 
     ;; Math
     (define flsqrt sqrt)
