@@ -33,6 +33,32 @@
       (test-assert "1/4-unit: in (0,1)" (and (> r 0) (< r 1)))
       (test-assert "1/4-unit: multiple of 1/4" (integer? (* r 4))))))
 
+;; Exact unit 3/10: non-integer reciprocal (1/unit = 10/3, floor = 3)
+;; Values: {3/10, 6/10, 9/10}
+(let ((rand (random-source-make-reals (make-random-source) 3/10)))
+  (do ((i 0 (+ i 1)))
+      ((= i 20))
+    (let ((r (rand)))
+      (test-assert "3/10-unit: exact" (exact? r))
+      (test-assert "3/10-unit: in (0,1)" (and (> r 0) (< r 1)))
+      (test-assert "3/10-unit: multiple of 3/10" (integer? (/ r 3/10))))))
+
+;; Exact unit 3/5: 1/unit = 5/3, floor = 1, only value is 3/5
+(let ((rand (random-source-make-reals (make-random-source) 3/5)))
+  (do ((i 0 (+ i 1)))
+      ((= i 10))
+    (let ((r (rand)))
+      (test-assert "3/5-unit: exact" (exact? r))
+      (test-assert "3/5-unit: equals 3/5" (= r 3/5)))))
+
+;; Exact unit 2/3: in (1/2, 1), only value is 2/3
+(let ((rand (random-source-make-reals (make-random-source) 2/3)))
+  (do ((i 0 (+ i 1)))
+      ((= i 10))
+    (let ((r (rand)))
+      (test-assert "2/3-unit: exact" (exact? r))
+      (test-assert "2/3-unit: equals 2/3" (= r 2/3)))))
+
 ;; Invalid unit: out of range
 (test-assert "unit=2 rejected"
   (guard (e (#t (error-object? e)))
