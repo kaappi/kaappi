@@ -518,6 +518,20 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                     const caller = &self.frames[self.frame_count - 1];
                     const ret_idx = try registerIndex(self, caller.base, return_dst);
                     self.registers[ret_idx] = result;
+                } else if (types.isNativeClosure(callee)) {
+                    const nc = types.toObject(callee).as(types.NativeClosure);
+                    // nc.fn_ptr may re-enter the VM and grow self.frames,
+                    // invalidating `frame` — read dst before the call.
+                    const return_dst = frame.dst;
+                    const from_native_call = frame.returns_to_native;
+                    const result = try vm_calls.callNativeClosure(self, nc, self.registers[abs_base + 1 .. abs_base + 1 + nargs]);
+                    self.frame_count -= 1;
+                    if (self.profile_mode) vm_calls.profilePopReturn(self);
+                    if (self.frame_count <= target_frame_count) return result;
+                    if (from_native_call) return raiseDeadNativeReturn(self);
+                    const caller = &self.frames[self.frame_count - 1];
+                    const ret_idx = try registerIndex(self, caller.base, return_dst);
+                    self.registers[ret_idx] = result;
                 } else if (types.isContinuation(callee)) {
                     const cont = types.toObject(callee).as(types.Continuation);
                     const value = try vm_calls.continuationArgValue(self.gc, self.registers[abs_base + 1 .. abs_base + 1 + @as(usize, nargs)]);
@@ -664,6 +678,19 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                         if (err == error.Yielded) maybeRewindRetry(self, 1 + fixed_operand_bytes);
                         return vm_calls.mapNativeError(self, err, native.name, flat_args[0..count]);
                     };
+                    self.frame_count -= 1;
+                    if (self.frame_count <= target_frame_count) return result;
+                    if (from_native_call) return raiseDeadNativeReturn(self);
+                    const caller = &self.frames[self.frame_count - 1];
+                    const ret_idx = try registerIndex(self, caller.base, return_dst);
+                    self.registers[ret_idx] = result;
+                } else if (types.isNativeClosure(proc)) {
+                    const nc = types.toObject(proc).as(types.NativeClosure);
+                    // nc.fn_ptr may re-enter the VM and grow self.frames,
+                    // invalidating `frame` — read dst before the call.
+                    const return_dst = frame.dst;
+                    const from_native_call = frame.returns_to_native;
+                    const result = try vm_calls.callNativeClosure(self, nc, flat_args[0..count]);
                     self.frame_count -= 1;
                     if (self.frame_count <= target_frame_count) return result;
                     if (from_native_call) return raiseDeadNativeReturn(self);
@@ -1056,6 +1083,20 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                     const caller = &self.frames[self.frame_count - 1];
                     const ret_idx = try registerIndex(self, caller.base, return_dst);
                     self.registers[ret_idx] = result;
+                } else if (types.isNativeClosure(callee)) {
+                    const nc = types.toObject(callee).as(types.NativeClosure);
+                    // nc.fn_ptr may re-enter the VM and grow self.frames,
+                    // invalidating `frame` — read dst before the call.
+                    const return_dst = frame.dst;
+                    const from_native_call = frame.returns_to_native;
+                    const result = try vm_calls.callNativeClosure(self, nc, self.registers[abs_base + 1 .. abs_base + 1 + nargs]);
+                    self.frame_count -= 1;
+                    if (self.profile_mode) vm_calls.profilePopReturn(self);
+                    if (self.frame_count <= target_frame_count) return result;
+                    if (from_native_call) return raiseDeadNativeReturn(self);
+                    const caller = &self.frames[self.frame_count - 1];
+                    const ret_idx = try registerIndex(self, caller.base, return_dst);
+                    self.registers[ret_idx] = result;
                 } else {
                     self.setErrorDetail("not a procedure", .{});
                     return VMError.NotAProcedure;
@@ -1168,6 +1209,19 @@ pub fn runUntil(self: *VM, target_frame_count: usize, target_wind_count: usize) 
                         }
                         return vm_calls.mapNativeError(self, err, native.name, nargs_slice);
                     };
+                    self.frame_count -= 1;
+                    if (self.frame_count <= target_frame_count) return result;
+                    if (from_native_call) return raiseDeadNativeReturn(self);
+                    const caller = &self.frames[self.frame_count - 1];
+                    const ret_idx = try registerIndex(self, caller.base, return_dst);
+                    self.registers[ret_idx] = result;
+                } else if (types.isNativeClosure(receiver)) {
+                    const nc = types.toObject(receiver).as(types.NativeClosure);
+                    // nc.fn_ptr may re-enter the VM and grow self.frames,
+                    // invalidating `frame` — read dst before the call.
+                    const return_dst = frame.dst;
+                    const from_native_call = frame.returns_to_native;
+                    const result = try vm_calls.callNativeClosure(self, nc, &[_]Value{cont_val});
                     self.frame_count -= 1;
                     if (self.frame_count <= target_frame_count) return result;
                     if (from_native_call) return raiseDeadNativeReturn(self);

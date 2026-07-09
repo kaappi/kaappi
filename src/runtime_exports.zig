@@ -131,14 +131,29 @@ pub export fn kaappi_create_native_closure(vm: ?*vm_mod.VM, fn_ptr: ?*anyopaque,
     return result;
 }
 
+/// Report a VM error that escaped to natively-compiled code and exit.
+/// Formats an uncaught Scheme exception into vm.last_error_detail first so
+/// the message names the actual failure instead of just the error class.
+fn fatalVMError(vm: *vm_mod.VM, context: []const u8, err: anyerror) noreturn {
+    vm.noteUncaughtException(err);
+    const detail = vm.getErrorDetail();
+    _ = std.posix.system.write(2, context.ptr, context.len);
+    if (detail.len > 0) {
+        _ = std.posix.system.write(2, ": ", 2);
+        _ = std.posix.system.write(2, detail.ptr, detail.len);
+    }
+    const name = @errorName(err);
+    _ = std.posix.system.write(2, " (", 2);
+    _ = std.posix.system.write(2, name.ptr, name.len);
+    _ = std.posix.system.write(2, ")\n", 2);
+    std.process.exit(1);
+}
+
 pub export fn kaappi_eval(vm: ?*vm_mod.VM, src_ptr: [*]const u8, src_len: u64) callconv(.c) u64 {
     const v = vm orelse return 0;
     const len: usize = @intCast(src_len);
     const source = src_ptr[0..len];
-    const result = v.eval(source) catch {
-        _ = std.posix.system.write(2, "eval error\n", 11);
-        std.process.exit(1);
-    };
+    const result = v.eval(source) catch |err| fatalVMError(v, "eval error", err);
     return result;
 }
 
@@ -152,10 +167,8 @@ fn callPrimitive(name: []const u8, a: u64, b: u64) u64 {
         std.process.exit(1);
     };
     const args = [_]u64{ a, b };
-    return vm.callWithArgs(proc, &args) catch {
-        _ = std.posix.system.write(2, "runtime error in primitive\n", 27);
-        std.process.exit(1);
-    };
+    return vm.callWithArgs(proc, &args) catch |err|
+        fatalVMError(vm, "runtime error in primitive", err);
 }
 
 pub export fn kaappi_fixnum_add(a: u64, b: u64) callconv(.c) u64 {
@@ -247,10 +260,8 @@ pub export fn kaappi_call_scheme(vm: ?*vm_mod.VM, callee: u64, args_ptr: ?[*]con
     };
     const n: usize = @intCast(nargs);
     const args: []const Value = if (n > 0 and args_ptr != null) args_ptr.?[0..n] else &.{};
-    const result = v.callWithArgs(callee, args) catch {
-        _ = std.posix.system.write(2, "runtime error in call\n", 22);
-        std.process.exit(1);
-    };
+    const result = v.callWithArgs(callee, args) catch |err|
+        fatalVMError(v, "runtime error in call", err);
     return result;
 }
 

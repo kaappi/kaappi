@@ -327,6 +327,22 @@ pub fn mapNativeError(vm: *VM, err: anyerror, name: []const u8, args: []const Va
     };
 }
 
+/// Invoke a natively-compiled closure (LLVM backend). The emitted function
+/// reads its parameters lazily from the args pointer and may re-enter the
+/// VM, which can grow (realloc) vm.registers — so the pointer handed to it
+/// must not alias the register file. Copy args into a stack buffer; the
+/// originals stay reachable through the caller's storage (registers or
+/// rooted buffers), so the copies need no GC roots of their own.
+pub fn callNativeClosure(vm: *VM, nc: *types.NativeClosure, args: []const Value) VMError!Value {
+    if (args.len != nc.arity) {
+        vm.setErrorDetail("'{s}': expected {d} arguments, got {d}", .{ nc.name, nc.arity, args.len });
+        return VMError.ArityMismatch;
+    }
+    var buf: [256]Value = undefined;
+    @memcpy(buf[0..args.len], args);
+    return nc.fn_ptr(vm, &buf, args.len, nc.upvalues.ptr);
+}
+
 pub fn callValue(vm: *VM, callee: Value, base: u32, nargs: u8) VMError!void {
     // Check closure first — by far the most common case in Scheme programs
     if (types.isClosure(callee)) {
@@ -334,6 +350,14 @@ pub fn callValue(vm: *VM, callee: Value, base: u32, nargs: u8) VMError!void {
     }
     if (types.isNativeFn(callee)) {
         return callNative(vm, types.toObject(callee).as(types.NativeFn), base, nargs);
+    }
+    if (types.isNativeClosure(callee)) {
+        const nc = types.toObject(callee).as(types.NativeClosure);
+        if (@as(usize, base) + @as(usize, nargs) + 1 > vm.registers.len)
+            return VMError.StackOverflow;
+        const result = try callNativeClosure(vm, nc, vm.registers[base + 1 .. base + 1 + nargs]);
+        vm.registers[base] = result;
+        return;
     }
     if (types.isFfiFunction(callee)) {
         const ffi_fn = types.toObject(callee).as(types.FfiFunction);
@@ -645,6 +669,9 @@ pub fn callHandler(vm: *VM, handler_val: Value, arg: Value, return_dst: u8) VMEr
             return mapNativeError(vm, err, native.name, &args);
         };
         return result;
+    } else if (types.isNativeClosure(handler_val)) {
+        const nc = types.toObject(handler_val).as(types.NativeClosure);
+        return callNativeClosure(vm, nc, &[_]Value{arg});
     } else {
         vm.setErrorDetail("not a procedure", .{});
         return VMError.NotAProcedure;
@@ -671,6 +698,9 @@ pub fn callThunk(vm: *VM, thunk_val: Value) VMError!Value {
             return mapNativeError(vm, err, native.name, empty_args);
         };
         return result;
+    } else if (types.isNativeClosure(thunk_val)) {
+        const nc = types.toObject(thunk_val).as(types.NativeClosure);
+        return callNativeClosure(vm, nc, &.{});
     } else {
         return VMError.NotAProcedure;
     }
@@ -745,12 +775,7 @@ pub fn callWithArgs(vm: *VM, proc: Value, args: []const Value) VMError!Value {
         return callReentrant(vm, closure, base, 0, true);
     } else if (types.isNativeClosure(proc)) {
         const nc = types.toObject(proc).as(types.NativeClosure);
-        if (args.len != nc.arity) {
-            vm.setErrorDetail("'{s}': expected {d} arguments, got {d}", .{ nc.name, nc.arity, args.len });
-            return VMError.ArityMismatch;
-        }
-        const result = nc.fn_ptr(vm, args.ptr, args.len, nc.upvalues.ptr);
-        return result;
+        return callNativeClosure(vm, nc, args);
     } else if (types.isNativeFn(proc)) {
         const native = types.toObject(proc).as(types.NativeFn);
         switch (native.arity) {
