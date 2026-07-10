@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783703981799,
+  "lastUpdate": 1783706131266,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "138405792348afb54d9872a37a2297ebf20864e2",
-          "message": "Capture let/lambda locals in define-syntax transformers (#1271) (#1287)\n\ndefine-syntax did not call captureLocalsOnTransformer, so free\nreferences to let/let*/lambda-bound variables in syntax-rules\ntemplates were hygienically renamed but never aliased back,\nproducing \"undefined variable '__hyg_N_var'\" errors.\n\nAdd the same captureLocalsOnTransformer call that let-syntax\nalready uses to all three define-syntax code paths (top-level,\nbody scan in compileBodyForms, and IR body scan).\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-07T06:06:08Z",
-          "tree_id": "5fb21c496a5254c264823f17b903ae39b2127d5f",
-          "url": "https://github.com/kaappi/kaappi/commit/138405792348afb54d9872a37a2297ebf20864e2"
-        },
-        "date": 1783405883731,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.283668,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.750866,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.916016,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.13528,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.012521,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.212313,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.463503,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.070279,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 12.47823,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.816599,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 9.974129,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.954891,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 8.289591,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.707503,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.042795,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044184,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b1629ca5ce4a13c7417d5a928bf50d2cdfc9fe9e",
+          "message": "Root bignum intermediates in rational arithmetic and string->number (#1421)\n\nThe rational accumulator loops in +, -, *, / stored each fresh bignum\nresult in a Zig local and updated the GC root slots only after both\naccumulator updates. A collection triggered inside the second update\nfreed the first result and the following allocation reused its memory,\nso the numerator aliased the denominator: under -Dgc-stress=true builds\n(and, rarely, whenever the GC threshold fired between the two calls)\nbignum/bignum division and multiplication collapsed to 1, addition\ndoubled one operand, and subtraction returned 0. string->number's\nrational parse held the numerator bignum unrooted across the\ndenominator parse with the same effect.\n\nRoot each fresh value in its slot before the next allocating call,\nroot the t1/t2 cross-multiplication temporaries in + and -, and root\nstring->number's parsed numerator across the denominator parse.\n\nFixes #1414\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-10T22:52:31+05:30",
+          "tree_id": "a526135f86c264f0b60204e21437a180d28545a0",
+          "url": "https://github.com/kaappi/kaappi/commit/b1629ca5ce4a13c7417d5a928bf50d2cdfc9fe9e"
+        },
+        "date": 1783706129841,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.367647,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.570998,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 1.010001,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.491252,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.012869,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.339592,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.506018,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.069793,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 13.559082,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.970953,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 8.7864,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 1.051716,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 8.586997,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.762582,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044423,
             "unit": "seconds"
           }
         ]
