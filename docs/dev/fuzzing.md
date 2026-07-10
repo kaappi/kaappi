@@ -133,10 +133,16 @@ fuzz pass, `native-diff`, or `oracle-diff`) is auto-filed as a GitHub
 issue by the trailing `report` job — one open issue per job, labeled
 `fuzz-finding`, containing the run link, a bounded artifact excerpt (the
 first divergent program plus both sides' output, or the fuzzer transcript
-tail), and replay instructions. While that issue stays open, repeat
-failures append comments to it instead of opening duplicates. Issues are
-never auto-closed: seed bases rotate nightly, so a later green run does
-not mean a finding is fixed — close the issue once the input is minimised
+tail), and replay instructions. A finding-titled issue is only filed when
+the finding marker is actually present in the uploaded artifacts (the
+encoded crash input for the fuzz job, `seed-<N>.scm` divergences for the
+diff jobs); failed jobs without their marker — toolchain flakes, build or
+unit-test failures, job-level timeouts (a possible hang) — are collected
+under a single shared issue titled `Fuzz CI: infrastructure or build
+failure` instead. While an issue stays open, repeat failures append
+comments to it instead of opening duplicates. Issues are never
+auto-closed: seed bases rotate nightly, so a later green run does not
+mean a finding is fixed — close the issue once the input is minimised
 into a regression test. The `report` job is the only one with a
 write-capable token (`issues: write`) and executes no fuzzer-generated
 code; the three fuzzing jobs keep read-only tokens and
