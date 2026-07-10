@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783708399239,
+  "lastUpdate": 1783710022319,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "8680c99bdd1fe57c4d5cc611e6b7269c9447aa4a",
-          "message": "Accept multiple comma-separated labels in /parallel-issues skill (#1290)\n\nPreviously the skill accepted a single label. Now labels can be\ncomma-separated (e.g. \"bug,macros\"), each becoming a --label flag\nso gh issue list AND-filters them. The no-fallback rule applies to\nthe full label set.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-07T12:39:23+05:30",
-          "tree_id": "42aaae2ca7f4af1a492c7111f9096be875074582",
-          "url": "https://github.com/kaappi/kaappi/commit/8680c99bdd1fe57c4d5cc611e6b7269c9447aa4a"
-        },
-        "date": 1783409708109,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.277771,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.730941,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.90506,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.129825,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.012607,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.212113,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.463144,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.070502,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 12.519609,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.828182,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 9.972544,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.960718,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 8.284503,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.69751,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.042692,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.042893,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d67d05fad2120ae9798cb93619ed8ddfabd20677",
+          "message": "Extend the native-subset fuzzer to chained nested-lambda captures (#1424)\n\nSince #1410 (PR #1419) the native closure tiers chain captures through\nnested lambdas and republish the full frame at eval-fallback boundaries,\nbut the generator still restricted inline lambdas to one capture level,\nso the chaining code ran only under hand-written test shapes.\n\n- Inline lambdas may now nest: non-variadic inline-lambda bodies can\n  emit further inline lambdas whose free references reach int parameters\n  of any enclosing level. Chained shapes stay fully native and sit under\n  the VM-vs-native differential oracle permanently.\n- Inline VARIADIC lambdas are emitted occasionally: no closure tier\n  accepts a rest parameter, so each one exercises the emitLambdaViaEval\n  fallback that republishes the enclosing frame (params, rest parameter,\n  upvalues) as globals, at the cost of exactly one kaappi_eval. Their\n  bodies suppress nested lambdas — the body is eval'd as one source\n  string, so a lambda inside it would be interpreted without reaching\n  the emitter, breaking the gate's accounting.\n- set! is banned inside inline-call argument subtrees in function\n  bodies: arguments run between closure creation (which snapshots\n  captured params by value, or republishes them as globals) and the\n  call, so a set! of a captured param there is visible to the VM's\n  location-based capture but not to the native snapshot. That divergence\n  predates this change and was reachable by the old generator; the\n  backend semantics are tracked as #1422.\n\nThe tests_native.zig gate now expects one eval per inline variadic\nlambda on top of one per define — exactly on unoptimized emission\n(dead-branch elimination legitimately deletes variadic lambdas from\nconstant-test branches, which the generator emits on purpose) and as a\nbound under the production pass pipeline. The 2000-seed sweep asserts\nboth new shape families actually occur in the corpus.\n\nVerification: zig build test; a set!-in-argument scan over 2000 seeds is\nclean; bash tests/fuzz/native-diff.sh 300 0 reports 300 compared,\n0 divergent, with organic chained-capture and variadic-inline seeds in\nrange.\n\nFixes #1420.\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-10T23:56:11+05:30",
+          "tree_id": "c7c21bde2551c5b512faf3074684b11480ffd36d",
+          "url": "https://github.com/kaappi/kaappi/commit/d67d05fad2120ae9798cb93619ed8ddfabd20677"
+        },
+        "date": 1783710020039,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.378394,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.996143,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 1.073381,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.423721,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.01327,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.340888,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.506148,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.070766,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 13.744696,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.952852,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 8.772347,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 1.052583,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 8.630388,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.751333,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044426,
             "unit": "seconds"
           }
         ]
