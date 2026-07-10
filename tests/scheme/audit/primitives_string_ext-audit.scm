@@ -30,8 +30,7 @@
 (test-equal "a" (string-trim-both "xxaxx" #\x))
 (test-equal "" (string-trim-both "   "))
 (test-equal "x" (string-trim-both "\x0B;\x0C;x\x0B;\x0C;")) ; VT/FF in default set (#826 fix)
-;; FAIL: #826 (default criterion misses Unicode whitespace; byte-based)
-;; (test-equal "x" (string-trim-both "\x00A0;x\x00A0;"))
+(test-equal "x" (string-trim-both "\x00A0;x\x00A0;")) ; Unicode whitespace (#826 fix)
 
 ;;; --- string-index / -right / skip / count ---
 (test-equal 1 (string-index "abc" #\b))
