@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783701521856,
+  "lastUpdate": 1783702835916,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "c0fb97145a66e78db1e6f4f9328c558e029068a1",
-          "message": "Unify platform feature lists across (features) and cond-expand (#1177) (#1283)\n\nThree call sites hardcoded divergent feature lists: (features) lacked\nexact-closed and exact-complex, expression-level cond-expand lacked\nexact-complex, while library-level cond-expand had both. R7RS §6.14\nrequires (features) to return exactly the identifiers cond-expand\ntreats as true. Introduce a single types.platform_features constant\nconsulted by all three sites.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-07T07:45:00+05:30",
-          "tree_id": "5bcd5eb7912b52bc2b7a27e03f2e9aef3e29bbde",
-          "url": "https://github.com/kaappi/kaappi/commit/c0fb97145a66e78db1e6f4f9328c558e029068a1"
-        },
-        "date": 1783392209447,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.326123,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.175948,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 1.041455,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.655409,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.012499,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.21367,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.522317,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.072414,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 12.464631,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 2.024833,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 10.010231,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.955567,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 8.357876,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.777324,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044318,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.045053,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "49699333+dependabot[bot]@users.noreply.github.com",
+            "name": "dependabot[bot]",
+            "username": "dependabot[bot]"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "51128e3c283b839a7ac1e6f0d16a16d3a5538f1f",
+          "message": "Bump the github-actions group with 2 updates (#1416)\n\nBumps the github-actions group with 2 updates: [codecov/codecov-action](https://github.com/codecov/codecov-action) and [actions/cache](https://github.com/actions/cache).\n\n\nUpdates `codecov/codecov-action` from 5.5.5 to 7.0.0\n- [Release notes](https://github.com/codecov/codecov-action/releases)\n- [Changelog](https://github.com/codecov/codecov-action/blob/main/CHANGELOG.md)\n- [Commits](https://github.com/codecov/codecov-action/compare/0fb7174895f61a3b6b78fc075e0cd60383518dac...fb8b3582c8e4def4969c97caa2f19720cb33a72f)\n\nUpdates `actions/cache` from 4.3.0 to 6.1.0\n- [Release notes](https://github.com/actions/cache/releases)\n- [Changelog](https://github.com/actions/cache/blob/main/RELEASES.md)\n- [Commits](https://github.com/actions/cache/compare/0057852bfaa89a56745cba8c7296529d2fc39830...55cc8345863c7cc4c66a329aec7e433d2d1c52a9)\n\n---\nupdated-dependencies:\n- dependency-name: codecov/codecov-action\n  dependency-version: 7.0.0\n  dependency-type: direct:production\n  update-type: version-update:semver-major\n  dependency-group: github-actions\n- dependency-name: actions/cache\n  dependency-version: 6.1.0\n  dependency-type: direct:production\n  update-type: version-update:semver-major\n  dependency-group: github-actions\n...\n\nSigned-off-by: dependabot[bot] <support@github.com>\nCo-authored-by: dependabot[bot] <49699333+dependabot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-07-10T22:03:59+05:30",
+          "tree_id": "6085da6f1991a4e85d27cb347ba4c7338622ab5d",
+          "url": "https://github.com/kaappi/kaappi/commit/51128e3c283b839a7ac1e6f0d16a16d3a5538f1f"
+        },
+        "date": 1783702834351,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.366575,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.80611,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 1.014503,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.434886,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.013193,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.338884,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.506759,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.069901,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 13.509531,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.947059,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 8.754261,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 1.041762,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 8.590679,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.742085,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.042929,
             "unit": "seconds"
           }
         ]
