@@ -19,11 +19,26 @@ Zig 0.16's built-in coverage-guided fuzzer (`std.testing.fuzz` +
 | `fuzz compiler` | raw bytes (256) | read → compile one expression |
 | `fuzz eval` | raw bytes (128) | full read → compile → VM execute via `vm.eval` |
 | `fuzz tokens` | token sequence | read → compile → execute of near-miss token soup |
+| `fuzz grammar` | generated program | compiler, VM, and GC on valid, well-bound R7RS programs |
 
 The `fuzz tokens` target picks sequences from a Scheme token vocabulary
 instead of raw bytes, so its inputs get past the lexer without being confined
 to grammatically valid programs (Salls et al., "Token-Level Fuzzing", USENIX
 Security 2021). It deliberately does **not** balance parentheses.
+
+The `fuzz grammar` target maps the Smith decision stream through the grammar
+generator in [`src/fuzz_gen.zig`](../../src/fuzz_gen.zig) (a Zest-style
+parametric generator, per the Tier 2 plan in fuzzing-feasibility.md) to a
+valid, well-bound, resource-bounded R7RS program. About 98% of generated
+programs evaluate without error, so this is the target that actually reaches
+`compiler_*.zig`, `vm_dispatch.zig`, and the GC write-barrier paths: it
+weights generation toward closures, tail calls, named let/do loops,
+`call/cc`, `dynamic-wind`, `guard`/`raise`, quasiquote, `syntax-rules`
+definition + use, and vector/string/bytevector mutation. It never emits
+filesystem, process, FFI, network, or thread forms, and bounds expression
+depth, literal sizes, loop iteration counts, and program bytes by
+construction. It needs no seed corpus: any decision stream decodes to a
+valid program.
 
 Ordinary Scheme read/compile/runtime errors are **expected** fuzz outcomes.
 Only crashes, panics, memory leaks (via `std.testing.allocator`), and
@@ -40,10 +55,10 @@ zig build test --fuzz          # unbounded + web UI; Ctrl-C to stop
 zig build test --fuzz=1K -Dgc-stress=true   # GC collects on every allocation
 ```
 
-The limit applies **per fuzz test** (five targets currently), and per-input
+The limit applies **per fuzz test** (six targets currently), and per-input
 cost varies enormously by target: reader/compiler/loader inputs are
-microseconds, but the eval and token targets construct a full VM per input
-(~20–50 ms) and dominate the wall time. As a rule of thumb, `--fuzz=200` is
+microseconds, but the eval, token, and grammar targets construct a full VM
+per input (~20–50 ms) and dominate the wall time. As a rule of thumb, `--fuzz=200` is
 a ~2-minute pass and `--fuzz=20K` is half an hour or more on a fast machine.
 
 The fuzzer's working corpus persists in `.zig-cache/f/` and accumulates
@@ -117,6 +132,16 @@ Every fuzz finding follows the same three steps — no exceptions:
    shrink the input by hand until removing anything makes the failure
    disappear. Scheme inputs minimise well structurally: drop list elements,
    replace subexpressions with literals, shorten identifiers.
+
+   The `fuzz grammar` target's stream is a sequence of `u64` grammar
+   decisions with no simple hand-decoding; reproduce by replaying the
+   artifact verbatim as a `.corpus` entry on that target, and recover the
+   failing *program text* by temporarily printing the generated source (to
+   stderr, never fd 1) in the target body during the replay. Once you have
+   the program text, minimise it as ordinary Scheme and add the minimised
+   source as a `seed()` corpus entry on the **eval** target — source seeds
+   are stable, decision streams are not (any change to the generator's
+   decision sequence re-interprets them).
 
 2. **Add a readable regression test** that fails without the fix and passes
    with it, per the repo's bug-fix rule:
