@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783676020211,
+  "lastUpdate": 1783682994142,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "b3a7e0303a957a158395feb28e1167cb9f80d531",
-          "message": "Handle consecutive ellipses in syntax-rules templates (#1243) (#1278)\n\n* Handle consecutive ellipses in syntax-rules template instantiation (#1243)\n\nR7RS 4.3.2 allows a depth-N pattern variable to appear in a template\nfollowed by N ellipses, flattening nested matches into a single list.\nThe expander only consumed the first ellipsis and passed the rest as\nliteral template text, producing garbage output with a literal `...`\nsymbol.\n\nTeach instantiateEllipsis to detect and strip extra leading `...`\ntokens from rest_template.  When extra ellipses are present, each\nouter iteration builds a synthetic template with the remaining\nellipses and recurses through instantiateTemplate, then splices the\nresulting list into the output.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Hoist synthetic template out of loop, simplify guard, add custom-ellipsis test\n\nAddress review feedback:\n- Build the synthetic (elem ... ...) template once before the loop\n  instead of on every iteration — it is invariant across iterations.\n  Root it with defer so popRoot runs on all exit paths.\n- Drop redundant `!= NIL` in the true_rest loop guard (NIL is never\n  a pair).\n- Add a custom-ellipsis test case (syntax-rules ::: ...) for the\n  synthetic template path.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-06T23:45:35+05:30",
-          "tree_id": "2fb36a5c1d1abfbd2fb1d46ab72f98c942c90c17",
-          "url": "https://github.com/kaappi/kaappi/commit/b3a7e0303a957a158395feb28e1167cb9f80d531"
-        },
-        "date": 1783363747753,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.330432,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.871209,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 1.023189,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.383738,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.012532,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.212674,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.490295,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.071511,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 12.450741,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.896845,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 10.165032,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.959,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 8.385138,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.711668,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.043304,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.043526,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c59275ef02081caac90f69ee85a19641c5d9a760",
+          "message": "Fuzzing roadmap Phase 3: IR optimization switch + opt-vs-no-opt differential oracle (#1405)\n\n* Add --no-ir-opt switch to disable IR optimization passes\n\nThe five IR optimization passes and the AST-level constant folder ran\nunconditionally, so there was no way to diff optimized against\nunoptimized execution — the correctness oracle from the fuzzing roadmap\n(Tier 3) and a useful tool for triaging miscompilation reports.\n\n`ir.optimize_enabled` (threadlocal, like vm_instance, so SRFI-18 child\nthreads keep the default) now gates foldConstants through simplifyBegin\nand tryFoldFromAST; markTailPositions still runs since it is analysis\nrequired for correctness, not an optimization. Exposed as --no-ir-opt\non the CLI.\n\nNo-opt runs skip the .sbc cache entirely — cache keys don't include the\nflag, so reusing or writing cached bytecode would mix the two paths.\nFor the same reason --no-ir-opt --compile without -o (whose default\noutput path IS the cache location) is refused.\n\nVerified: full Scheme suite passes under --no-ir-opt (1821/0), and\n--disassemble on (if #t 1 2) shows one constant load with optimization\nvs the full branch structure without.\n\nCloses #1393\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n* Add differential fuzz target: optimized vs unoptimized evaluation\n\nCrash-only fuzzing never surfaces silently wrong values — the majority\nclass of compiler bugs per the EMI authors. This is the cheapest\ncorrectness oracle (Pałka et al., FuzzJIT): evaluate each\ngrammar-generated program twice, IR optimizations on and off, and any\ndivergence is a bug in an optimization pass or the baseline.\n\nThe normalized observable is the printed final value (write mode) plus\nthe generator's globals g0-g2, and the error class — never message\ntext. The globals matter: vm.eval returns only the last top-level\nvalue, so a wrong fold inside (define g1 ...) is invisible in the\nfinal value alone. With them, an off-by-one planted in the `*`\nconstant fold is caught at fixed seed 30 (and 3 more within 500).\nTimeout, out-of-memory, and stack-overflow outcomes make a pair\nincomparable rather than a divergence, since the two compilation paths\nlegitimately do different amounts of work.\n\nA 60-seed deterministic gate runs on every `zig build test`; the fuzz\ntarget itself is picked up automatically by the scheduled CI fuzz job.\nBounded --fuzz=200 pass on current sources: no crash marker, no\nmismatch.\n\nCloses #1394\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n* Close the -o cache-poison hole and address review nits\n\nReview on #1405 spotted that the --no-ir-opt --compile guard only\nrefused a MISSING -o, while the natural explicit choice\n(-o program.sbc) is exactly getSbcPath(program.scm) — so forced -o\nstill let unoptimized bytecode land where plain runs load their cache.\nRefuse any output that lexically resolves to the source's cache path\n(symlink aliases excepted; the natural spellings are covered).\n\nAlso from review: the folded-patterns test now uses one th.TestContext\nper the test guidelines, and a new regression case proves self-tail-\ncalls still compile as loops when optimization is disabled\n(markTailPositions is analysis and must survive the switch).\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-10T11:01:37Z",
+          "tree_id": "5fb9b84708e3dad45a67f41cf564e9ac654fd0c7",
+          "url": "https://github.com/kaappi/kaappi/commit/c59275ef02081caac90f69ee85a19641c5d9a760"
+        },
+        "date": 1783682993397,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.385207,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 8.760923,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 1.028497,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.453192,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.012922,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.338848,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.51081,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.069798,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 13.706356,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 2.065026,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 8.766113,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 1.039156,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 8.55263,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.715553,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.043039,
             "unit": "seconds"
           }
         ]
