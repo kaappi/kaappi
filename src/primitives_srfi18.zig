@@ -329,10 +329,16 @@ fn threadEntryFn(fiber: *fiber_mod.Fiber, allocator: std.mem.Allocator, parent_g
 
 fn threadYieldFn(_: []const Value) PrimitiveError!Value {
     const vm = vm_mod.vm_instance orelse return PrimitiveError.OutOfMemory;
-    if (vm.scheduler == null) {
+    const sched = vm.scheduler orelse {
         std.Thread.yield() catch {};
         return types.VOID;
-    }
+    };
+    // Advisory, like yield in primitives_fiber.zig: arming Yielded under a
+    // re-entrant native frame corrupts the signal into a bare "error" (#1184),
+    // so yield only when the unwind can reach a scheduler dispatch loop and
+    // another fiber is actually runnable.
+    if (vm.native_reentry_depth > 0) return types.VOID;
+    if (sched.schedule() == null) return types.VOID;
     vm.yielded = true;
     return types.VOID;
 }

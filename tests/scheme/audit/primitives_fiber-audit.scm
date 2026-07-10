@@ -121,11 +121,11 @@
 ;; sends/receives that need no new slot still work at the limit
 (test-equal 1 (let ((ch (make-channel))) (channel-send ch 1) (channel-receive ch)))
 ;; With every slot holding a permanently-parked fiber, a top-level (yield)
-;; raises a bare error whose message is just "error" — but the main fiber
-;; can obviously still run (the send/receive above works). Yield is
-;; advisory and should be a no-op here.
-;; FAIL: #1184 (yield raises a contentless error when all other fibers are parked)
-;; (test-equal 'yield-ok (begin (yield) 'yield-ok))
+;; used to raise a bare error whose message was just "error" (#1184): the
+;; test macro's guard sits between the yield and the scheduler loop, and
+;; with-exception-handler converted the in-flight Yielded unwind into a
+;; contentless exception. Yield is advisory and must be a no-op here.
+(test-equal 'yield-ok (begin (yield) 'yield-ok))
 
 (let ((runner (test-runner-current)))
   (test-end "primitives_fiber audit")

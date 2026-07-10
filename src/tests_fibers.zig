@@ -223,3 +223,24 @@ test "fiber parks inside for-each callback and is woken by channel-send" {
     );
     try std.testing.expectEqual(@as(i64, 60), types.toFixnum(result));
 }
+
+test "yield inside guard with a runnable fiber is a no-op, not an error" {
+    // Regression for #1184: with another fiber schedulable, (yield) inside a
+    // guard body armed the Yielded unwind, which with-exception-handler's
+    // generic error conversion turned into a contentless "error" exception.
+    // An advisory yield under a re-entrant native frame must be a no-op.
+    var gc = memory.GC.init(std.testing.allocator);
+    defer gc.deinit();
+    var vm = try th.makeTestVM(&gc);
+    defer vm.deinit();
+
+    _ = try vm.eval("(define f (spawn (lambda () (channel-receive (make-channel)))))");
+    const result = try vm.eval(
+        \\(guard (e (#t 'error-caught))
+        \\  (begin (yield) 'yield-ok))
+    );
+    const printer = @import("printer.zig");
+    const s = try printer.valueToString(std.testing.allocator, result, .write);
+    defer std.testing.allocator.free(s);
+    try std.testing.expectEqualStrings("yield-ok", s);
+}

@@ -59,6 +59,13 @@ fn spawnFn(args: []const Value) PrimitiveError!Value {
 fn yieldFn(_: []const Value) PrimitiveError!Value {
     const vm = vm_mod.vm_instance orelse return PrimitiveError.OutOfMemory;
     const sched = vm.scheduler orelse return types.VOID;
+    // Yield is advisory: it may only arm the Yielded unwind when the signal
+    // can reach a scheduler dispatch loop. Under a re-entrant native frame
+    // (guard/with-exception-handler thunks, handler calls) the unwind is
+    // intercepted by the native's generic error conversion and surfaces as a
+    // contentless "error" — and the fiber could not be resumed across the
+    // returned native call anyway (#1184). No-op instead.
+    if (vm.native_reentry_depth > 0) return types.VOID;
     if (sched.schedule() == null) return types.VOID;
     vm.yielded = true;
     return types.VOID;
