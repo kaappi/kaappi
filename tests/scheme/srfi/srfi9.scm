@@ -78,9 +78,8 @@
 (test #t (guard (e (#t (error-object? e))) (kar '()) #f))
 (test #t (guard (e (#t (error-object? e))) (set-kar! "x" 1) #f))
 
-;; Cross-type access is silently accepted (accessors skip the type check):
-;; FAIL: #1199 (record accessors/mutators do not check the record type)
-;; (test #t (guard (e (#t (error-object? e))) (get-a (kons 1 2)) #f))
+;; Cross-type access raises (regression for #1199):
+(test #t (guard (e (#t (error-object? e))) (get-a (kons 1 2)) #f))
 
 ;;; --- generativity ---
 ;; SRFI-9: "each use creates a new record type that is distinct from all
