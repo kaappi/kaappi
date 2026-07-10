@@ -5,7 +5,9 @@ name: Fuzz
 # (tests/fuzz/native-diff.sh) and Kaappi vs Chibi Scheme
 # (tests/fuzz/oracle-diff.sh). See docs/dev/fuzzing.md for the runbook
 # (running locally, and turning a failure into a regression test + corpus
-# entry).
+# entry). Failures are auto-filed as GitHub issues labeled `fuzz-finding`
+# by the trailing `report` job — see that job's comment for the dedup and
+# token-isolation design.
 
 on:
   schedule:
@@ -112,7 +114,10 @@ jobs:
 
       # f/crash holds the crashing input as a serialized Smith decision
       # stream (see docs/dev/fuzzing.md for turning it into a regression
-      # test); libfuzzer.log has the fuzzer's own transcript.
+      # test); libfuzzer.log has the fuzzer's own transcript. Both live
+      # under the hidden .zig-cache/ directory, which upload-artifact
+      # excludes by default — without include-hidden-files the artifact
+      # would silently contain only fuzz-run.log.
       - name: Upload fuzz artifacts
         if: failure()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -122,6 +127,7 @@ jobs:
             .zig-cache/f/crash
             fuzz-run.log
             .zig-cache/tmp/libfuzzer.log
+          include-hidden-files: true
           retention-days: 90
           if-no-files-found: warn
 
@@ -188,12 +194,12 @@ jobs:
     steps:
       # This job executes fuzzer-generated programs; don't leave the
       # GITHUB_TOKEN sitting in git config for the process tree.
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
 
       - name: Install Zig
-        uses: xyzzylabs/setup-zig@v1
+        uses: xyzzylabs/setup-zig@09d85d9dbb73308882e7a26e61a8f706eed40df1 # v1.0.2
         with:
           version: 0.16.0
           cache-key: fuzz-oracle-diff
@@ -230,3 +236,136 @@ jobs:
           path: oracle-diff-results/
           retention-days: 90
           if-no-files-found: warn
+
+  # A failure above is otherwise only visible as a red run in the Actions
+  # tab (plus a notification email to whoever last touched the cron line).
+  # This job turns any failed job into a GitHub issue: one open issue per
+  # job, labeled fuzz-finding, with the run link, a bounded artifact
+  # excerpt, and replay instructions; while that issue stays open, repeat
+  # failures append comments instead of opening duplicates. Issues are
+  # never auto-closed: seed bases rotate nightly, so a green run does not
+  # mean a finding is fixed. This is a SEPARATE job so the write-capable
+  # token never coexists with execution of fuzzer-generated programs — the
+  # three jobs above keep contents:read tokens and persist-credentials:
+  # false; this one runs no generated code (artifact contents are only
+  # copied into issue text).
+  report:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: [fuzz, native-diff, oracle-diff]
+    if: failure()
+    permissions:
+      issues: write
+      actions: read # download this run's failure artifacts for the excerpt
+    steps:
+      # No checkout: the job needs nothing from the repo, and gh targets it
+      # via -R. Each artifact lands in its own subdirectory of artifacts/.
+      - name: Download failure artifacts
+        continue-on-error: true # a job may have died before its upload step
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          path: artifacts
+
+      - name: File or update finding issues
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RESULT_FUZZ: ${{ needs.fuzz.result }}
+          RESULT_NATIVE: ${{ needs.native-diff.result }}
+          RESULT_ORACLE: ${{ needs.oracle-diff.result }}
+        run: |
+          set -euo pipefail
+
+          run_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          runbook="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/blob/main/docs/dev/fuzzing.md"
+
+          gh label create fuzz-finding -R "$GITHUB_REPOSITORY" --force \
+            --color B60205 \
+            --description "Automated finding from the scheduled Fuzz workflow"
+
+          # excerpt DIR OUT — append a bounded artifact listing plus the first
+          # divergence (or the fuzzer transcript tail) to OUT. Artifacts stay the
+          # authoritative copy; this is only enough to eyeball the finding.
+          excerpt() {
+            dir="$1"; out="$2"
+            if [ ! -d "$dir" ]; then
+              printf '_No artifact was uploaded (the job may have died before its upload step); see the run log._\n' >> "$out"
+              return 0
+            fi
+            {
+              printf '<details><summary>Artifact excerpt</summary>\n\n```\n'
+              (cd "$dir" && find . -type f | sort | head -40)
+              printf '```\n'
+            } >> "$out"
+            scm=$(find "$dir" -name 'seed-*.scm' | sort | head -1 || true)
+            if [ -n "$scm" ]; then
+              base=$(basename "$scm" .scm)
+              for f in "$scm" $(find "$(dirname "$scm")" -name "$base.*" ! -name '*.scm' | sort); do
+                [ -f "$f" ] || continue
+                printf '\n`%s`:\n\n```\n' "$(basename "$f")" >> "$out"
+                head -c 1500 "$f" >> "$out"
+                printf '\n```\n' >> "$out"
+              done
+            fi
+            log=$(find "$dir" -name 'fuzz-run.log' | head -1 || true)
+            if [ -n "$log" ]; then
+              printf '\nTail of `fuzz-run.log`:\n\n```\n' >> "$out"
+              tail -c 2000 "$log" >> "$out"
+              printf '\n```\n' >> "$out"
+            fi
+            printf '</details>\n' >> "$out"
+          }
+
+          # report_one RESULT JOB TITLE ARTIFACT_DIR HINT — file a new fuzz-finding
+          # issue for JOB, or append a comment if one with the same title is open.
+          report_one() {
+            result="$1"; job="$2"; title="$3"; dir="$4"; hint="$5"
+            [ "$result" = failure ] || return 0
+            body="body-$job.md"
+            {
+              printf '**Failed job:** `%s` — [run #%s](%s) (`%s`)\n\n' \
+                "$job" "$GITHUB_RUN_NUMBER" "$run_url" "$GITHUB_EVENT_NAME"
+              printf '%s\n\n' "$hint"
+              printf 'Download everything: `gh run download %s -R %s` (artifacts are retained for 90 days).\n\n' \
+                "$GITHUB_RUN_ID" "$GITHUB_REPOSITORY"
+            } > "$body"
+            excerpt "$dir" "$body"
+            num=$(gh issue list -R "$GITHUB_REPOSITORY" --state open --label fuzz-finding \
+                    --json number,title \
+                  | jq -r --arg t "$title" '[.[] | select(.title == $t)][0].number // empty')
+            if [ -n "$num" ]; then
+              gh issue comment "$num" -R "$GITHUB_REPOSITORY" --body-file "$body"
+              echo "::notice::Appended failure report to existing issue #$num ($title)"
+            else
+              full="full-$job.md"
+              {
+                printf 'Automated report from the [Fuzz workflow](%s). Triage runbook: [docs/dev/fuzzing.md](%s) — minimise the input, add a readable regression test, keep the encoded input as a corpus entry.\n\n' \
+                  "$run_url" "$runbook"
+                printf '> [!NOTE]\n'
+                printf '> A later green run does **not** mean this is fixed: nightly seed bases rotate, so a failing input will not recur on its own. Close this issue once the finding is minimised and fixed (or triaged as an oracle/generator bug). Until then, new failures of the same job append comments here instead of opening new issues.\n\n'
+                printf -- '---\n\n'
+                cat "$body"
+              } > "$full"
+              created=$(gh issue create -R "$GITHUB_REPOSITORY" --title "$title" \
+                --label fuzz-finding --body-file "$full")
+              echo "::notice::Filed $created ($title)"
+            fi
+          }
+
+          # There may be one fuzz artifact per matrix variant; excerpt the first.
+          fuzz_dir=$(find artifacts -maxdepth 1 -type d -name 'fuzz-artifacts-*' 2>/dev/null | sort | head -1 || true)
+
+          report_one "$RESULT_FUZZ" fuzz \
+            'Fuzz CI: bounded fuzzing failed (crash or test failure)' \
+            "${fuzz_dir:-artifacts/fuzz-artifacts-missing}" \
+            'The bounded fuzz pass failed: either the pre-fuzz `zig build test` phase failed, or a fuzz target found a crash. The encoded crashing input (a serialized Smith decision stream) is `.zig-cache/f/crash` inside the artifact; `fuzz-run.log` is the fuzzer transcript. Replay it per the runbook.'
+
+          report_one "$RESULT_NATIVE" native-diff \
+            'Fuzz CI: VM vs native backend divergence' \
+            artifacts/native-diff-divergences \
+            'A generated program behaved differently on the bytecode VM vs the LLVM native backend. Each divergence ships as `seed-<N>.scm` plus `seed-<N>.{vm,nat}.{out,err}` and `seed-<N>.compile.log`. The seed base is printed near the top of the job log; the same seed always regenerates the same program: `bash tests/fuzz/native-diff.sh <count> <base>`.'
+
+          report_one "$RESULT_ORACLE" oracle-diff \
+            'Fuzz CI: Kaappi vs Chibi oracle divergence' \
+            artifacts/oracle-diff-divergences \
+            'Kaappi and Chibi Scheme disagreed on a portable-subset program. Each divergence ships as `seed-<N>.scm` plus `seed-<N>.{kaappi,chibi}.{out,err}`; `oracle-version.txt` records the oracle version. Triage protocol (Kaappi bug / oracle bug / generator leak) is in the header of `tests/fuzz/oracle-diff.sh`. Replay: `bash tests/fuzz/oracle-diff.sh <count> <base>`.'
