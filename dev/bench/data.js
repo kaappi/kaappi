@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783714280973,
+  "lastUpdate": 1783717471938,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "1679510915730eb84056d9b978ac7c761d8164a3",
-          "message": "Root hash-table-walk/fold snapshot entries to prevent use-after-free (#1181) (#1294)\n\n* Root hash-table-walk/fold snapshot entries to prevent use-after-free (#1181)\n\nsnapshotLiveEntries copies live entries into a raw allocator buffer that\nthe GC cannot see. When the callback deletes entries and allocates, the\ncollector frees the snapshot's keys/values; subsequent iterations pass\ncorrupted objects to the callback. Root all snapshot keys/values via\ngc.extra_roots within a rootedScope so they survive collection.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Add comment explaining why snapshot rooting is a separate pre-pass\n\n---------\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-07T10:47:36Z",
-          "tree_id": "af1f19a4a4eab25907bc079f56bed3f0c4df12be",
-          "url": "https://github.com/kaappi/kaappi/commit/1679510915730eb84056d9b978ac7c761d8164a3"
-        },
-        "date": 1783422884632,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 3.171736,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.608299,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.730849,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 3.135274,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.010725,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.183847,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.367289,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.05279,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 9.748294,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.419664,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 8.689023,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.834876,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 7.126707,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.365142,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.035245,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044625,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "929f90b26ce90bd3b3e4000215ae35aa9b3cd869",
+          "message": "Reject native compilation when a set! param is captured by a nested lambda (#1425)\n\n* Reject native compilation when a set! param is captured by a nested lambda (#1422)\n\nThe native closure tiers copy captured variables by value into an upvalue\narray at closure-creation time, so a set! of the captured binding after\ncapture is invisible to the closure — diverging from the VM's by-location\nsemantics.  Add a guard in tryCompileDefineFunction that scans the raw\nbody S-expressions for this conflict and falls back to the interpreter\nwhen detected.  Update the native-subset fuzz generator to mark function\nparams as non-settable so it does not produce programs that trigger the\nnew guard.\n\nCloses #1422\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Address review: guard tier 2, pin native/fallback in tests, extract helper\n\n- Add the #1422 guard to tryCompilePureLambdaAsNativeClosure (tier 2) so\n  inline lambdas like ((lambda (u) ...) 1) also fall back when a param is\n  both set! and captured.\n- Pin compilation tier in the test script via --emit-llvm: cases 1-4\n  assert no native fn definition (fallback), cases 5-6 assert a native fn\n  definition (stays native).  Add the tier-2 inline-lambda reproducer as\n  case 4.\n- Extract pushNonSettable helper in fuzz_gen.zig and use it from all five\n  call sites in fuzz_gen_native.zig.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
+          "timestamp": "2026-07-10T20:32:14Z",
+          "tree_id": "88dc4beb61c34ab9e01a177cfd54c031445afa8b",
+          "url": "https://github.com/kaappi/kaappi/commit/929f90b26ce90bd3b3e4000215ae35aa9b3cd869"
+        },
+        "date": 1783717471152,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.10262,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.961395,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 1.025461,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.424044,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.014227,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.374444,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.509255,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.068321,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 14.580133,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.971175,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 9.664939,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 1.164728,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 9.413675,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.866266,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.045309,
             "unit": "seconds"
           }
         ]
