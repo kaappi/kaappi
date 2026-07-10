@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783689463541,
+  "lastUpdate": 1783695366332,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "93a3c2a971ac2bcf7749c538b23cb46f6ececc0c",
-          "message": "Separate let-syntax from letrec-syntax scoping (#1140) (#1277)\n\n* Separate let-syntax from letrec-syntax scoping (#1140)\n\nlet-syntax was giving letrec-syntax semantics: sibling macro bindings\ncould see each other's keywords. R7RS 4.3.1 specifies that let-syntax\ntransformer specs are evaluated in the outer syntactic environment.\n\nParse all transformer specs before registering any bindings, store each\nkeyword's outer macro value on the Transformer, and temporarily swap\nmacros during expansion result compilation so template free references\nresolve to the definition-site environment.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Address review feedback: remove 32-binding cap, extract helpers\n\n- Replace fixed stack arrays with ArrayLists so let-syntax accepts\n  arbitrarily many bindings (matching letrec-syntax behavior).\n- Extract captureLocalsOnTransformer, compileSyntaxBody, and\n  restoreMacros helpers to deduplicate let-syntax / letrec-syntax.\n- Use dynamically allocated saved_peer in expandAndCompileMacroUse\n  instead of a fixed [32]?Value array.\n- Fix gc_deep_copy.zig: propagate OOM from peer_names dupe instead\n  of silently substituting &.{}, add errdefer for peer_vals.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Fix GC-safety and OOM handling in let-syntax\n\n- Pre-allocate tx_vals to exact capacity before the parse loop so\n  pushRoot pointers into its backing buffer stay valid across appends.\n- Propagate OOM from captureLocalsOnTransformer instead of silently\n  dropping captured locals.\n- Propagate OOM from saved_peer allocation in expandAndCompileMacroUse\n  instead of silently skipping the peer swap.\n- Add debug assert for peer_names/peer_outer slice length equality.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-07T00:44:39+05:30",
-          "tree_id": "e7bc80eae3e2db4a5f03496fce73dda933625c09",
-          "url": "https://github.com/kaappi/kaappi/commit/93a3c2a971ac2bcf7749c538b23cb46f6ececc0c"
-        },
-        "date": 1783366865845,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.351732,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.726059,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 1.069504,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.498487,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.012375,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.212961,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.560104,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.073288,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 12.352747,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 2.01817,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 9.948937,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.948797,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 8.291323,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.667548,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.042554,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.043781,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "81f95506f6112dcccf0fac0c7ce4c35af54805ea",
+          "message": "Descend into let/let* in the native closure free-variable analysis (#1409)\n\n* Descend into let/let* in the native closure free-variable analysis\n\nThe closure tiers in llvm_emit_lambda.zig treated .let_form/.let_star\nas opaque in both nodeHasFreeVars and collectNodeFreeVars, so a lambda\nthat captures an enclosing binding only through a let compiled as a\nclosed native closure and the reference degraded to\nkaappi_global_lookup — an \"undefined variable\" exit at runtime, or a\nsilently wrong value when a same-named global existed. Found by the\nVM-vs-native differential harness (#1395) at roughly 1% of generated\nprograms.\n\nWalk the raw let/let* S-expression with proper binder scoping (let\nbinders, nested lambda formals, let-vs-let* init visibility), feeding\nboth hasFreeVars and collectFreeVars, so tier 1 captures let-hidden\nreferences as upvalues — the emission side already resolves upvalues\ncorrectly, so the reproducer now compiles natively. The collectors also\nreport when the analysis cannot stay exact (name-buffer overflow, a\nform the walk cannot scope) so the tiers reject and fall back instead\nof emitting with an incomplete capture set.\n\nFixes #1407\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n* Rank enclosing lexical bindings above known globals in the closure analysis\n\nReview of #1409 found that every classification site in the closure-tier\nfree-variable analysis consulted ir.isKnownGlobal before asking whether\nan enclosing lexical binding shadows the name. A param named after a\nprimitive was therefore read as the primitive and its capture silently\ndropped: ((lambda (car) ((lambda () (let ((x car)) x)))) 5) compiled the\ninner lambda as a closed closure and returned #<builtin car> instead of\n5 — through the new let/let* walk and equally through the plain\n.global_ref path.\n\nThread the emitter into the analysis helpers and check isNameShadowed\n(which mirrors emitGlobalRef's resolution order) before isKnownGlobal in\nnodeHasFreeVars, collectNodeFreeVars, FreeNameWalk.noteRef, and\nvalueIsBoundOrLiteral. Harden tier 1's capture-source check to match:\nupvalues are copied out of the enclosing %args array, so a collected\nname that an enclosing let-local or rest parameter binds (they outrank\nparams) or that lives only in the enclosing closure's upvalue array\n(#1410) must reject rather than capture the wrong slot or degrade to a\nglobal.\n\nAlso assert the closure-creation call site (not just the runtime\ndeclaration preamble) in the closed-native-closure regression test,\nper review.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n* Add list-ref to the known-global primitives list\n\nThe native-subset differential generator (#1408, now on main) emits\n(list-ref b i) in function bodies, and its contract requires every\nbody op to be in ir.isKnownGlobal so calls do not count as free\nvariables. list-ref was the one body op missing: once the let/let*\nwalk (#1409) made references inside lets visible, a generated body\nlike (let ((e (list ...))) (list-ref e 0)) reported list-ref as a\nfree name and the whole function fell back to the interpreter,\nfailing the no-unexpected-eval oracle on the CI merge ref (seed 6 of\nrun seed 0xf3c8bc08).\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-10T19:53:35+05:30",
+          "tree_id": "f0e2057e0dd85251ceb258bc5cd5bcb2926c72d6",
+          "url": "https://github.com/kaappi/kaappi/commit/81f95506f6112dcccf0fac0c7ce4c35af54805ea"
+        },
+        "date": 1783695364853,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.149039,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.747485,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 1.028889,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.431129,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.014204,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.375801,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.50906,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.068301,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 14.612022,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.989093,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 9.693258,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 1.162083,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 9.430894,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.897883,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.048257,
             "unit": "seconds"
           }
         ]
