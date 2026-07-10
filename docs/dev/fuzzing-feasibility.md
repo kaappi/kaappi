@@ -246,9 +246,13 @@ is comparing two things that must agree:
   branch, and boolean-simplification patterns to stress those passes.
 - **[classfuzz](https://dl.acm.org/doi/10.1145/2908080.2908095)** (Chen et
   al., PLDI 2016) and its successor classming (ICSE 2019). Differential
-  testing of JVMs by mutating *class files*, not source. The precedent for
-  taking the `.sbc` loader target beyond parse robustness: semantically
-  mutate bytecode and diff against source-path execution.
+  testing of JVMs by mutating *class files*, not source: coverage-guided
+  mutant selection on a reference JVM, then diffing each mutant's behaviour
+  across several independent JVM implementations. Kaappi has no second VM
+  to diff against, so what transfers is the input level, not the oracle:
+  semantics-preserving `.sbc` mutations, checked against unmutated
+  source-path execution, could take the loader target beyond parse
+  robustness.
 
 ### Functional-language precedents (closest to Scheme)
 
@@ -309,9 +313,10 @@ processors of six languages (C, C++, Go, SMT2, Java, Python), finding
 previously unknown bugs in GCC, Clang, and Z3 among others. For Kaappi this
 is attractive because it requires **no grammar and no generator code**:
 prompt with R7RS snippets and Kaappi documentation, run outputs through the
-`kaappi` binary offline. Throughput is orders of magnitude below the
-in-process coverage-guided stack, so it complements rather than replaces
-Tier 2 — think scheduled batch job, not fuzzing loop.
+`kaappi` binary offline. Expect throughput far below the in-process
+coverage-guided stack — each input costs an LLM inference round-trip rather
+than an in-process eval — so it complements rather than replaces Tier 2:
+think scheduled batch job, not fuzzing loop.
 
 ## Applying Fuzzilli's ideas to Scheme
 
@@ -348,8 +353,13 @@ A tiered direction, so work can stop at any point. File concrete steps as issues
     compiled forms (arithmetic, `if`/`and`/`or`, `let`/`let*`, lambda, tail
     calls) or the diff degenerates into VM-vs-VM.
   - *Kaappi vs a reference Scheme.* Run generated programs through Kaappi
-    *and* a real external Scheme (Chibi, Gauche, Guile, Chez, or Racket) and
-    diff the results. Compare a normalized observable result (value, stdout,
+    *and* a real external Scheme and diff the results. Pin **one** oracle at
+    a fixed version — Chibi Scheme is the natural first pick for R7RS-small
+    alignment (Gauche, Guile, Chez, and Racket are alternatives, but each
+    needs its own setup; Guile, for instance, must be put into R7RS mode
+    explicitly) — and fix the exact invocation, timeout handling, and
+    output normalization in the harness, or dialect defaults will produce
+    false diffs. Compare a normalized observable result (value, stdout,
     and exit class), and generate only a portable subset: R7RS leaves
     evaluation order, error objects, and several edge cases unspecified.
     Csmith's core lesson is that this "fully specified subset only"
@@ -379,10 +389,12 @@ A tiered direction, so work can stop at any point. File concrete steps as issues
 - Treat a crash, panic, leak report, or sanitizer finding as a failure. Ordinary
   Scheme read/compile/runtime errors are expected fuzz outcomes and should not
   fail the target.
-- Periodically run the fuzz targets on a `-Dgc-stress=true` build (collection
-  on every allocation). Fuzzing practice consistently pairs input generation
-  with aggressive runtime checking; a GC-stress build turns latent rooting
-  bugs into immediate, attributable failures instead of rare heisenbugs.
+- Periodically run the fuzz targets on a `-Dgc-stress=true` build, which
+  attempts a collection at every allocation (except where collection is
+  temporarily suppressed via `no_collect` or the GC is disabled). Fuzzing
+  practice consistently pairs input generation with aggressive runtime
+  checking; a GC-stress build turns latent rooting bugs into immediate,
+  attributable failures instead of rare heisenbugs.
 - Minimise every failure, add a readable regression test, then retain the
   corresponding encoded fuzzer input. A corpus is both a search aid and a
   permanent regression set, as described in the
