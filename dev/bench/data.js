@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783649370807,
+  "lastUpdate": 1783649546415,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "16706095d64347dc148812bfcf5f16e69d44f9a1",
-          "message": "Remove iteration cap from force trampoline for unbounded delay-force chains (#1242) (#1259)\n\nThe forcing trampoline had a hardcoded 100,000 iteration limit as a\nheuristic cycle detector, but it cannot distinguish genuine cycles from\nlong legitimate chains (SRFI-41 streams, SRFI-45 iterative algorithms).\nR7RS 4.2.5 requires delay-force chains to force in bounded space with\nno limit on length. The existing `forcing` flag already detects\nre-entrant cycles.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-06T18:30:14+05:30",
-          "tree_id": "175b4bb981769c63bf57426311ca87b6f72b6179",
-          "url": "https://github.com/kaappi/kaappi/commit/16706095d64347dc148812bfcf5f16e69d44f9a1"
-        },
-        "date": 1783344437098,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.08132,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.618434,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.969854,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.023014,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.013863,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.235076,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.491535,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.068348,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 13.428781,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.855936,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 11.124398,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 1.070079,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 9.142134,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.852498,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.045481,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044681,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ae8cb244ec9bd074c03b284c770cce7e093c3fa1",
+          "message": "Make advisory yield a no-op under re-entrant native frames (#1184) (#1384)\n\nWith another fiber schedulable, (yield) sets vm.yielded and the dispatch\nloop raises VMError.Yielded, expecting it to unwind to a scheduler loop\n(runWithScheduler / runSchedulerUntil). But when the yield executes under\na re-entrant native frame — most commonly the thunk of guard, which\ndesugars to with-exception-handler and re-enters via callThunk /\ncallReentrant — the native's generic error conversion intercepts the\nin-flight signal and surfaces it as a contentless \"error\" exception.\n\nThe audit file hit exactly this: the spawn-limit test leaves the\nscheduler full of never-dispatched fibers, so a later (yield) inside the\ntest macro's guard armed the signal and the test recorded a bogus caught\nerror. A fiber can never be resumed across a returned native call anyway\n(the same invariant as the native-frame continuation limit), so the only\nsound behavior for an advisory yield in that context is a no-op: arm\nvm.yielded only when native_reentry_depth is 0. Apply the same guard to\nSRFI-18 thread-yield!, which had the identical defect.\n\nRe-enables the FAIL-marked assertion in primitives_fiber-audit.scm and\nadds a smoke regression test plus a unit test.\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-10T01:43:50Z",
+          "tree_id": "f905537fb8c915cc95a5fd2e3c59e49f0db49af9",
+          "url": "https://github.com/kaappi/kaappi/commit/ae8cb244ec9bd074c03b284c770cce7e093c3fa1"
+        },
+        "date": 1783649544369,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.358907,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.108754,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 1.028469,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.449801,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.013123,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.338144,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.530921,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.069998,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 13.608457,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.992383,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 8.744285,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 1.047495,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 8.610993,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.702614,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.043859,
             "unit": "seconds"
           }
         ]
