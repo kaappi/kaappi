@@ -1,6 +1,7 @@
 # Fuzzing Kaappi — and why Fuzzilli isn't the tool
 
-**Feasibility note, 2026-07-09.** Records the analysis behind a recurring
+**Feasibility note, 2026-07-09; revised 2026-07-10 with a survey of the
+research literature.** Records the analysis behind a recurring
 question: can [Fuzzilli](https://github.com/googleprojectzero/fuzzilli),
 Google Project Zero's coverage-guided fuzzer, be pointed at Kaappi? The short
 answer is no — but the reasoning maps directly onto what Kaappi *should* do for
@@ -19,6 +20,11 @@ tracker; this note is the analysis, not a task list.
   fast in-process eval harness ([`vm.eval`](../../src/vm_eval.zig)). The
   improvement opportunity is to apply Fuzzilli's *ideas* to that stack, not to
   adopt the tool.
+- **The research literature backs the tiered plan below.** Byte-level mutation
+  stalls at the parser; structure-aware generation is what reaches the
+  compiler, VM, and GC; and differential oracles — including Kaappi-internal
+  ones (bytecode VM vs LLVM native backend) — are what find miscompilations
+  rather than crashes. See "What the research literature says".
 
 ## Why Fuzzilli can't fuzz Kaappi directly
 
@@ -142,7 +148,175 @@ table:
   instead appear in curated encoded seeds, or preferably be selected by a
   `Smith`-driven grammar generator.
 - **No structure-aware generation** and **no differential testing** — the two
-  techniques that find the deepest bugs.
+  techniques that find the deepest bugs. The next section maps the research
+  literature onto both.
+
+## What the research literature says
+
+The gaps above are not just Fuzzilli's philosophy — they restate the central
+findings of ~15 years of research on fuzzing compilers and interpreters.
+[A Survey of Compiler Testing](https://dl.acm.org/doi/10.1145/3363562)
+(Chen et al., ACM Computing Surveys 2020) covers the field; the entries below
+are the ones that map directly onto Kaappi decisions.
+
+### Byte-level mutation stalls at the parser
+
+- **[Token-Level Fuzzing](https://www.usenix.org/conference/usenixsecurity21/presentation/salls)**
+  (Salls et al., USENIX Security 2021). Starts from the observation that
+  byte-level AFL mutations on interpreters overwhelmingly produce parse
+  errors; mutating *token* sequences instead found 29 previously unknown bugs
+  in four JavaScript engines, several unreachable by either byte-level or
+  grammar-based fuzzers. This is the cheapest published upgrade over raw
+  bytes: the mutation unit becomes `define`, `lambda`, `#(`, a number — the
+  dictionary entries Zig's fuzz API cannot express today (see Gaps).
+- **[GRIMOIRE](https://www.usenix.org/conference/usenixsecurity19/presentation/blazytko)**
+  (Blazytko et al., USENIX Security 2019). Synthesizes grammar-like input
+  structure automatically during fuzzing, for targets whose grammar is
+  unknown. Kaappi's grammar is small and known, so writing a generator
+  directly (Tier 2) dominates this approach — cited here as the boundary
+  case.
+
+### Grammar-based generation is the workhorse
+
+- **[LangFuzz](https://www.usenix.org/conference/usenixsecurity12/technical-sessions/presentation/holler)**
+  (Holler, Herzig, Zeller, USENIX Security 2012). Grammar-driven generation
+  that recombines code *fragments* harvested from previously bug-triggering
+  programs; 105 Mozilla JavaScript vulnerabilities in three months. Its
+  enduring lesson: regression tests and past crashers are the highest-value
+  fragment/corpus material — the reason Tier 1 folds every minimised failure
+  back into the corpus.
+- **[NAUTILUS](https://github.com/nautilus-fuzz/nautilus)** (Aschermann et
+  al., NDSS 2019). The first practical combination of grammar-based
+  generation with coverage feedback, needing no seed corpus; found bugs in
+  mruby, PHP, Lua, and ChakraCore. This is the closest published architecture
+  to Tier 2: a grammar generator inside a coverage-guided loop.
+- **[Gramatron](https://dl.acm.org/doi/10.1145/3460319.3464814)** (Srivastava
+  & Payer, ISSTA 2021). Shows plain grammar sampling is biased toward
+  shallow inputs and parse-tree-local mutations are too timid; converting the
+  grammar to an automaton and making large-scale mutations reached up to
+  24% more coverage. Relevant when tuning how a Scheme generator mutates —
+  prefer aggressive subtree splices over single-leaf tweaks.
+- **[PolyGlot](https://ieeexplore.ieee.org/document/9519403/)** (Chen et al.,
+  IEEE S&P 2021). Language-agnostic fuzzing of 21 language processors across
+  9 languages via a uniform IR plus *semantic validation* (fixing up
+  undefined variables and type mismatches); 173 bugs. Its lesson for Tier 2:
+  syntactic validity is not enough — the generator should track in-scope
+  identifiers so generated programs are well-bound, or most inputs die at
+  "unbound variable" instead of exercising the VM.
+
+A structural advantage worth stating: Scheme's grammar is s-expressions. The
+part these papers spend most of their machinery on — getting structurally
+valid inputs past a complex parser — is nearly free for Kaappi; the
+engineering can go into semantic validity and interesting form selection.
+
+### Zig's `Smith` is the Zest architecture
+
+**[Zest](https://dl.acm.org/doi/10.1145/3293882.3330576)** (Padhye et al.,
+ISSTA 2019) formalized *parametric generators*: the fuzzer mutates an untyped
+string of decisions, a generator maps those decisions to structurally valid
+inputs, and coverage feedback on the decision string turns byte mutations
+into structural mutations for free. Bugs found in OpenJDK, Maven, and Google
+Closure. This is exactly the `std.testing.Smith` model — a Tier 2 grammar
+generator making `Smith` choices *is* a Zest-style parametric generator, with
+Zig's built-in instrumentation closing the coverage loop. In other words,
+Tier 2 is not a homegrown design; it is a published, validated architecture
+that Zig's fuzz API happens to natively support.
+
+### Differential and metamorphic oracles find correctness bugs
+
+Crash-only fuzzing misses wrong-value bugs entirely. The literature's answer
+is comparing two things that must agree:
+
+- **[Csmith](https://dl.acm.org/doi/10.1145/1993316.1993532)** (Yang, Chen,
+  Eide, Regehr, PLDI 2011). Random UB-free C programs run through multiple
+  compilers, diffing outputs; 325+ GCC/LLVM bugs. Most of Csmith's complexity
+  goes into generating only the *fully specified* subset of C — the direct
+  analog of Tier 3's "portable subset" constraint (evaluation order, error
+  objects, exactness edge cases are Scheme's unspecified zones).
+- **[EMI](https://dl.acm.org/doi/10.1145/2594291.2594334)** (Le, Afshari, Su,
+  PLDI 2014). Needs **no second implementation**: profile a program on an
+  input, delete code the run never executed, and the result must not change;
+  147 confirmed GCC/LLVM bugs, mostly miscompilations. A metamorphic
+  self-oracle Kaappi could apply without installing any reference Scheme —
+  mutate provably dead branches and diff Kaappi against itself.
+- **[YARPGen](https://dl.acm.org/doi/10.1145/3428264)** (Livinskii, Babokin,
+  Regehr, OOPSLA 2020). Adds *generation policies* that bias random programs
+  toward shapes that trigger specific optimizations; 220+ bugs. Relevant as
+  the IR optimizer grows: bias generation toward constant folding, dead
+  branch, and boolean-simplification patterns to stress those passes.
+- **[classfuzz](https://dl.acm.org/doi/10.1145/2908080.2908095)** (Chen et
+  al., PLDI 2016) and its successor classming (ICSE 2019). Differential
+  testing of JVMs by mutating *class files*, not source: coverage-guided
+  mutant selection on a reference JVM, then diffing each mutant's behaviour
+  across several independent JVM implementations. Kaappi has no second VM
+  to diff against, so what transfers is the input level, not the oracle:
+  semantics-preserving `.sbc` mutations, checked against unmutated
+  source-path execution, could take the loader target beyond parse
+  robustness.
+
+### Functional-language precedents (closest to Scheme)
+
+- **[Testing an optimising compiler by generating random lambda terms](https://dl.acm.org/doi/10.1145/1982595.1982615)**
+  (Pałka, Claessen, Russo, Hughes, AST 2011). Generates random *well-typed*
+  terms and compares GHC with and without optimization — the "one
+  implementation, two configurations" oracle, which found optimizer bugs
+  within ~20k tests.
+- **[Effect-Driven QuickChecking of Compilers](https://dl.acm.org/doi/10.1145/3110259)**
+  (Midtgaard et al., ICFP 2017). Generates OCaml programs *provably
+  independent of evaluation order* via a type-and-effect system, then diffs
+  the bytecode VM against the native-code backend; disagreements found in 18
+  of 20 runs against a release compiler. This is precisely Kaappi's shape —
+  a bytecode VM and an LLVM native backend in one project — and its
+  effect-discipline is the published answer to R7RS's unspecified evaluation
+  order: generate only programs whose observable behaviour cannot depend on
+  the unspecified parts.
+- **Lineage.** Both descend from QuickCheck (Claessen & Hughes, ICFP 2000);
+  property-based random testing is native to the functional-language
+  community, and a future `kaappi-test` could grow property combinators.
+- **Practice.** [Fuzzing Scheme with AFL++](https://weinholt.se/articles/fuzzing-scheme-with-aflplusplus/)
+  (Weinholt) — AFL++ driving Loko Scheme — is the main documented
+  Scheme-fuzzing exercise. Notable mostly for how *little* prior art exists:
+  Scheme implementations are dramatically under-fuzzed compared to JS
+  engines, which cuts both ways — less tooling to borrow, and likely more
+  low-hanging bugs.
+
+### The Fuzzilli line (custom-IL engine fuzzing)
+
+- **[FUZZILLI](https://www.ndss-symposium.org/ndss-paper/fuzzilli-fuzzing-for-javascript-jit-compiler-vulnerabilities/)**
+  (Groß, Koch, Bernhard, Holz, Johns, NDSS 2023). The paper behind the tool
+  this note is about: mutating a typed IL and lifting to source found 17
+  confirmed JIT vulnerabilities in six months. Validates the
+  REPRL + coverage + IL design that Tier 4 would replicate — and quantifies
+  how much engine-specific engineering that path costs.
+- **[DIE](https://ieeexplore.ieee.org/document/9152648/)** (Park et al., IEEE
+  S&P 2020). Mutates while *preserving* the structural and type "aspects"
+  that made past inputs bug-triggering; 48 new bugs. Reinforces the
+  keep-your-crashers-as-corpus discipline.
+- **[FuzzJIT](https://www.usenix.org/conference/usenixsecurity23/presentation/wang-junjie)**
+  (Wang et al., USENIX Security 2023). Built on Fuzzilli; wraps every sample
+  so the JIT-compiled and interpreted results of the same function are
+  compared in-process, turning correctness into a cheap always-on oracle.
+  The Kaappi translation is direct: evaluate each generated program through
+  `vm.eval` *and* the LLVM native backend and diff — Tier 3 without any
+  external oracle.
+- **[Montage](https://www.usenix.org/conference/usenixsecurity20/presentation/lee-suyoung)**
+  (Lee et al., USENIX Security 2020). Neural language model over AST
+  fragments from regression tests; 37 bugs. The pre-LLM ancestor of the next
+  item.
+
+### LLM-based generation
+
+**[Fuzz4All](https://dl.acm.org/doi/10.1145/3597503.3639121)** (Xia et al.,
+ICSE 2024) uses an LLM as the generation and mutation engine, with an
+autoprompting loop, and beat language-specific fuzzers' coverage across nine
+processors of six languages (C, C++, Go, SMT2, Java, Python), finding
+previously unknown bugs in GCC, Clang, and Z3 among others. For Kaappi this
+is attractive because it requires **no grammar and no generator code**:
+prompt with R7RS snippets and Kaappi documentation, run outputs through the
+`kaappi` binary offline. Expect throughput far below the in-process
+coverage-guided stack — each input costs an LLM inference round-trip rather
+than an in-process eval — so it complements rather than replaces Tier 2:
+think scheduled batch job, not fuzzing loop.
 
 ## Applying Fuzzilli's ideas to Scheme
 
@@ -153,24 +327,56 @@ A tiered direction, so work can stop at any point. File concrete steps as issues
   scheduled, *bounded* `zig build test --fuzz=<iteration-limit>` job. Add a
   small set of encoded `Smith` seeds for reader, compiler, and eval forms; add
   valid and intentionally malformed `.sbc` seeds for the loader. Preserve each
-  minimised failure as both a regression test and a corpus entry. This is pure
-  leverage on what already exists.
+  minimised failure as both a regression test and a corpus entry — LangFuzz
+  and DIE both show past bug-triggering inputs are the highest-value raw
+  material a fuzzer has. This is pure leverage on what already exists.
 - **Tier 2 — structure-aware generation.** A grammar-based generator of valid
   R7RS forms driven directly by `Smith` choices. This is the Scheme analog of
   Fuzzilli's generative core: it gets past the reader and actually exercises the
-  compiler, VM, and GC. Bound expression depth, literal sizes, allocation, and
-  evaluation time; keep an invalid-input target for parser robustness.
-- **Tier 3 — differential testing (highest bug value).** Run generated programs
-  through Kaappi *and* a real reference Scheme (Chibi, Gauche, Guile, Chez, or
-  Racket) and diff the results. This finds **correctness** bugs, not just
-  crashes. Compare a normalized observable result (value, stdout, and exit
-  class), and generate only a portable subset: R7RS leaves evaluation order,
-  error objects, and several edge cases unspecified. Note: the repo's `(chibi
-  test)` is an API shim implemented in Kaappi, **not** real Chibi — a genuine
-  external interpreter must be installed as the oracle.
+  compiler, VM, and GC. Architecturally it is NAUTILUS (grammar generation in
+  a coverage loop) realised as a Zest-style parametric generator — a design
+  Zig's fuzz API natively supports. Per PolyGlot, track in-scope identifiers
+  so programs are well-bound, not just grammatical; per Gramatron, prefer
+  aggressive subtree mutations over leaf tweaks. Bound expression depth,
+  literal sizes, allocation, and evaluation time; keep an invalid-input
+  target for parser robustness.
+- **Tier 3 — differential testing (highest bug value).** Two variants, in
+  order of setup cost:
+  - *Kaappi vs itself — no external oracle needed.* Diff the bytecode VM
+    against the LLVM native backend on the same generated program — the exact
+    setup Midtgaard et al. used to shake disagreements out of OCaml's two
+    backends, and FuzzJIT's in-process oracle trick. With an
+    opt-passes-off switch it also covers Pałka et al.'s optimized-vs-
+    unoptimized oracle, and EMI-style dead-code pruning gives a third
+    self-oracle. Given that Kaappi's native backend falls back to
+    `kaappi_eval` for un-compiled forms, restrict generation to natively
+    compiled forms (arithmetic, `if`/`and`/`or`, `let`/`let*`, lambda, tail
+    calls) or the diff degenerates into VM-vs-VM.
+  - *Kaappi vs a reference Scheme.* Run generated programs through Kaappi
+    *and* a real external Scheme and diff the results. Pin **one** oracle at
+    a fixed version — Chibi Scheme is the natural first pick for R7RS-small
+    alignment (Gauche, Guile, Chez, and Racket are alternatives, but each
+    needs its own setup; Guile, for instance, must be put into R7RS mode
+    explicitly) — and fix the exact invocation, timeout handling, and
+    output normalization in the harness, or dialect defaults will produce
+    false diffs. Compare a normalized observable result (value, stdout,
+    and exit class), and generate only a portable subset: R7RS leaves
+    evaluation order, error objects, and several edge cases unspecified.
+    Csmith's core lesson is that this "fully specified subset only"
+    discipline is where most of the engineering effort goes; Midtgaard et
+    al.'s effect-driven generation is the published way to sidestep
+    evaluation-order nondeterminism. Note: the repo's `(chibi test)` is an
+    API shim implemented in Kaappi, **not** real Chibi — a genuine external
+    interpreter must be installed as the oracle.
+
+  Both variants find **correctness** bugs (silently wrong values), which
+  crash-only fuzzing never surfaces and which EMI's authors found to be the
+  majority and the most pernicious class.
 - **Tier 4 — Fuzzilli fork (deferred).** The path in "What a real Fuzzilli fork
   would require" remains available as a research option; documented here so it
-  can be chosen consciously rather than drifted into.
+  can be chosen consciously rather than drifted into. The
+  [FUZZILLI paper](https://www.ndss-symposium.org/ndss-paper/fuzzilli-fuzzing-for-javascript-jit-compiler-vulnerabilities/)
+  quantifies both the payoff and the engineering weight of that path.
 
 ## Operating guidance
 
@@ -183,6 +389,12 @@ A tiered direction, so work can stop at any point. File concrete steps as issues
 - Treat a crash, panic, leak report, or sanitizer finding as a failure. Ordinary
   Scheme read/compile/runtime errors are expected fuzz outcomes and should not
   fail the target.
+- Periodically run the fuzz targets on a `-Dgc-stress=true` build, which
+  attempts a collection at every allocation (except where collection is
+  temporarily suppressed via `no_collect` or the GC is disabled). Fuzzing
+  practice consistently pairs input generation with aggressive runtime
+  checking; a GC-stress build turns latent rooting bugs into immediate,
+  attributable failures instead of rare heisenbugs.
 - Minimise every failure, add a readable regression test, then retain the
   corresponding encoded fuzzer input. A corpus is both a search aid and a
   permanent regression set, as described in the
