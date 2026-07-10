@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783700462404,
+  "lastUpdate": 1783701521856,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "d0bd85603ef64adbfecc984c150f28a39f532ae0",
-          "message": "Use globally-unique binding IDs for syntax-rules literal identity (#1272) (#1284)\n\nReplace per-frame slot numbers (u16) with monotonic binding IDs (u32)\nwhen comparing literal identities in syntax-rules. Slot indices are\nscoped to their owning Compiler frame, so two different bindings in\nnested lambdas occupying the same register falsely compared as equal.\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-07T07:46:17+05:30",
-          "tree_id": "212c97b9f62ebcb386205c76ae382434f51db09f",
-          "url": "https://github.com/kaappi/kaappi/commit/d0bd85603ef64adbfecc984c150f28a39f532ae0"
-        },
-        "date": 1783392160459,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.029627,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.276326,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.96394,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.053865,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.013844,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.235044,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.475433,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.069048,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 13.503269,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.835768,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 11.176586,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 1.066743,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 9.124309,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.82944,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044498,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.042861,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "3fa6b12ebcbf90c8cbc1592bfdcf102202c19d54",
+          "message": "Return exact results from sqrt for rational and bignum perfect squares (#1415)\n\n(sqrt 9/4) returned inexact 1.5 even though the exact result 3/2 is\nrepresentable, and (sqrt <bignum perfect square>) returned a flonum that\ncan even be wrong in the last digit (f64 rounding). R7RS 6.2.6 encourages\nexact results for exact arguments when representable, and Chez, Chibi,\nGauche, and Guile all return 3/2 for (sqrt 9/4).\n\nExtract the integer square root logic (fixnum fast path + bignum Newton\niteration) from exact-integer-sqrt into a shared isqrtNonNegative helper,\nand use it in sqrt: a non-negative exact integer whose root has zero\nremainder returns the exact root, and an exact rational returns an exact\nrational when both numerator and denominator are perfect squares. All\nother cases (mixed squares, negatives, inexact arguments) keep the\nexisting inexact/complex behavior.\n\nFixes #1412\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-10T21:30:55+05:30",
+          "tree_id": "acf54202690ebb1a11b3a5d3d5849e812fc9c37a",
+          "url": "https://github.com/kaappi/kaappi/commit/3fa6b12ebcbf90c8cbc1592bfdcf102202c19d54"
+        },
+        "date": 1783701521024,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.135815,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.854814,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 1.040495,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.421609,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.014318,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.375897,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.512645,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.068527,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 14.622387,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.989845,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 9.712994,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 1.165434,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 9.430766,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.864038,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.045053,
             "unit": "seconds"
           }
         ]
