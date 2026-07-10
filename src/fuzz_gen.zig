@@ -456,6 +456,10 @@ pub const Gen = struct {
         try g.scope.append(g.gpa, .{ .name = name, .kind = kind });
     }
 
+    pub fn pushNonSettable(g: *Gen, name: []const u8, kind: Kind) Error!void {
+        try g.scope.append(g.gpa, .{ .name = name, .kind = kind, .settable = false });
+    }
+
     fn pushPatternVar(g: *Gen, name: []const u8) Error!void {
         try g.scope.append(g.gpa, .{ .name = name, .kind = .int, .settable = false });
     }
