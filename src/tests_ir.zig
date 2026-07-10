@@ -769,11 +769,31 @@ test "IR opt switch: folded patterns evaluate identically without optimization" 
         .{ .src = "(or #f 7)", .want = 7 },
         .{ .src = "(let ((x (* 2 3))) (+ x (if #t 1 0)))", .want = 7 },
     };
-    for (cases) |case| try th.expectEval(case.src, case.want);
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
+    for (cases) |case| {
+        try std.testing.expectEqual(case.want, types.toFixnum(try ctx.vm.eval(case.src)));
+    }
 
     ir_mod.optimize_enabled = false;
     defer ir_mod.optimize_enabled = true;
-    for (cases) |case| try th.expectEval(case.src, case.want);
+    for (cases) |case| {
+        try std.testing.expectEqual(case.want, types.toFixnum(try ctx.vm.eval(case.src)));
+    }
+}
+
+test "IR opt switch: self-tail-call still optimized without IR optimization" {
+    // markTailPositions must keep running when optimization is off — it is
+    // analysis, and it is what compiles self-tail-calls as loops. 100k
+    // iterations would overflow the frame stack otherwise (mirrors the
+    // bare-lambda self-tail-call test above, which runs optimized).
+    ir_mod.optimize_enabled = false;
+    defer ir_mod.optimize_enabled = true;
+    try th.expectEval(
+        \\(define f (lambda (n acc) (if (= n 0) acc (f (- n 1) (+ acc 1)))))
+        \\(f 100000 0)
+    , 100000);
 }
 
 test "IR opt switch: disabling optimization changes emitted bytecode" {
