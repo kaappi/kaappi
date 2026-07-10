@@ -1124,6 +1124,8 @@ fn stringToNumber(args: []const Value) PrimitiveError!Value {
                 };
             };
             if (num_val == types.FALSE) return types.FALSE;
+            var slot_num = gc.rootedSlot(num_val) catch return PrimitiveError.OutOfMemory;
+            defer slot_num.release();
             const den_val: Value = if (std.fmt.parseInt(i64, den_str, radix)) |den| blk: {
                 if (den == 0) return types.FALSE;
                 break :blk try arith.makeFixnumChecked(den);

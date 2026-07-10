@@ -324,6 +324,10 @@ fn add(args: []const Value) PrimitiveError!Value {
         defer slot_num.release();
         var slot_den = gc.rootedSlot(acc_den) catch return PrimitiveError.OutOfMemory;
         defer slot_den.release();
+        var slot_t1 = gc.rootedSlot(types.NIL) catch return PrimitiveError.OutOfMemory;
+        defer slot_t1.release();
+        var slot_t2 = gc.rootedSlot(types.NIL) catch return PrimitiveError.OutOfMemory;
+        defer slot_t2.release();
         for (args) |a| {
             if (types.isFlonum(a)) {
                 const acc_f = try toF64Ext(acc_num) / try toF64Ext(acc_den);
@@ -331,10 +335,12 @@ fn add(args: []const Value) PrimitiveError!Value {
             }
             const parts = try ratPartsVal(a);
             const t1 = bignum_mod.mul(gc, acc_num, parts.den) catch return PrimitiveError.OutOfMemory;
+            slot_t1.set(t1);
             const t2 = bignum_mod.mul(gc, parts.num, acc_den) catch return PrimitiveError.OutOfMemory;
+            slot_t2.set(t2);
             acc_num = bignum_mod.add(gc, t1, t2) catch return PrimitiveError.OutOfMemory;
-            acc_den = bignum_mod.mul(gc, acc_den, parts.den) catch return PrimitiveError.OutOfMemory;
             slot_num.set(acc_num);
+            acc_den = bignum_mod.mul(gc, acc_den, parts.den) catch return PrimitiveError.OutOfMemory;
             slot_den.set(acc_den);
         }
         return makeRationalReduced(gc, acc_num, acc_den);
@@ -386,6 +392,10 @@ fn sub(args: []const Value) PrimitiveError!Value {
         defer slot_num.release();
         var slot_den = gc.rootedSlot(acc_den) catch return PrimitiveError.OutOfMemory;
         defer slot_den.release();
+        var slot_t1 = gc.rootedSlot(types.NIL) catch return PrimitiveError.OutOfMemory;
+        defer slot_t1.release();
+        var slot_t2 = gc.rootedSlot(types.NIL) catch return PrimitiveError.OutOfMemory;
+        defer slot_t2.release();
         for (args[1..]) |a| {
             if (types.isFlonum(a)) {
                 const acc_f = try toF64Ext(acc_num) / try toF64Ext(acc_den);
@@ -393,10 +403,12 @@ fn sub(args: []const Value) PrimitiveError!Value {
             }
             const parts = try ratPartsVal(a);
             const t1 = bignum_mod.mul(gc, acc_num, parts.den) catch return PrimitiveError.OutOfMemory;
+            slot_t1.set(t1);
             const t2 = bignum_mod.mul(gc, parts.num, acc_den) catch return PrimitiveError.OutOfMemory;
+            slot_t2.set(t2);
             acc_num = bignum_mod.sub(gc, t1, t2) catch return PrimitiveError.OutOfMemory;
-            acc_den = bignum_mod.mul(gc, acc_den, parts.den) catch return PrimitiveError.OutOfMemory;
             slot_num.set(acc_num);
+            acc_den = bignum_mod.mul(gc, acc_den, parts.den) catch return PrimitiveError.OutOfMemory;
             slot_den.set(acc_den);
         }
         return makeRationalReduced(gc, acc_num, acc_den);
@@ -457,8 +469,8 @@ fn mul(args: []const Value) PrimitiveError!Value {
             }
             const parts = try ratPartsVal(a);
             acc_num = bignum_mod.mul(gc, acc_num, parts.num) catch return PrimitiveError.OutOfMemory;
-            acc_den = bignum_mod.mul(gc, acc_den, parts.den) catch return PrimitiveError.OutOfMemory;
             slot_num.set(acc_num);
+            acc_den = bignum_mod.mul(gc, acc_den, parts.den) catch return PrimitiveError.OutOfMemory;
             slot_den.set(acc_den);
         }
         return makeRationalReduced(gc, acc_num, acc_den);
@@ -534,8 +546,8 @@ fn divFn(args: []const Value) PrimitiveError!Value {
             const parts = try ratPartsVal(a);
             if (bignum_mod.isZero(parts.num)) return raiseDivByZero();
             acc_num = bignum_mod.mul(gc, acc_num, parts.den) catch return PrimitiveError.OutOfMemory;
-            acc_den = bignum_mod.mul(gc, acc_den, parts.num) catch return PrimitiveError.OutOfMemory;
             slot_num.set(acc_num);
+            acc_den = bignum_mod.mul(gc, acc_den, parts.num) catch return PrimitiveError.OutOfMemory;
             slot_den.set(acc_den);
         }
         return makeRationalReduced(gc, acc_num, acc_den);
