@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783648104859,
+  "lastUpdate": 1783649370807,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "088472e4afdded322963cc08cd3407f854a2deb7",
-          "message": "Fix GC crash on stale VM registers after thread start/join cycles (#1254)\n\n* Fix GC crash on stale VM registers after thread start/join cycles (#1156)\n\nThe GC could SIGSEGV under -Dgc-stress=true when scanning VM registers\nthat held stale pointers to freed objects. Between execute() calls,\nframe_count drops to 0 and a GC cycle can free objects that stale\nregister values still reference. The next execute() re-covers those\nregisters, and the GC hits the dangling pointers.\n\nThree fixes:\n1. Clear local registers in execute() and callClosure() so the GC never\n   scans stale values from a previous frame at the same base.\n2. Remove dead frame setup from makeThreadFn — OS thread fibers create\n   their own VM and never use the parent fiber's frames[0].\n3. Add missing write barriers and defensive frame_count=0 in\n   reapOsThread after joining the OS thread.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Address review: clear stale registers in callReentrant, use SRFI-64 test\n\n- Factor register clearing into clearFrameLocals() helper and call from\n  all three frame-push sites: execute(), callClosure(), callReentrant()\n- Add missing write barrier for fiber.name in makeThreadFn\n- Convert regression test to SRFI-64 assertions\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-06T17:24:07+05:30",
-          "tree_id": "0b70e3e88d83c0dd91161e1b57c89d7f12003d33",
-          "url": "https://github.com/kaappi/kaappi/commit/088472e4afdded322963cc08cd3407f854a2deb7"
-        },
-        "date": 1783340574786,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.343,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.483513,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.942575,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.267671,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.012464,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.212182,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.485703,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.070962,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 12.521916,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.871418,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 9.962163,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.953857,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 8.372773,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.713448,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044359,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.044573,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2a5206f1466fd44ee935d79cf1f368e590520736",
+          "message": "Validate UTF-8 in utf8->string (#1178) (#1383)\n\nutf8->string copied bytes into a string unchecked, so invalid UTF-8\n(bad lead bytes like #xFF, overlong encodings, surrogates, truncated\nsequences) produced a corrupt string: write and string-length worked,\nbut string-ref on the same string raised \"expected valid UTF-8 string\".\nStrings are codepoint-indexed and assume valid UTF-8, so R7RS 6.9's\n\"it is an error\" case must be rejected at construction, where the\ncaller can guard it.\n\nValidation covers the selected start/end byte range only: invalid\nbytes outside the range are fine, and a range that splits a multi-byte\ncharacter raises.\n\nRe-enables the ;; FAIL: #1178 assertions in the bytevector audit and\nadds range-variant coverage.\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-10T01:32:44Z",
+          "tree_id": "54f6c03f246990812024540811b1ebd801f821bf",
+          "url": "https://github.com/kaappi/kaappi/commit/2a5206f1466fd44ee935d79cf1f368e590520736"
+        },
+        "date": 1783649370037,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.264765,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.735845,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 1.033958,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.524406,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.015367,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.380857,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.515037,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.068818,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 14.682558,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 2.003737,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 9.950278,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 1.163945,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 9.456741,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.856504,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044681,
             "unit": "seconds"
           }
         ]
