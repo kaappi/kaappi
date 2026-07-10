@@ -59,6 +59,32 @@
 (test-equal "not member of id list" 'new (known-id? z (a b c) 'known 'new))
 (test-equal "empty id list" 'new (known-id? z () 'known 'new))
 
+;; A generated inner transformer's own ellipsis must be preserved, not
+;; consumed by outer instantiation (review finding on #1411; x references
+;; no outer binding, so the outer expander used to emit zero repetitions).
+(define-syntax gen-inner
+  (syntax-rules ()
+    ((_ arg)
+     (let-syntax ((inner (syntax-rules ()
+                           ((inner (x ...)) 'preserved)
+                           ((inner other) 'lost))))
+       (inner arg)))))
+
+(test-equal "inner ellipsis pattern preserved" 'preserved (gen-inner (a b c)))
+(test-equal "inner ellipsis pattern preserved (empty list)" 'preserved (gen-inner ()))
+(test-equal "inner non-list still falls through" 'lost (gen-inner 5))
+
+;; Inner ellipsis in both pattern and template, combined with outer
+;; scalar substitution into the inner template.
+(define-syntax gen-adder
+  (syntax-rules ()
+    ((_ base)
+     (let-syntax ((sum (syntax-rules () ((sum (x ...)) (+ base x ...)))))
+       (sum (1 2 3))))))
+
+(test-equal "inner ellipsis template preserved with outer substitution" 16
+  (gen-adder 10))
+
 ;; --- Bug 2: ellipsis inside template let binding lists ---
 
 (define-syntax my-let
@@ -131,6 +157,24 @@
 
 (test-equal "double ellipsis flattens binding groups" 6
   (flat-let (((x 1) (y 2)) ((z 3))) (+ x y z)))
+
+;; Repeated template-introduced binders keep binding-position hygiene
+;; (review finding on #1411): exp below must be gensym-renamed even though
+;; a builtin of the same name exists, so the use-site (exp 0) still calls
+;; the builtin.
+(define-syntax capture-test
+  (syntax-rules ()
+    ((_ (value ...) body)
+     (let ((exp value) ...) body))))
+
+(test-equal "repeated builtin-named binder is renamed" 1.0
+  (capture-test (1) (exp 0)))
+
+;; Two groups where the first is longer: while the first group's three
+;; repetitions instantiate, the second group (count 1) must not be
+;; indexed past its own count.
+(test-equal "longer first group instantiates independently" 17
+  (two-groups ((x 1) (y 2) (p 4)) ((q 10)) (+ x y p q)))
 
 ;; Hygiene across the nested syntax-rules boundary: an outer
 ;; template-introduced binding (tmp) referenced from the inner template

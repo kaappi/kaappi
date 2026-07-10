@@ -273,6 +273,10 @@ fn loadLibrarySource(vm: *VM, source: []const u8) !void {
             _ = result catch |err| return err;
         } else {
             const func = compiler_mod.compileExpressionWithMacros(vm.gc, expr, &vm.macros, vm.globals) catch |err| {
+                // OutOfMemory is a fatal runtime failure, not a malformed
+                // library — let it propagate instead of being reported as
+                // a missing/broken import.
+                if (err == error.OutOfMemory) return err;
                 if (vm.last_error_detail_len == 0) {
                     vm.setErrorDetail("{s} while compiling library body form", .{@errorName(err)});
                 }
