@@ -208,7 +208,11 @@ pub const LLVMEmitter = struct {
         return self.emitImm(@bitCast(value));
     }
 
-    fn isNameShadowed(self: *LLVMEmitter, name: []const u8) bool {
+    // Mirrors emitGlobalRef's lexical resolution order (locals, rest param,
+    // params, upvalues). Also consulted by the closure-tier free-variable
+    // analysis in llvm_emit_lambda.zig: a shadowed name is a capture even
+    // when a known global of the same name exists.
+    pub fn isNameShadowed(self: *LLVMEmitter, name: []const u8) bool {
         if (self.locals) |loc| {
             if (loc.get(name) != null) return true;
         }

@@ -70,7 +70,7 @@ fn tryCompilePureLambdaAsNativeClosure(self: *LLVMEmitter, data: ir.LambdaData) 
 
     var allowed: [17][]const u8 = undefined;
     @memcpy(allowed[0..arity], param_names[0..arity]);
-    if (hasFreeVars(body_nodes[0..body_count], allowed[0..arity])) return null;
+    if (hasFreeVars(self, body_nodes[0..body_count], allowed[0..arity])) return null;
 
     const fn_name = emitLambdaFunction(self, data.name, param_names[0..arity], body_nodes[0..body_count], rest_name) orelse return null;
 
@@ -139,12 +139,22 @@ fn tryCompileNativeClosure(self: *LLVMEmitter, data: ir.LambdaData) ?[]const u8 
 
     var free_vars: [16][]const u8 = undefined;
     var free_count: usize = 0;
-    if (!collectFreeVars(body_nodes[0..body_count], param_names[0..arity], &free_vars, &free_count)) return null;
+    if (!collectFreeVars(self, body_nodes[0..body_count], param_names[0..arity], &free_vars, &free_count)) return null;
     if (free_count == 0) return null;
 
     const outer_params = self.params orelse return null;
     for (free_vars[0..free_count]) |fv| {
-        if (!outer_params.contains(fv) and !ir.isKnownGlobal(fv)) return null;
+        // Captures are copied out of the enclosing %args array, so a name
+        // bound by an enclosing let-local or rest parameter (which outrank
+        // params in emitGlobalRef's resolution order) cannot be captured
+        // here, and neither can a name living only in the enclosing
+        // closure's upvalue array (#1410).
+        if (localsOrRestShadows(self, fv)) return null;
+        if (outer_params.contains(fv)) continue;
+        if (self.upvalues) |uv| {
+            if (uv.contains(fv)) return null;
+        }
+        if (!ir.isKnownGlobal(fv)) return null;
     }
 
     const id = self.lambda_counter;
@@ -338,7 +348,7 @@ pub fn tryCompileDefineFunction(self: *LLVMEmitter, name: []const u8, formals: V
         allowed[arity] = rn;
     }
     allowed[arity + extra] = name;
-    if (hasFreeVars(body_nodes[0..body_count], allowed[0 .. arity + extra + 1])) return null;
+    if (hasFreeVars(self, body_nodes[0..body_count], allowed[0 .. arity + extra + 1])) return null;
 
     return emitLambdaFunction(self, name, param_names[0..arity], body_nodes[0..body_count], rest_name);
 }
@@ -561,7 +571,25 @@ fn sexprReferencesNames(expr: Value, target_names: []const []const u8, excluded_
     return false;
 }
 
-// --- Free variable analysis helpers (standalone, no self) ---
+// --- Free variable analysis helpers ---
+//
+// These take the emitter because classification must respect the enclosing
+// emission scope: a name shadowed by an enclosing lexical binding (param,
+// let-local, rest parameter, upvalue) is a capture even when a known global
+// of the same name exists — `car` inside (lambda (car) ...) is the parameter,
+// not the primitive. The shadow check must run before isKnownGlobal.
+
+// Enclosing bindings that outrank the params array in emitGlobalRef's
+// resolution order and cannot be copied out of %args into an upvalue buffer.
+fn localsOrRestShadows(self: *LLVMEmitter, name: []const u8) bool {
+    if (self.locals) |loc| {
+        if (loc.get(name) != null) return true;
+    }
+    if (self.rest_param_name) |rp| {
+        if (std.mem.eql(u8, name, rp)) return true;
+    }
+    return false;
+}
 
 // True if the raw S-expression contains a set! or define form anywhere (not
 // descending into quoted data). Used to reject closure bodies that mutate or
@@ -581,14 +609,14 @@ fn sexprContainsSetOrDefine(expr: types.Value) bool {
     return false;
 }
 
-fn hasFreeVars(nodes: []const *ir.Node, params: []const []const u8) bool {
+fn hasFreeVars(self: *LLVMEmitter, nodes: []const *ir.Node, params: []const []const u8) bool {
     for (nodes) |node| {
-        if (nodeHasFreeVars(node, params)) return true;
+        if (nodeHasFreeVars(self, node, params)) return true;
     }
     return false;
 }
 
-fn nodeHasFreeVars(node: *const ir.Node, params: []const []const u8) bool {
+fn nodeHasFreeVars(self: *LLVMEmitter, node: *const ir.Node, params: []const []const u8) bool {
     switch (node.tag) {
         .global_ref => {
             if (!types.isSymbol(node.data.global_ref)) return false;
@@ -596,34 +624,37 @@ fn nodeHasFreeVars(node: *const ir.Node, params: []const []const u8) bool {
             for (params) |p| {
                 if (std.mem.eql(u8, name, p)) return false;
             }
+            // An enclosing lexical binding outranks a known global of the
+            // same name: this reference is a capture, not the primitive.
+            if (self.isNameShadowed(name)) return true;
             if (ir.isKnownGlobal(name)) return false;
             return true;
         },
         .call => {
-            if (nodeHasFreeVars(node.data.call.operator, params)) return true;
+            if (nodeHasFreeVars(self, node.data.call.operator, params)) return true;
             for (node.data.call.args) |arg| {
-                if (nodeHasFreeVars(arg, params)) return true;
+                if (nodeHasFreeVars(self, arg, params)) return true;
             }
             return false;
         },
         .@"if" => {
-            if (nodeHasFreeVars(node.data.@"if".test_expr, params)) return true;
-            if (nodeHasFreeVars(node.data.@"if".consequent, params)) return true;
+            if (nodeHasFreeVars(self, node.data.@"if".test_expr, params)) return true;
+            if (nodeHasFreeVars(self, node.data.@"if".consequent, params)) return true;
             if (node.data.@"if".alternate) |alt| {
-                if (nodeHasFreeVars(alt, params)) return true;
+                if (nodeHasFreeVars(self, alt, params)) return true;
             }
             return false;
         },
-        .begin => return hasFreeVars(node.data.begin, params),
-        .and_form => return hasFreeVars(node.data.and_form, params),
-        .or_form => return hasFreeVars(node.data.or_form, params),
+        .begin => return hasFreeVars(self, node.data.begin, params),
+        .and_form => return hasFreeVars(self, node.data.and_form, params),
+        .or_form => return hasFreeVars(self, node.data.or_form, params),
         .when_form => {
-            if (nodeHasFreeVars(node.data.when_form.test_expr, params)) return true;
-            return hasFreeVars(node.data.when_form.body, params);
+            if (nodeHasFreeVars(self, node.data.when_form.test_expr, params)) return true;
+            return hasFreeVars(self, node.data.when_form.body, params);
         },
         .unless_form => {
-            if (nodeHasFreeVars(node.data.unless_form.test_expr, params)) return true;
-            return hasFreeVars(node.data.unless_form.body, params);
+            if (nodeHasFreeVars(self, node.data.unless_form.test_expr, params)) return true;
+            return hasFreeVars(self, node.data.unless_form.body, params);
         },
         .set_form => {
             // A set! is safe to compile in a body with no upvalues only when
@@ -633,8 +664,8 @@ fn nodeHasFreeVars(node: *const ir.Node, params: []const []const u8) bool {
             // interpreter handle it. The value is a raw S-expr; a compound
             // value is treated conservatively as possibly capturing (#819).
             if (!types.isSymbol(node.data.set_form.name)) return true;
-            if (!valueIsBoundOrLiteral(node.data.set_form.name, params)) return true;
-            if (!valueIsBoundOrLiteral(node.data.set_form.value, params)) return true;
+            if (!valueIsBoundOrLiteral(self, node.data.set_form.name, params)) return true;
+            if (!valueIsBoundOrLiteral(self, node.data.set_form.value, params)) return true;
             return false;
         },
         // An internal define introduces a binding that the native lambda-body
@@ -645,8 +676,8 @@ fn nodeHasFreeVars(node: *const ir.Node, params: []const []const u8) bool {
         // let/let* keep their contents as a raw S-expression, so references
         // hidden inside them are invisible to the node-level cases above.
         // Walk the raw form with proper binder scoping (#1407).
-        .let_form => return letSexprHasFreeVars(node.data.let_form.args, false, params),
-        .let_star => return letSexprHasFreeVars(node.data.let_star.args, true, params),
+        .let_form => return letSexprHasFreeVars(self, node.data.let_form.args, false, params),
+        .let_star => return letSexprHasFreeVars(self, node.data.let_star.args, true, params),
         .lambda, .passthrough, .sexpr_form => return false,
         .letrec, .letrec_star => return false,
     }
@@ -656,12 +687,15 @@ fn nodeHasFreeVars(node: *const ir.Node, params: []const []const u8) bool {
 // compiled body with no upvalues: a literal, or a symbol that names one of our
 // params or a known global. Anything else (a compound expression, or a symbol
 // naming a captured lexical variable) is treated as unsafe.
-fn valueIsBoundOrLiteral(value: types.Value, params: []const []const u8) bool {
+fn valueIsBoundOrLiteral(self: *LLVMEmitter, value: types.Value, params: []const []const u8) bool {
     if (types.isSymbol(value)) {
         const name = types.symbolName(value);
         for (params) |p| {
             if (std.mem.eql(u8, name, p)) return true;
         }
+        // A name shadowed by an enclosing lexical binding is a capture,
+        // not the known global it would otherwise resolve to.
+        if (self.isNameShadowed(name)) return false;
         return ir.isKnownGlobal(name);
     }
     return !types.isPair(value);
@@ -671,14 +705,14 @@ fn valueIsBoundOrLiteral(value: types.Value, params: []const []const u8) bool {
 // name buffer overflowed, or a let walk met a form it cannot scope). Callers
 // must then reject native closure compilation — emitting with an incomplete
 // free-variable set would leave the missed name to resolve as a global.
-fn collectFreeVars(nodes: []const *ir.Node, params: []const []const u8, buf: *[16][]const u8, count: *usize) bool {
+fn collectFreeVars(self: *LLVMEmitter, nodes: []const *ir.Node, params: []const []const u8, buf: *[16][]const u8, count: *usize) bool {
     for (nodes) |node| {
-        if (!collectNodeFreeVars(node, params, buf, count)) return false;
+        if (!collectNodeFreeVars(self, node, params, buf, count)) return false;
     }
     return true;
 }
 
-fn collectNodeFreeVars(node: *const ir.Node, params: []const []const u8, buf: *[16][]const u8, count: *usize) bool {
+fn collectNodeFreeVars(self: *LLVMEmitter, node: *const ir.Node, params: []const []const u8, buf: *[16][]const u8, count: *usize) bool {
     switch (node.tag) {
         .global_ref => {
             if (!types.isSymbol(node.data.global_ref)) return true;
@@ -686,7 +720,9 @@ fn collectNodeFreeVars(node: *const ir.Node, params: []const []const u8, buf: *[
             for (params) |p| {
                 if (std.mem.eql(u8, name, p)) return true;
             }
-            if (ir.isKnownGlobal(name)) return true;
+            // A shadowed known global is a capture; only an unshadowed one
+            // may be skipped as a genuine global reference.
+            if (ir.isKnownGlobal(name) and !self.isNameShadowed(name)) return true;
             for (buf[0..count.*]) |existing| {
                 if (std.mem.eql(u8, name, existing)) return true;
             }
@@ -696,36 +732,36 @@ fn collectNodeFreeVars(node: *const ir.Node, params: []const []const u8, buf: *[
             return true;
         },
         .call => {
-            if (!collectNodeFreeVars(node.data.call.operator, params, buf, count)) return false;
+            if (!collectNodeFreeVars(self, node.data.call.operator, params, buf, count)) return false;
             for (node.data.call.args) |arg| {
-                if (!collectNodeFreeVars(arg, params, buf, count)) return false;
+                if (!collectNodeFreeVars(self, arg, params, buf, count)) return false;
             }
             return true;
         },
         .@"if" => {
-            if (!collectNodeFreeVars(node.data.@"if".test_expr, params, buf, count)) return false;
-            if (!collectNodeFreeVars(node.data.@"if".consequent, params, buf, count)) return false;
+            if (!collectNodeFreeVars(self, node.data.@"if".test_expr, params, buf, count)) return false;
+            if (!collectNodeFreeVars(self, node.data.@"if".consequent, params, buf, count)) return false;
             if (node.data.@"if".alternate) |alt| {
-                if (!collectNodeFreeVars(alt, params, buf, count)) return false;
+                if (!collectNodeFreeVars(self, alt, params, buf, count)) return false;
             }
             return true;
         },
-        .begin => return collectFreeVars(node.data.begin, params, buf, count),
-        .and_form => return collectFreeVars(node.data.and_form, params, buf, count),
-        .or_form => return collectFreeVars(node.data.or_form, params, buf, count),
+        .begin => return collectFreeVars(self, node.data.begin, params, buf, count),
+        .and_form => return collectFreeVars(self, node.data.and_form, params, buf, count),
+        .or_form => return collectFreeVars(self, node.data.or_form, params, buf, count),
         .when_form => {
-            if (!collectNodeFreeVars(node.data.when_form.test_expr, params, buf, count)) return false;
-            return collectFreeVars(node.data.when_form.body, params, buf, count);
+            if (!collectNodeFreeVars(self, node.data.when_form.test_expr, params, buf, count)) return false;
+            return collectFreeVars(self, node.data.when_form.body, params, buf, count);
         },
         .unless_form => {
-            if (!collectNodeFreeVars(node.data.unless_form.test_expr, params, buf, count)) return false;
-            return collectFreeVars(node.data.unless_form.body, params, buf, count);
+            if (!collectNodeFreeVars(self, node.data.unless_form.test_expr, params, buf, count)) return false;
+            return collectFreeVars(self, node.data.unless_form.body, params, buf, count);
         },
         // See nodeHasFreeVars: let/let* contents are a raw S-expression and
         // must be walked with binder scoping, or captures hidden inside them
         // are silently compiled as global lookups (#1407).
-        .let_form => return collectLetSexprFreeVars(node.data.let_form.args, false, params, buf, count),
-        .let_star => return collectLetSexprFreeVars(node.data.let_star.args, true, params, buf, count),
+        .let_form => return collectLetSexprFreeVars(self, node.data.let_form.args, false, params, buf, count),
+        .let_star => return collectLetSexprFreeVars(self, node.data.let_star.args, true, params, buf, count),
         .constant, .define, .set_form, .lambda, .passthrough, .sexpr_form => return true,
         .letrec, .letrec_star => return true,
     }
@@ -744,6 +780,7 @@ fn collectNodeFreeVars(node: *const ir.Node, params: []const []const u8, buf: *[
 // enclosing lambda natively.
 
 const FreeNameWalk = struct {
+    emitter: *LLVMEmitter,
     params: []const []const u8,
     bound: [64][]const u8 = undefined,
     bound_count: usize = 0,
@@ -769,7 +806,9 @@ const FreeNameWalk = struct {
         for (w.bound[0..w.bound_count]) |b| {
             if (std.mem.eql(u8, name, b)) return;
         }
-        if (ir.isKnownGlobal(name)) return;
+        // A shadowed known global is a capture; only an unshadowed one is a
+        // genuine global reference (see the section comment above).
+        if (ir.isKnownGlobal(name) and !w.emitter.isNameShadowed(name)) return;
         w.found = true;
         if (w.buf) |buf| {
             const count = w.count.?;
@@ -786,14 +825,14 @@ const FreeNameWalk = struct {
     }
 };
 
-fn letSexprHasFreeVars(args: Value, sequential: bool, params: []const []const u8) bool {
-    var w = FreeNameWalk{ .params = params };
+fn letSexprHasFreeVars(self: *LLVMEmitter, args: Value, sequential: bool, params: []const []const u8) bool {
+    var w = FreeNameWalk{ .emitter = self, .params = params };
     walkLetSexpr(&w, args, sequential);
     return w.found or w.inexact;
 }
 
-fn collectLetSexprFreeVars(args: Value, sequential: bool, params: []const []const u8, buf: *[16][]const u8, count: *usize) bool {
-    var w = FreeNameWalk{ .params = params, .buf = buf, .count = count };
+fn collectLetSexprFreeVars(self: *LLVMEmitter, args: Value, sequential: bool, params: []const []const u8, buf: *[16][]const u8, count: *usize) bool {
+    var w = FreeNameWalk{ .emitter = self, .params = params, .buf = buf, .count = count };
     walkLetSexpr(&w, args, sequential);
     return !w.inexact;
 }

@@ -344,8 +344,36 @@ test "LLVM emit: let over own params still compiles as a closed native closure" 
     var res = try emitSourceResult("(lambda (a) (let ((b a)) b))");
     defer res.deinit();
     const ll = res.toSlice();
-    try expectContains(ll, "@kaappi_create_native_closure");
+    try expectContains(ll, "call i64 @kaappi_create_native_closure");
     try std.testing.expect(std.mem.indexOf(u8, ll, "call i64 @kaappi_eval") == null);
+}
+
+// -- Enclosing bindings that shadow primitives (#1407 review) --
+// The shadow check must outrank isKnownGlobal: a param named `car` is a
+// capture, not the primitive. Before the fix these compiled as closed
+// closures whose reference degraded to a global lookup, silently returning
+// the builtin instead of the captured value.
+
+test "LLVM emit: param shadowing a primitive is captured as an upvalue" {
+    var res = try emitSourceResult("(define g0 (lambda (car) ((lambda () car))))");
+    defer res.deinit();
+    const ll = res.toSlice();
+    // Tier 1 must capture `car`: one upvalue, arity 0...
+    try expectContains(ll, "call i64 @kaappi_create_native_closure");
+    try expectContains(ll, ", i64 1, i64 0, ptr");
+    // ...read from the upvalue array, never interned for a global lookup.
+    try expectContains(ll, "ptr %upvalues, i64 0");
+    try std.testing.expect(std.mem.indexOf(u8, ll, "c\"car\"") == null);
+}
+
+test "LLVM emit: param shadowing a primitive is captured through a let" {
+    var res = try emitSourceResult("(define g0 (lambda (car) ((lambda () (let ((x car)) x)))))");
+    defer res.deinit();
+    const ll = res.toSlice();
+    try expectContains(ll, "call i64 @kaappi_create_native_closure");
+    try expectContains(ll, ", i64 1, i64 0, ptr");
+    try expectContains(ll, "ptr %upvalues, i64 0");
+    try std.testing.expect(std.mem.indexOf(u8, ll, "c\"car\"") == null);
 }
 
 // -- Begin --
