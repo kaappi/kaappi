@@ -901,6 +901,7 @@ const primitives = [_][]const u8{
     "gcd",            "lcm",               "call/ec",      "call-with-escape-continuation", "call-with-values", "dynamic-wind",    "with-exception-handler",
     "raise",          "raise-continuable", "error",        "for-each",                      "string-for-each",  "vector-for-each", "vector-map",
     "string-map",     "assoc",             "assq",         "assv",                          "member",           "memq",            "memv",
+    "list-ref",
 };
 
 // ---------------------------------------------------------------------------
