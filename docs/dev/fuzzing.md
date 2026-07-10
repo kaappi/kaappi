@@ -133,6 +133,77 @@ special permissions: the eval harness registers only the sandboxed
 primitive set (no filesystem, process, FFI, or thread procedures), and
 everything runs in-process in the test binary.
 
+## The VM-vs-native differential batch (#1395)
+
+[`tests/fuzz/native-diff.sh`](../../tests/fuzz/native-diff.sh) diffs Kaappi's
+two evaluation paths against each other: each generated program runs through
+the bytecode VM (`kaappi prog.scm`) and through the LLVM native backend
+(`kaappi compile prog.scm -o prog.bin && ./prog.bin`), comparing stdout and
+exit class. This is the second internal correctness oracle (after
+opt-vs-no-opt) and the setup Midtgaard et al. (ICFP 2017) used to find
+bytecode-vs-native disagreements in OCaml.
+
+```bash
+bash tests/fuzz/native-diff.sh            # 100 programs, seeds 0..99
+bash tests/fuzz/native-diff.sh 300 1200   # 300 programs starting at seed 1200
+```
+
+The script builds anything missing (`zig build`, `zig build lib`,
+`zig build fuzz-gen`), probes that `kaappi compile` can actually link here
+(it finds `zig cc` on PATH; the probe is needed because `kaappi compile`
+reports toolchain failures on stderr but exits 0), then runs the batch. Each
+input is a generate + interpret + compile-and-link + run cycle (~1 s,
+dominated by linking) — orders of magnitude slower than in-process fuzzing,
+which is why this is a scheduled batch and not a `std.testing.fuzz` target.
+The `native-diff` job in `fuzz.yml` runs 300 programs nightly with a seed
+base that rotates per run (printed in the log; any base is replayable
+locally or via `workflow_dispatch` inputs `native-diff-count` /
+`native-diff-base`), and uploads divergences as the
+`native-diff-divergences` artifact.
+
+Programs come from the **native-subset generator**
+([`src/fuzz_gen_native.zig`](../../src/fuzz_gen_native.zig), built as
+`kaappi-fuzz-gen --native` via `zig build fuzz-gen`). The native backend
+falls back to `kaappi_eval` (the interpreter) for forms it cannot compile,
+so an unrestricted program would degrade the diff to VM-vs-VM; the subset
+generator emits only natively-compiled forms and encodes the backend's
+structural rules (function bodies reference only their own parameters and
+primitives, no lambdas inside `let`, computed `set!` values only inside
+lexical scopes, every top-level form void-valued with explicit `(write ...)`
+output — the module doc comment has the full list and the reasons). Two
+unit gates keep this honest: `tests_native.zig` asserts fixed-seed programs
+emit no unexpected `kaappi_eval` calls in the LLVM IR and that every defined
+function gets a native definition, and `tests_fuzz.zig` asserts the programs
+evaluate cleanly.
+
+Comparison rules:
+
+- **Both exit 0** — stdout must match byte-for-byte. The programs print all
+  observables explicitly (`write` of final expressions and of every
+  non-procedure global), because the VM echoes non-void top-level values but
+  native binaries do not, and procedure values print differently by design
+  (`#<procedure name>` vs `#<procedure>`).
+- **Both exit 1–127** — ordinary-error match, without comparing stdout: the
+  VM reports a top-level error and continues with the next form, the native
+  binary exits at the first error, so post-error output legitimately
+  differs.
+- **Any exit ≥ 128** — divergence: 128+N is death by signal N (segfault,
+  abort, …), which is never an ordinary Scheme error, so it is flagged even
+  when the other side also errored.
+- **Exit classes differ, stdout differs, or `kaappi compile` fails or times
+  out** — divergence: the program plus both sides' stdout/stderr land in
+  the results dir and the script exits non-zero.
+- **Either side's execution times out** (needs GNU `timeout`/`gtimeout` on
+  PATH) — the pair is skipped as incomparable. Compilation gets its own,
+  longer timeout so a hung linker on one seed is classified as a divergence
+  instead of stalling the batch.
+
+One caveat when triaging a divergence: argument evaluation order is
+unspecified in R7RS, and generated programs do mutate globals inside
+subexpressions. Both backends currently evaluate left-to-right, so a
+divergence is always an implementation inconsistency worth filing — but the
+fix may be "make the order consistent" rather than "wrong code".
+
 ## Turning a failure into a regression test
 
 Every fuzz finding follows the same three steps — no exceptions:
@@ -161,6 +232,13 @@ Every fuzz finding follows the same three steps — no exceptions:
    change to the generator's decision sequence re-interprets them). A
    differential mismatch reproduces outside the harness as
    `kaappi prog.scm` vs `kaappi --no-ir-opt prog.scm` disagreeing.
+
+   A `native-diff.sh` divergence is the easiest of all: the artifact already
+   IS the program text (`seed-N.scm` plus both sides' output). Reproduce
+   with `kaappi seed-N.scm` vs `kaappi compile seed-N.scm -o b && ./b`, and
+   minimise as ordinary Scheme — but keep the shrunken program inside the
+   native subset (check with the eval-count gate in `tests_native.zig`, or
+   just verify the divergence survives each shrink step).
 
 2. **Add a readable regression test** that fails without the fix and passes
    with it, per the repo's bug-fix rule:

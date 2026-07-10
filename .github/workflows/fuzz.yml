@@ -1,6 +1,7 @@
 name: Fuzz
 
-# Scheduled bounded fuzzing of the targets in src/tests_fuzz.zig.
+# Scheduled bounded fuzzing of the targets in src/tests_fuzz.zig, plus the
+# offline VM-vs-native differential batch (tests/fuzz/native-diff.sh).
 # See docs/dev/fuzzing.md for the runbook (running locally, and turning a
 # failure into a regression test + corpus entry).
 
@@ -12,6 +13,14 @@ on:
     inputs:
       limit:
         description: 'Fuzz run limit per variant (number, K/M/G suffix allowed). Overrides the matrix defaults.'
+        required: false
+        default: ''
+      native-diff-count:
+        description: 'Number of programs for the VM-vs-native differential batch.'
+        required: false
+        default: ''
+      native-diff-base:
+        description: 'First seed for the differential batch (default: rotates per run).'
         required: false
         default: ''
 
@@ -44,7 +53,12 @@ jobs:
           #   build-args: '-Dgc-stress=true'
           #   limit: 200
     steps:
+      # Both jobs in this workflow execute fuzzer-generated programs (and
+      # the native-diff job runs binaries compiled from them), so don't
+      # leave the GITHUB_TOKEN sitting in git config for the process tree.
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
 
       - name: Install Zig
         uses: xyzzylabs/setup-zig@v1
@@ -98,5 +112,54 @@ jobs:
             .zig-cache/f/crash
             fuzz-run.log
             .zig-cache/tmp/libfuzzer.log
+          retention-days: 90
+          if-no-files-found: warn
+
+  # Offline differential batch: bytecode VM vs LLVM native backend (#1395).
+  # Each input is generate + interpret + compile-and-link + run, so this is a
+  # scheduled batch (~1s per program), not a std.testing.fuzz target. The
+  # seed base rotates per run so nightly batches cover fresh programs while
+  # staying reproducible: the base is printed in the log, the divergent
+  # programs themselves are uploaded, and any base can be replayed via
+  # workflow_dispatch or locally with
+  # `bash tests/fuzz/native-diff.sh <count> <base>`.
+  native-diff:
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Install Zig
+        uses: xyzzylabs/setup-zig@v1
+        with:
+          version: 0.16.0
+          cache-key: fuzz-native-diff
+
+      - name: Build interpreter, runtime library, and generator
+        run: |
+          zig build
+          zig build lib
+          zig build fuzz-gen
+
+      - name: Differential batch (VM vs native backend)
+        env:
+          COUNT: ${{ inputs.native-diff-count }}
+          BASE: ${{ inputs.native-diff-base }}
+          RUN_NUMBER: ${{ github.run_number }}
+        run: |
+          count="${COUNT:-300}"
+          base="${BASE:-$((RUN_NUMBER * 300))}"
+          bash tests/fuzz/native-diff.sh "$count" "$base"
+
+      # Each divergence comes with the program and both sides' stdout/stderr;
+      # see docs/dev/fuzzing.md for minimising it into a regression test.
+      - name: Upload divergences
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: native-diff-divergences
+          path: native-diff-results/
           retention-days: 90
           if-no-files-found: warn

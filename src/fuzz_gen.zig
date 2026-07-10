@@ -62,7 +62,7 @@ const local_names = [_][]const u8{ "a", "b", "c", "d", "e", "h", "u", "v" };
 /// after evaluation to widen its observable — a wrong fold inside
 /// `(define g1 ...)` is invisible in the program's final value alone.
 pub const global_names = [_][]const u8{ "g0", "g1", "g2" };
-const fn_names = [_][]const u8{ "f0", "f1" };
+pub const fn_names = [_][]const u8{ "f0", "f1" };
 const macro_names = [_][]const u8{ "m0", "m1" };
 const pattern_names = [_][]const u8{ "p", "q", "r" };
 
@@ -340,6 +340,16 @@ pub fn generateSeeded(seed: u64, gpa: Allocator) Error![]u8 {
     return generateWith(&ch, gpa);
 }
 
+/// Native-compilable subset (fuzz_gen_native.zig): programs restricted to
+/// forms the LLVM native backend compiles without interpreter fallback, for
+/// the offline VM-vs-native differential harness (tests/fuzz/native-diff.sh,
+/// issue #1395).
+pub fn generateNativeSeeded(seed: u64, gpa: Allocator) Error![]u8 {
+    var prng = std.Random.DefaultPrng.init(seed);
+    var ch: Chooser = .{ .random = prng.random() };
+    return generateNativeWith(&ch, gpa);
+}
+
 fn generateWith(ch: *Chooser, gpa: Allocator) Error![]u8 {
     var g: Gen = .{
         .ch = ch,
@@ -352,6 +362,21 @@ fn generateWith(ch: *Chooser, gpa: Allocator) Error![]u8 {
         g.aw.deinit();
     }
     try g.genProgram();
+    return g.aw.toOwnedSlice() catch return error.OutOfMemory;
+}
+
+fn generateNativeWith(ch: *Chooser, gpa: Allocator) Error![]u8 {
+    var g: Gen = .{
+        .ch = ch,
+        .aw = .init(gpa),
+        .gpa = gpa,
+    };
+    defer {
+        g.scope.deinit(gpa);
+        g.macros.deinit(gpa);
+        g.aw.deinit();
+    }
+    try @import("fuzz_gen_native.zig").genProgram(&g);
     return g.aw.toOwnedSlice() catch return error.OutOfMemory;
 }
 
@@ -1454,4 +1479,8 @@ test "generation is deterministic per seed" {
     const b = try generateSeeded(42, gpa);
     defer gpa.free(b);
     try std.testing.expectEqualStrings(a, b);
+}
+
+test {
+    _ = @import("fuzz_gen_native.zig");
 }

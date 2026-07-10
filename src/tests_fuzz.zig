@@ -499,6 +499,33 @@ test "grammar generator: majority of programs evaluate without error" {
     try std.testing.expect(ok * 100 >= total * 75);
 }
 
+// The native-subset generator (fuzz_gen_native.zig, #1395) is even more
+// conservative than the full grammar: no raise/guard, no loops beyond the
+// bounded recursion skeletons, everything in-bounds by construction — so
+// its programs should evaluate cleanly essentially always. The offline
+// VM-vs-native harness (tests/fuzz/native-diff.sh) skips nothing on clean
+// programs, so a drop here directly costs oracle coverage.
+test "native-subset generator: programs evaluate without error" {
+    if (@import("build_options").gc_stress) return error.SkipZigTest;
+    var ok: u32 = 0;
+    var total: u32 = 0;
+    var seed_n: u64 = 0;
+    while (seed_n < 60) : (seed_n += 1) {
+        const src = try fuzz_gen.generateNativeSeeded(seed_n, std.testing.allocator);
+        defer std.testing.allocator.free(src);
+        errdefer std.debug.print("seed {d} program:\n{s}\n", .{ seed_n, src });
+        switch (evalOneOutcome(src)) {
+            .ok => ok += 1,
+            .scheme_error => {},
+            .harness_unavailable => return error.SkipZigTest,
+        }
+        total += 1;
+    }
+    // Measured rate is 100% over the first 300 seeds; the threshold leaves
+    // room only for deadline jitter on a loaded CI machine.
+    try std.testing.expect(ok * 100 >= total * 90);
+}
+
 // ---------------------------------------------------------------------------
 // Differential oracle: optimized vs unoptimized evaluation (Tier 3, #1394)
 //
