@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783695366332,
+  "lastUpdate": 1783697505141,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "08f07191252b549bc18c29bf6a7b5a4e171a8004",
-          "message": "Compile eval body in tail position per R7RS 3.5 (#1279)\n\n* Compile eval body in tail position per R7RS 3.5 (#1253)\n\nEach nested eval consumed one VM call frame because Compiler.compile()\nhardcoded is_tail=false when lowering IR and emitting bytecode. Even\nthough the tail_eval opcode correctly replaced the current frame, the\ncompiled expression used call+return instead of tail_call, pushing a\nframe per iteration and hitting StackOverflow at the 32768 cap.\n\nThread an is_tail parameter through compile() → compileExpressionWithMacrosAt()\n→ compileExpressionInEnv() so the tail_eval opcode handler can compile\nwith tail-position awareness. All other callers pass false.\n\nAlso add Function.restricted_globals to suppress the get_global fallback\nto VM globals for restricted environments (null-environment), which was\nexposed by tail-position compilation routing global calls through\nget_global instead of call_global.\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n* Address review feedback: test, timing, comment\n\n- Add regression test for restricted_globals: null-env eval in tail\n  position (via guard desugaring) must error on car, not leak VM globals\n- Lower N from 50000 to 40000 to keep headroom within the 60s Debug CI\n  timeout (40000 still exceeds the 32768 frame cap)\n- Add comment explaining why the hygienic-prefix fallback in get_global\n  is intentionally ungated by restricted_globals\n\nCo-Authored-By: Claude Opus 4.6 (1M context) <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Opus 4.6 (1M context) <noreply@anthropic.com>",
-          "timestamp": "2026-07-07T00:56:51+05:30",
-          "tree_id": "d0bc3b086fba6baed9af7088df91b659af8bbbee",
-          "url": "https://github.com/kaappi/kaappi/commit/08f07191252b549bc18c29bf6a7b5a4e171a8004"
-        },
-        "date": 1783367602624,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.373965,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 9.005653,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 1.05766,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.47844,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.012408,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.213271,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.539571,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.072223,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 12.455749,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 2.002769,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 9.9823,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.956407,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 8.329721,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.723451,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.044163,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.048257,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "9a9230d10e232e35e9020e0b40cbef52a7de01f6",
+          "message": "Fix nested syntax-rules substitution and template let ellipsis bindings (#1411)\n\n* Fix nested syntax-rules substitution and template let ellipsis bindings\n\nTwo expander bugs broke Alex Shinn's portable match and any macro using\nthe classic Kiselyov/Campbell let-syntax identifier/ellipsis detection\ntricks:\n\n1. R7RS template semantics substitute pattern variables everywhere in\n   the template, including nested syntax-rules patterns and literals —\n   that substitution is what makes the \"is this an identifier?\" trick\n   work. The expander instead filtered colliding outer bindings out of\n   nested syntax-rules forms (instantiateNestedSyntaxRules), leaving\n   the outer pattern variable behind as an inner catch-all pattern\n   variable, so probes matched everything. Remove the special case;\n   ordinary substitution plus hygiene renaming does the right thing.\n\n2. instantiateLetBindings had no ellipsis handling, so the common\n   template shape (let ((var value) ...) . body) failed to expand.\n   Delegate repetitions to instantiateEllipsis (including\n   ((var value) ... ...) depth-2 flattening per R7RS 4.3.2) and resume\n   let-binding processing after the ellipsis tokens.\n\nEven where such macros worked, expansion was pathologically slow:\nevery pattern-match attempt and ellipsis repetition safety-filled a\n~1MB [128]Binding buffer (8KB ellipsis_values per entry), and the\ncompiler's post-expansion set!-target scan (#1250 Part B) recursively\nre-expanded nested macro uses, making depth-N macro towers quadratic.\nHoist the binding buffers and write fields explicitly; expand macros\nonly in the top-level pre-scan — each nested use is scanned when\ncompilation actually expands it. A macro-expansion stress test that\ndid not finish in 5 minutes now completes in ~43s.\n\nAlso give library-load failures precise error names: reader failures\nsurface as LibrarySourceReadError instead of a vague InvalidSyntax,\nand compile failures of library body forms record the underlying\nerror name in the error detail.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n* Address #1411 review: inner ellipses, binder hygiene, error propagation\n\nFixes the findings from PR review:\n\n- Preserve a generated nested syntax-rules transformer's own ellipses.\n  Inside a nested syntax-rules template, an ellipsis whose element\n  references no outer list binding belongs to the inner macro; the\n  outer instantiation expanded it to zero repetitions (this also\n  affected main via the old filtering path, which recursed with plain\n  instantiateTemplate). New NESTED_SR_FLAG context bit, set for the\n  subtree when a syntax-rules head is encountered.\n\n- Keep binding-position hygiene for repeated template-introduced let\n  binders. The ellipsis path in instantiateLetBindings instantiated\n  each (var init) repetition generically, so a binder named after a\n  global procedure (e.g. exp) skipped the binding-position rename and\n  captured use-site references to the builtin. New LET_PAIR_FLAG tags\n  the repetition element; instantiateTemplate splits it var/init with\n  the binding flag applied to the var.\n\n- Skip unreferenced list bindings in instantiateEllipsis' sub-binding\n  loop. With two ellipsis groups of different lengths in one template,\n  the unreferenced group's ellipsis_values was indexed past its own\n  count — an uninitialized read, and a potential garbage-pointer\n  dereference in the depth>1 branch.\n\n- Propagate OutOfMemory from library body compilation instead of\n  mapping it to InvalidSyntax (and thus \"library not found\").\n\n- Hoist the intro_scope flag bits to file-scope constants and mask\n  context flags in renameForHygiene so the same template identifier\n  renames consistently inside and outside those contexts.\n\nAdds 6 regression assertions (file now has 25).\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-10T15:00:45Z",
+          "tree_id": "4e4ec988a7d6a6d9b486e3d71ee24223f7e69a7b",
+          "url": "https://github.com/kaappi/kaappi/commit/9a9230d10e232e35e9020e0b40cbef52a7de01f6"
+        },
+        "date": 1783697502788,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.376576,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.669135,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 1.041231,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.432499,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.013491,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.342045,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.512072,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.070165,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 13.766828,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 1.961634,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 8.790902,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 1.047601,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 8.59336,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.765727,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.044039,
             "unit": "seconds"
           }
         ]
