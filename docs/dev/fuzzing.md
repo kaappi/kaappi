@@ -54,6 +54,9 @@ across runs; coverage stats accumulate in `.zig-cache/v/`. Delete
 A `-Dgc-stress=true` build attempts a collection at every allocation (except
 under `no_collect` or while the GC is disabled), which turns latent rooting
 bugs into immediate, attributable failures instead of rare heisenbugs.
+**Currently blocked:** ~440 of the 690 unit tests crash under gc-stress
+([#1401](https://github.com/kaappi/kaappi/issues/1401)), so a gc-stress fuzz
+run cannot get past the test phase until that is fixed.
 
 ## The CI job
 
@@ -64,7 +67,13 @@ ecosystem nightly), in two variants:
 | Variant | Build | Limit (per fuzz test) |
 |---------|-------|-----------------------|
 | `default` | standard `ReleaseSafe` test build | 2K runs |
-| `gc-stress` | `-Dgc-stress=true` | 200 runs |
+| `gc-stress` | `-Dgc-stress=true` | *disabled* — see below |
+
+The `gc-stress` variant is disabled in the matrix until
+[#1401](https://github.com/kaappi/kaappi/issues/1401) is fixed: ~440 of the
+690 unit tests currently crash under `-Dgc-stress=true`, so the pre-fuzz
+test phase can never pass. (Its first and only CI execution is what found
+that.) Re-enable it once the suite is stress-clean.
 
 Trigger it manually (optionally overriding the limit) with:
 
