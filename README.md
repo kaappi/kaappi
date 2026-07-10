@@ -346,6 +346,23 @@ captured in tight inner loops. Continuations captured in one top-level REPL
 expression cannot re-enter subsequent top-level expressions (standard behavior
 shared by Guile, Chibi, Chicken, Chez, and Racket).
 
+### Fibers
+
+Callbacks driven by `map`, `for-each`, `vector-map`, `vector-for-each`,
+`string-map`, `string-for-each`, `dynamic-wind`, and `force` run in the
+bytecode dispatch loop, so a fiber can park inside them (e.g. block on an
+empty channel) and resume later. Other higher-order procedures are still
+native drivers — SRFI-1 (`fold`, `filter`, `find`, `any`, `every`, ...),
+`sort`, `hash-table-walk`/`hash-table-update!`, `assoc`/`member` with a
+custom predicate, `string-index`, `eval`, ... — and a fiber that blocks on
+an empty channel inside one of those callbacks cannot be parked: the native
+call's state lives on the Zig stack and cannot be suspended. If other fibers
+are runnable the scheduler still makes progress, but if the blocked receive
+is the only thing left it raises a deadlock error instead of suspending.
+Move blocking `channel-receive` calls into plain Scheme loops (named `let`,
+`do`) or the bytecode-driven procedures above when a fiber must wait inside
+iteration.
+
 ### OS threads (SRFI-18)
 
 Each OS thread gets its own GC with an independent heap. Values are deep-copied

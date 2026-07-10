@@ -285,6 +285,26 @@ assert_output_contains "reverse type error names procedure" \
 assert_output_contains "apply type error for non-procedure" \
     '(apply 42 (list 1))' "procedure"
 
+# --- #1375: bootstrapped iteration procedures report clean arity/type errors,
+# not leaked internals ('cdr', 'make-vector', '%push-wind') ---
+echo
+echo "-- Bootstrapped procedure diagnostics (#1375) --"
+assert_output_contains "(map car) reports map arity" \
+    '(map car)' "'map': expected at least 2 arguments, got 1"
+
+assert_output_contains "(vector-map +) reports vector-map arity" \
+    '(vector-map +)' "'vector-map': expected at least 2 arguments, got 1"
+
+assert_output_contains "(map 5 ...) names map" \
+    '(map 5 (list 1 2 3))' "type error in 'map': expected procedure, got 5"
+
+assert_output_contains "dynamic-wind bad after names dynamic-wind" \
+    '(dynamic-wind (lambda () #t) (lambda () 1) 42)' \
+    "type error in 'dynamic-wind': expected procedure, got 42"
+
+assert_output_contains "%push-wind is not globally reachable" \
+    '(%push-wind car car)' "undefined variable"
+
 echo
 echo "=== Results ==="
 echo "Passed: $PASS"
