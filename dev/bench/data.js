@@ -1,107 +1,8 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783633684543,
+  "lastUpdate": 1783644488803,
   "repoUrl": "https://github.com/kaappi/kaappi",
   "entries": {
     "Benchmark": [
-      {
-        "commit": {
-          "author": {
-            "email": "baiju.m.mail@gmail.com",
-            "name": "Baiju Muthukadan",
-            "username": "baijum"
-          },
-          "committer": {
-            "email": "noreply@github.com",
-            "name": "GitHub",
-            "username": "web-flow"
-          },
-          "distinct": true,
-          "id": "acb409b038185941ba8731e584cebf1daceec001",
-          "message": "Add compiler/VM edge-case tests (audit Phases 4A-4C) (#1244)\n\nPhase 4 of the audit campaign (tracking: see #1137): five compliance\nfiles covering proper tail recursion in every R7RS 3.5 context,\nthin-coverage forms, continuation interactions, syntax-rules edges, and\nmacro exports through import sets. 99 passing assertions, 8 disabled\nwith FAIL markers.\n\nFour new issues (see #1240 through #1243):\n- call-with-values consumer, call/cc receiver, and eval are not\n  tail-called as 3.5 requires - each panics uncatchably at native\n  re-entry depth ~1024 (see #1240; crash mechanism is #1191's)\n- let*-values body is not a tail context, even with one binding\n  clause; let-values is fine (see #1241)\n- force caps promise chains at 100,000 iterations and reports longer\n  legitimate delay-force chains as circular (see #1242)\n- doubled-ellipsis templates (x ... ...) expand to garbage containing\n  a literal ... instead of flattening (see #1243)\n\nEverything else conforms: all syntactic 3.5 tail contexts at 1e5-1e6\ndepth, the R7RS 6.10 dynamic-wind re-entry example, multi-shot\ncontinuations, parameterize across re-entry, guard/raise-continuable\nsemantics, be-like-begin, custom ellipsis, vector patterns, macro\nexports through prefix/only/rename/except, cond-expand library\ndeclarations, and circular-import detection.\n\nTracker updated: 4A-4C checked in docs/audit-strategy.md.\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
-          "timestamp": "2026-07-05T18:09:53Z",
-          "tree_id": "2210db112f7467503c5c7274142fee896af81098",
-          "url": "https://github.com/kaappi/kaappi/commit/acb409b038185941ba8731e584cebf1daceec001"
-        },
-        "date": 1783276422511,
-        "tool": "customSmallerIsBetter",
-        "benches": [
-          {
-            "name": "fib",
-            "value": 4.355125,
-            "unit": "seconds"
-          },
-          {
-            "name": "nqueens",
-            "value": 8.497679,
-            "unit": "seconds"
-          },
-          {
-            "name": "primes",
-            "value": 0.946921,
-            "unit": "seconds"
-          },
-          {
-            "name": "tak",
-            "value": 4.083963,
-            "unit": "seconds"
-          },
-          {
-            "name": "string",
-            "value": 0.012704,
-            "unit": "seconds"
-          },
-          {
-            "name": "list",
-            "value": 0.212281,
-            "unit": "seconds"
-          },
-          {
-            "name": "vector",
-            "value": 0.469117,
-            "unit": "seconds"
-          },
-          {
-            "name": "hashtable",
-            "value": 0.070515,
-            "unit": "seconds"
-          },
-          {
-            "name": "continuations",
-            "value": 12.350501,
-            "unit": "seconds"
-          },
-          {
-            "name": "tailcall",
-            "value": 1.810185,
-            "unit": "seconds"
-          },
-          {
-            "name": "closures",
-            "value": 9.998305,
-            "unit": "seconds"
-          },
-          {
-            "name": "bignum",
-            "value": 0.957054,
-            "unit": "seconds"
-          },
-          {
-            "name": "gc-pressure",
-            "value": 8.40985,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_cc",
-            "value": 1.682381,
-            "unit": "seconds"
-          },
-          {
-            "name": "call_ec",
-            "value": 0.042936,
-            "unit": "seconds"
-          }
-        ]
-      },
       {
         "commit": {
           "author": {
@@ -9899,6 +9800,105 @@ window.BENCHMARK_DATA = {
           {
             "name": "call_ec",
             "value": 0.039335,
+            "unit": "seconds"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "baiju.m.mail@gmail.com",
+            "name": "Baiju Muthukadan",
+            "username": "baijum"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "091ddbf9d4c4ec91bf4b6427da87c95f5c2ee6a2",
+          "message": "Polish the bootstrapped map/for-each/dynamic-wind/force family (#1375) (#1378)\n\n* Polish the bootstrapped map/for-each/dynamic-wind/force family (#1375)\n\nFollow-up to the #1374 trampoline rewrite, addressing all seven review\npolish items:\n\nWrap each vm_bootstrap.zig definition in a let that captures its\ndependencies as closure upvalues at install time. This restores the\nredefinition immunity the native implementations had (a top-level\n(define reverse ...) no longer changes map's behavior) and lets\ninstall() remove the eight %-helpers (%push-wind, %pop-wind,\n%promise-*) from vm.globals entirely — misusing them could corrupt\nthe wind stack or promise state, and they are now unreachable without\nany change to the global-visibility model.\n\nGive the lambdas explicit minimum arities ((proc list1 . lists)) so\nzero-sequence misuse reports \"'map': expected at least 2 arguments,\ngot 1\" instead of leaking internals (\"type error in 'cdr'...\"), and\ntype-check the procedure argument up front so (map 5 ...) names map.\ndynamic-wind validates all three arguments before running before, so\nside effects no longer leak on bad-argument calls and the error names\ndynamic-wind rather than %push-wind.\n\nRetire the eight dead native implementations (~460 lines). Their spec\nentries remain for arity metadata and library exports but now point at\nprimitives.bootstrapStub(), which raises a descriptive error — a future\nmissing install() fails loudly instead of silently reverting to\ndivergent native behavior. install() likewise reports which definition\nfailed to eval instead of aborting startup with a bare exit code.\n\nRe-add the README fibers limitation narrowed to the still-native\ndrivers (SRFI-1 folds, sort, hash-table-walk, ...), verified by repro:\na fiber blocking in a fold callback still deadlocks where map parks.\nRestore the benchmark alert threshold to 120% (list microbenchmark\nmeasures +4.7% vs main, well inside the threshold).\n\nVerifying this change surfaced two pre-existing #1374 regressions,\nfiled separately: native-backend calls to the bootstrapped procedures\n(#1376) and dynamic-wind inside SRFI-18 threads (#1377).\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n* Make string-map/string-for-each linear via char-list traversal\n\nDriving the loops with (string-ref s i) is O(n^2): strings are UTF-8\nand codepoint indexing rescans from byte 0 on every call. The retired\nnative implementations had the same index-driven cost, so this predates\nthe trampoline — but the fix belongs with it. Convert each string to a\nchar list once (one O(n) pass) and walk pairs, the same shape the\nlist-based map/for-each already use: 50k ASCII chars drop from 2.04s\nto 0.006s, and doubling the input now doubles the time instead of\nquadrupling it.\n\nThe smoke test gains 300k-char calls that finish instantly when linear\nand trip the suite's per-file timeout if quadratic behavior returns.\n\nAddresses the CodeRabbit review finding on PR #1378.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-10T05:49:35+05:30",
+          "tree_id": "4af720ab8e6f0c66c5d49c1001d0340ae8ad4264",
+          "url": "https://github.com/kaappi/kaappi/commit/091ddbf9d4c4ec91bf4b6427da87c95f5c2ee6a2"
+        },
+        "date": 1783644487375,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "fib",
+            "value": 4.420027,
+            "unit": "seconds"
+          },
+          {
+            "name": "nqueens",
+            "value": 9.113523,
+            "unit": "seconds"
+          },
+          {
+            "name": "primes",
+            "value": 1.023561,
+            "unit": "seconds"
+          },
+          {
+            "name": "tak",
+            "value": 4.588176,
+            "unit": "seconds"
+          },
+          {
+            "name": "string",
+            "value": 0.013292,
+            "unit": "seconds"
+          },
+          {
+            "name": "list",
+            "value": 0.338742,
+            "unit": "seconds"
+          },
+          {
+            "name": "vector",
+            "value": 0.526457,
+            "unit": "seconds"
+          },
+          {
+            "name": "hashtable",
+            "value": 0.069956,
+            "unit": "seconds"
+          },
+          {
+            "name": "continuations",
+            "value": 13.580227,
+            "unit": "seconds"
+          },
+          {
+            "name": "tailcall",
+            "value": 2.067714,
+            "unit": "seconds"
+          },
+          {
+            "name": "closures",
+            "value": 8.75386,
+            "unit": "seconds"
+          },
+          {
+            "name": "bignum",
+            "value": 1.038128,
+            "unit": "seconds"
+          },
+          {
+            "name": "gc-pressure",
+            "value": 8.569762,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_cc",
+            "value": 1.742816,
+            "unit": "seconds"
+          },
+          {
+            "name": "call_ec",
+            "value": 0.045078,
             "unit": "seconds"
           }
         ]
