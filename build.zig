@@ -229,6 +229,21 @@ pub fn build(b: *std.Build) void {
     lsp_exe.stack_size = 64 * 1024 * 1024;
     b.installArtifact(lsp_exe);
 
+    // Fuzz program generator (driver for the offline differential harness,
+    // tests/fuzz/native-diff.sh). Dev/CI tool: installed only by this step,
+    // never by the default install, so it stays out of release artifacts.
+    const fuzz_gen_mod = kaappiModule(b, options_mod, .{
+        .root = "src/fuzz_gen_main.zig",
+        .target = target,
+        .optimize = optimize,
+    });
+    const fuzz_gen_exe = b.addExecutable(.{
+        .name = "kaappi-fuzz-gen",
+        .root_module = fuzz_gen_mod,
+    });
+    const fuzz_gen_step = b.step("fuzz-gen", "Build the fuzz program generator (zig-out/bin/kaappi-fuzz-gen)");
+    fuzz_gen_step.dependOn(&b.addInstallArtifact(fuzz_gen_exe, .{}).step);
+
     // Unit tests
     const test_mod = kaappiModule(b, options_mod, .{
         .target = target,

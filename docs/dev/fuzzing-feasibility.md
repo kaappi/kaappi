@@ -200,8 +200,11 @@ table:
   *(Structure-aware generation closed 2026-07-10 by the grammar generator,
   #1392. Differential testing partially closed the same day by the
   optimized-vs-unoptimized oracle — the `--no-ir-opt` switch, #1393, plus
-  the `fuzz differential` target, #1394; the native-backend and external-
-  reference oracles, #1395/#1396, remain open.)*
+  the `fuzz differential` target, #1394 — and by the VM-vs-native-backend
+  batch harness, #1395: a native-subset generator mode
+  (`src/fuzz_gen_native.zig`) feeding `tests/fuzz/native-diff.sh`, run
+  nightly by the fuzz workflow. The external-reference oracle, #1396,
+  remains open.)*
 
 ## What the research literature says
 

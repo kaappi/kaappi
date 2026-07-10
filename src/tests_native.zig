@@ -459,3 +459,75 @@ test "NativeClosure arity mismatch raises a catchable error" {
     const result = try ctx.vm.eval("(guard (e (#t 99)) (nc-double 1 2))");
     try std.testing.expectEqual(@as(i64, 99), types.toFixnum(result));
 }
+
+// -- Native-subset generator stays on the native path (#1395) --
+
+// The VM-vs-native differential oracle (tests/fuzz/native-diff.sh) is only
+// as strong as the generated programs' nativeness: every form that falls
+// back to the interpreter shrinks the diff to VM-vs-VM. This gate emits
+// fixed-seed native-subset programs through the LLVM emitter and counts
+// `kaappi_eval` calls in the IR. Defining a function/lambda legitimately
+// emits exactly ONE eval (emitDefine/emitPassthrough create the global
+// binding via the interpreter; call sites still use the direct native
+// path), so the expected count is the number of function/lambda defines
+// and anything above that means a generated form silently fell back.
+test "native-subset generator emits no unexpected kaappi_eval fallbacks" {
+    const fuzz_gen = @import("fuzz_gen.zig");
+    const gpa = std.testing.allocator;
+
+    var seed: u64 = 0;
+    while (seed < 200) : (seed += 1) {
+        const src = try fuzz_gen.generateNativeSeeded(seed, gpa);
+        defer gpa.free(src);
+        errdefer std.debug.print("seed {d} program:\n{s}\n", .{ seed, src });
+
+        // One eval expected per function define and per lambda-valued
+        // global define. The generator emits one top-level form per line.
+        var expected: usize = 0;
+        var names: [8][]const u8 = undefined;
+        var name_count: usize = 0;
+        var lines = std.mem.splitScalar(u8, src, '\n');
+        while (lines.next()) |line| {
+            var name: ?[]const u8 = null;
+            if (std.mem.startsWith(u8, line, "(define (")) {
+                const rest = line["(define (".len..];
+                const end = std.mem.indexOfAny(u8, rest, " )") orelse rest.len;
+                name = rest[0..end];
+            } else if (std.mem.startsWith(u8, line, "(define ") and
+                std.mem.indexOf(u8, line, "(lambda ") != null)
+            {
+                const rest = line["(define ".len..];
+                const end = std.mem.indexOfScalar(u8, rest, ' ') orelse rest.len;
+                name = rest[0..end];
+            }
+            if (name) |n| {
+                expected += 1;
+                names[name_count] = n;
+                name_count += 1;
+            }
+        }
+
+        var res = try emitMultiResult(src);
+        defer res.deinit();
+        const ll = res.toSlice();
+        const actual = std.mem.count(u8, ll, "call i64 @kaappi_eval(");
+        if (actual != expected) {
+            std.debug.print("seed {d}: expected {d} kaappi_eval calls, found {d}\n", .{ seed, expected, actual });
+            return error.NativeSubsetFellBackToEval;
+        }
+
+        // The eval count alone cannot see a function whose native
+        // compilation was REJECTED (the define-time eval is emitted either
+        // way and call sites just degrade to global lookups), so also
+        // require the named native function definition that the emitter
+        // tags with a `; <name>` header comment.
+        for (names[0..name_count]) |n| {
+            var needle_buf: [64]u8 = undefined;
+            const needle = try std.fmt.bufPrint(&needle_buf, "; {s}\ndefine i64 @lambda_", .{n});
+            if (std.mem.indexOf(u8, ll, needle) == null) {
+                std.debug.print("seed {d}: no native definition for {s}\n", .{ seed, n });
+                return error.NativeSubsetFellBackToEval;
+            }
+        }
+    }
+}
