@@ -85,3 +85,84 @@ test "ffi bool arg with bool return normalizes both directions (#796)" {
     try std.testing.expectEqual(types.TRUE, try ffi.callFfi(&fn_bool, &.{types.TRUE}, &ctx.gc, &ctx.vm));
     try std.testing.expectEqual(types.FALSE, try ffi.callFfi(&fn_bool, &.{types.FALSE}, &ctx.gc, &ctx.vm));
 }
+
+// ---------------------------------------------------------------------------
+// Callback error propagation (#1185)
+// ---------------------------------------------------------------------------
+
+// A C-ABI function that drives a qsort-style (pointer, pointer) -> int
+// comparator callback twice and combines the results — stands in for a C
+// library invoking Scheme in the middle of an FFI call, without depending
+// on an external shared library.
+fn driveCmp(cmp: ?*anyopaque) callconv(.c) c_int {
+    const f: *const fn (?*anyopaque, ?*anyopaque) callconv(.c) c_int = @ptrCast(@alignCast(cmp.?));
+    return f(null, null) + f(null, null);
+}
+
+// Bind driveCmp as the global Scheme procedure `drive-cmp`.
+fn defineDriveCmp(ctx: *th.TestContext) !void {
+    const fn_val = try ctx.gc.allocFfiFunction(
+        @ptrFromInt(@intFromPtr(&driveCmp)),
+        types.FALSE,
+        "drive_cmp",
+        &.{.pointer},
+        .int,
+    );
+    try ctx.vm.defineGlobal("drive-cmp", fn_val);
+}
+
+fn expectStringValue(expected: []const u8, v: types.Value) !void {
+    try std.testing.expect(types.isString(v));
+    const s = types.toObject(v).as(types.SchemeString);
+    try std.testing.expectEqualStrings(expected, s.data[0..s.len]);
+}
+
+test "ffi callback error is re-raised after the C call returns (#1185)" {
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
+    try defineDriveCmp(&ctx);
+
+    // The raise cannot unwind the C frame, so it must surface when
+    // drive-cmp returns — catchable, with the original condition object.
+    _ = try ctx.vm.eval("(define cb (ffi-callback (lambda (a b) (error \"cb-boom\")) '(pointer pointer) 'int))");
+    const caught = try ctx.vm.eval(
+        "(guard (e (#t (error-object-message e))) (drive-cmp cb) 'no-error)",
+    );
+    try expectStringValue("cb-boom", caught);
+    _ = try ctx.vm.eval("(ffi-callback-release cb)");
+}
+
+test "ffi callback non-integer return raises instead of coercing to 0 (#1185)" {
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
+    try defineDriveCmp(&ctx);
+
+    _ = try ctx.vm.eval("(define cb (ffi-callback (lambda (a b) 'not-an-int) '(pointer pointer) 'int))");
+    const caught = try ctx.vm.eval(
+        "(guard (e (#t (and (error-object? e) 'caught))) (drive-cmp cb) 'no-error)",
+    );
+    try std.testing.expect(types.isSymbol(caught));
+    try std.testing.expectEqualStrings("caught", types.symbolName(caught));
+    _ = try ctx.vm.eval("(ffi-callback-release cb)");
+}
+
+test "ffi callback error state is consumed by the failing call (#1185)" {
+    var ctx: th.TestContext = undefined;
+    try ctx.init();
+    defer ctx.deinit();
+    try defineDriveCmp(&ctx);
+
+    _ = try ctx.vm.eval("(define bad (ffi-callback (lambda (a b) (error \"cb-boom\")) '(pointer pointer) 'int))");
+    _ = try ctx.vm.eval("(guard (e (#t 'caught)) (drive-cmp bad))");
+
+    // The stash was consumed by the re-raise: a well-behaved callback
+    // through the same FFI function now succeeds and delivers its result.
+    _ = try ctx.vm.eval("(define good (ffi-callback (lambda (a b) 3) '(pointer pointer) 'int))");
+    const sum = try ctx.vm.eval("(drive-cmp good)");
+    try std.testing.expectEqual(@as(i64, 6), types.toFixnum(sum));
+
+    _ = try ctx.vm.eval("(ffi-callback-release bad)");
+    _ = try ctx.vm.eval("(ffi-callback-release good)");
+}

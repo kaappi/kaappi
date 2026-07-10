@@ -366,7 +366,8 @@ pub fn callValue(vm: *VM, callee: Value, base: u32, nargs: u8) VMError!void {
             return VMError.ArityMismatch;
         }
         const ffi_mod = @import("ffi.zig");
-        const result = ffi_mod.callFfi(ffi_fn, vm.registers[base + 1 .. base + 1 + nargs], vm.gc, vm) catch {
+        const result = ffi_mod.callFfi(ffi_fn, vm.registers[base + 1 .. base + 1 + nargs], vm.gc, vm) catch |err| {
+            if (err == error.ExceptionRaised) return VMError.ExceptionRaised;
             if (vm.last_error_detail_len == 0)
                 vm.setErrorDetail("'{s}': unsupported FFI signature", .{ffi_fn.name});
             return VMError.TypeError;
@@ -714,7 +715,8 @@ pub fn callWithArgs(vm: *VM, proc: Value, args: []const Value) VMError!Value {
             return VMError.ArityMismatch;
         }
         const ffi_mod = @import("ffi.zig");
-        return ffi_mod.callFfi(ffi_fn, args, vm.gc, vm) catch {
+        return ffi_mod.callFfi(ffi_fn, args, vm.gc, vm) catch |err| {
+            if (err == error.ExceptionRaised) return VMError.ExceptionRaised;
             if (vm.last_error_detail_len == 0)
                 vm.setErrorDetail("'{s}': unsupported FFI signature", .{ffi_fn.name});
             return VMError.TypeError;

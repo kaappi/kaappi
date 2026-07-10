@@ -34,6 +34,77 @@ fn marshalPtrArg(ptr: ?*anyopaque, gc: *memory.GC) ?Value {
     return gc.allocBignumFromLimbs(&limbs_buf, 1, true) catch return null;
 }
 
+/// A Scheme error escaped a callback invoked from C. The C frames between
+/// the enclosing FFI call and this trampoline cannot be unwound, so stash
+/// the exception on the VM and hand a default value back to C; callFfi
+/// re-raises the stash after the C call returns (#1185). First error wins:
+/// C may keep invoking the callback after the failure, but those runs
+/// happen on already-poisoned state.
+fn noteCallbackError(vm: *vm_mod.VM, err: anyerror) void {
+    switch (err) {
+        // Control-flow signals, not callback failures. The dispatch loop
+        // re-detects Terminated/ExecutionTimeout on its next check; resuming
+        // a continuation or parking a fiber across live C frames is
+        // unsupported (same class as the native-frame continuation limit).
+        error.ContinuationInvoked, error.Yielded, error.Terminated, error.ExecutionTimeout => return,
+        else => {},
+    }
+    vm.last_callback_error = true;
+    var pending: ?Value = null;
+    if (err == error.ExceptionRaised) {
+        pending = vm.current_exception;
+        vm.current_exception = null;
+    }
+    if (vm.callback_error_value != null) return;
+    if (pending) |exc| {
+        vm.callback_error_value = exc;
+        return;
+    }
+    // VM-level error (TypeError, ArityMismatch, ...): synthesize an error
+    // object from the recorded detail so the re-raise carries a message.
+    // On allocation failure the flag alone still forces callFfi to raise.
+    const detail = vm.getErrorDetail();
+    var msg = vm.gc.allocString(if (detail.len > 0) detail else "error in FFI callback") catch return;
+    vm.gc.pushRoot(&msg);
+    const err_obj = vm.gc.allocErrorObject(msg, types.NIL) catch {
+        vm.gc.popRoot();
+        return;
+    };
+    vm.gc.popRoot();
+    vm.callback_error_value = err_obj;
+}
+
+/// Marshal a callback's Scheme return value to the C `int` the signature
+/// declares. A non-integer or out-of-range value is stashed as an error
+/// like a raise (#1185) — silently coercing it to 0 hands garbage to C.
+fn marshalIntReturn(vm: *vm_mod.VM, result: Value) c_int {
+    if (types.isFixnum(result)) {
+        const v = types.toFixnum(result);
+        if (v >= std.math.minInt(c_int) and v <= std.math.maxInt(c_int))
+            return @intCast(v);
+    }
+    vm.last_callback_error = true;
+    if (vm.callback_error_value == null) {
+        var result_root = result;
+        vm.gc.pushRoot(&result_root);
+        defer vm.gc.popRoot();
+        const printer = @import("printer.zig");
+        const shown = printer.valueToString(vm.gc.allocator, result_root, .write) catch null;
+        defer if (shown) |s| vm.gc.allocator.free(s);
+        var buf: [256]u8 = undefined;
+        const text = std.fmt.bufPrint(&buf, "FFI callback must return a C int, got {s}", .{shown orelse "a non-integer value"}) catch "FFI callback must return a C int";
+        var msg = vm.gc.allocString(text) catch return 0;
+        vm.gc.pushRoot(&msg);
+        const err_obj = vm.gc.allocErrorObject(msg, types.NIL) catch {
+            vm.gc.popRoot();
+            return 0;
+        };
+        vm.gc.popRoot();
+        vm.callback_error_value = err_obj;
+    }
+    return 0;
+}
+
 // ---------------------------------------------------------------------------
 // Trampoline generators — one per supported C callback signature
 // ---------------------------------------------------------------------------
@@ -47,16 +118,11 @@ fn makeTrampolinePPI(comptime idx: usize) *const fn (?*anyopaque, ?*anyopaque) c
             const arg0 = marshalPtrArg(a, vm.gc) orelse return 0;
             const arg1 = marshalPtrArg(b, vm.gc) orelse return 0;
             const args = [2]Value{ arg0, arg1 };
-            const result = vm.callWithArgs(slot.closure, &args) catch {
-                vm.last_callback_error = true;
+            const result = vm.callWithArgs(slot.closure, &args) catch |err| {
+                noteCallbackError(vm, err);
                 return 0;
             };
-            if (types.isFixnum(result)) {
-                const v = types.toFixnum(result);
-                if (v >= std.math.minInt(c_int) and v <= std.math.maxInt(c_int))
-                    return @intCast(v);
-            }
-            return 0;
+            return marshalIntReturn(vm, result);
         }
     };
     return &S.trampoline;
@@ -68,9 +134,7 @@ fn makeTrampolineVV(comptime idx: usize) *const fn () callconv(.c) void {
             const slot = &callback_slots[idx];
             if (!slot.active) return;
             const vm = vm_mod.vm_instance orelse return;
-            _ = vm.callWithArgs(slot.closure, &.{}) catch {
-                vm.last_callback_error = true;
-            };
+            _ = vm.callWithArgs(slot.closure, &.{}) catch |err| noteCallbackError(vm, err);
         }
     };
     return &S.trampoline;
@@ -84,9 +148,7 @@ fn makeTrampolinePV(comptime idx: usize) *const fn (?*anyopaque) callconv(.c) vo
             const vm = vm_mod.vm_instance orelse return;
             const arg0 = marshalPtrArg(a, vm.gc) orelse return;
             const args = [1]Value{arg0};
-            _ = vm.callWithArgs(slot.closure, &args) catch {
-                vm.last_callback_error = true;
-            };
+            _ = vm.callWithArgs(slot.closure, &args) catch |err| noteCallbackError(vm, err);
         }
     };
     return &S.trampoline;
@@ -100,16 +162,11 @@ fn makeTrampolinePI(comptime idx: usize) *const fn (?*anyopaque) callconv(.c) c_
             const vm = vm_mod.vm_instance orelse return 0;
             const arg0 = marshalPtrArg(a, vm.gc) orelse return 0;
             const args = [1]Value{arg0};
-            const result = vm.callWithArgs(slot.closure, &args) catch {
-                vm.last_callback_error = true;
+            const result = vm.callWithArgs(slot.closure, &args) catch |err| {
+                noteCallbackError(vm, err);
                 return 0;
             };
-            if (types.isFixnum(result)) {
-                const v = types.toFixnum(result);
-                if (v >= std.math.minInt(c_int) and v <= std.math.maxInt(c_int))
-                    return @intCast(v);
-            }
-            return 0;
+            return marshalIntReturn(vm, result);
         }
     };
     return &S.trampoline;
@@ -124,16 +181,11 @@ fn makeTrampolineIPI(comptime idx: usize) *const fn (c_int, ?*anyopaque) callcon
             const arg0 = types.makeFixnum(@intCast(a));
             const arg1 = marshalPtrArg(b, vm.gc) orelse return 0;
             const args = [2]Value{ arg0, arg1 };
-            const result = vm.callWithArgs(slot.closure, &args) catch {
-                vm.last_callback_error = true;
+            const result = vm.callWithArgs(slot.closure, &args) catch |err| {
+                noteCallbackError(vm, err);
                 return 0;
             };
-            if (types.isFixnum(result)) {
-                const v = types.toFixnum(result);
-                if (v >= std.math.minInt(c_int) and v <= std.math.maxInt(c_int))
-                    return @intCast(v);
-            }
-            return 0;
+            return marshalIntReturn(vm, result);
         }
     };
     return &S.trampoline;
@@ -147,9 +199,7 @@ fn makeTrampolineIV(comptime idx: usize) *const fn (c_int) callconv(.c) void {
             const vm = vm_mod.vm_instance orelse return;
             const arg0 = types.makeFixnum(@intCast(a));
             const args = [1]Value{arg0};
-            _ = vm.callWithArgs(slot.closure, &args) catch {
-                vm.last_callback_error = true;
-            };
+            _ = vm.callWithArgs(slot.closure, &args) catch |err| noteCallbackError(vm, err);
         }
     };
     return &S.trampoline;
@@ -164,9 +214,7 @@ fn makeTrampolinePPV(comptime idx: usize) *const fn (?*anyopaque, ?*anyopaque) c
             const arg0 = marshalPtrArg(a, vm.gc) orelse return;
             const arg1 = marshalPtrArg(b, vm.gc) orelse return;
             const args = [2]Value{ arg0, arg1 };
-            _ = vm.callWithArgs(slot.closure, &args) catch {
-                vm.last_callback_error = true;
-            };
+            _ = vm.callWithArgs(slot.closure, &args) catch |err| noteCallbackError(vm, err);
         }
     };
     return &S.trampoline;

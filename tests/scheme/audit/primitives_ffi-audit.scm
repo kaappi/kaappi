@@ -137,19 +137,34 @@
       (c-qsort base 3 1 cmp)
       (ffi-callback-release cmp)
       bv))
-;; Errors raised inside a C-invoked callback are silently swallowed:
-;; ffi_callback.zig sets vm.last_callback_error, but nothing ever reads it,
-;; so the callback returns garbage to C and the FFI call "succeeds".
-;; A non-integer callback return is coerced the same silent way.
-;; FAIL: #1185 (errors in FFI callbacks are silently swallowed)
-;; (test-equal 'caught
-;;     (let* ((bv (bytevector 3 1 2))
-;;            (cmp (ffi-callback (lambda (a b) (error "cb-boom")) '(pointer pointer) 'int))
-;;            (r (guard (e (#t 'caught))
-;;                 (c-qsort (ffi-bytevector-ptr bv) 3 1 cmp)
-;;                 'no-error)))
-;;       (ffi-callback-release cmp)
-;;       r))
+;; Errors raised inside a C-invoked callback are stashed by the trampoline
+;; and re-raised when the enclosing FFI call returns (#1185).
+(test-equal 'caught
+    (let* ((bv (bytevector 3 1 2))
+           (cmp (ffi-callback (lambda (a b) (error "cb-boom")) '(pointer pointer) 'int))
+           (r (guard (e (#t 'caught))
+                (c-qsort (ffi-bytevector-ptr bv) 3 1 cmp)
+                'no-error)))
+      (ffi-callback-release cmp)
+      r))
+;; the original condition object survives the round trip through C
+(test-equal "cb-boom"
+    (let* ((bv (bytevector 3 1 2))
+           (cmp (ffi-callback (lambda (a b) (error "cb-boom")) '(pointer pointer) 'int))
+           (r (guard (e ((error-object? e) (error-object-message e)))
+                (c-qsort (ffi-bytevector-ptr bv) 3 1 cmp)
+                'no-error)))
+      (ffi-callback-release cmp)
+      r))
+;; a non-integer return where int is declared is an error, not a silent 0
+(test-equal 'caught
+    (let* ((bv (bytevector 3 1 2))
+           (cmp (ffi-callback (lambda (a b) "not-an-int") '(pointer pointer) 'int))
+           (r (guard (e (#t 'caught))
+                (c-qsort (ffi-bytevector-ptr bv) 3 1 cmp)
+                'no-error)))
+      (ffi-callback-release cmp)
+      r))
 
 (let ((runner (test-runner-current)))
   (test-end "primitives_ffi audit")

@@ -74,6 +74,7 @@ fn markVMRoots(gc: *memory.GC) void {
     }
 
     if (vm.current_exception) |exc| gc.markValue(exc);
+    if (vm.callback_error_value) |exc| gc.markValue(exc);
     gc.markValue(vm.continuation_value);
     gc.markValue(vm.default_random_source);
 
@@ -204,6 +205,11 @@ pub const VM = struct {
     /// for .sbc cache writing. Set by tryLoadLibraryFromFile.
     lib_compile_collect: ?*std.ArrayList(*types.Function) = null,
     last_callback_error: bool = false,
+    /// Scheme exception stashed by an FFI callback trampoline when the
+    /// callback raises (ffi_callback.zig): the C frames between the FFI call
+    /// and the trampoline cannot be unwound, so callFfi re-raises this after
+    /// the enclosing FFI call returns. Traced by markVMRoots.
+    callback_error_value: ?Value = null,
     last_error_detail: [256]u8 = [_]u8{0} ** 256,
     last_error_detail_len: usize = 0,
     last_error_line: u32 = 0,
@@ -674,6 +680,8 @@ pub const VM = struct {
         self.handler_count = 0;
         self.wind_count = 0;
         self.current_exception = null;
+        self.last_callback_error = false;
+        self.callback_error_value = null;
         self.continuation_invoked = false;
         self.continuation_value = types.VOID;
         self.yield_retry = false;
